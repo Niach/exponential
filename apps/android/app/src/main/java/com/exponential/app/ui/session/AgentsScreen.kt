@@ -167,17 +167,21 @@ fun AgentsScreen(
                 ) {
                     if (steerOn) {
                         item(key = "__machines_header__") { SectionHeader("My machines") }
-                        val devs = devices
+                        // EXP-432: the team-scoped list appends teammates'
+                        // shared servers — they belong under their own header,
+                        // never in the caller's "My machines" count.
+                        val ownDevices = devices?.filter { it.isMine }
+                        val teamDevices = devices?.filterNot { it.isMine }.orEmpty()
                         when {
                             // null = still loading; render nothing under the header.
-                            devs == null -> Unit
-                            devs.isEmpty() -> item(key = "__no_machine__") {
+                            ownDevices == null -> Unit
+                            ownDevices.isEmpty() -> item(key = "__no_machine__") {
                                 HintRow(
                                     "No machines yet. Open the Exponential desktop app, or add a " +
                                         "server on the web.",
                                 )
                             }
-                            else -> items(devs, key = { "dev_${it.deviceId}" }) { device ->
+                            else -> items(ownDevices, key = { "dev_${it.deviceId}" }) { device ->
                                 MachineRow(
                                     device = device,
                                     latestVersions = latestVersions,
@@ -186,6 +190,23 @@ fun AgentsScreen(
                                     onRename = { renameTarget = device },
                                     onRemove = { removeTarget = device },
                                     onUpdate = { viewModel.requestDeviceUpdate(device.deviceId) },
+                                )
+                            }
+                        }
+                        // Teammates' machines: startable, but with no rename /
+                        // remove / update menu — they are not this user's to
+                        // curate (sharing itself is managed on the web).
+                        if (teamDevices.isNotEmpty()) {
+                            item(key = "__team_machines_header__") { SectionHeader("Team machines") }
+                            items(teamDevices, key = { "shared_${it.deviceId}" }) { device ->
+                                MachineRow(
+                                    device = device,
+                                    latestVersions = latestVersions,
+                                    busy = false,
+                                    onStart = { sheetDevice = device },
+                                    onRename = {},
+                                    onRemove = {},
+                                    onUpdate = {},
                                 )
                             }
                         }
@@ -339,6 +360,12 @@ private val SteerDevice.displayLabel: String get() = deviceLabel.ifBlank { devic
  * take no start, so it reads like an offline row (dimmed glyph, no pill) with
  * an amber "<agents> not signed in" status instead of "Online"; a machine that
  * CAN run something but has signed-out agents left over just gets a quiet note.
+ *
+ * EXP-432: a TEAMMATE's shared server (`owner != null`) renders read-only —
+ * "shared by <owner>" in place of the version chip and no row menu at all,
+ * since neither the registry row nor the share is the caller's to change. Own
+ * rows shared with a team carry a quiet "Shared" chip so the reason teammates
+ * can start there is visible from the phone (the toggle stays web-only).
  */
 @Composable
 private fun MachineRow(
@@ -395,7 +422,17 @@ private fun MachineRow(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
                 )
-                if (device.version != null) {
+                val owner = device.owner
+                if (owner != null) {
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "shared by ${owner.name}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                } else if (device.version != null) {
                     Spacer(Modifier.width(6.dp))
                     Text(
                         "v${device.version}",
@@ -405,6 +442,15 @@ private fun MachineRow(
                         } else {
                             MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
                         },
+                        maxLines = 1,
+                    )
+                }
+                if (device.isMine && device.sharedTeamId != null) {
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "Shared",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                         maxLines = 1,
                     )
                 }
@@ -471,7 +517,9 @@ private fun MachineRow(
                 modifier = Modifier.padding(start = 8.dp),
             )
         }
-        if (device.registered) {
+        // Rename / Update / Remove all mutate the OWNER's registry row, so a
+        // teammate's shared machine carries no menu at all (EXP-432).
+        if (device.registered && device.isMine) {
             var rowMenu by remember { mutableStateOf(false) }
             Box {
                 IconButton(onClick = { rowMenu = true }) {

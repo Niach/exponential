@@ -158,6 +158,35 @@ describe(`device presence + remote start`, () => {
     expect(hub.devicesFor(`owner`)).toEqual([])
   })
 
+  test(`startSession passes startedBy through to the frame (EXP-432)`, () => {
+    const hub = new Hub()
+    const desktop = new FakeSocket()
+    hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
+    hub.onMessage(desktop, JSON.stringify({ t: `online`, deviceId: `dev-1` }))
+
+    // A shared-device start rides the requester's userId as an option —
+    // dumb pass-through, the daemon threads it into codingSessions.start.
+    const routed = hub.startSession(
+      `owner`,
+      `dev-1`,
+      { issueId: `issue-9` },
+      { startedBy: `requester-1` }
+    )
+    expect(routed).toEqual({ ok: true })
+    expect(desktop.lastFrame(`start_session`)).toEqual({
+      t: `start_session`,
+      issueId: `issue-9`,
+      startedBy: `requester-1`,
+    })
+
+    // Absent startedBy: the frame stays byte-identical to the legacy wire.
+    hub.startSession(`owner`, `dev-1`, { issueId: `issue-10` })
+    expect(desktop.lastFrame(`start_session`)).toEqual({
+      t: `start_session`,
+      issueId: `issue-10`,
+    })
+  })
+
   test(`startSession passes launch options through to the frame`, () => {
     const hub = new Hub()
     const desktop = new FakeSocket()

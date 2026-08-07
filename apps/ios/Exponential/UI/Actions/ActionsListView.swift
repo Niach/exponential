@@ -105,7 +105,10 @@ struct ActionsListView: View {
             devices = nil
             return
         }
-        devices = (try? await deps.steerApi.myDevices(accountId: accountId)) ?? []
+        // EXP-432: team-scoped, so a teammate's shared server can host the run.
+        devices = (try? await deps.devicesApi.onlineStartTargets(
+            accountId: accountId, teamId: teamState.activeTeam?.id
+        )) ?? []
     }
 
     // MARK: - Content

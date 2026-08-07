@@ -259,10 +259,14 @@ export type SteerStartSubject =
     }
 
 /** POST /start — route a remote start to the device's control socket.
- * Undefined option fields are dropped by JSON.stringify — never sent. */
+ * Undefined option fields are dropped by JSON.stringify — never sent.
+ * `startedBy` (EXP-432): the requesting teammate on a start targeting a
+ * SHARED server device — `userId` is then the device OWNER (whose presence
+ * bucket holds the socket). Absent on every own-device start. */
 export async function relayPostStart(
   config: SteerRelayConfig,
-  body: { userId: string; deviceId: string } & SteerStartSubject &
+  body: { userId: string; deviceId: string; startedBy?: string } &
+    SteerStartSubject &
     SteerStartOptions,
   fetchImpl: RelayFetch = globalThis.fetch
 ): Promise<RelayStartResult> {

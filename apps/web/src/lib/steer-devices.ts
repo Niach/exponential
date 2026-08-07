@@ -36,6 +36,17 @@ export interface SteerDevice {
   /** EXP-411: the pending update is parked behind live coding sessions —
    * the daemon applies it once they close. */
   updateBlocked?: boolean
+  /** EXP-432: the team this device is shared with (null/absent = private). */
+  sharedTeamId?: string | null
+  /** EXP-432: set only on teammates' shared rows — the device owner. Absent
+   * on the caller's own rows. */
+  owner?: { id: string; name: string }
+}
+
+/** EXP-432: whether the row is one of the caller's own machines (teammates'
+ * shared rows carry `owner`; own rows never do). */
+export function deviceIsMine(device: SteerDevice): boolean {
+  return !device.owner
 }
 
 /** Whether the device is startable right now. Rows without the field come

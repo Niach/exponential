@@ -799,12 +799,12 @@ fun StartCodingSheet(
                     OptionGroup {
                         PickerRow(
                             label = "Desktop",
-                            value = device?.let { it.deviceLabel.ifBlank { it.deviceId } } ?: "",
+                            value = device?.let(::deviceLabel) ?: "",
                             options = deviceCandidates.map { it.deviceId },
                             selected = device?.deviceId,
                             optionLabel = { id ->
                                 deviceCandidates.firstOrNull { it.deviceId == id }
-                                    ?.let { it.deviceLabel.ifBlank { it.deviceId } } ?: id
+                                    ?.let(::deviceLabel) ?: id
                             },
                             onSelect = { id ->
                                 deviceId = id
@@ -1360,6 +1360,16 @@ private fun SwitchRow(
         Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
         Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
+}
+
+/**
+ * How a machine reads in the Desktop picker. EXP-432: a teammate's shared
+ * server carries its owner ("buildbox — Danny"), so two similarly named boxes
+ * stay tellable apart and the run's host is never a surprise.
+ */
+private fun deviceLabel(device: SteerDevice): String {
+    val base = device.deviceLabel.ifBlank { device.deviceId }
+    return device.owner?.let { "$base — ${it.name}" } ?: base
 }
 
 // The agents a desktop can launch, in contract order. No device settled yet

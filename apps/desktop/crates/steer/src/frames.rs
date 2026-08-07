@@ -382,6 +382,12 @@ pub enum ServerFrame {
         /// on issue/batch frames and on input-less action runs).
         #[serde(default)]
         inputs: Option<Vec<StartInput>>,
+        /// EXP-432: the requesting teammate's userId on a start targeting a
+        /// SHARED server device — echoed into `codingSessions.start` as
+        /// `startedById` so the session row is requester-owned. Absent on
+        /// every own-device start.
+        #[serde(default)]
+        started_by: Option<String>,
         /// Launch options (EXP-149) — absent on frames from clients that
         /// don't send them yet; absent = desktop settings default.
         /// `agent`/`skip_permissions` are the EXP-201 additions (absent
@@ -970,6 +976,35 @@ mod tests {
                 team_id: None,
                 repo: None,
                 inputs: None,
+                started_by: None,
+                agent: None,
+                model: None,
+                effort: None,
+                ultracode: None,
+                plan_mode: None,
+                skip_permissions: None,
+            }
+        );
+    }
+
+    #[test]
+    fn start_session_deserializes_started_by() {
+        // EXP-432: a shared-device start carries the requesting teammate's
+        // userId — pure attribution, alongside the normal subject/options.
+        assert_eq!(
+            ServerFrame::parse(
+                r#"{"t":"start_session","issueId":"issue-9","startedBy":"user-2"}"#
+            )
+            .unwrap(),
+            ServerFrame::StartSession {
+                issue_id: Some("issue-9".into()),
+                issue_ids: None,
+                action_id: None,
+                action_name: None,
+                team_id: None,
+                repo: None,
+                inputs: None,
+                started_by: Some("user-2".into()),
                 agent: None,
                 model: None,
                 effort: None,
@@ -997,6 +1032,7 @@ mod tests {
                 team_id: None,
                 repo: None,
                 inputs: None,
+                started_by: None,
                 agent: Some("codex".into()),
                 model: Some("opus".into()),
                 effort: Some(String::new()),
@@ -1027,6 +1063,7 @@ mod tests {
                     default_branch: "main".into(),
                 }),
                 inputs: None,
+                started_by: None,
                 agent: None,
                 model: Some("opus".into()),
                 effort: Some("high".into()),
@@ -1058,6 +1095,7 @@ mod tests {
                     default_branch: "main".into(),
                 }),
                 inputs: None,
+                started_by: None,
                 agent: None,
                 model: Some("opus".into()),
                 effort: Some("high".into()),
@@ -1102,6 +1140,7 @@ mod tests {
                         display: Some("acme/api".into()),
                     },
                 ]),
+                started_by: None,
                 agent: Some("codex".into()),
                 model: Some("gpt-5.6-sol".into()),
                 effort: None,
@@ -1133,6 +1172,7 @@ mod tests {
                     default_branch: "main".into(),
                 }),
                 inputs: None,
+                started_by: None,
                 agent: None,
                 model: None,
                 effort: None,

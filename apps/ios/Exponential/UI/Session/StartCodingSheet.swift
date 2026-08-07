@@ -219,8 +219,19 @@ struct StartCodingSheet: View {
     /// The machines a run can actually be sent to: EXP-403 lists offline rows
     /// too, and EXP-409 makes a machine whose every installed agent is signed
     /// out just as unstartable — the My machines list carries the reason.
+    /// EXP-432: teammates' shared servers arrive in `devices` already (the
+    /// hosts list them team-scoped) and are startable exactly like own ones.
     private var startableDevices: [SteerDevice] {
         devices.filter { $0.isOnline && $0.hasRunnableAgent }
+    }
+
+    /// Picker caption for a machine. A teammate's shared server (EXP-432) is
+    /// attributed to its owner — two people's boxes can wear the same label,
+    /// and a run lands on somebody else's hardware, so the picker says whose.
+    private static func deviceCaption(_ device: SteerDevice) -> String {
+        let name = device.deviceLabel.isEmpty ? device.deviceId : device.deviceLabel
+        guard let owner = device.owner else { return name }
+        return "\(name) — \(owner.name)"
     }
 
     /// Mode-aware device pool: Actions mode only offers capable desktops.
@@ -276,7 +287,7 @@ struct StartCodingSheet: View {
                     Section {
                         Picker("Desktop", selection: deviceBinding) {
                             ForEach(candidateDevices) { device in
-                                Text(device.deviceLabel.isEmpty ? device.deviceId : device.deviceLabel)
+                                Text(Self.deviceCaption(device))
                                     .tag(device.deviceId)
                             }
                         }

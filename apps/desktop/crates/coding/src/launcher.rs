@@ -73,8 +73,34 @@ pub const SESSION_HEARTBEAT_INTERVAL: std::time::Duration =
 pub enum LaunchOrigin {
     /// The Start-coding button on the issue-detail header.
     Local,
-    /// A relay `start_session` frame (§08's control channel).
-    Relay { device_id: String, claimant: String },
+    /// A relay `start_session` frame (§08's control channel). `started_by`
+    /// (EXP-432) is the requesting teammate when the start targeted this
+    /// machine as a SHARED server device — echoed into
+    /// `codingSessions.start`/`heartbeat` so the session row is
+    /// requester-owned; `None` for the owner's own remote starts.
+    Relay {
+        device_id: String,
+        claimant: String,
+        started_by: Option<String>,
+    },
+}
+
+/// The (started_by, device_id) attribution pair a shared-device relay start
+/// carries into `codingSessions.start` and every heartbeat (EXP-432).
+/// `(None, None)` — the byte-identical legacy wire — for local starts and
+/// relay starts without `started_by`.
+fn relay_attribution(origin: &LaunchOrigin) -> coding_sessions::Attribution<'_> {
+    match origin {
+        LaunchOrigin::Relay {
+            device_id,
+            started_by: Some(started_by),
+            ..
+        } => coding_sessions::Attribution {
+            started_by_id: Some(started_by.as_str()),
+            device_id: Some(device_id.as_str()),
+        },
+        _ => coding_sessions::Attribution::default(),
+    }
 }
 
 /// The machine's hostname — §7.1's `device_label` (also the server-side
@@ -883,11 +909,13 @@ pub fn prepare_with_hooks(
             &deps.trpc,
             &issue_req.issue_id,
             Some(&issue_req.device_label),
+            relay_attribution(&issue_req.origin),
         ),
         PrepareRequest::Batch(batch_req) => coding_sessions::start_batch(
             &deps.trpc,
             &batch_req.team_id,
             Some(&batch_req.device_label),
+            relay_attribution(&batch_req.origin),
         ),
         PrepareRequest::Action(_) => unreachable!("dispatched above"),
     };
@@ -1016,20 +1044,30 @@ pub fn prepare_with_hooks(
     spawn = apply_observer_env(spawn, agent, observer);
 
     let heartbeat_scope = match req {
-        PrepareRequest::Issue(issue_req) => coding_sessions::HeartbeatScope {
-            issue_id: Some(issue_req.issue_id.clone()),
-            team_id: None,
-            action_id: None,
-            action_name: None,
-            device_label: Some(issue_req.device_label.clone()),
-        },
-        PrepareRequest::Batch(batch_req) => coding_sessions::HeartbeatScope {
-            issue_id: None,
-            team_id: Some(batch_req.team_id.clone()),
-            action_id: None,
-            action_name: None,
-            device_label: Some(batch_req.device_label.clone()),
-        },
+        PrepareRequest::Issue(issue_req) => {
+            let attribution = relay_attribution(&issue_req.origin);
+            coding_sessions::HeartbeatScope {
+                issue_id: Some(issue_req.issue_id.clone()),
+                team_id: None,
+                action_id: None,
+                action_name: None,
+                device_label: Some(issue_req.device_label.clone()),
+                started_by_id: attribution.started_by_id.map(str::to_string),
+                device_id: attribution.device_id.map(str::to_string),
+            }
+        }
+        PrepareRequest::Batch(batch_req) => {
+            let attribution = relay_attribution(&batch_req.origin);
+            coding_sessions::HeartbeatScope {
+                issue_id: None,
+                team_id: Some(batch_req.team_id.clone()),
+                action_id: None,
+                action_name: None,
+                device_label: Some(batch_req.device_label.clone()),
+                started_by_id: attribution.started_by_id.map(str::to_string),
+                device_id: attribution.device_id.map(str::to_string),
+            }
+        }
         PrepareRequest::Action(_) => unreachable!("dispatched above"),
     };
 
@@ -1314,6 +1352,7 @@ fn prepare_action(
         &req.action_id,
         req.kind.is_builtin().then_some(req.team_id.as_str()),
         Some(&req.device_label),
+        relay_attribution(&req.origin),
     ) {
         Ok(session) => session,
         Err(ApiError::Http { status: 412, message }) => {
@@ -1386,6 +1425,10 @@ fn prepare_action(
             action_id: Some(req.action_id.clone()),
             action_name: Some(req.action_name.clone()),
             device_label: Some(req.device_label.clone()),
+            started_by_id: relay_attribution(&req.origin)
+                .started_by_id
+                .map(str::to_string),
+            device_id: relay_attribution(&req.origin).device_id.map(str::to_string),
         },
         tab_kind: TabKind::Action(req.action_id.clone()),
         bypass_permissions: options.skip_permissions && !options.plan_mode,

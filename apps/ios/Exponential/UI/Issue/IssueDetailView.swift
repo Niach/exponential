@@ -258,8 +258,10 @@ struct IssueDetailView: View {
                 // on session presence AND membership (mirrors the old
                 // AgentPrCard task): when a session ends the circle must
                 // (re)load presence, and the load must re-run once the members
-                // shape syncs and isMember flips true.
-                .task(id: "\(accountId)|\(issue.id)|\(vm.runningSessions.isEmpty)|\(vm.permissions.isMember)") {
+                // shape syncs and isMember flips true. EXP-432 adds the board's
+                // team: the device list is team-scoped now, so it must reload
+                // once the board (hence the team) resolves.
+                .task(id: "\(accountId)|\(issue.id)|\(vm.runningSessions.isEmpty)|\(vm.permissions.isMember)|\(vm.board?.teamId ?? "")") {
                     await vm.refreshSteer()
                 }
                 .sheet(item: $activeSheet) { sheet in
@@ -395,6 +397,7 @@ struct IssueDetailView: View {
                     labelsApi: deps.labelsApi,
                     subscriptionsApi: deps.subscriptionsApi,
                     steerApi: deps.steerApi,
+                    devicesApi: deps.devicesApi,
                     auth: deps.auth
                 )
                 viewModel = vm

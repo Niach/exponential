@@ -1,9 +1,9 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, desc, eq, gte, inArray } from "drizzle-orm"
+import { and, desc, eq, gte, inArray, or } from "drizzle-orm"
 import { CODING_SESSION_STALE_MS } from "@exp/db-schema/domain"
-import { router, authedProcedure } from "@/lib/trpc"
-import { actions, codingSessions, issues } from "@/db/schema"
+import { router, authedProcedure, type Context } from "@/lib/trpc"
+import { actions, codingSessions, devices, issues } from "@/db/schema"
 import {
   assertTeamMember,
   getIssueTeamContext,
@@ -25,6 +25,46 @@ const actionIdInput = z
   .or(z.literal(BUILTIN_CREATE_ACTION_ID))
   .or(z.literal(BUILTIN_FIX_CONFLICTS_ID))
 
+// EXP-432: a remote start on a teammate's SHARED server device is attributed
+// to the requester — `startedBy` rides the relay frame and the daemon echoes
+// it here as `startedById` (plus its own `deviceId` so the share can be
+// verified). Trust model: the caller (the daemon owner) may attribute a
+// session to a teammate ONLY when their own device row says they shared that
+// device with the session's team and the teammate is still a member — sharing
+// IS the consent to host teammate-owned runs. Everything else (absent field,
+// self-attribution) is the pre-EXP-432 path: the row belongs to the caller.
+async function resolveStartAttribution(
+  db: Context[`db`],
+  callerId: string,
+  input: { startedById?: string; deviceId?: string },
+  teamId: string
+): Promise<{ userId: string; hostUserId: string | null }> {
+  if (!input.startedById || input.startedById === callerId) {
+    return { userId: callerId, hostUserId: null }
+  }
+  if (!input.deviceId) {
+    throw new TRPCError({
+      code: `BAD_REQUEST`,
+      message: `startedById requires the sharing device's deviceId`,
+    })
+  }
+  const [device] = await db
+    .select({ kind: devices.kind, sharedTeamId: devices.sharedTeamId })
+    .from(devices)
+    .where(
+      and(eq(devices.userId, callerId), eq(devices.deviceId, input.deviceId))
+    )
+    .limit(1)
+  if (!device || device.kind !== `server` || device.sharedTeamId !== teamId) {
+    throw new TRPCError({
+      code: `FORBIDDEN`,
+      message: `This device is not shared with the session's team`,
+    })
+  }
+  await assertTeamMember(input.startedById, teamId)
+  return { userId: input.startedById, hostUserId: callerId }
+}
+
 // The desktop launcher's live "coding now" record (§4a step 7). One row per
 // interactive session; synced to every client as an Electric shape.
 // Three subjects: issue-scoped (issueId), batch-scoped (teamId — the
@@ -38,9 +78,12 @@ const actionIdInput = z
 export const codingSessionsRouter = router({
   // Own-row status probe (EXP-403): the headless CLI daemon has no Electric
   // sync, so it polls this for the →ended kill-switch edge the desktop's
-  // kill-watch reads off the synced collection. Owner-only by the where
-  // clause; a swept (deleted) row returns { session: null }, which — like
-  // the desktop's vanished-row rule — deliberately does NOT read as a kill.
+  // kill-watch reads off the synced collection. Owner-OR-HOST by the where
+  // clause (EXP-432: a shared-device session is requester-owned while the
+  // polling daemon is only its host — owner-only scoping would return null
+  // and a remote kill would never reach the agent); a swept (deleted) row
+  // returns { session: null }, which — like the desktop's vanished-row rule —
+  // deliberately does NOT read as a kill.
   get: authedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
@@ -50,7 +93,10 @@ export const codingSessionsRouter = router({
         .where(
           and(
             eq(codingSessions.id, input.id),
-            eq(codingSessions.userId, ctx.session.user.id)
+            or(
+              eq(codingSessions.userId, ctx.session.user.id),
+              eq(codingSessions.hostUserId, ctx.session.user.id)
+            )
           )
         )
         .limit(1)
@@ -98,6 +144,9 @@ export const codingSessionsRouter = router({
           teamId: z.string().uuid().optional(),
           actionId: actionIdInput.optional(),
           deviceLabel: z.string().max(255).optional(),
+          // EXP-432 shared-device attribution (see resolveStartAttribution).
+          startedById: z.string().min(1).max(128).optional(),
+          deviceId: z.string().min(1).max(128).optional(),
         })
         .refine(
           (value) => {
@@ -119,6 +168,12 @@ export const codingSessionsRouter = router({
     .mutation(async ({ ctx, input }) => {
       if (input.actionId && isBuiltinActionId(input.actionId)) {
         await assertTeamMember(ctx.session.user.id, input.teamId!)
+        const attribution = await resolveStartAttribution(
+          ctx.db,
+          ctx.session.user.id,
+          input,
+          input.teamId!
+        )
 
         const [session] = await ctx.db
           .insert(codingSessions)
@@ -128,7 +183,8 @@ export const codingSessionsRouter = router({
             teamId: input.teamId!,
             actionId: null,
             actionName: builtinActionName(input.actionId),
-            userId: ctx.session.user.id,
+            userId: attribution.userId,
+            hostUserId: attribution.hostUserId,
             deviceLabel: input.deviceLabel ?? null,
             status: `running`,
           })
@@ -157,6 +213,12 @@ export const codingSessionsRouter = router({
           })
         }
         await assertTeamMember(ctx.session.user.id, action.teamId)
+        const attribution = await resolveStartAttribution(
+          ctx.db,
+          ctx.session.user.id,
+          input,
+          action.teamId
+        )
 
         const [session] = await ctx.db
           .insert(codingSessions)
@@ -165,7 +227,8 @@ export const codingSessionsRouter = router({
             teamId: action.teamId,
             actionId: action.id,
             actionName: action.name,
-            userId: ctx.session.user.id,
+            userId: attribution.userId,
+            hostUserId: attribution.hostUserId,
             deviceLabel: input.deviceLabel ?? null,
             status: `running`,
           })
@@ -177,6 +240,12 @@ export const codingSessionsRouter = router({
       if (input.issueId) {
         const issueCtx = await getIssueTeamContext(input.issueId)
         await assertTeamMember(ctx.session.user.id, issueCtx.teamId)
+        const attribution = await resolveStartAttribution(
+          ctx.db,
+          ctx.session.user.id,
+          input,
+          issueCtx.teamId
+        )
 
         const [session] = await ctx.db
           .insert(codingSessions)
@@ -186,7 +255,8 @@ export const codingSessionsRouter = router({
             // if the populate_* triggers aren't applied.
             teamId: issueCtx.teamId,
             boardId: issueCtx.boardId,
-            userId: ctx.session.user.id,
+            userId: attribution.userId,
+            hostUserId: attribution.hostUserId,
             deviceLabel: input.deviceLabel ?? null,
             status: `running`,
           })
@@ -196,6 +266,12 @@ export const codingSessionsRouter = router({
       }
 
       await assertTeamMember(ctx.session.user.id, input.teamId!)
+      const attribution = await resolveStartAttribution(
+        ctx.db,
+        ctx.session.user.id,
+        input,
+        input.teamId!
+      )
 
       const [session] = await ctx.db
         .insert(codingSessions)
@@ -204,7 +280,8 @@ export const codingSessionsRouter = router({
           // directly; board_id stays NULL, a batch run spans boards and
           // must never surface through the anonymous board-scoped clause.
           teamId: input.teamId!,
-          userId: ctx.session.user.id,
+          userId: attribution.userId,
+          hostUserId: attribution.hostUserId,
           deviceLabel: input.deviceLabel ?? null,
           status: `running`,
         })
@@ -246,6 +323,11 @@ export const codingSessionsRouter = router({
           actionId: actionIdInput.optional(),
           actionName: z.string().max(255).optional(),
           deviceLabel: z.string().max(255).optional(),
+          // EXP-432: shared-device runs echo their attribution so a swept row
+          // resurrects requester-owned instead of silently flipping to the
+          // host (which would break the requester's steering mid-run).
+          startedById: z.string().min(1).max(128).optional(),
+          deviceId: z.string().min(1).max(128).optional(),
         })
         .refine((value) => !(value.issueId && value.teamId), {
           message: `At most one of issueId/teamId`,
@@ -260,6 +342,7 @@ export const codingSessionsRouter = router({
       const [existing] = await ctx.db
         .select({
           userId: codingSessions.userId,
+          hostUserId: codingSessions.hostUserId,
           status: codingSessions.status,
         })
         .from(codingSessions)
@@ -272,6 +355,12 @@ export const codingSessionsRouter = router({
           if (input.issueId) {
             const issueCtx = await getIssueTeamContext(input.issueId)
             await assertTeamMember(ctx.session.user.id, issueCtx.teamId)
+            const attribution = await resolveStartAttribution(
+              ctx.db,
+              ctx.session.user.id,
+              input,
+              issueCtx.teamId
+            )
             // A swept session may resurface AFTER its PR opened — or merged
             // (laptop suspend through the whole run) — re-derive the badge
             // from the issue so the re-created row doesn't claim
@@ -287,7 +376,8 @@ export const codingSessionsRouter = router({
               issueId: input.issueId,
               teamId: issueCtx.teamId,
               boardId: issueCtx.boardId,
-              userId: ctx.session.user.id,
+              userId: attribution.userId,
+              hostUserId: attribution.hostUserId,
               deviceLabel: input.deviceLabel ?? null,
               status:
                 issue?.prState === `merged`
@@ -298,6 +388,12 @@ export const codingSessionsRouter = router({
             })
           } else {
             await assertTeamMember(ctx.session.user.id, input.teamId!)
+            const attribution = await resolveStartAttribution(
+              ctx.db,
+              ctx.session.user.id,
+              input,
+              input.teamId!
+            )
             // Action rows re-create from the client snapshot. If the action
             // was deleted meanwhile, a dangling-FK insert would 23503 —
             // pre-check and degrade: action_id NULL, actionName kept
@@ -331,7 +427,8 @@ export const codingSessionsRouter = router({
                 : input.actionId
                   ? (input.actionName ?? null)
                   : null,
-              userId: ctx.session.user.id,
+              userId: attribution.userId,
+              hostUserId: attribution.hostUserId,
               deviceLabel: input.deviceLabel ?? null,
               // Batch/action rows have no issue to re-derive review state
               // from — a resurrected session degrades to `running` (badge
@@ -346,7 +443,10 @@ export const codingSessionsRouter = router({
           return { alive: false }
         }
       }
-      if (existing.userId !== ctx.session.user.id) {
+      if (
+        existing.userId !== ctx.session.user.id &&
+        existing.hostUserId !== ctx.session.user.id
+      ) {
         throw new TRPCError({
           code: `FORBIDDEN`,
           message: `Only the session owner can heartbeat it`,
@@ -385,6 +485,7 @@ export const codingSessionsRouter = router({
       const [existing] = await ctx.db
         .select({
           userId: codingSessions.userId,
+          hostUserId: codingSessions.hostUserId,
           status: codingSessions.status,
         })
         .from(codingSessions)
@@ -392,7 +493,10 @@ export const codingSessionsRouter = router({
         .limit(1)
 
       if (!existing) return { updated: false }
-      if (existing.userId !== ctx.session.user.id) {
+      if (
+        existing.userId !== ctx.session.user.id &&
+        existing.hostUserId !== ctx.session.user.id
+      ) {
         throw new TRPCError({
           code: `FORBIDDEN`,
           message: `Only the session owner can update it`,
@@ -422,6 +526,7 @@ export const codingSessionsRouter = router({
         .select({
           id: codingSessions.id,
           userId: codingSessions.userId,
+          hostUserId: codingSessions.hostUserId,
           status: codingSessions.status,
         })
         .from(codingSessions)
@@ -434,7 +539,12 @@ export const codingSessionsRouter = router({
           message: `Coding session not found`,
         })
       }
-      if (existing.userId !== ctx.session.user.id) {
+      // EXP-432: the hosting daemon (owner of the shared device) operates the
+      // run and must be able to end its own child's session row.
+      if (
+        existing.userId !== ctx.session.user.id &&
+        existing.hostUserId !== ctx.session.user.id
+      ) {
         throw new TRPCError({
           code: `FORBIDDEN`,
           message: `Only the session owner can end it`,

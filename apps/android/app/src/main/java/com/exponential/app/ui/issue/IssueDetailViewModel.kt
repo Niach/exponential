@@ -7,6 +7,7 @@ import androidx.room.withTransaction
 import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.AttachmentsApi
 import com.exponential.app.data.api.CreateLabelInput
+import com.exponential.app.data.api.DevicesApi
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.LabelsApi
@@ -61,6 +62,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
@@ -100,6 +102,7 @@ class IssueDetailViewModel @Inject constructor(
     private val attachmentsApi: AttachmentsApi,
     private val notificationsApi: NotificationsApi,
     private val steerApi: SteerApi,
+    private val devicesApi: DevicesApi,
     private val stats: SyncStats,
     private val syncManager: SyncManager,
     @dagger.hilt.android.qualifiers.ApplicationContext
@@ -323,7 +326,8 @@ class IssueDetailViewModel @Inject constructor(
     private val _steerEnabled = MutableStateFlow<Boolean?>(null)
     val steerEnabled: StateFlow<Boolean?> = _steerEnabled
 
-    // The caller's online desktops (relay presence). null = not loaded yet.
+    // The online machines a start can go to: the caller's own plus (EXP-432)
+    // the board team's shared servers. null = not loaded yet.
     private val _steerDevices = MutableStateFlow<List<SteerDevice>?>(null)
     val steerDevices: StateFlow<List<SteerDevice>?> = _steerDevices
 
@@ -744,27 +748,45 @@ class IssueDetailViewModel @Inject constructor(
                 .debounce(800)
                 .collect { saveDescription(it) }
         }
-        // Steer availability + device presence, re-fetched on account switch.
+        // Steer availability, re-fetched on account switch. It is env-derived
+        // and static per instance, so it stays keyed to the account alone —
+        // the device list below is what follows the team (EXP-432).
         viewModelScope.launch {
             auth.activeAccountId.collectLatest { accountId ->
                 _steerEnabled.value = null
-                _steerDevices.value = null
                 _startState.value = SteerStartState.Idle
-                if (accountId == null) {
-                    _steerEnabled.value = false
-                    _steerDevices.value = emptyList()
-                    return@collectLatest
-                }
-                val enabled = runCatching { steerApi.config(accountId).enabled }
-                    .getOrDefault(false)
-                _steerEnabled.value = enabled
-                _steerDevices.value = if (enabled) {
-                    runCatching { steerApi.myDevices(accountId).devices }
-                        .getOrDefault(emptyList())
+                _steerEnabled.value = if (accountId == null) {
+                    false
                 } else {
-                    emptyList()
+                    runCatching { steerApi.config(accountId).enabled }.getOrDefault(false)
                 }
             }
+        }
+        // Device presence, re-fetched whenever the account, the board's team
+        // (EXP-432 — the list carries the team's shared servers too) or steer
+        // availability resolves. Filtered to ONLINE machines: the screen reads
+        // an empty list as "no desktop online", which the registry's offline
+        // rows would break.
+        viewModelScope.launch {
+            combine(
+                auth.activeAccountId,
+                _board.map { it?.teamId }.distinctUntilChanged(),
+                _steerEnabled,
+            ) { accountId, teamId, enabled -> Triple(accountId, teamId, enabled) }
+                .collectLatest { (accountId, teamId, enabled) ->
+                    if (enabled == null) {
+                        // Still resolving — back to the loading state.
+                        _steerDevices.value = null
+                        return@collectLatest
+                    }
+                    _steerDevices.value = if (accountId == null || !enabled) {
+                        emptyList()
+                    } else {
+                        runCatching {
+                            devicesApi.list(accountId, teamId).devices.filter { it.online }
+                        }.getOrDefault(emptyList())
+                    }
+                }
         }
     }
 

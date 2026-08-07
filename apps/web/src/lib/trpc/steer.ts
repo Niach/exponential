@@ -9,7 +9,15 @@ import {
   type ActionInputDef,
 } from "@exp/db-schema/domain"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { actions, boards, codingSessions, issues, repositories } from "@/db/schema"
+import {
+  actions,
+  boards,
+  codingSessions,
+  devices as devicesTable,
+  issues,
+  repositories,
+  teamMembers,
+} from "@/db/schema"
 import {
   assertTeamMember,
   getIssueTeamContext,
@@ -123,9 +131,12 @@ export const steerRouter = router({
 
       const session = await loadCodingSession(input.codingSessionId)
 
-      // Only the session owner's own desktop may publish its PTY.
+      // Only the session owner's own desktop may publish its PTY — or, for a
+      // shared-device run (EXP-432), the hosting daemon's account: the row is
+      // requester-owned while the device owner's daemon runs the agent and
+      // publishes its activity.
       if (input.kind === `publisher`) {
-        if (session.userId !== userId) {
+        if (session.userId !== userId && session.hostUserId !== userId) {
           throw new TRPCError({
             code: `FORBIDDEN`,
             message: `Only the session owner can publish it`,
@@ -141,7 +152,9 @@ export const steerRouter = router({
 
       // EXP-312: a live session is visible and steerable ONLY by its owner —
       // there is no view/steer distinction and no teammate access at all.
-      if (session.userId !== userId) {
+      // EXP-432 adds exactly one more principal: the hosting device owner may
+      // watch what runs on their own hardware (it originates there anyway).
+      if (session.userId !== userId && session.hostUserId !== userId) {
         throw new TRPCError({
           code: `FORBIDDEN`,
           message: `Only the session owner can open a live session`,
@@ -293,15 +306,72 @@ export const steerRouter = router({
       }
       const userId = ctx.session.user.id
 
-      const fetchDevices = async (): Promise<SteerDevice[]> => {
+      const fetchDevices = async (
+        forUserId: string = userId
+      ): Promise<SteerDevice[]> => {
         try {
-          const { devices } = await relayGetDevices(config, userId)
+          const { devices } = await relayGetDevices(config, forUserId)
           return devices
         } catch {
           throw new TRPCError({
             code: `BAD_GATEWAY`,
             message: `Couldn't reach the steer relay. Try again.`,
           })
+        }
+      }
+
+      // EXP-432: resolve which account's presence bucket the target deviceId
+      // lives in. The caller's own presence wins (today's path — the start
+      // stays wire-identical); otherwise a registered server device SHARED
+      // with the subject's team resolves to its owner's bucket — the caller's
+      // membership in that team is already asserted by the subject checks
+      // above each call site, and the daemon re-verifies the share when it
+      // echoes `startedBy` into codingSessions.start. Anything else keeps the
+      // legacy lenient shape (device undefined; the relay answers
+      // device_offline).
+      const resolveTargetDevice = async (
+        teamId: string
+      ): Promise<{
+        ownerId: string
+        device: SteerDevice | undefined
+        shared: boolean
+      }> => {
+        const own = await fetchDevices()
+        const ownDevice = own.find((d) => d.deviceId === input.deviceId)
+        if (ownDevice) {
+          return { ownerId: userId, device: ownDevice, shared: false }
+        }
+        const { db } = await import(`@/db/connection`)
+        // The team_members join mirrors devices.list: a lingering share whose
+        // owner left the team must not route starts to their machine (the
+        // daemon's own codingSessions.start would fail on the owner's gone
+        // membership anyway — this just refuses before waking the box).
+        const [row] = await db
+          .select({ userId: devicesTable.userId })
+          .from(devicesTable)
+          .innerJoin(
+            teamMembers,
+            and(
+              eq(teamMembers.userId, devicesTable.userId),
+              eq(teamMembers.teamId, teamId)
+            )
+          )
+          .where(
+            and(
+              eq(devicesTable.deviceId, input.deviceId),
+              eq(devicesTable.sharedTeamId, teamId),
+              eq(devicesTable.kind, `server`)
+            )
+          )
+          .limit(1)
+        if (!row || row.userId === userId) {
+          return { ownerId: userId, device: undefined, shared: false }
+        }
+        const ownerDevices = await fetchDevices(row.userId)
+        return {
+          ownerId: row.userId,
+          device: ownerDevices.find((d) => d.deviceId === input.deviceId),
+          shared: true,
         }
       }
 
@@ -474,8 +544,9 @@ export const steerRouter = router({
           }
         }
 
-        const devices = await fetchDevices()
-        const device = devices.find((d) => d.deviceId === input.deviceId)
+        const { ownerId, device, shared } = await resolveTargetDevice(
+          action.teamId
+        )
         const caps = device?.caps ?? []
         if (!device || !caps.includes(`actions`)) {
           throw new TRPCError({
@@ -535,8 +606,9 @@ export const steerRouter = router({
         }
 
         const result = await relayPostStart(config, {
-          userId,
+          userId: ownerId,
           deviceId: input.deviceId,
+          ...(shared ? { startedBy: userId } : {}),
           actionId: action.id,
           actionName: action.name,
           teamId: action.teamId,
@@ -618,8 +690,7 @@ export const steerRouter = router({
       // covers the absent-advertisement legacy case. A signed-out agent gets
       // the sign-in message, not "not installed".
       const agent = input.agent ?? `claude`
-      const devices = await fetchDevices()
-      const device = devices.find((d) => d.deviceId === input.deviceId)
+      const { ownerId, device, shared } = await resolveTargetDevice(teamId)
       const deviceAgentIds = device?.agents ?? [`claude`]
       if (device && !deviceAgentIds.includes(agent)) {
         const signedOut = (device.unauthedAgents ?? []).includes(agent)
@@ -642,14 +713,16 @@ export const steerRouter = router({
       const result =
         ids.length === 1
           ? await relayPostStart(config, {
-              userId,
+              userId: ownerId,
               deviceId: input.deviceId,
+              ...(shared ? { startedBy: userId } : {}),
               issueId: ids[0]!,
               ...options,
             })
           : await relayPostStart(config, {
-              userId,
+              userId: ownerId,
               deviceId: input.deviceId,
+              ...(shared ? { startedBy: userId } : {}),
               issueIds: ids,
               teamId,
               repo: repo!,
@@ -681,8 +754,10 @@ export const steerRouter = router({
       const session = await loadCodingSession(input.codingSessionId)
       const userId = ctx.session.user.id
 
-      // EXP-312: owner-only, like every other live-session control.
-      if (session.userId !== userId) {
+      // EXP-312: owner-only, like every other live-session control — plus the
+      // hosting device owner (EXP-432): they can always kill what runs on
+      // their own machine.
+      if (session.userId !== userId && session.hostUserId !== userId) {
         throw new TRPCError({
           code: `FORBIDDEN`,
           message: `Only the session owner can kill it`,

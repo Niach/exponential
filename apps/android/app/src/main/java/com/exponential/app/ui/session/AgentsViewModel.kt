@@ -42,8 +42,10 @@ import kotlinx.coroutines.launch
 // The machine list is the EXP-403 registry (`devices.list`, polled while the
 // tab is visible), not the relay's presence map: it carries offline machines,
 // their kind (desktop IDE vs headless `exponential` server), their version and
-// the rename/remove/update affordances. Every OTHER surface in the app only
-// needs a picker, so those still read the presence-only `steer.myDevices`.
+// the rename/remove/update affordances. Since EXP-432 the fetch is TEAM-scoped
+// (`devices.list({teamId})`), so it also returns teammates' server machines
+// shared with the selected team — startable like the caller's own, but
+// read-only (the share toggle lives on the web).
 
 data class AgentRow(
     val session: CodingSessionEntity,
@@ -152,25 +154,37 @@ class AgentsViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    // The account steer.config was last resolved for. steer.config is
+    // env-derived and static per INSTANCE, so a team switch must not re-run it
+    // — that would blank `steerEnabled` and flicker the whole tab (EXP-432).
+    private var configuredAccountId: String? = null
+
     init {
         // Steer availability + the machine registry, re-fetched on account
-        // switch (mirrors the issue detail's check).
+        // switch (mirrors the issue detail's check) and, since EXP-432, on
+        // team switch — the shared machines the list carries belong to the
+        // SELECTED team.
         viewModelScope.launch {
-            auth.activeAccountId.collectLatest { accountId ->
-                _steerEnabled.value = null
+            combine(auth.activeAccountId, selection.selectedId) { accountId, teamId ->
+                accountId to teamId
+            }.collectLatest { (accountId, teamId) ->
                 _devices.value = null
                 _latestVersions.value = DeviceLatestVersions()
                 _startState.value = SteerStartState.Idle
                 if (accountId == null) {
+                    configuredAccountId = null
                     _steerEnabled.value = false
                     _devices.value = emptyList()
                     return@collectLatest
                 }
-                val enabled = runCatching { steerApi.config(accountId).enabled }
-                    .getOrDefault(false)
-                _steerEnabled.value = enabled
-                if (enabled) {
-                    loadDevices(accountId)
+                if (configuredAccountId != accountId) {
+                    _steerEnabled.value = null
+                    _steerEnabled.value = runCatching { steerApi.config(accountId).enabled }
+                        .getOrDefault(false)
+                    configuredAccountId = accountId
+                }
+                if (_steerEnabled.value == true) {
+                    loadDevices(accountId, teamId)
                 } else {
                     _devices.value = emptyList()
                 }
@@ -178,8 +192,8 @@ class AgentsViewModel @Inject constructor(
         }
     }
 
-    private suspend fun loadDevices(accountId: String) {
-        runCatching { devicesApi.list(accountId) }
+    private suspend fun loadDevices(accountId: String, teamId: String?) {
+        runCatching { devicesApi.list(accountId, teamId) }
             .onSuccess {
                 _devices.value = it.devices
                 _latestVersions.value = it.latestVersions
@@ -198,7 +212,7 @@ class AgentsViewModel @Inject constructor(
         if (_steerEnabled.value != true) return
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
-            loadDevices(accountId)
+            loadDevices(accountId, selection.selectedId.value)
         }
     }
 
@@ -224,7 +238,7 @@ class AgentsViewModel @Inject constructor(
             val accountId = auth.activeAccountId.value ?: return@launch
             _deviceBusy.value = _deviceBusy.value + deviceId
             runCatching { block(accountId) }
-            loadDevices(accountId)
+            loadDevices(accountId, selection.selectedId.value)
             _deviceBusy.value = _deviceBusy.value - deviceId
         }
     }

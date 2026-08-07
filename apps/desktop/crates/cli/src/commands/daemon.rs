@@ -532,6 +532,7 @@ fn handle_remote_start(
     let origin = coding::LaunchOrigin::Relay {
         device_id: device_id.to_string(),
         claimant: ctx.account.id.clone(),
+        started_by: start.started_by.clone(),
     };
 
     // Errors and refusals are logged, never acked — the remote client

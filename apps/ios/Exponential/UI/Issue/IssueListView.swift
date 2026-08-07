@@ -637,7 +637,12 @@ struct IssueListView: View {
             steerDevices = []
             return
         }
-        steerDevices = (try? await deps.steerApi.myDevices(accountId: accountId)) ?? []
+        // Scoped to the board's team (EXP-432) so teammates' shared servers
+        // count as start targets too — otherwise the bar's Start coding would
+        // hide whenever the only online machine belongs to somebody else.
+        steerDevices = (try? await deps.devicesApi.onlineStartTargets(
+            accountId: accountId, teamId: viewModel?.board?.teamId
+        )) ?? []
     }
 
     @ViewBuilder

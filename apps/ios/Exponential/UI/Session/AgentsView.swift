@@ -5,7 +5,9 @@ import SwiftUI
 /// The Agents tab: "My machines" — the caller's registered devices (EXP-403:
 /// desktops AND headless `exponential` daemon servers, online or not, polled
 /// from `devices.list`) with a per-machine "Start coding" launcher, rename /
-/// remove / self-update row actions — above the caller's OWN running coding
+/// remove / self-update row actions — then "Team machines" (EXP-432: teammates'
+/// servers shared with the active team, startable but never manageable here —
+/// the share toggle is web-only) — above the caller's OWN running coding
 /// sessions in the active account (EXP-312 — teammates' runs are owner-only, so
 /// they are not listed at all). Session rows open the live agent session view
 /// directly when the relay is configured (the same viewer AgentPrCard presents
@@ -113,6 +115,10 @@ struct AgentsView: View {
         }
         .onChange(of: teamState.activeTeam?.id) { _, teamId in
             viewModel?.activeTeamId = teamId
+            // EXP-432: the shared rows belong to the ACTIVE team — re-scope the
+            // poll immediately instead of leaving the old team's machines up
+            // for a tick.
+            startDevicePolling()
         }
         .onDisappear {
             viewModel?.stopObserving()
@@ -156,10 +162,22 @@ struct AgentsView: View {
     // MARK: - My machines
 
     /// The machines a run can be sent to (EXP-403: the list itself includes
-    /// offline rows). The sheet narrows this further — EXP-409 drops machines
-    /// whose every installed agent is signed out.
+    /// offline rows; EXP-432: and teammates' shared servers). The sheet
+    /// narrows this further — EXP-409 drops machines whose every installed
+    /// agent is signed out.
     private var onlineDevices: [SteerDevice] {
         (devices ?? []).filter(\.isOnline)
+    }
+
+    /// The caller's own machines — the only ones with row actions.
+    private var myDevices: [SteerDevice]? {
+        devices?.filter(\.isMine)
+    }
+
+    /// EXP-432: teammates' servers shared with the active team. The server
+    /// appends them after the own rows, and only when the list was team-scoped.
+    private var teamDevices: [SteerDevice] {
+        devices?.filter { !$0.isMine } ?? []
     }
 
     /// Poll `devices.list` while the tab is visible — restartable, so the
@@ -190,7 +208,11 @@ struct AgentsView: View {
             devices = nil
             return
         }
-        let result = try? await deps.devicesApi.list(accountId: accountId)
+        // Team-scoped (EXP-432): the response then also carries teammates'
+        // shared servers. Without an active team it degrades to own machines.
+        let result = try? await deps.devicesApi.list(
+            accountId: accountId, teamId: teamState.activeTeam?.id
+        )
         devices = result?.devices ?? devices ?? []
         latestVersions = result?.latestVersions ?? latestVersions
     }
@@ -217,14 +239,21 @@ struct AgentsView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 8) {
                 sectionHeader("My machines")
-                if let devices {
-                    if devices.isEmpty {
+                if let myDevices {
+                    if myDevices.isEmpty {
                         deviceHintRow
                     } else {
-                        ForEach(devices) { deviceRow($0) }
+                        ForEach(myDevices) { deviceRow($0) }
                     }
                 } else {
                     deviceLoadingRow
+                }
+
+                // EXP-432: teammates' shared servers, grouped below the
+                // caller's own. Absent entirely when nothing is shared.
+                if !teamDevices.isEmpty {
+                    sectionHeader("Team machines")
+                    ForEach(teamDevices) { deviceRow($0) }
                 }
                 if let deviceError {
                     Text(deviceError)
@@ -326,6 +355,20 @@ struct AgentsView: View {
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                             .lineLimit(1)
                     }
+                    // EXP-432: a teammate's machine is attributed to its owner;
+                    // one of the caller's own that is shared just says so (the
+                    // share toggle itself is web-only).
+                    if let owner = device.owner {
+                        Text("shared by \(owner.name)")
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(TextOpacity.quaternary))
+                            .lineLimit(1)
+                    } else if device.sharedTeamId != nil {
+                        Text("Shared")
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(TextOpacity.quaternary))
+                            .lineLimit(1)
+                    }
                 }
                 deviceStatusLine(device)
             }
@@ -350,7 +393,9 @@ struct AgentsView: View {
                 .buttonStyle(.plain)
             }
 
-            if device.isRegistered {
+            // EXP-432: rename / remove / update are OWN-machine actions —
+            // a teammate's shared server is startable but not manageable.
+            if device.isMine, device.isRegistered {
                 Menu {
                     deviceMenu(device)
                 } label: {

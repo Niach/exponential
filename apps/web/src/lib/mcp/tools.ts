@@ -1089,14 +1089,20 @@ export function registerExponentialTools(
           // affected team(s) instead (EXP-194). Deliberately loose, like
           // batch runs themselves: two concurrent batch runs by the same
           // user in one team both flip on either's PR — the schema has no
-          // batch↔PR linkage to be more precise with.
+          // batch↔PR linkage to be more precise with. The caller matches as
+          // owner OR host (EXP-432): on a shared server device the agent
+          // authenticates with the daemon owner's key while the batch row is
+          // requester-owned.
           if (issueIds?.length) {
             await tx
               .update(codingSessions)
               .set({ status: `in_review`, updatedAt: new Date() })
               .where(
                 and(
-                  eq(codingSessions.userId, user.id),
+                  or(
+                    eq(codingSessions.userId, user.id),
+                    eq(codingSessions.hostUserId, user.id)
+                  ),
                   inArray(codingSessions.teamId, [
                     ...new Set(teamIdByIssue.values()),
                   ]),

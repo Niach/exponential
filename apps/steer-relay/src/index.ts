@@ -218,7 +218,20 @@ app.post(`/start`, async (c) => {
     subject = { issueIds, teamId, repo }
   }
 
+  // startedBy is OPTIONAL (EXP-432: requester attribution on a shared-device
+  // start) — but a PRESENT key must be a sane string, else 400 (same stance
+  // as repo/inputs: a mistyped field would drop the frame desktop-side after
+  // /start already answered ok).
+  let startedBy: string | undefined
+  if (body && `startedBy` in body) {
+    startedBy = asString(body.startedBy)
+    if (!startedBy || startedBy.length > 128) {
+      return c.json({ error: `Bad request` }, 400)
+    }
+  }
+
   const options: StartSessionOptions = {
+    ...(startedBy ? { startedBy } : {}),
     agent: asString(body?.agent),
     model: asString(body?.model),
     effort: asString(body?.effort),

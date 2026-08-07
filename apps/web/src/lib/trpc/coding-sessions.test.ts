@@ -45,6 +45,31 @@ const updates: { table: unknown; values: Record<string, unknown> }[] = []
 // Queued results for successive db.select(...).limit(1) calls (heartbeat
 // reads the session row, then — on the issue-scoped re-create — the issue).
 const selectResults: unknown[][] = []
+// Every select's where clause, in call order — the only way to assert the
+// scoping a fake db can't execute (EXP-432: `get` matches owner OR host, and
+// the shared-device lookup is scoped to the CALLER's own device rows).
+const selectWheres: unknown[] = []
+
+// Flatten a drizzle condition into its column names + bound values, in order:
+// eq(a.b, `x`) ⇒ [`col:b`, `x`].
+function whereShape(cond: unknown, out: unknown[] = []): unknown[] {
+  if (!cond || typeof cond !== `object`) return out
+  if (Array.isArray(cond)) {
+    for (const child of cond) whereShape(child, out)
+    return out
+  }
+  const rec = cond as Record<string, unknown>
+  if (Array.isArray(rec.queryChunks)) return whereShape(rec.queryChunks, out)
+  if (`value` in rec && `encoder` in rec) {
+    out.push(rec.value)
+    return out
+  }
+  if (typeof rec.name === `string` && rec.table) {
+    out.push(`col:${rec.name}`)
+    return out
+  }
+  return out
+}
 
 const fakeDb = {
   insert: (table: unknown) => ({
@@ -60,9 +85,10 @@ const fakeDb = {
   }),
   select: () => ({
     from: () => ({
-      where: () => ({
-        limit: async () => selectResults.shift() ?? [],
-      }),
+      where: (cond: unknown) => {
+        selectWheres.push(cond)
+        return { limit: async () => selectResults.shift() ?? [] }
+      },
     }),
   }),
   update: (table: unknown) => ({
@@ -94,6 +120,7 @@ beforeEach(() => {
   inserts.length = 0
   updates.length = 0
   selectResults.length = 0
+  selectWheres.length = 0
   h.assertTeamMember.mockClear()
   h.assertTeamMember.mockResolvedValue({ role: `member` })
   h.getIssueTeamContext.mockClear()
@@ -156,6 +183,9 @@ describe(`codingSessions.start — issue path`, () => {
       teamId: `ws-issue`,
       boardId: `proj-1`,
       userId: `actor`,
+      // EXP-432: an unattributed start is host-less — the row is the
+      // caller's own.
+      hostUserId: null,
       deviceLabel: `MacBook`,
       status: `running`,
     })
@@ -189,6 +219,7 @@ describe(`codingSessions.start — batch path`, () => {
     expect(inserts[0]!.values).toEqual({
       teamId: TEAM_ID,
       userId: `actor`,
+      hostUserId: null,
       deviceLabel: `MacBook`,
       status: `running`,
     })
@@ -243,6 +274,7 @@ describe(`codingSessions.start — action path (EXP-253)`, () => {
       actionId: ACTION_ID,
       actionName: `Code review`,
       userId: `actor`,
+      hostUserId: null,
       deviceLabel: `MacBook`,
       status: `running`,
     })
@@ -605,5 +637,326 @@ describe(`codingSessions.setNeedsInput — attention flag (EXP-214)`, () => {
     expect(error).toBeInstanceOf(TRPCError)
     expect((error as TRPCError).code).toBe(`FORBIDDEN`)
     expect(updates).toHaveLength(0)
+  })
+})
+
+// ── Shared-device attribution (EXP-432) ──────────────────────────────────────
+// The daemon owner (the caller) may hand the row's ownership to the teammate
+// who requested the run — but only when their OWN device row says they shared
+// that server device with the session's team and the teammate is still a
+// member. The row then reads userId = requester, hostUserId = caller.
+
+const DEVICE_ID = `srv-1`
+const REQUESTER = `requester`
+
+// What the caller's own devices row looks like for a valid share.
+function sharedDevice(overrides: Record<string, unknown> = {}) {
+  return { kind: `server`, sharedTeamId: `ws-issue`, ...overrides }
+}
+
+describe(`codingSessions.start — shared-device attribution (EXP-432)`, () => {
+  it(`attributes an issue-scoped start to the requester with the caller as host`, async () => {
+    selectResults.push([sharedDevice()])
+
+    await caller.start({
+      issueId: ISSUE_ID,
+      deviceId: DEVICE_ID,
+      startedById: REQUESTER,
+      deviceLabel: `build-box`,
+    })
+
+    // Both principals are checked against the session's team: the caller
+    // (may start here at all) and the requester (still a member).
+    expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, `ws-issue`)
+    expect(h.assertTeamMember).toHaveBeenCalledWith(REQUESTER, `ws-issue`)
+    // The device row is looked up among the CALLER's own devices.
+    expect(whereShape(selectWheres[0])).toEqual([
+      `col:user_id`,
+      `actor`,
+      `col:device_id`,
+      DEVICE_ID,
+    ])
+    expect(inserts).toHaveLength(1)
+    expect(inserts[0]!.values).toMatchObject({
+      issueId: ISSUE_ID,
+      teamId: `ws-issue`,
+      userId: REQUESTER,
+      hostUserId: `actor`,
+    })
+  })
+
+  it(`attributes a batch start the same way, against the batch's team`, async () => {
+    selectResults.push([sharedDevice({ sharedTeamId: TEAM_ID })])
+
+    await caller.start({
+      teamId: TEAM_ID,
+      deviceId: DEVICE_ID,
+      startedById: REQUESTER,
+    })
+
+    expect(h.assertTeamMember).toHaveBeenCalledWith(REQUESTER, TEAM_ID)
+    expect(inserts[0]!.values).toMatchObject({
+      teamId: TEAM_ID,
+      userId: REQUESTER,
+      hostUserId: `actor`,
+    })
+  })
+
+  it(`attributes an action start, resolving the team from the action row`, async () => {
+    selectResults.push([{ id: ACTION_ID, teamId: TEAM_ID, name: `Code review` }])
+    selectResults.push([sharedDevice({ sharedTeamId: TEAM_ID })])
+
+    await caller.start({
+      actionId: ACTION_ID,
+      deviceId: DEVICE_ID,
+      startedById: REQUESTER,
+    })
+
+    expect(inserts[0]!.values).toMatchObject({
+      actionId: ACTION_ID,
+      userId: REQUESTER,
+      hostUserId: `actor`,
+    })
+  })
+
+  it(`attributes a builtin start (no DB action row)`, async () => {
+    selectResults.push([sharedDevice({ sharedTeamId: TEAM_ID })])
+
+    await caller.start({
+      actionId: `builtin:create-action`,
+      teamId: TEAM_ID,
+      deviceId: DEVICE_ID,
+      startedById: REQUESTER,
+    })
+
+    expect(inserts[0]!.values).toMatchObject({
+      actionName: `Create action`,
+      userId: REQUESTER,
+      hostUserId: `actor`,
+    })
+  })
+
+  it(`requires the sharing device's deviceId`, async () => {
+    const error = await rejectionOf(
+      caller.start({ issueId: ISSUE_ID, startedById: REQUESTER })
+    )
+    expect(error).toBeInstanceOf(TRPCError)
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect((error as TRPCError).message).toContain(`deviceId`)
+    expect(inserts).toHaveLength(0)
+  })
+
+  it(`refuses a device shared with a DIFFERENT team`, async () => {
+    selectResults.push([sharedDevice({ sharedTeamId: `ws-other` })])
+
+    const error = await rejectionOf(
+      caller.start({
+        issueId: ISSUE_ID,
+        deviceId: DEVICE_ID,
+        startedById: REQUESTER,
+      })
+    )
+    expect((error as TRPCError).code).toBe(`FORBIDDEN`)
+    expect((error as TRPCError).message).toContain(`not shared`)
+    expect(inserts).toHaveLength(0)
+  })
+
+  it(`refuses a non-server (desktop) device`, async () => {
+    selectResults.push([sharedDevice({ kind: `desktop` })])
+
+    const error = await rejectionOf(
+      caller.start({
+        issueId: ISSUE_ID,
+        deviceId: DEVICE_ID,
+        startedById: REQUESTER,
+      })
+    )
+    expect((error as TRPCError).code).toBe(`FORBIDDEN`)
+    expect(inserts).toHaveLength(0)
+  })
+
+  it(`refuses a deviceId the caller doesn't own`, async () => {
+    selectResults.push([]) // no row among the caller's devices
+
+    const error = await rejectionOf(
+      caller.start({
+        issueId: ISSUE_ID,
+        deviceId: DEVICE_ID,
+        startedById: REQUESTER,
+      })
+    )
+    expect((error as TRPCError).code).toBe(`FORBIDDEN`)
+    expect(inserts).toHaveLength(0)
+  })
+
+  it(`refuses attributing to a NON-member of the session's team`, async () => {
+    selectResults.push([sharedDevice()])
+    h.assertTeamMember.mockImplementation(async (userId: unknown) => {
+      if (userId === REQUESTER) throw new TRPCError({ code: `FORBIDDEN` })
+      return { role: `member` }
+    })
+
+    const error = await rejectionOf(
+      caller.start({
+        issueId: ISSUE_ID,
+        deviceId: DEVICE_ID,
+        startedById: REQUESTER,
+      })
+    )
+    expect((error as TRPCError).code).toBe(`FORBIDDEN`)
+    expect(inserts).toHaveLength(0)
+  })
+
+  it(`self-attribution stays the plain host-less path (no device lookup)`, async () => {
+    await caller.start({
+      issueId: ISSUE_ID,
+      deviceId: DEVICE_ID,
+      startedById: `actor`,
+    })
+
+    expect(selectWheres).toHaveLength(0)
+    expect(inserts[0]!.values).toMatchObject({
+      userId: `actor`,
+      hostUserId: null,
+    })
+  })
+})
+
+describe(`codingSessions — host allowances (EXP-432)`, () => {
+  it(`heartbeat: the host advances a requester-owned row`, async () => {
+    selectResults.push([
+      { userId: REQUESTER, hostUserId: `actor`, status: `running` },
+    ])
+
+    const result = await caller.heartbeat({ id: SESSION_ID })
+
+    expect(result).toEqual({ alive: true })
+    expect(updates).toHaveLength(1)
+  })
+
+  it(`heartbeat: a third user is still FORBIDDEN`, async () => {
+    selectResults.push([
+      { userId: REQUESTER, hostUserId: `host-x`, status: `running` },
+    ])
+
+    const error = await rejectionOf(caller.heartbeat({ id: SESSION_ID }))
+    expect((error as TRPCError).code).toBe(`FORBIDDEN`)
+    expect(updates).toHaveLength(0)
+  })
+
+  it(`heartbeat: a swept shared-device row resurrects requester-owned`, async () => {
+    selectResults.push([]) // session row gone (swept)
+    selectResults.push([sharedDevice()]) // the caller's shared device
+    selectResults.push([{ status: `in_progress` }]) // the issue
+
+    const result = await caller.heartbeat({
+      id: SESSION_ID,
+      issueId: ISSUE_ID,
+      deviceId: DEVICE_ID,
+      startedById: REQUESTER,
+    })
+
+    expect(result).toEqual({ alive: true })
+    expect(inserts).toHaveLength(1)
+    expect(inserts[0]!.values).toMatchObject({
+      id: SESSION_ID,
+      issueId: ISSUE_ID,
+      userId: REQUESTER,
+      hostUserId: `actor`,
+      status: `running`,
+    })
+  })
+
+  it(`heartbeat: a failed attribution degrades to { alive: false } instead of throwing`, async () => {
+    selectResults.push([]) // session row gone
+    selectResults.push([]) // …and the share is gone too
+
+    const result = await caller.heartbeat({
+      id: SESSION_ID,
+      issueId: ISSUE_ID,
+      deviceId: DEVICE_ID,
+      startedById: REQUESTER,
+    })
+
+    expect(result).toEqual({ alive: false })
+    expect(inserts).toHaveLength(0)
+  })
+
+  it(`setNeedsInput: the host may flag a requester-owned row`, async () => {
+    selectResults.push([
+      { userId: REQUESTER, hostUserId: `actor`, status: `running` },
+    ])
+
+    const result = await caller.setNeedsInput({
+      id: SESSION_ID,
+      needsInput: true,
+    })
+
+    expect(result).toEqual({ updated: true })
+    expect(updates[0]!.values).toEqual({ needsInput: true })
+  })
+
+  it(`setNeedsInput: a third user is still FORBIDDEN`, async () => {
+    selectResults.push([
+      { userId: REQUESTER, hostUserId: `host-x`, status: `running` },
+    ])
+
+    const error = await rejectionOf(
+      caller.setNeedsInput({ id: SESSION_ID, needsInput: true })
+    )
+    expect((error as TRPCError).code).toBe(`FORBIDDEN`)
+    expect(updates).toHaveLength(0)
+  })
+
+  it(`end: the host may end the run on its own machine`, async () => {
+    selectResults.push([
+      {
+        id: SESSION_ID,
+        userId: REQUESTER,
+        hostUserId: `actor`,
+        status: `running`,
+      },
+    ])
+
+    const result = await caller.end({ id: SESSION_ID })
+
+    expect(result.session).toMatchObject({ id: SESSION_ID })
+    expect(updates).toHaveLength(1)
+    expect(updates[0]!.values).toMatchObject({ status: `ended` })
+  })
+
+  it(`end: a third user is still FORBIDDEN`, async () => {
+    selectResults.push([
+      {
+        id: SESSION_ID,
+        userId: REQUESTER,
+        hostUserId: `host-x`,
+        status: `running`,
+      },
+    ])
+
+    const error = await rejectionOf(caller.end({ id: SESSION_ID }))
+    expect((error as TRPCError).code).toBe(`FORBIDDEN`)
+    expect(updates).toHaveLength(0)
+  })
+
+  it(`get: scopes the row to owner OR host`, async () => {
+    selectResults.push([
+      { id: SESSION_ID, userId: REQUESTER, hostUserId: `actor` },
+    ])
+
+    const result = await caller.get({ id: SESSION_ID })
+
+    expect(result.session).toMatchObject({ id: SESSION_ID })
+    // The fake db can't execute a where clause, so assert its shape: the id
+    // AND an or() over both principals.
+    expect(whereShape(selectWheres[0])).toEqual([
+      `col:id`,
+      SESSION_ID,
+      `col:user_id`,
+      `actor`,
+      `col:host_user_id`,
+      `actor`,
+    ])
   })
 })

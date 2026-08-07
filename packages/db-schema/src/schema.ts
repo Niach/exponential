@@ -573,10 +573,22 @@ export const codingSessions = pgTable(
     }),
     actionName: varchar(`action_name`, { length: 255 }),
     // The real user driving the session under their own auth — NOT a synthetic
-    // agent identity.
+    // agent identity. For a start on a teammate's shared server device
+    // (EXP-432) this is the REQUESTER, so EXP-312 owner-only steering lets
+    // them watch/steer/kill what they launched.
     userId: text(`user_id`)
       .notNull()
       .references(() => users.id, { onDelete: `cascade` }),
+    // EXP-432, server-only — NEVER add to the shape allowlist. The device
+    // owner's account hosting a teammate-started session on a shared server
+    // device: their daemon executes the run under its own auth, so session
+    // procedures (get/heartbeat/setNeedsInput/end, publisher tickets, the MCP
+    // batch flip) accept host OR owner. NULL for every self-hosted start.
+    // SET NULL, not cascade: the row belongs to the requester and survives
+    // the host's account deletion.
+    hostUserId: text(`host_user_id`).references(() => users.id, {
+      onDelete: `set null`,
+    }),
     // Human label of the host device ("Dennis's MacBook"), shown on the badge.
     deviceLabel: varchar(`device_label`, { length: 255 }),
     status: codingSessionStatusEnum().notNull().default(`running`),
@@ -722,11 +734,23 @@ export const devices = pgTable(
     lastSeenAt: timestamp(`last_seen_at`, { withTimezone: true })
       .notNull()
       .defaultNow(),
+    // EXP-432: the ONE team this device is shared with (server-kind only,
+    // router-enforced). Teammates of that team see the device in team-scoped
+    // devices.list and may remote-start sessions on it; the resulting rows
+    // are requester-owned with host_user_id = this row's owner. SET NULL on
+    // team delete; NULL = private (the default).
+    sharedTeamId: uuid(`shared_team_id`).references(() => teams.id, {
+      onDelete: `set null`,
+    }),
     ...timestamps,
   },
   (table) => [
     unique().on(table.userId, table.deviceId),
     index(`idx_devices_user`).on(table.userId),
+    // Serves the per-team shared listing; partial — most devices are private.
+    index(`idx_devices_shared_team`)
+      .on(table.sharedTeamId)
+      .where(sql`shared_team_id IS NOT NULL`),
   ]
 )
 

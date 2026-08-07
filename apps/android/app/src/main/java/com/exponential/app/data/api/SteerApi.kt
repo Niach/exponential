@@ -11,8 +11,10 @@ import kotlinx.serialization.json.buildJsonObject
 // Mirrors apps/web/src/lib/trpc/steer.ts (the ticket-minting router) + the
 // relay wire contract in apps/steer-relay/src/protocol.ts. Android is a pure
 // relay *client* (masterplan §5b/§5c): it remote-starts a coding session on
-// the user's own online desktop and watches/steers the live PTY over the
-// relay socket — no local terminal, no CLI, no agent runtime.
+// one of the user's own online machines — or, since EXP-432, on a teammate's
+// server shared with the team, where the run is still attributed to the
+// requester — and watches/steers the live PTY over the relay socket. No local
+// terminal, no CLI, no agent runtime.
 
 /** Whether remote start + live steering is available on this instance. */
 @Serializable
@@ -22,11 +24,23 @@ data class SteerConfigResult(
 )
 
 /**
- * One of the caller's machines, in the shape BOTH sources return (mirrors
- * web's `lib/steer-devices.ts`): `steer.myDevices` hands back live relay
- * presence only, `devices.list` (EXP-403) the durable per-user registry
- * merged with that presence. The registry fields are all defaulted, so a
- * relay-only row decodes unchanged and reads as an online desktop.
+ * The owner of a machine someone ELSE shares with the team (EXP-432) — set
+ * only on the rows `devices.list({teamId})` appends after the caller's own,
+ * so its absence IS "this one is mine" (see [SteerDevice.isMine]).
+ */
+@Serializable
+data class DeviceOwner(
+    @SerialName("id") val id: String,
+    @SerialName("name") val name: String,
+)
+
+/**
+ * One machine the caller can start on (mirrors web's `lib/steer-devices.ts`).
+ * Every surface reads these from `devices.list` (EXP-403 — the durable
+ * registry merged with live relay presence, plus the team's shared servers
+ * since EXP-432), but the shape is the RELAY's too: the registry fields are
+ * all defaulted, so a relay-only row decodes unchanged and reads as an online
+ * desktop.
  *
  * [agents] lists the coding agents the machine can RUN (EXP-201; since
  * EXP-409 that means installed AND signed in) — an ABSENT list is an older
@@ -65,9 +79,24 @@ data class SteerDevice(
      * the daemon applies it once they close ("Update queued", no spinner).
      */
     @SerialName("updateBlocked") val updateBlocked: Boolean = false,
+    // ── Team sharing (EXP-432) ───────────────────────────────────────────────
+    /**
+     * The team this machine is shared with, null when private. Carried on the
+     * caller's OWN rows too — sharing is managed on the web only, so this app
+     * just reports it.
+     */
+    @SerialName("sharedTeamId") val sharedTeamId: String? = null,
+    /** Set only on a TEAMMATE's shared machine — never on the caller's own. */
+    @SerialName("owner") val owner: DeviceOwner? = null,
 ) {
     /** A headless `exponential` daemon rather than the desktop IDE. */
     val isServer: Boolean get() = kind == KIND_SERVER
+
+    /**
+     * EXP-432: one of the caller's own machines. Teammates' shared rows carry
+     * an [owner]; own rows never do — the same test web's `deviceIsMine` makes.
+     */
+    val isMine: Boolean get() = owner == null
 
     /** EXP-411: the pending update waits for live sessions to close. */
     val updateQueued: Boolean get() = updateRequested && updateBlocked
@@ -120,9 +149,6 @@ data class SteerDevice(
         private const val FALLBACK_AGENT = "claude"
     }
 }
-
-@Serializable
-data class SteerDevicesResult(val devices: List<SteerDevice> = emptyList())
 
 /**
  * A minted relay ticket + the full `ws(s)://<relay>/ws?ticket=<token>` dial
@@ -229,16 +255,6 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
             outputSerializer = SteerConfigResult.serializer(),
         )
 
-    /** `steer.myDevices` — the caller's online desktops (device picker). */
-    suspend fun myDevices(accountId: String): SteerDevicesResult =
-        trpc.query(
-            accountId,
-            path = "steer.myDevices",
-            input = buildJsonObject { },
-            inputSerializer = JsonObject.serializer(),
-            outputSerializer = SteerDevicesResult.serializer(),
-        )
-
     /** `steer.mintTicket({kind:'viewer'})` — watch/steer a running session. */
     suspend fun mintViewerTicket(accountId: String, codingSessionId: String): SteerTicketResult =
         trpc.mutation(
@@ -265,7 +281,8 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
         )
     }
 
-    /** `steer.startSession` — remote-start on the user's own online desktop. */
+    /** `steer.startSession` — remote-start on any online machine the caller
+     * may use: their own, or a teammate's server shared with the team (EXP-432). */
     suspend fun startSession(
         accountId: String,
         issueId: String,
@@ -291,7 +308,7 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
 
     /**
      * `steer.startSession` batch form — remote-start ONE session spanning
-     * [issueIds] (2+; all in the same repository) on the user's own desktop.
+     * [issueIds] (2+; all in the same repository) on the picked machine.
      * Same endpoint + error mapping as the single-issue [startSession].
      */
     suspend fun startSession(
@@ -319,7 +336,7 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
 
     /**
      * `steer.startSession` action form (EXP-253/EXP-257) — remote-run the
-     * team action [actionId] on the user's own online desktop, which must
+     * team action [actionId] on the picked online machine, which must
      * advertise the `actions` capability ([SteerDevice.canRunActions]; plus
      * `action-inputs` for builtin/inputs-carrying runs — the server enforces
      * both). [options] rides with the same per-agent vocabulary as the issue

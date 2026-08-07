@@ -6,6 +6,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 // Mirrors apps/web/src/lib/trpc/devices.ts. The EXP-403 registry is the
 // caller's OWN machines — the desktop IDE and headless `exponential` daemon
@@ -13,6 +14,9 @@ import kotlinx.serialization.json.buildJsonObject
 // `list` merges the durable rows (label, kind, last seen, version) with live
 // relay presence, so a row carries both identity and startability; this app
 // only reads and curates that list — registering is the machines' own job.
+// EXP-432 widens `list` with an optional teamId: teammates' SERVER machines
+// shared with that team come back too (read-only here — the share toggle is
+// web-only), and a start on one runs there but is attributed to the caller.
 
 /**
  * Informational `CLIENT_LATEST_VERSION_*` values (null when unset
@@ -43,12 +47,20 @@ private data class RenameDeviceInput(
 @Singleton
 class DevicesApi @Inject constructor(private val trpc: TrpcClient) {
 
-    /** `devices.list` — the caller's machines, online and offline. */
-    suspend fun list(accountId: String): DeviceListResult =
+    /**
+     * `devices.list` — the caller's machines, online and offline. With
+     * [teamId] the response ALSO carries teammates' server machines shared
+     * with that team (EXP-432), appended after the caller's own rows and
+     * marked by their [SteerDevice.owner]. Omitting it keeps the pre-EXP-432
+     * own-machines-only behavior (the input is optional server-side).
+     */
+    suspend fun list(accountId: String, teamId: String? = null): DeviceListResult =
         trpc.query(
             accountId,
             path = "devices.list",
-            input = buildJsonObject { },
+            // An empty object is dropped from the URL entirely (TrpcClient's
+            // omitInputIfEmpty), which is exactly what the no-team call means.
+            input = buildJsonObject { if (teamId != null) put("teamId", teamId) },
             inputSerializer = JsonObject.serializer(),
             outputSerializer = DeviceListResult.serializer(),
         )

@@ -11,12 +11,56 @@ import { TRPCError } from "@trpc/server"
 const h = vi.hoisted(() => {
   // Minimal drizzle select-chain: each awaited query pops the next row set
   // off the queue (the action branch runs its selects in a fixed order).
+  // The popped rows are additionally FILTERED against the query's own eq()
+  // conditions (EXP-432: the shared-device lookup's team/kind scoping lives
+  // in the where clause, so a queued row that the real query would not match
+  // must not resolve here either). A row is only checked on keys it actually
+  // carries, so narrow projections stay unaffected.
   const dbQueue: unknown[][] = []
+  type WherePart = { column?: string; value?: unknown }
+  const walkWhere = (node: unknown, out: WherePart[] = []): WherePart[] => {
+    if (!node || typeof node !== `object`) return out
+    if (Array.isArray(node)) {
+      for (const child of node) walkWhere(child, out)
+      return out
+    }
+    const rec = node as Record<string, unknown>
+    if (Array.isArray(rec.queryChunks)) return walkWhere(rec.queryChunks, out)
+    if (`value` in rec && `encoder` in rec) {
+      out.push({ value: rec.value })
+      return out
+    }
+    if (typeof rec.name === `string` && rec.table) {
+      out.push({ column: rec.name })
+      return out
+    }
+    return out
+  }
+  const camel = (name: string) =>
+    name.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase())
+  const matches = (row: Record<string, unknown>, parts: WherePart[]) =>
+    parts.every((part, i) => {
+      const next = parts[i + 1]
+      if (part.column === undefined || !next || next.column !== undefined) {
+        return true
+      }
+      const key = camel(part.column)
+      return !(key in row) || row[key] === next.value
+    })
   const makeChain = () => {
+    let cond: unknown
     const chain = {
       from: () => chain,
-      where: () => chain,
-      limit: () => Promise.resolve(dbQueue.shift() ?? []),
+      innerJoin: () => chain,
+      where: (value: unknown) => {
+        cond = value
+        return chain
+      },
+      limit: () => {
+        const rows = (dbQueue.shift() ?? []) as Record<string, unknown>[]
+        const parts = walkWhere(cond)
+        return Promise.resolve(rows.filter((row) => matches(row, parts)))
+      },
     }
     return chain
   }
@@ -24,6 +68,8 @@ const h = vi.hoisted(() => {
     getSteerRelayConfig: vi.fn(),
     relayPostStart: vi.fn(),
     relayGetDevices: vi.fn(),
+    mintSteerTicket: vi.fn(),
+    relayPostKill: vi.fn(),
     assertTeamMember: vi.fn(),
     getIssueTeamContext: vi.fn(),
     resolveBoardRepository: vi.fn(),
@@ -49,9 +95,8 @@ vi.mock(`@/lib/steer`, () => ({
   getSteerRelayConfig: h.getSteerRelayConfig,
   relayPostStart: h.relayPostStart,
   relayGetDevices: h.relayGetDevices,
-  // Referenced (not called) by sibling procedures we never invoke here.
-  mintSteerTicket: vi.fn(),
-  relayPostKill: vi.fn(),
+  mintSteerTicket: h.mintSteerTicket,
+  relayPostKill: h.relayPostKill,
 }))
 
 import { steerRouter } from "@/lib/trpc/steer"
@@ -88,6 +133,13 @@ beforeEach(() => {
   })
   h.relayPostStart.mockReset()
   h.relayPostStart.mockResolvedValue({ ok: true })
+  h.mintSteerTicket.mockReset()
+  h.mintSteerTicket.mockResolvedValue({
+    ticket: `tkt`,
+    url: `wss://steer.example.com/ws?t=tkt`,
+  })
+  h.relayPostKill.mockReset()
+  h.relayPostKill.mockResolvedValue(undefined)
   h.relayGetDevices.mockReset()
   // Default: the target device is online and advertises all three agents.
   h.relayGetDevices.mockResolvedValue({
@@ -386,6 +438,7 @@ describe(`steer.startSession — agent selection (EXP-201)`, () => {
 const ACTION_ID = `33333333-3333-4333-8333-333333333333`
 const REPO_INPUT_ID = `44444444-4444-4444-8444-444444444444`
 const BUILTIN_ID = `builtin:create-action`
+const BUILTIN_TEAM_ID = `55555555-5555-4555-8555-555555555555`
 
 function actionsCapableDevice(caps: string[], agents?: string[]) {
   h.relayGetDevices.mockResolvedValue({
@@ -708,5 +761,321 @@ describe(`steer.startSession — builtin create-action (EXP-257)`, () => {
       })
     )
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+  })
+})
+
+// ── Shared server devices (EXP-432) ──────────────────────────────────────────
+// A deviceId the caller doesn't own resolves through the `devices` table: a
+// SERVER device shared with the subject's team routes to its OWNER's presence
+// bucket, and the start carries `startedBy` so the hosting daemon can attribute
+// the session row back to the requester. Anything else keeps the pre-EXP-432
+// lenient shape (post with the caller's own userId; the relay 404s).
+
+const SHARED_DEVICE = `srv-1`
+
+// The caller has nothing online; `owner-1` hosts the shared server device.
+function ownerHostsSharedDevice(caps?: string[], agents?: string[]) {
+  h.relayGetDevices.mockImplementation(
+    async (_config: unknown, forUserId: string) =>
+      forUserId === `owner-1`
+        ? {
+            devices: [
+              {
+                deviceId: SHARED_DEVICE,
+                deviceLabel: `build-box`,
+                connectedAt: 0,
+                agents: agents ?? [`claude`, `codex`, `pi`],
+                ...(caps ? { caps } : {}),
+              },
+            ],
+          }
+        : { devices: [] }
+  )
+}
+
+// The row the devices lookup finds. It carries the scoping columns so the
+// harness's where-filter can reject a row the real query would not match.
+function sharedDeviceRow(overrides: Record<string, unknown> = {}) {
+  return {
+    userId: `owner-1`,
+    deviceId: SHARED_DEVICE,
+    sharedTeamId: `ws-1`,
+    kind: `server`,
+    ...overrides,
+  }
+}
+
+describe(`steer.startSession — shared devices (EXP-432)`, () => {
+  it(`routes an issue start to the sharing owner's bucket with startedBy`, async () => {
+    ownerHostsSharedDevice()
+    h.dbQueue.push([sharedDeviceRow()])
+
+    await caller.startSession({ issueId: ISSUE_A, deviceId: SHARED_DEVICE })
+
+    // Presence was read for the caller first, then for the resolved owner.
+    expect(h.relayGetDevices.mock.calls.map((c) => c[1])).toEqual([
+      `actor`,
+      `owner-1`,
+    ])
+    expect(lastStartBody()).toMatchObject({
+      userId: `owner-1`,
+      startedBy: `actor`,
+      deviceId: SHARED_DEVICE,
+      issueId: ISSUE_A,
+    })
+  })
+
+  it(`routes a batch start to the sharing owner's bucket with startedBy`, async () => {
+    ownerHostsSharedDevice()
+    h.dbQueue.push([sharedDeviceRow()])
+
+    await caller.startSession({
+      issueIds: [ISSUE_A, ISSUE_B],
+      deviceId: SHARED_DEVICE,
+    })
+
+    expect(lastStartBody()).toMatchObject({
+      userId: `owner-1`,
+      startedBy: `actor`,
+      issueIds: [ISSUE_A, ISSUE_B],
+      teamId: `ws-1`,
+    })
+  })
+
+  it(`gates the agent list against the OWNER's presence, not the caller's`, async () => {
+    ownerHostsSharedDevice(undefined, [`claude`])
+    h.dbQueue.push([sharedDeviceRow()])
+
+    const error = await rejectionOf(
+      caller.startSession({
+        issueId: ISSUE_A,
+        deviceId: SHARED_DEVICE,
+        agent: `codex`,
+      })
+    )
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toContain(`codex is not installed`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`omits startedBy entirely on an own-device start`, async () => {
+    await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
+
+    const body = lastStartBody()
+    expect(body.userId).toBe(`actor`)
+    expect(`startedBy` in body).toBe(false)
+    // The caller's own presence answered — no devices lookup, no second
+    // relay round-trip.
+    expect(h.relayGetDevices).toHaveBeenCalledTimes(1)
+  })
+
+  it(`keeps the lenient path for a device nobody shared (relay 404 ⇒ PRECONDITION_FAILED)`, async () => {
+    h.relayGetDevices.mockResolvedValue({ devices: [] })
+    h.relayPostStart.mockResolvedValue({
+      ok: false,
+      status: 404,
+      reason: `device_offline`,
+    })
+
+    const error = await rejectionOf(
+      caller.startSession({ issueId: ISSUE_A, deviceId: `ghost` })
+    )
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toBe(`device_offline`)
+    const body = lastStartBody()
+    expect(body.userId).toBe(`actor`)
+    expect(`startedBy` in body).toBe(false)
+  })
+
+  it(`does NOT resolve a device shared with a DIFFERENT team`, async () => {
+    ownerHostsSharedDevice()
+    // The issue lives in ws-1; the share targets another team, so the
+    // team-scoped lookup matches nothing.
+    h.dbQueue.push([sharedDeviceRow({ sharedTeamId: `ws-OTHER` })])
+
+    await caller.startSession({ issueId: ISSUE_A, deviceId: SHARED_DEVICE })
+
+    const body = lastStartBody()
+    expect(body.userId).toBe(`actor`)
+    expect(`startedBy` in body).toBe(false)
+    // The owner's presence was never fetched.
+    expect(h.relayGetDevices.mock.calls.map((c) => c[1])).toEqual([`actor`])
+  })
+
+  it(`does NOT resolve a non-server (desktop) device row`, async () => {
+    ownerHostsSharedDevice()
+    h.dbQueue.push([sharedDeviceRow({ kind: `desktop` })])
+
+    await caller.startSession({ issueId: ISSUE_A, deviceId: SHARED_DEVICE })
+
+    const body = lastStartBody()
+    expect(body.userId).toBe(`actor`)
+    expect(`startedBy` in body).toBe(false)
+  })
+
+  it(`never marks the caller's OWN shared device as a shared start`, async () => {
+    // The caller shared their own server device with the team but its daemon
+    // is offline — the row resolves to themselves, so no startedBy rides.
+    h.relayGetDevices.mockResolvedValue({ devices: [] })
+    h.dbQueue.push([sharedDeviceRow({ userId: `actor` })])
+
+    await caller.startSession({ issueId: ISSUE_A, deviceId: SHARED_DEVICE })
+
+    const body = lastStartBody()
+    expect(body.userId).toBe(`actor`)
+    expect(`startedBy` in body).toBe(false)
+    expect(h.relayGetDevices).toHaveBeenCalledTimes(1)
+  })
+
+  it(`routes an action start to the owner's bucket with startedBy`, async () => {
+    ownerHostsSharedDevice([`actions`, `action-inputs`])
+    h.dbQueue.push([
+      { id: ACTION_ID, teamId: `ws-1`, repositoryId: null, name: `A`, inputs: [] },
+    ])
+    h.dbQueue.push([sharedDeviceRow()])
+
+    await caller.startSession({ actionId: ACTION_ID, deviceId: SHARED_DEVICE })
+
+    expect(lastStartBody()).toMatchObject({
+      userId: `owner-1`,
+      startedBy: `actor`,
+      actionId: ACTION_ID,
+      teamId: `ws-1`,
+    })
+  })
+
+  it(`checks the action caps against the OWNER's presence`, async () => {
+    // The owner's daemon is old: it advertises no caps at all.
+    ownerHostsSharedDevice()
+    h.dbQueue.push([
+      { id: ACTION_ID, teamId: `ws-1`, repositoryId: null, name: `A`, inputs: [] },
+    ])
+    h.dbQueue.push([sharedDeviceRow()])
+
+    const error = await rejectionOf(
+      caller.startSession({ actionId: ACTION_ID, deviceId: SHARED_DEVICE })
+    )
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toContain(`can't run actions`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`requires action-inputs on the owner's device for a builtin start`, async () => {
+    ownerHostsSharedDevice([`actions`])
+    h.dbQueue.push([sharedDeviceRow({ sharedTeamId: BUILTIN_TEAM_ID })])
+
+    const error = await rejectionOf(
+      caller.startSession({
+        actionId: BUILTIN_ID,
+        teamId: BUILTIN_TEAM_ID,
+        deviceId: SHARED_DEVICE,
+        inputs: { description: `x` },
+      })
+    )
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toContain(`action inputs`)
+  })
+
+  it(`routes a builtin start on a shared device with startedBy`, async () => {
+    ownerHostsSharedDevice([`actions`, `action-inputs`])
+    h.dbQueue.push([sharedDeviceRow({ sharedTeamId: BUILTIN_TEAM_ID })])
+
+    await caller.startSession({
+      actionId: BUILTIN_ID,
+      teamId: BUILTIN_TEAM_ID,
+      deviceId: SHARED_DEVICE,
+      inputs: { description: `Review PRs weekly` },
+    })
+
+    expect(lastStartBody()).toMatchObject({
+      userId: `owner-1`,
+      startedBy: `actor`,
+      actionId: BUILTIN_ID,
+      teamId: BUILTIN_TEAM_ID,
+    })
+  })
+})
+
+// ── Host-account allowances on live-session controls (EXP-432) ───────────────
+// A shared-device session is requester-OWNED (userId) and host-OPERATED
+// (hostUserId). Both principals may publish/view/kill it; nobody else may.
+
+const SESSION_ID = `66666666-6666-4666-8666-666666666666`
+
+function queueSession(overrides: Record<string, unknown> = {}) {
+  h.dbQueue.push([
+    {
+      id: SESSION_ID,
+      userId: `requester`,
+      hostUserId: `actor`,
+      teamId: `ws-1`,
+      status: `running`,
+      ...overrides,
+    },
+  ])
+}
+
+describe(`steer.mintTicket — owner OR host (EXP-432)`, () => {
+  it(`lets the hosting account publish a requester-owned session`, async () => {
+    queueSession()
+    await caller.mintTicket({ kind: `publisher`, codingSessionId: SESSION_ID })
+    expect(h.mintSteerTicket).toHaveBeenCalledWith(expect.anything(), {
+      kind: `publisher`,
+      userId: `actor`,
+      teamId: `ws-1`,
+      sessionId: SESSION_ID,
+    })
+  })
+
+  it(`lets the hosting account view a requester-owned session`, async () => {
+    queueSession()
+    await caller.mintTicket({ kind: `viewer`, codingSessionId: SESSION_ID })
+    expect(h.mintSteerTicket).toHaveBeenCalledWith(expect.anything(), {
+      kind: `viewer`,
+      userId: `actor`,
+      teamId: `ws-1`,
+      sessionId: SESSION_ID,
+    })
+  })
+
+  it(`refuses a third party as publisher AND as viewer`, async () => {
+    queueSession({ hostUserId: `someone-else` })
+    let error = await rejectionOf(
+      caller.mintTicket({ kind: `publisher`, codingSessionId: SESSION_ID })
+    )
+    expect((error as TRPCError).code).toBe(`FORBIDDEN`)
+
+    queueSession({ hostUserId: `someone-else` })
+    error = await rejectionOf(
+      caller.mintTicket({ kind: `viewer`, codingSessionId: SESSION_ID })
+    )
+    expect((error as TRPCError).code).toBe(`FORBIDDEN`)
+    expect(h.mintSteerTicket).not.toHaveBeenCalled()
+  })
+
+  it(`still mints for the session owner when there is no host`, async () => {
+    queueSession({ userId: `actor`, hostUserId: null })
+    await caller.mintTicket({ kind: `viewer`, codingSessionId: SESSION_ID })
+    expect(h.mintSteerTicket).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe(`steer.killSession — owner OR host (EXP-432)`, () => {
+  it(`lets the hosting account kill what runs on its own machine`, async () => {
+    // An already-ended row short-circuits the transaction write, so the
+    // authorization branch is what this exercises.
+    queueSession({ status: `ended` })
+    const result = await caller.killSession({ codingSessionId: SESSION_ID })
+    expect(result.session).toMatchObject({ id: SESSION_ID })
+    expect(h.relayPostKill).toHaveBeenCalledWith(expect.anything(), SESSION_ID)
+  })
+
+  it(`refuses a user who is neither owner nor host`, async () => {
+    queueSession({ hostUserId: `someone-else`, status: `ended` })
+    const error = await rejectionOf(
+      caller.killSession({ codingSessionId: SESSION_ID })
+    )
+    expect((error as TRPCError).code).toBe(`FORBIDDEN`)
+    expect(h.relayPostKill).not.toHaveBeenCalled()
   })
 })
