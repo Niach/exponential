@@ -657,7 +657,8 @@ private class ShapeReporter(
     val onPhase: (String) -> Unit = {},
     val onApplied: (Int) -> Unit = {},
     // (authFailure, message, schemaError): authFailure is HTTP 401/403; schema
-    // is true for "no such column/table" class SQLite failures.
+    // is true for "no such column/table" and constraint-violation class SQLite
+    // failures.
     val onError: (Boolean, String?, Boolean) -> Unit = { _, _, _ -> },
     val onSuccess: () -> Unit = {},
     // (kind, wall-clock ms, rows) for a completed poll — EXP-304 timing.

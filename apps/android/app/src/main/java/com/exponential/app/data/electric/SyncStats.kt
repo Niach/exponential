@@ -27,7 +27,9 @@ class SyncStats @Inject constructor() {
         val consecutiveErrors: Int = 0,
         // Message from the most recent failing poll (null once a poll succeeds).
         val lastError: String? = null,
-        // The last failure was a "no such column/table" class SQLite error.
+        // The last failure was a schema-drift class SQLite error ("no such
+        // column/table", or a constraint the local schema still enforces and
+        // the server no longer does).
         val schemaError: Boolean = false,
         // An auto-reset is repopulating this shape from a fresh snapshot.
         val recovering: Boolean = false,

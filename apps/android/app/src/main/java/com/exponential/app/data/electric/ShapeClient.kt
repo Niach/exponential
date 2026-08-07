@@ -121,8 +121,8 @@ class ShapeClient<T : Any>(
     private val onPhase: (String) -> Unit = {},
     private val onApplied: (Int) -> Unit = {},
     // Reports a failed poll: (authFailure, message, schemaError). authFailure is
-    // true for HTTP 401/403; schemaError is true for "no such column/table"
-    // class SQLite failures during apply.
+    // true for HTTP 401/403; schemaError is true for "no such column/table" and
+    // constraint-violation class SQLite failures during apply.
     private val onError: (Boolean, String?, Boolean) -> Unit = { _, _, _ -> },
     // Reports a successful poll, so current-health error state can be cleared.
     private val onSuccess: () -> Unit = {},
@@ -378,12 +378,26 @@ class ShapeClient<T : Any>(
     private fun describe(error: Throwable): String =
         error.message ?: error.javaClass.simpleName
 
+    /**
+     * A schema-drift failure the tolerant-apply path couldn't absorb — the
+     * signal that triggers the one-shot shape reset above.
+     *
+     * CONSTRAINT violations count (REV-7, iOS parity). A partial update carrying
+     * a NULL for a column the local schema still marks NOT NULL — the shape's
+     * server column went nullable, or an ON DELETE SET NULL fired — fails the
+     * apply transaction BEFORE the offset advances, so the identical batch comes
+     * back on every poll and the shape stalls forever. Naming it schema drift
+     * caps that at [SCHEMA_RESET_THRESHOLD] strikes: the resnapshot replays the
+     * rows as full-row inserts, which the decoder either accepts or drops
+     * individually. Losing a row beats losing the shape.
+     */
     private fun isSchemaError(error: Throwable): Boolean {
         var t: Throwable? = error
         while (t != null) {
             val msg = t.message?.lowercase()
             if (msg != null &&
-                ("no such column" in msg || "no such table" in msg || "has no column named" in msg)
+                ("no such column" in msg || "no such table" in msg || "has no column named" in msg ||
+                    "constraint failed" in msg || "datatype mismatch" in msg)
             ) {
                 return true
             }

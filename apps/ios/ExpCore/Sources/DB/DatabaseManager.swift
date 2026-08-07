@@ -313,7 +313,9 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("team_id", .text).notNull().indexed()
                 t.column("issue_id", .text).notNull().indexed()
                 t.column("comment_id", .text)
-                t.column("uploader_id", .text).notNull()
+                // Nullable (REV-7): widget screenshot attachments have no human
+                // uploader, and the server FK is ON DELETE SET NULL.
+                t.column("uploader_id", .text)
                 t.column("filename", .text).notNull()
                 t.column("content_type", .text).notNull()
                 t.column("size_bytes", .integer).notNull()
@@ -757,6 +759,70 @@ public final class DatabaseManager: @unchecked Sendable {
             guard existing.contains("is_protected") else { return }
             try db.alter(table: "boards") { t in
                 t.drop(column: "is_protected")
+            }
+        }
+
+        // v15 (REV-7): `attachments.uploader_id` is NULLABLE server-side — a
+        // widget screenshot attachment has no human uploader, and the FK is ON
+        // DELETE SET NULL, so deleting an account nulls the uploader on the
+        // attachments it left behind in a surviving team. The local NOT NULL
+        // turned both into sync failures: a full-row insert with a null uploader
+        // was decode-dropped forever, and a SET NULL update bound NULL into the
+        // constrained column, throwing inside applyBatch BEFORE the offset save
+        // — the same batch refetched and refailed on every poll, permanently
+        // stalling the attachments shape. SQLite can't relax a NOT NULL via
+        // ALTER, so rebuild the table (the v6_issue_source_nullable_creator
+        // precedent), then force a full re-snapshot so the rows that were
+        // dropped on the way in finally land.
+        migrator.registerMigration("v15_attachment_nullable_uploader") { db in
+            guard try db.tableExists("attachments") else { return }
+            let cols = try db.columns(in: "attachments")
+            let uploaderNotNull = cols.first { $0.name == "uploader_id" }?.isNotNull ?? false
+            // Already converged (fresh installs get the v1 create shape).
+            guard uploaderNotNull else { return }
+
+            try db.create(table: "attachments_new") { t in
+                t.primaryKey("id", .text)
+                t.column("team_id", .text).notNull().indexed()
+                t.column("issue_id", .text).notNull().indexed()
+                t.column("comment_id", .text)
+                // Nullable: widget screenshots + SET NULL on account deletion.
+                t.column("uploader_id", .text)
+                t.column("filename", .text).notNull()
+                t.column("content_type", .text).notNull()
+                t.column("size_bytes", .integer).notNull()
+                t.column("storage_key", .text).notNull()
+                t.column("url", .text).notNull()
+                t.column("width", .integer)
+                t.column("height", .integer)
+                t.column("created_at", .text).notNull()
+                t.column("updated_at", .text).notNull()
+            }
+
+            try db.execute(sql: """
+                INSERT INTO "attachments_new" (
+                    "id", "team_id", "issue_id", "comment_id", "uploader_id",
+                    "filename", "content_type", "size_bytes", "storage_key",
+                    "url", "width", "height", "created_at", "updated_at"
+                )
+                SELECT
+                    "id", "team_id", "issue_id", "comment_id", "uploader_id",
+                    "filename", "content_type", "size_bytes", "storage_key",
+                    "url", "width", "height", "created_at", "updated_at"
+                FROM "attachments"
+                """)
+
+            try db.drop(table: "attachments")
+            try db.rename(table: "attachments_new", to: "attachments")
+
+            // Force a re-snapshot so the inserts this store dropped (widget
+            // screenshots) re-arrive — nothing else ever refetches them.
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'attachments'
+                    """)
             }
         }
 

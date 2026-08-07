@@ -245,13 +245,24 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
 
     /// A schema-drift failure the tolerant-apply path couldn't absorb — the
     /// signal that triggers a one-shot refetch of the shape.
-    private static func isSchemaError(_ error: Error) -> Bool {
+    ///
+    /// CONSTRAINT violations count (REV-7). A partial update carrying a NULL for
+    /// a column the local schema still marks NOT NULL — the shape's server
+    /// column went nullable, or an ON DELETE SET NULL fired — throws inside the
+    /// single applyBatch transaction BEFORE the offset is saved, so the very
+    /// same batch comes back on every poll and the shape stalls forever. Naming
+    /// it schema drift caps that at three strikes: the refetch replays the rows
+    /// as full-row inserts, which the entity decoder either accepts or drops
+    /// individually. Losing a row beats losing the shape.
+    static func isSchemaError(_ error: Error) -> Bool {
         guard let dbError = error as? DatabaseError, let message = dbError.message?.lowercased() else {
             return false
         }
         return message.contains("no such column")
             || message.contains("no such table")
             || message.contains("has no column")
+            || message.contains("constraint failed")
+            || message.contains("datatype mismatch")
     }
 
     /// Returns `true` when the next poll should be paced (a refetch is pending
