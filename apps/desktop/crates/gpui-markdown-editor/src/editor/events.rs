@@ -185,6 +185,7 @@ impl Editor {
                 | BlockEvent::RequestQuoteBreak
                 | BlockEvent::RequestCalloutBreak
                 | BlockEvent::RequestMergeIntoPrev { .. }
+                | BlockEvent::RequestMergeWithNext
                 | BlockEvent::RequestPasteMultiline { .. }
                 | BlockEvent::RequestPasteImage { .. }
                 | BlockEvent::RequestIndent
@@ -1700,6 +1701,145 @@ impl Editor {
                 self.finalize_pending_undo_capture(cx);
                 cx.notify();
             }
+            BlockEvent::RequestMergeWithNext => {
+                if current_visible_index + 1 >= visible_before.len() {
+                    return;
+                }
+                let next = visible_before[current_visible_index + 1].entity.clone();
+
+                // Web parity: Delete before a rendered image selects the image
+                // block instead of merging its raw `![alt](src)` source into
+                // the caret block; the next Delete on the focused image then
+                // removes it (EXP-285).
+                if next.read(cx).showing_rendered_image() {
+                    Self::reset_block_cursor(&next, 0, cx);
+                    self.focus_block(next.entity_id());
+                    cx.notify();
+                    return;
+                }
+
+                let next_kind = next.read(cx).kind();
+                let quote_related = self.block_is_quote_structure_related(&block, cx)
+                    || self.block_is_quote_structure_related(&next, cx);
+
+                // Forward-deleting into a horizontal rule removes the rule.
+                if next_kind.is_separator() {
+                    self.prepare_undo_capture(
+                        crate::components::UndoCaptureKind::NonCoalescible,
+                        cx,
+                    );
+                    let adopted_children = super::tree::DocumentTree::take_children(&next, cx);
+                    self.document.with_structure_mutation(cx, |document, cx| {
+                        if let Some((_, location)) =
+                            document.remove_block_by_id_raw(next.entity_id(), cx)
+                        {
+                            document.insert_blocks_at_raw(
+                                location.parent,
+                                location.index,
+                                adopted_children.clone(),
+                                cx,
+                            );
+                        }
+                    });
+                    self.focus_block(block.entity_id());
+                    if quote_related {
+                        self.normalize_rendered_quote_structure(cx);
+                    }
+                    self.mark_dirty(cx);
+                    self.finalize_pending_undo_capture(cx);
+                    cx.notify();
+                    return;
+                }
+
+                // Only single-line text blocks can join into the caret block;
+                // structural neighbors (tables, code fences, callouts, raw
+                // blocks) stay untouched.
+                let joinable = matches!(
+                    next_kind,
+                    BlockKind::Paragraph
+                        | BlockKind::Heading { .. }
+                        | BlockKind::BulletedListItem
+                        | BlockKind::TaskListItem { .. }
+                        | BlockKind::NumberedListItem
+                        | BlockKind::Quote
+                );
+                if !joinable {
+                    return;
+                }
+
+                // An empty paragraph forward-deletes by removing itself so the
+                // following block keeps its kind — "\n# Head" joins to
+                // "# Head", not a paragraph carrying the heading's text.
+                let removes_itself = {
+                    let block_ref = block.read(cx);
+                    block_ref.kind() == BlockKind::Paragraph
+                        && block_ref.display_text().is_empty()
+                        && block_ref.children.is_empty()
+                };
+                if removes_itself {
+                    if self.downgrade_empty_callout_body_to_quote(&block, cx) {
+                        return;
+                    }
+                    self.prepare_undo_capture(
+                        crate::components::UndoCaptureKind::NonCoalescible,
+                        cx,
+                    );
+                    self.document.with_structure_mutation(cx, |document, cx| {
+                        let _ = document.remove_block_by_id_raw(block.entity_id(), cx);
+                    });
+                    Self::reset_block_cursor(&next, 0, cx);
+                    self.focus_block(next.entity_id());
+                    if quote_related {
+                        self.normalize_rendered_quote_structure(cx);
+                    } else {
+                        self.rebuild_image_runtimes(cx);
+                    }
+                    self.mark_dirty(cx);
+                    self.finalize_pending_undo_capture(cx);
+                    cx.notify();
+                    return;
+                }
+
+                // Mirror of RequestMergeIntoPrev with the roles swapped: the
+                // next block's content joins the caret block, which keeps its
+                // kind and adopts the removed block's children.
+                self.prepare_undo_capture(crate::components::UndoCaptureKind::NonCoalescible, cx);
+                let cursor_pos = block.read(cx).display_text().len();
+                let content = next.read(cx).record.title.clone();
+                let adopted_children = super::tree::DocumentTree::take_children(&next, cx);
+                let removed_entity_id = next.entity_id();
+
+                self.document.with_structure_mutation(cx, |document, cx| {
+                    block.update(cx, {
+                        let content = content.clone();
+                        let adopted_children = adopted_children.clone();
+                        move |block, cx| {
+                            let mut next_title = block.record.title.clone();
+                            next_title.append_tree(content.clone());
+                            block.record.set_title(next_title);
+                            block.sync_render_cache();
+                            block.children.extend(adopted_children.clone());
+                            block.selected_range = cursor_pos..cursor_pos;
+                            block.selection_reversed = false;
+                            block.marked_range = None;
+                            block.vertical_motion_x = None;
+                            block.cursor_blink_epoch = Instant::now();
+                            cx.notify();
+                        }
+                    });
+                    let _ = document.remove_block_by_id_raw(removed_entity_id, cx);
+                });
+
+                self.focus_block(block.entity_id());
+                if quote_related {
+                    self.normalize_rendered_quote_structure(cx);
+                } else {
+                    self.rebuild_image_runtimes(cx);
+                }
+                self.mark_dirty(cx);
+                self.finalize_pending_undo_capture(cx);
+                cx.notify();
+            }
             BlockEvent::RequestPasteMultiline {
                 leading,
                 lines,
@@ -2478,6 +2618,217 @@ mod tests {
             assert_eq!(visible[0].entity.read(cx).display_text(), "before");
             // The old fall-through merged the raw source into the paragraph.
             assert_eq!(editor.document.markdown_text(cx), "before");
+        });
+    }
+
+    // EXP-451: Delete at the end of a block joins the next block, like
+    // Backspace at offset 0 joins the previous one.
+    #[gpui::test]
+    async fn delete_at_end_of_paragraph_merges_the_next_paragraph(cx: &mut TestAppContext) {
+        let cx = cx.add_empty_window();
+        let editor = cx.new(|cx| Editor::from_markdown(cx, "alpha\n\nbeta".to_string(), None));
+
+        cx.update(|window, cx| {
+            editor.update(cx, |editor, cx| {
+                let first = editor.document.visible_blocks()[0].entity.clone();
+                first.update(cx, |block, block_cx| {
+                    block.move_to(block.visible_len(), block_cx);
+                    block.on_delete(&Delete, window, block_cx);
+                });
+            });
+        });
+
+        editor.update(cx, |editor, cx| {
+            let visible = editor.document.visible_blocks();
+            assert_eq!(visible.len(), 1);
+            let merged = visible[0].entity.clone();
+            assert_eq!(merged.read(cx).display_text(), "alphabeta");
+            assert_eq!(merged.read(cx).selected_range, 5..5);
+            assert_eq!(editor.pending_focus, Some(merged.entity_id()));
+            assert_eq!(editor.document.markdown_text(cx), "alphabeta");
+        });
+
+        // Reversible: undo restores the two original paragraphs.
+        editor.update(cx, |editor, cx| {
+            editor.undo_document(cx);
+            assert_eq!(editor.document.markdown_text(cx), "alpha\n\nbeta");
+        });
+    }
+
+    #[gpui::test]
+    async fn delete_at_end_of_paragraph_pulls_the_next_heading_text_in(cx: &mut TestAppContext) {
+        let cx = cx.add_empty_window();
+        let editor = cx.new(|cx| Editor::from_markdown(cx, "alpha\n\n# Head".to_string(), None));
+
+        cx.update(|window, cx| {
+            editor.update(cx, |editor, cx| {
+                let first = editor.document.visible_blocks()[0].entity.clone();
+                first.update(cx, |block, block_cx| {
+                    block.move_to(block.visible_len(), block_cx);
+                    block.on_delete(&Delete, window, block_cx);
+                });
+            });
+        });
+
+        editor.update(cx, |editor, cx| {
+            let visible = editor.document.visible_blocks();
+            assert_eq!(visible.len(), 1);
+            assert_eq!(visible[0].entity.read(cx).kind(), BlockKind::Paragraph);
+            assert_eq!(visible[0].entity.read(cx).display_text(), "alphaHead");
+            assert_eq!(editor.document.markdown_text(cx), "alphaHead");
+        });
+    }
+
+    #[gpui::test]
+    async fn delete_at_end_of_paragraph_pulls_the_next_list_item_in(cx: &mut TestAppContext) {
+        let cx = cx.add_empty_window();
+        let editor = cx.new(|cx| Editor::from_markdown(cx, "text\n\n- item".to_string(), None));
+
+        cx.update(|window, cx| {
+            editor.update(cx, |editor, cx| {
+                let first = editor.document.visible_blocks()[0].entity.clone();
+                first.update(cx, |block, block_cx| {
+                    block.move_to(block.visible_len(), block_cx);
+                    block.on_delete(&Delete, window, block_cx);
+                });
+            });
+        });
+
+        editor.update(cx, |editor, cx| {
+            let visible = editor.document.visible_blocks();
+            assert_eq!(visible.len(), 1);
+            assert_eq!(visible[0].entity.read(cx).kind(), BlockKind::Paragraph);
+            assert_eq!(visible[0].entity.read(cx).display_text(), "textitem");
+            assert_eq!(editor.document.markdown_text(cx), "textitem");
+        });
+    }
+
+    // An empty paragraph forward-deletes by removing itself so the following
+    // block keeps its kind.
+    #[gpui::test]
+    async fn delete_on_an_empty_paragraph_keeps_the_next_heading(cx: &mut TestAppContext) {
+        let cx = cx.add_empty_window();
+        let editor = cx.new(|cx| Editor::from_markdown(cx, "alpha\n\n# Head".to_string(), None));
+
+        cx.update(|window, cx| {
+            editor.update(cx, |editor, cx| {
+                let first = editor.document.visible_blocks()[0].entity.clone();
+                first.update(cx, |block, block_cx| {
+                    let end = block.visible_len();
+                    block.replace_text_in_visible_range(0..end, "", None, false, block_cx);
+                    block.on_delete(&Delete, window, block_cx);
+                });
+            });
+        });
+
+        editor.update(cx, |editor, cx| {
+            let visible = editor.document.visible_blocks();
+            assert_eq!(visible.len(), 1);
+            let heading = visible[0].entity.clone();
+            assert_eq!(heading.read(cx).kind(), BlockKind::Heading { level: 1 });
+            assert_eq!(heading.read(cx).display_text(), "Head");
+            assert_eq!(heading.read(cx).selected_range, 0..0);
+            assert_eq!(editor.pending_focus, Some(heading.entity_id()));
+            assert_eq!(editor.document.markdown_text(cx), "# Head");
+        });
+    }
+
+    #[gpui::test]
+    async fn delete_at_end_of_paragraph_removes_a_following_separator(cx: &mut TestAppContext) {
+        let cx = cx.add_empty_window();
+        let editor =
+            cx.new(|cx| Editor::from_markdown(cx, "alpha\n\n---\n\nbeta".to_string(), None));
+
+        cx.update(|window, cx| {
+            editor.update(cx, |editor, cx| {
+                let first = editor.document.visible_blocks()[0].entity.clone();
+                first.update(cx, |block, block_cx| {
+                    block.move_to(block.visible_len(), block_cx);
+                    block.on_delete(&Delete, window, block_cx);
+                });
+            });
+        });
+
+        editor.update(cx, |editor, cx| {
+            let visible = editor.document.visible_blocks();
+            assert_eq!(visible.len(), 2);
+            assert_eq!(visible[0].entity.read(cx).display_text(), "alpha");
+            assert_eq!(visible[1].entity.read(cx).display_text(), "beta");
+            assert_eq!(editor.document.markdown_text(cx), "alpha\n\nbeta");
+        });
+    }
+
+    // Web parity: Delete before a rendered image selects the image block; the
+    // next Delete on the focused image removes it (EXP-285).
+    #[gpui::test]
+    async fn delete_at_end_of_paragraph_before_an_image_focuses_the_image(
+        cx: &mut TestAppContext,
+    ) {
+        let cx = cx.add_empty_window();
+        let editor =
+            cx.new(|cx| Editor::from_markdown(cx, "before\n\n![a](p.png)".to_string(), None));
+
+        cx.update(|window, cx| {
+            editor.update(cx, |editor, cx| {
+                let first = editor.document.visible_blocks()[0].entity.clone();
+                first.update(cx, |block, block_cx| {
+                    block.move_to(block.visible_len(), block_cx);
+                    block.on_delete(&Delete, window, block_cx);
+                });
+            });
+        });
+
+        editor.update(cx, |editor, cx| {
+            let visible = editor.document.visible_blocks();
+            assert_eq!(visible.len(), 2);
+            let image = visible[1].entity.clone();
+            assert!(image.read(cx).renders_as_standalone_image());
+            assert_eq!(editor.pending_focus, Some(image.entity_id()));
+            // The image block's source is untouched.
+            assert_eq!(editor.document.markdown_text(cx), "before\n\n![a](p.png)");
+        });
+    }
+
+    #[gpui::test]
+    async fn delete_at_end_of_paragraph_before_a_code_block_is_a_no_op(cx: &mut TestAppContext) {
+        let cx = cx.add_empty_window();
+        let editor =
+            cx.new(|cx| Editor::from_markdown(cx, "alpha\n\n```\ncode\n```".to_string(), None));
+
+        cx.update(|window, cx| {
+            editor.update(cx, |editor, cx| {
+                let first = editor.document.visible_blocks()[0].entity.clone();
+                first.update(cx, |block, block_cx| {
+                    block.move_to(block.visible_len(), block_cx);
+                    block.on_delete(&Delete, window, block_cx);
+                });
+            });
+        });
+
+        editor.update(cx, |editor, cx| {
+            assert_eq!(editor.document.visible_blocks().len(), 2);
+            assert_eq!(editor.document.markdown_text(cx), "alpha\n\n```\ncode\n```");
+        });
+    }
+
+    #[gpui::test]
+    async fn delete_at_the_end_of_the_last_block_is_a_no_op(cx: &mut TestAppContext) {
+        let cx = cx.add_empty_window();
+        let editor = cx.new(|cx| Editor::from_markdown(cx, "alpha".to_string(), None));
+
+        cx.update(|window, cx| {
+            editor.update(cx, |editor, cx| {
+                let first = editor.document.visible_blocks()[0].entity.clone();
+                first.update(cx, |block, block_cx| {
+                    block.move_to(block.visible_len(), block_cx);
+                    block.on_delete(&Delete, window, block_cx);
+                });
+            });
+        });
+
+        editor.update(cx, |editor, cx| {
+            assert_eq!(editor.document.visible_blocks().len(), 1);
+            assert_eq!(editor.document.markdown_text(cx), "alpha");
         });
     }
 
