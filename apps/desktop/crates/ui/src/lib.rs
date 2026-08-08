@@ -89,6 +89,8 @@ mod update;
 mod user_avatar;
 mod window_frame;
 mod window_hooks;
+#[cfg(target_os = "linux")]
+mod x11_dialog_type;
 pub mod window_size;
 mod shell;
 

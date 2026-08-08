@@ -25,7 +25,10 @@
 //!   `xdg_toplevel.set_parent` on the opener — WMs center transients over
 //!   their parent), accepting that the taskbar folds them into the opener's
 //!   button; a lost dialog is still recoverable by re-triggering its opener
-//!   ([`raise_existing_dialog`]). `Floating` also survives everywhere for
+//!   ([`raise_existing_dialog`]). EXP-450: an X11 transient is a DIALOG to the
+//!   WM and dialogs are not maximizable, so a RESIZABLE Linux dialog also gets
+//!   its window type restamped once the WM has placed it — see
+//!   [`crate::x11_dialog_type`]. `Floating` also survives everywhere for
 //!   [`DialogSpec::chromeless`] dialogs (the ⌘K palette, the image lightbox):
 //!   a palette is not a document window and wants to stay above its opener.
 //! - **Parent-relative positioning**: bounds are centered over the opener's
@@ -573,6 +576,15 @@ pub(crate) fn open_dialog_window(
         handle.update(cx, |_, window, cx| {
             window.set_window_title(&title);
             window.activate_window();
+            // EXP-450: the Linux dialog is a `WM_TRANSIENT_FOR` transient, which
+            // EWMH managers classify as a DIALOG — and a dialog cannot be
+            // maximized, so the strip's maximize control did nothing. Tell the
+            // WM it is an ordinary window once it has placed this one; the
+            // transient relationship (centering, stacking) is untouched.
+            #[cfg(target_os = "linux")]
+            if native_chrome && min_size.is_some() {
+                crate::x11_dialog_type::allow_maximize(window);
+            }
             let _ = cx;
         })?;
 
@@ -724,7 +736,9 @@ impl Render for DialogShell {
                     // Linux the dialog is a taskbar-less transient, so the
                     // minimize control goes too — the strip's Linux handler
                     // calls `minimize_window()` directly, which would strand
-                    // the window with nothing to restore it from.
+                    // the window with nothing to restore it from. (Maximize
+                    // stays: EXP-450 buys the WM's permission back for exactly
+                    // the resizable dialogs that draw it.)
                     .window_controls(!cfg!(target_os = "linux"), self.resizable)
                     // Linux only (upstream's gate, kept): `remove_window` never
                     // consults `on_window_should_close`, so this is the only
