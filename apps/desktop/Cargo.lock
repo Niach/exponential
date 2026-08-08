@@ -7792,6 +7792,7 @@ dependencies = [
  "libc",
  "log",
  "objc",
+ "raw-window-handle",
  "reqwest",
  "ropey",
  "serde",
@@ -7802,6 +7803,7 @@ dependencies = [
  "terminal",
  "theme",
  "updater",
+ "x11rb",
 ]
 
 [[package]]

@@ -83,3 +83,12 @@ gpui = { workspace = true, features = ["test-support"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 objc = "0.2"
 cocoa = "0.26"
+
+# EXP-450 x11_dialog_type: restamp `_NET_WM_WINDOW_TYPE` on a resizable dialog
+# so the WM stops treating our `WM_TRANSIENT_FOR` window as an unmaximizable
+# DIALOG. Both crates are already in the tree at these exact versions via gpui
+# itself (x11rb through gpui_linux's X11 backend, raw-window-handle as gpui's
+# own window-handle vocabulary), so this adds no new weight.
+[target.'cfg(target_os = "linux")'.dependencies]
+x11rb = "0.13"
+raw-window-handle = "0.6"
