@@ -55,6 +55,7 @@ import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassPillButton
 import com.exponential.app.ui.components.GlassMenuDefaults
@@ -289,7 +290,7 @@ private fun BoardsSection(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth().glassRow().padding(horizontal = 12.dp, vertical = 10.dp),
             ) {
-                Box(Modifier.size(10.dp).background(parseColor(board.color), CircleShape))
+                BoardIcon(board)
                 Spacer(Modifier.width(10.dp))
                 Text(board.name, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 // Deleting a board is owner-only (the server enforces it too);
@@ -660,7 +661,7 @@ private fun RepositoryRow(
                             .padding(horizontal = 8.dp, vertical = 4.dp),
                     ) {
                         if (board != null) {
-                            Box(Modifier.size(10.dp).background(parseColor(board.color), CircleShape))
+                            BoardIcon(board, size = 14.dp)
                             Spacer(Modifier.width(6.dp))
                         }
                         Text(

@@ -245,12 +245,17 @@ html {
    highlight keep the glass edge; 95% is the shared floating-surface alpha
    step (tooltip/bulk bar). Deliberate exemption: the round icon pill chrome
    (mobile tab bar, reviews nav pills) stays at /85 — translucency there is
-   intentional ambience over scrolling content, not a legibility surface. */
+   intentional ambience over scrolling content, not a legibility surface.
+   EXP-449: -webkit-backdrop-filter must come FIRST — with the standard
+   property first, the production LightningCSS pass collapses the pair into
+   only the -webkit- form and shipped menus rendered with no blur at all
+   (the "too see-through" bug). Prefix-first survives minification with both
+   forms emitted. */
 @utility glass-panel {
   border: 1px solid var(--glass-stroke-card);
   background: color-mix(in oklab, var(--popover) 95%, transparent);
-  backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
   box-shadow:
     0 12px 32px -12px oklch(0 0 0 / 0.45),
     inset 0 1px 0 oklch(1 0 0 / 6%);
@@ -273,8 +278,8 @@ html {
     var(--glass-background-top) 60%,
     transparent
   );
-  backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
 }
 
 @utility glass-chrome-bottom {
@@ -283,8 +288,8 @@ html {
     var(--glass-background-bottom) 70%,
     transparent
   );
-  backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
 }
 
 /* Full-viewport gradient repaint for full-screen covers that would otherwise
@@ -672,8 +677,8 @@ html {
   /* EXP-277: on the shared 95% floating-surface step, glass stroke token. */
   background: color-mix(in oklab, var(--popover) 95%, transparent);
   color: color-mix(in oklab, var(--popover-foreground) 85%, transparent);
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   box-shadow:
     0 6px 18px -8px oklch(0 0 0 / 0.42),
     inset 0 1px 0 color-mix(in oklab, var(--foreground) 8%, transparent);
@@ -814,8 +819,19 @@ html {
   position: sticky;
   top: 0;
   z-index: 10;
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
+/* EXP-449: the feedback-widget launcher pins itself bottom-right with inline
+   styles (packages/widget loader host, `div[data-exponential-widget]`), which
+   lands exactly on the mobile tab bar's compose FAB. Its z-index is maxed by
+   design, so the launcher is what moves: lift it above the floating tab-bar
+   band on phones. Desktop keeps the stock 20px corner. */
+@media (max-width: 767px) {
+  div[data-exponential-widget] {
+    bottom: calc(5.5rem + env(safe-area-inset-bottom)) !important;
+  }
 }
 
 /* On phones the toolbar stays a single horizontally scrollable line instead

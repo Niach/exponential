@@ -150,18 +150,23 @@ export function MyMachines({
 
   return (
     <div className="mb-4">
-      <div className="flex items-center justify-between">
-        <SectionLabel label="My machines" count={mine?.length ?? 0} />
-        <Button
-          variant="ghost"
-          size="sm"
-          className="text-muted-foreground"
-          onClick={() => setAddServerOpen(true)}
-        >
-          <AddIcon />
-          Add server
-        </Button>
-      </div>
+      {/* EXP-449: same full-width band + trailing-button treatment as the
+          Actions section below. */}
+      <SectionLabel
+        label="My machines"
+        count={mine?.length ?? 0}
+        trailing={
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-6 gap-1 px-2 text-xs"
+            onClick={() => setAddServerOpen(true)}
+          >
+            <AddIcon className="size-3.5" />
+            Add server
+          </Button>
+        }
+      />
 
       {mine === null ? (
         <div className="px-3 py-3 text-sm text-muted-foreground">Loading…</div>

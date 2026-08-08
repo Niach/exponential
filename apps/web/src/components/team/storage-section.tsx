@@ -14,7 +14,6 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
-  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -164,15 +163,14 @@ export function TeamStorageSection({
 
   return (
     <div className="space-y-4">
+      {/* EXP-449: no CardAction — its unconditional two-column header grid
+          crushed the description next to the wide sweep button on phones.
+          A wrapping flex row keeps the button beside the title on desktop
+          and drops it below on narrow screens. */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Storage</CardTitle>
-          <CardDescription>
-            Every file and image attached to this team&apos;s issues. Deleting
-            an attachment is permanent. Any image reference left in a
-            description or comment is replaced with a plain-text note.
-          </CardDescription>
-          <CardAction>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="text-base">Storage</CardTitle>
             <Button
               variant="outline"
               size="sm"
@@ -183,7 +181,11 @@ export function TeamStorageSection({
               Sweep unreferenced images
               {sweepCandidateCount > 0 ? ` (${sweepCandidateCount})` : ``}
             </Button>
-          </CardAction>
+          </div>
+          <CardDescription>
+            Files and images attached to this team&apos;s issues. Deleting an
+            attachment is permanent.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           {billingPlan && billingPlan.plan !== `unlimited` && (

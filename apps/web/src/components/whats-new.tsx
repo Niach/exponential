@@ -10,6 +10,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { Separator } from "@/components/ui/separator"
+import { useIsMobile } from "@/hooks/use-mobile"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import { CHANGELOG, latestChangelogEntry } from "@/lib/changelog"
 import { markChangelogSeen, readSeenChangelogId } from "@/lib/changelog-seen"
@@ -84,9 +85,19 @@ export function ChangelogSheet({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
+  // EXP-449: bottom sheet on mobile (a right drawer covers the whole phone
+  // viewport anyway and fights the back gesture), side panel on desktop.
+  const isMobile = useIsMobile()
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="overflow-y-auto sm:max-w-xl">
+      <SheetContent
+        side={isMobile ? `bottom` : `right`}
+        className={
+          isMobile
+            ? `max-h-[85dvh] overflow-y-auto rounded-t-xl pb-[max(1rem,env(safe-area-inset-bottom))]`
+            : `overflow-y-auto sm:max-w-xl`
+        }
+      >
         <SheetHeader>
           <SheetTitle>What&apos;s new</SheetTitle>
           <SheetDescription>

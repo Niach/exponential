@@ -1,8 +1,6 @@
 package com.exponential.app.ui.share
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,7 +10,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -27,15 +24,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassSection
 
 /**
  * Share-destination selector card (EXP-60): a compact glass row at the TOP of
- * the share compose form showing where the shared content will land — board
- * color dot + board name over its team name, with an unfold affordance.
+ * the share compose form showing where the shared content will land — the
+ * board's own icon + name over its team name, with an unfold affordance.
  * Tapping opens [ShareBoardPickerSheet]. Replaces the old always-expanded
  * inline board list that used to sit at the bottom of the form.
  */
@@ -96,11 +93,7 @@ fun ShareBoardSelector(
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                 ) {
                     if (selected != null) {
-                        Box(
-                            modifier = Modifier
-                                .size(10.dp)
-                                .background(parseColor(selected.second.color), CircleShape),
-                        )
+                        BoardIcon(selected.second)
                         Spacer(Modifier.width(10.dp))
                     }
                     Column(modifier = Modifier.weight(1f)) {
@@ -181,13 +174,7 @@ fun ShareBoardPickerSheet(
                         headlineContent = {
                             Text(board.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         },
-                        leadingContent = {
-                            Box(
-                                modifier = Modifier
-                                    .size(10.dp)
-                                    .background(parseColor(board.color), CircleShape),
-                            )
-                        },
+                        leadingContent = { BoardIcon(board) },
                         trailingContent = if (isSelected) {
                             { Icon(ExpIcons.uiCheck, contentDescription = "Selected") }
                         } else null,

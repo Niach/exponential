@@ -67,6 +67,7 @@ import com.exponential.app.domain.IssueStatusCategory
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.domain.issuePriorityOrder
+import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
@@ -752,7 +753,7 @@ fun IssueDetailScreen(
             assignee = state.assignee,
             hideAssignee = soloMemberId != null,
             issueLabels = state.issueLabels,
-            currentBoardName = state.board?.name,
+            currentBoard = state.board,
             hasMoveTargets = moveTargets.isNotEmpty(),
             onOpenStatus = { activeSheet = IssueSheet.Status },
             onOpenPriority = { activeSheet = IssueSheet.Priority },
@@ -847,7 +848,7 @@ fun IssueDetailScreen(
             selected = null,
             keyOf = { it.id },
             labelOf = { it.name },
-            iconOf = { ExpIcons.navBoards },
+            leadingContent = { BoardIcon(it, size = 18.dp) },
             onSelect = { moveTarget = it },
             onDismiss = { activeSheet = null },
         )

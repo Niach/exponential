@@ -20,7 +20,8 @@ struct IssuePropertiesSheet: View {
     let labels: [LabelEntity]
     let assignedIds: Set<String>
     let singleMemberTeam: Bool
-    let boardName: String?
+    /// The issue's own board — the row draws its glyph + color (EXP-449).
+    let board: BoardEntity?
     let hasMoveTargets: Bool
     /// Hand off to a per-property sheet (parent owns the dismiss + reopen).
     let onNavigate: (IssueDetailSheet) -> Void
@@ -119,11 +120,18 @@ struct IssuePropertiesSheet: View {
                     if hasMoveTargets {
                         propertyRow(
                             label: "Board",
-                            value: boardName ?? "",
+                            value: board?.name ?? "",
                             target: .moveBoard
                         ) {
-                            AppIcon(AppIcons.navBoards, size: AppIcon.Size.medium)
-                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            // The board's own glyph + color, not a generic
+                            // boards nav icon (EXP-449).
+                            if let board = board {
+                                AppIcon(BoardTypeDisplay.iconName(for: board), size: AppIcon.Size.medium)
+                                    .foregroundStyle(Color(hex: board.color ?? "#888888") ?? .gray)
+                            } else {
+                                AppIcon(AppIcons.navBoards, size: AppIcon.Size.medium)
+                                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            }
                         }
                         .padding(.top, 8)
                     }

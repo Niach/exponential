@@ -16,6 +16,7 @@ import { trpcErrorMessage } from "@/lib/trpc-error"
 import { trpc } from "@/lib/trpc-client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { BoardGlyph } from "@/components/board-glyph"
 import {
   Dialog,
   DialogContent,
@@ -170,18 +171,6 @@ function ReviewsPage() {
 
   return (
     <div className="mx-auto flex h-full w-full max-w-3xl flex-col px-4 py-4">
-      <div className="mb-3 flex items-center justify-between">
-        <h1 className="flex items-center gap-2 text-lg font-semibold">
-          <GitPullRequest className="h-4 w-4" />
-          Reviews
-          {count > 0 && (
-            <span className="text-sm font-normal text-muted-foreground">
-              · {count} open
-            </span>
-          )}
-        </h1>
-      </div>
-
       <div className={`flex-1 overflow-y-auto ${TAB_BAR_CLEARANCE}`}>
         {isLoading ? (
           <div className="text-muted-foreground p-6 text-sm">Loading…</div>
@@ -202,10 +191,7 @@ function ReviewsPage() {
               <div
                 className="flex items-center gap-1.5 rounded-t-md border-b border-border/50 bg-zinc-500/10 px-3 py-1.5"
               >
-                <div
-                  className="h-2.5 w-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: group.board.color }}
-                />
+                <BoardGlyph board={group.board} className="size-3.5" />
                 <span className="text-sm font-medium">
                   {group.board.name}
                 </span>

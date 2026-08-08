@@ -21,6 +21,7 @@ import { toStatusMenuOptions } from "@/components/issue-properties/status-dropdo
 import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
 import { LabelPicker } from "@/components/issue-properties/label-picker"
 import { BoardPicker } from "@/components/issue-properties/board-picker"
+import { BoardGlyph } from "@/components/board-glyph"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import {
@@ -51,6 +52,10 @@ export interface IssuePropertiesPanelProps {
   boardName: string
   boardColor: string
   boardPrefix: string
+  // Board glyph inputs for the read-only chip (EXP-449: icon+color instead
+  // of the anonymous dot).
+  boardIcon?: string | null
+  boardRepositoryId?: string | null
   // Move-to-board control (EXP-57). Optional: when boardId +
   // onBoardChange are provided the read-only board chip becomes a picker
   // (detail view); surfaces without a move affordance simply omit them.
@@ -107,10 +112,17 @@ function BoardChip({
   boardColor,
   boardPrefix,
   boardName,
+  boardIcon,
+  boardRepositoryId,
   layout,
 }: Pick<
   IssuePropertiesPanelProps,
-  `boardColor` | `boardPrefix` | `boardName` | `layout`
+  | `boardColor`
+  | `boardPrefix`
+  | `boardName`
+  | `boardIcon`
+  | `boardRepositoryId`
+  | `layout`
 >) {
   return (
     <div
@@ -120,9 +132,13 @@ function BoardChip({
           : `inline-flex items-center gap-1.5 rounded-md bg-accent/50 px-2 py-0.5 text-xs font-medium text-foreground shrink-0`
       }
     >
-      <div
-        className="h-2.5 w-2.5 rounded-full"
-        style={{ backgroundColor: boardColor }}
+      <BoardGlyph
+        board={{
+          icon: boardIcon,
+          repositoryId: boardRepositoryId,
+          color: boardColor,
+        }}
+        className="size-3.5"
       />
       {layout === `sidebar` ? boardName : boardPrefix}
     </div>
@@ -316,6 +332,8 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
         boardColor={props.boardColor}
         boardPrefix={props.boardPrefix}
         boardName={props.boardName}
+        boardIcon={props.boardIcon}
+        boardRepositoryId={props.boardRepositoryId}
         layout={layout}
       />
     )

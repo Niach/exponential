@@ -67,12 +67,9 @@ export function MyIssuesView({
   return (
     <div className="flex flex-col h-full">
       <IssueFilterBar
-        title=""
         filters={filters}
         onFiltersChange={onFiltersChange}
         labels={labelList}
-        onNewIssue={() => {}}
-        canCreate={false}
       />
 
       {selectedIssues.length > 0 && (

@@ -304,7 +304,10 @@ export function TeamRepositoriesSection({ teamId }: { teamId: string }) {
             teamId={teamId}
             onSelect={setPendingRepo}
             selectedFullName={pendingRepo?.fullName ?? null}
-            listClassName="max-h-[min(20rem,40dvh)]"
+            // EXP-449: the phone dialog is full-screen, so let the list use
+            // that height (~16rem reserved for header/search/footer chrome)
+            // instead of stopping at 40dvh with dead space below.
+            listClassName="max-h-[min(20rem,40dvh)] max-sm:max-h-[calc(100dvh-16rem)]"
             variant="plain"
           />
           {connectError && (

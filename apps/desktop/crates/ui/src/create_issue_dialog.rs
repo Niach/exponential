@@ -92,18 +92,39 @@ pub fn open(window: &mut Window, cx: &mut App, board_id: String) {
     let spec = DialogSpec::new("New issue", size(px(640.), height))
         .resizable(size(px(560.), px(300.)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
-        let bar_prefix = board.prefix.clone().unwrap_or_default();
-        let bar_color = board.color.clone();
+        let team_id = board.team_id.clone();
         let view = cx.new(|cx| {
             CreateIssueDialogView::new(board.id.clone(), board.team_id.clone(), max_height, window, cx)
         });
         let busy = view.clone();
         let submit = view.clone();
-        DialogContent::new(view)
+        // WEAK on purpose: the title closure is an `Rc` the shell holds for
+        // the window's whole life, so a strong handle would keep the content
+        // view alive past the dialog's close.
+        let title_view = view.downgrade();
+        DialogContent::new(view.clone())
             .padless()
             // EXP-287: the board-pill breadcrumb rides the window's titlebar
             // strip (the shell owns the chrome now — see `native_dialog`).
-            .title_content(move |_, cx| title_breadcrumb(&bar_prefix, bar_color.as_deref(), cx))
+            .title_content(move |_, cx| {
+                let Some(view) = title_view.upgrade() else {
+                    return "New issue".into_any_element();
+                };
+                let board_id = view.read(cx).board_id.clone();
+                let board = Store::global(cx)
+                    .collections()
+                    .boards
+                    .read(cx)
+                    .get(&board_id)
+                    .cloned();
+                match board {
+                    Some(board) => title_board_select(&view, &team_id, &board, cx),
+                    None => "New issue".into_any_element(),
+                }
+            })
+            // EXP-449: the pill is a live board SELECT now — without this the
+            // shell would never repaint it after a pick.
+            .title_follows(&view)
             .can_close(move |cx| !busy.read(cx).submitting)
             // Enter anywhere in the dialog submits (web form submit).
             .on_enter(move |window, cx| {
@@ -112,32 +133,98 @@ pub fn open(window: &mut Window, cx: &mut App, board_id: String) {
     });
 }
 
-/// EXP-287: the titlebar label — board pill · › · "New issue". Lives in the
-/// window's `TitleBar` strip now that the shell owns the dialog chrome; the
-/// pill markup is unchanged from the header row it replaced.
-fn title_breadcrumb(prefix: &str, color: Option<&str>, cx: &App) -> AnyElement {
-    let pill_color = color
+/// EXP-287: the titlebar label — board chip · › · "New issue". Lives in the
+/// window's `TitleBar` strip now that the shell owns the dialog chrome.
+///
+/// EXP-449: the chip is a live board SELECT — the board's own glyph tinted
+/// with its color (the EXP-282 treatment that replaced the anonymous color
+/// dot everywhere else) plus its prefix, over the team's boards. A
+/// single-board team keeps a static glass chip. Nothing else in the dialog
+/// resets on a pick: status/assignee/label options are team-scoped, the menu
+/// only offers same-team boards, and `submit` reads `board_id` live.
+fn title_board_select(
+    view: &Entity<CreateIssueDialogView>,
+    team_id: &str,
+    board: &domain::rows::Board,
+    cx: &App,
+) -> AnyElement {
+    let tint = board
+        .color
+        .as_deref()
         .and_then(parse_hex_color)
         .unwrap_or(cx.theme().muted_foreground);
+    let icon = crate::icons::board_icon(board).xsmall().text_color(tint);
+    let prefix = SharedString::from(board.prefix.clone().unwrap_or_default());
+
+    // Same "is there anywhere else to go" rule the issue header's Board chip
+    // uses (EXP-57 `move_target_boards`): a single-board team gets a static
+    // chip instead of a one-entry menu.
+    let chip: AnyElement = if crate::issue_list::move_target_boards(cx, &board.id).is_empty() {
+        crate::surface::glass_chip()
+            .child(icon)
+            .child(crate::pickers::chip_label(prefix, false, cx))
+            .into_any_element()
+    } else {
+        let current_id = board.id.clone();
+        let team_id = team_id.to_string();
+        let view = view.clone();
+        chip_button("create-board-chip", cx)
+            .icon(icon)
+            .child(crate::pickers::chip_label(prefix, false, cx))
+            .child(
+                Icon::new(registry::UI_CHEVRON_DOWN)
+                    .xsmall()
+                    .text_color(cx.theme().muted_foreground),
+            )
+            // A plain dropdown menu, not the searchable `board_picker_popover`
+            // — that one needs a host-owned `Entity<InputState>` for its query,
+            // which this `Fn` title closure has nowhere to keep.
+            .dropdown_menu(move |mut menu, _window, cx| {
+                menu = menu.check_side(gpui_component::Side::Right);
+                for board in Store::global(cx).collections().boards_in_team(&team_id, cx) {
+                    let is_current = board.id == current_id;
+                    let tint = board
+                        .color
+                        .as_deref()
+                        .and_then(parse_hex_color)
+                        .unwrap_or(gpui::opaque_grey(0.5, 1.0));
+                    let icon = crate::icons::board_icon(&board).xsmall().text_color(tint);
+                    let name = SharedString::from(board.name.clone());
+                    let picked = board.id.clone();
+                    let view = view.clone();
+                    menu = menu.item(
+                        gpui_component::menu::PopupMenuItem::element(move |_, cx| {
+                            h_flex()
+                                .gap_2()
+                                .items_center()
+                                .child(icon.clone())
+                                .child(
+                                    div()
+                                        .text_color(cx.theme().popover_foreground)
+                                        .child(name.clone()),
+                                )
+                        })
+                        .checked(is_current)
+                        .disabled(is_current)
+                        .on_click(move |_, _, cx| {
+                            view.update(cx, |this, cx| {
+                                this.board_id = picked.clone();
+                                cx.notify();
+                            });
+                        }),
+                    );
+                }
+                menu
+            })
+            .into_any_element()
+    };
+
     h_flex()
         .gap_1p5()
         .items_center()
         .text_sm()
         .text_color(cx.theme().muted_foreground)
-        .child(
-            h_flex()
-                .gap_1p5()
-                .items_center()
-                .rounded(cx.theme().radius)
-                .bg(cx.theme().accent.opacity(0.5))
-                .px_2()
-                .py_0p5()
-                .text_xs()
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(cx.theme().foreground)
-                .child(div().size_2p5().rounded_full().bg(pill_color))
-                .child(SharedString::from(prefix.to_string())),
-        )
+        .child(chip)
         .child(Icon::new(registry::UI_CHEVRON_RIGHT).xsmall())
         .child("New issue")
         .into_any_element()

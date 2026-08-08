@@ -8,7 +8,6 @@ import {
   builtinFixConflictsAction,
 } from "@/lib/builtin-actions"
 import {
-  Bot,
   Github,
   LoaderCircle,
   Ellipsis,
@@ -396,18 +395,6 @@ function AgentsPage() {
 
   return (
     <div className="mx-auto flex h-full w-full max-w-3xl flex-col px-4 py-4 md:max-w-5xl">
-      <div className="mb-3 flex items-center justify-between">
-        <h1 className="flex items-center gap-2 text-lg font-semibold">
-          <Bot className="h-4 w-4" />
-          Agents
-          {running.length > 0 && (
-            <span className="text-sm font-normal text-muted-foreground">
-              · {running.length} live
-            </span>
-          )}
-        </h1>
-      </div>
-
       <div className={`flex-1 overflow-y-auto ${TAB_BAR_CLEARANCE}`}>
         {isMember && steerConfig?.enabled && (
           <MyMachines

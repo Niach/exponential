@@ -102,16 +102,20 @@ struct IssuesHomeView: View {
         !(boardLoader?.groups ?? []).isEmpty
     }
 
-    private var currentBoardName: String? {
+    private var currentBoardEntity: BoardEntity? {
         guard let current = currentBoard else { return nil }
         for group in boardLoader?.groups ?? [] where group.accountId == current.accountId {
             for block in group.teamBlocks {
                 if let board = block.boards.first(where: { $0.id == current.boardId }) {
-                    return board.name
+                    return board
                 }
             }
         }
         return nil
+    }
+
+    private var currentBoardName: String? {
+        currentBoardEntity?.name
     }
 
     /// One tappable control: current board name + the combobox-style
@@ -121,6 +125,12 @@ struct IssuesHomeView: View {
             showSwitcher = true
         } label: {
             HStack(spacing: 5) {
+                // Board glyph tinted with the board color — same idiom as the
+                // board switcher sheet this control opens (EXP-449).
+                if let board = currentBoardEntity {
+                    AppIcon(BoardTypeDisplay.iconName(for: board), size: 15)
+                        .foregroundStyle(Color(hex: board.color ?? "#888888") ?? .gray)
+                }
                 Text(currentBoardName ?? "Boards")
                     .font(.headline)
                     .foregroundStyle(.white)

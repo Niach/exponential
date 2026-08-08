@@ -50,6 +50,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.SupportLinkedIssue
 import com.exponential.app.data.api.SupportMessage
+import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.LoadingState
 import com.exponential.app.ui.icons.ExpIcons
@@ -249,6 +250,8 @@ fun SupportThreadScreen(
                             ),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        BoardIcon(board)
+                        Spacer(Modifier.width(10.dp))
                         Text(
                             board.name,
                             style = MaterialTheme.typography.bodyMedium,

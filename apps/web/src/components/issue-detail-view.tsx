@@ -13,6 +13,7 @@ import {
 import { Link, useNavigate } from "@tanstack/react-router"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import type { Issue, User, Board } from "@/db/schema"
+import { BoardGlyph } from "@/components/board-glyph"
 import { issueCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import {
@@ -557,6 +558,8 @@ export function IssueDetailView({
       boardName={board.name}
       boardColor={board.color}
       boardPrefix={board.prefix}
+      boardIcon={board.icon}
+      boardRepositoryId={board.repositoryId}
       boardId={issue.boardId}
       issueIdentifier={issue.identifier}
       onBoardChange={async (boardId) => {
@@ -598,10 +601,7 @@ export function IssueDetailView({
         }}
         className="inline-flex min-w-0 shrink items-center gap-1.5 hover:text-foreground"
       >
-        <div
-          className="h-2.5 w-2.5 shrink-0 rounded-full"
-          style={{ backgroundColor: board.color }}
-        />
+        <BoardGlyph board={board} className="size-3.5" />
         <span className="truncate">{board.name}</span>
       </Link>
       <ChevronRight className="size-3 shrink-0 text-muted-foreground/50" />

@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Link, useNavigate } from "@tanstack/react-router"
+import { Link, useNavigate, useParams } from "@tanstack/react-router"
 import { conceptIcon } from "@/lib/icons.generated"
 import { getBoardIcon } from "@/lib/board-icons"
 import { useSession } from "@/hooks/use-session"
@@ -22,9 +22,15 @@ import { CreateTeamDialog } from "@/components/create-team-dialog"
 import { BoardSettingsDialog } from "@/components/team/board-settings-dialog"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { GettingStartedButton } from "@/components/getting-started/getting-started-button"
-import { FeedbackButton } from "@/components/feedback-button"
 import { ChangelogSheet, WhatsNewCard } from "@/components/whats-new"
+import { resolveBoardTarget } from "@/components/team/mobile-tab-bar"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Button } from "@/components/ui/button"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -52,11 +58,11 @@ import {
 // EXP-317: the cross-client nav glyphs come from the shared registry
 // (packages/icons/icons.json) so web, desktop, iOS and Android agree.
 const NavAboutIcon = conceptIcon(`settings-about`)
-const NavAccountIcon = conceptIcon(`nav-account`)
 const NavAdminIcon = conceptIcon(`nav-admin`)
 const NavAgentsIcon = conceptIcon(`nav-agents`)
 const NavBoardsIcon = conceptIcon(`nav-boards`)
 const NavChangelogIcon = conceptIcon(`nav-changelog`)
+const NavCreateIssueIcon = conceptIcon(`nav-create-issue`)
 const NavInboxIcon = conceptIcon(`nav-inbox`)
 const NavReviewsIcon = conceptIcon(`nav-reviews`)
 const NavSearchIcon = conceptIcon(`nav-search`)
@@ -123,7 +129,12 @@ export function TeamSidebar({
   // dialog receives the LIVE row so a concurrent trash closes it.
   const [editBoardId, setEditBoardId] = useState<string | null>(null)
   const editBoard = boards?.find((board) => board.id === editBoardId) ?? null
-  const { isOwner } = useTeamPermissions(team)
+  const { isOwner, canCreate } = useTeamPermissions(team)
+  // EXP-449: the header's New-issue button works from any team route — it
+  // navigates to the active board (else the device's last-used / first board,
+  // same resolution as the mobile FAB) with ?new=1, which opens the dialog.
+  const { boardSlug } = useParams({ strict: false })
+  const boardTarget = resolveBoardTarget(teamSlug, boards, boardSlug)
   const [whatsNewOpen, setWhatsNewOpen] = useState(false)
   const { myTeams } = useTeamMemberships(session?.user?.id)
   // The guarded /t/$teamSlug layout is the only render site, so a session is
@@ -142,52 +153,95 @@ export function TeamSidebar({
     <>
       <Sidebar>
         <SidebarHeader className="p-2">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <SidebarMenuButton
-                className="w-full h-10"
-                aria-label="Team switcher"
-              >
-                <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground text-xs font-bold shrink-0">
-                  {team?.name?.[0]?.toUpperCase() ??
-                    teamSlug[0]?.toUpperCase() ??
-                    `E`}
-                </div>
-                <span className="text-sm font-semibold truncate">
-                  {team?.name ?? teamSlug}
-                </span>
-                <NavTeamSwitcherIcon className="ml-auto h-4 w-4 shrink-0" />
-              </SidebarMenuButton>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-56">
-              {myTeams.map((ws) => (
-                <DropdownMenuItem
-                  key={ws.id}
-                  onClick={() =>
-                    navigate({
-                      to: `/t/$teamSlug`,
-                      params: { teamSlug: ws.slug },
-                    })
-                  }
+          {/* EXP-449: Linear-style header row — team picker plus icon-only
+              Search and New-issue actions (moved out of the nav list / the
+              board page's filter bar). */}
+          <div className="flex items-center gap-1">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <SidebarMenuButton
+                  className="min-w-0 flex-1 h-10"
+                  aria-label="Team switcher"
                 >
-                  <div className="flex h-5 w-5 items-center justify-center rounded bg-primary text-primary-foreground text-[0.625rem] font-bold shrink-0">
-                    {ws.name[0]?.toUpperCase()}
+                  <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground text-xs font-bold shrink-0">
+                    {team?.name?.[0]?.toUpperCase() ??
+                      teamSlug[0]?.toUpperCase() ??
+                      `E`}
                   </div>
-                  <span className="truncate">{ws.name}</span>
-                  {ws.slug === teamSlug && (
-                    <UiCheckIcon className="ml-auto h-4 w-4" />
-                  )}
+                  <span className="text-sm font-semibold truncate">
+                    {team?.name ?? teamSlug}
+                  </span>
+                  <NavTeamSwitcherIcon className="ml-auto h-4 w-4 shrink-0" />
+                </SidebarMenuButton>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-56">
+                {myTeams.map((ws) => (
+                  <DropdownMenuItem
+                    key={ws.id}
+                    onClick={() =>
+                      navigate({
+                        to: `/t/$teamSlug`,
+                        params: { teamSlug: ws.slug },
+                      })
+                    }
+                  >
+                    <div className="flex h-5 w-5 items-center justify-center rounded bg-primary text-primary-foreground text-[0.625rem] font-bold shrink-0">
+                      {ws.name[0]?.toUpperCase()}
+                    </div>
+                    <span className="truncate">{ws.name}</span>
+                    {ws.slug === teamSlug && (
+                      <UiCheckIcon className="ml-auto h-4 w-4" />
+                    )}
+                  </DropdownMenuItem>
+                ))}
+                <DropdownMenuSeparator />
+                {/* Any signed-in user can create teams (EXP-188) — the
+                    server's only gate is the free-tier owned-team cap. */}
+                <DropdownMenuItem onClick={() => setCreateTeamOpen(true)}>
+                  <UiAddIcon className="h-4 w-4" />
+                  New team
                 </DropdownMenuItem>
-              ))}
-              <DropdownMenuSeparator />
-              {/* Any signed-in user can create teams (EXP-188) — the
-                  server's only gate is the free-tier owned-team cap. */}
-              <DropdownMenuItem onClick={() => setCreateTeamOpen(true)}>
-                <UiAddIcon className="h-4 w-4" />
-                New team
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            {team && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
+                    aria-label="Search"
+                    onClick={onOpenSearch}
+                  >
+                    <NavSearchIcon className="size-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Search</TooltipContent>
+              </Tooltip>
+            )}
+            {canCreate && boardTarget && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    asChild
+                    variant="brand"
+                    size="icon"
+                    className="size-8 shrink-0"
+                    aria-label="New issue"
+                  >
+                    <Link
+                      to="/t/$teamSlug/boards/$boardSlug"
+                      params={{ teamSlug, boardSlug: boardTarget.slug }}
+                      search={{ new: 1 }}
+                    >
+                      <NavCreateIssueIcon className="size-4" />
+                    </Link>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>New issue</TooltipContent>
+              </Tooltip>
+            )}
+          </div>
         </SidebarHeader>
 
         <Separator />
@@ -196,14 +250,6 @@ export function TeamSidebar({
           <SidebarGroup>
             <SidebarGroupContent>
               <SidebarMenu>
-                {team && (
-                  <SidebarMenuItem>
-                    <SidebarMenuButton onClick={onOpenSearch}>
-                      <NavSearchIcon className="h-4 w-4" />
-                      <span>Search</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                )}
                 <SidebarMenuItem>
                   <SidebarMenuButton asChild>
                     <Link to="/t/$teamSlug/inbox" params={{ teamSlug }}>
@@ -313,7 +359,6 @@ export function TeamSidebar({
             {/* EXP-88: re-entry point for the Getting started cards once the
                 board's inline block is gone (issues exist / dismissed). */}
             <GettingStartedButton teamSlug={teamSlug} team={team} />
-            <FeedbackButton />
           </SidebarMenu>
           {/* EXP-238: settings entry lives down here next to the user block,
               like the IDE's rail gear — it opens the unified settings page
@@ -348,17 +393,6 @@ export function TeamSidebar({
                     Admin
                   </DropdownMenuItem>
                 )}
-                <DropdownMenuItem
-                  onClick={() =>
-                    navigate({
-                      to: `/t/$teamSlug/settings/account`,
-                      params: { teamSlug },
-                    })
-                  }
-                >
-                  <NavAccountIcon className="mr-2 h-4 w-4" />
-                  Account
-                </DropdownMenuItem>
                 {/* Re-entry point once the footer card is dismissed. */}
                 <DropdownMenuItem onClick={() => setWhatsNewOpen(true)}>
                   <NavChangelogIcon className="mr-2 h-4 w-4" />

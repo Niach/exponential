@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/command"
 import { Button } from "@/components/ui/button"
 import { MoveBoardConfirmDialog } from "@/components/issue-properties/move-board-confirm"
+import { BoardGlyph } from "@/components/board-glyph"
 import type { Board } from "@/db/schema"
 
 interface BoardPickerProps {
@@ -87,9 +88,9 @@ export function BoardPicker({
             className="text-muted-foreground"
             disabled={disabled}
           >
-            <div
-              className="h-2.5 w-2.5 shrink-0 rounded-full"
-              style={{ backgroundColor: selectedBoard?.color ?? `#71717a` }}
+            <BoardGlyph
+              board={selectedBoard ?? { color: `#71717a` }}
+              className="size-3.5"
             />
             {selectedBoard ? (
               <span className="max-w-[7.5rem] truncate">
@@ -119,10 +120,7 @@ export function BoardPicker({
                     onSelect={() => handlePick(board)}
                     className="flex items-center gap-2"
                   >
-                    <div
-                      className="h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: board.color }}
-                    />
+                    <BoardGlyph board={board} className="size-3.5" />
                     <span className="min-w-0 truncate text-sm">
                       {board.name}
                     </span>

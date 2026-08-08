@@ -164,9 +164,10 @@ struct SearchView: View {
     @ViewBuilder
     private func boardHeader(_ board: BoardEntity, count: Int) -> some View {
         HStack(spacing: 8) {
-            Circle()
-                .fill(Color(hex: board.color ?? "#888888") ?? .gray)
-                .frame(width: 8, height: 8)
+            // Board glyph tinted with the board color — same idiom as the
+            // board switcher sheet, scaled down for a section header (EXP-449).
+            AppIcon(BoardTypeDisplay.iconName(for: board), size: 13)
+                .foregroundStyle(Color(hex: board.color ?? "#888888") ?? .gray)
 
             Text(board.name)
                 .font(.subheadline.weight(.medium))

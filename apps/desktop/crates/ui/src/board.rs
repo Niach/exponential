@@ -128,16 +128,6 @@ impl BoardView {
         cx.notify();
     }
 
-    /// The New Issue button shows on board scopes AND My Issues (EXP-181 —
-    /// the `NewIssue` action targets the window's active board either way;
-    /// web's `canCreate={false}` on My Issues is a web-only choice).
-    fn can_create(&self) -> bool {
-        matches!(
-            self.query,
-            IssueQuery::Board { .. } | IssueQuery::MyIssues { .. }
-        )
-    }
-
     /// The team whose labels feed the popover + pills (web
     /// `useBoardBoardData` scopes labels by `team.id`).
     fn team_id(&self, cx: &App) -> Option<String> {
@@ -201,9 +191,9 @@ impl Render for BoardView {
         });
 
         // EXP-426: the list's bulk-action bar rides INSIDE the filter bar —
-        // its fixed-min-height control row swaps Filter/New-Issue for the bar
-        // while a selection exists, so the list rows never move (the EXP-289
-        // no-jump invariant, in flow).
+        // its fixed-min-height control row swaps the Filter trigger for the
+        // bar while a selection exists, so the list rows never move (the
+        // EXP-289 no-jump invariant, in flow).
         let bulk_bar = self.issue_list.update(cx, |list, cx| list.bulk_bar(cx));
 
         v_flex()
@@ -216,7 +206,6 @@ impl Render for BoardView {
                 self.label_query.clone(),
                 on_filters_change,
                 on_view_change,
-                self.can_create(),
                 bulk_bar,
             ))
             .child(div().flex_1().min_h_0().child(self.issue_list.clone()))
