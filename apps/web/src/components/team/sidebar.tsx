@@ -232,7 +232,7 @@ export function TeamSidebar({
                     <Link
                       to="/t/$teamSlug/boards/$boardSlug"
                       params={{ teamSlug, boardSlug: boardTarget.slug }}
-                      search={{ new: 1 }}
+                      search={(prev) => ({ ...prev, new: 1 })}
                     >
                       <NavCreateIssueIcon className="size-4" />
                     </Link>
