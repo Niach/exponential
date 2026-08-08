@@ -76,13 +76,24 @@ pub struct CloneRefreshers {
 /// teardown path can miss. Carries its registry so a drop always releases
 /// where it retained.
 pub struct RefresherHold {
-    inner: Registry,
-    clone: PathBuf,
+    /// `None` = a no-op hold (the spawn failed, so no entry was left behind).
+    /// It must NOT release by path: a later session may have retained the same
+    /// clone into a fresh, working entry, and this drop would zero its count
+    /// and stop the loop out from under it.
+    held: Option<(Registry, PathBuf)>,
+}
+
+impl RefresherHold {
+    fn noop() -> Self {
+        RefresherHold { held: None }
+    }
 }
 
 impl Drop for RefresherHold {
     fn drop(&mut self) {
-        release(&self.inner, &self.clone);
+        if let Some((inner, clone)) = &self.held {
+            release(inner, clone);
+        }
     }
 }
 
@@ -92,7 +103,7 @@ fn release(inner: &Registry, clone: &Path) {
         Err(poisoned) => poisoned.into_inner(),
     };
     let Some(entry) = inner.get_mut(clone) else {
-        return; // spawn failed at retain time — nothing to stop
+        return; // already released — nothing to stop
     };
     entry.count -= 1;
     if entry.count == 0 {
@@ -119,8 +130,7 @@ impl CloneRefreshers {
         if let Some(entry) = inner.get_mut(clone) {
             entry.count += 1;
             return RefresherHold {
-                inner: Arc::clone(&self.inner),
-                clone: clone.to_path_buf(),
+                held: Some((Arc::clone(&self.inner), clone.to_path_buf())),
             };
         }
         let stop = Arc::new(Stop {
@@ -159,10 +169,10 @@ impl CloneRefreshers {
         if spawned.is_err() {
             log::warn!("token refresh thread spawn failed — mid-session refresh disabled");
             inner.remove(clone);
+            return RefresherHold::noop();
         }
         RefresherHold {
-            inner: Arc::clone(&self.inner),
-            clone: clone.to_path_buf(),
+            held: Some((Arc::clone(&self.inner), clone.to_path_buf())),
         }
     }
 
@@ -270,6 +280,22 @@ mod tests {
             wait_until(Duration::from_secs(2), || *stop.stopped.lock().unwrap()),
             "stop flag must be set by the last drop"
         );
+        let _ = std::fs::remove_dir_all(&clone);
+    }
+
+    /// The spawn-failure hold is inert: a real spawn failure can't be forced
+    /// here, so the test drops the hold that path returns onto a clone a
+    /// second session has since retained for real.
+    #[test]
+    fn a_failed_spawns_hold_does_not_release_a_later_entry() {
+        let refreshers = CloneRefreshers::default();
+        let clone = temp_clone("noop");
+        let failed = RefresherHold::noop();
+        let live = refreshers.retain(client(), "repo-host-noop", &clone);
+        drop(failed);
+        assert_eq!(refreshers.active_count(), 1, "the live loop survives");
+        drop(live);
+        assert_eq!(refreshers.active_count(), 0);
         let _ = std::fs::remove_dir_all(&clone);
     }
 
