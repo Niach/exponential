@@ -7,6 +7,7 @@ import { getReadableUserIdsInTeams } from "@/lib/team-membership"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { invalidateSessionCache } from "@/lib/auth/resolve-bearer"
 import { guardAndCleanupTeamsForUserDeletion } from "@/lib/account-deletion"
+import { relayKillSessionsBestEffort } from "@/lib/coding-session-kill"
 import {
   captureOAuthTokens,
   revokeOAuthTokensBestEffort,
@@ -282,6 +283,8 @@ export const usersRouter = router({
       // so the plans funding teams that survive the caller stay live and stay
       // manageable by their remaining owners).
       let doomedSubscriptions: CancellableSubscription[] = []
+      // Cross-account coding sessions the cleanup ended in-tx (EXP-445).
+      let endedSessionIds: string[] = []
       await ctx.db.transaction(async (tx) => {
         // Fail closed when the caller is the sole owner of a team that
         // still has other members, then delete their solo teams, scrub their
@@ -294,6 +297,7 @@ export const usersRouter = router({
         )
         storageKeys = cleanup.storageKeys
         doomedSubscriptions = cleanup.doomedTeamSubscriptions
+        endedSessionIds = cleanup.endedSessionIds
         await tx.delete(users).where(eq(users.id, userId))
       })
       // Post-commit: the users-row cascade dropped memberships (and possibly
@@ -312,6 +316,9 @@ export const usersRouter = router({
       // Revoke the provider grants: the Apple pairing (so a re-signup delivers
       // the name again) plus every other provider's stored token.
       await revokeOAuthTokensBestEffort(oauthTokens)
+      // Tear the shared-device runs down immediately (EXP-445); the committed
+      // `ended` rows above are the durable signal either way.
+      await relayKillSessionsBestEffort(endedSessionIds)
 
       return { ok: true }
     }),

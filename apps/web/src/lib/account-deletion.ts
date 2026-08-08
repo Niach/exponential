@@ -1,7 +1,8 @@
 import { TRPCError } from "@trpc/server"
-import { and, eq, inArray, isNull, sql } from "drizzle-orm"
+import { and, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm"
 import {
   attachments,
+  codingSessions,
   comments,
   emailBounces,
   githubInstallationRepoGrants,
@@ -104,9 +105,14 @@ export function classifyTeamsForUserDeletion(
  * (REV2-55 + lib/billing/billing-handover.ts) — deleting an account never
  * cancels a plan someone else is still using, and never fails on billing.
  *
- * Also returns every S3 storage key the deletes will strand — the caller
- * cancels the subscriptions and reclaims the keys from S3 after commit
- * (best-effort).
+ * Also returns every S3 storage key the deletes will strand, plus the ids of
+ * the cross-account coding sessions step 5 ended (EXP-445) — the caller
+ * cancels the subscriptions, reclaims the keys from S3 and fans out the relay
+ * kills after commit (all best-effort).
+ *
+ * 5. End the live coding sessions this account is one half of: the runs it
+ *    REQUESTED on a teammate's shared server device (reassigned to the host so
+ *    they survive the cascade) and the runs it HOSTS for teammates.
  */
 export async function guardAndCleanupTeamsForUserDeletion(
   tx: DbOrTx,
@@ -116,6 +122,7 @@ export async function guardAndCleanupTeamsForUserDeletion(
   deletedTeamIds: string[]
   doomedTeamSubscriptions: CancellableSubscription[]
   storageKeys: string[]
+  endedSessionIds: string[]
 }> {
   const myTeamIds = tx
     .select({ id: teamMembers.teamId })
@@ -148,6 +155,55 @@ export async function guardAndCleanupTeamsForUserDeletion(
       message: `${subject} the only owner of ${names}, which still ${rows.length === 1 ? `has` : `have`} other members. Transfer ownership or remove those members ${tail}.`,
     })
   }
+
+  // EXP-445: coding sessions that span TWO accounts — the requester who
+  // started them and the device owner hosting them on a shared server device
+  // (EXP-432). Both directions are settled here, inside the delete
+  // transaction, so the users-row cascade can never race them.
+  const endedSessionIds: string[] = []
+
+  // Live runs this user REQUESTED on somebody else's machine. `user_id`
+  // cascades, so the delete would VAPORIZE these rows — and a vanished row is
+  // deliberately NOT a kill on any client, which would leave the agent running
+  // on the host's hardware forever. Reassigning `user_id` to the host makes
+  // the row survive the cascade as a host-owned `ended` row, so the hosting
+  // daemon's kill-poll fires durably — on old daemons too. Recap attribution
+  // shifts to the host, which is acceptable: the requester no longer exists
+  // (same precedent as issues.creator_id surviving as team data).
+  const requested = await tx
+    .update(codingSessions)
+    .set({
+      status: `ended`,
+      endedAt: new Date(),
+      updatedAt: new Date(),
+      userId: sql`${codingSessions.hostUserId}`,
+    })
+    .where(
+      and(
+        eq(codingSessions.userId, userId),
+        isNotNull(codingSessions.hostUserId),
+        inArray(codingSessions.status, [`running`, `in_review`, `merged`])
+      )
+    )
+    .returning({ id: codingSessions.id })
+  endedSessionIds.push(...requested.map((s) => s.id))
+
+  // Live runs this user HOSTS for a teammate. The requester still exists, so
+  // the row stays theirs — but the daemon executing it authenticates as the
+  // account being deleted, so the run is over either way. The flip is badge
+  // hygiene plus the trigger for the caller's best-effort relay kill.
+  const hosted = await tx
+    .update(codingSessions)
+    .set({ status: `ended`, endedAt: new Date(), updatedAt: new Date() })
+    .where(
+      and(
+        eq(codingSessions.hostUserId, userId),
+        ne(codingSessions.userId, userId),
+        inArray(codingSessions.status, [`running`, `in_review`, `merged`])
+      )
+    )
+    .returning({ id: codingSessions.id })
+  endedSessionIds.push(...hosted.map((s) => s.id))
 
   // GitHub repo grants this user proved: a grant row means "team W may
   // see/connect this repo because user U proved user-scoped GitHub access",
@@ -219,7 +275,12 @@ export async function guardAndCleanupTeamsForUserDeletion(
     await deleteEmailResidueForUser(tx, userId, email)
   }
 
-  return { deletedTeamIds, doomedTeamSubscriptions, storageKeys }
+  return {
+    deletedTeamIds,
+    doomedTeamSubscriptions,
+    storageKeys,
+    endedSessionIds,
+  }
 }
 
 /** Escape a LIKE/ILIKE pattern operand (emails may legally contain `_`). */

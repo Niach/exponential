@@ -16,6 +16,7 @@ vi.mock(`@/lib/billing/creem-subscriptions`, () => ({
 
 import {
   attachments,
+  codingSessions,
   comments,
   emailBounces,
   githubInstallationRepoGrants,
@@ -32,7 +33,11 @@ import {
 
 const selectQueue: unknown[][] = []
 const deletes: unknown[] = []
-const updates: { table: unknown; values: Record<string, unknown> }[] = []
+const updates: {
+  table: unknown
+  values: Record<string, unknown>
+  where: unknown
+}[] = []
 
 // LAZY on purpose: the helper builds a `myTeamIds` sub-select it never
 // awaits, so a chain that shifted its rows at call time would eat a batch.
@@ -49,6 +54,9 @@ function selectChain(): Record<string, unknown> {
 }
 
 const returningQueue: unknown[][] = []
+// Rows the successive UPDATE ... RETURNING calls hand back (EXP-445 ends
+// cross-account coding sessions in two updates before anything else writes).
+const updateReturningQueue: unknown[][] = []
 
 const fakeTx = {
   select: () => selectChain(),
@@ -64,13 +72,23 @@ const fakeTx = {
   }),
   update: (table: unknown) => ({
     set: (values: Record<string, unknown>) => ({
-      where: () => {
-        updates.push({ table, values })
-        return Promise.resolve()
+      where: (where: unknown) => {
+        updates.push({ table, values, where })
+        const p = Promise.resolve() as Promise<void> & {
+          returning: () => Promise<unknown[]>
+        }
+        p.returning = () => Promise.resolve(updateReturningQueue.shift() ?? [])
+        return p
       },
     }),
   }),
 } as never
+
+/** The updates a given table received — the coding-session flips (EXP-445)
+ * run before the mention scrub, so index-based assertions would be brittle. */
+function updatesTo(table: unknown) {
+  return updates.filter((u) => u.table === table)
+}
 
 // The orphan guard behind users.deleteAccount AND admin.deleteUser: deleting
 // a user must never silently strand a multi-member team without an
@@ -195,6 +213,7 @@ beforeEach(() => {
   deletes.length = 0
   updates.length = 0
   returningQueue.length = 0
+  updateReturningQueue.length = 0
   mocks.teamSubscriptions = []
 })
 
@@ -314,14 +333,13 @@ describe(`guardAndCleanupTeamsForUserDeletion — mentions (REV2-37)`, () => {
 
     await guardAndCleanupTeamsForUserDeletion(fakeTx, USER, `self`)
 
-    expect(updates).toHaveLength(2)
-    expect(updates[0]!.table).toBe(issues)
-    expect(updates[0]!.values.description).toBe(
+    expect(updatesTo(issues)).toHaveLength(1)
+    expect(updatesTo(issues)[0]!.values.description).toBe(
       `cc @former-member please review`
     )
     // Tokens are matched case-insensitively — the same person.
-    expect(updates[1]!.table).toBe(comments)
-    expect(updates[1]!.values.body).toBe(`thanks @former-member!`)
+    expect(updatesTo(comments)).toHaveLength(1)
+    expect(updatesTo(comments)[0]!.values.body).toBe(`thanks @former-member!`)
   })
 
   it(`leaves other people's mentions (and plain emails) untouched`, async () => {
@@ -339,7 +357,8 @@ describe(`guardAndCleanupTeamsForUserDeletion — mentions (REV2-37)`, () => {
 
     await guardAndCleanupTeamsForUserDeletion(fakeTx, USER, `self`)
 
-    expect(updates).toHaveLength(0)
+    expect(updatesTo(issues)).toHaveLength(0)
+    expect(updatesTo(comments)).toHaveLength(0)
   })
 
   it(`skips the scrub entirely when the users row is already gone`, async () => {
@@ -350,7 +369,8 @@ describe(`guardAndCleanupTeamsForUserDeletion — mentions (REV2-37)`, () => {
 
     await guardAndCleanupTeamsForUserDeletion(fakeTx, USER, `admin`)
 
-    expect(updates).toHaveLength(0)
+    expect(updatesTo(issues)).toHaveLength(0)
+    expect(updatesTo(comments)).toHaveLength(0)
     expect(deletes).toEqual([githubInstallationRepoGrants])
   })
 })
@@ -390,5 +410,116 @@ describe(`guardAndCleanupTeamsForUserDeletion — email residue (REV2-75)`, () =
       teamInvites,
     ])
     expect(deletes).not.toContain(attachments)
+  })
+})
+
+// ── Cross-account coding sessions (EXP-445) ─────────────────────────────────
+// A shared-device run belongs to the requester (`user_id`) and executes on the
+// host's machine (`host_user_id`). Deleting either account must leave a durable
+// `ended` row behind — the where clauses are asserted by SHAPE, since the fake
+// tx cannot execute them.
+
+function whereShape(cond: unknown, out: unknown[] = []): unknown[] {
+  if (!cond || typeof cond !== `object`) return out
+  if (Array.isArray(cond)) {
+    for (const child of cond) whereShape(child, out)
+    return out
+  }
+  const rec = cond as Record<string, unknown>
+  if (Array.isArray(rec.queryChunks)) return whereShape(rec.queryChunks, out)
+  if (`value` in rec && `encoder` in rec) {
+    out.push(rec.value)
+    return out
+  }
+  if (typeof rec.name === `string` && rec.table) {
+    out.push(`col:${rec.name}`)
+    return out
+  }
+  return out
+}
+
+describe(`guardAndCleanupTeamsForUserDeletion — coding sessions (EXP-445)`, () => {
+  const surviving = [m(SHARED, USER, `owner`), m(SHARED, `user-2`, `owner`)]
+
+  it(`ends the runs the user requested on a host, reassigning them to that host`, async () => {
+    seedBaseline({ memberships: surviving })
+    selectQueue.push([])
+    selectQueue.push([])
+    updateReturningQueue.push([{ id: `sess-requested` }])
+
+    const result = await guardAndCleanupTeamsForUserDeletion(
+      fakeTx,
+      USER,
+      `self`
+    )
+
+    const [requested] = updatesTo(codingSessions)
+    expect(requested!.values).toMatchObject({
+      status: `ended`,
+      endedAt: expect.any(Date),
+    })
+    // user_id := host_user_id, so the row outlives the users-row cascade as a
+    // host-owned ended row the hosting daemon still polls.
+    expect(whereShape(requested!.values.userId)).toEqual([`col:host_user_id`])
+    // Only rows with a host — a self-hosted session (host_user_id NULL) is
+    // vaporized by the cascade and must not be touched here.
+    expect(whereShape(requested!.where)).toEqual([
+      `col:user_id`,
+      USER,
+      `col:host_user_id`,
+      `col:status`,
+      `running`,
+      `in_review`,
+      `merged`,
+    ])
+    expect(result.endedSessionIds).toContain(`sess-requested`)
+  })
+
+  it(`ends the runs the user HOSTS without reassigning them (the requester lives on)`, async () => {
+    seedBaseline({ memberships: surviving })
+    selectQueue.push([])
+    selectQueue.push([])
+    updateReturningQueue.push([])
+    updateReturningQueue.push([{ id: `sess-hosted` }])
+
+    const result = await guardAndCleanupTeamsForUserDeletion(
+      fakeTx,
+      USER,
+      `admin`
+    )
+
+    const hosted = updatesTo(codingSessions)[1]
+    expect(hosted!.values).toMatchObject({ status: `ended` })
+    expect(`userId` in hosted!.values).toBe(false)
+    expect(whereShape(hosted!.where)).toEqual([
+      `col:host_user_id`,
+      USER,
+      `col:user_id`,
+      USER,
+      `col:status`,
+      `running`,
+      `in_review`,
+      `merged`,
+    ])
+    expect(result.endedSessionIds).toEqual([`sess-hosted`])
+  })
+
+  it(`surfaces both directions' ids and stays empty when nothing was live`, async () => {
+    seedBaseline({ memberships: surviving })
+    selectQueue.push([])
+    selectQueue.push([])
+    updateReturningQueue.push([{ id: `sess-a` }])
+    updateReturningQueue.push([{ id: `sess-b` }])
+
+    const both = await guardAndCleanupTeamsForUserDeletion(fakeTx, USER, `self`)
+    expect(both.endedSessionIds).toEqual([`sess-a`, `sess-b`])
+
+    updates.length = 0
+    seedBaseline({ memberships: surviving })
+    selectQueue.push([])
+    selectQueue.push([])
+
+    const none = await guardAndCleanupTeamsForUserDeletion(fakeTx, USER, `self`)
+    expect(none.endedSessionIds).toEqual([])
   })
 })

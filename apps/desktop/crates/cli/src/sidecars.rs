@@ -54,7 +54,10 @@ impl Sidecars {
                 }
             }
             Err(err) => {
-                log::warn!("hooks sidecar failed to bind: {err}");
+                log::warn!(
+                    "hooks sidecar failed to bind: {err} — every session degrades to grid-only \
+                     detection (no question identity, no transcript pin)"
+                );
                 (None, Arc::new(Mutex::new(Vec::new())), None)
             }
         };
@@ -85,8 +88,15 @@ impl Sidecars {
     }
 
     /// Subscribe a session's worktree to the claude hook stream; dropping
-    /// the receiver unsubscribes on the next delivery.
-    pub fn subscribe_hooks(&self, worktree: &Path) -> Option<flume::Receiver<HookEvent>> {
+    /// the receiver unsubscribes on the next delivery. `session_id`
+    /// (EXP-443) is the launcher-minted `--session-id`: pre-seeding `bound`
+    /// makes [`route_hook_event`]'s rule 1 authoritative from the first
+    /// delivery — no cwd guess, no insertion-order race.
+    pub fn subscribe_hooks(
+        &self,
+        worktree: &Path,
+        session_id: Option<&str>,
+    ) -> Option<flume::Receiver<HookEvent>> {
         self.hook_setup.as_ref()?;
         let (tx, rx) = flume::unbounded();
         let mut subscribers = lock(&self.hook_subscribers);
@@ -94,7 +104,9 @@ impl Sidecars {
         subscribers.push(HookSubscriber {
             worktree: canonical(worktree),
             tx,
-            bound: HashSet::new(),
+            bound: session_id
+                .map(|id| HashSet::from([id.to_string()]))
+                .unwrap_or_default(),
         });
         Some(rx)
     }
@@ -129,6 +141,11 @@ fn canonical(path: &Path) -> PathBuf {
 /// Deliver one hook event to at most ONE session: a bound claude session id
 /// wins outright, else the cwd picks the session (preferring one with no
 /// bound id yet so two runs sharing a trunk clone split).
+///
+/// EXP-443: sessions launch with `bound` pre-seeded by the minted
+/// `--session-id`, so rule 1 is authoritative from the first delivery. The
+/// cwd fallback stays for the ids a pre-seed cannot know: a `/clear`-minted
+/// rotation and pre-EXP-443 resumes.
 fn route_hook_event(subscribers: &Arc<Mutex<Vec<HookSubscriber>>>, event: HookEvent) {
     let mut subscribers = lock(subscribers);
     subscribers.retain(|subscriber| !subscriber.tx.is_disconnected());
@@ -159,4 +176,82 @@ fn route_hook_event(subscribers: &Arc<Mutex<Vec<HookSubscriber>>>, event: HookEv
         subscribers[target].bound.insert(id);
     }
     let _ = subscribers[target].tx.send(event);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn subscriber(
+        subscribers: &Arc<Mutex<Vec<HookSubscriber>>>,
+        worktree: &Path,
+        session_id: Option<&str>,
+    ) -> flume::Receiver<HookEvent> {
+        let (tx, rx) = flume::unbounded();
+        lock(subscribers).push(HookSubscriber {
+            worktree: worktree.to_path_buf(),
+            tx,
+            bound: session_id
+                .map(|id| HashSet::from([id.to_string()]))
+                .unwrap_or_default(),
+        });
+        rx
+    }
+
+    fn event(session_id: Option<&str>, cwd: &Path) -> HookEvent {
+        steer::hooks::parse_hook_event(
+            serde_json::json!({
+                "hook_event_name": "Stop",
+                "session_id": session_id,
+                "cwd": cwd.to_string_lossy(),
+            })
+            .to_string()
+            .as_bytes(),
+        )
+        .expect("fixture parses")
+    }
+
+    /// EXP-443: a pre-seeded bound id wins over an earlier same-cwd
+    /// subscriber — the insertion-order race the seed removes.
+    #[test]
+    fn router_prefers_the_bound_session_id() {
+        let subscribers: Arc<Mutex<Vec<HookSubscriber>>> = Arc::default();
+        let cwd = std::env::temp_dir();
+        let first = subscriber(&subscribers, &cwd, Some("sess-a"));
+        let second = subscriber(&subscribers, &cwd, Some("sess-b"));
+        route_hook_event(&subscribers, event(Some("sess-b"), &cwd));
+        assert!(second.try_recv().is_ok(), "bound id must win");
+        assert!(first.try_recv().is_err());
+    }
+
+    /// An unknown id lands on the same-cwd subscriber with an EMPTY bound
+    /// set first — a seeded subscriber never absorbs a stranger's id while
+    /// an unseeded one exists.
+    #[test]
+    fn router_gives_an_unknown_id_to_the_unbound_subscriber() {
+        let subscribers: Arc<Mutex<Vec<HookSubscriber>>> = Arc::default();
+        let cwd = std::env::temp_dir();
+        let seeded = subscriber(&subscribers, &cwd, Some("sess-a"));
+        let unseeded = subscriber(&subscribers, &cwd, None);
+        route_hook_event(&subscribers, event(Some("sess-c"), &cwd));
+        assert!(unseeded.try_recv().is_ok());
+        assert!(seeded.try_recv().is_err());
+    }
+
+    /// The cwd fallback stays: with only a seeded subscriber present, a
+    /// fresh id (a /clear rotation) still binds by cwd and sticks.
+    #[test]
+    fn router_binds_a_rotated_id_by_cwd_as_last_resort() {
+        let subscribers: Arc<Mutex<Vec<HookSubscriber>>> = Arc::default();
+        let cwd = std::env::temp_dir();
+        let seeded = subscriber(&subscribers, &cwd, Some("sess-a"));
+        route_hook_event(&subscribers, event(Some("sess-rotated"), &cwd));
+        assert!(seeded.try_recv().is_ok(), "cwd fallback must deliver");
+        // The rotation is now bound: it wins rule 1 on the next delivery
+        // even after an unseeded subscriber appears.
+        let unseeded = subscriber(&subscribers, &cwd, None);
+        route_hook_event(&subscribers, event(Some("sess-rotated"), &cwd));
+        assert!(seeded.try_recv().is_ok());
+        assert!(unseeded.try_recv().is_err());
+    }
 }

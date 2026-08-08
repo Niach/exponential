@@ -121,13 +121,26 @@ pub fn launch(
         session_id,
         issue_identifier,
         worktree,
+        clone,
+        repository_id,
         branch,
         spawn,
         heartbeat_scope,
         bypass_permissions,
         agent,
+        claude_session_id,
+        codex_originator,
+        codex_resume_id,
         ..
     } = prepared;
+    // EXP-444/EXP-432: snapshot the relay requester BEFORE the heartbeat
+    // thread takes ownership of the scope — a start whose requester is not
+    // this daemon's account runs on a shared host, and the emitter
+    // suppresses the remote login flow for it.
+    let foreign_host = heartbeat_scope
+        .started_by_id
+        .as_deref()
+        .is_some_and(|requester| requester != env.ctx.account.user_id);
 
     let (cols, rows) = if interactive {
         crate::term::window_size().unwrap_or((DETACHED_COLS, DETACHED_ROWS))
@@ -249,7 +262,10 @@ pub fn launch(
                     .is_ok()
                 })),
                 hooks: is_claude
-                    .then(|| env.sidecars.subscribe_hooks(&worktree))
+                    .then(|| {
+                        env.sidecars
+                            .subscribe_hooks(&worktree, claude_session_id.as_deref())
+                    })
                     .flatten(),
                 steering: is_claude.then(|| Steering {
                     answers,
@@ -258,6 +274,10 @@ pub fn launch(
                 }),
                 pi_events,
                 bypass_permissions,
+                claude_session_id: claude_session_id.clone(),
+                codex_originator: codex_originator.clone(),
+                codex_resume_id: codex_resume_id.clone(),
+                foreign_host,
             },
             handle.activity_sender(),
             Arc::clone(&activity_active),
@@ -282,23 +302,29 @@ pub fn launch(
                     return;
                 }
                 match api::coding_sessions::get(&trpc, &session_id) {
-                    Ok(Some(row)) => {
-                        let owned = row.user_id.as_deref().map(|id| id == own_user).unwrap_or(true);
-                        if owned && row.status.as_deref() == Some("ended") {
+                    Ok(Some(row)) => match kill_poll_decision(&row, &own_user) {
+                        PollDecision::Kill => {
                             let _ = kill_tx.send(Control::Kill { outcome: "killed" });
                             return;
                         }
-                        if !owned {
-                            // Resurrected under another owner — stop watching.
-                            return;
-                        }
-                    }
+                        PollDecision::StopWatching => return,
+                        PollDecision::Continue => {}
+                    },
                     // Swept/foreign row or a transport blip: never a kill.
                     Ok(None) | Err(_) => {}
                 }
             }
         });
     }
+
+    // EXP-447: the CLI counterpart of the desktop's `TokenRefreshers` — the
+    // launch-time token dies after GitHub's hard 1h cap, and the credential
+    // helper is a deliberate dumb `cat`, so a session outliving the token
+    // would strand the agent's `git push`. Repo-less runs have no clone and
+    // nothing to refresh.
+    let refresher_hold = repository_id.as_deref().map(|repository_id| {
+        coding::clone_refreshers().retain(Arc::clone(&env.ctx.trpc), repository_id, &clone)
+    });
 
     // --- The supervisor: pump loop + control events (manager.rs parity:
     // coalesce wake bursts, pump every wake, final sweep after close). ------
@@ -311,6 +337,7 @@ pub fn launch(
         activity_active,
         watch_done,
         interactive,
+        _refresher_hold: refresher_hold,
     };
     {
         let done_tx = done_tx;
@@ -336,6 +363,41 @@ pub fn launch(
     })
 }
 
+/// One kill-poll observation → what the watcher thread does next.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PollDecision {
+    /// An owned row flipped to `ended` — the durable kill signal.
+    Kill,
+    /// A live owned row — keep polling.
+    Continue,
+    /// The row was resurrected under a stranger — its edges are not ours.
+    StopWatching,
+}
+
+/// The kill-poll's ownership rule. Owner-or-host (EXP-445): a shared-device
+/// row carries the REQUESTER as `user_id` while this daemon is only its
+/// host — `host_user_id == own` must also count, or the durable →ended kill
+/// (unshare, requester account deletion, a relay-less `killSession`) never
+/// reaches exactly the sessions a foreign teammate started here. A missing
+/// `user_id` degrades to owned (the server always stamps it; partial rows
+/// only).
+fn kill_poll_decision(row: &api::coding_sessions::CodingSession, own_user: &str) -> PollDecision {
+    let owned = row
+        .user_id
+        .as_deref()
+        .map(|id| id == own_user)
+        .unwrap_or(true)
+        || row.host_user_id.as_deref() == Some(own_user);
+    if !owned {
+        return PollDecision::StopWatching;
+    }
+    if row.status.as_deref() == Some("ended") {
+        PollDecision::Kill
+    } else {
+        PollDecision::Continue
+    }
+}
+
 struct SupervisorCtx {
     trpc: Arc<api::trpc::TrpcClient>,
     data_dir: PathBuf,
@@ -345,6 +407,11 @@ struct SupervisorCtx {
     activity_active: Arc<AtomicBool>,
     watch_done: Arc<AtomicBool>,
     interactive: bool,
+    /// EXP-447: keeps the clone's ambient git credentials fresh for the
+    /// session's life — drops (releasing the ref-counted refresher) exactly
+    /// when `supervise` returns, on both the exit and kill paths. `None` for
+    /// repo-less action runs.
+    _refresher_hold: Option<coding::RefresherHold>,
 }
 
 fn supervise(
@@ -464,4 +531,65 @@ fn join_bounded(handle: std::thread::JoinHandle<()>) {
         std::thread::sleep(Duration::from_millis(10));
     }
     let _ = handle.join();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn row(user_id: Option<&str>, host_user_id: Option<&str>, status: &str) -> api::coding_sessions::CodingSession {
+        serde_json::from_value(serde_json::json!({
+            "id": "sess-1",
+            "userId": user_id,
+            "hostUserId": host_user_id,
+            "status": status,
+        }))
+        .expect("fixture decodes")
+    }
+
+    #[test]
+    fn own_rows_kill_on_ended_and_continue_while_live() {
+        assert_eq!(kill_poll_decision(&row(Some("me"), None, "ended"), "me"), PollDecision::Kill);
+        assert_eq!(
+            kill_poll_decision(&row(Some("me"), None, "running"), "me"),
+            PollDecision::Continue
+        );
+    }
+
+    /// EXP-445 regression: a shared-device row (requester as user_id, this
+    /// daemon as host) must keep the watch alive — and its `ended` flip IS
+    /// this daemon's kill. Before the fix the watcher stopped on the first
+    /// poll, so unshare/deletion kills never landed.
+    #[test]
+    fn hosted_foreign_rows_stay_watched_and_their_ended_flip_kills() {
+        assert_eq!(
+            kill_poll_decision(&row(Some("requester"), Some("me"), "running"), "me"),
+            PollDecision::Continue
+        );
+        assert_eq!(
+            kill_poll_decision(&row(Some("requester"), Some("me"), "ended"), "me"),
+            PollDecision::Kill
+        );
+    }
+
+    /// The resurrection rule survives: a row owned by a stranger (no host
+    /// claim either) is not ours, whatever its status says.
+    #[test]
+    fn fully_foreign_rows_stop_the_watch_without_killing() {
+        assert_eq!(
+            kill_poll_decision(&row(Some("stranger"), None, "ended"), "me"),
+            PollDecision::StopWatching
+        );
+        assert_eq!(
+            kill_poll_decision(&row(Some("stranger"), Some("other-host"), "running"), "me"),
+            PollDecision::StopWatching
+        );
+    }
+
+    /// A partial row without user_id degrades to owned (server always stamps
+    /// it) — an ended flip still kills.
+    #[test]
+    fn missing_user_id_degrades_to_owned() {
+        assert_eq!(kill_poll_decision(&row(None, None, "ended"), "me"), PollDecision::Kill);
+    }
 }

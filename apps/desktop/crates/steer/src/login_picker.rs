@@ -49,6 +49,49 @@ const SUCCESS_ANCHORS: &[&str] = &["Login successful", "Logged in as"];
 /// markdown can never look like a live picker.
 const SELECTION_MARKER: char = '❯';
 
+/// EXP-444: the only domains a detected sign-in URL may point at to be
+/// published verbatim (through `redact_exact_only`). The grid is
+/// agent-writable — anything an agent prints can match [`URL_ANCHOR`], and an
+/// off-domain "sign-in link" rendered as a tappable authorize anchor inside
+/// the trusted activity feed is a phishing primitive, not a login.
+const TRUSTED_LOGIN_DOMAINS: &[&str] = &["claude.ai", "claude.com", "anthropic.com"];
+
+/// Whether a detected sign-in URL points at an Anthropic-owned host
+/// (exactly a [`TRUSTED_LOGIN_DOMAINS`] entry, or a subdomain of one).
+/// https-only; a userinfo `@` in the authority is rejected outright —
+/// `https://claude.com@evil.com/` has no legitimate use on a login screen.
+pub fn is_trusted_login_url(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("https://") else {
+        return false;
+    };
+    let authority = rest
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or_default();
+    if authority.is_empty() || authority.contains('@') {
+        return false;
+    }
+    let host = authority
+        .rsplit_once(':')
+        .map(|(host, port)| {
+            // Only strip a real port suffix; anything non-numeric after a
+            // colon is a malformed authority, not a port.
+            if port.chars().all(|c| c.is_ascii_digit()) && !port.is_empty() {
+                host
+            } else {
+                ""
+            }
+        })
+        .unwrap_or(authority)
+        .to_ascii_lowercase();
+    if host.is_empty() {
+        return false;
+    }
+    TRUSTED_LOGIN_DOMAINS
+        .iter()
+        .any(|domain| host == *domain || host.ends_with(&format!(".{domain}")))
+}
+
 /// One detected login-flow screen.
 #[derive(Clone, Debug, PartialEq)]
 pub enum LoginPhase {
@@ -552,5 +595,33 @@ mod tests {
         ]);
         assert!(crate::plan_picker::detect(&plan_screen).is_some());
         assert_eq!(detect(&plan_screen), None);
+    }
+
+    /// EXP-444: only Anthropic-owned hosts may travel verbatim through the
+    /// exact-only redaction path.
+    #[test]
+    fn trusted_login_urls_accept_anthropic_domains_only() {
+        for url in [
+            "https://claude.ai/oauth/authorize?code=abc",
+            "https://claude.com/login",
+            "https://platform.claude.com/oauth?x=1#frag",
+            "https://console.anthropic.com/oauth/authorize",
+            "https://claude.ai:443/oauth",
+        ] {
+            assert!(is_trusted_login_url(url), "{url} should be trusted");
+        }
+        for url in [
+            "http://claude.com/login",              // https only
+            "https://claude.com.evil.com/login",    // suffix spoof
+            "https://evil.com/claude.com",          // domain in the path
+            "https://claude.com@evil.com/login",    // userinfo trick
+            "https://claudeXai/whatever",           // no dot boundary
+            "https://xclaude.ai/login",             // not a subdomain
+            "https://claude.com:evil/x",            // malformed port
+            "https://",                             // empty authority
+            "notaurl",
+        ] {
+            assert!(!is_trusted_login_url(url), "{url} must be refused");
+        }
     }
 }

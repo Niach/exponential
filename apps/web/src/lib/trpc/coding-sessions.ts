@@ -33,6 +33,12 @@ const actionIdInput = z
 // device with the session's team and the teammate is still a member — sharing
 // IS the consent to host teammate-owned runs. Everything else (absent field,
 // self-attribution) is the pre-EXP-432 path: the row belongs to the caller.
+// EXP-445 on the residual forgery: naming a `startedById` takes the device
+// owner's OWN credentials (the daemon is the authed caller here), can only
+// name a member of a team that owner explicitly shared the box with, and
+// grants that member no privilege they lack — it is attribution noise, not
+// escalation. Closing it properly means relay-signed start tokens carrying the
+// requester, which is out of scope here.
 async function resolveStartAttribution(
   db: Context[`db`],
   callerId: string,

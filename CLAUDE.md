@@ -66,6 +66,7 @@ From repo root unless noted.
 bun install
 bun run backend                    # docker compose up -d + web dev server (app at localhost:3000 via Caddy)
 bun run ios                        # tuist generate + Xcode (Mac-only)
+bun run ios:test                   # ExpCore+ExpUI unit suites (Mac-only; deliberately NOT in CI — run before ios-v* tags)
 bun run android                    # install productionDebug + launch
 bun dev                            # web dev server (localhost:5173)
 bun run dev:marketing / build:marketing

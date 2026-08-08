@@ -462,6 +462,20 @@ pub struct PreparedLaunch {
     /// tail / pi observer) — every steer-room launch path flows through
     /// here, so resume needs no separate plumbing.
     pub agent: CodingAgent,
+    /// EXP-443: claude's own session id, minted here and passed via
+    /// `--session-id` so the transcript pin (and the hook router's `bound`
+    /// set) exist before the first hook fires. `None` on native resume (the
+    /// conversation keeps its original id — the SessionStart hook seeds the
+    /// pin instead) and on non-claude agents.
+    pub claude_session_id: Option<String>,
+    /// EXP-443: the originator stamped into codex's rollout metas via
+    /// [`crate::argv::CODEX_ORIGINATOR_ENV`] — the codex emitter's discovery
+    /// discriminator. `None` on non-codex agents.
+    pub codex_originator: Option<String>,
+    /// EXP-443: the exact rollout session id a codex NATIVE RESUME reopens —
+    /// the strongest discovery pin (an id match beats any originator/mtime
+    /// heuristic). `None` on fresh spawns and non-codex agents.
+    pub codex_resume_id: Option<String>,
 }
 
 /// [`prepare`]'s outcome: ready to spawn, or disabled-with-reason.
@@ -1021,7 +1035,22 @@ pub fn prepare_with_hooks(
         );
     }
     let hook_settings = write_hook_settings(&deps.data_dir, &session.id, agent, hooks);
-    let args = session_args(options, &agent_mcp, hook_settings.as_deref(), tail);
+    // EXP-443: identity minted BEFORE spawn, so the transcript pin and the
+    // hook router's bound set exist from tick zero — a foreign agent sharing
+    // the cwd can never be tailed into this session's feed. A native resume
+    // keeps its original claude id (the SessionStart hook seeds the pin);
+    // codex gets a per-session originator stamped into its rollout metas.
+    let claude_session_id = (agent == CodingAgent::Claude && !native_resume)
+        .then(|| uuid::Uuid::new_v4().to_string());
+    let codex_originator = (agent == CodingAgent::Codex)
+        .then(|| crate::argv::codex_session_originator(&session.id));
+    let args = session_args(
+        options,
+        &agent_mcp,
+        hook_settings.as_deref(),
+        claude_session_id.as_deref(),
+        tail,
+    );
     let tab_title = format!("{} · {tab_title_prefix}", agent.id());
     let mut spawn = SpawnSpec::new(&deps.settings.resolved_path_for(agent))
         .args(args)
@@ -1042,6 +1071,9 @@ pub fn prepare_with_hooks(
     spawn = apply_mcp_env(spawn, agent, deps.trpc.base_url(), &personal_key);
     spawn = apply_hook_env(spawn, hooks, hook_settings.as_ref());
     spawn = apply_observer_env(spawn, agent, observer);
+    if let Some(originator) = &codex_originator {
+        spawn = spawn.env(crate::argv::CODEX_ORIGINATOR_ENV, originator);
+    }
 
     let heartbeat_scope = match req {
         PrepareRequest::Issue(issue_req) => {
@@ -1085,6 +1117,9 @@ pub fn prepare_with_hooks(
         tab_kind: TabKind::Claude,
         bypass_permissions: options.skip_permissions && !options.plan_mode,
         agent,
+        claude_session_id,
+        codex_originator,
+        codex_resume_id,
     }))
 }
 
@@ -1377,10 +1412,18 @@ fn prepare_action(
         );
     }
     let hook_settings = write_hook_settings(&deps.data_dir, &session.id, agent, hooks);
+    // EXP-443: action runs mint identities like a session — they share the
+    // trunk-clone cwd with each other and with agent shells, exactly the
+    // collision the pin/originator disambiguate. Always fresh (no resume).
+    let claude_session_id =
+        (agent == CodingAgent::Claude).then(|| uuid::Uuid::new_v4().to_string());
+    let codex_originator = (agent == CodingAgent::Codex)
+        .then(|| crate::argv::codex_session_originator(&session.id));
     let args = session_args(
         &options,
         &agent_mcp,
         hook_settings.as_deref(),
+        claude_session_id.as_deref(),
         SessionTail::Prompt(delivery.positional()),
     );
     let tab_title = format!("action · {}", req.action_name);
@@ -1390,6 +1433,9 @@ fn prepare_action(
     spawn = apply_mcp_env(spawn, agent, deps.trpc.base_url(), &personal_key);
     spawn = apply_hook_env(spawn, hooks, hook_settings.as_ref());
     spawn = apply_observer_env(spawn, agent, observer);
+    if let Some(originator) = &codex_originator {
+        spawn = spawn.env(crate::argv::CODEX_ORIGINATOR_ENV, originator);
+    }
     if let Some(clone) = &trunk_clone {
         // Same EXP-76 shared-cache posture as a session — keyed off the
         // CLONE (the fix-conflicts cwd is a worktree); inert repo-less.
@@ -1433,6 +1479,9 @@ fn prepare_action(
         tab_kind: TabKind::Action(req.action_id.clone()),
         bypass_permissions: options.skip_permissions && !options.plan_mode,
         agent,
+        claude_session_id,
+        codex_originator,
+        codex_resume_id: None,
     }))
 }
 
@@ -1565,12 +1614,22 @@ pub fn prepare_agent_shell(
             options.skip_permissions && !options.plan_mode,
         );
     }
-    let args = session_args(options, &agent_mcp, None, SessionTail::None);
+    // EXP-443: no claude session id — shells stay hookless/unpinned, and the
+    // whole point of the pin is that real sessions stop listening to them.
+    let args = session_args(options, &agent_mcp, None, None, SessionTail::None);
     let tab_title = agent_shell_tab_title(agent, req, &cwd);
     let mut spawn = SpawnSpec::new(&deps.settings.resolved_path_for(agent))
         .args(args)
         .cwd(&cwd);
     spawn = apply_mcp_env(spawn, agent, deps.trpc.base_url(), &personal_key);
+    if agent == CodingAgent::Codex {
+        // EXP-443: shells share the trunk cwd with action runs — a distinct
+        // originator keeps their rollouts out of every session's strict pass.
+        spawn = spawn.env(
+            crate::argv::CODEX_ORIGINATOR_ENV,
+            crate::argv::CODEX_SHELL_ORIGINATOR,
+        );
+    }
     // Same EXP-76 shared-cache posture as a session (keyed off the clone).
     spawn = spawn
         .env(
@@ -2020,6 +2079,13 @@ mod tests {
         assert_eq!(requests.len(), 1, "{requests:?}");
         assert!(requests[0].starts_with("POST /api/trpc/codingSessions.start"));
         assert!(requests[0].contains(r#""actionId":"act-1""#));
+
+        // EXP-443: action runs mint identities like a session (claude here —
+        // a fresh --session-id, no codex originator).
+        let stripped = strip_session_id(&prepared);
+        assert!(!stripped.iter().any(|arg| arg == "--session-id"));
+        assert_eq!(prepared.codex_originator, None);
+        assert_eq!(prepared.codex_resume_id, None);
     }
 
     #[test]
@@ -2254,9 +2320,10 @@ mod tests {
         assert_eq!(fs::read_to_string(&settings).unwrap(), hooks.settings_json);
         assert!(!worktree.join(".claude").exists(), "never a worktree .claude dir");
         // Between the model/effort pair and the MCP flags — the prompt keeps
-        // the tail.
+        // the tail. EXP-443: the minted --session-id rides directly after.
         assert!(at > 0 && args[at - 1] == "fable");
-        assert_eq!(args[at + 2], "--mcp-config");
+        assert_eq!(args[at + 2], "--session-id");
+        assert_eq!(args[at + 4], "--mcp-config");
         for (key, value) in [
             (HOOK_PORT_ENV, "45321".to_string()),
             (HOOK_TOKEN_ENV, "hook-token-1".to_string()),
@@ -2673,6 +2740,22 @@ mod tests {
         assert!(requests[1].starts_with("POST /api/trpc/issues.prepareConflictFix"));
     }
 
+    /// EXP-443: every fresh claude launch mints `--session-id <uuid>`; the
+    /// exact-argv tests strip the (random) pair after asserting it is a
+    /// valid UUID that matches the prepared field.
+    fn strip_session_id(prepared: &PreparedLaunch) -> Vec<String> {
+        let mut args = prepared.spawn.args.clone();
+        let at = args
+            .iter()
+            .position(|arg| arg == "--session-id")
+            .expect("--session-id present on a fresh claude launch");
+        args.remove(at);
+        let id = args.remove(at);
+        uuid::Uuid::parse_str(&id).expect("a valid uuid");
+        assert_eq!(prepared.claude_session_id.as_deref(), Some(id.as_str()));
+        args
+    }
+
     #[test]
     fn prepare_issue_full_sequence() {
         let dir = temp_dir("happy");
@@ -2716,7 +2799,7 @@ mod tests {
         // delivery), worktree cwd.
         assert_eq!(prepared.spawn.program, "git"); // test claude_path
         assert_eq!(
-            prepared.spawn.args,
+            strip_session_id(&prepared),
             vec![
                 "--model".to_string(),
                 "fable".to_string(),
@@ -2818,6 +2901,10 @@ mod tests {
             crate::worktree_agents::worktree_agents(&worktree),
             Some(vec![CodingAgent::Claude])
         );
+        // EXP-443: a native resume passes NO --session-id (the resumed
+        // conversation keeps its own id — the SessionStart hook seeds the
+        // pin instead).
+        assert_eq!(prepared.claude_session_id, None);
     }
 
     /// EXP-210: a CLAUDE resume against a worktree whose recorded-agent
@@ -2929,6 +3016,17 @@ mod tests {
         // Stale-seed hygiene + a fresh session row, same as claude.
         assert!(!worktree.join(PROMPT_FILE).exists());
         assert_eq!(prepared.session_id, "sess-1");
+        // EXP-443: the exact reopened rollout id rides out as the emitter's
+        // strongest discovery pin, and the originator env is stamped too.
+        assert_eq!(prepared.codex_resume_id.as_deref(), Some("sess-uuid-1"));
+        assert_eq!(
+            prepared.codex_originator.as_deref(),
+            Some(crate::argv::codex_session_originator("sess-1").as_str())
+        );
+        assert!(prepared.spawn.env.iter().any(|(key, value)| {
+            key == crate::argv::CODEX_ORIGINATOR_ENV
+                && value == &crate::argv::codex_session_originator("sess-1")
+        }));
     }
 
     /// EXP-202: a CODEX resume with NO recorded session for the worktree
@@ -3090,7 +3188,7 @@ mod tests {
         match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
             Prepared::Ready(prepared) => {
                 assert_eq!(
-                    prepared.spawn.args[..8],
+                    strip_session_id(&prepared)[..8],
                     [
                         "--model".to_string(),
                         "fable".to_string(),
@@ -3177,6 +3275,17 @@ mod tests {
         );
         assert!(args.contains(&"model_reasoning_effort=\"high\"".to_string()));
         assert!(args.last().unwrap().contains("EXP-42"));
+        // EXP-443: no claude session id, but the per-session originator is
+        // minted and stamped into the spawn env for rollout discovery.
+        assert_eq!(prepared.claude_session_id, None);
+        assert!(!args.iter().any(|arg| arg == "--session-id"));
+        let originator = crate::argv::codex_session_originator("sess-1");
+        assert_eq!(prepared.codex_originator.as_deref(), Some(originator.as_str()));
+        assert_eq!(prepared.codex_resume_id, None);
+        assert!(prepared
+            .spawn
+            .env
+            .contains(&(crate::argv::CODEX_ORIGINATOR_ENV.to_string(), originator)));
     }
 
     /// EXP-201: a PI launch writes the `.exp-pi-mcp.ts` bridge (no
@@ -3454,8 +3563,9 @@ mod tests {
         // flag, and the FULL rendered prompt positional-last — a small batch
         // prompt rides argv directly, so NO PROMPT.md lands on disk.
         assert_eq!(prepared.spawn.program, "git");
+        let args = strip_session_id(&prepared);
         assert_eq!(
-            prepared.spawn.args[..4],
+            args[..4],
             [
                 "--model".to_string(),
                 "opus".to_string(),
@@ -3463,16 +3573,16 @@ mod tests {
                 "ultracode".to_string(),
             ]
         );
-        assert!(!prepared.spawn.args.iter().any(|arg| arg == "--agents"));
+        assert!(!args.iter().any(|arg| arg == "--agents"));
         assert_eq!(
-            prepared.spawn.args[4..7],
+            args[4..7],
             [
                 "--mcp-config".to_string(),
                 ".exp-mcp.json".to_string(),
                 "--strict-mcp-config".to_string(),
             ]
         );
-        assert_eq!(prepared.spawn.args[7], "--dangerously-skip-permissions");
+        assert_eq!(args[7], "--dangerously-skip-permissions");
         // EXP-275: the emitter's permission posture mirrors the argv.
         assert!(prepared.bypass_permissions);
         let positional = prepared.spawn.args.last().unwrap();

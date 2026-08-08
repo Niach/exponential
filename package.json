@@ -13,6 +13,7 @@
   "scripts": {
     "backend": "docker compose up -d && bun --filter @exp/web dev",
     "ios": "cd apps/ios && tuist generate",
+    "ios:test": "cd apps/ios && tuist install && tuist generate --no-open && tuist test ExpCore && tuist test ExpUI",
     "android": "cd apps/android && ./gradlew :app:installProductionDebug && adb shell am start -n at.exponential/com.exponential.app.MainActivity",
 
     "dev": "bun --filter @exp/web dev",

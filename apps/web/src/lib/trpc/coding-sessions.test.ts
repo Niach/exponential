@@ -959,4 +959,26 @@ describe(`codingSessions — host allowances (EXP-432)`, () => {
       `actor`,
     ])
   })
+
+  it(`get: hands the whole row back, host_user_id included`, async () => {
+    // The CLI daemon polls this for the →ended kill edge on rows it only
+    // HOSTS (EXP-403/445). A narrowed projection that dropped host_user_id
+    // would hide the ownership split from the only client that has no sync.
+    selectResults.push([
+      {
+        id: SESSION_ID,
+        userId: REQUESTER,
+        hostUserId: `actor`,
+        status: `ended`,
+      },
+    ])
+
+    const result = await caller.get({ id: SESSION_ID })
+
+    expect(result.session).toMatchObject({
+      userId: REQUESTER,
+      hostUserId: `actor`,
+      status: `ended`,
+    })
+  })
 })
