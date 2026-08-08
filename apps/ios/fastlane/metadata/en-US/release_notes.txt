@@ -1,4 +1,4 @@
-- Start coding sessions on a teammate's shared server machine
-- Feedback screenshots now sync reliably instead of stalling or vanishing
-- A cleaner create and run experience for team actions
+- Issue lists group statuses in the same order as your settings
+- Remote Start coding pre-fills the picked machine's saved agent defaults
+- Digest emails now follow your device timezone
 - Smaller fixes and polish
