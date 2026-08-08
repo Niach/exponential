@@ -6,6 +6,25 @@ import UIKit
 
 private let log = Logger(subsystem: "com.exponential", category: "MarkdownConversion")
 
+/// Parse-time deviations from the interchange contract, for renders that never
+/// serialize back (EXP-440: the agent steering feed). The default — no options —
+/// IS the contract every editable surface must keep.
+public struct MarkdownParseOptions: OptionSet, Sendable {
+    public let rawValue: Int
+
+    public init(rawValue: Int) { self.rawValue = rawValue }
+
+    /// Attach cmark's GFM autolink extension, so a bare URL renders tappable.
+    /// READ-ONLY renders only — it breaks byte parity on save (see the
+    /// no-autolink note in `markdownToBlocks`).
+    public static let autolinkBareURLs = MarkdownParseOptions(rawValue: 1 << 0)
+
+    /// Chat semantics: a single newline (a cmark softbreak) renders as a LINE
+    /// BREAK rather than a space, because agent narration and steered messages
+    /// are written as terminal output, not as GFM paragraphs.
+    public static let hardLineBreaks = MarkdownParseOptions(rawValue: 1 << 1)
+}
+
 public enum ContentBlock: Identifiable, Equatable {
     case text(id: UUID, attributedContent: NSAttributedString)
     case image(id: UUID, url: String, alt: String)
@@ -154,7 +173,11 @@ public enum MarkdownConversion {
 
     // MARK: - Markdown → Blocks
 
-    public static func markdownToBlocks(_ markdown: String, baseURL: URL? = nil) -> [ContentBlock] {
+    public static func markdownToBlocks(
+        _ markdown: String,
+        baseURL: URL? = nil,
+        options: MarkdownParseOptions = []
+    ) -> [ContentBlock] {
         cmark_gfm_core_extensions_ensure_registered()
 
         guard let parser = cmark_parser_new(CMARK_OPT_UNSAFE) else {
@@ -162,16 +185,21 @@ public enum MarkdownConversion {
         }
         defer { cmark_parser_free(parser) }
 
-        // NOTE: no autolink extension — web (tiptap-markdown) and Android leave
-        // bare URLs/emails as plain text, so autolinking here would rewrite
-        // `https://x` to `[https://x](https://x)` and — worse — the email part
-        // of an `@<email>` mention to `@[email](mailto:email)` on every
-        // load→save cycle, breaking the byte-parity interchange contract (and
-        // the server's `@email` mention resolution with it).
+        // NOTE: no autolink extension by DEFAULT — web (tiptap-markdown) and
+        // Android leave bare URLs/emails as plain text, so autolinking here
+        // would rewrite `https://x` to `[https://x](https://x)` and — worse —
+        // the email part of an `@<email>` mention to `@[email](mailto:email)`
+        // on every load→save cycle, breaking the byte-parity interchange
+        // contract (and the server's `@email` mention resolution with it). It
+        // stays banned for anything that serializes; `.autolinkBareURLs` is
+        // only for display-only renders (the agent steering feed, EXP-440).
         for name in ["strikethrough", "table"] {
             if let ext = cmark_find_syntax_extension(name) {
                 cmark_parser_attach_syntax_extension(parser, ext)
             }
+        }
+        if options.contains(.autolinkBareURLs), let ext = cmark_find_syntax_extension("autolink") {
+            cmark_parser_attach_syntax_extension(parser, ext)
         }
 
         markdown.withCString { ptr in
@@ -184,7 +212,7 @@ public enum MarkdownConversion {
         defer { cmark_node_free(doc) }
 
         let collector = BlockCollector(baseURL: baseURL)
-        var context = RenderContext(baseURL: baseURL)
+        var context = RenderContext(baseURL: baseURL, options: options)
         renderNodeToBlocks(doc, collector: collector, context: &context)
         return collector.finalize()
     }
@@ -222,6 +250,7 @@ private struct ListContext {
 
 private struct RenderContext {
     var baseURL: URL?
+    var options: MarkdownParseOptions = []
     var styleStack: [StyleFrame] = [StyleFrame(
         font: MarkdownStyle.bodyFont,
         foregroundColor: MarkdownStyle.textColor,
@@ -342,7 +371,10 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
         collector.currentText.append(NSAttributedString(string: literal, attributes: context.makeAttributes()))
 
     case CMARK_NODE_SOFTBREAK:
-        collector.currentText.append(NSAttributedString(string: " ", attributes: context.makeAttributes()))
+        // GFM folds a single newline into a space; chat-shaped sources keep it
+        // as a line break (`.hardLineBreaks`, EXP-440).
+        let softbreak = context.options.contains(.hardLineBreaks) ? "\n" : " "
+        collector.currentText.append(NSAttributedString(string: softbreak, attributes: context.makeAttributes()))
 
     case CMARK_NODE_LINEBREAK:
         collector.currentText.append(NSAttributedString(string: "\n", attributes: context.makeAttributes()))

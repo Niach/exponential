@@ -101,6 +101,23 @@ interface MarkdownEditorProps {
   placeholder?: string
   autoFocus?: boolean
   /**
+   * Compact chat presentation (EXP-440): the agent-session feed renders each
+   * bubble through this editor, where the document paddings and heading sizes
+   * of an issue description would dwarf a one-line narration.
+   */
+  appearance?: `document` | `chat`
+  /**
+   * Turn bare URLs into links, and treat a single newline as a hard break —
+   * markdown-it options for text that was authored as chat, not as a GFM
+   * document. Both are read ONCE, at editor creation (tiptap-markdown builds
+   * its markdown-it instance in onBeforeCreate), so they must not change over
+   * an instance's life.
+   */
+  linkify?: boolean
+  hardBreaks?: boolean
+  /** Accessible name of the editable/readonly region. */
+  ariaLabel?: string
+  /**
    * Renders the formatting toolbar into a host-provided element instead of
    * inline above the content (EXP-422: the issue detail page parks it in a
    * sticky band together with the title). Undefined/null keeps the inline
@@ -470,6 +487,10 @@ export const MarkdownEditor = forwardRef<
       editable = true,
       toolbarHost,
       topScrollInset,
+      appearance = `document`,
+      linkify,
+      hardBreaks,
+      ariaLabel,
     },
     ref
   ) => {
@@ -579,10 +600,14 @@ export const MarkdownEditor = forwardRef<
         Placeholder.configure({
           placeholder: placeholder ?? `Add description...`,
         }),
+        // Captured at editor creation — tiptap-markdown builds its markdown-it
+        // instance in onBeforeCreate, so later prop changes do not apply.
         Markdown.configure({
           html: false,
           transformPastedText: true,
           transformCopiedText: true,
+          linkify: linkify ?? false,
+          breaks: hardBreaks ?? false,
         }),
       ],
       content: markdown,
@@ -597,7 +622,7 @@ export const MarkdownEditor = forwardRef<
       editorProps: {
         attributes: {
           class: cn(`tiptap-content`, !editable && `cursor-default`),
-          "aria-label": `Issue description`,
+          "aria-label": ariaLabel ?? `Issue description`,
           "aria-readonly": String(!editable),
         },
         handlePaste: (_view, event) =>
@@ -880,7 +905,9 @@ export const MarkdownEditor = forwardRef<
     }, [menuOpen])
 
     return (
-      <div className="tiptap-wrapper">
+      <div
+        className={cn(`tiptap-wrapper`, appearance === `chat` && `tiptap-chat`)}
+      >
         {editable ? (
           toolbarHost ? (
             createPortal(

@@ -13,6 +13,7 @@ import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.ui.markdown.AttachmentDims
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.websocket.DefaultClientWebSocketSession
@@ -24,12 +25,17 @@ import javax.inject.Inject
 import kotlin.math.pow
 import kotlin.random.Random
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -773,6 +779,34 @@ class AgentSessionViewModel @Inject constructor(
         dbFlow.scopedQuery<CodingSessionEntity?>(null) {
             it.codingSessionDao().observeById(codingSessionId)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * Probed sizes of the linked issue's attachments (REV2-79) — the feed
+     * renders markdown since EXP-440, so an `![](/api/attachments/…)` in
+     * narration or a steered message pre-sizes instead of jumping when the
+     * bitmap lands. Batch and action runs have no issue: nothing to pre-size.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val attachmentDims: StateFlow<AttachmentDims> = session
+        .map { it?.issueId }
+        .distinctUntilChanged()
+        .flatMapLatest { issueId ->
+            if (issueId == null) {
+                flowOf(emptyList())
+            } else {
+                dbFlow.scopedQuery(emptyList()) { it.attachmentDao().observeByIssue(issueId) }
+            }
+        }
+        .map { rows ->
+            AttachmentDims(
+                rows.mapNotNull { row ->
+                    val width = row.width
+                    val height = row.height
+                    if (width == null || height == null) null else row.id to (width to height)
+                }.toMap(),
+            )
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AttachmentDims.Empty)
 
     val currentUserId: StateFlow<String?> = auth.userId
 

@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -47,6 +48,7 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -56,13 +58,12 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -75,7 +76,10 @@ import com.exponential.app.ui.issue.splitUnifiedDiff
 import com.exponential.app.ui.issue.unifiedDiffStats
 import com.exponential.app.ui.issue.DiffAddColor
 import com.exponential.app.ui.issue.DiffDelColor
+import com.exponential.app.ui.markdown.LocalAttachmentDims
+import com.exponential.app.ui.markdown.LocalMarkdownAutolink
 import com.exponential.app.ui.markdown.MarkdownView
+import com.exponential.app.ui.markdown.MdStyle
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -110,6 +114,7 @@ fun AgentSessionScreen(
     val latestDiff = activity.latestDiff
     val currentUserId by viewModel.currentUserId.collectAsStateWithLifecycle()
     val killError by viewModel.killError.collectAsStateWithLifecycle()
+    val attachmentDims by viewModel.attachmentDims.collectAsStateWithLifecycle()
     val answerStates = activity.answerLocks
 
     LaunchedEffect(Unit) { viewModel.connectIfIdle() }
@@ -209,39 +214,48 @@ fun AgentSessionScreen(
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                             )
                         }
-                    else -> ActivityFeed(
-                        feed = feed,
-                        live = phase == AgentPhase.Live,
-                        // EXP-389: the agent is actively working — live and
-                        // nothing waiting on the user (no active question
-                        // card, synced needs_input clear; all three agents
-                        // drive the flag).
-                        working = phase == AgentPhase.Live && !sessionEnded &&
-                            !awaitingInput && session?.needsInput != true,
-                        // Question cards are answerable while live (EXP-78;
-                        // live implies ownership since EXP-312); the card
-                        // itself also checks its own state.
-                        answerEnabled = phase == AgentPhase.Live && !sessionEnded,
-                        answerStates = answerStates,
-                        // One place decides semantic vs legacy: a card with a
-                        // wire id answers through the `answer` frame, one
-                        // without falls back to raw keystrokes (EXP-249).
-                        onAnswer = { question, keys ->
-                            val wireId = question.wireId
-                            if (wireId != null) {
-                                viewModel.sendQuestionAnswer(wireId, question.askId, keys)
-                            } else {
-                                keys.forEach {
-                                    viewModel.sendLegacyAnswer(
-                                        questionLockKey(question),
-                                        it,
-                                        lock = !question.multiSelect,
-                                    )
+                    // EXP-440: the feed renders markdown. Autolink is on — it
+                    // is a render-only surface, so bare URLs may become links
+                    // without diverging any stored bytes — and embedded images
+                    // pre-size from the linked issue's probed attachments.
+                    else -> CompositionLocalProvider(
+                        LocalMarkdownAutolink provides true,
+                        LocalAttachmentDims provides attachmentDims,
+                    ) {
+                        ActivityFeed(
+                            feed = feed,
+                            live = phase == AgentPhase.Live,
+                            // EXP-389: the agent is actively working — live and
+                            // nothing waiting on the user (no active question
+                            // card, synced needs_input clear; all three agents
+                            // drive the flag).
+                            working = phase == AgentPhase.Live && !sessionEnded &&
+                                !awaitingInput && session?.needsInput != true,
+                            // Question cards are answerable while live (EXP-78;
+                            // live implies ownership since EXP-312); the card
+                            // itself also checks its own state.
+                            answerEnabled = phase == AgentPhase.Live && !sessionEnded,
+                            answerStates = answerStates,
+                            // One place decides semantic vs legacy: a card with a
+                            // wire id answers through the `answer` frame, one
+                            // without falls back to raw keystrokes (EXP-249).
+                            onAnswer = { question, keys ->
+                                val wireId = question.wireId
+                                if (wireId != null) {
+                                    viewModel.sendQuestionAnswer(wireId, question.askId, keys)
+                                } else {
+                                    keys.forEach {
+                                        viewModel.sendLegacyAnswer(
+                                            questionLockKey(question),
+                                            it,
+                                            lock = !question.multiSelect,
+                                        )
+                                    }
                                 }
-                            }
-                        },
-                        onSubmit = viewModel::sendSubmit,
-                    )
+                            },
+                            onSubmit = viewModel::sendSubmit,
+                        )
+                    }
                 }
             }
 
@@ -702,6 +716,9 @@ private fun AgentTabChip(
 // bubble insets cost real width on a phone.
 @Composable
 private fun NarrationBubble(text: String) {
+    // MarkdownView renders nothing for blank input — without this the icon
+    // would be left behind as an orphan row.
+    if (text.isBlank()) return
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -716,22 +733,11 @@ private fun NarrationBubble(text: String) {
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
         )
         SelectionContainer(modifier = Modifier.weight(1f)) {
-            // EXP-430: URLs render as tappable links — the remote `/login`
-            // flow publishes the claude sign-in URL as narration.
-            Text(
-                linkifyNarration(
-                    text,
-                    TextLinkStyles(
-                        style = SpanStyle(
-                            color = MaterialTheme.colorScheme.primary,
-                            textDecoration = TextDecoration.Underline,
-                        ),
-                    ),
-                ),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                modifier = Modifier.fillMaxWidth(),
-            )
+            // EXP-440: narration is GFM — the agents emit lists, code fences,
+            // links and embedded images. Never folded: it is the feed's
+            // conversation. Bare URLs stay tappable (EXP-430) through the
+            // feed's LocalMarkdownAutolink.
+            MarkdownView(text, softBreaksAsNewlines = true)
         }
     }
 }
@@ -789,12 +795,39 @@ private fun ShowMoreToggle(expanded: Boolean, onToggle: () -> Unit) {
     )
 }
 
+/** Markdown body folded behind Show more (EXP-440): maxLines can't clamp a block
+ *  Column, so the fold is a height clamp + clip sized to CLAMP_LINES body lines;
+ *  the fold decision stays the source-text heuristic. */
+@Composable
+private fun FoldableMarkdown(
+    text: String,
+    expanded: Boolean,
+    softBreaks: Boolean = false,
+    onToggle: () -> Unit,
+) {
+    val folds = remember(text) { clampable(text) }
+    val clampHeight = with(LocalDensity.current) { (MdStyle.lineHeight * CLAMP_LINES).toDp() }
+    SelectionContainer {
+        MarkdownView(
+            text,
+            modifier = if (folds && !expanded) {
+                Modifier.heightIn(max = clampHeight).clipToBounds()
+            } else {
+                Modifier
+            },
+            softBreaksAsNewlines = softBreaks,
+        )
+    }
+    if (folds) {
+        ShowMoreToggle(expanded, onToggle)
+    }
+}
+
 // A human turn (EXP-78): the initial prompt or a steered message — rendered
 // end-aligned like the sender's own chat bubble, long text folded.
 @Composable
 private fun UserMessageBubble(text: String) {
     var expanded by remember { mutableStateOf(false) }
-    val folds = remember(text) { clampable(text) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -809,18 +842,7 @@ private fun UserMessageBubble(text: String) {
                 .background(GlassTokens.RowFillActive, RoundedCornerShape(12.dp))
                 .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
-            SelectionContainer {
-                Text(
-                    text,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    maxLines = if (folds && !expanded) CLAMP_LINES else Int.MAX_VALUE,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            if (folds) {
-                ShowMoreToggle(expanded) { expanded = !expanded }
-            }
+            FoldableMarkdown(text, expanded, softBreaks = true) { expanded = !expanded }
         }
     }
 }
@@ -947,7 +969,6 @@ private fun QuestionCard(
     // step onto the next one (EXP-274).
     var expanded by remember(item.id) { mutableStateOf(false) }
     var picked by remember(item.id) { mutableStateOf(emptySet<String>()) }
-    val folds = remember(item.text) { clampable(item.text) }
     // A Failed state does NOT lock (EXP-334) — the card is answerable again
     // and renders the retry hint below instead of the sent row.
     val locked = state.locksCard()
@@ -997,18 +1018,7 @@ private fun QuestionCard(
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                 }
-                SelectionContainer {
-                    Text(
-                        item.text,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                        maxLines = if (folds && !expanded) CLAMP_LINES else Int.MAX_VALUE,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                if (folds) {
-                    ShowMoreToggle(expanded) { expanded = !expanded }
-                }
+                FoldableMarkdown(item.text, expanded) { expanded = !expanded }
             }
             if (item.resolved) {
                 // Resolved (EXP-197/EXP-249): the answer replaces the options.

@@ -15,6 +15,7 @@ import {
   groupFeedRows,
   hasSemanticQuestions,
   isAnswerLocked,
+  looksLikeMarkdown,
   pushEcho,
   summarizeSubagentRow,
   upsertQuestion,
@@ -796,5 +797,58 @@ describe(`visibleSubagentTabs`, () => {
     expect(
       visibleSubagentTabs([run(`toolu_a`, true), run(`toolu_b`, true)], null)
     ).toEqual([])
+  })
+})
+
+describe(`looksLikeMarkdown`, () => {
+  it(`leaves plain prose on the plain path`, () => {
+    expect(looksLikeMarkdown(`Reading the file to find the handler.`)).toBe(
+      false
+    )
+    expect(looksLikeMarkdown(`Done — 3 tests pass, 0 fail.`)).toBe(false)
+    expect(looksLikeMarkdown(``)).toBe(false)
+  })
+
+  it(`leaves a bare URL on the plain path (linkSegments already links it)`, () => {
+    expect(
+      looksLikeMarkdown(
+        `Open https://claude.ai/oauth/authorize?code=a_b-c#frag to sign in.`
+      )
+    ).toBe(false)
+    expect(looksLikeMarkdown(`https://example.dev/a_long_path/v2`)).toBe(false)
+  })
+
+  it(`leaves the legacy magic narrations on the plain path`, () => {
+    expect(looksLikeMarkdown(PLAN_RESOLVED_NARRATION)).toBe(false)
+    expect(
+      looksLikeMarkdown(`Question answered: Yes, go ahead and refactor it`)
+    ).toBe(false)
+  })
+
+  it(`detects emphasis, code spans and headings`, () => {
+    expect(looksLikeMarkdown(`I updated the **status** column.`)).toBe(true)
+    expect(looksLikeMarkdown(`That is *definitely* the bug.`)).toBe(true)
+    expect(looksLikeMarkdown(`Dropped the ~~old~~ path.`)).toBe(true)
+    expect(looksLikeMarkdown(`Call \`resolveTeamAccess\` instead.`)).toBe(true)
+    expect(looksLikeMarkdown(`## What changed\n\nQuite a lot.`)).toBe(true)
+    expect(looksLikeMarkdown(`> quoting the spec here`)).toBe(true)
+  })
+
+  it(`detects lists, fences and tables`, () => {
+    expect(looksLikeMarkdown(`Plan:\n- read the shape\n- fix the filter`)).toBe(
+      true
+    )
+    expect(looksLikeMarkdown(`Steps:\n1. install\n2. migrate`)).toBe(true)
+    expect(looksLikeMarkdown(`Run:\n\`\`\`bash\nbun run migrate\n\`\`\``)).toBe(
+      true
+    )
+    expect(looksLikeMarkdown(`| col | col |\n| --- | --- |`)).toBe(true)
+  })
+
+  it(`detects links and images — the point of EXP-440`, () => {
+    expect(looksLikeMarkdown(`![screenshot](/api/attachments/abc)`)).toBe(true)
+    expect(
+      looksLikeMarkdown(`See [the runbook](https://example.dev/run).`)
+    ).toBe(true)
   })
 })

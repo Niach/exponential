@@ -402,6 +402,48 @@ export function askStepperView<T extends QuestionLike>(
   }
 }
 
+// ── Markdown detection ───────────────────────────────────────────────────────
+
+/** Syntax that makes a piece of feed text worth handing to the markdown
+ *  renderer. Deliberately conservative: agent narration is mostly prose, and
+ *  the plain path already linkifies bare URLs, so a miss costs nothing while a
+ *  false positive would rewrite ordinary sentences (a URL's `_`/`-`/`#` must
+ *  never read as emphasis, a heading or a rule). */
+const MARKDOWN_PATTERNS: readonly RegExp[] = [
+  // **bold**, *italic*, __bold__, ~~strike~~ — the opening marker must be
+  // followed by a non-space, which is what keeps `2 * 3` and `a -- b` out.
+  /(^|[^\w*])\*\*[^\s*][^*\n]*\*\*/,
+  /(^|[^\w*])\*[^\s*][^*\n]*\*(?![\w*])/,
+  /(^|[^\w_])__[^\s_][^_\n]*__/,
+  /(^|[^~])~~[^\s~][^~\n]*~~/,
+  // `inline code`
+  /`[^`\n]+`/,
+  // # heading
+  /^ {0,3}#{1,6} +\S/m,
+  // > blockquote
+  /^ {0,3}> ?\S/m,
+  // - / * / + / 1. list item
+  /^ {0,3}([-*+]|\d{1,9}[.)]) +\S/m,
+  // ``` fenced code
+  /^ {0,3}(```|~~~)/m,
+  // --- thematic break
+  /^ {0,3}([-*_]) *(\1 *){2,}$/m,
+  // ![alt](src) and [text](href) — the image form is the whole point of
+  // rendering markdown in the feed at all (EXP-440).
+  /!?\[[^\]\n]*\]\([^)\s]/,
+  // | table | row |
+  /^ {0,3}\|.*\|/m,
+  // An indented code block, which markdown only opens after a blank line —
+  // requiring that blank line keeps wrapped/indented prose out.
+  /\n[ \t]*\n {4,}\S/,
+]
+
+/** Whether feed text should render through the markdown pipeline rather than
+ *  as plain linkified text (EXP-440). */
+export function looksLikeMarkdown(text: string): boolean {
+  return MARKDOWN_PATTERNS.some((pattern) => pattern.test(text))
+}
+
 // ── Render rows ──────────────────────────────────────────────────────────────
 
 /** A render row over the flat feed: one feed item, a run of ≥2 CONSECUTIVE

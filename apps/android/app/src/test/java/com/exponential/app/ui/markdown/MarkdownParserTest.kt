@@ -86,4 +86,34 @@ class MarkdownParserTest {
         assertTrue(blocks.first() is ContentBlock.TextBlock)
         assertEquals("", (blocks.first() as ContentBlock.TextBlock).content.text)
     }
+
+    // EXP-440: agent narration is terminal output, so read-only renderers can
+    // ask for its soft breaks to stay real lines. Editable surfaces keep the
+    // GFM space — anything else would rewrite the stored bytes on save.
+
+    @Test
+    fun softBreakIsASpaceByDefault() {
+        val tb = textBlock("one\ntwo")
+        assertEquals("one two", tb.content.text)
+        assertEquals(1, tb.content.paragraphs.size)
+    }
+
+    @Test
+    fun softBreakBecomesItsOwnLineWhenRequested() {
+        val blocks = MarkdownParser.parse("one\ntwo", softBreaksAsNewlines = true)
+        val tb = blocks.filterIsInstance<ContentBlock.TextBlock>()
+            .first { it.content.text.isNotEmpty() }
+        assertEquals("one\ntwo", tb.content.text)
+        // The RichText invariant: one ParagraphAttrs per '\n'-delimited line.
+        assertEquals(tb.content.lines.size, tb.content.paragraphs.size)
+    }
+
+    @Test
+    fun softBreakLinesKeepTheirBlockAttributes() {
+        val blocks = MarkdownParser.parse("> quoted\ncontinued", softBreaksAsNewlines = true)
+        val tb = blocks.filterIsInstance<ContentBlock.TextBlock>()
+            .first { it.content.text.isNotEmpty() }
+        assertEquals("quoted\ncontinued", tb.content.text)
+        assertTrue(tb.content.paragraphs.all { it.kind == BlockKind.Blockquote })
+    }
 }

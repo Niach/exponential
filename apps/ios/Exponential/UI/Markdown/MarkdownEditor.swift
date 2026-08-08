@@ -37,6 +37,10 @@ struct MarkdownEditor: View {
     /// Caps embedded image blocks — compact contexts (the comment composer)
     /// would otherwise be dominated by a single image (EXP-246).
     var imageMaxHeight: CGFloat?
+    /// Text blocks report their own IDEAL width (capped at the proposal)
+    /// instead of filling it — a chat bubble must hug a one-line message
+    /// rather than stretch across the feed (EXP-440).
+    var hugsContentWidth: Bool = false
     /// EXP-327: non-nil adds a "Files" entry to the toolbar's image button and
     /// receives the NON-image picks. Images picked there are appended to the
     /// description here instead, so the host never sees them — which is why
@@ -58,7 +62,7 @@ struct MarkdownEditor: View {
     // and embedded images rendered at native pixel size.
     var body: some View {
         Group {
-                VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 0) {
                     ForEach(model.blocks) { block in
                         switch block {
                         case .text(let id, let content):
@@ -71,6 +75,7 @@ struct MarkdownEditor: View {
                                 placeholder: isSolePlaceholderBlock(id) ? placeholder : nil,
                                 toolbar: showsFormattingToolbar ? toolbar : nil,
                                 isReadOnly: isReadOnly,
+                                hugsContentWidth: hugsContentWidth,
                                 onPasteImage: { image in insert(uiImage: image) },
                                 onIssueRefTap: onIssueRefTap
                             )
@@ -408,6 +413,8 @@ private struct BlockTextEditor: UIViewRepresentable {
     /// nil = no formatting accessory strip (the comment composer, EXP-246).
     let toolbar: MarkdownToolbar?
     var isReadOnly = false
+    /// See `MarkdownEditor.hugsContentWidth`.
+    var hugsContentWidth = false
     var onPasteImage: (UIImage) -> Void
     var onIssueRefTap: ((String) -> Void)?
 
@@ -474,6 +481,11 @@ private struct BlockTextEditor: UIViewRepresentable {
     // one long code span (e.g. a user-agent string) then widens the whole
     // block column far beyond the screen. Adopt the proposed width and report
     // the wrapped text height for it instead.
+    //
+    // `hugsContentWidth` reports the unwrapped ideal width instead — but still
+    // CAPPED at the proposal, which is what keeps the runaway-width hazard
+    // above fixed: past the cap the text wraps, so the height has to be
+    // measured at the capped width either way.
     func sizeThatFits(
         _ proposal: ProposedViewSize,
         uiView tv: EditorTextView,
@@ -482,10 +494,25 @@ private struct BlockTextEditor: UIViewRepresentable {
         guard let width = proposal.width, width.isFinite, width > 0 else {
             return nil
         }
+        var targetWidth = width
+        if hugsContentWidth {
+            let ideal = tv.sizeThatFits(
+                CGSize(
+                    width: CGFloat.greatestFiniteMagnitude,
+                    height: CGFloat.greatestFiniteMagnitude
+                )
+            )
+            // An empty block (the separators normalize() puts around images)
+            // measures 0 wide — keep the proposal there rather than collapsing
+            // the whole column to nothing.
+            if ideal.width > 0, ideal.width.isFinite {
+                targetWidth = min(width, ceil(ideal.width))
+            }
+        }
         let fitted = tv.sizeThatFits(
-            CGSize(width: width, height: .greatestFiniteMagnitude)
+            CGSize(width: targetWidth, height: .greatestFiniteMagnitude)
         )
-        return CGSize(width: width, height: fitted.height)
+        return CGSize(width: targetWidth, height: fitted.height)
     }
 
     func updateUIView(_ tv: EditorTextView, context: Context) {

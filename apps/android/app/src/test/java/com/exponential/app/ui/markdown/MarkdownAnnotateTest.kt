@@ -298,6 +298,88 @@ class MarkdownAnnotateTest {
         assertTrue(line.chips.isEmpty())
     }
 
+    // --- EXP-440: bare-URL autolink, render-only surfaces (the agent feed). ---
+
+    private val signInUrl =
+        "https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e" +
+            "&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback" +
+            "&scope=org%3Acreate_api_key+user%3Aprofile+user%3Ainference&code_challenge=j7BY1qKMJ1Y2LC5xNqD5" +
+            "VUJayK_UZbPl_FCJLsmPZzk&code_challenge_method=S256&state=joiGbKCc8WwbICmveDWnCjihN6dnqxVjkxcYKIMI6SE"
+
+    private fun urlOf(annotated: androidx.compose.ui.text.AnnotatedString, index: Int = 0): String =
+        (annotated.getLinkAnnotations(0, annotated.length)[index].item as LinkAnnotation.Url).url
+
+    @Test
+    fun autolinkIsOffByDefault() {
+        val text = "see https://x.dev now"
+        val result = annotate(text, emptyList(), null)
+        assertEquals(text, result.text)
+        assertEquals(0, result.getLinkAnnotations(0, result.length).size)
+    }
+
+    @Test
+    fun bareUrlLinksWithoutItsTrailingProse() {
+        val text = "(see https://x.dev)."
+        val result = annotate(text, emptyList(), null, autolink = true)
+        val links = result.getLinkAnnotations(0, result.length)
+        assertEquals(1, links.size)
+        assertEquals("https://x.dev", result.text.substring(links[0].start, links[0].end))
+        assertEquals("https://x.dev", urlOf(result))
+    }
+
+    // EXP-430: the remote `/login` sign-in URL must survive byte-intact — a
+    // truncated href is an unusable link, not a cosmetic bug.
+    @Test
+    fun theSignInUrlAutolinksIntact() {
+        val result = annotate(
+            "Claude sign-in: open this link in your browser: $signInUrl",
+            emptyList(),
+            null,
+            autolink = true,
+        )
+        assertEquals(signInUrl, urlOf(result))
+    }
+
+    @Test
+    fun urlInsideInlineCodeStaysPlain() {
+        val text = "run https://x.dev here"
+        val marks = listOf(InlineMark(4, 17, InlineKind.InlineCode))
+        val result = annotate(text, marks, null, autolink = true)
+        assertEquals(0, result.getLinkAnnotations(0, result.length).size)
+    }
+
+    @Test
+    fun urlInsideAMarkdownLinkIsNotDoubleLinked() {
+        // "[https://x.dev](https://x.dev)" — the Link mark already carries it.
+        val text = "https://x.dev"
+        val marks = listOf(InlineMark(0, text.length, InlineKind.Link, href = "https://x.dev"))
+        val result = annotate(text, marks, null, autolink = true)
+        assertEquals(1, result.getLinkAnnotations(0, result.length).size)
+        assertNoOverlappingLinks(result)
+    }
+
+    @Test
+    fun autolinkComposesWithPillsAndMarkdownLinksWithoutOverlap() {
+        // "docs" is a markdown link, "#MET-1" a pill, and a bare URL trails.
+        val text = "docs fixes #MET-1 see https://x.dev"
+        val marks = listOf(InlineMark(0, 4, InlineKind.Link, href = "https://docs.test"))
+        val result = annotate(
+            text,
+            marks,
+            refsTitled("MET-1" to "Crash"),
+            autolink = true,
+        )
+        assertEquals("docs fixes #MET-1 Crash see https://x.dev", result.text)
+        val links = result.getLinkAnnotations(0, result.length)
+        assertEquals(3, links.size)
+        assertNoOverlappingLinks(result)
+        // The title insertion shifted the URL — the span still lands on it.
+        val autolinked = links.first {
+            (it.item as? LinkAnnotation.Url)?.url == "https://x.dev"
+        }
+        assertEquals("https://x.dev", result.text.substring(autolinked.start, autolinked.end))
+    }
+
     @Test
     fun stylesAndPillOnSameSpanDoNotCrash() {
         // Bold styling under a pill is allowed (styles + links may overlap);
