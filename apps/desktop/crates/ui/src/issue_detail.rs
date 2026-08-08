@@ -1105,13 +1105,41 @@ impl IssueDetailView {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        self.flush_description(cx);
-        let current = self.last_saved_description.borrow().clone();
         let alt = uploaded
             .filename
             .clone()
             .unwrap_or_else(|| "image".to_string());
         let image_ref = format!("![{alt}]({})", uploaded.url);
+        // REV-28: the upload outlives navigation, but this view is SHARED —
+        // `set_issue` may have re-pointed editor + `last_saved_description`
+        // at another issue while the upload ran. Appending through the
+        // view-local state would then write the CURRENT issue's text onto
+        // the old row. Append to the old issue's synced description instead,
+        // leaving the view alone; if the row is gone from the collection the
+        // attachment stays orphaned, like the draft-image path.
+        if self.issue_id.as_deref() != Some(issue_id.as_str()) {
+            let Some(current) = Store::global(cx)
+                .collections()
+                .issues
+                .read(cx)
+                .get(&issue_id)
+                .map(|issue| issue.description.clone().unwrap_or_default())
+            else {
+                return;
+            };
+            let current = current.trim();
+            let next = if current.is_empty() {
+                image_ref
+            } else {
+                format!("{current}\n\n{image_ref}")
+            };
+            let mut input = api::issues::IssuesUpdateInput::new(issue_id);
+            input.description = api::Patch::Set(next);
+            spawn_issue_update(cx, input);
+            return;
+        }
+        self.flush_description(cx);
+        let current = self.last_saved_description.borrow().clone();
         let next = if current.is_empty() {
             image_ref
         } else {
