@@ -1114,7 +1114,8 @@ impl Render for IssueListView {
                 canvas(
                     move |bounds, _, cx| {
                         measured_width.set(bounds.size.width);
-                        let compact = bounds.size.width < px(COMPACT_LIST_WIDTH);
+                        let compact = bounds.size.width > px(0.)
+                            && bounds.size.width < px(COMPACT_LIST_WIDTH);
                         if compact != rendered_compact {
                             let entity = entity.clone();
                             cx.defer(move |cx| {
