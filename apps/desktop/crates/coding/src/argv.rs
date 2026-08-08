@@ -50,6 +50,33 @@ pub const HOOK_TOKEN_ENV: &str = "EXP_HOOK_TOKEN";
 pub const OBSERVER_URL_ENV: &str = "EXP_OBSERVER_URL";
 pub const OBSERVER_TOKEN_ENV: &str = "EXP_OBSERVER_TOKEN";
 
+/// EXP-443: codex's per-spawn originator override — the value lands verbatim
+/// in every rollout meta this spawn writes, giving the activity emitter a
+/// discriminator against foreign codex processes sharing the cwd. NOT one of
+/// the steer↔coding mirrored env pairs: steer never reads the env, it reads
+/// the value back OUT of the rollout meta. The name is codex's own internal
+/// override; if a codex build ignores it, discovery degrades to the pre-fix
+/// cwd-only match (see `steer::codex_activity::find_live_rollout`).
+pub const CODEX_ORIGINATOR_ENV: &str = "CODEX_INTERNAL_ORIGINATOR_OVERRIDE";
+
+/// The originator stamped onto codex AGENT SHELLS (EXP-443): shells share the
+/// trunk-clone cwd with action runs, so they must carry an originator that no
+/// session emitter's strict pass can ever match.
+pub const CODEX_SHELL_ORIGINATOR: &str = "exponential-shell";
+
+/// The per-session codex originator: `exponential-<sid8>`, keyed by OUR
+/// `coding_sessions` row id (codex's own rollout ids don't exist until it
+/// boots). 8 chars is plenty — the value only has to differ between
+/// concurrent same-cwd spawns on one machine.
+pub fn codex_session_originator(session_id: &str) -> String {
+    let sid8: String = session_id
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .take(8)
+        .collect();
+    format!("exponential-{sid8}")
+}
+
 /// The MCP wiring of every CLAUDE coding argv: the launcher-written worktree
 /// [`MCP_JSON_FILE`] (`.exp-mcp.json`) rides `--mcp-config` (resolved against
 /// the spawn cwd = the worktree) and connects trusted, prompt-free.
@@ -264,7 +291,7 @@ pub enum SessionTail<'a> {
 /// PREPENDS `resume <SESSION_ID>` as the subcommand):
 ///
 /// - claude: `--model <m> [--effort ultracode|<e>] [--settings <file>]
-///   <mcp_config_args> <permission_args> <tail>`
+///   [--session-id <uuid>] <mcp_config_args> <permission_args> <tail>`
 /// - codex: `[resume <session-id>] [-m <m>] [-c model_reasoning_effort=<e>]
 ///   <mcp -c overrides> <sandbox/approval flags> [<positional>]`
 /// - pi: `[--model <m>] [--thinking <t>] -e ./<bridge> <tail>`
@@ -274,10 +301,17 @@ pub enum SessionTail<'a> {
 /// sidecar for this run: claude then uses its own settings chain and the
 /// session degrades to grid-only detection. Ignored for codex/pi, which have
 /// no hooks system.
+///
+/// `claude_session_id` (EXP-443) is the launcher-minted UUID a FRESH claude
+/// session is told to use (`--session-id`), so the transcript pin exists
+/// before the first hook fires. `None` on resume (the conversation keeps its
+/// original id — the SessionStart hook seeds the pin instead) and on every
+/// other agent.
 pub fn session_args(
     opts: &LaunchOptions,
     mcp: &AgentMcp,
     claude_settings: Option<&Path>,
+    claude_session_id: Option<&str>,
     tail: SessionTail<'_>,
 ) -> Vec<String> {
     let trimmed_model = opts.model.trim();
@@ -305,6 +339,10 @@ pub fn session_args(
             if let Some(settings) = claude_settings {
                 args.push("--settings".into());
                 args.push(settings.to_string_lossy().into_owned());
+            }
+            if let Some(id) = claude_session_id {
+                args.push("--session-id".into());
+                args.push(id.to_string());
             }
             args.extend(mcp_config_args());
             args.extend(permission_args(opts.plan_mode, opts.skip_permissions));
@@ -467,7 +505,7 @@ mod tests {
             ..claude_opts()
         };
         assert_eq!(
-            session_args(&opts, &AgentMcp::ClaudeFile, None, SessionTail::Prompt("do the thing")),
+            session_args(&opts, &AgentMcp::ClaudeFile, None, None, SessionTail::Prompt("do the thing")),
             vec![
                 "--model",
                 "fable",
@@ -490,7 +528,7 @@ mod tests {
             ..claude_opts()
         };
         assert_eq!(
-            session_args(&opts, &AgentMcp::ClaudeFile, None, SessionTail::Prompt("prompt")),
+            session_args(&opts, &AgentMcp::ClaudeFile, None, None, SessionTail::Prompt("prompt")),
             vec![
                 "--model",
                 "opus",
@@ -505,7 +543,7 @@ mod tests {
         );
 
         // Plan OFF + skip OFF (EXP-201 default): guarded auto mode.
-        let args = session_args(&claude_opts(), &AgentMcp::ClaudeFile, None, SessionTail::Prompt("p"));
+        let args = session_args(&claude_opts(), &AgentMcp::ClaudeFile, None, None, SessionTail::Prompt("p"));
         assert_eq!(
             args[args.len() - 4..],
             [
@@ -524,7 +562,7 @@ mod tests {
             ..claude_opts()
         };
         assert_eq!(
-            session_args(&opts, &AgentMcp::ClaudeFile, None, SessionTail::Prompt("seed"))[..4],
+            session_args(&opts, &AgentMcp::ClaudeFile, None, None, SessionTail::Prompt("seed"))[..4],
             [
                 "--model".to_string(),
                 "fable".to_string(),
@@ -540,7 +578,7 @@ mod tests {
             effort: "  ".to_string(),
             ..claude_opts()
         };
-        let args = session_args(&opts, &AgentMcp::ClaudeFile, None, SessionTail::Prompt("p"));
+        let args = session_args(&opts, &AgentMcp::ClaudeFile, None, None, SessionTail::Prompt("p"));
         assert!(!args.iter().any(|arg| arg == "--effort"));
         assert!(!args.iter().any(|arg| arg == "--agents"));
         assert_eq!(args.last().map(String::as_str), Some("p"));
@@ -561,6 +599,7 @@ mod tests {
                 &opts,
                 &AgentMcp::ClaudeFile,
                 Some(settings),
+                None,
                 SessionTail::Prompt("prompt")
             ),
             vec![
@@ -584,6 +623,7 @@ mod tests {
             &claude_opts(),
             &AgentMcp::ClaudeFile,
             Some(settings),
+            None,
             SessionTail::Continue,
         );
         assert!(args.contains(&"--settings".to_string()));
@@ -597,13 +637,13 @@ mod tests {
         let mcp = AgentMcp::CodexOverrides {
             url: "https://app.exponential.at/api/mcp".to_string(),
         };
-        let args = session_args(&codex, &mcp, Some(settings), SessionTail::Prompt("p"));
+        let args = session_args(&codex, &mcp, Some(settings), None, SessionTail::Prompt("p"));
         assert!(!args.iter().any(|arg| arg == "--settings"));
         let pi = LaunchOptions {
             agent: CodingAgent::Pi,
             ..claude_opts()
         };
-        let args = session_args(&pi, &AgentMcp::PiExtension, Some(settings), SessionTail::Prompt("p"));
+        let args = session_args(&pi, &AgentMcp::PiExtension, Some(settings), None, SessionTail::Prompt("p"));
         assert!(!args.iter().any(|arg| arg == "--settings"));
     }
 
@@ -623,7 +663,7 @@ mod tests {
             skip_permissions: false,
         };
         assert_eq!(
-            session_args(&opts, &mcp, None, SessionTail::Prompt("prompt")),
+            session_args(&opts, &mcp, None, None, SessionTail::Prompt("prompt")),
             vec![
                 "-c",
                 "check_for_update_on_startup=false",
@@ -657,7 +697,7 @@ mod tests {
             plan_mode: false,
             skip_permissions: true,
         };
-        let args = session_args(&opts, &mcp, None, SessionTail::Prompt("prompt"));
+        let args = session_args(&opts, &mcp, None, None, SessionTail::Prompt("prompt"));
         assert_eq!(
             args,
             vec![
@@ -691,7 +731,7 @@ mod tests {
             skip_permissions: false,
         };
         assert_eq!(
-            session_args(&opts, &AgentMcp::PiExtension, None, SessionTail::Prompt("prompt")),
+            session_args(&opts, &AgentMcp::PiExtension, None, None, SessionTail::Prompt("prompt")),
             vec![
                 "--model",
                 "grok-4.5",
@@ -715,7 +755,7 @@ mod tests {
             plan_mode: false,
             skip_permissions: true, // inert for pi
         };
-        let args = session_args(&opts, &AgentMcp::PiExtension, None, SessionTail::Prompt("p"));
+        let args = session_args(&opts, &AgentMcp::PiExtension, None, None, SessionTail::Prompt("p"));
         assert_eq!(
             args,
             vec!["-e", "./.exp-pi-mcp.ts", "-e", "./.exp-pi-observer.ts", "p"]
@@ -731,7 +771,7 @@ mod tests {
     #[test]
     fn resume_tail_matrix() {
         // Claude: full flag set preserved, `--continue` last, no prompt.
-        let args = session_args(&claude_opts(), &AgentMcp::ClaudeFile, None, SessionTail::Continue);
+        let args = session_args(&claude_opts(), &AgentMcp::ClaudeFile, None, None, SessionTail::Continue);
         assert_eq!(args.last().map(String::as_str), Some("--continue"));
         assert!(args.contains(&"--mcp-config".to_string()));
         assert!(args.contains(&"--permission-mode".to_string()));
@@ -747,7 +787,7 @@ mod tests {
             skip_permissions: false,
         };
         assert_eq!(
-            session_args(&opts, &AgentMcp::PiExtension, None, SessionTail::Continue),
+            session_args(&opts, &AgentMcp::PiExtension, None, None, SessionTail::Continue),
             vec![
                 "--model",
                 "fable",
@@ -772,7 +812,7 @@ mod tests {
         let mcp = AgentMcp::CodexOverrides {
             url: "https://app.exponential.at/api/mcp".to_string(),
         };
-        let args = session_args(&opts, &mcp, None, SessionTail::CodexResume("019f-abc"));
+        let args = session_args(&opts, &mcp, None, None, SessionTail::CodexResume("019f-abc"));
         assert_eq!(args[..2], ["resume".to_string(), "019f-abc".to_string()]);
         assert!(args.contains(&"--dangerously-bypass-approvals-and-sandbox".to_string()));
         assert!(args
@@ -780,14 +820,14 @@ mod tests {
 
         // Cross-agent tails are caller bugs and must DEGRADE, never panic or
         // pass an unknown flag: Continue on codex, CodexResume on claude.
-        let args = session_args(&opts, &mcp, None, SessionTail::Continue);
+        let args = session_args(&opts, &mcp, None, None, SessionTail::Continue);
         assert!(!args.iter().any(|arg| arg == "--continue"));
         assert_eq!(
             args.last().map(String::as_str),
             Some("--dangerously-bypass-approvals-and-sandbox")
         );
         let args =
-            session_args(&claude_opts(), &AgentMcp::ClaudeFile, None, SessionTail::CodexResume("x"));
+            session_args(&claude_opts(), &AgentMcp::ClaudeFile, None, None, SessionTail::CodexResume("x"));
         assert!(!args.iter().any(|arg| arg == "resume" || arg == "x"));
     }
 
@@ -795,7 +835,7 @@ mod tests {
     /// NOTHING on any agent (never `--continue`, which would resume).
     #[test]
     fn none_tail_appends_nothing_on_every_agent() {
-        let args = session_args(&claude_opts(), &AgentMcp::ClaudeFile, None, SessionTail::None);
+        let args = session_args(&claude_opts(), &AgentMcp::ClaudeFile, None, None, SessionTail::None);
         assert_eq!(
             args.last().map(String::as_str),
             Some("--allow-dangerously-skip-permissions")
@@ -813,7 +853,7 @@ mod tests {
         let mcp = AgentMcp::CodexOverrides {
             url: "https://app.exponential.at/api/mcp".to_string(),
         };
-        let args = session_args(&codex, &mcp, None, SessionTail::None);
+        let args = session_args(&codex, &mcp, None, None, SessionTail::None);
         assert_eq!(
             args.last().map(String::as_str),
             Some("sandbox_workspace_write.network_access=true")
@@ -827,7 +867,7 @@ mod tests {
             plan_mode: false,
             skip_permissions: false,
         };
-        let args = session_args(&pi, &AgentMcp::PiExtension, None, SessionTail::None);
+        let args = session_args(&pi, &AgentMcp::PiExtension, None, None, SessionTail::None);
         assert_eq!(
             args,
             vec!["-e", "./.exp-pi-mcp.ts", "-e", "./.exp-pi-observer.ts"]
@@ -1067,5 +1107,70 @@ mod tests {
         assert_eq!(opts.model, "gpt-5.6-sol");
         assert_eq!(opts.effort, "high");
         assert!(opts.skip_permissions);
+    }
+
+    /// EXP-443: a fresh claude spawn carries the launcher-minted session id
+    /// so the transcript pin exists before the first hook.
+    #[test]
+    fn claude_fresh_argv_carries_the_minted_session_id() {
+        let args = session_args(
+            &claude_opts(),
+            &AgentMcp::ClaudeFile,
+            None,
+            Some("0d9f7f6e-8e1c-4b62-9a6e-2f1c9b3d4e5f"),
+            SessionTail::Prompt("p"),
+        );
+        let at = args.iter().position(|a| a == "--session-id").expect("flag");
+        assert_eq!(args[at + 1], "0d9f7f6e-8e1c-4b62-9a6e-2f1c9b3d4e5f");
+        // Positional stays last — the flag must never trail the prompt.
+        assert_eq!(args.last().map(String::as_str), Some("p"));
+    }
+
+    /// Resume passes no id (the conversation keeps its own — the SessionStart
+    /// hook seeds the pin instead), and non-claude agents ignore the param.
+    #[test]
+    fn session_id_is_omitted_on_resume_and_non_claude_agents() {
+        let args = session_args(
+            &claude_opts(),
+            &AgentMcp::ClaudeFile,
+            None,
+            None,
+            SessionTail::Continue,
+        );
+        assert!(!args.iter().any(|a| a == "--session-id"));
+
+        let codex = LaunchOptions {
+            agent: CodingAgent::Codex,
+            ..claude_opts()
+        };
+        let mcp = AgentMcp::CodexOverrides {
+            url: "https://app.exponential.at/api/mcp".to_string(),
+        };
+        let args = session_args(&codex, &mcp, None, Some("sid"), SessionTail::Prompt("p"));
+        assert!(!args.iter().any(|a| a == "--session-id"));
+        let pi = LaunchOptions {
+            agent: CodingAgent::Pi,
+            ..claude_opts()
+        };
+        let args = session_args(
+            &pi,
+            &AgentMcp::PiExtension,
+            None,
+            Some("sid"),
+            SessionTail::Prompt("p"),
+        );
+        assert!(!args.iter().any(|a| a == "--session-id"));
+    }
+
+    /// EXP-443: the per-session codex originator is stable, filesystem-safe
+    /// and distinct from the agent-shell one.
+    #[test]
+    fn codex_session_originator_takes_eight_alphanumerics() {
+        assert_eq!(
+            codex_session_originator("0d9f7f6e-8e1c-4b62-9a6e-2f1c9b3d4e5f"),
+            "exponential-0d9f7f6e"
+        );
+        assert_eq!(codex_session_originator("ab"), "exponential-ab");
+        assert_ne!(codex_session_originator("deadbeef"), CODEX_SHELL_ORIGINATOR);
     }
 }

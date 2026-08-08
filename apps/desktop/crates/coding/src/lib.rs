@@ -60,6 +60,7 @@ pub mod settings;
 pub(crate) mod test_support;
 pub mod token_cache;
 pub mod token_refresh;
+pub mod token_refresh_host;
 pub mod trunk_state;
 pub mod worktree_agents;
 
@@ -87,6 +88,7 @@ pub use scm::{
 };
 pub use git_credentials::{ensure_repo_auth, ensure_repo_auth_with_margin};
 pub use token_cache::{token_cache, MintedToken, TokenCache};
+pub use token_refresh_host::{clone_refreshers, CloneRefreshers, RefresherHold};
 pub use trunk_state::TrunkState;
 pub use git_worktree::{
     branch_name, clone_path, shell_cwd, worktree_path, GitError, TokenUrl,

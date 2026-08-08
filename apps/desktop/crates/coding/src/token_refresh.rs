@@ -10,10 +10,11 @@
 //! per-clone ref-counted loops paced by [`next_refresh_delay`] from the
 //! token's REAL expiry (the server returns GitHub's actual `expires_at`;
 //! a fixed 40-minute cadence used to outlive cache-served tokens) — lives in
-//! the ui layer (`ui::coding_flow::TokenRefreshers`), matching the crate's
-//! background/foreground split. The credential file sits in the clone's
-//! shared `.git`, so ONE refresh per clone covers the main worktree and
-//! every subagent worktree at once.
+//! TWO hosts: the gpui `ui::coding_flow::TokenRefreshers` for the desktop,
+//! and the plain-thread [`crate::token_refresh_host`] for the CLI/daemon
+//! (EXP-447). The credential file sits in the clone's shared `.git`, so ONE
+//! refresh per clone covers the main worktree and every subagent worktree at
+//! once.
 
 use std::path::Path;
 use std::time::{Duration, SystemTime};

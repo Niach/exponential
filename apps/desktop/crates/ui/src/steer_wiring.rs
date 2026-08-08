@@ -177,7 +177,10 @@ impl HookSidecar {
         let server = match HookServer::start() {
             Ok(server) => server,
             Err(err) => {
-                log::warn!("steer: hooks sidecar failed to bind: {err}");
+                log::warn!(
+                    "steer: hooks sidecar failed to bind: {err} — every session degrades to \
+                     grid-only detection (no question identity, no transcript pin)"
+                );
                 return None;
             }
         };
@@ -205,8 +208,12 @@ impl HookSidecar {
     }
 
     /// Subscribe a session's worktree; the receiver goes to its emitter and
-    /// dropping it unsubscribes on the next delivery.
-    fn subscribe(&self, worktree: &Path) -> flume::Receiver<HookEvent> {
+    /// dropping it unsubscribes on the next delivery. `session_id` (EXP-443)
+    /// is the launcher-minted `--session-id`: pre-seeding `bound` with it
+    /// makes rule 1 of [`route_hook_event`] authoritative from the first
+    /// delivery — no cwd guess, no insertion-order race with a same-cwd
+    /// subscriber.
+    fn subscribe(&self, worktree: &Path, session_id: Option<&str>) -> flume::Receiver<HookEvent> {
         let (tx, rx) = flume::unbounded();
         let mut subscribers = match self.subscribers.lock() {
             Ok(subscribers) => subscribers,
@@ -216,7 +223,9 @@ impl HookSidecar {
         subscribers.push(HookSubscriber {
             worktree: canonical(worktree),
             tx,
-            bound: HashSet::new(),
+            bound: session_id
+                .map(|id| HashSet::from([id.to_string()]))
+                .unwrap_or_default(),
         });
         rx
     }
@@ -232,6 +241,12 @@ fn canonical(path: &Path) -> PathBuf {
 /// already seen wins outright, otherwise the cwd picks the session (preferring
 /// one with no bound id yet, so two runs sharing a trunk clone split instead
 /// of piling onto the first).
+///
+/// EXP-443: sessions launch with their `bound` set pre-seeded by the minted
+/// `--session-id`, so rule 1 is authoritative from the first delivery and
+/// the cwd tie-break no longer races two same-cwd runs. The cwd fallback
+/// stays for the ids a pre-seed cannot know: a `/clear`-minted rotation and
+/// pre-EXP-443 resumes.
 fn route_hook_event(subscribers: &Arc<Mutex<Vec<HookSubscriber>>>, event: HookEvent) {
     let mut subscribers = match subscribers.lock() {
         Ok(subscribers) => subscribers,
@@ -624,7 +639,9 @@ fn remote_action_start(
 /// The §08 relay [`LaunchOrigin`] for the signed-in account: the persistent
 /// device id + the active account id (the session's audit surface, §7.1 — not
 /// a branch key). `started_by` is the frame's EXP-432 requester attribution —
-/// desktops can't be shared, so it's parity plumbing that stays `None` today.
+/// only `server`-kind devices can be shared, so on a desktop it stays `None`
+/// today; the plumbing is parity with the daemon (and EXP-444's foreign-host
+/// login suppression consumes it wherever it does arrive).
 fn relay_origin(cx: &App, started_by: Option<String>) -> LaunchOrigin {
     let device_id = steer::persistent_device_id(&AuthContext::global(cx).data_dir);
     let claimant = queries::active_account(cx)
@@ -944,6 +961,29 @@ enum SteerUiEvent {
     Teardown,
 }
 
+/// The per-session facts the emitter needs off a `PreparedLaunch`, snapshotted
+/// by `coding_flow::spawn_into_window` before the spawn consumes it.
+pub struct SteerSessionInfo {
+    /// EXP-275: the launch's resolved permission posture (skip-permissions
+    /// on, plan mode off) — the emitter keeps permission-flavored
+    /// notifications from becoming "blocked on approval" cards in bypass
+    /// mode.
+    pub bypass_permissions: bool,
+    /// EXP-383: which agent CLI the session runs — selects the activity
+    /// emitter and gates the claude-only hook/answer machinery off for
+    /// codex/pi.
+    pub agent: CodingAgent,
+    /// EXP-443: the launcher-minted `--session-id` (fresh claude sessions).
+    pub claude_session_id: Option<String>,
+    /// EXP-443: the launcher-stamped codex rollout originator.
+    pub codex_originator: Option<String>,
+    /// EXP-443: the exact rollout id a codex native resume reopens.
+    pub codex_resume_id: Option<String>,
+    /// EXP-432: the requesting teammate on a shared-device relay start
+    /// (`heartbeat_scope.started_by_id`) — `None` on local/own starts.
+    pub started_by_id: Option<String>,
+}
+
 /// Attach a steer publisher to a freshly launched coding session (§8.4). The
 /// single call `coding_flow::spawn_into_window` makes on `LaunchOutcome::
 /// Spawned` — for BOTH subjects (issue sessions and multi-issue batch
@@ -957,16 +997,17 @@ pub fn attach_publisher(
     tab: TabId,
     manager: &Entity<TerminalManager>,
     worktree: PathBuf,
-    // EXP-275: the launch's resolved permission posture (skip-permissions on,
-    // plan mode off) — the emitter keeps permission-flavored notifications
-    // from becoming "blocked on approval" cards in bypass mode.
-    bypass_permissions: bool,
-    // EXP-383: which agent CLI the session runs — selects the activity
-    // emitter and gates the claude-only hook/answer machinery off for
-    // codex/pi.
-    agent: CodingAgent,
+    info: SteerSessionInfo,
     cx: &mut App,
 ) {
+    let SteerSessionInfo {
+        bypass_permissions,
+        agent,
+        claude_session_id,
+        codex_originator,
+        codex_resume_id,
+        started_by_id,
+    } = info;
     let session_agent = match agent {
         CodingAgent::Claude => steer::activity::SessionAgent::Claude,
         CodingAgent::Codex => steer::activity::SessionAgent::Codex,
@@ -1097,9 +1138,18 @@ pub fn attach_publisher(
     let hook_events = is_claude
         .then(|| {
             cx.try_global::<HookSidecarGlobal>()
-                .map(|global| global.0.subscribe(&worktree))
+                .map(|global| global.0.subscribe(&worktree, claude_session_id.as_deref()))
         })
         .flatten();
+    // EXP-444/EXP-432: a relay start whose requester is NOT this signed-in
+    // account runs on a shared host — the emitter suppresses the remote
+    // login flow for it.
+    let foreign_host = started_by_id.as_deref().is_some_and(|requester| {
+        queries::active_account(cx)
+            .map(|account| account.user_id)
+            .as_deref()
+            != Some(requester)
+    });
     spawn_activity_emitter(
         EmitterConfig {
             agent: session_agent,
@@ -1132,6 +1182,10 @@ pub fn attach_publisher(
             }),
             bypass_permissions,
             pi_events,
+            claude_session_id,
+            codex_originator,
+            codex_resume_id,
+            foreign_host,
         },
         handle.activity_sender(),
         activity_active.clone(),
@@ -1266,3 +1320,79 @@ pub fn detach_publisher(session_id: &str, outcome: Option<String>, cx: &mut App)
     }
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn subscriber(
+        subscribers: &Arc<Mutex<Vec<HookSubscriber>>>,
+        worktree: &Path,
+        session_id: Option<&str>,
+    ) -> flume::Receiver<HookEvent> {
+        let (tx, rx) = flume::unbounded();
+        let mut guard = match subscribers.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        guard.push(HookSubscriber {
+            worktree: worktree.to_path_buf(),
+            tx,
+            bound: session_id
+                .map(|id| HashSet::from([id.to_string()]))
+                .unwrap_or_default(),
+        });
+        rx
+    }
+
+    fn event(session_id: Option<&str>, cwd: &Path) -> HookEvent {
+        steer::hooks::parse_hook_event(
+            serde_json::json!({
+                "hook_event_name": "Stop",
+                "session_id": session_id,
+                "cwd": cwd.to_string_lossy(),
+            })
+            .to_string()
+            .as_bytes(),
+        )
+        .expect("fixture parses")
+    }
+
+    /// EXP-443 (twin of `cli::sidecars`' router tests — the two bodies must
+    /// stay identical): a pre-seeded bound id wins over an earlier same-cwd
+    /// subscriber.
+    #[test]
+    fn router_prefers_the_bound_session_id() {
+        let subscribers: Arc<Mutex<Vec<HookSubscriber>>> = Arc::default();
+        let cwd = std::env::temp_dir();
+        let first = subscriber(&subscribers, &cwd, Some("sess-a"));
+        let second = subscriber(&subscribers, &cwd, Some("sess-b"));
+        route_hook_event(&subscribers, event(Some("sess-b"), &cwd));
+        assert!(second.try_recv().is_ok(), "bound id must win");
+        assert!(first.try_recv().is_err());
+    }
+
+    #[test]
+    fn router_gives_an_unknown_id_to_the_unbound_subscriber() {
+        let subscribers: Arc<Mutex<Vec<HookSubscriber>>> = Arc::default();
+        let cwd = std::env::temp_dir();
+        let seeded = subscriber(&subscribers, &cwd, Some("sess-a"));
+        let unseeded = subscriber(&subscribers, &cwd, None);
+        route_hook_event(&subscribers, event(Some("sess-c"), &cwd));
+        assert!(unseeded.try_recv().is_ok());
+        assert!(seeded.try_recv().is_err());
+    }
+
+    #[test]
+    fn router_binds_a_rotated_id_by_cwd_as_last_resort() {
+        let subscribers: Arc<Mutex<Vec<HookSubscriber>>> = Arc::default();
+        let cwd = std::env::temp_dir();
+        let seeded = subscriber(&subscribers, &cwd, Some("sess-a"));
+        route_hook_event(&subscribers, event(Some("sess-rotated"), &cwd));
+        assert!(seeded.try_recv().is_ok(), "cwd fallback must deliver");
+        let unseeded = subscriber(&subscribers, &cwd, None);
+        route_hook_event(&subscribers, event(Some("sess-rotated"), &cwd));
+        assert!(seeded.try_recv().is_ok());
+        assert!(unseeded.try_recv().is_err());
+    }
+}

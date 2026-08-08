@@ -137,6 +137,11 @@ pub enum HookEventKind {
     /// The session ended (only delivered if a future settings file registers
     /// `SessionEnd`; parsed here so it never falls off a cliff).
     SessionEnd { reason: Option<String> },
+    /// EXP-443: claude booted (or `/clear`/resume rotated the conversation).
+    /// Carries no card of its own — its whole value is the context's
+    /// `session_id` reaching the transcript pin at startup instead of at the
+    /// first plan/notification hook, minutes in.
+    SessionStarted { source: Option<String> },
 }
 
 // ---------------------------------------------------------------------------
@@ -191,6 +196,9 @@ pub fn parse_hook_event(body: &[u8]) -> Option<HookEvent> {
         "Stop" => HookEventKind::Stop,
         "SessionEnd" => HookEventKind::SessionEnd {
             reason: string_field(&value, "reason"),
+        },
+        "SessionStart" => HookEventKind::SessionStarted {
+            source: string_field(&value, "source"),
         },
         other => {
             log::debug!("ignoring hook event {other:?}");
@@ -313,6 +321,8 @@ struct HookRegistrations {
     notification: Vec<HookGroup>,
     #[serde(rename = "Stop")]
     stop: Vec<HookGroup>,
+    #[serde(rename = "SessionStart")]
+    session_start: Vec<HookGroup>,
 }
 
 #[derive(Serialize)]
@@ -360,6 +370,10 @@ pub fn hook_settings_json() -> String {
             subagent_stop: vec![HookGroup::new(None)],
             notification: vec![HookGroup::new(None)],
             stop: vec![HookGroup::new(None)],
+            // EXP-443: fires at claude startup AND on /clear/resume rotation
+            // — the pin (and the router's bound set) learn the live session
+            // id before any plan/notification hook would have.
+            session_start: vec![HookGroup::new(None)],
         },
     };
     serde_json::to_string_pretty(&settings).expect("hook settings serialization cannot fail")
@@ -844,12 +858,36 @@ mod tests {
         ));
     }
 
+    /// EXP-443: SessionStart is pure pin fuel — the kind carries only the
+    /// `source`, the context carries the id the pin needs.
+    #[test]
+    fn parses_session_start_with_full_context() {
+        let event = parse(
+            r#"{"hook_event_name":"SessionStart","source":"resume",
+                "session_id":"sess-1","transcript_path":"/tmp/t/sess-1.jsonl","cwd":"/repo"}"#,
+        );
+        assert_eq!(
+            event.kind,
+            HookEventKind::SessionStarted {
+                source: Some("resume".to_string())
+            }
+        );
+        assert_eq!(event.context.session_id.as_deref(), Some("sess-1"));
+        assert_eq!(event.context.cwd.as_deref(), Some("/repo"));
+    }
+
     #[test]
     fn settings_json_registers_every_hook_with_the_env_expanded_command() {
         let value: Value = serde_json::from_str(&hook_settings_json()).unwrap();
         let hooks = &value["hooks"];
         assert_eq!(hooks["PreToolUse"][0]["matcher"], PRE_TOOL_USE_MATCHER);
-        for event in ["SubagentStart", "SubagentStop", "Notification", "Stop"] {
+        for event in [
+            "SubagentStart",
+            "SubagentStop",
+            "Notification",
+            "Stop",
+            "SessionStart",
+        ] {
             assert!(
                 hooks[event][0].get("matcher").is_none(),
                 "{event} must not be matcher-scoped"
@@ -861,6 +899,7 @@ mod tests {
             "SubagentStop",
             "Notification",
             "Stop",
+            "SessionStart",
         ] {
             let command = &hooks[event][0]["hooks"][0];
             assert_eq!(command["type"], "command");

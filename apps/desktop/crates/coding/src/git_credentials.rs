@@ -54,6 +54,17 @@
 //! no-downgrade guard makes writer ORDER irrelevant (a token with an earlier
 //! real expiry never overwrites a later one). Worst case is a transiently
 //! mismatched file/sidecar pair, corrected by the next writer.
+//!
+//! Freshness (EXP-447): the helper is DELIBERATELY dumb — it never checks the
+//! sidecar expiry or re-mints on `get`. The helper line is persisted per-clone
+//! git config shared by both apps and every session, so a smarter helper
+//! would have to bake in either the `exponential` binary's path (not
+//! guaranteed present for desktop-only installs, moves across updates) or a
+//! loopback port (stale after every app restart), and it must survive
+//! git-for-windows' `sh`. Keeping tokens alive is instead owned by the
+//! proactive per-clone refreshers — `ui::coding_flow::TokenRefreshers`
+//! (desktop) and [`crate::token_refresh_host`] (CLI/daemon) — plus the
+//! per-op [`ensure_repo_auth`] writers (trunk sync, clone reuse).
 
 use std::io::Write;
 use std::path::{Path, PathBuf};

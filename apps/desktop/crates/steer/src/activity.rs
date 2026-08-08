@@ -1123,6 +1123,13 @@ impl TranscriptPin {
         }
     }
 
+    /// EXP-443: pre-seed the pin with the spawn-minted `--session-id` — the
+    /// emitter calls this before its first tick, closing the window where an
+    /// unpinned emitter tailed whatever was newest in the shared cwd.
+    fn seed(&mut self, session_id: &str) {
+        self.sessions.insert(session_id.to_string());
+    }
+
     /// Whether discovery is pinned at all — false until the first hook lands.
     fn pinned(&self) -> bool {
         !self.sessions.is_empty()
@@ -1141,6 +1148,11 @@ impl TranscriptPin {
     /// A sidechain is ours iff it nests under a pinned session's dir
     /// (`<dir>/<session-id>/subagents/**`, claude ≥2.1.220) or its flat
     /// `agent-<id>` id was announced by a SubagentStart/Stop hook.
+    ///
+    /// Known gap (EXP-443, accepted): a FLAT sidechain whose SubagentStart
+    /// never fired (hook lost, or only SubagentStop delivered) is dropped
+    /// while pinned — the Task/Agent dispatch hook carries no `agent_id`, so
+    /// there is nothing correct to admit it by.
     fn owns_sidechain(&self, dir: &Path, path: &Path) -> bool {
         if !self.pinned() {
             return true;
@@ -1397,7 +1409,20 @@ pub struct AnswerLink {
     tx: flume::Sender<RemoteAnswer>,
     ask_pending: AtomicBool,
     grid_picker_pending: AtomicBool,
+    /// EXP-444: armed when a login screen soliciting free text (the OAuth
+    /// code prompt / error retry) left the grid WITHOUT succeeding — a code
+    /// pasted after that would land in claude's composer and be submitted,
+    /// recorded and journaled as a prompt. While armed (and not expired) the
+    /// publisher refuses the next free-text message instead of writing it.
+    login_refuse_until: std::sync::Mutex<Option<Instant>>,
+    /// The publisher refused a message — the emitter narrates it (consuming).
+    login_refusal_noted: AtomicBool,
 }
+
+/// EXP-444: how long a closed login screen keeps refusing free text. One
+/// refusal disarms early; with no paste attempt, normal input resumes after
+/// the window.
+const LOGIN_REFUSAL_TTL: Duration = Duration::from_secs(120);
 
 impl AnswerLink {
     /// The link plus the emitter's receiving end.
@@ -1408,6 +1433,8 @@ impl AnswerLink {
                 tx,
                 ask_pending: AtomicBool::new(false),
                 grid_picker_pending: AtomicBool::new(false),
+                login_refuse_until: std::sync::Mutex::new(None),
+                login_refusal_noted: AtomicBool::new(false),
             }),
             rx,
         )
@@ -1438,6 +1465,39 @@ impl AnswerLink {
     /// Emitter side (and tests): publish the grid-picker bit.
     pub fn set_grid_picker_pending(&self, pending: bool) {
         self.grid_picker_pending.store(pending, Ordering::Relaxed);
+    }
+
+    /// Emitter side: a code-soliciting login screen closed unsuccessfully —
+    /// refuse the next free-text message for [`LOGIN_REFUSAL_TTL`].
+    pub fn arm_login_refusal(&self) {
+        let mut until = self.login_refuse_until.lock().unwrap_or_else(|p| p.into_inner());
+        *until = Some(Instant::now() + LOGIN_REFUSAL_TTL);
+    }
+
+    /// Emitter side: the login flow moved on (a new phase painted / success)
+    /// — mistimed-paste protection no longer applies.
+    pub fn disarm_login_refusal(&self) {
+        let mut until = self.login_refuse_until.lock().unwrap_or_else(|p| p.into_inner());
+        *until = None;
+    }
+
+    /// Publisher side: whether free text must currently be refused.
+    pub fn login_refusal_active(&self) -> bool {
+        let until = self.login_refuse_until.lock().unwrap_or_else(|p| p.into_inner());
+        until.is_some_and(|deadline| Instant::now() < deadline)
+    }
+
+    /// Publisher side: a message was refused — note it for the emitter and
+    /// disarm (one-shot: the user's re-send must go through).
+    pub fn note_login_refusal(&self) {
+        self.disarm_login_refusal();
+        self.login_refusal_noted.store(true, Ordering::Relaxed);
+    }
+
+    /// Emitter side: whether a refusal happened since the last call — a
+    /// consuming read that turns into the "nothing was sent" narration.
+    pub fn take_login_refusal_note(&self) -> bool {
+        self.login_refusal_noted.swap(false, Ordering::Relaxed)
     }
 }
 
@@ -1838,7 +1898,20 @@ struct SteerState {
     /// EXP-429: the transcript-discovery ownership pin, fed from every hook
     /// delivery (see [`TranscriptPin`]).
     pin: TranscriptPin,
+    /// EXP-443: a SubagentStart landed since the last
+    /// [`Self::take_subagent_seen`] — the emitter drops its sidechain-rescan
+    /// debounce for one tick so the new agent's file is tailed immediately
+    /// instead of up to 3s late.
+    subagent_seen: bool,
+    /// EXP-444: when the last login-picker answer was injected — the
+    /// anchor-drift diagnostic narrates if no recognizable login phase
+    /// follows within [`LOGIN_DRIFT_WINDOW`]. Cleared by every login `Show`.
+    login_injected_at: Option<Instant>,
 }
+
+/// EXP-444: how long after an injected login answer the emitter waits for a
+/// recognizable follow-up screen before flagging probable anchor drift.
+const LOGIN_DRIFT_WINDOW: Duration = Duration::from_secs(15);
 
 /// How wide a deferred subagent sweep reaches (EXP-404).
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1878,6 +1951,12 @@ impl SteerState {
     /// EXP-404: the sweep a Stop/SessionEnd hook armed — a consuming read.
     fn take_subagent_sweep(&mut self) -> Option<SubagentSweep> {
         self.subagent_sweep.take()
+    }
+
+    /// EXP-443: whether a SubagentStart landed since the last call — a
+    /// consuming read the emitter turns into an immediate sidechain rescan.
+    fn take_subagent_seen(&mut self) -> bool {
+        std::mem::take(&mut self.subagent_seen)
     }
 
     /// EXP-355: evidence a turn is in flight — claude cannot be parked on the
@@ -2037,6 +2116,9 @@ impl SteerState {
                 agent_id,
                 agent_type,
             } => {
+                // EXP-443: whatever else this start means, a new sidechain
+                // file may exist right now — skip the rescan debounce once.
+                self.subagent_seen = true;
                 let Some(agent_id) = agent_id else { return };
                 let agent_id = truncate(&agent_id, ID_MAX);
                 let agent_type = agent_type.as_deref().map(|t| truncate(t, AGENT_TYPE_MAX));
@@ -2174,6 +2256,9 @@ impl SteerState {
                     }
                 }
             }
+            // EXP-443: pure pin fuel — `pin.observe` above already absorbed
+            // the (possibly rotated) session id; no card, no attention edge.
+            HookEventKind::SessionStarted { .. } => {}
         }
     }
 
@@ -2485,6 +2570,9 @@ impl SteerState {
                     return AnswerAttempt::Settled;
                 }
                 write_input(key.as_bytes());
+                // EXP-444: arm the anchor-drift diagnostic — a recognizable
+                // login phase (or success) must follow within the window.
+                self.login_injected_at = Some(Instant::now());
                 // Same digit-then-probe-then-Enter choreography as the plan
                 // picker (EXP-334): whether the digit submits or only moves
                 // the cursor, the row ends up activated exactly once.
@@ -2731,6 +2819,23 @@ pub struct EmitterConfig {
     /// (`--dangerously-skip-permissions` / codex bypass) — permission-flavored
     /// Notifications then never become "blocked on approval" cards.
     pub bypass_permissions: bool,
+    /// EXP-443: the launcher-minted claude session id (`--session-id`) — the
+    /// transcript pin is seeded with it BEFORE the first tick, so discovery
+    /// never runs unpinned on a fresh session. `None` on resume (the
+    /// SessionStart hook seeds the pin) and for codex/pi.
+    pub claude_session_id: Option<String>,
+    /// EXP-443: the per-spawn originator the launcher stamped into codex's
+    /// env — rollout discovery prefers a meta whose `originator` matches.
+    /// `None` degrades to the legacy cwd+mtime match.
+    pub codex_originator: Option<String>,
+    /// EXP-443: the exact rollout session id a codex native resume reopens —
+    /// discovery pins to it outright when set.
+    pub codex_resume_id: Option<String>,
+    /// EXP-444/EXP-432: the session was started by a foreign requester on
+    /// this SHARED host device. The remote login flow is suppressed for them
+    /// (an OAuth sign-in would bind the HOST's machine and billing to the
+    /// requester's Anthropic account) — narration only, no tappable flow.
+    pub foreign_host: bool,
 }
 
 /// Start the public activity emitter on a dedicated OS thread. `active` is the
@@ -2858,6 +2963,14 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
         bypass_permissions: config.bypass_permissions,
         ..SteerState::default()
     };
+    // EXP-443: pinned from tick zero — with the spawn-minted `--session-id`
+    // seeded, `owns_main` never falls back to the blanket "newest file in
+    // the cwd" and a foreign claude sharing the cwd is never tailed. If
+    // claude ever ignored the flag, the SessionStart hook self-heals the set
+    // within one delivery (the pin is a union).
+    if let Some(id) = &config.claude_session_id {
+        steer.pin.seed(id);
+    }
     // EXP-214/EXP-355: the synced needs-input flag (see [`NeedsInputForwarder`]).
     let mut needs_input = NeedsInputForwarder::new();
     // EXP-334: transiently refused remote answers, retried each tick until
@@ -2868,6 +2981,13 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
     // picker — the publisher's free-text reroute signal. Sticky while
     // scrolled, like the watchers.
     let mut grid_picker_visible = false;
+    // EXP-444: the visible login phase solicits free text (the OAuth-code
+    // prompt / error-retry screen) — its unsuccessful disappearance arms the
+    // publisher's mistimed-paste refusal.
+    let mut login_code_soliciting = false;
+    // EXP-444: the shared-host suppression narrated for the current login
+    // flow already (reset when the flow leaves the grid / succeeds).
+    let mut foreign_login_notified = false;
 
     while active.load(Ordering::SeqCst) {
         // 0) The hooks sidecar (EXP-249): the structured half. Drained before
@@ -2991,7 +3111,36 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
             // the sign-in URL travels as narration (clients linkify it) and
             // the OAuth code comes back as an ordinary free-text message.
             match login_watcher.tick(&lines, grid_offset) {
+                Some(login_picker::Transition::Show(phase))
+                    if config.foreign_host && !matches!(phase, LoginPhase::Success) =>
+                {
+                    // EXP-444/EXP-432: a foreign requester on a shared host
+                    // never gets the interactive flow — signing in would bind
+                    // the HOST's machine and billing to the requester's own
+                    // Anthropic account. Narrate once per flow; the login
+                    // watcher's pending state still trips needs_input below,
+                    // so the row shows blocked.
+                    login_code_soliciting = false;
+                    steer.login_injected_at = None;
+                    if !foreign_login_notified {
+                        foreign_login_notified = true;
+                        let copy = match phase {
+                            LoginPhase::Error { .. } => "Claude sign-in failed on the host device.",
+                            _ => {
+                                "Claude is signed out on this machine. The device owner needs to \
+                                 sign in on the host — remote sign-in is disabled for sessions \
+                                 started on a shared device."
+                            }
+                        };
+                        sender.send(ActivityEvent::narration(copy));
+                    }
+                }
                 Some(login_picker::Transition::Show(LoginPhase::MethodPicker { options })) => {
+                    login_code_soliciting = false;
+                    steer.login_injected_at = None;
+                    if let Some(steering) = &config.steering {
+                        steering.link.disarm_login_refusal();
+                    }
                     let options: Vec<QuestionOption> = options
                         .into_iter()
                         .filter(|o| !o.label.contains(LOGIN_THIRD_PARTY_OPTION))
@@ -3008,20 +3157,48 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
                     }
                 }
                 Some(login_picker::Transition::Show(LoginPhase::UrlPrompt { url })) => {
+                    login_code_soliciting = true;
+                    steer.login_injected_at = None;
+                    if let Some(steering) = &config.steering {
+                        steering.link.disarm_login_refusal();
+                    }
                     // The method question is done — the flow moved on.
                     steer.resolve_login(&sender);
-                    // Exact-match redaction only: the generic patterns can
-                    // shred the base64url blob mid-URL (see
-                    // [`Redactor::redact_exact_only`]).
-                    sender.send(ActivityEvent::narration(truncate(
-                        &redactor.redact_exact_only(&format!(
-                            "Claude sign-in: open this link in your browser to authorize, then \
-                             send the code you receive back here as a regular message:\n\n{url}"
-                        )),
-                        NARRATION_MAX,
-                    )));
+                    if login_picker::is_trusted_login_url(&url) {
+                        // Exact-match redaction only: the generic patterns can
+                        // shred the base64url blob mid-URL (see
+                        // [`Redactor::redact_exact_only`]) — reachable ONLY
+                        // for allowlisted hosts (EXP-444: the sole bypass of
+                        // SECRET_PATTERNS must never carry an arbitrary URL
+                        // an agent painted onto the grid).
+                        sender.send(ActivityEvent::narration(truncate(
+                            &redactor.redact_exact_only(&format!(
+                                "Claude sign-in: open this link in your browser to authorize, then \
+                                 send the code you receive back here as a regular message:\n\n{url}"
+                            )),
+                            NARRATION_MAX,
+                        )));
+                    } else {
+                        // Full redaction and no invitation to open anything —
+                        // a sign-in screen pointing off the Anthropic domains
+                        // is a phishing primitive, not a login.
+                        sender.send(ActivityEvent::narration(truncate(
+                            &format!(
+                                "Claude's sign-in screen showed a link on an unrecognized domain \
+                                 — it was not shared. The host may need to sign in on the device \
+                                 directly. ({})",
+                                redactor.redact(&url)
+                            ),
+                            NARRATION_MAX,
+                        )));
+                    }
                 }
                 Some(login_picker::Transition::Show(LoginPhase::Error { message })) => {
+                    login_code_soliciting = true;
+                    steer.login_injected_at = None;
+                    if let Some(steering) = &config.steering {
+                        steering.link.disarm_login_refusal();
+                    }
                     steer.resolve_login(&sender);
                     sender.send(ActivityEvent::narration(truncate(
                         &format!(
@@ -3033,17 +3210,69 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
                     )));
                 }
                 Some(login_picker::Transition::Show(LoginPhase::Success)) => {
+                    login_code_soliciting = false;
+                    steer.login_injected_at = None;
+                    foreign_login_notified = false;
                     sender.send(ActivityEvent::narration("Claude sign-in succeeded."));
                     // Dismiss the "Press Enter to continue" screen so the
                     // session resumes without another remote round-trip. A
-                    // stray Enter on a variant without that screen is a
-                    // no-op submit of claude's empty composer.
+                    // stray Enter on a variant without that screen is a no-op
+                    // submit of claude's empty composer — but ONLY while no
+                    // picker owns the keyboard: with a plan-approval or
+                    // AskUserQuestion picker up, Enter would activate the
+                    // highlighted row (EXP-444).
                     if let Some(steering) = &config.steering {
-                        (steering.write_input)(b"\r");
+                        steering.link.disarm_login_refusal();
+                        if !grid_picker_visible && !steer.has_pending_question() {
+                            (steering.write_input)(b"\r");
+                        }
                     }
                 }
-                Some(login_picker::Transition::Resolved) => steer.resolve_login(&sender),
+                Some(login_picker::Transition::Resolved) => {
+                    steer.resolve_login(&sender);
+                    foreign_login_notified = false;
+                    // EXP-444: the screen soliciting the OAuth code left the
+                    // grid without succeeding (local Esc, OAuth timeout) — a
+                    // code pasted now would be submitted as an ordinary
+                    // prompt, recorded and journaled. Refuse the next free
+                    // text instead (one-shot, TTL-bounded).
+                    if std::mem::take(&mut login_code_soliciting) && !config.foreign_host {
+                        if let Some(steering) = &config.steering {
+                            steering.link.arm_login_refusal();
+                        }
+                    }
+                }
                 None => {}
+            }
+            // EXP-444: a refused paste surfaces as narration, not silence.
+            if let Some(steering) = &config.steering {
+                if steering.link.take_login_refusal_note() {
+                    sender.send(ActivityEvent::narration(
+                        "The sign-in window closed before your message arrived — nothing was \
+                         typed into the session. Send it again to deliver it as a normal message.",
+                    ));
+                }
+            }
+            // EXP-444: anchor-drift diagnostic — a login answer was injected
+            // but no known login phase (or the REPL) followed. Anchors are
+            // pinned to claude v2.1.222; a copy change would otherwise stall
+            // silently with needs_input=false.
+            if steer
+                .login_injected_at
+                .is_some_and(|at| at.elapsed() > LOGIN_DRIFT_WINDOW)
+            {
+                if !login_watcher.is_pending() {
+                    log::warn!(
+                        "activity: login answer injected but no known login screen followed — \
+                         claude's login UI may have drifted from the pinned anchors"
+                    );
+                    sender.send(ActivityEvent::narration(
+                        "Answered the sign-in picker, but no recognizable login screen followed \
+                         — claude's login UI may have changed. The host may need to finish \
+                         signing in on the device.",
+                    ));
+                }
+                steer.login_injected_at = None;
             }
         }
 
@@ -3192,6 +3421,12 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
         //    so it runs on its own slower cadence; the tails themselves are
         //    plain seeks and run every tick.
         if let Some(dir) = &transcript_dir {
+            // EXP-443: a SubagentStart this tick means a brand-new sidechain
+            // file likely exists RIGHT NOW — skip the debounce once instead
+            // of tailing it up to a full interval late.
+            if steer.take_subagent_seen() {
+                sidechain_scan_at = None;
+            }
             if sidechain_scan_at.is_none_or(|at| at.elapsed() >= SIDECHAIN_SCAN_INTERVAL) {
                 sidechain_scan_at = Some(Instant::now());
                 sidechains = sidechain_transcripts(dir, spawn_time, &steer.pin);
@@ -6397,6 +6632,100 @@ mod tests {
             HashSet::from(["s1".to_string(), "s2".to_string()])
         );
         assert_eq!(steer.pin.agents, HashSet::from(["a1".to_string()]));
+    }
+
+    /// EXP-443: a spawn-seeded pin means `owns_main` never falls back to the
+    /// blanket true — the pre-first-hook leak window is closed — and the set
+    /// still grows via hooks (a /clear rotation, the SessionStart self-heal).
+    #[test]
+    fn seeded_pin_rejects_foreign_transcripts_from_tick_zero() {
+        let mut pin = TranscriptPin::default();
+        pin.seed("minted-uuid");
+        assert!(pin.pinned(), "seeded before any hook");
+        assert!(pin.owns_main(Path::new("/p/minted-uuid.jsonl")));
+        assert!(!pin.owns_main(Path::new("/p/foreign.jsonl")));
+
+        // The SessionStart hook unions the ACTUAL id in (self-heal if claude
+        // ever ignored --session-id, and the /clear contract).
+        pin.observe(&HookEvent {
+            context: crate::hooks::HookContext {
+                session_id: Some("rotated".to_string()),
+                transcript_path: None,
+                cwd: None,
+            },
+            kind: HookEventKind::SessionStarted { source: None },
+        });
+        assert!(pin.owns_main(Path::new("/p/rotated.jsonl")));
+        assert!(pin.owns_main(Path::new("/p/minted-uuid.jsonl")));
+    }
+
+    /// EXP-443: a SessionStart delivery both feeds the pin (via apply_hook's
+    /// unconditional observe) and arms nothing else — no cards, no attention.
+    #[test]
+    fn apply_hook_session_start_feeds_the_pin_silently() {
+        let (sender, rx) = ActivitySender::test_pair();
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        let redactor = Redactor::new(vec![]);
+        steer.apply_hook(
+            HookEvent {
+                context: crate::hooks::HookContext {
+                    session_id: Some("boot-1".to_string()),
+                    transcript_path: None,
+                    cwd: None,
+                },
+                kind: HookEventKind::SessionStarted {
+                    source: Some("startup".to_string()),
+                },
+            },
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        assert!(steer.pin.sessions.contains("boot-1"));
+        assert!(steer.attention.is_none());
+        assert!(drained(&rx).is_empty(), "no events published");
+    }
+
+    /// EXP-443: a SubagentStart arms the one-shot rescan flag (the emitter
+    /// skips the sidechain debounce with it); the read consumes it.
+    #[test]
+    fn subagent_start_arms_a_one_shot_sidechain_rescan() {
+        let (sender, _rx) = ActivitySender::test_pair();
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        let redactor = Redactor::new(vec![]);
+        assert!(!steer.take_subagent_seen());
+        steer.apply_hook(
+            hook(HookEventKind::SubagentStarted {
+                agent_id: Some("a1".to_string()),
+                agent_type: Some("explore".to_string()),
+            }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        assert!(steer.take_subagent_seen());
+        assert!(!steer.take_subagent_seen(), "consuming read");
+    }
+
+    /// EXP-444: the mistimed-paste refusal is one-shot — a note disarms it
+    /// so the user's re-send flows; disarm clears without a note.
+    #[test]
+    fn login_refusal_is_one_shot() {
+        let (link, _rx) = AnswerLink::new();
+        assert!(!link.login_refusal_active());
+        link.arm_login_refusal();
+        assert!(link.login_refusal_active());
+        link.note_login_refusal();
+        assert!(!link.login_refusal_active(), "note disarms");
+        assert!(link.take_login_refusal_note());
+        assert!(!link.take_login_refusal_note(), "consuming read");
+
+        link.arm_login_refusal();
+        link.disarm_login_refusal();
+        assert!(!link.login_refusal_active());
+        assert!(!link.take_login_refusal_note(), "disarm leaves no note");
     }
 
     #[test]

@@ -43,6 +43,13 @@ pub struct CodingSession {
     pub action_id: Option<String>,
     #[serde(default)]
     pub action_name: Option<String>,
+    /// EXP-445: the hosting account on shared-device runs (EXP-432) — the
+    /// device owner whose daemon executes a teammate's session. Reaches us
+    /// only via tRPC `get`/mutations (server-only column, never in the
+    /// Electric shape); `None` on every self-hosted row. The CLI kill-poll
+    /// needs it to recognize a hosted row's →ended flip as its own kill.
+    #[serde(default)]
+    pub host_user_id: Option<String>,
     /// `running` | `in_review` | `merged` | `ended` (contract enum
     /// `coding_session_status`).
     #[serde(default)]
@@ -375,6 +382,20 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/codingSessions.start HTTP/1.1"));
         assert!(request.ends_with(r#"{"issueId":"issue-1","deviceLabel":"testbox"}"#));
+    }
+
+    /// EXP-445: the tRPC row's `hostUserId` (shared-device runs) decodes —
+    /// the CLI kill-poll's owner-or-host rule depends on it; absent = None.
+    #[test]
+    fn decodes_host_user_id_when_present() {
+        let session: CodingSession = serde_json::from_str(
+            r#"{"id":"sess-1","userId":"requester","hostUserId":"host-1","status":"running"}"#,
+        )
+        .unwrap();
+        assert_eq!(session.host_user_id.as_deref(), Some("host-1"));
+
+        let session: CodingSession = serde_json::from_str(r#"{"id":"sess-2"}"#).unwrap();
+        assert_eq!(session.host_user_id, None);
     }
 
     #[test]

@@ -635,6 +635,8 @@ struct RefresherEntry {
 /// ([`coding::next_refresh_delay`]); the old fixed 40-minute loop could
 /// outlive a cache-served token. `retain` after every successful spawn;
 /// `release` rides [`LocalSessions::remove`] (both exit paths, exactly once).
+/// The CLI/daemon runs the gpui-free counterpart,
+/// `coding::token_refresh_host` (EXP-447).
 #[derive(Default)]
 pub struct TokenRefreshers {
     by_clone: HashMap<PathBuf, RefresherEntry>,
@@ -967,10 +969,16 @@ pub fn spawn_into_window(
     // The P9 refresher inputs, snapshotted before the spawn consumes them.
     let clone = prepared.clone.clone();
     let repository_id = prepared.repository_id.clone();
-    // EXP-275: the emitter's permission posture rides the prepared launch.
-    let bypass_permissions = prepared.bypass_permissions;
-    // EXP-383: the agent picks the activity emitter (claude/codex/pi).
-    let agent = prepared.agent;
+    // The emitter's per-session facts (EXP-275 posture, EXP-383 agent,
+    // EXP-443 identities, EXP-432 requester), snapshotted the same way.
+    let steer_info = crate::steer_wiring::SteerSessionInfo {
+        bypass_permissions: prepared.bypass_permissions,
+        agent: prepared.agent,
+        claude_session_id: prepared.claude_session_id.clone(),
+        codex_originator: prepared.codex_originator.clone(),
+        codex_resume_id: prepared.codex_resume_id.clone(),
+        started_by_id: prepared.heartbeat_scope.started_by_id.clone(),
+    };
     // Action identity for the registry's exit announcement (EXP-257).
     let action_id = match &prepared.tab_kind {
         TabKind::Action(id) => Some(id.clone()),
@@ -1013,8 +1021,7 @@ pub fn spawn_into_window(
                 terminal_tab,
                 &manager,
                 worktree,
-                bypass_permissions,
-                agent,
+                steer_info,
                 cx,
             );
             // P9: keep the clone's embedded token fresh for the session's

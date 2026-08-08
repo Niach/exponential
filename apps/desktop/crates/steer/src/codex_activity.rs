@@ -82,31 +82,74 @@ fn default_codex_sessions_root() -> Option<PathBuf> {
     Some(home.join("sessions"))
 }
 
+/// EXP-443: what discovery is allowed to bind to, beyond the cwd match.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct RolloutWant {
+    /// The launcher-stamped per-spawn originator
+    /// (`CODEX_INTERNAL_ORIGINATOR_OVERRIDE`) — rollout metas whose
+    /// `originator` matches are preferred outright, so a foreign codex (a
+    /// "+" shell tab, a manual `codex`, a concurrent action run) sharing the
+    /// cwd can no longer hijack the feed. `None`, or no matching rollout
+    /// (a codex build that ignores the override): degrade to the legacy
+    /// newest-cwd-match, logged once by the caller.
+    pub(crate) originator: Option<String>,
+    /// A native resume's exact rollout session id — the strongest pin; an id
+    /// match beats everything (an in-TUI `/new` afterwards rotates the file
+    /// but keeps the originator, so the originator pass still follows).
+    pub(crate) session_id: Option<String>,
+}
+
 /// The newest live rollout for this session: `rollout-*.jsonl` (a `.zst`
 /// sibling is by definition not the live one), modified at/after `after`,
 /// whose first-line `session_meta.cwd` matches the worktree (raw or
 /// canonicalized — codex records its canonical cwd). Filenames embed the full
 /// ISO timestamp, so a descending sort over basenames is newest-first.
+///
+/// EXP-443 pin order among cwd matches: `want.session_id` exact match, then
+/// newest `want.originator` match, then the legacy newest match (the
+/// explicit fallback keeping a wrong/ignored originator override exactly as
+/// safe as the pre-pin behavior, never worse).
 pub(crate) fn find_live_rollout(
     sessions_root: &Path,
     worktree: &Path,
     after: SystemTime,
+    want: &RolloutWant,
 ) -> Option<PathBuf> {
     let after = after.checked_sub(MTIME_SLACK).unwrap_or(after);
     let mut rollouts: Vec<(String, PathBuf)> = Vec::new();
     collect_rollouts(sessions_root, 0, after, &mut rollouts);
     rollouts.sort_by(|a, b| b.0.cmp(&a.0));
     let canonical = std::fs::canonicalize(worktree).ok();
+    let mut originator_match: Option<PathBuf> = None;
+    let mut newest_cwd_match: Option<PathBuf> = None;
     for (_, path) in rollouts {
-        let Some(cwd) = read_session_cwd(&path) else {
+        let Some(meta) = read_session_meta(&path) else {
             continue;
         };
-        let cwd = Path::new(&cwd);
-        if cwd == worktree || Some(cwd) == canonical.as_deref() {
-            return Some(path);
+        let cwd = Path::new(&meta.cwd);
+        if !(cwd == worktree || Some(cwd) == canonical.as_deref()) {
+            continue;
+        }
+        if let (Some(want_id), Some(id)) = (&want.session_id, &meta.id) {
+            if want_id == id {
+                return Some(path);
+            }
+        }
+        if originator_match.is_none()
+            && want.originator.is_some()
+            && meta.originator == want.originator
+        {
+            originator_match = Some(path.clone());
+        }
+        if newest_cwd_match.is_none() {
+            newest_cwd_match = Some(path);
+        }
+        // Keep walking: an older file may still carry the resume id.
+        if want.session_id.is_none() && (want.originator.is_none() || originator_match.is_some()) {
+            break;
         }
     }
-    None
+    originator_match.or(newest_cwd_match)
 }
 
 /// Recursive bounded `rollout-*.jsonl` sweep, pre-filtered by mtime (a resume
@@ -141,16 +184,34 @@ fn collect_rollouts(dir: &Path, depth: usize, after: SystemTime, out: &mut Vec<(
     }
 }
 
-/// First-line session meta → `cwd`. Lenient by design: the payload nesting is
-/// current codex; a flat legacy shape still resolves.
-fn read_session_cwd(path: &Path) -> Option<String> {
+/// First-line session meta. Lenient by design: the payload nesting is
+/// current codex; a flat legacy shape still resolves. `id`/`originator` are
+/// optional extras (EXP-443) — only `cwd` gates discovery. Sibling of
+/// `coding::codex_sessions`' meta parsing (§3.1 — the crates cannot share).
+struct RolloutMeta {
+    cwd: String,
+    id: Option<String>,
+    originator: Option<String>,
+}
+
+fn read_session_meta(path: &Path) -> Option<RolloutMeta> {
     use std::io::{BufRead, BufReader};
     let file = std::fs::File::open(path).ok()?;
     let mut line = String::new();
     BufReader::new(file).read_line(&mut line).ok()?;
     let value: Value = serde_json::from_str(line.trim()).ok()?;
     let meta = value.get("payload").unwrap_or(&value);
-    Some(meta.get("cwd")?.as_str()?.to_string())
+    Some(RolloutMeta {
+        cwd: meta.get("cwd")?.as_str()?.to_string(),
+        id: meta
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        originator: meta
+            .get("originator")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -692,21 +753,42 @@ fn run_emitter_with_root(
     let mut state = CodexState::default();
     let mut diffs = DiffSnapshots::new();
     let mut needs_input = NeedsInputForwarder::new();
+    // EXP-443: the launcher-stamped per-spawn originator (and, on a native
+    // resume, the exact rollout id) pin discovery to OUR codex among the
+    // cwd's rollouts — an in-TUI `/new` rotates the file but keeps the
+    // originator, so rotation still follows. No match falls back to the
+    // legacy newest-cwd behavior (a codex build ignoring the override must
+    // never be worse off than before), logged once.
+    let want = RolloutWant {
+        originator: config.codex_originator.clone(),
+        session_id: config.codex_resume_id.clone(),
+    };
+    let mut fallback_logged = false;
 
     while active.load(Ordering::SeqCst) {
         // 1) Resolve / re-resolve the rollout. The full-tree sweep walks every
         //    recorded session, so once bound it re-runs on a slower cadence
-        //    (a newer rollout in the same cwd supersedes — a manual `codex`
-        //    restarted in the worktree). Unlike claude there is no ownership
-        //    pin to hang here (EXP-429): rollout meta carries only
-        //    id/cwd/originator, and an in-TUI `/new` legitimately rotates
-        //    rollouts — so a foreign codex sharing the cwd is
-        //    indistinguishable from our own restart.
+        //    (a newer matching rollout in the same cwd supersedes — a manual
+        //    `codex` restarted in the worktree, or our own /new rotation).
         if let Some(root) = &sessions_root {
             let due = current.is_none() || rescan_at.is_none_or(|at| at.elapsed() >= REDISCOVER_INTERVAL);
             if due {
                 rescan_at = Some(Instant::now());
-                if let Some(newest) = find_live_rollout(root, &config.worktree, spawn_time) {
+                if let Some(newest) = find_live_rollout(root, &config.worktree, spawn_time, &want) {
+                    if !fallback_logged && want.originator.is_some() {
+                        let matched = read_session_meta(&newest)
+                            .and_then(|meta| meta.originator)
+                            == want.originator;
+                        if !matched {
+                            fallback_logged = true;
+                            log::info!(
+                                "activity: no rollout carries originator {:?} — this codex \
+                                 build may not honor the override; falling back to cwd-only \
+                                 discovery",
+                                want.originator
+                            );
+                        }
+                    }
                     if current.as_deref() != Some(newest.as_path()) {
                         current = Some(newest);
                         offset = 0;
@@ -1107,12 +1189,23 @@ mod tests {
     }
 
     fn write_rollout(root: &Path, day: &str, stamp: &str, id: &str, cwd: &Path) -> PathBuf {
+        write_rollout_with(root, day, stamp, id, cwd, "codex-tui")
+    }
+
+    fn write_rollout_with(
+        root: &Path,
+        day: &str,
+        stamp: &str,
+        id: &str,
+        cwd: &Path,
+        originator: &str,
+    ) -> PathBuf {
         let dir = root.join(day);
         std::fs::create_dir_all(&dir).unwrap();
         let meta = serde_json::json!({
             "timestamp": stamp,
             "type": "session_meta",
-            "payload": { "id": id, "cwd": cwd.to_string_lossy(), "originator": "codex-tui" },
+            "payload": { "id": id, "cwd": cwd.to_string_lossy(), "originator": originator },
         });
         let path = dir.join(format!("rollout-{stamp}-{id}.jsonl"));
         std::fs::write(&path, format!("{meta}\n")).unwrap();
@@ -1132,7 +1225,7 @@ mod tests {
         let newest = write_rollout(&root, "2026/07/31", "2026-07-31T08-00-00", "new", &worktree);
         let spawn = SystemTime::now();
         assert_eq!(
-            find_live_rollout(&root, &worktree, spawn),
+            find_live_rollout(&root, &worktree, spawn, &RolloutWant::default()),
             Some(newest),
             "newest matching cwd wins (all files fresh under the mtime slack)"
         );
@@ -1157,7 +1250,7 @@ mod tests {
             b"zstd",
         )
         .unwrap();
-        assert_eq!(find_live_rollout(&root, &worktree, SystemTime::now()), None);
+        assert_eq!(find_live_rollout(&root, &worktree, SystemTime::now(), &RolloutWant::default()), None);
         // A resume APPENDS to the old file, bumping its mtime — it becomes
         // discoverable again.
         std::fs::File::options()
@@ -1167,8 +1260,92 @@ mod tests {
             .set_modified(SystemTime::now())
             .unwrap();
         assert_eq!(
-            find_live_rollout(&root, &worktree, SystemTime::now()),
+            find_live_rollout(&root, &worktree, SystemTime::now(), &RolloutWant::default()),
             Some(path)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-443: among same-cwd rollouts, the expected originator wins even
+    /// against a NEWER foreign one — the hijack this pin exists for.
+    #[test]
+    fn discovery_prefers_the_expected_originator() {
+        let dir = temp_dir("orig");
+        let root = dir.join("sessions");
+        let worktree = dir.join("wt");
+        std::fs::create_dir_all(&worktree).unwrap();
+        let ours = write_rollout_with(
+            &root,
+            "2026/08/07",
+            "2026-08-07T10-00-00",
+            "ours",
+            &worktree,
+            "exponential-abc12345",
+        );
+        write_rollout_with(
+            &root,
+            "2026/08/07",
+            "2026-08-07T11-00-00",
+            "foreign",
+            &worktree,
+            "codex-tui",
+        );
+        let want = RolloutWant {
+            originator: Some("exponential-abc12345".to_string()),
+            session_id: None,
+        };
+        assert_eq!(
+            find_live_rollout(&root, &worktree, SystemTime::now(), &want),
+            Some(ours)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-443: a codex that ignores the originator override must degrade to
+    /// exactly the legacy newest-cwd match, never to a dead feed.
+    #[test]
+    fn discovery_falls_back_to_cwd_when_no_originator_matches() {
+        let dir = temp_dir("orig-fallback");
+        let root = dir.join("sessions");
+        let worktree = dir.join("wt");
+        std::fs::create_dir_all(&worktree).unwrap();
+        write_rollout(&root, "2026/08/07", "2026-08-07T10-00-00", "older", &worktree);
+        let newest = write_rollout(&root, "2026/08/07", "2026-08-07T11-00-00", "newer", &worktree);
+        let want = RolloutWant {
+            originator: Some("exponential-never".to_string()),
+            session_id: None,
+        };
+        assert_eq!(
+            find_live_rollout(&root, &worktree, SystemTime::now(), &want),
+            Some(newest)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-443: a native resume's exact session id beats newer files AND the
+    /// originator pass.
+    #[test]
+    fn discovery_pins_the_resumed_session_id() {
+        let dir = temp_dir("resume-pin");
+        let root = dir.join("sessions");
+        let worktree = dir.join("wt");
+        std::fs::create_dir_all(&worktree).unwrap();
+        let resumed = write_rollout(&root, "2026/08/06", "2026-08-06T10-00-00", "resumed", &worktree);
+        write_rollout_with(
+            &root,
+            "2026/08/07",
+            "2026-08-07T11-00-00",
+            "fresh",
+            &worktree,
+            "exponential-abc12345",
+        );
+        let want = RolloutWant {
+            originator: Some("exponential-abc12345".to_string()),
+            session_id: Some("resumed".to_string()),
+        };
+        assert_eq!(
+            find_live_rollout(&root, &worktree, SystemTime::now(), &want),
+            Some(resumed)
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1182,7 +1359,7 @@ mod tests {
         let canonical = std::fs::canonicalize(&worktree).unwrap();
         let path = write_rollout(&root, "2026/07/31", "2026-07-31T10-00-00", "c", &canonical);
         assert_eq!(
-            find_live_rollout(&root, &worktree, SystemTime::now()),
+            find_live_rollout(&root, &worktree, SystemTime::now(), &RolloutWant::default()),
             Some(path)
         );
         let _ = std::fs::remove_dir_all(&dir);

@@ -498,6 +498,9 @@ async fn pump_connection(
     let mut last_digit_at: Option<Instant> = None;
     let mut esc_routed_at: Option<Instant> = None;
     let mut message_chunk_at: Option<Instant> = None;
+    // EXP-444: the previous frame was a login-refused message — its trailing
+    // Enter (the paste's submit) is swallowed too; any other input clears it.
+    let mut login_refused_message = false;
     // EXP-383 (pi): text chunks buffered for `text_sink` until the `\r`.
     let mut sink_buffer = String::new();
     let mut ping_interval = tokio::time::interval(PING_INTERVAL);
@@ -555,6 +558,29 @@ async fn pump_connection(
                                 message_chunk_at = None;
                                 continue;
                             }
+                        }
+                        // EXP-444: a login screen that solicited the OAuth
+                        // code closed before this text arrived (local Esc,
+                        // OAuth timeout) — writing it now would submit the
+                        // code as an ordinary prompt, publish it as a
+                        // UserMessage and journal it to every viewer. Refuse
+                        // the message (one-shot — the emitter narrates that
+                        // nothing was sent) and swallow its trailing Enter.
+                        // Single keystrokes pass untouched.
+                        if is_message_text(&data)
+                            && hooks
+                                .answers
+                                .as_ref()
+                                .is_some_and(|answers| answers.login_refusal_active())
+                        {
+                            if let Some(answers) = &hooks.answers {
+                                answers.note_login_refusal();
+                            }
+                            login_refused_message = true;
+                            continue;
+                        }
+                        if std::mem::take(&mut login_refused_message) && data == "\r" {
+                            continue;
                         }
                         let ask_pending = hooks
                             .answers
@@ -1307,6 +1333,55 @@ mod tests {
             .unwrap();
         wait_for(|| recorded.inputs.lock().unwrap().len() == 5);
         assert_eq!(recorded.inputs.lock().unwrap()[4], b"and add tests");
+        handle.shutdown(None);
+    }
+
+    /// EXP-444: with the login refusal armed (the OAuth-code screen closed
+    /// before the paste arrived), the message and its trailing Enter are
+    /// swallowed, the refusal note is set for the emitter's narration, and —
+    /// because a note disarms (one-shot) — the re-send flows through.
+    #[test]
+    fn login_refusal_swallows_the_paste_and_its_enter() {
+        let runtime = SteerRuntime::new().unwrap();
+        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
+        let recorded = Arc::new(Recorded::default());
+        let (link, _answers_rx) = AnswerLink::new();
+        let handle = publish(
+            &runtime,
+            PublishSpec {
+                session_id: "sess-lr".to_string(),
+                issue_id: None,
+            },
+            Arc::new(FakeTickets {
+                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
+            }),
+            recording_hooks_with(recorded.clone(), Some(link.clone())),
+        );
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
+
+        link.arm_login_refusal();
+        inject_tx
+            .send(Message::Text(
+                r#"{"t":"input","data":"opaque-oauth-code-abc123"}"#.to_string(),
+            ))
+            .unwrap();
+        inject_tx
+            .send(Message::Text(r#"{"t":"input","data":"\r"}"#.to_string()))
+            .unwrap();
+        // The re-send after the refusal (the note disarmed it) goes through.
+        inject_tx
+            .send(Message::Text(
+                r#"{"t":"input","data":"a normal message"}"#.to_string(),
+            ))
+            .unwrap();
+        wait_for(|| recorded.inputs.lock().unwrap().len() >= 1);
+        assert_eq!(
+            recorded.inputs.lock().unwrap().as_slice(),
+            &[b"a normal message".to_vec()],
+            "the refused paste and its Enter never reach the PTY"
+        );
+        assert!(link.take_login_refusal_note(), "the emitter gets the note");
         handle.shutdown(None);
     }
 
