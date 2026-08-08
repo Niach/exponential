@@ -28,6 +28,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { BoardGlyph } from "@/components/board-glyph"
 import {
   Select,
   SelectContent,
@@ -334,10 +335,7 @@ function BoardInputField({
         >
           {selected ? (
             <>
-              <div
-                className="h-2.5 w-2.5 shrink-0 rounded-full"
-                style={{ backgroundColor: selected.color }}
-              />
+              <BoardGlyph board={selected} className="size-3.5" />
               <span className="min-w-0 truncate">{selected.name}</span>
             </>
           ) : (
@@ -372,10 +370,7 @@ function BoardInputField({
                   onSelect={() => pick(board.id)}
                   className="flex items-center gap-2"
                 >
-                  <div
-                    className="h-2.5 w-2.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: board.color }}
-                  />
+                  <BoardGlyph board={board} className="size-3.5" />
                   <span className="min-w-0 truncate text-sm">{board.name}</span>
                   {board.id === value && (
                     <Check className="ml-auto size-3.5 shrink-0" />

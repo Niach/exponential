@@ -63,6 +63,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.UserEntity
@@ -74,6 +75,7 @@ import com.exponential.app.domain.TeamPermissions
 import com.exponential.app.domain.WebLinks
 import com.exponential.app.domain.issuePriorityOrder
 import com.exponential.app.domain.priorityIcon
+import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.GlassSheet
@@ -227,7 +229,7 @@ fun IssueListScreen(
                     }
                     IssueListMode.Root -> {
                         BoardSwitcherControl(
-                            name = state.board?.name,
+                            board = state.board,
                             enabled = hasAnyBoard,
                             onClick = { showSwitcher = true },
                         )
@@ -760,11 +762,12 @@ private fun IssueListContent(
     }
 }
 
-// The Issues tab root's inline board switcher: current board name + an
-// up/down expander glyph as one tappable glass control (iOS combobox pattern).
+// The Issues tab root's inline board switcher: the board's own icon + name +
+// an up/down expander glyph as one tappable glass control (iOS combobox
+// pattern).
 @Composable
 private fun BoardSwitcherControl(
-    name: String?,
+    board: BoardEntity?,
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
@@ -776,8 +779,11 @@ private fun BoardSwitcherControl(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
+        if (board != null) {
+            BoardIcon(board)
+        }
         Text(
-            name ?: "Issues",
+            board?.name ?: "Issues",
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,

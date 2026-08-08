@@ -1,8 +1,6 @@
 package com.exponential.app.ui.search
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -14,7 +12,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -27,7 +24,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -36,11 +32,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.data.db.BoardEntity
+import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.IssueRow
-import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
@@ -96,7 +93,7 @@ fun SearchScreen(
                 ) {
                     state.groups.forEach { group ->
                         item(key = "board-${group.board.id}") {
-                            BoardHeader(name = group.board.name, colorHex = group.board.color)
+                            BoardHeader(board = group.board)
                         }
                         items(group.issues, key = { it.id }) { issue ->
                             IssueRow(
@@ -114,21 +111,17 @@ fun SearchScreen(
 }
 
 @Composable
-private fun BoardHeader(name: String, colorHex: String) {
+private fun BoardHeader(board: BoardEntity) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            Modifier
-                .size(8.dp)
-                .background(remember(colorHex) { parseColor(colorHex) }, CircleShape),
-        )
+        BoardIcon(board, size = 14.dp)
         Spacer(Modifier.width(8.dp))
         Text(
-            name,
+            board.name,
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
         )

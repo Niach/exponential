@@ -15,6 +15,7 @@ import {
   useMobileChromeVisible,
 } from "@/components/team/mobile-tab-bar"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { BoardGlyph } from "@/components/board-glyph"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -99,10 +100,7 @@ export function TeamMobileTopbar({
           className="flex min-w-0 items-center gap-1.5 rounded-md py-1 pl-1 pr-2 text-sm font-medium hover:bg-muted/50"
         >
           {boardTarget && (
-            <span
-              className="size-2.5 shrink-0 rounded-full"
-              style={{ backgroundColor: boardTarget.color }}
-            />
+            <BoardGlyph board={boardTarget} className="size-3.5" />
           )}
           <span className="truncate">{switcherLabel}</span>
           <NavTeamSwitcherIcon className="size-3.5 shrink-0 text-muted-foreground" />

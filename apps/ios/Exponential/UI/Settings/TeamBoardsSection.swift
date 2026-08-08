@@ -55,10 +55,10 @@ struct TeamBoardsSection: View {
             } else {
                 ForEach(boards, id: \.id) { board in
                     HStack(spacing: 10) {
-                        // Color dot
-                        Circle()
-                            .fill(Color(hex: board.color ?? "#6366f1") ?? .gray)
-                            .frame(width: 10, height: 10)
+                        // Board glyph tinted with the board color — same idiom
+                        // as the board switcher sheet (EXP-449).
+                        AppIcon(BoardTypeDisplay.iconName(for: board), size: 16)
+                            .foregroundStyle(Color(hex: board.color ?? "#888888") ?? .gray)
 
                         // Board name
                         Text(board.name)

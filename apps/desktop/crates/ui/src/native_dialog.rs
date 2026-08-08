@@ -57,8 +57,8 @@ use gpui::{
     actions, div, point, prelude::FluentBuilder as _, px, size, AnyElement, AnyView,
     AnyWindowHandle, App, AppContext as _, Bounds, Entity, FocusHandle, Focusable, FontWeight,
     Global, InteractiveElement as _, IntoElement, KeyBinding, MouseButton, ParentElement, Pixels,
-    Render, SharedString, Size, Styled, Window, WindowBounds, WindowControlArea, WindowId,
-    WindowKind, WindowOptions,
+    Render, SharedString, Size, Styled, Subscription, Window, WindowBounds, WindowControlArea,
+    WindowId, WindowKind, WindowOptions,
 };
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
@@ -275,6 +275,7 @@ impl DialogSpec {
 type CanCloseFn = Rc<dyn Fn(&App) -> bool>;
 type OnEnterFn = Rc<dyn Fn(&mut Window, &mut App)>;
 type TitleContentFn = Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>;
+type TitleObservesFn = Box<dyn FnOnce(&mut gpui::Context<DialogShell>) -> Subscription>;
 
 /// What a dialog's build closure hands back: the content view plus the
 /// shell-level semantics that used to live on gpui-component's `Dialog`
@@ -291,6 +292,9 @@ pub(crate) struct DialogContent {
     /// EXP-287: rich titlebar label for native-chrome dialogs (create-issue's
     /// board pill). `None` = plain `DialogSpec::title` text.
     title_content: Option<TitleContentFn>,
+    /// EXP-449: installs the subscription that repaints the SHELL when the
+    /// content view changes — see [`DialogContent::title_follows`].
+    title_observes: Option<TitleObservesFn>,
     /// Standard 16px padding + overflow scrolling around the content
     /// (`false` = the view owns the full window, e.g. create-issue).
     padded: bool,
@@ -311,6 +315,7 @@ impl DialogContent {
             header: None,
             header_actions: None,
             title_content: None,
+            title_observes: None,
             padded: true,
             self_scrolling: false,
             can_close: None,
@@ -350,6 +355,16 @@ impl DialogContent {
         title_content: impl Fn(&mut Window, &mut App) -> AnyElement + 'static,
     ) -> Self {
         self.title_content = Some(Rc::new(title_content));
+        self
+    }
+
+    /// EXP-449: repaint the shell whenever `entity` notifies. The shell holds
+    /// the [`Self::title_content`] closure but observes nothing, so a title
+    /// that reads the content view's state (create-issue's live board select)
+    /// would otherwise render once and go stale.
+    pub(crate) fn title_follows<V: 'static>(mut self, entity: &Entity<V>) -> Self {
+        let entity = entity.clone();
+        self.title_observes = Some(Box::new(move |cx| cx.observe(&entity, |_, _, cx| cx.notify())));
         self
     }
 
@@ -588,12 +603,15 @@ struct DialogShell {
     /// Chromeless header drag state (the `should_move` titlebar pattern).
     should_move: bool,
     focus_handle: FocusHandle,
+    /// EXP-449: repaints this shell when the content view notifies — see
+    /// [`DialogContent::title_follows`].
+    _title_subscription: Option<Subscription>,
 }
 
 impl DialogShell {
     fn new(
         opener: AnyWindowHandle,
-        content: DialogContent,
+        mut content: DialogContent,
         title: SharedString,
         native_chrome: bool,
         resizable: bool,
@@ -634,6 +652,8 @@ impl DialogShell {
         })
         .detach();
 
+        let title_subscription = content.title_observes.take().map(|observe| observe(cx));
+
         Self {
             opener,
             content,
@@ -642,6 +662,7 @@ impl DialogShell {
             resizable,
             should_move: false,
             focus_handle: cx.focus_handle(),
+            _title_subscription: title_subscription,
         }
     }
 

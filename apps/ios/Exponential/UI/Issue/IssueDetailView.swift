@@ -513,7 +513,7 @@ struct IssueDetailView: View {
                 labels: vm.teamLabels,
                 assignedIds: vm.assignedLabelIds,
                 singleMemberTeam: vm.singleMemberTeam,
-                boardName: vm.board?.name,
+                board: vm.board,
                 hasMoveTargets: !vm.moveTargetBoards.isEmpty,
                 onNavigate: { handOff(to: $0) },
                 onToggleLabel: { labelId in
@@ -541,9 +541,10 @@ struct IssueDetailView: View {
                 Label {
                     Text(board.name)
                 } icon: {
-                    Circle()
-                        .fill(Color(hex: board.color) ?? .gray)
-                        .frame(width: 10, height: 10)
+                    // Board glyph tinted with the board color — same idiom as
+                    // the board switcher sheet (EXP-449).
+                    AppIcon(BoardTypeDisplay.iconName(for: board), size: 16)
+                        .foregroundStyle(Color(hex: board.color ?? "#888888") ?? .gray)
                 }
             }
         case .duplicateOf:

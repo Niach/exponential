@@ -1,4 +1,14 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { eq, useLiveQuery } from "@tanstack/react-db"
+import { Check, ChevronDown } from "lucide-react"
+import { boardCollection } from "@/lib/collections"
+import { BoardGlyph } from "@/components/board-glyph"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
@@ -41,7 +51,7 @@ import {
   type DraftImage,
 } from "@/lib/create-issue-helpers"
 import { isInlineImageAttachment } from "@/lib/attachment-files"
-import type { User } from "@/db/schema"
+import type { Board, User } from "@/db/schema"
 import { IssueEditorDialogShell } from "@/components/issue-editor/dialog-shell"
 import { IssueEditorAttachmentRail } from "@/components/issue-editor/attachment-rail"
 import type { MarkdownEditorRef } from "@/components/issue-editor/markdown-editor"
@@ -77,6 +87,30 @@ export function CreateIssueDialog({
   users,
   teamId,
 }: CreateIssueDialogProps) {
+  // EXP-449: the header pill is a board select — the dialog opens on the
+  // caller's board but the issue can be filed onto any same-team board.
+  // Statuses/labels/assignees are team-scoped, so a pick changes only the
+  // create target. `null` = "no explicit pick", following the caller's board.
+  const [pickedBoardId, setPickedBoardId] = useState<string | null>(null)
+  const { data: boardRows } = useLiveQuery(
+    (q) =>
+      teamId
+        ? q
+            .from({ boards: boardCollection })
+            .where(({ boards }) => eq(boards.teamId, teamId))
+        : undefined,
+    [teamId]
+  )
+  const boards = useMemo(
+    () =>
+      [...((boardRows ?? []) as Board[])].sort((left, right) =>
+        left.name.localeCompare(right.name)
+      ),
+    [boardRows]
+  )
+  const selectedBoardId = pickedBoardId ?? boardId
+  const selectedBoard = boards.find((board) => board.id === selectedBoardId)
+
   const [title, setTitle] = useState(prefill?.title ?? ``)
   const [description, setDescription] = useState(prefill?.description ?? ``)
   const { resolve: resolveStatus } = useTeamStatusesContext()
@@ -276,6 +310,9 @@ export function CreateIssueDialog({
   const handleClose = () => {
     setDiscardConfirmOpen(false)
     resetFields()
+    // Follow the caller's board again on the next open ("Create more" keeps
+    // the picked board for the batch).
+    setPickedBoardId(null)
     onOpenChange(false)
   }
 
@@ -333,7 +370,7 @@ export function CreateIssueDialog({
       )
 
       const { issue } = await trpc.issues.create.mutate({
-        boardId,
+        boardId: selectedBoardId,
         title: title.trim(),
         // EXP-314: real rows write `statusId`; a constructed fallback row
         // (issue_statuses not synced yet) writes the anchor enum instead.
@@ -449,14 +486,52 @@ export function CreateIssueDialog({
     setAttachmentStatus(null)
   }
 
+  const displayPrefix = selectedBoard?.prefix ?? boardPrefix
+  const boardPicker =
+    boards.length > 1 ? (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            disabled={dialogDisabled}
+            className="flex items-center gap-1.5 rounded-md bg-accent/50 px-2 py-0.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:pointer-events-none"
+          >
+            <BoardGlyph
+              board={selectedBoard ?? { color: boardColor }}
+              className="size-3.5"
+            />
+            {displayPrefix}
+            <ChevronDown className="size-3 text-muted-foreground" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-56">
+          {boards.map((board) => (
+            <DropdownMenuItem
+              key={board.id}
+              onClick={() => setPickedBoardId(board.id)}
+            >
+              <BoardGlyph board={board} className="size-3.5" />
+              <span className="truncate">{board.name}</span>
+              {board.id === selectedBoardId && (
+                <Check className="ml-auto size-3.5 shrink-0" />
+              )}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    ) : undefined
+
   return (
     <>
       <IssueEditorDialogShell
         open={open}
         onOpenChange={handleOpenChange}
         onDismissAttempt={handleDismissAttempt}
-        boardPrefix={boardPrefix}
-        boardColor={boardColor}
+        boardPrefix={displayPrefix}
+        boardColor={selectedBoard?.color ?? boardColor}
+        boardIcon={selectedBoard?.icon}
+        boardRepositoryId={selectedBoard?.repositoryId}
+        boardPicker={boardPicker}
         dialogTestId="issue-editor-create"
         formProps={{ onSubmit: handleSubmit }}
         primaryAction={{

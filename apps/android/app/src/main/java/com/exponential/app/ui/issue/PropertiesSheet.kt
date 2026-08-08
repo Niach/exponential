@@ -26,11 +26,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.ResolvedIssueStatus
+import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.components.PriorityIcon
@@ -61,7 +63,7 @@ fun PropertiesSheet(
     assignee: UserEntity?,
     hideAssignee: Boolean,
     issueLabels: List<LabelEntity>,
-    currentBoardName: String?,
+    currentBoard: BoardEntity?,
     hasMoveTargets: Boolean,
     onOpenStatus: () -> Unit,
     onOpenPriority: () -> Unit,
@@ -199,14 +201,18 @@ fun PropertiesSheet(
                 GlassSheetRow(
                     label = "Board",
                     leading = {
-                        Icon(
-                            ExpIcons.navBoards,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                            tint = Color.White.copy(alpha = TextEmphasis.Secondary),
-                        )
+                        if (currentBoard != null) {
+                            BoardIcon(currentBoard)
+                        } else {
+                            Icon(
+                                ExpIcons.navBoards,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = Color.White.copy(alpha = TextEmphasis.Secondary),
+                            )
+                        }
                     },
-                    trailing = { ValueWithChevron(currentBoardName ?: "Move to board") },
+                    trailing = { ValueWithChevron(currentBoard?.name ?: "Move to board") },
                     onClick = onOpenMoveBoard,
                 )
             }

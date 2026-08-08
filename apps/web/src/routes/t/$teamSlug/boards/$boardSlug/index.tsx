@@ -153,8 +153,6 @@ function BoardPage() {
         filters={filters}
         onFiltersChange={setFilters}
         labels={labelList}
-        onNewIssue={() => handleNewIssue()}
-        canCreate={permissions.canCreate}
       />
 
       {selectedIssues.length > 0 && (

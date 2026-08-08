@@ -10,6 +10,7 @@ import { relativeTime } from "@/components/comment-rows/format"
 import { displayUserName } from "@/lib/user-display"
 import { trpc } from "@/lib/trpc-client"
 import { Button } from "@/components/ui/button"
+import { BoardGlyph } from "@/components/board-glyph"
 import {
   Dialog,
   DialogContent,
@@ -241,10 +242,7 @@ export function SessionRow({
         <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
           {board && (
             <span className="inline-flex min-w-0 items-center gap-1">
-              <span
-                className="h-2 w-2 shrink-0 rounded-full"
-                style={{ backgroundColor: board.color }}
-              />
+              <BoardGlyph board={board} className="size-3" />
               <span className="truncate">{board.name}</span>
               <span aria-hidden>·</span>
             </span>

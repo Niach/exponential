@@ -11,14 +11,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
@@ -34,8 +32,6 @@ fun BoardRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val color = remember(board.color) { parseColor(board.color) }
-    val icon = remember(board.icon, board.repositoryId) { boardIcon(board) }
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -45,12 +41,7 @@ fun BoardRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // Board glyph tinted with the board color (replaces the plain dot).
-        Icon(
-            icon,
-            contentDescription = null,
-            tint = color,
-            modifier = Modifier.size(16.dp),
-        )
+        BoardIcon(board)
         Spacer(Modifier.width(12.dp))
         Text(
             board.name,

@@ -10,6 +10,7 @@ import {
   type MarkdownEditorImageUploadConfig,
   type MarkdownEditorRef,
 } from "@/components/issue-editor/markdown-editor"
+import { BoardGlyph } from "@/components/board-glyph"
 import { IssueEditorChips } from "@/components/issue-editor/chips"
 import { IssueEditorMobileProperties } from "@/components/issue-editor/mobile-properties"
 import { Button } from "@/components/ui/button"
@@ -80,6 +81,13 @@ interface IssueEditorDialogShellProps {
   priority: IssuePriority
   boardColor: string
   boardPrefix: string
+  // Board glyph inputs for the static pill (EXP-449: icon+color instead of
+  // the anonymous dot).
+  boardIcon?: string | null
+  boardRepositoryId?: string | null
+  // When set, replaces the static board pill with an interactive control
+  // (the create dialog's board select).
+  boardPicker?: ReactNode
   selectedLabelIds: string[]
   status: StatusRowOption
   title: string
@@ -125,6 +133,9 @@ export function IssueEditorDialogShell({
   priority,
   boardColor,
   boardPrefix,
+  boardIcon,
+  boardRepositoryId,
+  boardPicker,
   selectedLabelIds,
   status,
   title,
@@ -150,11 +161,15 @@ export function IssueEditorDialogShell({
     [editorRef]
   )
 
-  const boardPill = (
+  const boardPill = boardPicker ?? (
     <div className="flex items-center gap-1.5 rounded-md bg-accent/50 px-2 py-0.5 text-xs font-medium text-foreground">
-      <div
-        className="h-2.5 w-2.5 rounded-full"
-        style={{ backgroundColor: boardColor }}
+      <BoardGlyph
+        board={{
+          icon: boardIcon,
+          repositoryId: boardRepositoryId,
+          color: boardColor,
+        }}
+        className="size-3.5"
       />
       {boardPrefix}
     </div>

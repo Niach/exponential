@@ -17,6 +17,7 @@ import { trpc } from "@/lib/trpc-client"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
+import { BoardGlyph } from "@/components/board-glyph"
 import { Search } from "lucide-react"
 import type { Issue, Board } from "@/db/schema"
 
@@ -173,10 +174,7 @@ export function IssueSearchSheet({
           <span className="text-sm truncate">{issue.title}</span>
           {board && (
             <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span
-                className="h-1.5 w-1.5 rounded-full shrink-0"
-                style={{ backgroundColor: board.color }}
-              />
+              <BoardGlyph board={board} className="size-3" />
               <span className="truncate">
                 {board.name} · {issue.identifier}
               </span>

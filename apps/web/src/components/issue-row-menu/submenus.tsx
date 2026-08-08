@@ -15,6 +15,7 @@ import { ICON_COMPONENTS } from "@/lib/icons.generated"
 import { getInitials } from "@/lib/utils"
 import { displayUserName } from "@/lib/user-display"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { BoardGlyph } from "@/components/board-glyph"
 import {
   ContextMenuCheckboxItem,
   ContextMenuItem,
@@ -257,10 +258,7 @@ export function BoardSubmenu({
                   }
                 }}
               >
-                <div
-                  className="size-2.5 rounded-full shrink-0"
-                  style={{ backgroundColor: board.color }}
-                />
+                <BoardGlyph board={board} className="size-3.5" />
                 <span className="truncate">{board.name}</span>
               </ContextMenuRadioItem>
             ))

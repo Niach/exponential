@@ -45,7 +45,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.LoadingState
@@ -139,7 +141,7 @@ private fun ReviewsListContent(
         ) {
             state.groups.forEach { group ->
                 item(key = "header-${group.board.id}") {
-                    BoardHeader(name = group.board.name, count = group.entries.size)
+                    BoardHeader(board = group.board, count = group.entries.size)
                 }
                 items(group.entries, key = { it.groupKey }) { entry ->
                     ReviewRow(
@@ -184,15 +186,17 @@ private fun ReviewsListContent(
 }
 
 @Composable
-private fun BoardHeader(name: String, count: Int) {
+private fun BoardHeader(board: BoardEntity, count: Int) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        BoardIcon(board, size = 14.dp)
+        Spacer(Modifier.width(8.dp))
         Text(
-            name,
+            board.name,
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
             maxLines = 1,

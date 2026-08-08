@@ -163,8 +163,9 @@ export function SupportInbox({
           selected ? `hidden` : `flex`
         }`}
       >
+        {/* EXP-449: no page title — the tabs sit left-aligned like the
+            Inbox's. */}
         <div className="flex items-center gap-1 border-b px-3 py-2.5">
-          <h1 className="mr-auto text-sm font-medium">Support</h1>
           {([`open`, `resolved`] as const).map((tab) => (
             <Button
               key={tab}

@@ -7,33 +7,27 @@
 //! Structure:
 //!
 //! 1. control row — either the list's INLINE bulk-action bar (while a
-//!    selection exists) or the right-aligned [`IssueFilterPopover`] trigger,
-//!    plus (when `can_create`) the indigo **New Issue** button in BOTH
-//!    states (EXP-439 — multiselect used to swap it away). The row keeps
-//!    a fixed min-height so the swap never moves the list rows (the EXP-289
-//!    no-jump invariant, in-flow since EXP-426), and the control cluster
-//!    wraps instead of overflowing when the panel gets narrow.
+//!    selection exists) or the right-aligned [`IssueFilterPopover`] trigger.
+//!    (EXP-449 moved the **New Issue** button into the window titlebar, where
+//!    it is reachable from every screen.) The row keeps a fixed min-height so
+//!    the swap never moves the list rows (the EXP-289 no-jump invariant,
+//!    in-flow since EXP-426), and the control cluster wraps instead of
+//!    overflowing when the panel gets narrow.
 //! 2. [`ActiveFilterPills`] (only when filters are active — web renders null).
 
-use gpui::{
-    px, AnyElement, App, Entity, IntoElement, ParentElement, RenderOnce,
-    StatefulInteractiveElement as _, Styled, Window,
-};
-use gpui_component::{h_flex, input::InputState, v_flex, Icon, Sizable as _};
+use gpui::{px, AnyElement, App, Entity, IntoElement, ParentElement, RenderOnce, Styled, Window};
+use gpui_component::{h_flex, input::InputState, v_flex};
 
 use domain::rows::Label;
 use domain::statuses::ResolvedStatus;
 use domain::{has_active_filters, IssueFilters};
 
-use crate::actions::NewIssue;
 use crate::active_filter_pills::ActiveFilterPills;
-use crate::create_issue_dialog::indigo_button;
 use crate::filter_popover::{FilterView, IssueFilterPopover, OnFiltersChange, OnViewChange};
-use crate::icons::registry;
 
 /// Minimum height of the control row: `py_2` + the tallest control (44px
 /// since EXP-289 bumped the two controls one step). Fixed so swapping the
-/// Filter/New-Issue cluster for the bulk bar never moves the list rows.
+/// Filter trigger for the bulk bar never moves the list rows.
 const CONTROL_ROW_MIN_H: f32 = 44.;
 
 #[derive(IntoElement)]
@@ -47,9 +41,8 @@ pub struct IssueFilterBar {
     label_query: Entity<InputState>,
     on_filters_change: OnFiltersChange,
     on_view_change: OnViewChange,
-    can_create: bool,
-    /// EXP-426: the list's inline bulk-action bar — replaces the
-    /// Filter/New-Issue cluster while a selection exists.
+    /// EXP-426: the list's inline bulk-action bar — replaces the Filter
+    /// trigger while a selection exists.
     bulk: Option<AnyElement>,
 }
 
@@ -63,7 +56,6 @@ impl IssueFilterBar {
         label_query: Entity<InputState>,
         on_filters_change: OnFiltersChange,
         on_view_change: OnViewChange,
-        can_create: bool,
         bulk: Option<AnyElement>,
     ) -> Self {
         Self {
@@ -74,36 +66,16 @@ impl IssueFilterBar {
             label_query,
             on_filters_change,
             on_view_change,
-            can_create,
             bulk,
         }
     }
 }
 
-/// The solid-indigo New Issue button. Web: xs bg-indigo-600
-/// hover:bg-indigo-700 text-white ml-1, Plus + "New Issue" (the shared
-/// hand-rolled button; the pinned ButtonCustomVariant cannot render a solid
-/// fill). Dispatches the typed action (§3.6) — the create-issue dialog's
-/// handler picks it up. EXP-289: one step bigger here only (h_6 → h_7 +
-/// roomier padding) — the shared helper keeps its dialog-footer geometry.
-fn new_issue_button(cx: &App) -> impl IntoElement {
-    indigo_button("filter-bar-new-issue", false, cx)
-        .ml_1()
-        .h_7()
-        .px_3()
-        .child(Icon::new(registry::UI_ADD).small())
-        .child("New Issue")
-        .on_click(|_, window, cx| window.dispatch_action(Box::new(NewIssue), cx))
-}
-
 impl RenderOnce for IssueFilterBar {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
         // The control row: bulk bar (selection alive) XOR the Filter popover
-        // trigger, with the New Issue button in BOTH states (EXP-439 —
-        // entering multiselect used to swap it away entirely). Fixed
-        // min-height keeps the swap jump-free; both clusters wrap
-        // (`flex_wrap`) so a narrow panel drops New Issue onto a second line
-        // instead of overlapping anything.
+        // trigger. Fixed min-height keeps the swap jump-free; both clusters
+        // wrap (`flex_wrap`) so a narrow panel never overlaps anything.
         let control_row = match self.bulk {
             Some(bulk) => h_flex()
                 .py_2()
@@ -112,8 +84,7 @@ impl RenderOnce for IssueFilterBar {
                 .justify_between()
                 .flex_wrap()
                 .gap_1()
-                .child(bulk)
-                .when(self.can_create, |row| row.child(new_issue_button(cx))),
+                .child(bulk),
             None => h_flex()
                 .py_2()
                 .min_h(px(CONTROL_ROW_MIN_H))
@@ -129,8 +100,7 @@ impl RenderOnce for IssueFilterBar {
                     self.label_query.clone(),
                     self.on_filters_change.clone(),
                     self.on_view_change.clone(),
-                ))
-                .when(self.can_create, |row| row.child(new_issue_button(cx))),
+                )),
         };
 
         v_flex()
