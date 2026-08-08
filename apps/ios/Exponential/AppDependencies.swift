@@ -54,6 +54,9 @@ final class AppDependencies: @unchecked Sendable {
     let pushTokenManager: PushTokenManager
     let notificationDelegate: NotificationDelegate
 
+    // EXP-452: best-effort per-account timezone claim (digest send hour).
+    let timezoneClaimer: TimezoneClaimer
+
     init() {
         let keychain = KeychainStore()
         let accountStore = AccountStore(keychain: keychain)
@@ -156,6 +159,8 @@ final class AppDependencies: @unchecked Sendable {
         self.pushTokenManager = pushTokenManager
         self.notificationDelegate = NotificationDelegate(pushTokenManager: pushTokenManager, deepLinkBus: deepLinkBus)
 
+        self.timezoneClaimer = TimezoneClaimer(usersApi: usersApi, auth: auth)
+
         // Start services — SyncManager observes auth state and swaps the DB pool to
         // the active account's file before relaunching shapes, so writes never land
         // on the previous account's database.
@@ -167,6 +172,9 @@ final class AppDependencies: @unchecked Sendable {
         // Reconcile loop: registers the FCM token for every signed-in account,
         // so logins/switches after the Messaging callback still get pushes.
         pushTokenManager.start()
+        // Claim-once loop: stamps the device timezone on accounts that never
+        // had one captured (EXP-452 — mobile-only accounts digested in UTC).
+        timezoneClaimer.start()
         // UI-test/screenshot runs (fastlane snapshot launches with -uiTesting)
         // must never trigger the system push-permission alert — it would sit on
         // top of every capture.
