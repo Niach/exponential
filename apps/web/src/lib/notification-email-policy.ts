@@ -108,9 +108,11 @@ export const DIGEST_HOURLY_MIN_GAP_MS = 50 * 60 * 1000
 export const DIGEST_FAILED_RETRY_GAP_MS = 22 * 60 * 60 * 1000
 
 // Only an explicit `off` opts into the hourly cadence — a missing row or an
-// unrecognised value resolves to the `daily` default.
+// unrecognised value resolves to the `daily` default. Takes the structural
+// subset it actually reads so callers holding a partial prefs row (the
+// settings routers) can share this ONE rule instead of re-deriving it.
 export function digestCadence(
-  prefs: EmailPrefsLike | null | undefined
+  prefs: { digest?: string } | null | undefined
 ): DigestCadence {
   return prefs?.digest === `off` ? `off` : `daily`
 }
@@ -261,6 +263,34 @@ export function lastDailySendPoint(
     prev.getUTCMonth() + 1,
     prev.getUTCDate(),
     hour
+  )
+}
+
+// The next daily send point strictly AFTER `now` — the instant the user's
+// next digest is scheduled for. Nothing in the sweep consumes this; it exists
+// so the settings panels can show the schedule the sweep will actually use
+// (EXP-452). Deriving it from lastDailySendPoint (rather than re-deriving the
+// hour math) is deliberate: a panel that computed its own send point could
+// disagree with the sweep, which is precisely the failure this surfaces.
+export function nextDailySendPoint(
+  timezone: string | null | undefined,
+  digestHour: number | null | undefined,
+  now: Date
+): Date {
+  const last = lastDailySendPoint(timezone, digestHour, now)
+  // Walk forward one LOCAL day from the last point. Adding 24h to the instant
+  // would drift across a DST boundary (23h/25h days); re-resolving the hour on
+  // the next local calendar date keeps it at the chosen wall clock.
+  const parts = zonedParts(timezone, last)
+  const nextDay = new Date(
+    Date.UTC(parts.year, parts.month - 1, parts.day) + 24 * 60 * 60 * 1000
+  )
+  return zonedHourToUtc(
+    timezone,
+    nextDay.getUTCFullYear(),
+    nextDay.getUTCMonth() + 1,
+    nextDay.getUTCDate(),
+    normalizeDigestHour(digestHour)
   )
 }
 

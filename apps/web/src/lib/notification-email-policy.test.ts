@@ -4,6 +4,7 @@ import {
   buildUnsubscribeUrl,
   buildSupportDeepLinkPath,
   defaultEmailPrefs,
+  DEFAULT_DIGEST_HOUR,
   digestSendability,
   isDigestDue,
   isDigestRetryDue,
@@ -11,6 +12,7 @@ import {
   isTransientSendError,
   isResolutionStatus,
   lastDailySendPoint,
+  nextDailySendPoint,
   normalizeDigestHour,
   notificationTypeAllowed,
   planEmailDigest,
@@ -308,6 +310,84 @@ describe(`zonedHourToUtc`, () => {
     expect(
       zonedHourToUtc(`America/New_York`, 2026, 11, 1, 1).toISOString()
     ).toBe(`2026-11-01T05:00:00.000Z`)
+  })
+})
+
+// EXP-452 ("digest at 10 AM instead of the 8 PM I set"). The send-point math
+// itself was never wrong — the account had no captured timezone, so the sweep
+// read the send hour in UTC. These lock the arithmetic the settings panels now
+// show, and the exact mis-scheduling that produced the report.
+describe(`nextDailySendPoint`, () => {
+  it(`is today's remaining send point, else tomorrow's`, () => {
+    // NOW is 2026-07-07T12:00:00Z: 08:00 has passed, 23:00 has not.
+    expect(nextDailySendPoint(`UTC`, 8, NOW).toISOString()).toBe(
+      `2026-07-08T08:00:00.000Z`
+    )
+    expect(nextDailySendPoint(`UTC`, 23, NOW).toISOString()).toBe(
+      `2026-07-07T23:00:00.000Z`
+    )
+  })
+
+  it(`resolves the hour in the account's own zone`, () => {
+    // 20:00 in Berlin (CEST, +2) is 18:00Z — the schedule the reporter set.
+    expect(nextDailySendPoint(`Europe/Berlin`, 20, NOW).toISOString()).toBe(
+      `2026-07-07T18:00:00.000Z`
+    )
+  })
+
+  it(`reproduces the report: no timezone reads the hour in UTC`, () => {
+    // The default hour 8 with an UNSET zone fires at 08:00Z — 10:00 in
+    // Germany, exactly what was reported. With the zone captured it is 06:00Z.
+    const unset = nextDailySendPoint(null, 8, NOW)
+    expect(unset.toISOString()).toBe(`2026-07-08T08:00:00.000Z`)
+    expect(
+      new Intl.DateTimeFormat(`en-GB`, {
+        timeZone: `Europe/Berlin`,
+        hour: `2-digit`,
+        hourCycle: `h23`,
+      }).format(unset)
+    ).toBe(`10`)
+    expect(nextDailySendPoint(`Europe/Berlin`, 8, NOW).toISOString()).toBe(
+      `2026-07-08T06:00:00.000Z`
+    )
+  })
+
+  it(`keeps the wall-clock hour across a DST transition`, () => {
+    // Berlin springs forward on 2026-03-29: the day is 23h long, so adding a
+    // flat 24h to the instant would land an hour early.
+    expect(
+      nextDailySendPoint(
+        `Europe/Berlin`,
+        20,
+        new Date(`2026-03-28T21:00:00Z`)
+      ).toISOString()
+    ).toBe(`2026-03-29T18:00:00.000Z`)
+    // …and back on 2026-10-25 (25h day).
+    expect(
+      nextDailySendPoint(
+        `Europe/Berlin`,
+        20,
+        new Date(`2026-10-24T19:00:00Z`)
+      ).toISOString()
+    ).toBe(`2026-10-25T19:00:00.000Z`)
+  })
+
+  it(`is always strictly ahead of now, and one local day after the last`, () => {
+    for (const zone of [`UTC`, `Europe/Berlin`, `America/New_York`, null]) {
+      for (const hour of [0, 8, 20, 23]) {
+        const next = nextDailySendPoint(zone, hour, NOW)
+        expect(next.getTime()).toBeGreaterThan(NOW.getTime())
+        expect(next.getTime()).toBeGreaterThan(
+          lastDailySendPoint(zone, hour, NOW).getTime()
+        )
+      }
+    }
+  })
+
+  it(`normalizes a garbage hour exactly like the sweep does`, () => {
+    expect(nextDailySendPoint(`UTC`, 24, NOW).toISOString()).toBe(
+      nextDailySendPoint(`UTC`, DEFAULT_DIGEST_HOUR, NOW).toISOString()
+    )
   })
 })
 

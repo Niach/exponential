@@ -49,8 +49,11 @@ export function AccountOverview({
   const userLabel = session?.user?.name || session?.user?.email
   const userInitials = userLabel ? getInitials(userLabel) : `?`
   // Never captured (pre-EXP-369 account that hasn't loaded the app since) →
-  // the server reads UTC, so that is what the picker shows.
-  const [timezone, setTimezone] = useState(initialTimezone ?? `UTC`)
+  // the server reads UTC. EXP-452: the picker used to RENDER that fallback as
+  // a selected `UTC`, which is indistinguishable from having deliberately
+  // chosen UTC — so an account silently scheduling its digest in the wrong
+  // clock looked correctly configured. Unset is now its own visible state.
+  const [timezone, setTimezone] = useState<string | null>(initialTimezone)
 
   const handleTimezone = (next: string) => {
     setTimezone(next)
@@ -86,12 +89,14 @@ export function AccountOverview({
         <div className="flex-1">
           <Label htmlFor="timezone">Timezone</Label>
           <p className="text-xs text-muted-foreground">
-            Used to schedule your daily digest email.
+            {timezone
+              ? `Used to schedule your daily digest email.`
+              : `Not set — your daily digest is scheduled in UTC.`}
           </p>
         </div>
-        <Select value={timezone} onValueChange={handleTimezone}>
+        <Select value={timezone ?? ``} onValueChange={handleTimezone}>
           <SelectTrigger id="timezone" className="w-60">
-            <SelectValue />
+            <SelectValue placeholder="Not set (UTC)" />
           </SelectTrigger>
           <SelectContent>
             {timezoneOptions(timezone).map((zone) => (

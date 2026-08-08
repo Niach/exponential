@@ -396,9 +396,19 @@ impl Render for NotificationsPrefsPane {
                 // resolution, so there is nothing finer to offer.
                 if digest == DIGEST_DAILY {
                     let hour = prefs.digest_hour.unwrap_or(DEFAULT_DIGEST_HOUR);
+                    // EXP-452: name the clock the hour is read in. "In your
+                    // timezone" was a promise the server can only keep once a
+                    // zone was captured — without one the sweep schedules in
+                    // UTC, and the sole symptom was mail arriving hours off.
+                    let hint = match prefs.timezone.as_deref() {
+                        Some(timezone) => format!("Full hours only, in {timezone}."),
+                        None => "Full hours only. Your timezone isn't set, so digests are \
+                                 scheduled in UTC — set it under Account."
+                            .to_string(),
+                    };
                     body = body.child(super::pref_row(
                         div().text_sm().child("Send time"),
-                        "Full hours only, in your timezone.",
+                        hint,
                         Button::new("digest-hour-select")
                             .outline()
                             .small()

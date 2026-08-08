@@ -1,10 +1,14 @@
 import { z } from "zod"
 import { and, eq, isNull } from "drizzle-orm"
-import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { notifications } from "@/db/schema"
+import { router, authedProcedure, generateTxId, type Context } from "@/lib/trpc"
+import { notifications, users } from "@/db/schema"
 import { notificationTypeValues } from "@/lib/domain"
 import { emailEnabled } from "@/lib/email-enabled"
-import { digestValues } from "@/lib/notification-email-policy"
+import {
+  digestCadence,
+  digestValues,
+  nextDailySendPoint,
+} from "@/lib/notification-email-policy"
 import {
   getOrCreateEmailPrefs,
   updateEmailPrefs,
@@ -17,6 +21,34 @@ const typePrefsSchema = z.partialRecord(
   z.enum(notificationTypeValues),
   z.boolean()
 )
+
+// The schedule the digest sweep will ACTUALLY use for this account (EXP-452),
+// resolved through the very functions the sweep calls so a panel can never
+// disagree with it. `timezone` is the stored IANA zone and NULL is a real,
+// load-bearing state: no client ever captured one, so the sweep reads the send
+// hour in UTC. That is how a German account with the default hour 8 receives
+// its digest at 10:00 local — the send time was never wrong, it was being read
+// in the wrong clock, and nothing in the product said so.
+async function digestSchedule(
+  ctx: Context & { session: NonNullable<Context[`session`]> },
+  prefs: { digest: string; digestHour: number },
+  now: Date = new Date()
+): Promise<{ timezone: string | null; nextDigestAt: string | null }> {
+  const [row] = await ctx.db
+    .select({ timezone: users.timezone })
+    .from(users)
+    .where(eq(users.id, ctx.session.user.id))
+  const timezone = row?.timezone ?? null
+  return {
+    timezone,
+    // The hourly (`off`) cadence has no send point — it fires on an elapsed
+    // gap, so there is no scheduled instant to show.
+    nextDigestAt:
+      digestCadence(prefs) === `daily`
+        ? nextDailySendPoint(timezone, prefs.digestHour, now).toISOString()
+        : null,
+  }
+}
 
 // Inbox mark-read. Ownership-guarded on user_id so a caller can only touch their
 // own rows. read_at updates re-stream over the per-user notifications shape.
@@ -125,6 +157,7 @@ export const notificationsRouter = router({
       transportConfigured: emailEnabled,
       emailVerified: ctx.session.user.emailVerified === true,
       email: ctx.session.user.email,
+      ...(await digestSchedule(ctx, prefs)),
     }
   }),
 
@@ -147,6 +180,9 @@ export const notificationsRouter = router({
         digest: prefs.digest,
         digestHour: prefs.digestHour,
         transportConfigured: emailEnabled,
+        // Echoed so a panel can re-render the resolved next send time straight
+        // from the write that changed it, without a second round trip.
+        ...(await digestSchedule(ctx, prefs)),
       }
     }),
 })
