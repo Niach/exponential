@@ -52,14 +52,21 @@ object MarkdownParser {
         .extensions(listOf(StrikethroughExtension.create()))
         .build()
 
-    fun parse(markdown: String): List<ContentBlock> {
+    /**
+     * [softBreaksAsNewlines] renders a single `\n` in the source as its own
+     * line instead of the GFM space (EXP-440) — agent narration is written for
+     * a terminal, so re-flowing its lines into one paragraph mangles it. Only
+     * ever set by read-only renderers: the editor must keep GFM semantics or
+     * the next save would rewrite the stored bytes.
+     */
+    fun parse(markdown: String, softBreaksAsNewlines: Boolean = false): List<ContentBlock> {
         if (markdown.isBlank()) {
             return mutableListOf<ContentBlock>(ContentBlock.TextBlock(content = RichText.EMPTY))
                 .also { normalizeBlocks(it) }
         }
         val doc = parser.parse(markdown)
         val collector = BlockCollector()
-        val ctx = RenderContext()
+        val ctx = RenderContext(softBreaksAsNewlines)
         collector.renderChildren(doc, ctx)
         return collector.finalize()
     }
@@ -75,7 +82,7 @@ object MarkdownParser {
 
     private class ListFrame(val ordered: Boolean, var itemIndex: Int, val depth: Int)
 
-    private class RenderContext {
+    private class RenderContext(val softBreaksAsNewlines: Boolean = false) {
         val listStack = ArrayDeque<ListFrame>()
         var inBlockquote = false
         /** Attrs the next [Paragraph] should adopt (set when a list item opens). */
@@ -212,7 +219,15 @@ object MarkdownParser {
                     append(literal)
                 }
 
-                is SoftLineBreak -> append(" ")
+                // A soft break is a space in GFM. Read-only renderers can ask
+                // for the terminal reading instead, where it is a real line —
+                // and a line is a paragraph boundary here, not a raw '\n':
+                // RichText's invariant is one ParagraphAttrs per '\n'-line.
+                is SoftLineBreak -> if (ctx.softBreaksAsNewlines) {
+                    breakParaPreservingMarks(currentPara().attrs)
+                } else {
+                    append(" ")
+                }
 
                 is HardLineBreak -> {
                     // A hard break becomes a paragraph boundary carrying the same attrs,

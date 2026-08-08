@@ -1,4 +1,12 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from "react"
+import {
+  Fragment,
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import { toast } from "sonner"
 import { linkSegments } from "@/lib/linkify"
 import { trpcErrorMessage } from "@/lib/trpc-error"
@@ -31,6 +39,7 @@ import {
   groupFeedRows,
   hasSemanticQuestions,
   isAnswerLocked,
+  looksLikeMarkdown,
   pushEcho,
   summarizeSubagentRow,
   upsertQuestion,
@@ -785,6 +794,30 @@ export function AgentSessionView({
     setAtBottom(true)
   }
 
+  // EXP-440: rows now finish laying out AFTER the pin effect below has run —
+  // a markdown bubble mounts its editor deferred (immediatelyRender: false)
+  // and its images size only once decoded, so the feed grows under a scroll
+  // position that was already at the bottom. Watch the content column and
+  // re-pin on every such growth. Ref-mirrored `atBottom` because the observer
+  // is installed once per mounted column, not per render.
+  const atBottomRef = useRef(atBottom)
+  atBottomRef.current = atBottom
+  const contentObserverRef = useRef<ResizeObserver | null>(null)
+  const setContentRef = useCallback((node: HTMLDivElement | null) => {
+    contentObserverRef.current?.disconnect()
+    contentObserverRef.current = null
+    if (!node || typeof ResizeObserver === `undefined`) return
+    const observer = new ResizeObserver(() => {
+      if (!atBottomRef.current) return
+      const el = scrollRef.current
+      if (el) el.scrollTop = el.scrollHeight
+    })
+    observer.observe(node)
+    contentObserverRef.current = observer
+  }, [])
+
+  useEffect(() => () => contentObserverRef.current?.disconnect(), [])
+
   // A resolved card carries its own answer — drop its lock so a stale ack
   // deadline can't flip a finished card into the retry state.
   useEffect(() => {
@@ -993,14 +1026,20 @@ export function AgentSessionView({
                   </span>
                 </CenteredState>
               ) : activeAgent !== null ? (
-                <div className="flex min-h-full flex-col justify-end gap-0.5 px-3 py-2">
+                <div
+                  ref={setContentRef}
+                  className="flex min-h-full flex-col justify-end gap-0.5 px-3 py-2"
+                >
                   <AgentConversation
                     summary={agents.find((a) => a.subagentId === activeAgent)}
                     items={agentItems}
                   />
                 </div>
               ) : (
-                <div className="flex min-h-full flex-col justify-end gap-0.5 px-3 py-2">
+                <div
+                  ref={setContentRef}
+                  className="flex min-h-full flex-col justify-end gap-0.5 px-3 py-2"
+                >
                   {rows.map((row, index) => {
                     if (row.kind === `toolRun`) {
                       return (
@@ -1249,31 +1288,93 @@ function WorkingIndicatorRow() {
   )
 }
 
-function NarrationBubble({ text }: { text: string }) {
+/** Read-only editors never emit — one shared handler keeps every feed bubble
+ *  out of the "new function identity per render" trap. */
+const noop = () => {}
+
+/** The shared read-only markdown renderer — the same TipTap pipeline the issue
+ *  and comment bodies use, in its compact `chat` presentation, so a feed bubble
+ *  draws headings, lists, code and IMAGES exactly like the rest of the product
+ *  (EXP-440). `linkify` is on because agent text carries bare URLs. */
+function FeedMarkdown({
+  text,
+  ariaLabel,
+  hardBreaks,
+}: {
+  text: string
+  ariaLabel: string
+  /** Chat text is line-broken by hand — a single newline is a real break. */
+  hardBreaks?: boolean
+}) {
   return (
-    <div className="flex items-start gap-2 py-1">
-      <CodingAssistantIcon className="mt-2 size-3 shrink-0 text-muted-foreground/60" />
-      <div className="min-w-0 flex-1 whitespace-pre-wrap rounded-md border border-border/60 bg-muted/30 px-3 py-1.5 text-sm text-foreground/90">
-        {linkSegments(text).map((segment, i) =>
-          segment.href ? (
-            // break-all: the EXP-430 sign-in URL has no break points.
-            <a
-              key={i}
-              href={segment.href}
-              target="_blank"
-              rel="noreferrer"
-              className="break-all text-primary underline underline-offset-2 hover:opacity-80"
-            >
-              {segment.text}
-            </a>
-          ) : (
-            <Fragment key={i}>{segment.text}</Fragment>
-          ),
-        )}
-      </div>
+    <MarkdownEditor
+      markdown={text}
+      editable={false}
+      onChange={noop}
+      appearance="chat"
+      linkify
+      hardBreaks={hardBreaks}
+      ariaLabel={ariaLabel}
+    />
+  )
+}
+
+/** Feed text: markdown when it carries any (EXP-440), else the plain
+ *  linkified rendering — most narration is one prose line, and spinning up a
+ *  TipTap instance per line would be pure overhead. */
+function FeedText({
+  text,
+  ariaLabel,
+  hardBreaks,
+}: {
+  text: string
+  ariaLabel: string
+  hardBreaks?: boolean
+}) {
+  if (looksLikeMarkdown(text)) {
+    return (
+      <FeedMarkdown text={text} ariaLabel={ariaLabel} hardBreaks={hardBreaks} />
+    )
+  }
+  return (
+    <div className="whitespace-pre-wrap break-words">
+      {linkSegments(text).map((segment, i) =>
+        segment.href ? (
+          // break-all: the EXP-430 sign-in URL has no break points.
+          <a
+            key={i}
+            href={segment.href}
+            target="_blank"
+            rel="noreferrer"
+            className="break-all text-primary underline underline-offset-2 hover:opacity-80"
+          >
+            {segment.text}
+          </a>
+        ) : (
+          <Fragment key={i}>{segment.text}</Fragment>
+        ),
+      )}
     </div>
   )
 }
+
+// memo: a live feed re-renders on every incoming frame, and a bubble that
+// rendered markdown owns a TipTap editor — re-running that for unchanged text
+// is the one cost worth avoiding here.
+const NarrationBubble = memo(function NarrationBubble({
+  text,
+}: {
+  text: string
+}) {
+  return (
+    <div className="flex items-start gap-2 py-1">
+      <CodingAssistantIcon className="mt-2 size-3 shrink-0 text-muted-foreground/60" />
+      <div className="min-w-0 flex-1 rounded-md border border-border/60 bg-muted/30 px-3 py-1.5 text-sm text-foreground/90">
+        <FeedText text={text} ariaLabel="Agent message" hardBreaks />
+      </div>
+    </div>
+  )
+})
 
 /** How much user/question text shows before the "Show more" fold (the initial
  *  prompt can be 16 KiB). Line-based clamp via CSS; the toggle appears on any
@@ -1308,18 +1409,21 @@ function ShowMoreButton({
 
 /** A human turn (EXP-78): the initial prompt or a steered message — rendered
  *  right-aligned like the sender's own chat bubble, long text folded. */
-function UserMessageBubble({ text }: { text: string }) {
+const UserMessageBubble = memo(function UserMessageBubble({
+  text,
+}: {
+  text: string
+}) {
   const { expanded, setExpanded, clampable } = useClampToggle(text)
   return (
     <div className="flex justify-end py-1 pl-8">
       <div className="min-w-0 rounded-md border border-primary/25 bg-primary/10 px-3 py-1.5 text-sm text-foreground/90">
+        {/* A height clamp, not `line-clamp`: line clamping needs a plain text
+            flow, and a markdown body is a stack of blocks. */}
         <div
-          className={cn(
-            `whitespace-pre-wrap break-words`,
-            clampable && !expanded && `line-clamp-6`
-          )}
+          className={cn(clampable && !expanded && `max-h-40 overflow-hidden`)}
         >
-          {text}
+          <FeedText text={text} ariaLabel="Your message" hardBreaks />
         </div>
         {clampable && (
           <ShowMoreButton
@@ -1330,7 +1434,7 @@ function UserMessageBubble({ text }: { text: string }) {
       </div>
     </div>
   )
-}
+})
 
 type AnswerHandler = (
   item: QuestionItem,
@@ -1578,17 +1682,18 @@ function QuestionCard({
               <MarkdownEditor
                 markdown={item.text}
                 editable={false}
-                onChange={() => {}}
+                onChange={noop}
+                linkify
               />
             </div>
           ) : (
             <div
               className={cn(
-                `whitespace-pre-wrap break-words text-sm text-foreground/90`,
-                clampable && !expanded && `line-clamp-6`
+                `text-sm text-foreground/90`,
+                clampable && !expanded && `max-h-56 overflow-hidden`
               )}
             >
-              {item.text}
+              <FeedText text={item.text} ariaLabel="Question" />
             </div>
           )}
           {clampable && (
@@ -1667,8 +1772,8 @@ function AskStepperCard({
           ))}
           {current ? (
             <div className="mt-1.5">
-              <div className="whitespace-pre-wrap break-words text-sm text-foreground/90">
-                {current.item.text}
+              <div className="text-sm text-foreground/90">
+                <FeedText text={current.item.text} ariaLabel="Question" />
               </div>
               <QuestionPrompt
                 // Per-step multi-select state must not survive the step

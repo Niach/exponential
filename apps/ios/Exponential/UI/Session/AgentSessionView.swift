@@ -159,6 +159,17 @@ struct AgentSessionView: View {
 
     // MARK: - Header
 
+    /// Everything an `AgentMarkdownText` needs to render embedded images —
+    /// agent prose can carry `![](/api/attachments/{id})` and those fetches are
+    /// authenticated (EXP-440).
+    private var markdownContext: AgentMarkdownContext {
+        AgentMarkdownContext(
+            baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
+            accountId: accountId,
+            httpClient: deps.httpClient
+        )
+    }
+
     private var headerTitle: String {
         let label = (model?.session ?? session).deviceLabel
         let device = (label?.isEmpty == false) ? " · \(label!)" : ""
@@ -438,11 +449,11 @@ struct AgentSessionView: View {
         case let .single(item):
             switch item {
             case let .narration(_, text):
-                NarrationBubble(text: text)
+                NarrationBubble(text: text, context: markdownContext)
             case let .tool(_, name, detail, _):
                 ToolRow(name: name, detail: detail)
             case let .userMessage(_, text):
-                UserMessageBubble(text: text)
+                UserMessageBubble(text: text, context: markdownContext)
             case let .question(question):
                 questionCard(question)
             case let .subagent(_, _, agentType, status, detail):
@@ -467,7 +478,8 @@ struct AgentSessionView: View {
             onAnswer: { keys in sendAnswer(question, keys: keys) },
             onLegacyToggle: { key in model?.sendLegacyKey(key) },
             onLegacyAnswer: { key in model?.sendLegacyKey(key, lockKey: question.lockKey) },
-            onLegacySubmit: { model?.sendLegacyAdvance(lockKey: question.lockKey) }
+            onLegacySubmit: { model?.sendLegacyAdvance(lockKey: question.lockKey) },
+            markdownContext: markdownContext
         )
         .id(question.id)
     }
@@ -496,7 +508,8 @@ struct AgentSessionView: View {
                 onAnswer: { keys in sendAnswer(question, keys: keys) },
                 onLegacyToggle: { _ in },
                 onLegacyAnswer: { _ in },
-                onLegacySubmit: {}
+                onLegacySubmit: {},
+                markdownContext: markdownContext
             )
             // A fresh identity per step — the card's local selection state must
             // never leak from one question into the next.
@@ -670,24 +683,29 @@ struct AgentSessionView: View {
 
 // MARK: - Feed rows
 
-/// Assistant prose — a small glyph + plain full-width selectable text.
-/// EXP-274 dropped the glass speech bubble: agent output is the feed's bulk,
-/// and the bubble insets cost real width on a phone.
+/// Assistant prose — a small glyph + a full-width selectable markdown render
+/// (EXP-440: claude narrates in markdown, so lists, code and images have to
+/// come out as themselves). EXP-274 dropped the glass speech bubble: agent
+/// output is the feed's bulk, and the bubble insets cost real width on a phone.
 private struct NarrationBubble: View {
     let text: String
+    let context: AgentMarkdownContext
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             AppIcon(AppIcons.codingAssistant, size: 11)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .padding(.top, 4)
-            // EXP-430: URLs render as tappable links — the remote `/login`
-            // flow publishes the claude sign-in URL as narration.
-            Text(linkifiedNarration(text))
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            // EXP-440: narration is markdown (lists, code, images), rendered
+            // through the block stack. Bare URLs stay tappable — the remote
+            // `/login` flow publishes the claude sign-in URL as narration
+            // (EXP-430) — now via cmark's GFM autolink rather than the hand
+            // tokenizer this replaced.
+            AgentMarkdownText(
+                text: text,
+                context: context,
+                options: [.autolinkBareURLs, .hardLineBreaks]
+            )
         }
         .padding(.vertical, 5)
     }
@@ -724,12 +742,16 @@ private struct WorkingIndicatorRow: View {
 /// trailing-aligned like the sender's own chat bubble, long text folded.
 private struct UserMessageBubble: View {
     let text: String
+    let context: AgentMarkdownContext
 
     @State private var expanded = false
 
     /// Fold threshold — the initial prompt can be 16 KiB.
     private static let clampLines = 6
     private static let clampChars = 600
+    /// Folded height. A block render has no `lineLimit`, so the fold is a
+    /// clipped height cap instead — same approach as QuestionCard's prompt.
+    private static let clampHeight: CGFloat = 220
 
     private var clampable: Bool {
         text.count > Self.clampChars
@@ -740,11 +762,14 @@ private struct UserMessageBubble: View {
         HStack {
             Spacer(minLength: 32)
             VStack(alignment: .leading, spacing: 4) {
-                Text(text)
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .textSelection(.enabled)
-                    .lineLimit(clampable && !expanded ? Self.clampLines : nil)
+                AgentMarkdownText(
+                    text: text,
+                    context: context,
+                    options: [.autolinkBareURLs, .hardLineBreaks],
+                    hugsWidth: true
+                )
+                .frame(maxHeight: clampable && !expanded ? Self.clampHeight : nil, alignment: .top)
+                .clipped()
                 if clampable {
                     Button(expanded ? "Show less" : "Show more") {
                         expanded.toggle()
@@ -806,6 +831,8 @@ private struct QuestionCard: View {
     let onLegacyAnswer: (String) -> Void
     /// Legacy multi-select: submit the picker (Tab).
     let onLegacySubmit: () -> Void
+    /// Image fetching for the prompt's markdown render (EXP-440).
+    var markdownContext: AgentMarkdownContext? = nil
 
     @State private var expanded = false
     /// Tap order is the submit order of the semantic answer frame.
@@ -906,9 +933,15 @@ private struct QuestionCard: View {
     @ViewBuilder
     private var prompt: some View {
         let clamped = clampable && !expanded
-        AgentMarkdownText(text: question.text)
-            .frame(maxHeight: clamped ? Self.clampHeight : nil, alignment: .top)
-            .clipped()
+        // No hard line breaks: a prompt or plan body is authored GFM prose,
+        // where a wrapped source line is one paragraph.
+        AgentMarkdownText(
+            text: question.text,
+            context: markdownContext,
+            options: [.autolinkBareURLs]
+        )
+        .frame(maxHeight: clamped ? Self.clampHeight : nil, alignment: .top)
+        .clipped()
         if clampable {
             Button(expanded ? "Show less" : "Show more") {
                 expanded.toggle()
@@ -1072,25 +1105,52 @@ private struct QuestionCard: View {
     }
 }
 
+/// What an agent-markdown render needs to fetch the images it embeds: the
+/// instance base URL the relative `/api/attachments/{id}` paths resolve
+/// against, plus the credentials the attachment loader authenticates with
+/// (EXP-440). Built once per screen, exactly like `CommentThreadView` does it.
+private struct AgentMarkdownContext {
+    let baseURL: URL?
+    let accountId: String
+    let httpClient: HTTPClient?
+}
+
 /// Read-only GFM render of agent-authored prose (plan bodies, question
-/// prompts) through the SAME block stack as comment bodies (EXP-249) — claude
-/// writes markdown, and a plan flattened into one Text was unreadable.
+/// prompts, narration, steered messages) through the SAME block stack as
+/// comment bodies (EXP-249) — claude writes markdown, and a plan flattened
+/// into one Text was unreadable.
 private struct AgentMarkdownText: View {
     let text: String
+    /// nil renders text-only: image blocks have nothing to fetch with.
+    var context: AgentMarkdownContext? = nil
+    /// Display-only parse deviations — safe here, nothing serializes back.
+    var options: MarkdownParseOptions = []
+    var imageMaxHeight: CGFloat? = 280
+    /// Chat bubbles hug their text; full-width prose does not.
+    var hugsWidth = false
 
     @State private var displayModel = IssueEditorModel()
     @State private var displayedText: String?
 
     var body: some View {
-        MarkdownEditor(model: displayModel, placeholder: "", isReadOnly: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .task(id: text) {
-                guard displayedText != text else { return }
-                displayedText = text
-                let model = IssueEditorModel()
-                model.load(markdown: text, baseURL: nil)
-                displayModel = model
-            }
+        MarkdownEditor(
+            model: displayModel,
+            placeholder: "",
+            baseURL: context?.baseURL,
+            accountId: context?.accountId ?? "",
+            httpClient: context?.httpClient,
+            isReadOnly: true,
+            imageMaxHeight: imageMaxHeight,
+            hugsContentWidth: hugsWidth
+        )
+        .frame(maxWidth: hugsWidth ? nil : .infinity, alignment: .leading)
+        .task(id: text) {
+            guard displayedText != text else { return }
+            displayedText = text
+            let model = IssueEditorModel()
+            model.load(markdown: text, baseURL: context?.baseURL, options: options)
+            displayModel = model
+        }
     }
 }
 

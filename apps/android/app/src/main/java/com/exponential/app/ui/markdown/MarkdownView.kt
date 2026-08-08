@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -60,9 +61,18 @@ import com.exponential.app.ui.theme.resolvedStatusColor
  * keeps the plain tokens).
  */
 @Composable
-fun MarkdownView(markdown: String, modifier: Modifier = Modifier) {
+fun MarkdownView(
+    markdown: String,
+    modifier: Modifier = Modifier,
+    /** Render every soft line break as its own line instead of a space —
+     *  agent output (EXP-440) is written for a terminal, where a wrapped
+     *  paragraph is really a list of lines. */
+    softBreaksAsNewlines: Boolean = false,
+) {
     if (markdown.isBlank()) return
-    val blocks = remember(markdown) { MarkdownParser.parse(markdown) }
+    val blocks = remember(markdown, softBreaksAsNewlines) {
+        MarkdownParser.parse(markdown, softBreaksAsNewlines)
+    }
     val issueRefs = LocalIssueRefs.current
     Column(modifier = modifier.fillMaxWidth()) {
         blocks.forEach { block ->
@@ -137,6 +147,7 @@ private fun QuoteBlockView(
     issueRefs: IssueRefHandler?,
 ) {
     val mentions = LocalMentions.current
+    val autolink = LocalMarkdownAutolink.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -154,7 +165,7 @@ private fun QuoteBlockView(
             texts.forEachIndexed { index, text ->
                 key(index) {
                     ChipText(
-                        line = annotateLine(text, marks[index], issueRefs, mentions),
+                        line = annotateLine(text, marks[index], issueRefs, mentions, autolink),
                         style = MdStyle.body.copy(color = MdStyle.Blockquote),
                         modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
                     )
@@ -186,9 +197,10 @@ private fun LineView(
     issueRefs: IssueRefHandler?,
 ) {
     val mentions = LocalMentions.current
+    val autolink = LocalMarkdownAutolink.current
     when (a.kind) {
         BlockKind.Heading -> ChipText(
-            line = annotateLine(text, marks, issueRefs, mentions),
+            line = annotateLine(text, marks, issueRefs, mentions, autolink),
             style = MdStyle.heading(a.headingLevel),
             modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
         )
@@ -210,7 +222,7 @@ private fun LineView(
                 Spacer(Modifier.padding(vertical = 2.dp))
             } else {
                 ChipText(
-                    line = annotateLine(text, marks, issueRefs, mentions),
+                    line = annotateLine(text, marks, issueRefs, mentions, autolink),
                     style = MdStyle.body,
                     modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
                 )
@@ -227,6 +239,7 @@ private fun ListItemView(
     issueRefs: IssueRefHandler?,
 ) {
     val mentions = LocalMentions.current
+    val autolink = LocalMarkdownAutolink.current
     val indent = MdStyle.listIndentBase + MdStyle.listIndentPerDepth * a.listDepth
     Row(
         modifier = Modifier
@@ -252,7 +265,7 @@ private fun ListItemView(
             )
         }
         ChipText(
-            line = annotateLine(text, marks, issueRefs, mentions),
+            line = annotateLine(text, marks, issueRefs, mentions, autolink),
             style = MdStyle.body,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -278,6 +291,15 @@ private fun ChipText(line: AnnotatedLine, style: TextStyle, modifier: Modifier =
 // --- Annotated-string builder with natively-tappable links (read-only). ---
 
 /**
+ * Bare `http(s)://` URLs render as tappable links (EXP-440) — for RENDER-ONLY
+ * surfaces such as the agent steering feed, whose text nobody edits back into
+ * stored markdown. Default OFF: issue descriptions and comments round-trip
+ * through the editor, and autolinking there would diverge the stored bytes
+ * from web (see [MarkdownParser]'s note on the autolink extension).
+ */
+val LocalMarkdownAutolink = compositionLocalOf { false }
+
+/**
  * One rendered line: its styled text plus the chip geometry the painter needs
  * (EXP-423 — a rounded fill, a hairline and a status glyph are not expressible
  * as spans).
@@ -293,19 +315,22 @@ internal fun annotate(
     marks: List<InlineMark>,
     issueRefs: IssueRefHandler?,
     mentions: MentionResolver? = null,
-): AnnotatedString = annotateLine(text, marks, issueRefs, mentions).text
+    autolink: Boolean = false,
+): AnnotatedString = annotateLine(text, marks, issueRefs, mentions, autolink).text
 
 internal fun annotateLine(
     text: String,
     marks: List<InlineMark>,
     issueRefs: IssueRefHandler?,
     mentions: MentionResolver? = null,
+    autolink: Boolean = false,
 ): AnnotatedLine {
     if (text.isEmpty()) return AnnotatedLine(AnnotatedString(""))
     val refPills = if (issueRefs != null) resolvedRefPills(text, marks, issueRefs) else emptyList()
     val mentionPills =
         if (mentions != null) resolvedMentionPills(text, marks, mentions) else emptyList()
-    if (marks.isEmpty() && refPills.isEmpty() && mentionPills.isEmpty()) {
+    val bareUrls = if (autolink) bareUrlLinks(text, marks) else emptyList()
+    if (marks.isEmpty() && refPills.isEmpty() && mentionPills.isEmpty() && bareUrls.isEmpty()) {
         return AnnotatedLine(AnnotatedString(text))
     }
     val chipSpecs = ArrayList<IssueRefChipSpec>(refPills.size)
@@ -409,6 +434,18 @@ internal fun annotateLine(
                 ),
             )
         }
+        // Bare URLs last (EXP-440): a markdown link or a `#IDENTIFIER` chip
+        // over the same characters always wins, and the guard drops the
+        // autolink instead of stacking a second annotation on the range.
+        for (range in bareUrls) {
+            addLinkGuarded(
+                LinkAnnotation.Url(
+                    url = range.url,
+                    styles = TextLinkStyles(style = SpanStyle(color = MdStyle.Link)),
+                ),
+                range.start, range.end,
+            )
+        }
         // Resolved `@email` mentions render as the member's name pill
         // (REV2-42) — display-only, not tappable (there is nothing to open),
         // so they can never collide with a link annotation.
@@ -473,6 +510,19 @@ private fun resolvedMentionPills(
         }
         if (covered) return@mapNotNull null
         mentions.resolve(match.email)?.let { match to it }
+    }
+
+/**
+ * Bare `http(s)://` URLs in this line that should autolink (EXP-440). A URL
+ * inside inline code stays literal and one inside a markdown link is already
+ * tappable — the same coverage rule the `#IDENTIFIER` and `@email` pills use.
+ */
+private fun bareUrlLinks(text: String, marks: List<InlineMark>): List<UrlRange> =
+    urlRanges(text).filterNot { range ->
+        marks.any { m ->
+            (m.kind == InlineKind.InlineCode || m.kind == InlineKind.Link) &&
+                m.start < range.end && range.start < m.end
+        }
     }
 
 /**
