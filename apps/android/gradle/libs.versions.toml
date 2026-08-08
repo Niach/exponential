@@ -4,10 +4,15 @@ kotlin = "2.1.21"
 ksp = "2.1.21-2.0.2"
 compose-bom = "2024.12.01"
 compose-compiler = "1.5.15"
-core-ktx = "1.15.0"
+core-ktx = "1.16.0"
 core-splashscreen = "1.0.1"
-lifecycle = "2.8.7"
-activity-compose = "1.9.3"
+lifecycle = "2.9.4"
+# Keep ≥1.12: enableEdgeToEdge routes Android 15+ through EdgeToEdgeApi35,
+# which drops the deprecated setStatusBarColor/setNavigationBarColor scrims
+# and LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES the Play Console flags
+# (EXP-453). Its POM floors core-ktx at 1.16.0 and lifecycle at 2.9.4 —
+# those pins below track the resolved graph, not a feature need.
+activity-compose = "1.12.4"
 navigation-compose = "2.8.5"
 hilt = "2.53.1"
 hilt-navigation-compose = "1.2.0"
