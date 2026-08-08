@@ -35,6 +35,38 @@ data class DeviceOwner(
 )
 
 /**
+ * One agent's launch defaults as a machine has them configured (EXP-437).
+ * [model]/[effort] are contract values where an EMPTY string is the explicit
+ * "CLI default" (omit the flag) — the same convention the start options use.
+ * The booleans ride only when true, so an absent one IS false; capability
+ * clamping (ultracode/plan mode are claude-only, skip-permissions never
+ * applies to pi) stays the reader's job.
+ */
+@Serializable
+data class AgentLaunchDefaults(
+    @SerialName("model") val model: String? = null,
+    @SerialName("effort") val effort: String? = null,
+    @SerialName("ultracode") val ultracode: Boolean = false,
+    @SerialName("planMode") val planMode: Boolean = false,
+    @SerialName("skipPermissions") val skipPermissions: Boolean = false,
+)
+
+/**
+ * A machine's per-agent coding defaults, advertised on the presence row so a
+ * remote Start-coding sheet opens on the SAME settings the machine itself
+ * would use (EXP-437). [agents] is keyed by contract `codingAgent` id and
+ * covers only the RUNNABLE agents; [defaultAgent] is the machine's configured
+ * default and must be clamped to what it can actually run. The whole field is
+ * absent on an older desktop — readers fall back to the static contract
+ * defaults.
+ */
+@Serializable
+data class DeviceLaunchDefaults(
+    @SerialName("defaultAgent") val defaultAgent: String? = null,
+    @SerialName("agents") val agents: Map<String, AgentLaunchDefaults> = emptyMap(),
+)
+
+/**
  * One machine the caller can start on (mirrors web's `lib/steer-devices.ts`).
  * Every surface reads these from `devices.list` (EXP-403 — the durable
  * registry merged with live relay presence, plus the team's shared servers
@@ -60,6 +92,13 @@ data class SteerDevice(
     @SerialName("agents") val agents: List<String>? = null,
     @SerialName("unauthedAgents") val unauthedAgents: List<String> = emptyList(),
     @SerialName("caps") val caps: List<String>? = null,
+    /**
+     * EXP-437: the machine's per-agent coding defaults, so a remote start
+     * pre-fills what that machine would use locally. Absent on older desktops
+     * (and on a machine with nothing runnable) — the sheet then falls back to
+     * the static contract defaults.
+     */
+    @SerialName("launchDefaults") val launchDefaults: DeviceLaunchDefaults? = null,
     // ── devices.list registry fields (EXP-403) ───────────────────────────────
     /** `desktop` (the IDE) or `server` (a headless `exponential` daemon). */
     @SerialName("kind") val kind: String = KIND_DESKTOP,

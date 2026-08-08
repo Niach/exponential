@@ -173,6 +173,28 @@ export interface SteerDevice {
    * action starts). Absent (old desktop/relay) ⇒ none — action starts are
    * strictly gated on this, unlike the lenient agents fallback. */
   caps?: string[]
+  /** EXP-437: the machine's per-agent launch defaults, passed through
+   * verbatim from its online frame — remote Start-coding dialogs seed
+   * their options from the selected device. Absent (old desktop/relay) ⇒
+   * clients seed static contract defaults. */
+  launchDefaults?: SteerLaunchDefaults
+}
+
+/** EXP-437: one agent's launch defaults on a device. Blank `model`/`effort`
+ * = "CLI default / omit the flag"; absent booleans = false. */
+export interface SteerAgentLaunchDefaults {
+  model?: string
+  effort?: string
+  ultracode?: boolean
+  planMode?: boolean
+  skipPermissions?: boolean
+}
+
+/** EXP-437: a device's launch-defaults advertisement — `agents` keyed by
+ * contract `codingAgent` id, covering only that machine's RUNNABLE agents. */
+export interface SteerLaunchDefaults {
+  defaultAgent?: string
+  agents?: Record<string, SteerAgentLaunchDefaults>
 }
 
 /**

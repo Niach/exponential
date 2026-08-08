@@ -11,6 +11,7 @@ import {
   parseClientFrame,
   type ActivityEvent,
   type ClientFrame,
+  type LaunchDefaults,
   type ServerFrame,
   type StartInput,
   type StartRepoGroup,
@@ -65,6 +66,10 @@ interface DeviceEntry {
    * Absent on old desktops ⇒ [] — the web server strictly gates action
    * starts on this. */
   caps: string[]
+  /** EXP-437: the machine's per-agent launch defaults, passed through
+   * verbatim so remote Start-coding dialogs can seed from the selected
+   * device. Absent on old desktops ⇒ stays absent on the wire. */
+  launchDefaults?: LaunchDefaults
 }
 
 /** One replayable activity event, pre-serialized once: the same string feeds
@@ -258,6 +263,9 @@ export class Hub {
           unauthedAgents: msg.unauthedAgents ?? [],
           // Absent = old desktop with no action launch path (EXP-253).
           caps: msg.caps ?? [],
+          // Absent (old desktop / malformed blob caught to undefined) =
+          // no defaults advertised — clients seed statically (EXP-437).
+          launchDefaults: msg.launchDefaults,
         })
         return
       }
@@ -415,6 +423,9 @@ export class Hub {
       agents: entry.agents,
       unauthedAgents: entry.unauthedAgents,
       caps: entry.caps,
+      // `undefined` drops out of JSON.stringify — old desktops' rows keep
+      // their exact pre-EXP-437 wire shape.
+      launchDefaults: entry.launchDefaults,
     }))
   }
 

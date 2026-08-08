@@ -78,8 +78,8 @@ pub use batch_prompt::{render_batch_prompt, BatchPromptArgs};
 pub use clone_manager::{AutoSyncOutcome, CloneEvent};
 pub use codex_sessions::{default_codex_sessions_root, find_latest_codex_session_id};
 pub use doctor::{
-    parse_claude_version, run_doctor, AgentAdvertisement, DoctorReport, Tool, ToolCheck,
-    MIN_CLAUDE_VERSION,
+    parse_claude_version, run_doctor, AgentAdvertisement, AgentLaunchDefaults, DoctorReport,
+    Tool, ToolCheck, MIN_CLAUDE_VERSION,
 };
 pub use scm::{
     CommitInfo, ConflictKind, ConflictState, DiffFile, DiffLine, DiffLineKind, FileChange,

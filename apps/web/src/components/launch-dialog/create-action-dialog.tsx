@@ -1,20 +1,21 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { LoaderCircle, Sparkles } from "lucide-react"
 import { MAX_ACTION_INPUT_TEXT, type BoardIcon } from "@exp/db-schema/domain"
 import { builtinCreateAction } from "@/lib/builtin-actions"
 import { missingRequiredInputs, buildInputsPayload } from "@/lib/action-inputs"
 import {
+  agentSeed,
   agentSupportsPlanMode,
   agentSupportsSkipPermissions,
   agentSupportsUltracode,
-  defaultModelFor,
-  readCodingLaunchPrefs,
-  rememberCodingLaunchPrefs,
+  DEFAULT_LAUNCH_AGENT,
 } from "@/lib/coding-launch-prefs"
 import {
   deviceAgentIds,
+  deviceAgentLaunchDefaults,
   deviceCanRunActionInputs,
   deviceCanRunActions,
+  deviceDefaultAgent,
   deviceHasRunnableAgent,
   deviceIsOnline,
   type SteerDevice,
@@ -91,32 +92,38 @@ export function CreateActionDialog({
   const [repoId, setRepoId] = useState(``)
   const [icon, setIcon] = useState(``)
 
-  // Launch options — the same remembered-prefs cluster as the launch dialog
+  // Launch options — the same device-seeded cluster as the launch dialog
   // shell (a deliberate small duplication; the 677-line shell isn't worth a
   // hook extraction for one sibling).
-  const [agent, setAgent] = useState(readCodingLaunchPrefs().agent)
+  const [agent, setAgent] = useState<string>(DEFAULT_LAUNCH_AGENT)
   const [model, setModel] = useState(``)
   const [effortValue, setEffortValue] = useState(CLI_DEFAULT_EFFORT)
   const [ultracode, setUltracode] = useState(false)
   const [planMode, setPlanMode] = useState(false)
   const [skipPermissions, setSkipPermissions] = useState(false)
   const [deviceId, setDeviceId] = useState<string | null>(null)
+  // EXP-437: the deviceId whose launch defaults last seeded the options —
+  // re-polls with the same device must not stomp in-dialog edits.
+  const seededDeviceRef = useRef<string | null>(null)
 
   // Seed fields + options on OPEN only — a desktop connecting mid-dialog
-  // (the settle effect below) must never wipe a typed description.
+  // (the settle effect below) must never wipe a typed description. Options
+  // start at static contract defaults; the device-seed effect below overlays
+  // the selected machine's advertised defaults (EXP-437).
   useEffect(() => {
     if (!open) return
     setDescription(``)
     setRepoId(``)
     setIcon(``)
     setDeviceId(null)
-    const prefs = readCodingLaunchPrefs()
-    setAgent(prefs.agent)
-    setModel(prefs.model)
-    setEffortValue(prefs.effort === `` ? CLI_DEFAULT_EFFORT : prefs.effort)
-    setUltracode(prefs.ultracode && agentSupportsUltracode(prefs.agent))
-    setPlanMode(prefs.planMode && agentSupportsPlanMode(prefs.agent))
-    setSkipPermissions(prefs.skipPermissions)
+    seededDeviceRef.current = null
+    const seed = agentSeed(DEFAULT_LAUNCH_AGENT, null)
+    setAgent(DEFAULT_LAUNCH_AGENT)
+    setModel(seed.model)
+    setEffortValue(CLI_DEFAULT_EFFORT)
+    setUltracode(seed.ultracode)
+    setPlanMode(seed.planMode)
+    setSkipPermissions(seed.skipPermissions)
   }, [open])
 
   // The builtin always needs the action-inputs cap (same gate the launch
@@ -146,17 +153,42 @@ export function CreateActionDialog({
     candidateDevices.find((candidate) => candidate.deviceId === deviceId) ??
     candidateDevices[0]
 
-  // Switching the agent tab re-seeds model/effort to the agent's own
-  // defaults and clamps the capability toggles (EXP-201).
+  // Switching the agent tab re-seeds model/effort/toggles to the SELECTED
+  // DEVICE's defaults for that agent (EXP-437; static when it advertises
+  // none), capability-clamped.
   const switchAgent = (next: string) => {
     if (next === agent) return
     setAgent(next)
-    setModel(defaultModelFor(next))
-    setEffortValue(CLI_DEFAULT_EFFORT)
-    if (!agentSupportsUltracode(next)) setUltracode(false)
-    if (!agentSupportsPlanMode(next)) setPlanMode(false)
-    if (!agentSupportsSkipPermissions(next)) setSkipPermissions(false)
+    const seed = agentSeed(next, deviceAgentLaunchDefaults(device, next))
+    setModel(seed.model)
+    setEffortValue(seed.effort === `` ? CLI_DEFAULT_EFFORT : seed.effort)
+    setUltracode(seed.ultracode)
+    setPlanMode(seed.planMode)
+    setSkipPermissions(seed.skipPermissions)
   }
+
+  // EXP-437: seed the launch options from the selected device's advertised
+  // per-agent defaults — once a device settles after open, and again on
+  // every actual device change (the ref latch skips same-device re-polls).
+  useEffect(() => {
+    if (!open || !device) return
+    if (seededDeviceRef.current === device.deviceId) return
+    seededDeviceRef.current = device.deviceId
+    const available = deviceAgentIds(device)
+    const next =
+      deviceDefaultAgent(device) ??
+      (available.includes(agent)
+        ? agent
+        : (available[0] ?? DEFAULT_LAUNCH_AGENT))
+    const seed = agentSeed(next, deviceAgentLaunchDefaults(device, next))
+    setAgent(next)
+    setModel(seed.model)
+    setEffortValue(seed.effort === `` ? CLI_DEFAULT_EFFORT : seed.effort)
+    setUltracode(seed.ultracode)
+    setPlanMode(seed.planMode)
+    setSkipPermissions(seed.skipPermissions)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, device?.deviceId])
 
   // EXP-201: only agents the chosen device advertised are offerable; a
   // device change re-clamps a now-unavailable selection.
@@ -183,7 +215,6 @@ export function CreateActionDialog({
       planMode: planMode && agentSupportsPlanMode(agent),
       skipPermissions: skipPermissions && agentSupportsSkipPermissions(agent),
     }
-    rememberCodingLaunchPrefs(options)
     onCreate(device, options, buildInputsPayload(inputDefs, inputValues))
   }
 

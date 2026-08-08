@@ -8,7 +8,8 @@ import XCTest
 // optional, so a presence row — which carries none of them — must still read
 // as ONLINE: treating an absent `online` as offline would hide every start
 // affordance the moment an older server answers. EXP-432 adds the two sharing
-// fields on the same terms — both optional, both absent from an older server.
+// fields on the same terms — both optional, both absent from an older server,
+// as does EXP-437's `launchDefaults` (the machine's own coding defaults).
 final class SteerDeviceDecodingTests: XCTestCase {
     private func decode(_ json: String) throws -> SteerDevicesResult {
         try JSONDecoder().decode(SteerDevicesResult.self, from: Data(json.utf8))
@@ -163,6 +164,70 @@ final class SteerDeviceDecodingTests: XCTestCase {
         XCTAssertTrue(shared.isOnline)
         XCTAssertTrue(shared.hasRunnableAgent)
         XCTAssertTrue(shared.canRunActions)
+    }
+
+    /// EXP-437: a machine advertises its own per-agent coding defaults so a
+    /// remote Start-coding sheet can open on THEM. `model`/`effort` always ride
+    /// the wire because `""` is a real choice ("CLI default / omit the flag"),
+    /// while the booleans are sent only when true — an entry with none of them
+    /// is simply all-false, not a decode failure.
+    func testDecodesLaunchDefaults() throws {
+        let result = try decode("""
+        {"devices":[{"deviceId":"d9","deviceLabel":"macbook","agents":["claude","codex"],
+        "caps":["actions"],"online":true,
+        "launchDefaults":{"defaultAgent":"codex","agents":{
+        "claude":{"model":"fable","effort":"","planMode":true},
+        "codex":{"model":"","effort":"high"}}}}]}
+        """)
+        let device = try XCTUnwrap(result.devices.first)
+        XCTAssertEqual(device.defaultLaunchAgent, "codex")
+
+        let claude = try XCTUnwrap(device.agentDefaults(for: "claude"))
+        XCTAssertEqual(claude.model, "fable")
+        XCTAssertEqual(claude.effort, "")  // blank = CLI default, NOT absent
+        XCTAssertEqual(claude.planMode, true)
+        XCTAssertNil(claude.ultracode)     // absent boolean = false
+        XCTAssertNil(claude.skipPermissions)
+
+        let codex = try XCTUnwrap(device.agentDefaults(for: "codex"))
+        XCTAssertEqual(codex.model, "")
+        XCTAssertEqual(codex.effort, "high")
+        XCTAssertNil(codex.planMode)
+
+        // The map covers RUNNABLE agents only — nothing to seed for the rest.
+        XCTAssertNil(device.agentDefaults(for: "pi"))
+    }
+
+    /// The advertised default agent is only ever a SUGGESTION: a machine that
+    /// names one it can't run right now (signed out since it last saved its
+    /// settings) must not preselect it, or the sheet offers an agent the
+    /// launcher would refuse.
+    func testDefaultLaunchAgentClampsToRunnableAgents() throws {
+        let result = try decode("""
+        {"devices":[{"deviceId":"d10","deviceLabel":"mini","agents":["claude"],
+        "caps":[],"online":true,
+        "launchDefaults":{"defaultAgent":"codex","agents":{
+        "claude":{"model":"opus","effort":"max","ultracode":true,"skipPermissions":true}}}}]}
+        """)
+        let device = try XCTUnwrap(result.devices.first)
+        XCTAssertNil(device.defaultLaunchAgent)
+        let claude = try XCTUnwrap(device.agentDefaults(for: "claude"))
+        XCTAssertEqual(claude.ultracode, true)
+        XCTAssertEqual(claude.skipPermissions, true)
+    }
+
+    /// An older desktop advertises no defaults at all. Every accessor must read
+    /// as "nothing advertised" so the sheet falls back to contract defaults —
+    /// never as a decode error that would drop the machine from the picker.
+    func testDecodesWithoutLaunchDefaults() throws {
+        let result = try decode("""
+        {"devices":[{"deviceId":"d11","deviceLabel":"old","agents":["claude"],
+        "caps":[],"online":true}]}
+        """)
+        let device = try XCTUnwrap(result.devices.first)
+        XCTAssertNil(device.launchDefaults)
+        XCTAssertNil(device.defaultLaunchAgent)
+        XCTAssertNil(device.agentDefaults(for: "claude"))
     }
 
     /// A pre-EXP-432 server omits BOTH sharing fields. Every row must still

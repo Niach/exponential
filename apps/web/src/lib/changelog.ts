@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-machine-launch-defaults`,
+    date: `2026-08-08`,
+    title: `Start coding with your machine's own defaults`,
+    summary: `The remote Start coding dialog now pre-fills the model, effort, plan mode, and permission settings you configured on the machine you pick.`,
+    body: `- **Machine defaults everywhere**: pick a desktop or server in the Start coding dialog on web, iOS, or Android and it loads that machine's saved per-agent defaults, including plan mode and permission bypass.
+- **Per agent**: switching the agent tab re-seeds model, effort, and toggles from the selected machine's settings for that agent.
+- **Live**: change a default in the desktop app's agent settings and remote dialogs pick it up right away.`,
+  },
+  {
     id: `2026-08-one-status-order`,
     date: `2026-08-08`,
     title: `Statuses read the same everywhere`,

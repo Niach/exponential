@@ -60,6 +60,50 @@ public struct DeviceOwner: Decodable, Sendable {
     }
 }
 
+/// EXP-437: one agent's saved launch options on a machine, as advertised on
+/// the relay presence row. `model`/`effort` are always sent — `""` means "CLI
+/// default / omit the flag", which is a real choice, not an absence — while
+/// the booleans are serialized only when true (absent = false). Everything is
+/// optional here anyway: the sender is a desktop of unknown vintage.
+public struct AgentLaunchDefaults: Decodable, Sendable {
+    public let model: String?
+    public let effort: String?
+    public let ultracode: Bool?
+    public let planMode: Bool?
+    public let skipPermissions: Bool?
+
+    public init(
+        model: String? = nil,
+        effort: String? = nil,
+        ultracode: Bool? = nil,
+        planMode: Bool? = nil,
+        skipPermissions: Bool? = nil
+    ) {
+        self.model = model
+        self.effort = effort
+        self.ultracode = ultracode
+        self.planMode = planMode
+        self.skipPermissions = skipPermissions
+    }
+}
+
+/// EXP-437: the coding defaults a machine advertises, so a remote Start-coding
+/// sheet opens on THAT machine's settings instead of whatever the phone last
+/// sent. `agents` covers the RUNNABLE agents only (contract `codingAgent`
+/// ids). Absent entirely on an older desktop — every reader falls back to the
+/// static contract defaults.
+public struct DeviceLaunchDefaults: Decodable, Sendable {
+    /// The machine's configured default agent. Clamped to what it actually
+    /// runs by the reader — a signed-out default must not preselect.
+    public let defaultAgent: String?
+    public let agents: [String: AgentLaunchDefaults]?
+
+    public init(defaultAgent: String? = nil, agents: [String: AgentLaunchDefaults]? = nil) {
+        self.defaultAgent = defaultAgent
+        self.agents = agents
+    }
+}
+
 /// One machine: a registry row from `devices.list` (EXP-403 — desktops and
 /// headless `exponential` daemon servers, online or not) or a bare
 /// relay-presence row from `steer.myDevices`. ONE shape for both, mirroring
@@ -106,6 +150,11 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// EXP-432: set ONLY on a teammate's shared row — the machine's owner.
     /// Absent on the caller's own rows, which is exactly what `isMine` reads.
     public let owner: DeviceOwner?
+    /// EXP-437: this machine's own per-agent coding defaults, so picking it in
+    /// a remote Start-coding sheet pre-fills its settings. Absent on an older
+    /// desktop (and on a machine with nothing runnable) — read it through
+    /// `defaultLaunchAgent` / `agentDefaults(for:)`, never raw.
+    public let launchDefaults: DeviceLaunchDefaults?
 
     public var id: String { deviceId }
 
@@ -125,7 +174,8 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
         updateRequested: Bool? = nil,
         updateBlocked: Bool? = nil,
         sharedTeamId: String? = nil,
-        owner: DeviceOwner? = nil
+        owner: DeviceOwner? = nil,
+        launchDefaults: DeviceLaunchDefaults? = nil
     ) {
         self.deviceId = deviceId
         self.deviceLabel = deviceLabel
@@ -143,6 +193,7 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
         self.updateBlocked = updateBlocked
         self.sharedTeamId = sharedTeamId
         self.owner = owner
+        self.launchDefaults = launchDefaults
     }
 
     /// EXP-432: whether this is one of the caller's OWN machines. A teammate's
@@ -179,6 +230,20 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// out — the state the machines row greys out and explains.
     public var needsAgentSignIn: Bool {
         isOnline && !hasRunnableAgent && !unauthedAgentIds.isEmpty
+    }
+
+    /// EXP-437: the machine's configured default agent, clamped to what it can
+    /// actually RUN. Nil when it advertises none (older desktop) or names an
+    /// agent it no longer runs — the caller keeps its own choice then.
+    public var defaultLaunchAgent: String? {
+        guard let value = launchDefaults?.defaultAgent, agentIds.contains(value) else { return nil }
+        return value
+    }
+
+    /// EXP-437: the machine's saved launch options for one agent, or nil when
+    /// it advertises none for it — the caller falls back to contract defaults.
+    public func agentDefaults(for agent: String) -> AgentLaunchDefaults? {
+        launchDefaults?.agents?[agent]
     }
 
     /// A headless `exponential` daemon server rather than the desktop app —

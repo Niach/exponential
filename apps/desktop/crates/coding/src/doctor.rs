@@ -41,6 +41,7 @@
 
 use crate::agent::CodingAgent;
 use crate::settings::Settings;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::time::Duration;
 use terminal::process::background_command;
@@ -202,11 +203,12 @@ impl DoctorReport {
             .collect()
     }
 
-    /// The steer presence advertisement as wire ids — the ONE pair both
+    /// The steer presence advertisement as wire ids — the ONE shape both
     /// producers (desktop control channel + CLI daemon) send and compare for
     /// re-advertise change detection, so an uninstall of a signed-out agent
-    /// re-dials just like an install does.
-    pub fn agent_advertisement(&self) -> AgentAdvertisement {
+    /// re-dials just like an install does — and, since the launch defaults
+    /// ride along (EXP-437), so does a Settings → Agents edit.
+    pub fn agent_advertisement(&self, settings: &Settings) -> AgentAdvertisement {
         AgentAdvertisement {
             agents: self
                 .installed_agents()
@@ -218,6 +220,24 @@ impl DoctorReport {
                 .into_iter()
                 .map(|agent| agent.id().to_string())
                 .collect(),
+            default_agent: settings.default_agent.id().to_string(),
+            launch_defaults: self
+                .installed_agents()
+                .into_iter()
+                .map(|agent| {
+                    let options = crate::argv::LaunchOptions::defaults_for(settings, agent);
+                    (
+                        agent.id().to_string(),
+                        AgentLaunchDefaults {
+                            model: options.model,
+                            effort: options.effort,
+                            ultracode: options.ultracode,
+                            plan_mode: options.plan_mode,
+                            skip_permissions: options.skip_permissions,
+                        },
+                    )
+                })
+                .collect(),
         }
     }
 }
@@ -225,10 +245,32 @@ impl DoctorReport {
 /// What a device tells the relay + registry about its agent CLIs (EXP-409):
 /// `agents` = runnable (installed AND signed in), `unauthed_agents` =
 /// installed but signed out (unusable; listed so UIs can say "sign in").
+/// EXP-437 adds the machine's per-agent launch defaults so remote
+/// Start-coding dialogs pre-fill this device's configuration.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AgentAdvertisement {
     pub agents: Vec<String>,
     pub unauthed_agents: Vec<String>,
+    /// `settings.default_agent` as a wire id — remote pickers preselect it
+    /// (clamped to `agents` client-side; it may name an uninstalled agent).
+    pub default_agent: String,
+    /// One entry per RUNNABLE agent, values capability-masked via
+    /// [`crate::argv::LaunchOptions::defaults_for`] — the same resolver the
+    /// local Start-coding dialog seeds from. `BTreeMap` for deterministic
+    /// wire serialization (the steer frames are byte-locked in tests).
+    pub launch_defaults: BTreeMap<String, AgentLaunchDefaults>,
+}
+
+/// One agent's launch defaults on this machine (EXP-437): mirrors
+/// [`crate::argv::LaunchOptions`] minus the agent tag. Blank `model`/`effort`
+/// = "CLI default / omit the flag" (valid per the agent's vocabulary).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AgentLaunchDefaults {
+    pub model: String,
+    pub effort: String,
+    pub ultracode: bool,
+    pub plan_mode: bool,
+    pub skip_permissions: bool,
 }
 
 impl AgentAdvertisement {
@@ -896,6 +938,64 @@ mod tests {
             all.installed_agents(),
             vec![CodingAgent::Claude, CodingAgent::Codex, CodingAgent::Pi]
         );
+    }
+
+    /// EXP-437: the advertisement carries the machine's per-agent launch
+    /// defaults — capability-masked (codex never plan/ultracode, pi never
+    /// skip), blank efforts preserved, only RUNNABLE agents listed, and the
+    /// default agent passed through even when it is not installed.
+    #[test]
+    fn advertisement_carries_capability_masked_launch_defaults() {
+        let report = DoctorReport {
+            claude: green(Tool::Claude, "2.1.215 (Claude Code)"),
+            codex: green(Tool::Codex, "0.46.0"),
+            pi: red(Tool::Pi),
+            git: green(Tool::Git, "2.45.0"),
+        };
+        let settings = Settings {
+            claude_model: "opus".into(),
+            claude_effort: "".into(),
+            claude_ultracode: true,
+            claude_plan_mode: true,
+            claude_skip_permissions: false,
+            codex_model: "".into(),
+            codex_effort: "high".into(),
+            codex_skip_permissions: true,
+            pi_model: "grok-4.5".into(),
+            ..Settings::default()
+        };
+        let advert = report.agent_advertisement(&settings);
+        assert_eq!(advert.agents, vec!["claude", "codex"]);
+        assert_eq!(advert.default_agent, "claude");
+        // Only runnable agents get a defaults entry — pi (red) has none.
+        assert_eq!(
+            advert.launch_defaults.keys().collect::<Vec<_>>(),
+            vec!["claude", "codex"]
+        );
+        let claude = &advert.launch_defaults["claude"];
+        assert_eq!(claude.model, "opus");
+        assert_eq!(claude.effort, "");
+        assert!(claude.ultracode);
+        assert!(claude.plan_mode);
+        assert!(!claude.skip_permissions);
+        // Capability masking: codex can never carry ultracode/plan, but its
+        // per-agent skip-permissions and blank model ride through.
+        let codex = &advert.launch_defaults["codex"];
+        assert_eq!(codex.model, "");
+        assert_eq!(codex.effort, "high");
+        assert!(!codex.ultracode);
+        assert!(!codex.plan_mode);
+        assert!(codex.skip_permissions);
+
+        // A default agent that is NOT runnable still passes through as an id
+        // (clients clamp); it simply has no launch_defaults entry.
+        let settings = Settings {
+            default_agent: CodingAgent::Pi,
+            ..settings
+        };
+        let advert = report.agent_advertisement(&settings);
+        assert_eq!(advert.default_agent, "pi");
+        assert!(!advert.launch_defaults.contains_key("pi"));
     }
 
     /// EXP-409: `claude auth status` JSON classification — noise-tolerant,

@@ -269,6 +269,64 @@ describe(`device presence + remote start`, () => {
     ])
   })
 
+  test(`online passes launch defaults through; absent stays absent (EXP-437)`, () => {
+    const hub = new Hub()
+    const modern = new FakeSocket()
+    hub.onOpen(modern, claims({ role: `control`, sub: `owner` }))
+    const launchDefaults = {
+      defaultAgent: `claude`,
+      agents: {
+        claude: { model: `fable`, effort: ``, planMode: true },
+        codex: { model: ``, effort: `high`, skipPermissions: true },
+      },
+    }
+    hub.onMessage(
+      modern,
+      JSON.stringify({
+        t: `online`,
+        deviceId: `dev-1`,
+        agents: [`claude`, `codex`],
+        launchDefaults,
+      })
+    )
+    const legacy = new FakeSocket()
+    hub.onOpen(legacy, claims({ role: `control`, sub: `owner` }))
+    hub.onMessage(legacy, JSON.stringify({ t: `online`, deviceId: `dev-2` }))
+
+    const devices = hub.devicesFor(`owner`)
+    expect(devices).toMatchObject([
+      { deviceId: `dev-1`, launchDefaults },
+      { deviceId: `dev-2` },
+    ])
+    // Old desktops' rows keep their exact pre-EXP-437 wire shape: the key
+    // must vanish under JSON serialization, not ride as null.
+    expect(JSON.stringify(devices[1])).not.toContain(`launchDefaults`)
+  })
+
+  test(`a malformed launch-defaults blob degrades to none without dropping the online frame (EXP-437)`, () => {
+    const hub = new Hub()
+    const desktop = new FakeSocket()
+    hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
+    // 17 agent keys exceeds the record bound — the .catch() clamps the field
+    // to undefined; a strict parse would silently drop the whole frame and
+    // the machine would read offline.
+    const oversized = Object.fromEntries(
+      Array.from({ length: 17 }, (_, i) => [`agent-${i}`, { model: `x` }])
+    )
+    hub.onMessage(
+      desktop,
+      JSON.stringify({
+        t: `online`,
+        deviceId: `dev-1`,
+        agents: [`claude`],
+        launchDefaults: { defaultAgent: `claude`, agents: oversized },
+      })
+    )
+    const devices = hub.devicesFor(`owner`)
+    expect(devices).toMatchObject([{ deviceId: `dev-1`, agents: [`claude`] }])
+    expect(devices[0]?.launchDefaults).toBeUndefined()
+  })
+
   test(`startSession routes a batch subject as a fat start_session frame`, () => {
     const hub = new Hub()
     const desktop = new FakeSocket()
