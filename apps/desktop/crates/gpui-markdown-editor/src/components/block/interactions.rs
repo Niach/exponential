@@ -578,6 +578,14 @@ impl Block {
             return;
         }
 
+        // EXP-451: Delete at the end of a block removes the block boundary —
+        // the next block's content joins at the caret, mirroring Backspace's
+        // RequestMergeIntoPrev at offset 0.
+        if self.selected_range.is_empty() && self.cursor_offset() == self.visible_len() {
+            cx.emit(BlockEvent::RequestMergeWithNext);
+            return;
+        }
+
         if self.selected_range.is_empty() {
             self.select_to(self.next_boundary(self.cursor_offset()), cx);
         }
