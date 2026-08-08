@@ -36,6 +36,32 @@ jobs:
         run: bun run test:widget
       - name: Steer relay + ticket tests
         run: bun run test:steer-relay
+      # EXP-446: the push relay has no test suite, so its typecheck is the
+      # only source-level gate; nothing ran it in CI before.
+      - name: Typecheck push relay
+        run: bun run --filter @exp/push-relay typecheck
+
+  push-relay-image:
+    # EXP-446: Dockerfile.push-relay is built by no publish workflow — Coolify
+    # builds it from the repo at deploy time, so a broken edit's first
+    # validation used to be the deploy itself. Build-only (push: false —
+    # publishing would create a new public ghcr package, a product decision;
+    # see the EXP-376 note in the Dockerfile) and amd64-only (smoke gate, not
+    # an artifact).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build push-relay image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile.push-relay
+          platforms: linux/amd64
+          push: false
+          cache-from: type=gha,scope=push-relay
+          cache-to: type=gha,mode=max,scope=push-relay
 
   marketing:
     # REV2-62: nothing else in CI typechecks or builds apps/marketing — its
