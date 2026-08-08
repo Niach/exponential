@@ -4,7 +4,8 @@
 // byte-for-byte:
 //
 //  1. teamStatuses order: category `issueStatusCategoryDisplayOrder`
-//     (started, unstarted, backlog, completed, cancelled, duplicate), then
+//     (backlog, unstarted, started, completed, cancelled, duplicate — the ONE
+//     order settings, pickers and list groups all speak since EXP-448), then
 //     `sortOrder` asc, then `createdAt` asc, then `id` — a started row's clock
 //     position is its index among the started rows in THAT order.
 //  2. resolve(issue): the row whose id === issue.statusId, else the row whose
@@ -24,7 +25,6 @@ import {
   BUILTIN_STATUS_DEFAULTS,
   ISSUE_STATUS_FALLBACK,
   issueStatusCategoryDisplayOrder,
-  issueStatusCategorySettingsOrder,
   issueStatusValues,
   type IssueStatus,
   type IssueStatusCategory,
@@ -194,29 +194,6 @@ export function statusUpdatePayload(
     return { status: option.builtinKey }
   }
   return { statusId: option.id }
-}
-
-const SETTINGS_CATEGORY_RANK = new Map<IssueStatusCategory, number>(
-  issueStatusCategorySettingsOrder.map((category, index) => [category, index])
-)
-
-/**
- * Re-group display-ordered options into the SETTINGS category order (backlog,
- * unstarted, started, completed, cancelled, duplicate) for SET-STATUS pickers
- * only — a picker reads top-down as the issue's life cycle, whereas board
- * grouping keeps `displayOrder` so the work in flight leads the page.
- *
- * The sort is stable, so intra-category order (and with it every started row's
- * baked-in pie-clock position) survives untouched — nothing is recomputed.
- */
-export function sortStatusesForPicker(
-  options: readonly StatusRowOption[]
-): StatusRowOption[] {
-  return [...options].sort(
-    (left, right) =>
-      (SETTINGS_CATEGORY_RANK.get(left.category) ?? Number.MAX_SAFE_INTEGER) -
-      (SETTINGS_CATEGORY_RANK.get(right.category) ?? Number.MAX_SAFE_INTEGER)
-  )
 }
 
 /**

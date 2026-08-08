@@ -10,16 +10,16 @@ export interface DomainContract {
   issueStatus: { values: readonly string[]; displayOrder: readonly string[] }
   /**
    * Fixed status categories (EXP-314): every issue_statuses row belongs to
-   * one. displayOrder is the issue-list group order (matches the legacy
-   * issueStatus.displayOrder for a default team); settingsOrder is the
-   * lifecycle order the settings page lists categories in; startedMax caps
-   * how many `started` statuses a team may have (the pie-clock fills are
-   * defined only up to 4).
+   * one. displayOrder is the ONE lifecycle order every surface speaks —
+   * settings sections, set-status pickers and issue-list groups alike
+   * (EXP-448 collapsed the separate settings order into it; it matches the
+   * legacy issueStatus.displayOrder for a default team). startedMax caps how
+   * many `started` statuses a team may have (the pie-clock fills are defined
+   * only up to 4).
    */
   issueStatusCategory: {
     values: readonly string[]
     displayOrder: readonly string[]
-    settingsOrder: readonly string[]
     startedMax: number
   }
   /**

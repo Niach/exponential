@@ -4,10 +4,9 @@ package com.exponential.app.domain
 
 object DomainContract {
     val issueStatusValues: List<String> = listOf("backlog", "todo", "in_progress", "in_review", "done", "cancelled", "duplicate")
-    val issueStatusDisplayOrder: List<String> = listOf("in_progress", "in_review", "todo", "backlog", "done", "cancelled", "duplicate")
+    val issueStatusDisplayOrder: List<String> = listOf("backlog", "todo", "in_progress", "in_review", "done", "cancelled", "duplicate")
     val issueStatusCategoryValues: List<String> = listOf("backlog", "unstarted", "started", "completed", "cancelled", "duplicate")
-    val issueStatusCategoryDisplayOrder: List<String> = listOf("started", "unstarted", "backlog", "completed", "cancelled", "duplicate")
-    val issueStatusCategorySettingsOrder: List<String> = listOf("backlog", "unstarted", "started", "completed", "cancelled", "duplicate")
+    val issueStatusCategoryDisplayOrder: List<String> = listOf("backlog", "unstarted", "started", "completed", "cancelled", "duplicate")
     val issueStatusDefaultKeys: List<String> = listOf("backlog", "todo", "in_progress", "in_review", "done", "cancelled", "duplicate")
     val issueStatusDefaultCategories: List<String> = listOf("backlog", "unstarted", "started", "started", "completed", "cancelled", "duplicate")
     val issueStatusDefaultNames: List<String> = listOf("Backlog", "Todo", "In Progress", "In Review", "Done", "Cancelled", "Duplicate")

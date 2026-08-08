@@ -6,10 +6,7 @@ import {
   type IssueSource,
 } from "@/lib/domain"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
-import {
-  sortStatusesForPicker,
-  type StatusRowOption,
-} from "@/lib/team-statuses"
+import type { StatusRowOption } from "@/lib/team-statuses"
 import { Badge } from "@/components/ui/badge"
 import { formatDate } from "@/lib/utils"
 import { OptionDropdownMenu } from "@/components/option-dropdown-menu"
@@ -188,7 +185,7 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
       value={status.id}
       fallbackValue={status.id}
       disabled={disabled}
-      options={toStatusMenuOptions(sortStatusesForPicker(teamStatusOptions))}
+      options={toStatusMenuOptions(teamStatusOptions)}
       onSelect={(id) => {
         const picked = statusById.get(id)
         if (picked) void onStatusChange(picked)

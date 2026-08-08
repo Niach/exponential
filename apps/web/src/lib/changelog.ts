@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-one-status-order`,
+    date: `2026-08-08`,
+    title: `Statuses read the same everywhere`,
+    summary: `Issue lists now group statuses in the order your settings page lays them out, on web, desktop, iOS, and Android.`,
+    body: `- **One status order**: issue lists group by status in the same order the statuses settings page shows, starting with Backlog and Todo instead of the started statuses.
+- **Everywhere at once**: lists, status pickers, and the settings page all read the same top to bottom, on all four apps.`,
+  },
+  {
     id: `2026-08-device-sharing-remote-login`,
     date: `2026-08-07`,
     title: `Shared machines, remote sign-in, and widget themes`,

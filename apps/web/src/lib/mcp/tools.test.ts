@@ -620,7 +620,7 @@ describe(`exponential_statuses_list`, () => {
   it(`returns contract-ordered rows with per-category positions`, async () => {
     const at = (iso: string) => new Date(iso)
     // Deliberately shuffled: the tool must order by category display order
-    // (started, unstarted, backlog, …), then sortOrder, createdAt, id.
+    // (backlog, unstarted, started, …), then sortOrder, createdAt, id.
     dbRows.current = [
       {
         id: `b`,
@@ -650,19 +650,25 @@ describe(`exponential_statuses_list`, () => {
     const result = await tool(`exponential_statuses_list`)({ teamId: WS })
     expect(parseOk(result)).toEqual([
       {
+        id: `b`,
+        name: `Todo`,
+        category: `unstarted`,
+        position: 1,
+        builtinKey: `todo`,
+      },
+      {
         id: `c`,
         name: `In Progress`,
         category: `started`,
         position: 1,
         builtinKey: `in_progress`,
       },
-      { id: `a`, name: `QA`, category: `started`, position: 2, builtinKey: null },
       {
-        id: `b`,
-        name: `Todo`,
-        category: `unstarted`,
-        position: 1,
-        builtinKey: `todo`,
+        id: `a`,
+        name: `QA`,
+        category: `started`,
+        position: 2,
+        builtinKey: null,
       },
     ])
   })

@@ -31,10 +31,10 @@ impl IssueStatus {
     /// Board display order — mirrors the generated
     /// `ISSUE_STATUS_DISPLAY_ORDER` (locked by test).
     pub const DISPLAY_ORDER: [IssueStatus; 7] = [
+        IssueStatus::Backlog,
+        IssueStatus::Todo,
         IssueStatus::InProgress,
         IssueStatus::InReview,
-        IssueStatus::Todo,
-        IssueStatus::Backlog,
         IssueStatus::Done,
         IssueStatus::Cancelled,
         IssueStatus::Duplicate,

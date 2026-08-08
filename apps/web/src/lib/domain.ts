@@ -18,8 +18,9 @@ export interface IssueOption<TValue extends string> {
 // Option tables — the ONE picker vocabulary (REV2-85): every status/priority
 // menu on every client walks the contract `displayOrder`
 // (packages/domain-contract/contract.json), the same order the board groups
-// use, so picker muscle memory transfers between web, desktop, iOS and
-// Android. Locked against the contract by lib/domain-contract.test.ts.
+// and the statuses settings page use (EXP-448), so picker muscle memory
+// transfers between web, desktop, iOS and Android. Locked against the
+// contract by lib/domain-contract.test.ts.
 //
 // EXP-314: `issueStatusOptions` / `getIssueStatusConfig` are now the ANCHOR
 // FALLBACK layer, not the status vocabulary. Status UI resolves per-team rows
@@ -29,6 +30,18 @@ export interface IssueOption<TValue extends string> {
 // logic (`CODEABLE_STATUSES` and friends). New UI must not group or pick from
 // them directly.
 export const issueStatusOptions = [
+  {
+    value: `backlog`,
+    label: `Backlog`,
+    icon: conceptIcon(`status-backlog`),
+    color: `text-muted-foreground`,
+  },
+  {
+    value: `todo`,
+    label: `Todo`,
+    icon: conceptIcon(`status-todo`),
+    color: `text-foreground`,
+  },
   {
     value: `in_progress`,
     label: `In Progress`,
@@ -40,18 +53,6 @@ export const issueStatusOptions = [
     label: `In Review`,
     icon: conceptIcon(`status-in-review`),
     color: `text-green-500`,
-  },
-  {
-    value: `todo`,
-    label: `Todo`,
-    icon: conceptIcon(`status-todo`),
-    color: `text-foreground`,
-  },
-  {
-    value: `backlog`,
-    label: `Backlog`,
-    icon: conceptIcon(`status-backlog`),
-    color: `text-muted-foreground`,
   },
   {
     value: `done`,

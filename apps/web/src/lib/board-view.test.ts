@@ -138,8 +138,8 @@ describe(`board-view helpers`, () => {
     ]
 
     expect(buildVisibleIssueGroups(issues, [])).toEqual([
-      { status: `todo`, issues: [issues[0]] },
       { status: `backlog`, issues: [issues[2]] },
+      { status: `todo`, issues: [issues[0]] },
       { status: `done`, issues: [issues[1]] },
     ])
 
@@ -354,26 +354,26 @@ describe(`board-view helpers`, () => {
       status: `backlog`,
     })
 
-    // Flattened sequence: [todo-urgent, todo-low, backlog-1] (the unstarted
-    // group precedes backlog in the category display order).
+    // Flattened sequence: [backlog-1, todo-urgent, todo-low] (the backlog
+    // group precedes unstarted in the category display order).
     const groups = rawGroups([backlog, todoLow, todoUrgent])
 
-    expect(findIssuePosition(groups, `todo-urgent`)).toEqual({
+    expect(findIssuePosition(groups, `backlog-1`)).toEqual({
       index: 1,
       total: 3,
       prev: null,
+      next: todoUrgent,
+    })
+    expect(findIssuePosition(groups, `todo-urgent`)).toEqual({
+      index: 2,
+      total: 3,
+      prev: backlog,
       next: todoLow,
     })
     expect(findIssuePosition(groups, `todo-low`)).toEqual({
-      index: 2,
-      total: 3,
-      prev: todoUrgent,
-      next: backlog,
-    })
-    expect(findIssuePosition(groups, `backlog-1`)).toEqual({
       index: 3,
       total: 3,
-      prev: todoLow,
+      prev: todoUrgent,
       next: null,
     })
   })

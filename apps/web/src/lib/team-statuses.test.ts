@@ -7,7 +7,6 @@ import {
   fallbackStatusOptions,
   isFallbackStatusOption,
   resolveIssueStatus,
-  sortStatusesForPicker,
   statusFilterToken,
   statusOptionMatchesToken,
   statusUpdatePayload,
@@ -37,10 +36,12 @@ describe(`buildStatusOptions`, () => {
       row({ id: `progress`, category: `started` }),
     ])
 
+    // EXP-448: the ONE order — the same one the statuses settings page lays
+    // its sections out in, so a list group never contradicts the settings.
     expect(options.map((option) => option.id)).toEqual([
-      `progress`,
-      `todo`,
       `backlog`,
+      `todo`,
+      `progress`,
       `done`,
       `cancelled`,
       `dup`,
@@ -154,12 +155,12 @@ describe(`fallbackStatusOptions`, () => {
     }
   })
 
-  it(`renders the default team in the legacy display order`, () => {
+  it(`renders the default team in the contract display order`, () => {
     expect(defaultStatusOptions().map((option) => option.builtinKey)).toEqual([
+      `backlog`,
+      `todo`,
       `in_progress`,
       `in_review`,
-      `todo`,
-      `backlog`,
       `done`,
       `cancelled`,
       `duplicate`,
@@ -277,9 +278,11 @@ describe(`status write payloads`, () => {
   })
 })
 
-describe(`sortStatusesForPicker`, () => {
-  it(`leads with backlog then todo, unlike the display order`, () => {
-    const options = sortStatusesForPicker(defaultStatusOptions())
+// EXP-448: pickers, list groups and the settings page consume the SAME
+// ordered array — there is no picker-only re-sort left to drift.
+describe(`the single ordered vocabulary`, () => {
+  it(`leads with backlog then todo, in settings-section order`, () => {
+    const options = defaultStatusOptions()
     expect(options.map((option) => option.builtinKey).slice(0, 2)).toEqual([
       `backlog`,
       `todo`,
@@ -295,25 +298,25 @@ describe(`sortStatusesForPicker`, () => {
     ])
   })
 
-  it(`preserves intra-category order, so the started clock glyphs stay put`, () => {
+  it(`keeps the started rows adjacent, so their clock glyphs stay in step`, () => {
     const built = buildStatusOptions([
       row({ id: `backlog`, category: `backlog` }),
+      row({ id: `third`, category: `started`, sortOrder: 3 }),
       row({ id: `first`, category: `started`, sortOrder: 1 }),
       row({ id: `second`, category: `started`, sortOrder: 2 }),
-      row({ id: `third`, category: `started`, sortOrder: 3 }),
     ])
-    const picker = sortStatusesForPicker(built)
 
-    expect(picker.map((option) => option.id)).toEqual([
+    expect(built.map((option) => option.id)).toEqual([
       `backlog`,
       `first`,
       `second`,
       `third`,
     ])
-    // Same option objects, so every glyph is the one buildStatusOptions baked.
-    for (const option of built) {
-      expect(picker).toContain(option)
-    }
+    expect(built.slice(1).map((option) => option.icon)).toEqual([
+      `progress-1-4`,
+      `progress-2-4`,
+      `progress-3-4`,
+    ])
   })
 })
 

@@ -10,7 +10,7 @@ import com.exponential.app.data.db.IssueStatusEntity
 // every client with the same literal name lists).
 //
 //  1. teamStatuses(rows): order by category display order
-//     [started, unstarted, backlog, completed, cancelled, duplicate], then
+//     [backlog, unstarted, started, completed, cancelled, duplicate], then
 //     sort_order asc, then created_at asc, then id. A started row's clock
 //     position is its index among the started rows in THAT order. A row whose
 //     category this client does not know sorts LAST but RENDERS backlog.
@@ -42,24 +42,11 @@ enum class IssueStatusCategory(val wire: String) {
 }
 
 /**
- * Group order for the issue list — locked to
+ * The ONE category order (EXP-448) — issue-list groups, status pickers and the
+ * (web/desktop-owned) statuses settings sections all speak it. Locked to
  * `DomainContract.issueStatusCategoryDisplayOrder`.
  */
 val issueStatusCategoryDisplayOrder: List<IssueStatusCategory> = listOf(
-    IssueStatusCategory.Started,
-    IssueStatusCategory.Unstarted,
-    IssueStatusCategory.Backlog,
-    IssueStatusCategory.Completed,
-    IssueStatusCategory.Cancelled,
-    IssueStatusCategory.Duplicate,
-)
-
-/**
- * Section order for a (web/desktop-owned) statuses management surface — locked
- * to `DomainContract.issueStatusCategorySettingsOrder`. Mobile is render/pick
- * only, but the constant stays in the shared contract mirror.
- */
-val issueStatusCategorySettingsOrder: List<IssueStatusCategory> = listOf(
     IssueStatusCategory.Backlog,
     IssueStatusCategory.Unstarted,
     IssueStatusCategory.Started,

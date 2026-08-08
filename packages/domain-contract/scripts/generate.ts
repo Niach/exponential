@@ -23,7 +23,7 @@ interface Section {
 }
 interface Contract {
   issueStatus: Section
-  issueStatusCategory: Section & { settingsOrder: string[]; startedMax: number }
+  issueStatusCategory: Section & { startedMax: number }
   issueStatusDefaults: {
     key: string
     category: string
@@ -158,7 +158,6 @@ ${swiftStringArray("issueStatusValues", contract.issueStatus.values)}
 ${swiftStringArray("issueStatusDisplayOrder", contract.issueStatus.displayOrder ?? contract.issueStatus.values)}
 ${swiftStringArray("issueStatusCategoryValues", contract.issueStatusCategory.values)}
 ${swiftStringArray("issueStatusCategoryDisplayOrder", contract.issueStatusCategory.displayOrder ?? contract.issueStatusCategory.values)}
-${swiftStringArray("issueStatusCategorySettingsOrder", contract.issueStatusCategory.settingsOrder)}
 ${swiftStringArray("issueStatusDefaultKeys", statusDefaultKeys)}
 ${swiftStringArray("issueStatusDefaultCategories", statusDefaultCategories)}
 ${swiftStringArray("issueStatusDefaultNames", statusDefaultNames)}
@@ -210,7 +209,6 @@ ${kotlinStringArray("issueStatusValues", contract.issueStatus.values)}
 ${kotlinStringArray("issueStatusDisplayOrder", contract.issueStatus.displayOrder ?? contract.issueStatus.values)}
 ${kotlinStringArray("issueStatusCategoryValues", contract.issueStatusCategory.values)}
 ${kotlinStringArray("issueStatusCategoryDisplayOrder", contract.issueStatusCategory.displayOrder ?? contract.issueStatusCategory.values)}
-${kotlinStringArray("issueStatusCategorySettingsOrder", contract.issueStatusCategory.settingsOrder)}
 ${kotlinStringArray("issueStatusDefaultKeys", statusDefaultKeys)}
 ${kotlinStringArray("issueStatusDefaultCategories", statusDefaultCategories)}
 ${kotlinStringArray("issueStatusDefaultNames", statusDefaultNames)}
@@ -264,7 +262,6 @@ ${rustStrSlice("issueStatusValues", contract.issueStatus.values)}
 ${rustStrSlice("issueStatusDisplayOrder", contract.issueStatus.displayOrder ?? contract.issueStatus.values)}
 ${rustStrSlice("issueStatusCategoryValues", contract.issueStatusCategory.values)}
 ${rustStrSlice("issueStatusCategoryDisplayOrder", contract.issueStatusCategory.displayOrder ?? contract.issueStatusCategory.values)}
-${rustStrSlice("issueStatusCategorySettingsOrder", contract.issueStatusCategory.settingsOrder)}
 ${rustStrSlice("issueStatusDefaultKeys", statusDefaultKeys)}
 ${rustStrSlice("issueStatusDefaultCategories", statusDefaultCategories)}
 ${rustStrSlice("issueStatusDefaultNames", statusDefaultNames)}

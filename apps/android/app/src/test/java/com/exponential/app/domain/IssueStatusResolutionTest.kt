@@ -67,14 +67,15 @@ class IssueStatusResolutionTest {
     }
 
     @Test
-    fun categoryOrdersMatchGeneratedContract() {
+    fun categoryOrderMatchesGeneratedContract() {
+        // EXP-448: ONE order — list groups, pickers and settings sections.
         assertEquals(
-            DomainContract.issueStatusCategoryDisplayOrder,
+            listOf("backlog", "unstarted", "started", "completed", "cancelled", "duplicate"),
             issueStatusCategoryDisplayOrder.map { it.wire },
         )
         assertEquals(
-            DomainContract.issueStatusCategorySettingsOrder,
-            issueStatusCategorySettingsOrder.map { it.wire },
+            DomainContract.issueStatusCategoryDisplayOrder,
+            issueStatusCategoryDisplayOrder.map { it.wire },
         )
     }
 
@@ -151,7 +152,7 @@ class IssueStatusResolutionTest {
             row("progress", "started", sortOrder = 1.0),
         )
         assertEquals(
-            listOf("progress", "review", "todo", "backlog", "done", "cancelled", "dup"),
+            listOf("backlog", "todo", "progress", "review", "done", "cancelled", "dup"),
             IssueStatusResolver.teamStatuses(rows).map { it.id },
         )
     }
@@ -215,7 +216,7 @@ class IssueStatusResolutionTest {
             row("backlog", "backlog"),
         )
         assertEquals(
-            listOf("progress", "backlog", "done", "dup", "weird"),
+            listOf("backlog", "progress", "done", "dup", "weird"),
             IssueStatusResolver.teamStatuses(rows).map { it.id },
         )
     }
