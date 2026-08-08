@@ -26,6 +26,15 @@ def asc_api_key
   )
 end
 
+# The demo-account password is NOT in git (public repo). deliver only touches
+# review fields whose file exists, so absent file = ASC keeps its stored value;
+# export ASC_REVIEW_DEMO_PASSWORD to (re)write it as part of a metadata push.
+def materialize_review_demo_password
+  password = ENV["ASC_REVIEW_DEMO_PASSWORD"]
+  return unless password && !password.empty?
+  File.write("metadata/review_information/demo_password.txt", password)
+end
+
 platform :ios do
   desc "Regenerate the Tuist project and build a signed App Store archive (.ipa)."
   lane :build do
@@ -168,6 +177,7 @@ platform :ios do
   desc "Upload listing metadata + screenshots to App Store Connect WITHOUT building."
   desc "Metadata lives in fastlane/metadata/, screenshots in fastlane/screenshots/."
   lane :sync_store do
+    materialize_review_demo_password
     deliver(
       api_key: asc_api_key,
       skip_binary_upload: true,
@@ -185,6 +195,7 @@ platform :ios do
   desc "between releases — `sync_store` would also push fastlane/screenshots/, which is"
   desc "wrong whenever those are known-stale."
   lane :sync_metadata do
+    materialize_review_demo_password
     deliver(
       api_key: asc_api_key,
       skip_binary_upload: true,
@@ -200,6 +211,7 @@ platform :ios do
   desc "Build + upload to App Store Connect (deliver). Does NOT auto-submit for review."
   lane :release do
     build
+    materialize_review_demo_password
     deliver(
       api_key: asc_api_key,
       ipa: IPA_PATH,

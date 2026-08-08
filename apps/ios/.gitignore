@@ -23,6 +23,10 @@ fastlane/test_output
 fastlane/*.p8
 # Review contact phone number stays local-only (deliver reads it; ASC requires it)
 fastlane/metadata/review_information/phone_number.txt
+# Demo-account password stays out of the public repo; lanes write it from
+# ASC_REVIEW_DEMO_PASSWORD when it needs to change, and deliver leaves the
+# ASC-stored value alone when the file is absent
+fastlane/metadata/review_information/demo_password.txt
 .bundle/
 vendor/bundle/
 
