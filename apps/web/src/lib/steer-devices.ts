@@ -1,6 +1,7 @@
 import { contract } from "@exp/domain-contract"
 
 import { parseVersionTuple } from "./client-version"
+import type { AgentLaunchDefaults } from "./coding-launch-prefs"
 
 // The caller's machines as `devices.list` returns them (EXP-403: the durable
 // registry merged with live relay presence) — the launch dialog, hooks, and
@@ -41,6 +42,37 @@ export interface SteerDevice {
   /** EXP-432: set only on teammates' shared rows — the device owner. Absent
    * on the caller's own rows. */
   owner?: { id: string; name: string }
+  /** EXP-437: the machine's per-agent launch defaults from its live
+   * presence — the Start-coding dialog seeds its options from the selected
+   * device. Absent = old desktop build (or offline row); seed statically. */
+  launchDefaults?: DeviceLaunchDefaults
+}
+
+/** EXP-437: a device's launch-defaults advertisement — `agents` keyed by
+ * contract `codingAgent` id, covering only the machine's RUNNABLE agents. */
+export interface DeviceLaunchDefaults {
+  defaultAgent?: string
+  agents?: Record<string, AgentLaunchDefaults>
+}
+
+/** EXP-437: the device's configured default agent, clamped to what it can
+ * actually run — `null` when it advertises none (older build) or the
+ * configured default is not runnable there. */
+export function deviceDefaultAgent(
+  device: SteerDevice | undefined
+): string | null {
+  const candidate = device?.launchDefaults?.defaultAgent
+  if (!candidate) return null
+  return deviceAgentIds(device).includes(candidate) ? candidate : null
+}
+
+/** EXP-437: the device's advertised defaults for one agent — `null` when it
+ * advertises none (the caller seeds statically via `agentSeed(agent, null)`). */
+export function deviceAgentLaunchDefaults(
+  device: SteerDevice | undefined,
+  agent: string
+): AgentLaunchDefaults | null {
+  return device?.launchDefaults?.agents?.[agent] ?? null
 }
 
 /** EXP-432: whether the row is one of the caller's own machines (teammates'

@@ -272,6 +272,34 @@ describe(`devices.list`, () => {
     })
   })
 
+  it(`passes launch defaults through from live presence; offline rows carry none (EXP-437)`, async () => {
+    const launchDefaults = {
+      defaultAgent: `claude`,
+      agents: { claude: { model: `opus`, effort: ``, planMode: true } },
+    }
+    h.state.selectRows = [registryRow()]
+    h.relayGetDevices.mockResolvedValue({
+      devices: [
+        {
+          deviceId: `dev-1`,
+          deviceLabel: `buildbox`,
+          connectedAt: 1,
+          agents: [`claude`],
+          caps: [`actions`],
+          launchDefaults,
+        },
+      ],
+    })
+    const { devices } = await caller.list()
+    expect(devices[0]?.launchDefaults).toEqual(launchDefaults)
+
+    // Offline (relay down): no defaults — you cannot start there anyway.
+    h.state.selectRows = [registryRow()]
+    h.relayGetDevices.mockRejectedValue(new Error(`relay down`))
+    const { devices: offline } = await caller.list()
+    expect(offline[0]?.launchDefaults).toBeUndefined()
+  })
+
   it(`defaults unauthedAgents to empty for offline registry rows`, async () => {
     h.state.selectRows = [registryRow()]
     h.relayGetDevices.mockRejectedValue(new Error(`relay down`))

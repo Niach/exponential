@@ -358,7 +358,7 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
     cx.spawn(async move |cx| {
         let advertisement: coding::AgentAdvertisement = cx
             .background_executor()
-            .spawn(async move { coding::run_doctor(&settings).agent_advertisement() })
+            .spawn(async move { coding::run_doctor(&settings).agent_advertisement(&settings) })
             .await;
         let agents = advertisement.agents.clone();
         // EXP-253/EXP-257: the actions capabilities — advertised when ANY
@@ -442,6 +442,7 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
                 agents: agents.clone(),
                 unauthed_agents: advertisement.unauthed_agents.clone(),
                 caps,
+                launch_defaults: launch_defaults_frame(&advertisement),
             };
             let on_start: steer::control_channel::StartSessionFn = Arc::new(move |start| {
                 let _ = inbox.send(start);
@@ -494,12 +495,46 @@ pub fn restart_control_channel_if_needed(cx: &mut App) {
     let Some(report) = hub.read(cx).doctor.report.clone() else {
         return;
     };
-    let desired = report.agent_advertisement();
+    // EXP-437: the advertisement embeds the per-agent launch defaults, so a
+    // Settings → Agents edit (model/effort/toggles/default agent) re-dials
+    // just like an install/uninstall does — the equality check covers both.
+    let desired = report.agent_advertisement(&hub.read(cx).settings);
     let current = ControlChannels::global_ref(cx)
         .and_then(|channels| channels.read(cx).advertised.get(&account.id).cloned());
     if current.as_ref() != Some(&desired) {
         start_control_channel(&account, cx);
     }
+}
+
+/// EXP-437: the wire form of the doctor advertisement's launch defaults —
+/// `None` when no agent is runnable (nothing to seed remotely). Shared shape
+/// with the CLI daemon's copy in `commands/daemon.rs` (the `coding` and
+/// `steer` crates deliberately don't depend on each other).
+fn launch_defaults_frame(
+    advertisement: &coding::AgentAdvertisement,
+) -> Option<steer::LaunchDefaults> {
+    if advertisement.agents.is_empty() {
+        return None;
+    }
+    Some(steer::LaunchDefaults {
+        default_agent: Some(advertisement.default_agent.clone()),
+        agents: advertisement
+            .launch_defaults
+            .iter()
+            .map(|(agent, defaults)| {
+                (
+                    agent.clone(),
+                    steer::AgentLaunchDefaults {
+                        model: defaults.model.clone(),
+                        effort: defaults.effort.clone(),
+                        ultracode: defaults.ultracode,
+                        plan_mode: defaults.plan_mode,
+                        skip_permissions: defaults.skip_permissions,
+                    },
+                )
+            })
+            .collect(),
+    })
 }
 
 /// Relay `start_session` → the §7 launcher on a shell window. The SAME

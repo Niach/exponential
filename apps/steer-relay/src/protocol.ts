@@ -35,7 +35,35 @@ export const onlineFrame = z.object({
   // web server interprets them. Absent (old desktop) ⇒ the hub defaults to
   // [] and action starts to that device are refused server-side.
   caps: z.array(z.string().min(1).max(32)).max(16).optional(),
+  // EXP-437: the machine's per-agent launch defaults — remote Start-coding
+  // dialogs seed from the selected device. Same dumb-pipe stance: bounded
+  // strings only, vocabulary-free (clients validate against the contract).
+  // Blank model/effort is meaningful ("CLI default"); booleans absent =
+  // false. `.catch(undefined)` so a malformed/oversized blob degrades to
+  // "no defaults" instead of failing the WHOLE online parse (a dropped
+  // online frame reads as an offline machine).
+  launchDefaults: z
+    .object({
+      defaultAgent: z.string().min(1).max(32).optional(),
+      agents: z
+        .record(
+          z.string().min(1).max(32),
+          z.object({
+            model: z.string().max(64).optional(),
+            effort: z.string().max(64).optional(),
+            ultracode: z.boolean().optional(),
+            planMode: z.boolean().optional(),
+            skipPermissions: z.boolean().optional(),
+          })
+        )
+        .refine((agents) => Object.keys(agents).length <= 16)
+        .optional(),
+    })
+    .optional()
+    .catch(undefined),
 })
+
+export type LaunchDefaults = NonNullable<z.infer<typeof onlineFrame>[`launchDefaults`]>
 
 export const helloFrame = z.object({
   t: z.literal(`hello`),

@@ -19,6 +19,7 @@ import {
   getSteerRelayConfig,
   relayGetDevices,
   type SteerDevice,
+  type SteerLaunchDefaults,
 } from "@/lib/steer"
 
 // Mirrors the relay's online-frame bounds (steer-relay protocol.ts): the
@@ -44,6 +45,11 @@ export type DeviceListEntry = {
   // presence only (not persisted: an offline row reads offline regardless).
   unauthedAgents: string[]
   caps: string[]
+  // EXP-437: the machine's per-agent launch defaults — live relay presence
+  // only (never persisted: you can only START on an online device, so the
+  // seed source is exactly as fresh as it needs to be). Absent = old
+  // desktop build; clients seed static contract defaults.
+  launchDefaults?: SteerLaunchDefaults
   online: boolean
   // ISO timestamp of the last register/heartbeat; null for a relay-only
   // device that predates the registry (old desktop build).
@@ -293,6 +299,7 @@ export const devicesRouter = router({
         agents: online?.agents ?? row.agents,
         unauthedAgents: online?.unauthedAgents ?? [],
         caps: online?.caps ?? row.caps,
+        launchDefaults: online?.launchDefaults,
         online: Boolean(online),
         lastSeenAt: row.lastSeenAt.toISOString(),
         registered: true,
@@ -317,6 +324,7 @@ export const devicesRouter = router({
         agents: online?.agents ?? row.agents,
         unauthedAgents: online?.unauthedAgents ?? [],
         caps: online?.caps ?? row.caps,
+        launchDefaults: online?.launchDefaults,
         online: Boolean(online),
         lastSeenAt: row.lastSeenAt.toISOString(),
         registered: true,
@@ -339,6 +347,7 @@ export const devicesRouter = router({
         agents: d.agents ?? [`claude`],
         unauthedAgents: d.unauthedAgents ?? [],
         caps: d.caps ?? [],
+        launchDefaults: d.launchDefaults,
         online: true,
         lastSeenAt: null,
         registered: false,

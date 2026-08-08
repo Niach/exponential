@@ -18,19 +18,20 @@ import { useTeamBoards } from "@/hooks/use-team-data"
 import { trpc } from "@/lib/trpc-client"
 import { missingRequiredInputs, buildInputsPayload } from "@/lib/action-inputs"
 import {
+  agentSeed,
   agentSupportsPlanMode,
   agentSupportsSkipPermissions,
   agentSupportsUltracode,
-  defaultModelFor,
-  readCodingLaunchPrefs,
-  rememberCodingLaunchPrefs,
+  DEFAULT_LAUNCH_AGENT,
   type CodingLaunchPrefs,
 } from "@/lib/coding-launch-prefs"
 import {
   deviceAgentIds,
+  deviceAgentLaunchDefaults,
   deviceCanFixConflicts,
   deviceCanRunActionInputs,
   deviceCanRunActions,
+  deviceDefaultAgent,
   deviceHasRunnableAgent,
   deviceIsOnline,
   type SteerDevice,
@@ -65,15 +66,19 @@ import {
 // shared options cluster, the web twin of the desktop IDE's launcher.
 // Issues tab (EXP-106): a searchable multi-issue picker — 1 checked issue
 // starts a plain single-issue session; 2+ start a BATCH session on one pushed
-// branch. Per-mode defaults track the desktop: while the user hasn't touched a
-// Checkbox / Select, crossing to a batch flips ultracode ON / plan OFF, and
-// dropping back re-seeds the remembered single-issue prefs. Actions tab
-// (EXP-253/EXP-257): a single-select action list (the builtin "Fix merge
-// conflicts" pinned first; "Create action" lives in its own dedicated dialog
-// since EXP-431) plus the action's typed input fields; action runs take the
-// FULL option set on any agent the device advertised. Single-issue and action
-// submits persist the prefs; batch submits don't (batch defaults must not
-// overwrite them).
+// branch. While the user hasn't touched a Checkbox / Select, crossing to a
+// batch flips ultracode ON / plan OFF, and dropping back restores the
+// device's defaults. Actions tab (EXP-253/EXP-257): a single-select action
+// list (the builtin "Fix merge conflicts" pinned first; "Create action"
+// lives in its own dedicated dialog since EXP-431) plus the action's typed
+// input fields; action runs take the FULL option set on any agent the device
+// advertised.
+//
+// EXP-437: the options seed from the SELECTED DEVICE's advertised per-agent
+// launch defaults (that machine's Settings → Agents configuration) — on
+// settle after open, on every device switch, and on agent tab switches. A
+// device that advertises nothing (older desktop build) seeds static contract
+// defaults; nothing is persisted browser-side anymore.
 
 /** The resolved dialog choices sent with `steer.startSession` — the same shape
  * the prefs module persists. */
@@ -165,6 +170,11 @@ export function LaunchDialog({
   // Set once the user overrides any Switch / Select — freezes the per-mode
   // defaults so a later selection-count crossing won't stomp their choice.
   const touchedRef = useRef(false)
+  // EXP-437: the deviceId whose launch defaults last seeded the options —
+  // the 15s devices re-poll must not stomp in-dialog edits, but an actual
+  // device change (explicit switch, or a re-settle after the picked machine
+  // dropped offline) reseeds.
+  const seededDeviceRef = useRef<string | null>(null)
 
   // Actions tab state (EXP-257).
   const [actionSearch, setActionSearch] = useState(``)
@@ -344,20 +354,23 @@ export function LaunchDialog({
     seededRepoActionId.current = null
     setDeviceId(initialDeviceId ?? null)
     touchedRef.current = false
-    const prefs = readCodingLaunchPrefs()
-    setAgent(prefs.agent)
-    setModel(prefs.model)
-    setEffortValue(prefs.effort === `` ? CLI_DEFAULT_EFFORT : prefs.effort)
-    setSkipPermissions(prefs.skipPermissions)
+    // Static contract defaults until a device settles — the device-seed
+    // effect below overlays the selected machine's advertised defaults
+    // (EXP-437; its latch is reset here so a reopen reseeds).
+    seededDeviceRef.current = null
+    const seed = agentSeed(DEFAULT_LAUNCH_AGENT, null)
+    setAgent(DEFAULT_LAUNCH_AGENT)
+    setModel(seed.model)
+    setEffortValue(CLI_DEFAULT_EFFORT)
+    setSkipPermissions(seed.skipPermissions)
     // A pre-checked batch (2+) opens with the batch defaults (ultracode ON /
-    // plan OFF); a single issue opens with the remembered prefs. Both stay
-    // capability-clamped to the remembered agent (EXP-201).
+    // plan OFF).
     if (initial.size >= 2) {
-      setUltracode(agentSupportsUltracode(prefs.agent))
+      setUltracode(agentSupportsUltracode(DEFAULT_LAUNCH_AGENT))
       setPlanMode(false)
     } else {
-      setUltracode(prefs.ultracode && agentSupportsUltracode(prefs.agent))
-      setPlanMode(prefs.planMode && agentSupportsPlanMode(prefs.agent))
+      setUltracode(seed.ultracode)
+      setPlanMode(seed.planMode)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
@@ -424,6 +437,10 @@ export function LaunchDialog({
     touchedRef.current = true
   }
 
+  const device =
+    candidateDevices.find((candidate) => candidate.deviceId === deviceId) ??
+    candidateDevices[0]
+
   const toggleIssue = (id: string) => {
     const next = new Set(selected)
     if (next.has(id)) next.delete(id)
@@ -437,9 +454,10 @@ export function LaunchDialog({
         setUltracode(agentSupportsUltracode(agent))
         setPlanMode(false)
       } else {
-        const prefs = readCodingLaunchPrefs()
-        setUltracode(prefs.ultracode && agentSupportsUltracode(agent))
-        setPlanMode(prefs.planMode && agentSupportsPlanMode(agent))
+        // Back to a single issue: restore the device's defaults (EXP-437).
+        const seed = agentSeed(agent, deviceAgentLaunchDefaults(device, agent))
+        setUltracode(seed.ultracode)
+        setPlanMode(seed.planMode)
       }
     }
   }
@@ -452,22 +470,55 @@ export function LaunchDialog({
     setInputValues({})
   }
 
-  const device =
-    candidateDevices.find((candidate) => candidate.deviceId === deviceId) ??
-    candidateDevices[0]
-
-  // Switching the agent tab re-seeds model/effort to the agent's own
-  // defaults and clamps the capability toggles (EXP-201).
+  // Switching the agent tab re-seeds model/effort/toggles to the SELECTED
+  // DEVICE's defaults for that agent (EXP-437; static when it advertises
+  // none), capability-clamped — the same reseed the desktop dialog does.
   const switchAgent = (next: string) => {
     if (next === agent) return
     markTouched()
     setAgent(next)
-    setModel(defaultModelFor(next))
-    setEffortValue(CLI_DEFAULT_EFFORT)
-    if (!agentSupportsUltracode(next)) setUltracode(false)
-    if (!agentSupportsPlanMode(next)) setPlanMode(false)
-    if (!agentSupportsSkipPermissions(next)) setSkipPermissions(false)
+    const seed = agentSeed(next, deviceAgentLaunchDefaults(device, next))
+    setModel(seed.model)
+    setEffortValue(seed.effort === `` ? CLI_DEFAULT_EFFORT : seed.effort)
+    setSkipPermissions(seed.skipPermissions)
+    // The batch posture survives an agent switch (ultracode ON / plan OFF).
+    if (selected.size >= 2) {
+      setUltracode(agentSupportsUltracode(next))
+      setPlanMode(false)
+    } else {
+      setUltracode(seed.ultracode)
+      setPlanMode(seed.planMode)
+    }
   }
+
+  // EXP-437: seed the launch options from the selected device's advertised
+  // per-agent defaults — once a device settles after open, and again on
+  // every actual device change (the ref latch skips same-device re-polls).
+  useEffect(() => {
+    if (!open || !device) return
+    if (seededDeviceRef.current === device.deviceId) return
+    seededDeviceRef.current = device.deviceId
+    const available = deviceAgentIds(device)
+    const next =
+      deviceDefaultAgent(device) ??
+      (available.includes(agent)
+        ? agent
+        : (available[0] ?? DEFAULT_LAUNCH_AGENT))
+    const seed = agentSeed(next, deviceAgentLaunchDefaults(device, next))
+    setAgent(next)
+    setModel(seed.model)
+    setEffortValue(seed.effort === `` ? CLI_DEFAULT_EFFORT : seed.effort)
+    setSkipPermissions(seed.skipPermissions)
+    // The batch override still wins over the device defaults (mirrors open).
+    if (selected.size >= 2) {
+      setUltracode(agentSupportsUltracode(next))
+      setPlanMode(false)
+    } else {
+      setUltracode(seed.ultracode)
+      setPlanMode(seed.planMode)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, device?.deviceId])
 
   // EXP-201: only agents the chosen device advertised are offerable; a
   // device change re-clamps a now-unavailable selection.
@@ -505,15 +556,10 @@ export function LaunchDialog({
       skipPermissions: skipPermissions && agentSupportsSkipPermissions(agent),
     }
     if (tab === `issues`) {
-      // Persist prefs only for a single-issue launch — batch defaults
-      // (ultracode ON / plan OFF) must not overwrite the remembered
-      // single-issue prefs.
-      if (count === 1) rememberCodingLaunchPrefs(options)
       onStartIssues(device, options, [...selected])
       return
     }
     if (!selectedAction) return
-    rememberCodingLaunchPrefs(options)
     onRunAction(
       device,
       {

@@ -81,6 +81,10 @@ pub struct DeviceIdentity {
     /// `action-inputs` for builtin/inputs-carrying starts. Empty = omit the
     /// field.
     pub caps: Vec<String>,
+    /// EXP-437: this machine's per-agent launch defaults — remote
+    /// Start-coding dialogs seed from the selected device. `None` = omit
+    /// (no runnable agent; clients fall back to static defaults).
+    pub launch_defaults: Option<crate::frames::LaunchDefaults>,
 }
 
 /// The two server calls the channel needs, injectable for tests. Blocking
@@ -446,6 +450,7 @@ async fn connect_and_listen(
         unauthed_agents: (!device.unauthed_agents.is_empty())
             .then_some(device.unauthed_agents.as_slice()),
         caps: (!device.caps.is_empty()).then_some(device.caps.as_slice()),
+        launch_defaults: device.launch_defaults.as_ref(),
     }
     .to_json();
     if let Err(err) = ws.send(Message::Text(online)).await {

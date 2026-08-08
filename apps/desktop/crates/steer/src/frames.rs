@@ -69,6 +69,12 @@ pub enum ClientFrame<'a> {
         /// them (absent = no action launch path).
         #[serde(skip_serializing_if = "Option::is_none")]
         caps: Option<&'a [String]>,
+        /// EXP-437: this machine's per-agent launch defaults — remote
+        /// Start-coding dialogs seed from the selected device. Absent (old
+        /// desktop, or no runnable agent) = clients fall back to static
+        /// contract defaults. Old relays strip the field (non-strict zod).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        launch_defaults: Option<&'a LaunchDefaults>,
     },
     #[serde(rename_all = "camelCase")]
     Hello {
@@ -106,6 +112,38 @@ pub enum ClientFrame<'a> {
     /// tell the activity audience to clear its feed. Sent right before a
     /// full-history re-publish, so a reconnect never doubles the feed.
     ActivityReset,
+}
+
+/// EXP-437: the machine's per-agent launch defaults on the `online` frame —
+/// what remote Start-coding dialogs pre-fill when this device is selected.
+/// Serialize-only; wire mirror of `protocol.ts` `launchDefaults`.
+#[derive(Clone, Debug, Default, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LaunchDefaults {
+    /// `settings.default_agent` id — remote pickers preselect it (clamped to
+    /// the advertised runnable set client-side).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_agent: Option<String>,
+    /// One entry per RUNNABLE agent id, capability-masked device-side.
+    /// `BTreeMap` keeps serialization deterministic for the byte-locked
+    /// vectors below (claude < codex < pi — contract order).
+    pub agents: std::collections::BTreeMap<String, AgentLaunchDefaults>,
+}
+
+/// One agent's defaults within [`LaunchDefaults`]. Blank `model`/`effort` =
+/// "CLI default / omit the flag" — meaningful, so both always serialize;
+/// false booleans are skipped (absent = false on every reader).
+#[derive(Clone, Debug, Default, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentLaunchDefaults {
+    pub model: String,
+    pub effort: String,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub ultracode: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub plan_mode: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub skip_permissions: bool,
 }
 
 /// A single public activity event (masterplan §P7) — the desktop emits these
@@ -458,6 +496,7 @@ mod tests {
                 agents: None,
                 unauthed_agents: None,
                 caps: None,
+                launch_defaults: None,
             }
             .to_json(),
             r#"{"t":"online","deviceId":"dev-1","deviceLabel":"MacBook"}"#
@@ -469,6 +508,7 @@ mod tests {
                 agents: None,
                 unauthed_agents: None,
                 caps: None,
+                launch_defaults: None,
             }
             .to_json(),
             r#"{"t":"online","deviceId":"dev-1"}"#
@@ -482,6 +522,7 @@ mod tests {
                 agents: Some(&agents),
                 unauthed_agents: None,
                 caps: None,
+                launch_defaults: None,
             }
             .to_json(),
             r#"{"t":"online","deviceId":"dev-1","deviceLabel":"MacBook","agents":["claude","pi"]}"#
@@ -495,6 +536,7 @@ mod tests {
                 agents: Some(&agents),
                 unauthed_agents: None,
                 caps: Some(&caps),
+                launch_defaults: None,
             }
             .to_json(),
             r#"{"t":"online","deviceId":"dev-1","deviceLabel":"MacBook","agents":["claude","pi"],"caps":["actions"]}"#
@@ -511,9 +553,57 @@ mod tests {
                 agents: Some(&none),
                 unauthed_agents: Some(&unauthed),
                 caps: None,
+                launch_defaults: None,
             }
             .to_json(),
             r#"{"t":"online","deviceId":"dev-1","deviceLabel":"MacBook","agents":[],"unauthedAgents":["claude"]}"#
+        );
+    }
+
+    /// EXP-437: the launch-defaults advertisement — camelCase keys, blank
+    /// model/effort ALWAYS present (blank is meaningful), false booleans
+    /// skipped, BTreeMap agent order (claude < codex), defaultAgent first.
+    #[test]
+    fn online_launch_defaults_serialize_byte_exact() {
+        let agents = vec!["claude".to_string(), "codex".to_string()];
+        let defaults = LaunchDefaults {
+            default_agent: Some("claude".to_string()),
+            agents: [
+                (
+                    "claude".to_string(),
+                    AgentLaunchDefaults {
+                        model: "fable".to_string(),
+                        effort: "".to_string(),
+                        ultracode: false,
+                        plan_mode: true,
+                        skip_permissions: false,
+                    },
+                ),
+                (
+                    "codex".to_string(),
+                    AgentLaunchDefaults {
+                        model: "".to_string(),
+                        effort: "high".to_string(),
+                        ultracode: false,
+                        plan_mode: false,
+                        skip_permissions: true,
+                    },
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        };
+        assert_eq!(
+            ClientFrame::Online {
+                device_id: "dev-1",
+                device_label: Some("MacBook"),
+                agents: Some(&agents),
+                unauthed_agents: None,
+                caps: None,
+                launch_defaults: Some(&defaults),
+            }
+            .to_json(),
+            r#"{"t":"online","deviceId":"dev-1","deviceLabel":"MacBook","agents":["claude","codex"],"launchDefaults":{"defaultAgent":"claude","agents":{"claude":{"model":"fable","effort":"","planMode":true},"codex":{"model":"","effort":"high","skipPermissions":true}}}}"#
         );
     }
 
@@ -935,6 +1025,7 @@ mod tests {
                     agents: None,
                     unauthed_agents: None,
                     caps: None,
+                    launch_defaults: None,
                 },
                 "online",
             ),

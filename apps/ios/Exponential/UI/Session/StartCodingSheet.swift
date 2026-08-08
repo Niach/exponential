@@ -35,12 +35,14 @@ import SwiftUI
 // machine reporting an explicitly EMPTY list can run nothing and drops out of
 // the device pool exactly like an offline one.
 //
-// Last-used Agent/Model/Effort persist on every submit; ultracode/plan-mode
-// persist ONLY on single-issue claude submits (batch seeding — flipping
-// ultracode on / plan off when a 2nd issue is checked — must not pollute the
-// stored single-issue defaults). Stored values are validated against the
-// contract on appear so a stale entry can never send a value the server
-// rejects.
+// EXP-437: the sheet remembers NOTHING locally. The run lands on the selected
+// MACHINE, so that machine's advertised per-agent defaults (`launchDefaults`
+// on the presence row — default agent, model, effort, toggles) are the only
+// seed source: they apply on open, on every device switch, and on every agent
+// switch. A desktop that advertises none (an older build) falls back to the
+// static contract defaults, and every advertised value is validated against
+// today's contract lists + the agent's capabilities before it can be shown or
+// sent. The 2+-issue batch override (ultracode on / plan off) still runs last.
 
 struct StartCodingSheet: View {
     /// One eligible issue offered in the picker. `repositoryId` drives the
@@ -147,15 +149,6 @@ struct StartCodingSheet: View {
     /// Above this we warn about token cost (still allowed up to the hard cap).
     private static let costWarnThreshold = 6
 
-    private enum Keys {
-        static let agent = "codingStart.agent"
-        static let model = "codingStart.model"
-        static let effort = "codingStart.effort"
-        static let ultracode = "codingStart.ultracode"
-        static let planMode = "codingStart.planMode"
-        static let skipPermissions = "codingStart.skipPermissions"
-    }
-
     @State private var subjectTab: SubjectTab
     @State private var checked: Set<String>
     @State private var searchText = ""
@@ -175,19 +168,20 @@ struct StartCodingSheet: View {
     /// `""` = unset). Reset on action switch.
     @State private var inputValues: [String: String] = [:]
 
-    // Seeded from UserDefaults in onAppear (was @AppStorage). Placeholder
-    // defaults render for one frame before seed() resolves them.
+    // Seeded from the selected machine's advertised defaults in onAppear
+    // (EXP-437). Placeholder values render for one frame before seed() resolves
+    // them.
     @State private var agent = "claude"
     @State private var model = ""
     @State private var effort = Self.cliDefault
     @State private var ultracode = false
     @State private var planMode = false
     @State private var skipPermissions = false
-    // The persisted single-issue values, remembered so a batch→single toggle
-    // can restore them (the auto batch defaults never touch UserDefaults).
-    @State private var storedUltracode = false
-    @State private var storedPlanMode = false
     @State private var seeded = false
+    /// The machine the options currently reflect (EXP-437). Picking a DIFFERENT
+    /// one reseeds from its defaults; anything that re-resolves to the same
+    /// machine (a device re-poll, a reselect) must leave the user's edits alone.
+    @State private var lastSeededDeviceId: String?
     // Set by any manual Model/Effort/ultracode/plan interaction — once true the
     // auto batch-mode defaults stop overriding the user's explicit choices.
     @State private var touchedToggles = false
@@ -384,16 +378,29 @@ struct StartCodingSheet: View {
                 ultracode = true
                 planMode = false
             } else if oldCount >= 2, newCount < 2 {
-                ultracode = storedUltracode
-                planMode = storedPlanMode
+                // Back to single: restore what the MACHINE advertises for the
+                // agent (EXP-437), which is off unless it says otherwise.
+                let advertised = device?.agentDefaults(for: agent)
+                ultracode = advertised?.ultracode ?? false
+                planMode = advertised?.planMode ?? false
             }
         }
         // The candidate device pool changes with the tab (Actions filters to
         // capable desktops) and with the selection (inputs-carrying/builtin
         // actions additionally need `action-inputs`) — the resolved device may
-        // stop offering the chosen agent.
-        .onChange(of: subjectTab) { _, _ in clampAgentToDevice() }
-        .onChange(of: selectedActionId) { _, _ in clampAgentToDevice() }
+        // stop offering the chosen agent, or be a different machine entirely
+        // (which brings its own defaults, EXP-437).
+        .onChange(of: subjectTab) { _, _ in reconcileResolvedDevice() }
+        .onChange(of: selectedActionId) { _, _ in reconcileResolvedDevice() }
+    }
+
+    /// After anything that can implicitly re-resolve `device` (tab or action
+    /// switch tightening the candidate pool): clamp the agent, and when the
+    /// pool settled on a DIFFERENT machine, reseed from its defaults exactly
+    /// like an explicit pick would (EXP-437).
+    private func reconcileResolvedDevice() {
+        clampAgentToDevice()
+        if device?.deviceId != lastSeededDeviceId { applyDeviceDefaults() }
     }
 
     // MARK: - Issue picker
@@ -1037,9 +1044,13 @@ struct StartCodingSheet: View {
         Binding(
             get: { device?.deviceId ?? "" },
             set: {
+                let switched = $0 != lastSeededDeviceId
                 deviceId = $0
                 // The newly selected desktop may not run the chosen agent.
                 clampAgentToDevice()
+                // A DIFFERENT machine brings its own coding defaults (EXP-437);
+                // reselecting the current one keeps the user's edits.
+                if switched { applyDeviceDefaults() }
             }
         )
     }
@@ -1083,16 +1094,22 @@ struct StartCodingSheet: View {
         return ordered.isEmpty ? ["claude"] : ordered
     }
 
+    private var modelValues: [String] { Self.modelValues(for: agent) }
+
+    private var effortValues: [String] { Self.effortValues(for: agent) }
+
     /// Claude's model is explicit-always; codex/pi offer a "CLI default" blank.
-    private var modelValues: [String] {
+    /// Parameterized because the seed validates an advertised value against the
+    /// agent it belongs to, which isn't always the selected one yet (EXP-437).
+    private static func modelValues(for agent: String) -> [String] {
         switch agent {
-        case "codex": [Self.cliDefault] + DomainContract.codexModelValues
-        case "pi": [Self.cliDefault] + DomainContract.piModelValues
+        case "codex": [cliDefault] + DomainContract.codexModelValues
+        case "pi": [cliDefault] + DomainContract.piModelValues
         default: DomainContract.codingModelValues
         }
     }
 
-    private var effortValues: [String] {
+    private static func effortValues(for agent: String) -> [String] {
         switch agent {
         case "codex": DomainContract.codexEffortValues
         case "pi": DomainContract.piThinkingValues
@@ -1112,14 +1129,13 @@ struct StartCodingSheet: View {
         agent == "claude" ? (DomainContract.codingModelValues.first ?? "") : cliDefault
     }
 
-    /// Switch agent: model/effort reset to the agent's defaults and the
-    /// toggles clamp to what it supports.
+    /// Switch agent: model/effort/toggles reseed from the machine's defaults
+    /// for the NEW agent (EXP-437 — they are per-agent), falling back to the
+    /// agent's static defaults, then clamp to what it supports.
     private func selectAgent(_ value: String) {
         guard value != agent else { return }
         agent = value
-        model = Self.defaultModel(for: value)
-        effort = Self.cliDefault
-        clampToggles()
+        applyAgentDefaults(for: value)
     }
 
     private func clampToggles() {
@@ -1143,22 +1159,60 @@ struct StartCodingSheet: View {
     private func seed() {
         guard !seeded else { return }
         seeded = true
-        let defaults = UserDefaults.standard
-        agent = defaults.string(forKey: Keys.agent) ?? "claude"
-        model = defaults.string(forKey: Keys.model) ?? ""
-        effort = defaults.string(forKey: Keys.effort) ?? Self.cliDefault
-        storedUltracode = defaults.bool(forKey: Keys.ultracode)
-        storedPlanMode = defaults.bool(forKey: Keys.planMode)
-        ultracode = storedUltracode
-        planMode = storedPlanMode
-        skipPermissions = defaults.bool(forKey: Keys.skipPermissions)
-        sanitizeStoredValues()
+        applyDeviceDefaults()
         // Opening already in batch (2+ in-pool preselected) applies the batch
-        // defaults (claude-only toggles).
+        // defaults (claude-only toggles) — LAST, so they win over the machine's.
         if agent == "claude", effectiveChecked.count >= 2 {
             ultracode = true
             planMode = false
         }
+    }
+
+    /// Reseed agent + every option from the resolved machine's advertised
+    /// defaults (EXP-437). The machine is the only seed source — nothing is
+    /// remembered locally — so this runs on open and on every device switch.
+    private func applyDeviceDefaults() {
+        if let advertised = device?.defaultLaunchAgent {
+            agent = advertised
+        } else if !availableAgents.contains(agent) {
+            // Nothing advertised: keep the current agent when the machine can
+            // run it, else fall back exactly like `clampAgentToDevice`.
+            agent = availableAgents.first ?? "claude"
+        }
+        applyAgentDefaults(for: agent)
+        lastSeededDeviceId = device?.deviceId
+    }
+
+    /// The per-agent half: reset to [value]'s static defaults, then overlay what
+    /// the machine advertises FOR THAT AGENT. An advertised value outside
+    /// today's contract lists is dropped rather than shown or sent (a desktop of
+    /// another vintage must never push a value the server rejects), and the
+    /// toggles clamp to the agent's capabilities.
+    private func applyAgentDefaults(for value: String) {
+        let advertised = device?.agentDefaults(for: value)
+        model = Self.seedModel(advertised?.model, for: value)
+        effort = Self.seedEffort(advertised?.effort, for: value)
+        ultracode = advertised?.ultracode ?? false
+        planMode = advertised?.planMode ?? false
+        skipPermissions = advertised?.skipPermissions ?? false
+        clampToggles()
+    }
+
+    /// An advertised model, validated against the agent's contract list. Blank
+    /// is the desktop's "CLI default", which for codex/pi IS the static default
+    /// and for claude (explicit-always) means falling back to its first model.
+    private static func seedModel(_ value: String?, for agent: String) -> String {
+        guard let value, !value.isEmpty, modelValues(for: agent).contains(value) else {
+            return defaultModel(for: agent)
+        }
+        return value
+    }
+
+    /// An advertised effort/reasoning/thinking value; blank or unknown = the
+    /// "CLI default" row (omit the flag).
+    private static func seedEffort(_ value: String?, for agent: String) -> String {
+        guard let value, effortValues(for: agent).contains(value) else { return cliDefault }
+        return value
     }
 
     /// The chosen options in wire form — shared by both launch subjects.
@@ -1176,29 +1230,12 @@ struct StartCodingSheet: View {
         )
     }
 
-    private func persistOptionPrefs(persistClaudeToggles: Bool) {
-        let defaults = UserDefaults.standard
-        defaults.set(agent, forKey: Keys.agent)
-        defaults.set(model, forKey: Keys.model)
-        defaults.set(effort, forKey: Keys.effort)
-        // Only single-issue claude submits (and action runs — never batch)
-        // persist ultracode/plan: batch seeding must not overwrite the stored
-        // single-issue defaults.
-        if agent == "claude", persistClaudeToggles {
-            defaults.set(ultracode, forKey: Keys.ultracode)
-            defaults.set(planMode, forKey: Keys.planMode)
-        }
-        // pi hides the toggle (clamped false) — don't stomp the stored value.
-        if agent != "pi" {
-            defaults.set(skipPermissions, forKey: Keys.skipPermissions)
-        }
-    }
-
     private func submit() {
         guard let device, !orderedCheckedIds.isEmpty else { return }
+        // Snapshot before dismissing — the payload must not depend on what the
+        // teardown does to the sheet's state.
         let ids = orderedCheckedIds
         let options = buildOptions()
-        persistOptionPrefs(persistClaudeToggles: ids.count == 1)
         dismiss()
         onStart(device, ids, options)
     }
@@ -1209,24 +1246,8 @@ struct StartCodingSheet: View {
         // Values in wire form: text trimmed, blank optionals dropped (a
         // required blank can't get here — `canRunAction` gates it).
         let values = ActionInputValues.wireValues(selectedActionInputs, values: inputValues)
-        persistOptionPrefs(persistClaudeToggles: true)
         dismiss()
         onRunAction(device, action, options, values)
-    }
-
-    /// An unset model or a stored value from an older build outside today's
-    /// contract lists falls back to the defaults instead of reaching the wire.
-    private func sanitizeStoredValues() {
-        if !availableAgents.contains(agent) {
-            agent = availableAgents.first ?? "claude"
-        }
-        if !modelValues.contains(model) {
-            model = Self.defaultModel(for: agent)
-        }
-        if effort != Self.cliDefault, !effortValues.contains(effort) {
-            effort = Self.cliDefault
-        }
-        clampToggles()
     }
 
     private static func agentLabel(_ value: String) -> String {

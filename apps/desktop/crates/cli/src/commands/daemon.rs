@@ -380,7 +380,37 @@ fn run_daemon(args: &[String]) -> CommandResult {
 
 fn probe_agents(ctx: &Ctx) -> coding::AgentAdvertisement {
     let settings = coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir));
-    coding::run_doctor(&settings).agent_advertisement()
+    coding::run_doctor(&settings).agent_advertisement(&settings)
+}
+
+/// EXP-437: the wire form of the doctor advertisement's launch defaults —
+/// `None` when no agent is runnable. Twin of `steer_wiring`'s copy (the
+/// `coding` and `steer` crates deliberately don't depend on each other).
+fn launch_defaults_frame(
+    advertisement: &coding::AgentAdvertisement,
+) -> Option<steer::LaunchDefaults> {
+    if advertisement.agents.is_empty() {
+        return None;
+    }
+    Some(steer::LaunchDefaults {
+        default_agent: Some(advertisement.default_agent.clone()),
+        agents: advertisement
+            .launch_defaults
+            .iter()
+            .map(|(agent, defaults)| {
+                (
+                    agent.clone(),
+                    steer::AgentLaunchDefaults {
+                        model: defaults.model.clone(),
+                        effort: defaults.effort.clone(),
+                        ultracode: defaults.ultracode,
+                        plan_mode: defaults.plan_mode,
+                        skip_permissions: defaults.skip_permissions,
+                    },
+                )
+            })
+            .collect(),
+    })
 }
 
 /// What a doctor re-probe should do to the live advertisement (EXP-414).
@@ -477,6 +507,7 @@ fn dial_control(
         agents: advertised.agents.clone(),
         unauthed_agents: advertised.unauthed_agents.clone(),
         caps,
+        launch_defaults: launch_defaults_frame(advertised),
     };
     let inbox = inbox.clone();
     let on_start: StartSessionFn = Arc::new(move |start| {
@@ -964,6 +995,11 @@ mod tests {
         coding::AgentAdvertisement {
             agents: agents.iter().map(|agent| agent.to_string()).collect(),
             unauthed_agents: Vec::new(),
+            default_agent: "claude".to_string(),
+            launch_defaults: agents
+                .iter()
+                .map(|agent| (agent.to_string(), coding::AgentLaunchDefaults::default()))
+                .collect(),
         }
     }
 
@@ -1022,6 +1058,35 @@ mod tests {
             advert_transition(&current, &wobble, &mut pending),
             AdvertStep::AwaitConfirmation
         );
+    }
+
+    /// EXP-437: a defaults-only settings edit (same agent sets, different
+    /// model/toggles) is a real advertisement change — it walks the same
+    /// AwaitConfirmation → Apply damping as an install/uninstall.
+    #[test]
+    fn a_defaults_only_change_confirms_and_applies() {
+        let current = advert(&["claude"]);
+        let mut observed = advert(&["claude"]);
+        observed
+            .launch_defaults
+            .insert(
+                "claude".to_string(),
+                coding::AgentLaunchDefaults {
+                    model: "opus".to_string(),
+                    plan_mode: true,
+                    ..coding::AgentLaunchDefaults::default()
+                },
+            );
+        let mut pending = None;
+        assert_eq!(
+            advert_transition(&current, &observed, &mut pending),
+            AdvertStep::AwaitConfirmation
+        );
+        assert_eq!(
+            advert_transition(&current, &observed, &mut pending),
+            AdvertStep::Apply
+        );
+        assert!(pending.is_none());
     }
 
     #[test]

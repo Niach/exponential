@@ -320,7 +320,19 @@ describe(`steer relay end-to-end`, () => {
       ticket({ role: `control`, sub: `owner-1`, deviceLabel: `Test Box` })
     )
     const desktopIn = collector(desktop)
-    desktop.send(JSON.stringify({ t: `online`, deviceId: `dev-9`, deviceLabel: `Test Box` }))
+    // EXP-437: the launch-defaults advertisement rides the same online frame.
+    const launchDefaults = {
+      defaultAgent: `claude`,
+      agents: { claude: { model: `fable`, effort: ``, planMode: true } },
+    }
+    desktop.send(
+      JSON.stringify({
+        t: `online`,
+        deviceId: `dev-9`,
+        deviceLabel: `Test Box`,
+        launchDefaults,
+      })
+    )
 
     // Presence shows up on the admin endpoint (poll until registered).
     let devices: { deviceId: string }[] = []
@@ -331,7 +343,7 @@ describe(`steer relay end-to-end`, () => {
       devices = ((await res.json()) as { devices: { deviceId: string }[] }).devices
       if (devices.length === 0) await new Promise((r) => setTimeout(r, 25))
     }
-    expect(devices).toMatchObject([{ deviceId: `dev-9` }])
+    expect(devices).toMatchObject([{ deviceId: `dev-9`, launchDefaults }])
 
     const start = await fetch(`${base}/start`, {
       method: `POST`,

@@ -414,6 +414,7 @@ fn full_protocol_flow_against_the_real_relay() {
             agents: vec![],
             unauthed_agents: vec![],
             caps: vec![],
+            launch_defaults: None,
             device_id: "device-int-1".to_string(),
             device_label: "IntTestBox".to_string(),
         },
