@@ -460,8 +460,7 @@ export function CreateIssueDialog({
         return
       }
 
-      resetFields()
-      onOpenChange(false)
+      handleClose()
     } catch (error) {
       setAttachmentStatus(
         error instanceof Error ? error.message : `Failed to create issue`
@@ -491,10 +490,12 @@ export function CreateIssueDialog({
     boards.length > 1 ? (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="xs"
             disabled={dialogDisabled}
-            className="flex items-center gap-1.5 rounded-md bg-accent/50 px-2 py-0.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:pointer-events-none"
+            className="h-auto gap-1.5 rounded-md bg-accent/50 px-2 py-0.5 text-xs font-medium text-foreground transition-colors hover:bg-accent has-[>svg]:px-2"
           >
             <BoardGlyph
               board={selectedBoard ?? { color: boardColor }}
@@ -502,7 +503,7 @@ export function CreateIssueDialog({
             />
             {displayPrefix}
             <ChevronDown className="size-3 text-muted-foreground" />
-          </button>
+          </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-56">
           {boards.map((board) => (

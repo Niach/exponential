@@ -15,6 +15,7 @@ const mockState = vi.hoisted(() => ({
   attachmentFiles: [] as File[],
   // EXP-297: non-image files queued through the rail's second (file) button.
   draftFiles: [] as File[],
+  boards: [] as Array<Record<string, unknown>>,
   createMutate: vi.fn(),
   updateMutate: vi.fn(),
 }))
@@ -38,9 +39,19 @@ vi.mock(`@/lib/trpc-client`, () => ({
   },
 }))
 
+vi.mock(`@tanstack/react-db`, async (importOriginal) => {
+  const actual = (await importOriginal()) as Record<string, unknown>
+
+  return {
+    ...actual,
+    useLiveQuery: () => ({ data: mockState.boards }),
+  }
+})
+
 vi.mock(`@/components/issue-editor/dialog-shell`, () => ({
   IssueEditorDialogShell: forwardRef(function MockIssueEditorDialogShell(
     {
+      boardPicker,
       description,
       disabled,
       editorRef,
@@ -53,6 +64,7 @@ vi.mock(`@/components/issue-editor/dialog-shell`, () => ({
       onTitleChange,
       title,
     }: {
+      boardPicker?: ReactNode
       description: string
       disabled?: boolean
       editorRef?: Ref<{
@@ -100,6 +112,7 @@ vi.mock(`@/components/issue-editor/dialog-shell`, () => ({
 
     return (
       <div data-testid="issue-editor-create">
+        {boardPicker}
         <form {...formProps}>
           <input
             aria-label="Issue title"
@@ -166,6 +179,7 @@ describe(`CreateIssueDialog`, () => {
   beforeEach(() => {
     mockState.attachmentFiles = []
     mockState.draftFiles = []
+    mockState.boards = []
     mockState.createMutate.mockReset()
     mockState.updateMutate.mockReset()
     onOpenChange.mockReset()
@@ -421,6 +435,80 @@ describe(`CreateIssueDialog`, () => {
     expect(
       (screen.getByLabelText(`Issue title`) as HTMLInputElement).value
     ).toBe(``)
+  })
+
+  // EXP-449: "Follow the caller's board again on the next open" — a successful
+  // create closes the dialog, so the pick must not survive into the next one.
+  it(`clears the picked board after a successful create`, async () => {
+    mockState.boards = [
+      {
+        id: `board-1`,
+        teamId: `team-1`,
+        name: `App`,
+        prefix: `APP`,
+        color: `#6366f1`,
+      },
+      {
+        id: `board-2`,
+        teamId: `team-1`,
+        name: `Web`,
+        prefix: `WEB`,
+        color: `#10b981`,
+      },
+    ]
+
+    mockState.createMutate.mockResolvedValue({
+      issue: {
+        id: `issue-1`,
+        identifier: `WEB-1`,
+      },
+    })
+
+    render(
+      <CreateIssueDialog
+        open
+        onOpenChange={onOpenChange}
+        boardColor="#6366f1"
+        boardId="board-1"
+        boardPrefix="APP"
+        users={[]}
+        teamId="team-1"
+      />
+    )
+
+    fireEvent.keyDown(screen.getByRole(`button`, { name: /APP/ }), {
+      key: `Enter`,
+    })
+    fireEvent.click(await screen.findByText(`Web`))
+
+    await waitFor(() => {
+      expect(screen.getByRole(`button`, { name: /WEB/ })).toBeTruthy()
+    })
+
+    fireEvent.change(screen.getByLabelText(`Issue title`), {
+      target: { value: `Filed elsewhere` },
+    })
+    fireEvent.click(screen.getByRole(`button`, { name: `Create issue` }))
+
+    await waitFor(() => {
+      expect(mockState.createMutate).toHaveBeenCalledTimes(1)
+    })
+
+    expect(mockState.createMutate).toHaveBeenCalledWith({
+      boardId: `board-2`,
+      title: `Filed elsewhere`,
+      status: `backlog`,
+      priority: `none`,
+      assigneeId: undefined,
+      description: undefined,
+      dueDate: undefined,
+      labelIds: undefined,
+    })
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+
+    await waitFor(() => {
+      expect(screen.getByRole(`button`, { name: /APP/ })).toBeTruthy()
+    })
   })
 
   it(`dismisses immediately when the draft is empty`, () => {
