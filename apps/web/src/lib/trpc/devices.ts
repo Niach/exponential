@@ -15,6 +15,7 @@ import { router, authedProcedure } from "@/lib/trpc"
 import { devices, teamMembers, users } from "@/db/schema"
 import { assertTeamMember } from "@/lib/team-membership"
 import { versionPayload } from "@/lib/client-version"
+import { endForeignHostedSessions } from "@/lib/coding-session-kill"
 import {
   getSteerRelayConfig,
   relayGetDevices,
@@ -385,7 +386,11 @@ export const devicesRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const [row] = await ctx.db
-        .select({ id: devices.id, kind: devices.kind })
+        .select({
+          id: devices.id,
+          kind: devices.kind,
+          sharedTeamId: devices.sharedTeamId,
+        })
         .from(devices)
         .where(
           and(
@@ -410,6 +415,15 @@ export const devicesRouter = router({
         .update(devices)
         .set({ sharedTeamId: input.teamId, updatedAt: new Date() })
         .where(eq(devices.id, row.id))
+      // EXP-445: withdrawing the share must end the runs it was the consent
+      // for — otherwise a teammate's agent keeps working on this machine with
+      // no client able to reach it. Ordered AFTER the column write on purpose:
+      // once shared_team_id has moved, resolveStartAttribution refuses new
+      // foreign attributions, so nothing can slip in behind the fan-out.
+      // First share (null → team) and a same-team re-share end nothing.
+      if (row.sharedTeamId !== null && row.sharedTeamId !== input.teamId) {
+        await endForeignHostedSessions(ctx.session.user.id, row.sharedTeamId)
+      }
       return { ok: true }
     }),
 

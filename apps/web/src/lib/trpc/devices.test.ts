@@ -65,6 +65,7 @@ const h = vi.hoisted(() => {
     getSteerRelayConfig: vi.fn(),
     relayGetDevices: vi.fn(),
     assertTeamMember: vi.fn(),
+    endForeignHostedSessions: vi.fn(async () => [] as string[]),
   }
 })
 
@@ -76,6 +77,9 @@ vi.mock(`@/lib/steer`, () => ({
 }))
 vi.mock(`@/lib/team-membership`, () => ({
   assertTeamMember: h.assertTeamMember,
+}))
+vi.mock(`@/lib/coding-session-kill`, () => ({
+  endForeignHostedSessions: h.endForeignHostedSessions,
 }))
 vi.mock(`@/lib/client-version`, () => ({
   versionPayload: () => ({
@@ -113,6 +117,11 @@ const registryRow = (over: Record<string, unknown> = {}) => ({
   ...over,
 })
 
+// What setShared's ownership probe selects (id, kind, shared_team_id).
+const sharedProbe = (sharedTeamId: string | null) => [
+  [{ id: `row-1`, kind: `server`, sharedTeamId }],
+]
+
 beforeEach(() => {
   vi.clearAllMocks()
   h.state.selectRows = []
@@ -128,6 +137,7 @@ beforeEach(() => {
     enabled: true,
   })
   h.relayGetDevices.mockResolvedValue({ devices: [] })
+  h.endForeignHostedSessions.mockResolvedValue([])
 })
 
 describe(`devices.register`, () => {
@@ -400,7 +410,7 @@ describe(`devices.remove`, () => {
 // EXP-432: sharing a server device with a team.
 describe(`devices.setShared`, () => {
   it(`shares an own server device with a team the caller belongs to`, async () => {
-    h.state.selectQueue = [[{ id: `row-1`, kind: `server` }]]
+    h.state.selectQueue = sharedProbe(null)
     const result = await caller.setShared({
       deviceId: `dev-1`,
       teamId: `11111111-1111-4111-8111-111111111111`,
@@ -416,7 +426,7 @@ describe(`devices.setShared`, () => {
   })
 
   it(`clears the share with teamId: null without a membership check`, async () => {
-    h.state.selectQueue = [[{ id: `row-1`, kind: `server` }]]
+    h.state.selectQueue = sharedProbe(null)
     const result = await caller.setShared({ deviceId: `dev-1`, teamId: null })
     expect(result).toEqual({ ok: true })
     expect(h.assertTeamMember).not.toHaveBeenCalled()
@@ -424,7 +434,9 @@ describe(`devices.setShared`, () => {
   })
 
   it(`rejects desktop devices — only servers are shareable`, async () => {
-    h.state.selectQueue = [[{ id: `row-1`, kind: `desktop` }]]
+    h.state.selectQueue = [
+      [{ id: `row-1`, kind: `desktop`, sharedTeamId: null }],
+    ]
     await expect(
       caller.setShared({
         deviceId: `dev-1`,
@@ -442,6 +454,53 @@ describe(`devices.setShared`, () => {
         teamId: `11111111-1111-4111-8111-111111111111`,
       })
     ).rejects.toMatchObject({ code: `NOT_FOUND` })
+  })
+})
+
+// EXP-445: withdrawing a share ends the teammate runs it was the consent for.
+describe(`devices.setShared — kill fan-out`, () => {
+  const TEAM_A = `11111111-1111-4111-8111-111111111111`
+  const TEAM_B = `22222222-2222-4222-8222-222222222222`
+
+  it(`ends the old team's hosted sessions when the share is cleared`, async () => {
+    h.state.selectQueue = sharedProbe(TEAM_A)
+    // The column write must land FIRST — once shared_team_id has moved, no
+    // new foreign attribution can slip in behind the fan-out.
+    let updatesWhenKilled = -1
+    h.endForeignHostedSessions.mockImplementation(async () => {
+      updatesWhenKilled = h.state.updates.length
+      return []
+    })
+
+    await caller.setShared({ deviceId: `dev-1`, teamId: null })
+
+    expect(h.endForeignHostedSessions).toHaveBeenCalledWith(`actor`, TEAM_A)
+    expect(updatesWhenKilled).toBe(1)
+  })
+
+  it(`ends the OLD team's sessions when the device moves to another team`, async () => {
+    h.state.selectQueue = sharedProbe(TEAM_A)
+
+    await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_B })
+
+    expect(h.state.updates[0]?.set).toMatchObject({ sharedTeamId: TEAM_B })
+    expect(h.endForeignHostedSessions).toHaveBeenCalledWith(`actor`, TEAM_A)
+  })
+
+  it(`ends nothing on a first share (null → team)`, async () => {
+    h.state.selectQueue = sharedProbe(null)
+
+    await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_A })
+
+    expect(h.endForeignHostedSessions).not.toHaveBeenCalled()
+  })
+
+  it(`ends nothing on a same-team re-share`, async () => {
+    h.state.selectQueue = sharedProbe(TEAM_A)
+
+    await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_A })
+
+    expect(h.endForeignHostedSessions).not.toHaveBeenCalled()
   })
 })
 

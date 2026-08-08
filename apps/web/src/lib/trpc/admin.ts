@@ -28,6 +28,7 @@ import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { invalidateSessionCache } from "@/lib/auth/resolve-bearer"
 import { isCloudInstance } from "@/lib/bootstrap-cloud"
 import { guardAndCleanupTeamsForUserDeletion } from "@/lib/account-deletion"
+import { relayKillSessionsBestEffort } from "@/lib/coding-session-kill"
 import {
   captureOAuthTokens,
   revokeOAuthTokensBestEffort,
@@ -165,6 +166,8 @@ export const adminRouter = router({
       // cancelled — the plans of teams that survive the user belong to those
       // teams (REV2-55, lib/billing/billing-handover.ts).
       let doomedSubscriptions: CancellableSubscription[] = []
+      // Cross-account coding sessions the cleanup ended in-tx (EXP-445).
+      let endedSessionIds: string[] = []
       await ctx.db.transaction(async (tx) => {
         // Same orphan safety as users.deleteAccount (lib/account-deletion.ts):
         // fail closed when the user is the sole owner of a team that
@@ -178,6 +181,7 @@ export const adminRouter = router({
         )
         storageKeys = cleanup.storageKeys
         doomedSubscriptions = cleanup.doomedTeamSubscriptions
+        endedSessionIds = cleanup.endedSessionIds
         await tx.delete(users).where(eq(users.id, input.userId))
       })
       // Post-commit: the users-row cascade dropped memberships (and possibly
@@ -195,6 +199,9 @@ export const adminRouter = router({
       await deleteStorageObjects(storageKeys)
       // Revoke the deleted user's provider grants (best-effort).
       await revokeOAuthTokensBestEffort(oauthTokens)
+      // Tear the shared-device runs down immediately (EXP-445); the committed
+      // `ended` rows above are the durable signal either way.
+      await relayKillSessionsBestEffort(endedSessionIds)
 
       return { ok: true }
     }),
