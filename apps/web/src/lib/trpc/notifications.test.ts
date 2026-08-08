@@ -173,49 +173,6 @@ describe(`notifications digestHour (EXP-369)`, () => {
   })
 })
 
-// EXP-452: the panels have to show WHICH clock the send hour is read in. An
-// account with no captured zone is scheduled in UTC, and that was invisible —
-// the only symptom was a digest landing hours off (8 → 10:00 in Germany).
-describe(`notifications digest schedule (EXP-452)`, () => {
-  it(`reports the account's zone and the resolved next send point`, async () => {
-    selectRows = [{ timezone: `Europe/Berlin` }]
-    const prefs = await caller().emailPrefs()
-    expect(prefs.timezone).toBe(`Europe/Berlin`)
-    // Hour 8 in Berlin, never in UTC.
-    expect(
-      new Intl.DateTimeFormat(`en-GB`, {
-        timeZone: `Europe/Berlin`,
-        hour: `2-digit`,
-        hourCycle: `h23`,
-      }).format(new Date(prefs.nextDigestAt!))
-    ).toBe(`08`)
-  })
-
-  it(`reports an unset zone as null, scheduled in UTC`, async () => {
-    selectRows = []
-    const prefs = await caller().emailPrefs()
-    expect(prefs.timezone).toBeNull()
-    expect(new Date(prefs.nextDigestAt!).getUTCHours()).toBe(8)
-  })
-
-  it(`echoes the new schedule from the write that changed it`, async () => {
-    selectRows = [{ timezone: `Europe/Berlin` }]
-    const prefs = await caller().updateEmailPrefs({ digestHour: 20 })
-    expect(new Date(prefs.nextDigestAt!).getUTCHours()).toBe(18) // 20:00 CEST
-  })
-
-  it(`has no send point on the hourly cadence`, async () => {
-    updateEmailPrefs.mockImplementationOnce(async () => ({
-      emailEnabled: true,
-      typePrefs: {},
-      digest: `off`,
-      digestHour: 8,
-    }))
-    const prefs = await caller().updateEmailPrefs({ digest: `off` })
-    expect(prefs.nextDigestAt).toBeNull()
-  })
-})
-
 // EXP-369: the digest send hour is a LOCAL hour, so the account needs a zone.
 // Clients claim it best-effort at login (onlyIfUnset); the account panel sets
 // it explicitly. Lives here beside the digestHour cases it exists to serve.

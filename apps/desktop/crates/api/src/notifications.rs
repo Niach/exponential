@@ -70,19 +70,6 @@ pub struct EmailPrefs {
     /// hides/disables email affordances then (web parity).
     #[serde(default)]
     pub transport_configured: bool,
-    /// EXP-452: the account's stored IANA zone — the clock `digest_hour` is
-    /// read in. `None` is load-bearing, not just "old server": it also means
-    /// the account never had one captured, and the sweep then schedules in
-    /// UTC. Showing only the bare hour hid exactly that (a German account's
-    /// 08:00 digest arriving at 10:00), so the pane names the zone.
-    #[serde(default)]
-    pub timezone: Option<String>,
-    /// EXP-452: the next send point the sweep resolved (ISO-8601 instant),
-    /// or `None` on the hourly cadence / a pre-EXP-452 server. Computed
-    /// server-side by the same function the sweep calls, so it cannot drift
-    /// from when mail actually goes out.
-    #[serde(default)]
-    pub next_digest_at: Option<String>,
 }
 
 /// `notifications.emailPrefs` — query.
@@ -202,44 +189,6 @@ mod tests {
         );
         let prefs = notifications_email_prefs(&client(&base)).unwrap();
         assert_eq!(prefs.digest_hour, None);
-    }
-
-    /// EXP-452: the pane names the clock the send hour is read in, so the
-    /// schedule fields have to survive the round trip — and a `null` timezone
-    /// (no zone ever captured → the sweep schedules in UTC) is a REAL state,
-    /// not a decode failure.
-    #[test]
-    fn email_prefs_decodes_the_digest_schedule() {
-        let (base, _captured) = one_shot_server(
-            200,
-            r#"{"result":{"data":{"emailEnabled":true,"typePrefs":{},"digest":"daily","digestHour":20,"transportConfigured":true,"timezone":"Europe/Berlin","nextDigestAt":"2026-07-07T18:00:00.000Z"}}}"#,
-        );
-        let prefs = notifications_email_prefs(&client(&base)).unwrap();
-        assert_eq!(prefs.timezone.as_deref(), Some("Europe/Berlin"));
-        assert_eq!(
-            prefs.next_digest_at.as_deref(),
-            Some("2026-07-07T18:00:00.000Z")
-        );
-
-        let (base, _captured) = one_shot_server(
-            200,
-            r#"{"result":{"data":{"emailEnabled":true,"typePrefs":{},"digest":"daily","digestHour":8,"transportConfigured":true,"timezone":null,"nextDigestAt":"2026-07-08T08:00:00.000Z"}}}"#,
-        );
-        let prefs = notifications_email_prefs(&client(&base)).unwrap();
-        assert_eq!(prefs.timezone, None);
-    }
-
-    /// Pre-EXP-452 servers omit both schedule fields — the pane falls back to
-    /// the generic hint rather than failing the whole prefs load.
-    #[test]
-    fn email_prefs_tolerates_a_missing_schedule() {
-        let (base, _captured) = one_shot_server(
-            200,
-            r#"{"result":{"data":{"emailEnabled":true,"typePrefs":{},"digest":"daily","digestHour":8,"transportConfigured":true}}}"#,
-        );
-        let prefs = notifications_email_prefs(&client(&base)).unwrap();
-        assert_eq!(prefs.timezone, None);
-        assert_eq!(prefs.next_digest_at, None);
     }
 
     #[test]

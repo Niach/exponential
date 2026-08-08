@@ -1,12 +1,9 @@
-import { useMemo, useState } from "react"
+import { useState } from "react"
 import { Mail } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { authClient } from "@/lib/auth/client"
 import type { NotificationType } from "@/lib/domain"
-import {
-  nextDailySendPoint,
-  type DigestCadence,
-} from "@/lib/notification-email-policy"
+import type { DigestCadence } from "@/lib/notification-email-policy"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -31,31 +28,6 @@ export type EmailPrefs = Awaited<
 >
 
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => hour)
-
-// The zone this browser is in — the value offered when the account has none.
-function browserTimezone(): string | null {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || null
-  } catch {
-    return null
-  }
-}
-
-// Render a resolved send point in the clock it will actually fire in (EXP-452).
-// `timezone` null is the unset state, which the sweep reads as UTC.
-function formatSendPoint(at: Date, timezone: string | null): string {
-  try {
-    return new Intl.DateTimeFormat(undefined, {
-      timeZone: timezone ?? `UTC`,
-      weekday: `short`,
-      hour: `2-digit`,
-      minute: `2-digit`,
-      hourCycle: `h23`,
-    }).format(at)
-  } catch {
-    return at.toISOString()
-  }
-}
 
 const TYPE_ROWS: Array<{ type: NotificationType; label: string; hint: string }> =
   [
@@ -120,13 +92,6 @@ export function EmailNotificationsCard({
   >(emailPrefs.typePrefs ?? {})
   const [digest, setDigest] = useState(emailPrefs.digest)
   const [digestHour, setDigestHour] = useState(emailPrefs.digestHour)
-  // EXP-452: the send hour is read in the ACCOUNT's timezone, and an account
-  // that never had one captured falls back to UTC — which is why a German
-  // account's 08:00 digest landed at 10:00. The panel showed only the bare
-  // hour, so the wrong clock was invisible. Both are surfaced now.
-  const [timezone, setTimezone] = useState(emailPrefs.timezone)
-  const [zoneSaving, setZoneSaving] = useState(false)
-  const localZone = useMemo(browserTimezone, [])
   // REV2-52: the digest sweep never mails an unverified address. Signup fires
   // exactly ONE verification email and nothing else stamps emailVerified, so
   // a user who missed it configures a channel that silently does nothing —
@@ -180,32 +145,6 @@ export function EmailNotificationsCard({
       .mutate({ digestHour: next })
       .catch((err) => console.error(`[prefs] update failed:`, err))
   }
-
-  // Claim the browser's zone for an account that has none. Explicit (no
-  // `onlyIfUnset`), because this IS the user picking one.
-  const handleClaimTimezone = async () => {
-    const zone = localZone
-    if (!zone || zoneSaving) return
-    setZoneSaving(true)
-    try {
-      await trpc.users.setTimezone.mutate({ timezone: zone })
-      setTimezone(zone)
-    } catch (err) {
-      console.error(`[prefs] timezone claim failed:`, err)
-    } finally {
-      setZoneSaving(false)
-    }
-  }
-
-  // Resolved through the same function the sweep uses, so what this shows and
-  // what the server sends can never drift apart.
-  const nextSendPoint = useMemo(
-    () =>
-      digest === `daily`
-        ? nextDailySendPoint(timezone, digestHour, new Date())
-        : null,
-    [digest, digestHour, timezone]
-  )
 
   return (
     <Card>
@@ -316,65 +255,30 @@ export function EmailNotificationsCard({
         </div>
 
         {digest === `daily` && (
-          <>
-            <div className="flex items-center gap-3">
-              <div className="flex-1">
-                <Label>Send time</Label>
-                <p className="text-xs text-muted-foreground">
-                  Full hours only, in{` `}
-                  <span className="text-foreground">{timezone ?? `UTC`}</span>.
-                  {nextSendPoint &&
-                    ` Next digest ${formatSendPoint(nextSendPoint, timezone)}.`}
-                </p>
-              </div>
-              <Select
-                value={String(digestHour)}
-                onValueChange={(next) => handleDigestHour(Number(next))}
-                disabled={!transportConfigured || !emailEnabled}
-              >
-                <SelectTrigger className="w-40">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {HOUR_OPTIONS.map((hour) => (
-                    <SelectItem key={hour} value={String(hour)}>
-                      {`${hour}:00`}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          <div className="flex items-center gap-3">
+            <div className="flex-1">
+              <Label>Send time</Label>
+              <p className="text-xs text-muted-foreground">
+                Full hours only, in your timezone.
+              </p>
             </div>
-
-            {/* EXP-452: an account with no captured zone has its send hour
-                read in UTC. That is a silent multi-hour shift whose only
-                symptom is a digest arriving at the wrong time — so say it,
-                and offer this browser's zone in one click. */}
-            {!timezone && (
-              <div className="flex items-start gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-                <div className="flex-1 text-muted-foreground">
-                  <p className="font-medium text-foreground">
-                    Your timezone isn&apos;t set
-                  </p>
-                  <p className="mt-0.5 text-xs">
-                    Send times are read in UTC until it is, so your digest can
-                    arrive hours off.
-                    {localZone ? ` This browser is in ${localZone}.` : ``}
-                  </p>
-                </div>
-                {localZone && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="shrink-0"
-                    disabled={zoneSaving}
-                    onClick={() => void handleClaimTimezone()}
-                  >
-                    {zoneSaving ? `Saving…` : `Use ${localZone}`}
-                  </Button>
-                )}
-              </div>
-            )}
-          </>
+            <Select
+              value={String(digestHour)}
+              onValueChange={(next) => handleDigestHour(Number(next))}
+              disabled={!transportConfigured || !emailEnabled}
+            >
+              <SelectTrigger className="w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {HOUR_OPTIONS.map((hour) => (
+                  <SelectItem key={hour} value={String(hour)}>
+                    {`${hour}:00`}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         )}
       </CardContent>
     </Card>
