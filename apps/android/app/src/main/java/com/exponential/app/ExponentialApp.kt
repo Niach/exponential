@@ -11,6 +11,7 @@ import coil3.SingletonImageLoader
 import com.exponential.app.data.auth.AccountDeduplicator
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.auth.SecureStore
+import com.exponential.app.data.auth.TimezoneClaimer
 import com.exponential.app.data.auth.legacyDbIdToWipe
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.electric.SyncManager
@@ -24,6 +25,7 @@ private const val KEY_PERUSER_DB_CLEANUP = "peruser_db_cleanup_v1"
 class ExponentialApp : Application(), SingletonImageLoader.Factory {
     @Inject lateinit var syncManager: SyncManager
     @Inject lateinit var pushTokenManager: PushTokenManager
+    @Inject lateinit var timezoneClaimer: TimezoneClaimer
     @Inject lateinit var imageLoader: ImageLoader
     @Inject lateinit var auth: AuthRepository
     @Inject lateinit var databaseHolder: DatabaseHolder
@@ -48,6 +50,9 @@ class ExponentialApp : Application(), SingletonImageLoader.Factory {
         }
         syncManager.start()
         pushTokenManager.start()
+        // Claim-once loop: stamps the device timezone on accounts that never
+        // had one captured (EXP-452 — mobile-only accounts digested in UTC).
+        timezoneClaimer.start()
         // The shape loops only run while the app is visible (REV2-38): the gate
         // starts closed, ON_START opens it and ON_STOP parks the loops after a
         // grace window, so a backgrounded (or push-woken) process holds no

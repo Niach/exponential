@@ -47,6 +47,10 @@ public struct PersonalApiKey: Decodable, Sendable, Identifiable {
 private struct NameInput: Encodable { let name: String? }
 private struct KeyIdInput: Encodable { let id: String }
 private struct ConfirmInput: Encodable { let confirm: Bool }
+private struct SetTimezoneInput: Encodable {
+    let timezone: String
+    let onlyIfUnset: Bool
+}
 
 public final class UsersApi: Sendable {
     private let trpc: TrpcClient
@@ -84,6 +88,20 @@ public final class UsersApi: Sendable {
             accountId: accountId,
             path: "users.revokePersonalApiKey",
             input: KeyIdInput(id: id)
+        )
+    }
+
+    /// EXP-452: claim the device's IANA timezone for the account. With
+    /// `onlyIfUnset` this is the same best-effort post-login claim the web
+    /// and desktop apps make — an explicit pick in settings always wins.
+    /// The daily digest's send hour is read in `users.timezone`, so an
+    /// account that only ever signs in on mobile would otherwise stay NULL
+    /// and have its digest silently scheduled in UTC.
+    public func setTimezone(accountId: String, timezone: String, onlyIfUnset: Bool) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "users.setTimezone",
+            input: SetTimezoneInput(timezone: timezone, onlyIfUnset: onlyIfUnset)
         )
     }
 

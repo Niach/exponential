@@ -9,8 +9,31 @@ import kotlinx.serialization.Serializable
 @Serializable
 private data class ConfirmInput(@SerialName("confirm") val confirm: Boolean)
 
+@Serializable
+private data class SetTimezoneInput(
+    @SerialName("timezone") val timezone: String,
+    @SerialName("onlyIfUnset") val onlyIfUnset: Boolean,
+)
+
 @Singleton
 class UsersApi @Inject constructor(private val trpc: TrpcClient) {
+
+    /**
+     * EXP-452: claim the device's IANA timezone for the account. With
+     * [onlyIfUnset] this is the same best-effort post-login claim the web and
+     * desktop apps make — an explicit pick in settings always wins. The daily
+     * digest's send hour is read in `users.timezone`, so an account that only
+     * ever signs in on mobile would otherwise stay NULL and have its digest
+     * silently scheduled in UTC.
+     */
+    suspend fun setTimezone(accountId: String, timezone: String, onlyIfUnset: Boolean) {
+        trpc.mutationUnit(
+            accountId,
+            path = "users.setTimezone",
+            input = SetTimezoneInput(timezone, onlyIfUnset),
+            inputSerializer = SetTimezoneInput.serializer(),
+        )
+    }
 
     /**
      * Permanently delete the signed-in user's account on this server (store
