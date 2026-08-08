@@ -14,7 +14,7 @@ use gpui::{
     MouseButton, ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _,
     Subscription, Window,
 };
-use gpui_component::{h_flex, tooltip::Tooltip, Icon, Sizable as _};
+use gpui_component::{h_flex, Icon, Sizable as _};
 
 use crate::icons::registry;
 
@@ -37,11 +37,16 @@ pub(crate) const APP_TITLE: &str = "Exponential (staging)";
 /// budget can never drift apart.
 const BAR_INSET: f32 = 8.;
 
-/// EXP-449: the width the New Issue button takes out of the strip's budget —
-/// its square 24px box plus the [`BAR_INSET`] margin holding it off the window
-/// controls. Same one-constant rule as [`BAR_INSET`]: the rendered button and
-/// the strip's reserve can never drift apart.
-const NEW_ISSUE_RESERVE: f32 = 24. + BAR_INSET;
+/// EXP-449: the fixed width of the labelled "New Issue" button — glyph + gap
+/// + the `text_xs` label inside `indigo_button`'s `px_2p5`, with a little
+/// slack absorbed by its `justify_center`. Fixed (not content-sized) so the
+/// strip's reserve below can never drift from the rendered width.
+const NEW_ISSUE_BUTTON_W: f32 = 96.;
+
+/// The width the New Issue button takes out of the strip's budget — the
+/// button box plus the [`BAR_INSET`] margin holding it off the window
+/// controls. Same one-constant rule as [`BAR_INSET`].
+const NEW_ISSUE_RESERVE: f32 = NEW_ISSUE_BUTTON_W + BAR_INSET;
 
 /// True when this window paints its own chrome. False only on Linux when gpui
 /// fell back to server-side decorations (X11 without a compositor forces
@@ -242,15 +247,12 @@ impl Render for AppTitleBar {
         // EXP-449: the New Issue button moved out of the board filter bar and
         // into the window chrome, so it is reachable from every screen (and
         // from My Issues, which the filter bar's own gate already allowed).
-        // Icon-only and square — the bar has no room for a labelled button.
+        // Keeps its glyph + label, exactly as it read in the filter bar.
         let new_issue =
             crate::create_issue_dialog::indigo_button("titlebar-new-issue", !can_create, cx)
-                // Square: `indigo_button` is sized for a label, this one
-                // carries only the glyph.
-                .w_6()
-                .px_0()
+                .w(px(NEW_ISSUE_BUTTON_W))
                 .child(Icon::new(registry::UI_ADD).small())
-                .tooltip(|window, cx| Tooltip::new("New Issue").build(window, cx))
+                .child("New Issue")
                 // `indigo_button`'s disabled contract: callers skip `on_click`.
                 .when(can_create, |button| {
                     button.on_click(|_, window, cx| {
