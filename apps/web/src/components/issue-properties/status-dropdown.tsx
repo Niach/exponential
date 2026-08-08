@@ -6,7 +6,6 @@ import { useDuplicateInterception } from "@/hooks/use-duplicate-interception"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import { ICON_COMPONENTS } from "@/lib/icons.generated"
 import {
-  sortStatusesForPicker,
   statusUpdatePayload,
   type StatusResolvable,
   type StatusRowOption,
@@ -131,7 +130,7 @@ export function StatusDropdown({
     },
   })
 
-  const menuOptions = toStatusMenuOptions(sortStatusesForPicker(options))
+  const menuOptions = toStatusMenuOptions(options)
 
   return (
     <>

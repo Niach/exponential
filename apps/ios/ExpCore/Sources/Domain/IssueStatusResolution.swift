@@ -32,13 +32,10 @@ public enum IssueStatusCategory: String, CaseIterable, Sendable, Hashable {
         return IssueStatusCategory(rawValue: wire)
     }
 
-    /// Group order on a board list (locked to `DomainContract` by test).
+    /// The ONE order every surface speaks (EXP-448, locked to `DomainContract`
+    /// by test): board list groups, set-status pickers, and the settings
+    /// sections the web/desktop management surface renders.
     public static let displayOrder: [IssueStatusCategory] = [
-        .started, .unstarted, .backlog, .completed, .cancelled, .duplicate,
-    ]
-
-    /// Section order in a management surface (locked to `DomainContract`).
-    public static let settingsOrder: [IssueStatusCategory] = [
         .backlog, .unstarted, .started, .completed, .cancelled, .duplicate,
     ]
 }

@@ -28,11 +28,12 @@ enum class IssueStatus(val wire: String, val label: String) {
     }
 }
 
+// Lifecycle order (EXP-448 — the order the statuses settings page lays out).
 val issueStatusOrder: List<IssueStatus> = listOf(
+    IssueStatus.Backlog,
+    IssueStatus.Todo,
     IssueStatus.InProgress,
     IssueStatus.InReview,
-    IssueStatus.Todo,
-    IssueStatus.Backlog,
     IssueStatus.Done,
     IssueStatus.Cancelled,
     IssueStatus.Duplicate,

@@ -2,10 +2,9 @@
 // Single source of truth: packages/domain-contract/contract.json.
 
 pub const ISSUE_STATUS_VALUES: &[&str] = &["backlog", "todo", "in_progress", "in_review", "done", "cancelled", "duplicate"];
-pub const ISSUE_STATUS_DISPLAY_ORDER: &[&str] = &["in_progress", "in_review", "todo", "backlog", "done", "cancelled", "duplicate"];
+pub const ISSUE_STATUS_DISPLAY_ORDER: &[&str] = &["backlog", "todo", "in_progress", "in_review", "done", "cancelled", "duplicate"];
 pub const ISSUE_STATUS_CATEGORY_VALUES: &[&str] = &["backlog", "unstarted", "started", "completed", "cancelled", "duplicate"];
-pub const ISSUE_STATUS_CATEGORY_DISPLAY_ORDER: &[&str] = &["started", "unstarted", "backlog", "completed", "cancelled", "duplicate"];
-pub const ISSUE_STATUS_CATEGORY_SETTINGS_ORDER: &[&str] = &["backlog", "unstarted", "started", "completed", "cancelled", "duplicate"];
+pub const ISSUE_STATUS_CATEGORY_DISPLAY_ORDER: &[&str] = &["backlog", "unstarted", "started", "completed", "cancelled", "duplicate"];
 pub const ISSUE_STATUS_DEFAULT_KEYS: &[&str] = &["backlog", "todo", "in_progress", "in_review", "done", "cancelled", "duplicate"];
 pub const ISSUE_STATUS_DEFAULT_CATEGORIES: &[&str] = &["backlog", "unstarted", "started", "started", "completed", "cancelled", "duplicate"];
 pub const ISSUE_STATUS_DEFAULT_NAMES: &[&str] = &["Backlog", "Todo", "In Progress", "In Review", "Done", "Cancelled", "Duplicate"];

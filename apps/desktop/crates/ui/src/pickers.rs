@@ -213,21 +213,17 @@ impl StatusMenuScope {
 /// The rows a status menu of `scope` offers — the pure half of
 /// [`status_menu`], so the duplicate-visibility contract is unit-testable.
 ///
-/// EXP-426: pickers re-sort the display-ordered vocabulary into SETTINGS
-/// (workflow) category order — Backlog and Todo lead, not the started rows
-/// the board grouping fronts. The sort is stable, so intra-category order
-/// (and with it the baked positional pie-clock glyphs) is preserved. Every
-/// desktop status picker funnels through here, so no call site can miss it.
+/// EXP-448: no picker-only re-sort — `statuses` already arrives in the ONE
+/// order (Backlog and Todo lead) that the settings pane and the list groups
+/// use, so a picker can never contradict either.
 pub(crate) fn status_menu_options<'a>(
     statuses: &'a [ResolvedStatus],
     scope: StatusMenuScope,
 ) -> Vec<&'a ResolvedStatus> {
-    let mut options: Vec<&'a ResolvedStatus> = statuses
+    statuses
         .iter()
         .filter(|status| scope.allows(status))
-        .collect();
-    options.sort_by_key(|status| status.category.settings_rank());
-    options
+        .collect()
 }
 
 /// The team's statuses as menu items (EXP-314). The caller pre-configures the
@@ -649,10 +645,9 @@ mod tests {
         assert_eq!(assignable, expected);
     }
 
-    /// EXP-426: pickers lead with Backlog/Todo (settings-category order),
-    /// not the board grouping's started-first display order — and the sort
-    /// is stable, so intra-category order (the started rows' pie-clock
-    /// positions) survives.
+    /// EXP-448: pickers lead with Backlog/Todo because the ONE category order
+    /// does — the same order the board groups and the settings pane render,
+    /// with the started rows' pie-clock positions intact.
     #[test]
     fn picker_options_lead_with_backlog_and_todo() {
         let statuses = default_resolved_statuses();

@@ -12,10 +12,10 @@
       "duplicate"
     ],
     "displayOrder": [
+      "backlog",
+      "todo",
       "in_progress",
       "in_review",
-      "todo",
-      "backlog",
       "done",
       "cancelled",
       "duplicate"
@@ -31,14 +31,6 @@
       "duplicate"
     ],
     "displayOrder": [
-      "started",
-      "unstarted",
-      "backlog",
-      "completed",
-      "cancelled",
-      "duplicate"
-    ],
-    "settingsOrder": [
       "backlog",
       "unstarted",
       "started",

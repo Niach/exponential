@@ -18,7 +18,7 @@ import { trpc } from "@/lib/trpc-client"
 import type { Issue } from "@/db/schema"
 import {
   ISSUE_STATUS_STARTED_MAX,
-  issueStatusCategorySettingsOrder,
+  issueStatusCategoryDisplayOrder,
   type IssueStatusCategory,
 } from "@/lib/domain"
 import { useTeamBoards } from "@/hooks/use-team-data"
@@ -731,7 +731,7 @@ export function TeamStatusesSection({ teamId }: { teamId: string }) {
 
   const byCategory = useMemo(() => {
     const map = new Map<IssueStatusCategory, StatusRowOption[]>()
-    for (const category of issueStatusCategorySettingsOrder)
+    for (const category of issueStatusCategoryDisplayOrder)
       map.set(category, [])
     for (const option of options) map.get(option.category)?.push(option)
     return map
@@ -769,7 +769,7 @@ export function TeamStatusesSection({ teamId }: { teamId: string }) {
             <CardTitle className="text-base">Statuses</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
-            {issueStatusCategorySettingsOrder.map((category) => {
+            {issueStatusCategoryDisplayOrder.map((category) => {
               const rows = byCategory.get(category) ?? []
               const atStartedCap =
                 category === `started` &&

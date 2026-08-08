@@ -25,8 +25,10 @@ public enum IssueStatus: String, CaseIterable, Codable, Identifiable, Sendable {
         }
     }
 
-    // duplicate is a terminal resolution like cancelled — grouped after it.
-    public static let displayOrder: [IssueStatus] = [.inProgress, .inReview, .todo, .backlog, .done, .cancelled, .duplicate]
+    // Lifecycle order (EXP-448 — the same order the statuses settings page
+    // lays out); duplicate is a terminal resolution like cancelled, grouped
+    // after it.
+    public static let displayOrder: [IssueStatus] = [.backlog, .todo, .inProgress, .inReview, .done, .cancelled, .duplicate]
 
     public static func from(_ wire: String?) -> IssueStatus {
         guard let wire else { return .backlog }

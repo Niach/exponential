@@ -5,10 +5,9 @@ import Foundation
 
 public enum DomainContract {
     public static let issueStatusValues: [String] = ["backlog", "todo", "in_progress", "in_review", "done", "cancelled", "duplicate"]
-    public static let issueStatusDisplayOrder: [String] = ["in_progress", "in_review", "todo", "backlog", "done", "cancelled", "duplicate"]
+    public static let issueStatusDisplayOrder: [String] = ["backlog", "todo", "in_progress", "in_review", "done", "cancelled", "duplicate"]
     public static let issueStatusCategoryValues: [String] = ["backlog", "unstarted", "started", "completed", "cancelled", "duplicate"]
-    public static let issueStatusCategoryDisplayOrder: [String] = ["started", "unstarted", "backlog", "completed", "cancelled", "duplicate"]
-    public static let issueStatusCategorySettingsOrder: [String] = ["backlog", "unstarted", "started", "completed", "cancelled", "duplicate"]
+    public static let issueStatusCategoryDisplayOrder: [String] = ["backlog", "unstarted", "started", "completed", "cancelled", "duplicate"]
     public static let issueStatusDefaultKeys: [String] = ["backlog", "todo", "in_progress", "in_review", "done", "cancelled", "duplicate"]
     public static let issueStatusDefaultCategories: [String] = ["backlog", "unstarted", "started", "started", "completed", "cancelled", "duplicate"]
     public static let issueStatusDefaultNames: [String] = ["Backlog", "Todo", "In Progress", "In Review", "Done", "Cancelled", "Duplicate"]

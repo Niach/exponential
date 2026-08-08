@@ -514,9 +514,9 @@ mod tests {
         ];
         let groups = build_status_groups(&issues, &builtin_rows(), &[], TODAY);
         // Category display order with empty groups hidden.
-        assert_eq!(group_names(&groups), vec!["In Progress", "Todo", "Done"]);
+        assert_eq!(group_names(&groups), vec!["Todo", "In Progress", "Done"]);
         // Group keys are the ROW ids.
-        assert_eq!(groups[0].status.group_key, "row-in_progress");
+        assert_eq!(groups[0].status.group_key, "row-todo");
     }
 
     #[test]
@@ -528,8 +528,8 @@ mod tests {
             issue("t", "todo", "none", None),
         ];
         let groups = build_status_groups(&issues, &[], &[], TODAY);
-        assert_eq!(group_names(&groups), vec!["In Progress", "Todo"]);
-        assert_eq!(groups[0].status.group_key, "builtin:in_progress");
+        assert_eq!(group_names(&groups), vec!["Todo", "In Progress"]);
+        assert_eq!(groups[0].status.group_key, "builtin:todo");
         assert!(groups[0].status.is_fallback());
     }
 
@@ -543,10 +543,10 @@ mod tests {
             issue("weird", "triaged", "none", None),
         ];
         let groups = build_status_groups(&issues, &builtin_rows(), &[], TODAY);
-        assert_eq!(group_names(&groups), vec!["Todo", "Backlog"]);
-        assert_eq!(groups[1].status.group_key, "row-backlog");
-        assert!(!groups[1].status.is_fallback());
-        assert_eq!(groups[1].issues.len(), 1);
+        assert_eq!(group_names(&groups), vec!["Backlog", "Todo"]);
+        assert_eq!(groups[0].status.group_key, "row-backlog");
+        assert!(!groups[0].status.is_fallback());
+        assert_eq!(groups[0].issues.len(), 1);
 
         // With NO synced rows it degrades to the constructed backlog default.
         let groups = build_status_groups(&issues[1..], &[], &[], TODAY);
@@ -602,9 +602,9 @@ mod tests {
             &["row-in_progress".to_string(), "row-todo".to_string()],
             TODAY,
         );
-        assert_eq!(group_names(&groups), vec!["In Progress", "Todo"]);
-        assert!(groups[0].issues.is_empty());
-        assert_eq!(groups[1].issues.len(), 1);
+        assert_eq!(group_names(&groups), vec!["Todo", "In Progress"]);
+        assert_eq!(groups[0].issues.len(), 1);
+        assert!(groups[1].issues.is_empty());
     }
 
     #[test]
@@ -658,7 +658,7 @@ mod tests {
         let groups = build_status_groups(&issues, &builtin_rows(), &[], TODAY);
         assert_eq!(
             flatten_group_issue_ids(&groups),
-            vec!["wip", "todo-urgent", "todo-low", "done-1"]
+            vec!["todo-urgent", "todo-low", "wip", "done-1"]
         );
 
         // Status-filtered boards keep selected-but-empty groups in the group

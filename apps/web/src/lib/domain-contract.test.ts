@@ -6,7 +6,6 @@ import {
   issueStatusValues,
   issueStatusCategoryValues,
   issueStatusCategoryDisplayOrder,
-  issueStatusCategorySettingsOrder,
   ISSUE_STATUS_STARTED_MAX,
   CATEGORY_ANCHOR,
   BUILTIN_STATUS_DEFAULTS,
@@ -48,15 +47,23 @@ describe(`domain-contract parity`, () => {
   })
 
   // EXP-314: status categories + the locked builtin defaults.
-  it(`issue status category values + orders + cap match the contract`, () => {
+  it(`issue status category values + order + cap match the contract`, () => {
     expect([...issueStatusCategoryValues]).toEqual([
       ...contract.issueStatusCategory.values,
     ])
+    // EXP-448: ONE category order — settings sections, set-status pickers and
+    // issue-list groups all walk it, so the lists read exactly as the settings
+    // page lays them out.
+    expect([...issueStatusCategoryDisplayOrder]).toEqual([
+      `backlog`,
+      `unstarted`,
+      `started`,
+      `completed`,
+      `cancelled`,
+      `duplicate`,
+    ])
     expect([...issueStatusCategoryDisplayOrder]).toEqual([
       ...contract.issueStatusCategory.displayOrder,
-    ])
-    expect([...issueStatusCategorySettingsOrder]).toEqual([
-      ...contract.issueStatusCategory.settingsOrder,
     ])
     expect(ISSUE_STATUS_STARTED_MAX).toBe(
       contract.issueStatusCategory.startedMax

@@ -67,18 +67,19 @@ final class IssueStatusResolutionTests: XCTestCase {
 
     // MARK: - Category orders
 
-    func testCategoryValuesAndOrdersMatchGeneratedContract() {
+    func testCategoryValuesAndOrderMatchGeneratedContract() {
         XCTAssertEqual(
             IssueStatusCategory.allCases.map(\.rawValue),
             DomainContract.issueStatusCategoryValues
         )
+        // EXP-448: ONE order — list groups, pickers and the settings sections.
+        XCTAssertEqual(
+            IssueStatusCategory.displayOrder,
+            [.backlog, .unstarted, .started, .completed, .cancelled, .duplicate]
+        )
         XCTAssertEqual(
             IssueStatusCategory.displayOrder.map(\.rawValue),
             DomainContract.issueStatusCategoryDisplayOrder
-        )
-        XCTAssertEqual(
-            IssueStatusCategory.settingsOrder.map(\.rawValue),
-            DomainContract.issueStatusCategorySettingsOrder
         )
     }
 
@@ -171,7 +172,7 @@ final class IssueStatusResolutionTests: XCTestCase {
     func testFallbackTeamIsInCategoryDisplayOrder() {
         XCTAssertEqual(
             IssueStatusResolver.builtinFallbackTeam.map { $0.builtinKey?.rawValue },
-            ["in_progress", "in_review", "todo", "backlog", "done", "cancelled", "duplicate"]
+            ["backlog", "todo", "in_progress", "in_review", "done", "cancelled", "duplicate"]
         )
     }
 
@@ -198,7 +199,7 @@ final class IssueStatusResolutionTests: XCTestCase {
         ]
         XCTAssertEqual(
             IssueStatusResolver.teamStatuses(rows).map(\.id),
-            ["c", "b", "d", "e", "z", "a"]
+            ["z", "d", "e", "c", "b", "a"]
         )
     }
 

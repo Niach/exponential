@@ -7,7 +7,9 @@
 //!
 //! The contract, verbatim:
 //!
-//! 1. `teamStatuses(rows)` — order by category [`IssueStatusCategory::DISPLAY_ORDER`],
+//! 1. `teamStatuses(rows)` — order by category [`IssueStatusCategory::DISPLAY_ORDER`]
+//!    (backlog, unstarted, started, completed, cancelled, duplicate — the ONE
+//!    order settings, pickers and list groups share since EXP-448),
 //!    then `sort_order` asc, then `created_at` asc, then `id`. A `started`
 //!    row's clock position is its index among the `started` rows of that order.
 //! 2. `resolve(issue)` — (a) the team row whose `id == issue.status_id`;
@@ -49,20 +51,10 @@ pub enum IssueStatusCategory {
 }
 
 impl IssueStatusCategory {
-    /// Board display order — locked by test to
+    /// The ONE order every surface speaks (EXP-448): board list groups,
+    /// status pickers and the settings-pane sections. Locked by test to
     /// `contract::ISSUE_STATUS_CATEGORY_DISPLAY_ORDER`.
     pub const DISPLAY_ORDER: [IssueStatusCategory; 6] = [
-        IssueStatusCategory::Started,
-        IssueStatusCategory::Unstarted,
-        IssueStatusCategory::Backlog,
-        IssueStatusCategory::Completed,
-        IssueStatusCategory::Cancelled,
-        IssueStatusCategory::Duplicate,
-    ];
-
-    /// Settings-pane section order — locked by test to
-    /// `contract::ISSUE_STATUS_CATEGORY_SETTINGS_ORDER`.
-    pub const SETTINGS_ORDER: [IssueStatusCategory; 6] = [
         IssueStatusCategory::Backlog,
         IssueStatusCategory::Unstarted,
         IssueStatusCategory::Started,
@@ -114,19 +106,6 @@ impl IssueStatusCategory {
             .iter()
             .position(|category| category == self)
             .unwrap_or(Self::DISPLAY_ORDER.len())
-    }
-
-    /// Position in [`Self::SETTINGS_ORDER`]; `Unknown` sorts after
-    /// everything. EXP-426: the set-status PICKERS re-sort by this (workflow
-    /// order — Backlog and Todo first) while board GROUPING keeps
-    /// [`Self::display_rank`]. A STABLE sort over already-resolved rows is
-    /// required: the positional pie-clock glyphs are baked in at resolution
-    /// time, so only whole category blocks may move.
-    pub fn settings_rank(&self) -> usize {
-        Self::SETTINGS_ORDER
-            .iter()
-            .position(|category| category == self)
-            .unwrap_or(Self::SETTINGS_ORDER.len())
     }
 
     /// The enum ANCHOR a status of this category writes (server
@@ -583,17 +562,16 @@ mod tests {
         .collect();
         assert_eq!(values, contract::ISSUE_STATUS_CATEGORY_VALUES);
 
+        // EXP-448: ONE order — list groups, pickers and the settings sections.
         let display: Vec<&str> = IssueStatusCategory::DISPLAY_ORDER
             .iter()
             .map(|c| c.as_wire().unwrap())
             .collect();
+        assert_eq!(
+            display,
+            ["backlog", "unstarted", "started", "completed", "cancelled", "duplicate"]
+        );
         assert_eq!(display, contract::ISSUE_STATUS_CATEGORY_DISPLAY_ORDER);
-
-        let settings: Vec<&str> = IssueStatusCategory::SETTINGS_ORDER
-            .iter()
-            .map(|c| c.as_wire().unwrap())
-            .collect();
-        assert_eq!(settings, contract::ISSUE_STATUS_CATEGORY_SETTINGS_ORDER);
 
         // Tolerant-unknown (§5.5): a newer server's category never drops a row.
         assert_eq!(IssueStatusCategory::from_wire("triaged"), IssueStatusCategory::Unknown);
@@ -682,16 +660,16 @@ mod tests {
         let names: Vec<&str> = resolved.iter().map(|r| r.name.as_str()).collect();
         assert_eq!(
             names,
-            vec!["In Progress", "In Review", "Todo", "Backlog", "Done", "Cancelled", "Duplicate"]
+            vec!["Backlog", "Todo", "In Progress", "In Review", "Done", "Cancelled", "Duplicate"]
         );
         let glyphs: Vec<&str> = resolved.iter().map(|r| r.glyph.file_name()).collect();
         assert_eq!(
             glyphs,
             vec![
+                "circle-dashed",
+                "circle",
                 "progress-2-4",
                 "progress-3-4",
-                "circle",
-                "circle-dashed",
                 "circle-check",
                 "circle-x",
                 "copy"
@@ -723,7 +701,7 @@ mod tests {
             .into_iter()
             .map(|r| r.name)
             .collect();
-        assert_eq!(names, vec!["Building", "QA", "Todo", "Backlog", "Done"]);
+        assert_eq!(names, vec!["Backlog", "Todo", "Building", "QA", "Done"]);
 
         // Ties break on created_at, then id.
         let mut a = row("b", "backlog", "A", 1.0, None);

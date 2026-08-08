@@ -1,7 +1,7 @@
 //! Settings → Issue statuses (EXP-314).
 //!
 //! Web parity: `components/team/statuses-section.tsx` — one section per
-//! `IssueStatusCategory::SETTINGS_ORDER` entry, rows carrying the tinted
+//! `IssueStatusCategory::DISPLAY_ORDER` entry, rows carrying the tinted
 //! status glyph + name + live issue count, and a per-category "+" footer with
 //! the labels pane's inline create form (name input + `ColorSwatchGrid`).
 //!
@@ -907,7 +907,7 @@ impl Render for StatusesPane {
             ));
         }
 
-        for category in IssueStatusCategory::SETTINGS_ORDER {
+        for category in IssueStatusCategory::DISPLAY_ORDER {
             let rows: Vec<(IssueStatusRow, ResolvedStatus)> = statuses
                 .iter()
                 .filter(|(_, resolved)| resolved.category == category)

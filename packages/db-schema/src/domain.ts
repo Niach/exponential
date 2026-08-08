@@ -28,19 +28,10 @@ export const issueStatusCategoryValues = [
 
 export type IssueStatusCategory = (typeof issueStatusCategoryValues)[number]
 
-// Issue-list group order (matches the legacy issueStatusOrder for a default
-// team: in_progress, in_review, todo, backlog, done, cancelled, duplicate).
+// The ONE category order every surface speaks (EXP-448): the settings page
+// sections, the set-status pickers and the issue-list groups. Lifecycle order
+// — it matches the legacy issueStatusOrder for a default team.
 export const issueStatusCategoryDisplayOrder: IssueStatusCategory[] = [
-  `started`,
-  `unstarted`,
-  `backlog`,
-  `completed`,
-  `cancelled`,
-  `duplicate`,
-]
-
-// Lifecycle order the statuses settings page lists categories in.
-export const issueStatusCategorySettingsOrder: IssueStatusCategory[] = [
   `backlog`,
   `unstarted`,
   `started`,
@@ -410,10 +401,10 @@ export function getCommentBodyText(body: unknown): string {
 }
 
 export const issueStatusOrder: IssueStatus[] = [
+  `backlog`,
+  `todo`,
   `in_progress`,
   `in_review`,
-  `todo`,
-  `backlog`,
   `done`,
   `cancelled`,
   `duplicate`,

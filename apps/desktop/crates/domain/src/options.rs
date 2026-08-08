@@ -141,6 +141,18 @@ const fn opt<V>(value: V, label: &'static str, icon: IconGlyph, color: ColorToke
 /// `status-in-progress` / `status-in-review` concepts.
 pub const ISSUE_STATUS_OPTIONS: [IssueOption<IssueStatus>; 7] = [
     opt(
+        IssueStatus::Backlog,
+        "Backlog",
+        IconGlyph::CircleDashed,
+        ColorToken::MutedForeground,
+    ),
+    opt(
+        IssueStatus::Todo,
+        "Todo",
+        IconGlyph::Circle,
+        ColorToken::Foreground,
+    ),
+    opt(
         IssueStatus::InProgress,
         "In Progress",
         IconGlyph::Progress24,
@@ -151,18 +163,6 @@ pub const ISSUE_STATUS_OPTIONS: [IssueOption<IssueStatus>; 7] = [
         "In Review",
         IconGlyph::Progress34,
         ColorToken::Green,
-    ),
-    opt(
-        IssueStatus::Todo,
-        "Todo",
-        IconGlyph::Circle,
-        ColorToken::Foreground,
-    ),
-    opt(
-        IssueStatus::Backlog,
-        "Backlog",
-        IconGlyph::CircleDashed,
-        ColorToken::MutedForeground,
     ),
     opt(
         IssueStatus::Done,
@@ -263,7 +263,7 @@ mod tests {
         let labels: Vec<_> = ISSUE_STATUS_OPTIONS.iter().map(|o| o.label).collect();
         assert_eq!(
             labels,
-            vec!["In Progress", "In Review", "Todo", "Backlog", "Done", "Cancelled", "Duplicate"]
+            vec!["Backlog", "Todo", "In Progress", "In Review", "Done", "Cancelled", "Duplicate"]
         );
         // Labels agree with the enum's own label() (single source of display
         // truth across the two P2/P3 surfaces).
