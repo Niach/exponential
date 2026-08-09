@@ -67,6 +67,7 @@ use terminal::{display_offset, screen_lines, TermHandle};
 use crate::frames::{ActivityEvent, QuestionOption, SubagentStatus};
 use crate::hooks::{HookEvent, HookEventKind, HookQuestion};
 use crate::login_picker::{self, LoginPhase, LoginWatcher};
+use crate::permission_picker::{self, PermissionPickerWatcher, PermissionSnapshot};
 use crate::plan_picker::{self, PlanPickerWatcher, Transition};
 use crate::publisher::{ActivitySender, InputHook};
 use crate::question_picker::{
@@ -113,6 +114,11 @@ pub(crate) const POLL_INTERVAL: Duration = Duration::from_secs(1);
 /// picker normally paints within a frame; this only fires when detection
 /// missed it (a re-worded picker) or claude auto-approved.
 const PLAN_GRID_CONFIRM: Duration = Duration::from_secs(10);
+/// How long a permission-flavored `Notification` waits for the grid to
+/// confirm the dialog before degrading to the legacy informational card
+/// (EXP-455) — same posture as [`PLAN_GRID_CONFIRM`]: it only fires when
+/// detection missed a re-worded dialog (or the emitter runs term-less).
+const PERMISSION_GRID_CONFIRM: Duration = Duration::from_secs(10);
 /// Bounded wait for the TUI to move on after injected answer keystrokes. No
 /// transition inside this window = no `answer_ack` (the steerer's card stays
 /// answerable rather than silently locking).
@@ -124,7 +130,7 @@ const ANSWER_SETTLE_STEP: Duration = Duration::from_millis(100);
 /// ones (observed v2.1.220) a digit only MOVES the cursor and Enter activates
 /// it — so a lone digit left the picker up forever and the answer was never
 /// acked (EXP-334).
-const PLAN_SUBMIT_PROBE: Duration = Duration::from_millis(500);
+pub(crate) const PLAN_SUBMIT_PROBE: Duration = Duration::from_millis(500);
 /// How long a TRANSIENTLY refused remote answer is retried before it is
 /// dropped (EXP-334). A steerer's tap can beat the picker paint (hook
 /// questions publish before the TUI renders) or land on a mid-render frame —
@@ -136,7 +142,7 @@ const PLAN_SUBMIT_PROBE: Duration = Duration::from_millis(500);
 /// derived from this budget: retry TTL (4s) + [`ANSWER_SETTLE`] (2s) +
 /// [`PLAN_SUBMIT_PROBE`] (0.5s) + ~1.5s tick/relay margin. Grow them in
 /// lockstep or a worst-case ack lands after the card already flashed "Failed".
-const ANSWER_RETRY_TTL: Duration = Duration::from_secs(4);
+pub(crate) const ANSWER_RETRY_TTL: Duration = Duration::from_secs(4);
 /// Gap between injected keystrokes — the TUI processes one key per render.
 const KEYSTROKE_GAP: Duration = Duration::from_millis(60);
 /// Newest subagent sidechain transcripts tailed at once (a Task fan-out can
@@ -1525,6 +1531,10 @@ enum QuestionKind {
     Submit,
     /// The `/login` method picker (EXP-430) — grid-born, no hook identity.
     Login,
+    /// A permission dialog (EXP-455) — grid-born like [`Self::Login`]; the
+    /// permission-flavored `Notification` hook contributes only the tool
+    /// name, never an identity.
+    Permission,
 }
 
 /// A question that is published and still answerable.
@@ -1543,6 +1553,16 @@ struct PendingPlan {
     text: String,
     seen: Instant,
     published: bool,
+    degraded: bool,
+}
+
+/// A permission-flavored `Notification`, waiting for the grid to confirm the
+/// dialog (EXP-455). `tool`/`detail` are stored publish-ready (truncated /
+/// redacted at hook time) so the degraded path needs no redactor.
+struct PendingPermission {
+    tool: String,
+    detail: Option<String>,
+    seen: Instant,
     degraded: bool,
 }
 
@@ -1875,6 +1895,18 @@ struct SteerState {
     /// Login question identity — each (re)appearance of the method picker
     /// gets a fresh id so a retry loop never collides with `answered`.
     login_seq: u32,
+    /// The live permission-dialog question id (EXP-455) — grid-born, owned
+    /// by the [`PermissionPickerWatcher`] lifecycle.
+    permission: Option<String>,
+    /// Permission question identity — every dialog gets a fresh id so
+    /// back-to-back prompts never collide with `answered`.
+    permission_seq: u32,
+    /// A permission-flavored `Notification` waiting for the grid to confirm
+    /// its dialog (EXP-455). Confirmed ⇒ the answerable question consumes it;
+    /// never confirmed ⇒ [`Self::permission_timeout`] degrades it to the
+    /// legacy informational card, so a claude whose dialog copy drifted past
+    /// the anchors behaves exactly as before.
+    pending_permission: Option<PendingPermission>,
     /// Fallback plan identity when a hook payload carries no `tool_use_id`.
     plan_seq: u32,
     /// Fallback subagent-card identity when a `Task` hook payload carries no
@@ -1937,9 +1969,10 @@ struct Publishable {
 }
 
 impl SteerState {
-    /// Whether a hook says the session is parked on a picker right now.
+    /// Whether a hook says the session is parked on a picker right now (or,
+    /// for the grid-born permission dialog, a question is live).
     fn has_pending_question(&self) -> bool {
-        self.plan.is_some() || self.ask.is_some()
+        self.plan.is_some() || self.ask.is_some() || self.permission.is_some()
     }
 
     /// EXP-347: whether a resolution was learned since the last call — a
@@ -2201,11 +2234,20 @@ impl SteerState {
                     return;
                 }
                 self.attention = Some(Attention::Permission);
-                sender.send(ActivityEvent::Permission {
-                    tool: truncate(tool.as_deref().unwrap_or("Tool"), ID_MAX),
-                    detail: Some(truncate(&redactor.redact(&message), TOOL_DETAIL_MAX)),
-                    at: None,
-                });
+                // EXP-455: hold the informational card — the grid watcher
+                // publishes the dialog as an ANSWERABLE question when it
+                // confirms; only a never-confirmed prompt degrades to the
+                // card ([`Self::permission_timeout`]). With the question
+                // already live (or a hold already armed), the nudge repeat
+                // claude sends while parked adds nothing.
+                if self.permission.is_none() && self.pending_permission.is_none() {
+                    self.pending_permission = Some(PendingPermission {
+                        tool: truncate(tool.as_deref().unwrap_or("Tool"), ID_MAX),
+                        detail: Some(truncate(&redactor.redact(&message), TOOL_DETAIL_MAX)),
+                        seen: Instant::now(),
+                        degraded: false,
+                    });
+                }
             }
             HookEventKind::Idle { .. } => self.attention = Some(Attention::Idle),
             // The turn ended: whatever the session was waiting on is over.
@@ -2255,6 +2297,9 @@ impl SteerState {
                         });
                     }
                 }
+                // The turn is over ⇒ no permission dialog is up either —
+                // retire the card and drop an unconfirmed hold (EXP-455).
+                self.resolve_permission(sender);
             }
             // EXP-443: pure pin fuel — `pin.observe` above already absorbed
             // the (possibly rotated) session id; no card, no attention edge.
@@ -2366,6 +2411,98 @@ impl SteerState {
             ask_id: None,
             answers: None,
             dismissed: None,
+            at: None,
+        });
+    }
+
+    /// A permission dialog settled on screen (EXP-455) — publish it as an
+    /// ordinary answerable question so every client's existing card UI
+    /// carries the approval. A changed dialog (back-to-back prompts) retires
+    /// the previous card and publishes a fresh id. Consumes the pending
+    /// hook nudge — the grid card supersedes the informational fallback.
+    fn publish_permission_question(
+        &mut self,
+        snapshot: PermissionSnapshot,
+        sender: &ActivitySender,
+        redactor: &Redactor,
+    ) {
+        // Consume the hook hold BEFORE the resolve pass clears it — its tool
+        // name is the header fallback for a headline-less dialog.
+        let hook_tool = self.pending_permission.take().map(|pending| pending.tool);
+        self.resolve_permission(sender);
+        self.permission_seq += 1;
+        let id = format!("permission:{}", self.permission_seq);
+        self.permission = Some(id.clone());
+        let header = snapshot
+            .header
+            .map(|header| truncate(&redactor.redact(&header), QUESTION_HEADER_MAX))
+            .or(hook_tool)
+            .unwrap_or_else(|| "Permission required".to_string());
+        let mut text = snapshot.question;
+        if !snapshot.context.is_empty() {
+            text.push_str("\n\n");
+            text.push_str(&snapshot.context.join("\n"));
+        }
+        let options = snapshot
+            .options
+            .into_iter()
+            .take(QUESTION_OPTIONS_MAX)
+            .map(|option| {
+                QuestionOption::new(
+                    truncate(&redactor.redact(&option.label), OPTION_LABEL_MAX),
+                    option.key,
+                )
+            })
+            .collect();
+        self.publish_question(
+            Publishable {
+                id,
+                kind: QuestionKind::Permission,
+                ask_id: None,
+                index: None,
+                total: None,
+                header: Some(header),
+                text: truncate(&redactor.redact(&text), QUESTION_TEXT_MAX),
+                options,
+                multi_select: false,
+            },
+            sender,
+        );
+    }
+
+    /// The permission dialog left the grid — answered (remotely or at the
+    /// local TUI) or dismissed.
+    fn resolve_permission(&mut self, sender: &ActivitySender) {
+        self.pending_permission = None;
+        if self.attention == Some(Attention::Permission) {
+            self.attention = None;
+        }
+        let Some(id) = self.permission.take() else { return };
+        self.resolution_seen = true;
+        self.live.remove(&id);
+        sender.send(ActivityEvent::QuestionResolved {
+            id: Some(id),
+            ask_id: None,
+            answers: None,
+            dismissed: None,
+            at: None,
+        });
+    }
+
+    /// The permission hook's degraded path: the grid never confirmed a
+    /// dialog (claude's copy drifted past the anchors, or there is no term),
+    /// so publish the legacy informational card rather than nothing.
+    fn permission_timeout(&mut self, sender: &ActivitySender) {
+        let Some(pending) = &mut self.pending_permission else {
+            return;
+        };
+        if pending.degraded || pending.seen.elapsed() < PERMISSION_GRID_CONFIRM {
+            return;
+        }
+        pending.degraded = true;
+        sender.send(ActivityEvent::Permission {
+            tool: pending.tool.clone(),
+            detail: pending.detail.clone(),
             at: None,
         });
     }
@@ -2485,6 +2622,13 @@ impl SteerState {
             }
         }
         self.attention = None;
+        // NOTE (EXP-455): a held `pending_permission` deliberately survives
+        // transcript progress — the pending tool's own `tool_use` entry
+        // flushes around the same moment the Notification fires, so clearing
+        // here would kill the degraded fallback in the common case. A
+        // locally-answered prompt the grid never confirmed can thus still
+        // surface its informational card up to 10s late — no worse than the
+        // old immediate-card behavior.
         // A plan whose picker never appeared (auto-approved, or detection
         // missed it) must not pin "needs input" for the rest of the session.
         if self.plan.as_ref().is_some_and(|plan| plan.degraded) {
@@ -2589,6 +2733,38 @@ impl SteerState {
                     }
                 }
             }
+            QuestionKind::Permission => {
+                // Only answerable while a permission dialog is actually
+                // visible — a tap that lands after a local answer must not
+                // type into whatever replaced it.
+                let Some(visible) = permission_picker::detect(&lines) else {
+                    return AnswerAttempt::Retry;
+                };
+                let Some(key) = answer.keys.first() else {
+                    return AnswerAttempt::Settled;
+                };
+                if !live.options.iter().any(|option| &option.key == key)
+                    || !visible.options.iter().any(|option| &option.key == key)
+                {
+                    return AnswerAttempt::Settled;
+                }
+                write_input(key.as_bytes());
+                // Digit-then-probe-then-Enter, as ever (EXP-334). "Moved"
+                // compares SNAPSHOTS, not mere presence: approving one
+                // prompt can paint the next dialog in its place within the
+                // probe window, and an Enter fired at that new dialog would
+                // activate its highlighted row.
+                let moved = || match permission_picker::detect(&screen_lines(term)) {
+                    None => true,
+                    Some(next) => next != visible,
+                };
+                if !settle_for(PLAN_SUBMIT_PROBE, moved) {
+                    write_input(b"\r");
+                    if !settle(moved) {
+                        return AnswerAttempt::Settled; // injected — never twice
+                    }
+                }
+            }
             QuestionKind::Ask | QuestionKind::Submit => {
                 // The during-ask detector: a hook-known question exists, so an
                 // overflowing picker with its tab bar (or the review step's
@@ -2683,7 +2859,7 @@ impl SteerState {
 
 /// Outcome of one remote-answer injection attempt (EXP-334).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum AnswerAttempt {
+pub(crate) enum AnswerAttempt {
     /// Handled for good — acked, or dropped for a reason retrying can't fix.
     Settled,
     /// Transient refusal — the poll loop may try again next tick.
@@ -2691,12 +2867,12 @@ enum AnswerAttempt {
 }
 
 /// Poll `done` until it holds or [`ANSWER_SETTLE`] elapses.
-fn settle(done: impl FnMut() -> bool) -> bool {
+pub(crate) fn settle(done: impl FnMut() -> bool) -> bool {
     settle_for(ANSWER_SETTLE, done)
 }
 
 /// Poll `done` until it holds or `window` elapses.
-fn settle_for(window: Duration, mut done: impl FnMut() -> bool) -> bool {
+pub(crate) fn settle_for(window: Duration, mut done: impl FnMut() -> bool) -> bool {
     let deadline = Instant::now() + window;
     loop {
         if done() {
@@ -2955,6 +3131,7 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
     let mut picker_watcher = PlanPickerWatcher::new();
     let mut question_watcher = QuestionPickerWatcher::new();
     let mut login_watcher = LoginWatcher::new();
+    let mut permission_watcher = PermissionPickerWatcher::new();
     let mut transcript_state = TranscriptState {
         suppress_task_headlines: config.hooks.is_some(),
         ..TranscriptState::default()
@@ -2999,6 +3176,7 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
             }
         }
         steer.plan_timeout(&sender);
+        steer.permission_timeout(&sender);
 
         // 1) Picker watch on the live grid: the transcript cannot show a
         //    PENDING plan approval or AskUserQuestion (claude flushes their
@@ -3079,8 +3257,14 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
                 // highlighted row) — the URL/paste and error phases must NOT:
                 // free text there IS the OAuth code (or a retry nudge), and
                 // the reroute's Esc would abort the login (EXP-430).
+                // A permission dialog counts too (EXP-455): the reroute's
+                // Esc lands on "No, and tell Claude what to do differently"
+                // and the steered text then arrives as exactly that feedback
+                // — typed INTO the dialog it would be eaten and its trailing
+                // Enter would activate the highlighted row.
                 grid_picker_visible = question_detection.is_some()
                     || plan_picker::detect(&lines).is_some()
+                    || permission_picker::detect(&lines).is_some()
                     || matches!(
                         login_picker::detect(&lines),
                         Some(LoginPhase::MethodPicker { .. })
@@ -3244,6 +3428,25 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
                 }
                 None => {}
             }
+            // EXP-455: permission dialogs. A session launched without
+            // bypass-permissions parks on them, and remote viewers used to
+            // get only the informational card — the dialog becomes an
+            // answerable question instead. Runs after the other watchers
+            // (the detector rejects their screens outright).
+            match permission_watcher.tick(&lines, grid_offset) {
+                Some(permission_picker::Transition::Show(snapshot)) => {
+                    // A pending ask/plan owns the screen story; their own
+                    // "needs permission" nudge is already suppressed in
+                    // apply_hook and must not resurface as a card here.
+                    if steer.ask.is_none() && steer.plan.is_none() {
+                        steer.publish_permission_question(snapshot, &sender, &redactor);
+                    }
+                }
+                Some(permission_picker::Transition::Resolved) => {
+                    steer.resolve_permission(&sender);
+                }
+                None => {}
+            }
             // EXP-444: a refused paste surfaces as narration, not silence.
             if let Some(steering) = &config.steering {
                 if steering.link.take_login_refusal_note() {
@@ -3283,6 +3486,7 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
         let picker_pending = picker_watcher.is_pending()
             || question_watcher.is_pending()
             || login_watcher.is_pending()
+            || permission_watcher.is_pending()
             || steer.has_pending_question();
         let pending = picker_pending || steer.attention.is_some();
         needs_input.tick(pending, &config.on_needs_input);
@@ -5579,30 +5783,238 @@ mod tests {
         );
     }
 
+    /// The Bash permission dialog as captured live on claude v2.0.42 —
+    /// mirrors the `permission_picker` fixture.
+    fn permission_dialog_rows() -> Vec<String> {
+        [
+            "────────────────────────────────────────────────────────────────",
+            " Bash command",
+            "",
+            "   curl -s https://example.com/",
+            "   Fetch content from example.com",
+            "",
+            " Do you want to proceed?",
+            " ❯ 1. Yes",
+            "  2. Yes, and don't ask again for curl commands in",
+            "  /home/user/project",
+            "  3. Tell Claude what to do differently",
+        ]
+        .iter()
+        .map(|r| r.to_string())
+        .collect()
+    }
+
+    fn permission_hook() -> HookEvent {
+        hook(HookEventKind::PermissionPrompt {
+            message: "Claude needs your permission to use Bash".to_string(),
+            tool: Some("Bash".to_string()),
+        })
+    }
+
     #[test]
-    fn a_permission_notification_publishes_and_holds_attention() {
+    fn a_permission_notification_holds_attention_and_waits_for_the_grid() {
         let (sender, rx) = ActivitySender::test_pair();
         let mut steer = SteerState::default();
         let mut transcript = TranscriptState::default();
         steer.apply_hook(
-            hook(HookEventKind::PermissionPrompt {
-                message: "Claude needs your permission to use Bash".to_string(),
-                tool: Some("Bash".to_string()),
-            }),
+            permission_hook(),
             &sender,
             &Redactor::new(vec![]),
             &mut transcript,
         );
+        // EXP-455: nothing publishes yet — the grid watcher owns the card.
+        assert!(drained(&rx).is_empty(), "the informational card is held");
+        assert!(steer.attention.is_some(), "the session is blocked");
+        steer.observe_published(&ActivityEvent::tool("Bash", None));
+        assert!(steer.attention.is_none(), "progress clears it");
+    }
+
+    #[test]
+    fn a_grid_confirmed_permission_dialog_becomes_an_answerable_question() {
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(permission_hook(), &sender, &redactor, &mut transcript);
+        assert!(drained(&rx).is_empty());
+
+        let snapshot =
+            crate::permission_picker::detect(&permission_dialog_rows()).expect("dialog detected");
+        steer.publish_permission_question(snapshot, &sender, &redactor);
+        match &drained(&rx)[..] {
+            [ActivityEvent::Question {
+                id,
+                header,
+                text,
+                options,
+                plan_mode,
+                ..
+            }] => {
+                assert_eq!(id.as_deref(), Some("permission:1"));
+                assert_eq!(header.as_deref(), Some("Bash command"));
+                assert!(text.starts_with("Do you want to proceed?"));
+                assert!(text.contains("curl -s https://example.com/"));
+                assert_eq!(options.len(), 3);
+                assert_eq!(options[0].key, "1");
+                assert_eq!(plan_mode, &None);
+            }
+            other => panic!("expected a permission question, got {other:?}"),
+        }
+        assert!(steer.has_pending_question());
+
+        // The consumed hook hold can never degrade to the legacy card.
+        steer
+            .pending_permission
+            .as_mut()
+            .map(|pending| pending.seen = Instant::now() - PERMISSION_GRID_CONFIRM);
+        steer.permission_timeout(&sender);
+        assert!(drained(&rx).is_empty(), "no informational duplicate");
+
+        // The dialog leaving the grid retires the card and the block.
+        steer.attention = Some(Attention::Permission);
+        steer.resolve_permission(&sender);
+        match &drained(&rx)[..] {
+            [ActivityEvent::QuestionResolved { id, .. }] => {
+                assert_eq!(id.as_deref(), Some("permission:1"));
+            }
+            other => panic!("expected a resolution, got {other:?}"),
+        }
+        assert!(steer.attention.is_none());
+        assert!(!steer.has_pending_question());
+    }
+
+    #[test]
+    fn a_headline_less_dialog_falls_back_to_the_hook_tool_header() {
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(permission_hook(), &sender, &redactor, &mut transcript);
+        let snapshot = crate::permission_picker::PermissionSnapshot {
+            header: None,
+            context: vec![],
+            question: "Do you want to proceed?".to_string(),
+            options: vec![
+                QuestionOption::new("Yes", "1"),
+                QuestionOption::new("No", "2"),
+            ],
+        };
+        steer.publish_permission_question(snapshot, &sender, &redactor);
+        match &drained(&rx)[..] {
+            [ActivityEvent::Question { header, .. }] => {
+                assert_eq!(header.as_deref(), Some("Bash"));
+            }
+            other => panic!("expected a question, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_unconfirmed_permission_prompt_degrades_to_the_informational_card() {
+        let (sender, rx) = ActivitySender::test_pair();
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(
+            permission_hook(),
+            &sender,
+            &Redactor::new(vec![]),
+            &mut transcript,
+        );
+        // Fresh hold: quiet.
+        steer.permission_timeout(&sender);
+        assert!(drained(&rx).is_empty());
+        // Past the confirm window with no grid dialog: the legacy card.
+        steer.pending_permission.as_mut().unwrap().seen =
+            Instant::now() - PERMISSION_GRID_CONFIRM;
+        steer.permission_timeout(&sender);
         match &drained(&rx)[..] {
             [ActivityEvent::Permission { tool, detail, .. }] => {
                 assert_eq!(tool, "Bash");
                 assert!(detail.as_ref().unwrap().contains("permission"));
             }
-            other => panic!("expected a permission event, got {other:?}"),
+            other => panic!("expected the informational card, got {other:?}"),
         }
-        assert!(steer.attention.is_some(), "the session is blocked");
-        steer.observe_published(&ActivityEvent::tool("Bash", None));
-        assert!(steer.attention.is_none(), "progress clears it");
+        // Once only.
+        steer.permission_timeout(&sender);
+        assert!(drained(&rx).is_empty());
+    }
+
+    #[test]
+    fn a_remote_permission_answer_is_injected_and_acked() {
+        let emulator = terminal::Emulator::new(100, 30);
+        let term = emulator.term();
+        paint(&term, &permission_dialog_rows());
+
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let snapshot =
+            crate::permission_picker::detect(&screen_lines(&term)).expect("dialog detected");
+        steer.publish_permission_question(snapshot, &sender, &redactor);
+        drained(&rx);
+
+        // The digit approves; the dialog leaves the grid; the answer acks.
+        let (write_input, keys) = recording_input(term.clone(), None, "1");
+        let outcome = steer.handle_answer(
+            &RemoteAnswer {
+                question_id: "permission:1".to_string(),
+                ask_id: None,
+                keys: vec!["1".to_string()],
+            },
+            &term,
+            &write_input,
+            &sender,
+        );
+        assert_eq!(outcome, AnswerAttempt::Settled);
+        assert_eq!(*keys.lock().unwrap(), vec!["1"]);
+        match &drained(&rx)[..] {
+            [ActivityEvent::AnswerAck { id, .. }] => assert_eq!(id, "permission:1"),
+            other => panic!("expected an answer_ack, got {other:?}"),
+        }
+
+        // A duplicate never injects again.
+        let outcome = steer.handle_answer(
+            &RemoteAnswer {
+                question_id: "permission:1".to_string(),
+                ask_id: None,
+                keys: vec!["1".to_string()],
+            },
+            &term,
+            &write_input,
+            &sender,
+        );
+        assert_eq!(outcome, AnswerAttempt::Settled);
+        assert_eq!(keys.lock().unwrap().len(), 1, "no second injection");
+        drained(&rx);
+    }
+
+    #[test]
+    fn a_permission_answer_without_the_dialog_on_screen_is_retried() {
+        let emulator = terminal::Emulator::new(100, 30);
+        let term = emulator.term();
+        paint(&term, &["✳ Deliberating…".to_string()]);
+
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let snapshot =
+            crate::permission_picker::detect(&permission_dialog_rows()).expect("dialog detected");
+        steer.publish_permission_question(snapshot, &sender, &redactor);
+        drained(&rx);
+
+        let (write_input, keys) = recording_input(term.clone(), None, "\r");
+        let outcome = steer.handle_answer(
+            &RemoteAnswer {
+                question_id: "permission:1".to_string(),
+                ask_id: None,
+                keys: vec!["1".to_string()],
+            },
+            &term,
+            &write_input,
+            &sender,
+        );
+        assert_eq!(outcome, AnswerAttempt::Retry);
+        assert!(keys.lock().unwrap().is_empty(), "nothing may be injected");
+        assert!(drained(&rx).is_empty(), "and nothing is acked");
     }
 
     #[test]

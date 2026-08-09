@@ -24,9 +24,11 @@
 //!   those event_msgs are replaced by `item_completed` turn items; we then
 //!   degrade to the always-persisted `response_item` stream (narration +
 //!   tools keep working, questions too) and say so once.
-//! - Exec/patch APPROVAL prompts are never persisted to the rollout —
-//!   invisible here by design (accepted v1 limitation; the launcher runs
-//!   codex with the workspace-write preset or full bypass, so they are rare).
+//! - Exec/patch APPROVAL prompts are never persisted to the rollout — the
+//!   emitter watches the terminal GRID for them instead
+//!   ([`crate::codex_approval_picker`], EXP-455) and publishes each modal as
+//!   an answerable question, executing remote answers against the TUI by
+//!   keystroke exactly like the claude emitter does.
 //! - `codex resume` appends to the SAME rollout file — a full-history replay
 //!   on attach, deliberately matching the claude `--continue` posture.
 //!
@@ -37,13 +39,14 @@
 //! are never read beyond `request_user_input` answer extraction. Everything
 //! published passes the [`Redactor`] + the shared truncation caps.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
 
 use serde_json::Value;
+use terminal::{display_offset, screen_lines, TermHandle};
 
 use crate::activity::{
     secrets_from_worktree, DiffSnapshots, EmitterConfig, NeedsInputForwarder, Redactor,
@@ -51,9 +54,13 @@ use crate::activity::{
     QUESTION_ANSWERED_PREFIX, QUESTION_DISMISSED_NARRATION, QUESTION_HEADER_MAX,
     QUESTION_OPTIONS_MAX, QUESTION_TEXT_MAX, TOOL_DETAIL_MAX, TOOL_NAME_MAX,
 };
-use crate::activity::{tail_transcript, truncate};
+use crate::activity::{
+    settle, settle_for, tail_transcript, truncate, AnswerAttempt, RemoteAnswer, ANSWER_RETRY_TTL,
+    PLAN_SUBMIT_PROBE,
+};
+use crate::codex_approval_picker::{self, ApprovalSnapshot, CodexApprovalWatcher};
 use crate::frames::{ActivityEvent, QuestionOption};
-use crate::publisher::ActivitySender;
+use crate::publisher::{ActivitySender, InputHook};
 
 /// How long to wait for the rollout file before logging (mirrors the claude
 /// emitter's TRANSCRIPT_WAIT posture — diffs keep flowing either way).
@@ -251,6 +258,149 @@ impl CodexState {
     pub(crate) fn attention(&self) -> bool {
         self.idle || !self.pending_asks.is_empty()
     }
+}
+
+/// The remotely-answerable approval question riding the grid watcher
+/// (EXP-455) — codex's analogue of the claude emitter's permission state.
+#[derive(Default)]
+pub(crate) struct CodexApprovals {
+    seq: u32,
+    /// `(question id, published options)` while a card is live.
+    live: Option<(String, Vec<QuestionOption>)>,
+    answered: HashSet<String>,
+}
+
+/// An approval overlay settled on screen — publish it as an ordinary
+/// id-carrying question so every client's existing card UI carries the
+/// decision. A changed overlay retires the previous card first.
+///
+/// The question text carries the overlay's own context lines — including the
+/// `$ command` row — through the [`Redactor`]. That is a DELIBERATE
+/// exception to this module's derived-first-token-only stance for exec
+/// headlines: the command IS the decision payload here, and approving it
+/// blind would be worse than showing it (same posture as the claude
+/// permission dialog, whose card shows the redacted command too).
+fn publish_approval(
+    approvals: &mut CodexApprovals,
+    snapshot: ApprovalSnapshot,
+    sender: &ActivitySender,
+    redactor: &Redactor,
+) {
+    resolve_approval(approvals, sender);
+    approvals.seq += 1;
+    let id = format!("approval:{}", approvals.seq);
+    let mut text = snapshot.title;
+    if !snapshot.context.is_empty() {
+        text.push_str("\n\n");
+        text.push_str(&snapshot.context.join("\n"));
+    }
+    let options: Vec<QuestionOption> = snapshot
+        .options
+        .into_iter()
+        .take(QUESTION_OPTIONS_MAX)
+        .map(|option| {
+            QuestionOption::new(
+                truncate(&redactor.redact(&option.label), OPTION_LABEL_MAX),
+                option.key,
+            )
+        })
+        .collect();
+    sender.send(ActivityEvent::Question {
+        text: truncate(&redactor.redact(&text), QUESTION_TEXT_MAX),
+        options: options.clone(),
+        multi_select: None,
+        plan_mode: None,
+        id: Some(id.clone()),
+        ask_id: None,
+        index: None,
+        total: None,
+        header: Some("Approval required".to_string()),
+        at: None,
+    });
+    approvals.live = Some((id, options));
+}
+
+/// The approval overlay left the grid — answered (remotely or at the local
+/// TUI) or dismissed; retire the card.
+fn resolve_approval(approvals: &mut CodexApprovals, sender: &ActivitySender) {
+    let Some((id, _)) = approvals.live.take() else {
+        return;
+    };
+    sender.send(ActivityEvent::QuestionResolved {
+        id: Some(id),
+        ask_id: None,
+        answers: None,
+        dismissed: None,
+        at: None,
+    });
+}
+
+/// Inject a steerer's answer into the codex TUI and acknowledge it once the
+/// overlay moves on — the same digit-then-probe-then-Enter choreography and
+/// Retry/Settled contract as the claude emitter's `handle_answer` (EXP-334):
+/// codex's approval list actuates on the digit itself (verified against
+/// list_selection_view 0.144.5), so the Enter branch is the safety net.
+fn handle_approval_answer(
+    approvals: &mut CodexApprovals,
+    answer: &RemoteAnswer,
+    term: &TermHandle,
+    write_input: &InputHook,
+    sender: &ActivitySender,
+) -> AnswerAttempt {
+    if approvals.answered.contains(&answer.question_id) {
+        // Already injected — never twice, but re-ack for late joiners
+        // (EXP-374).
+        sender.send(ActivityEvent::AnswerAck {
+            id: answer.question_id.clone(),
+            ask_id: None,
+            at: None,
+        });
+        return AnswerAttempt::Settled;
+    }
+    let Some((id, options)) = approvals.live.clone() else {
+        return AnswerAttempt::Settled; // stale/unknown id
+    };
+    if answer.question_id != id {
+        return AnswerAttempt::Settled;
+    }
+    if display_offset(term) > 0 {
+        return AnswerAttempt::Retry;
+    }
+    let Some(visible) = codex_approval_picker::detect(&screen_lines(term)) else {
+        return AnswerAttempt::Retry;
+    };
+    let Some(key) = answer.keys.first() else {
+        return AnswerAttempt::Settled;
+    };
+    if !options.iter().any(|option| &option.key == key)
+        || !visible.options.iter().any(|option| &option.key == key)
+    {
+        return AnswerAttempt::Settled;
+    }
+    write_input(key.as_bytes());
+    // "Moved" compares SNAPSHOTS, not mere presence: confirming one modal
+    // can paint the queued next one in its place within the probe window,
+    // and an Enter fired at that new modal would activate its highlighted
+    // row.
+    let moved = || match codex_approval_picker::detect(&screen_lines(term)) {
+        None => true,
+        Some(next) => next != visible,
+    };
+    if !settle_for(PLAN_SUBMIT_PROBE, moved) {
+        write_input(b"\r");
+        if !settle(moved) {
+            return AnswerAttempt::Settled; // injected — never twice
+        }
+    }
+    // `live` stays set — the watcher's absence transition still owes the
+    // viewers the `question_resolved` retirement.
+    approvals.answered.insert(id.clone());
+    sender.send(ActivityEvent::AnswerAck {
+        id,
+        ask_id: None,
+        at: None,
+    });
+    AnswerAttempt::Settled
 }
 
 /// Parse one rollout line into zero or more publishable events, updating
@@ -753,6 +903,14 @@ fn run_emitter_with_root(
     let mut state = CodexState::default();
     let mut diffs = DiffSnapshots::new();
     let mut needs_input = NeedsInputForwarder::new();
+    // EXP-455: exec/patch approval modals render only on the grid (never in
+    // the rollout) — watch for them and make them remotely answerable.
+    let mut approval_watcher = CodexApprovalWatcher::new();
+    let mut approvals = CodexApprovals::default();
+    let mut parked_answers: Vec<(RemoteAnswer, Instant)> = Vec::new();
+    // The publisher's EXP-334 free-text reroute signal, sticky while the
+    // viewport is scrolled — like the claude emitter's grid memory.
+    let mut grid_picker_visible = false;
     // EXP-443: the launcher-stamped per-spawn originator (and, on a native
     // resume, the exact rollout id) pin discovery to OUR codex among the
     // cwd's rollouts — an in-TUI `/new` rotates the file but keeps the
@@ -827,17 +985,96 @@ fn run_emitter_with_root(
             );
         }
 
-        // 3) The synced needs-input flag: idle between turns or parked on a
-        //    `request_user_input`.
-        needs_input.tick(state.attention(), &config.on_needs_input);
+        // 3) EXP-455: approval-modal watch on the live grid. A settled
+        //    overlay becomes an answerable question; its disappearance
+        //    retires the card. While a `request_user_input` ask is pending
+        //    its picker owns the screen (the rollout already published those
+        //    questions as cards) — the watcher's Show is swallowed.
+        if let Some(term) = &config.term {
+            let lines = screen_lines(term);
+            let grid_offset = display_offset(term);
+            match approval_watcher.tick(&lines, grid_offset) {
+                Some(codex_approval_picker::Transition::Show(snapshot)) => {
+                    if state.pending_asks.is_empty() {
+                        publish_approval(&mut approvals, snapshot, &sender, &redactor);
+                    }
+                }
+                Some(codex_approval_picker::Transition::Resolved) => {
+                    resolve_approval(&mut approvals, &sender);
+                }
+                None => {}
+            }
+            if grid_offset == 0 {
+                // Free text typed at the modal would be eaten and its
+                // trailing Enter would confirm the highlighted row — the
+                // publisher's Esc-reroute (EXP-334) lands on the modal's
+                // esc-to-cancel instead, and the message arrives as the
+                // "what to do differently" feedback.
+                grid_picker_visible = codex_approval_picker::detect(&lines).is_some();
+            }
+            if let Some(steering) = &config.steering {
+                steering.link.set_grid_picker_pending(grid_picker_visible);
+            }
+        }
 
-        // 4) Debounced worktree diff snapshot (only when changed).
+        // 4) The synced needs-input flag: idle between turns, parked on a
+        //    `request_user_input`, or blocked on an approval modal.
+        needs_input.tick(
+            state.attention() || approval_watcher.is_pending(),
+            &config.on_needs_input,
+        );
+
+        // 5) Debounced worktree diff snapshot (only when changed).
         diffs.tick(&config.worktree, &sender, &redactor);
 
-        std::thread::sleep(POLL_INTERVAL);
+        // 6) Wait out the poll interval — interrupted by a remote answer,
+        //    with the same parked-retry contract as the claude emitter
+        //    (EXP-334): a tap can beat the modal's paint or land mid-render.
+        match &config.steering {
+            Some(steering) => {
+                let deadline = Instant::now() + POLL_INTERVAL;
+                loop {
+                    match &config.term {
+                        Some(term) => parked_answers.retain_mut(|(answer, since)| {
+                            match handle_approval_answer(
+                                &mut approvals,
+                                answer,
+                                term,
+                                &steering.write_input,
+                                &sender,
+                            ) {
+                                AnswerAttempt::Settled => false,
+                                AnswerAttempt::Retry => since.elapsed() < ANSWER_RETRY_TTL,
+                            }
+                        }),
+                        None => {
+                            if !parked_answers.is_empty() {
+                                parked_answers.clear();
+                                log::debug!("activity: answer dropped — no terminal grid");
+                            }
+                        }
+                    }
+                    let Some(wait) = deadline.checked_duration_since(Instant::now()) else {
+                        break;
+                    };
+                    match steering.answers.recv_timeout(wait) {
+                        Ok(answer) => {
+                            parked_answers
+                                .retain(|(parked, _)| parked.question_id != answer.question_id);
+                            parked_answers.push((answer, Instant::now()));
+                        }
+                        Err(_) => break,
+                    }
+                }
+            }
+            None => std::thread::sleep(POLL_INTERVAL),
+        }
     }
 
     needs_input.clear_on_teardown(&config.on_needs_input);
+    if let Some(steering) = &config.steering {
+        steering.link.set_grid_picker_pending(false);
+    }
 }
 
 #[cfg(test)]
@@ -1170,6 +1407,200 @@ mod tests {
             r#"{"timestamp":"t","type":"session_meta","payload":{"id":"s1","cwd":"/w","history_mode":"paginated"}}"#,
         );
         assert!(events.is_empty());
+    }
+
+    // -- approvals (EXP-455) -----------------------------------------------
+
+    use crate::publisher::PublisherCmd;
+    use std::sync::{Arc as StdArc, Mutex};
+
+    fn drained(rx: &flume::Receiver<PublisherCmd>) -> Vec<ActivityEvent> {
+        rx.drain()
+            .map(|cmd| match cmd {
+                PublisherCmd::Activity(event) => event,
+                other => panic!("the emitter only ever sends activity: {other:?}"),
+            })
+            .collect()
+    }
+
+    fn paint(term: &TermHandle, rows: &[&str]) {
+        let mut processor = vte::ansi::Processor::<vte::ansi::StdSyncHandler>::new();
+        let mut bytes = b"\x1b[2J\x1b[H".to_vec();
+        for row in rows {
+            bytes.extend_from_slice(row.as_bytes());
+            bytes.extend_from_slice(b"\r\n");
+        }
+        processor.advance(&mut *term.lock(), &bytes);
+    }
+
+    /// The exec approval overlay (codex-cli 0.144.5 render snapshot).
+    const EXEC_APPROVAL_ROWS: &[&str] = &[
+        "  Would you like to run the following command?",
+        "",
+        "  Reason: need filesystem access",
+        "",
+        "  $ cat /tmp/readme.txt",
+        "",
+        "› 1. Yes, proceed (y)",
+        "  2. No, and tell Codex what to do differently (esc)",
+        "",
+        "  Press enter to confirm or esc to cancel",
+    ];
+
+    fn exec_snapshot() -> ApprovalSnapshot {
+        let rows: Vec<String> = EXEC_APPROVAL_ROWS.iter().map(|r| r.to_string()).collect();
+        codex_approval_picker::detect(&rows).expect("overlay detected")
+    }
+
+    #[test]
+    fn an_approval_overlay_becomes_an_answerable_question_and_resolves() {
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = redactor();
+        let mut approvals = CodexApprovals::default();
+        publish_approval(&mut approvals, exec_snapshot(), &sender, &redactor);
+        match &drained(&rx)[..] {
+            [ActivityEvent::Question {
+                id,
+                header,
+                text,
+                options,
+                ..
+            }] => {
+                assert_eq!(id.as_deref(), Some("approval:1"));
+                assert_eq!(header.as_deref(), Some("Approval required"));
+                assert!(text.starts_with("Would you like to run the following command?"));
+                assert!(text.contains("$ cat /tmp/readme.txt"));
+                assert_eq!(options.len(), 2);
+                assert_eq!(options[0].key, "1");
+            }
+            other => panic!("expected an approval question, got {other:?}"),
+        }
+
+        resolve_approval(&mut approvals, &sender);
+        match &drained(&rx)[..] {
+            [ActivityEvent::QuestionResolved { id, .. }] => {
+                assert_eq!(id.as_deref(), Some("approval:1"));
+            }
+            other => panic!("expected a resolution, got {other:?}"),
+        }
+        // Idempotent once retired.
+        resolve_approval(&mut approvals, &sender);
+        assert!(drained(&rx).is_empty());
+    }
+
+    #[test]
+    fn a_changed_overlay_retires_the_previous_card_first() {
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = redactor();
+        let mut approvals = CodexApprovals::default();
+        publish_approval(&mut approvals, exec_snapshot(), &sender, &redactor);
+        drained(&rx);
+        publish_approval(&mut approvals, exec_snapshot(), &sender, &redactor);
+        match &drained(&rx)[..] {
+            [ActivityEvent::QuestionResolved { id, .. }, ActivityEvent::Question { id: next, .. }] =>
+            {
+                assert_eq!(id.as_deref(), Some("approval:1"));
+                assert_eq!(next.as_deref(), Some("approval:2"));
+            }
+            other => panic!("expected retire-then-publish, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_remote_approval_answer_is_injected_and_acked() {
+        let emulator = terminal::Emulator::new(100, 30);
+        let term = emulator.term();
+        paint(&term, EXEC_APPROVAL_ROWS);
+
+        let (sender, rx) = ActivitySender::test_pair();
+        let mut approvals = CodexApprovals::default();
+        publish_approval(&mut approvals, exec_snapshot(), &sender, &redactor());
+        drained(&rx);
+
+        // The digit actuates the row (list_selection_view semantics); the
+        // overlay leaves the grid, the answer acks — no trailing Enter.
+        let keys = StdArc::new(Mutex::new(Vec::<String>::new()));
+        let recorded = keys.clone();
+        let repaint_term = term.clone();
+        let write_input: InputHook = StdArc::new(move |bytes: &[u8]| {
+            let key = String::from_utf8_lossy(bytes).to_string();
+            let actuated = key == "1";
+            recorded.lock().unwrap().push(key);
+            if actuated {
+                paint(&repaint_term, &["  Working…"]);
+            }
+        });
+        let answer = RemoteAnswer {
+            question_id: "approval:1".to_string(),
+            ask_id: None,
+            keys: vec!["1".to_string()],
+        };
+        let outcome = handle_approval_answer(&mut approvals, &answer, &term, &write_input, &sender);
+        assert_eq!(outcome, AnswerAttempt::Settled);
+        assert_eq!(*keys.lock().unwrap(), vec!["1"]);
+        match &drained(&rx)[..] {
+            [ActivityEvent::AnswerAck { id, .. }] => assert_eq!(id, "approval:1"),
+            other => panic!("expected an answer_ack, got {other:?}"),
+        }
+
+        // A duplicate re-acks without injecting again (EXP-374).
+        let outcome = handle_approval_answer(&mut approvals, &answer, &term, &write_input, &sender);
+        assert_eq!(outcome, AnswerAttempt::Settled);
+        assert_eq!(keys.lock().unwrap().len(), 1, "no second injection");
+        assert!(matches!(
+            drained(&rx)[..],
+            [ActivityEvent::AnswerAck { .. }]
+        ));
+    }
+
+    #[test]
+    fn an_approval_answer_without_the_overlay_on_screen_is_retried() {
+        let emulator = terminal::Emulator::new(100, 30);
+        let term = emulator.term();
+        paint(&term, &["  Working…"]);
+
+        let (sender, rx) = ActivitySender::test_pair();
+        let mut approvals = CodexApprovals::default();
+        publish_approval(&mut approvals, exec_snapshot(), &sender, &redactor());
+        drained(&rx);
+
+        let keys = StdArc::new(Mutex::new(Vec::<String>::new()));
+        let recorded = keys.clone();
+        let write_input: InputHook = StdArc::new(move |bytes: &[u8]| {
+            recorded
+                .lock()
+                .unwrap()
+                .push(String::from_utf8_lossy(bytes).to_string());
+        });
+        let outcome = handle_approval_answer(
+            &mut approvals,
+            &RemoteAnswer {
+                question_id: "approval:1".to_string(),
+                ask_id: None,
+                keys: vec!["1".to_string()],
+            },
+            &term,
+            &write_input,
+            &sender,
+        );
+        assert_eq!(outcome, AnswerAttempt::Retry);
+        assert!(keys.lock().unwrap().is_empty(), "nothing may be injected");
+        assert!(drained(&rx).is_empty(), "and nothing is acked");
+
+        // A stale id can never become answerable — settled, not retried.
+        let outcome = handle_approval_answer(
+            &mut approvals,
+            &RemoteAnswer {
+                question_id: "approval:99".to_string(),
+                ask_id: None,
+                keys: vec!["1".to_string()],
+            },
+            &term,
+            &write_input,
+            &sender,
+        );
+        assert_eq!(outcome, AnswerAttempt::Settled);
+        assert!(keys.lock().unwrap().is_empty());
     }
 
     // -- discovery ---------------------------------------------------------

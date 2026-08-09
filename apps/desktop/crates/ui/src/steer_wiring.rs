@@ -1014,6 +1014,10 @@ pub fn attach_publisher(
         CodingAgent::Pi => steer::activity::SessionAgent::Pi,
     };
     let is_claude = session_agent == steer::activity::SessionAgent::Claude;
+    // EXP-455: keystroke-choreographed remote answering — claude's pickers
+    // and codex's approval modals. Pi steers through its observer extension.
+    let steers_by_keystroke =
+        is_claude || session_agent == steer::activity::SessionAgent::Codex;
     let Some(runtime) = runtime(cx) else {
         return; // steer off (runtime failed to init)
     };
@@ -1069,10 +1073,11 @@ pub fn attach_publisher(
         error: Arc::new(move |message| {
             let _ = error_tx.send(SteerUiEvent::Error(message));
         }),
-        // EXP-383: the semantic answer path is claude-only (grid keystroke
-        // choreography against the claude TUI) — `None` keeps the publisher's
-        // Enter-cascade/Esc-reroute logic inert for codex/pi.
-        answers: is_claude.then(|| answer_link.clone()),
+        // EXP-383/EXP-455: the semantic answer path drives the claude and
+        // codex TUIs by grid keystroke choreography (claude: plan/ask/login/
+        // permission pickers; codex: approval modals) — `None` keeps the
+        // publisher's Enter-cascade/Esc-reroute logic inert for pi.
+        answers: steers_by_keystroke.then(|| answer_link.clone()),
         agent: session_agent,
         text_sink: pi_steer.map(|handle| {
             Arc::new(move |text: String| handle.push(text)) as Arc<dyn Fn(String) + Send + Sync>
@@ -1173,9 +1178,10 @@ pub fn attach_publisher(
                 }
             })),
             hooks: hook_events,
-            // EXP-383: remote answering is claude-only — the Steering seam
-            // drives the claude TUI's pickers by keystroke.
-            steering: is_claude.then(|| Steering {
+            // EXP-383/EXP-455: the Steering seam drives the claude TUI's
+            // pickers and codex's approval modals by keystroke; pi has
+            // neither.
+            steering: steers_by_keystroke.then(|| Steering {
                 answers,
                 link: answer_link,
                 write_input,

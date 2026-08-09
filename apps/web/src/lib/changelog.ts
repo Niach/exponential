@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-remote-permission-approval`,
+    date: `2026-08-09`,
+    title: `Approve agent permissions from anywhere`,
+    summary: `Permission and approval prompts are now answerable from web, iOS, and Android instead of pausing the session until you reach the machine.`,
+    body: `- **Claude permission prompts**: sessions started without permission bypass surface the "Do you want to proceed?" dialog as an answerable card in the steer view, with the dialog's real options.
+- **Codex approvals**: command, edit, and network-access approval modals are answerable remotely the same way.
+- **Steer with words instead**: sending a message while a prompt is up dismisses it safely and delivers your text as the "tell the agent what to do differently" feedback.`,
+  },
+  {
     id: `2026-08-machine-launch-defaults`,
     date: `2026-08-08`,
     title: `Start coding with your machine's own defaults`,
