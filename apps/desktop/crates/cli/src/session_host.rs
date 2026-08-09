@@ -208,6 +208,10 @@ pub fn launch(
         let write_input = pty_writer_input_hook(writer.clone(), term.clone());
         let (answer_link, answers) = AnswerLink::new();
         let is_claude = agent == CodingAgent::Claude;
+        // EXP-455: keystroke-choreographed remote answering — claude's
+        // pickers and codex's approval modals. Pi steers through its
+        // observer extension.
+        let steers_by_keystroke = is_claude || agent == CodingAgent::Codex;
         let session_agent = match agent {
             CodingAgent::Claude => steer::activity::SessionAgent::Claude,
             CodingAgent::Codex => steer::activity::SessionAgent::Codex,
@@ -229,7 +233,7 @@ pub fn launch(
                 let _ = kill_tx.send(Control::Kill { outcome: "killed" });
             }),
             error: Arc::new(|message| log::warn!("steer publisher: {message}")),
-            answers: is_claude.then(|| Arc::clone(&answer_link)),
+            answers: steers_by_keystroke.then(|| Arc::clone(&answer_link)),
             agent: session_agent,
             text_sink: pi_steer.map(|handle| {
                 Arc::new(move |text: String| handle.push(text)) as Arc<dyn Fn(String) + Send + Sync>
@@ -267,7 +271,7 @@ pub fn launch(
                             .subscribe_hooks(&worktree, claude_session_id.as_deref())
                     })
                     .flatten(),
-                steering: is_claude.then(|| Steering {
+                steering: steers_by_keystroke.then(|| Steering {
                     answers,
                     link: answer_link,
                     write_input,

@@ -44,11 +44,13 @@
 
 pub mod activity;
 pub mod codex_activity;
+pub mod codex_approval_picker;
 pub mod control_channel;
 pub mod frames;
 pub mod hooks;
 pub mod journal;
 pub mod login_picker;
+pub mod permission_picker;
 pub mod pi_activity;
 pub mod pi_observer;
 pub mod plan_picker;
