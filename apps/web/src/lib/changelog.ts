@@ -31,7 +31,8 @@ export const CHANGELOG: ChangelogEntry[] = [
     summary: `Permission and approval prompts are now answerable from web, iOS, and Android instead of pausing the session until you reach the machine.`,
     body: `- **Claude permission prompts**: sessions started without permission bypass surface the "Do you want to proceed?" dialog as an answerable card in the steer view, with the dialog's real options.
 - **Codex approvals**: command, edit, and network-access approval modals are answerable remotely the same way.
-- **Steer with words instead**: sending a message while a prompt is up dismisses it safely and delivers your text as the "tell the agent what to do differently" feedback.`,
+- **Steer with words instead**: sending a message while a prompt is up dismisses it safely and delivers your text as the "tell the agent what to do differently" feedback.
+- **Settings slide into the sidebar**: team settings now open as a slide-in navigation in the sidebar on web and desktop instead of a separate page rail.`,
   },
   {
     id: `2026-08-machine-launch-defaults`,
