@@ -37,23 +37,19 @@ function SettingsLayout() {
 
       <Separator />
 
-      <div className="flex flex-col gap-6 md:flex-row md:gap-8">
-        {/* Grouped section nav — vertical sidebar on md+, horizontally
-            scrollable row on mobile (group labels hidden there). */}
-        <nav className="flex gap-4 overflow-x-auto md:w-44 md:shrink-0 md:flex-col md:gap-5 md:overflow-x-visible">
+      <div className="flex flex-col gap-6">
+        {/* EXP-456: on md+ the settings nav lives in the app sidebar (the
+            main nav slides out, the settings nav slides in — see
+            TeamSidebar/SettingsSidebar), so this in-page nav is the mobile
+            horizontally-scrollable row only (group labels hidden there). */}
+        <nav className="flex gap-4 overflow-x-auto md:hidden">
           {SETTINGS_NAV.map((group) => {
             const items = group.items.filter((item) =>
               item.visible(permissions, navContext)
             )
             if (items.length === 0) return null
             return (
-              <div
-                key={group.group}
-                className="flex shrink-0 gap-1 md:flex-col"
-              >
-                <div className="hidden px-3 pb-1 text-xs font-medium text-muted-foreground md:block">
-                  {group.group}
-                </div>
+              <div key={group.group} className="flex shrink-0 gap-1">
                 {items.map((item) => (
                   <Button
                     key={item.label}

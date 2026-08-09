@@ -174,14 +174,6 @@ impl Render for AppTitleBar {
         // team whose boards haven't synced) — exactly when the `NewIssue`
         // handler would bail.
         let can_create = crate::navigation::active_board_id(&nav, cx).is_some();
-        // EXP-285: with the full-height rail to our left, the vendored 80px
-        // macOS traffic-light reserve is wrong — the lights float over the
-        // RAIL now. Expanded (164px) the rail clears the cluster entirely;
-        // collapsed (44px) the Shell's tongue covers the remainder.
-        // Fullscreen hides the lights, so the reserve is reclaimed outright.
-        // EXP-364: the rail is unconditionally present — this bar is mounted
-        // only by the Shell's dock branch (see the type docs).
-        let expanded = crate::sidebar::rail_expanded(window, cx);
 
         // EXP-326: the strip's width budget, computed instead of guessed.
         // Everything left and right of it is fixed-width chrome whose widths
@@ -197,11 +189,14 @@ impl Render for AppTitleBar {
         //           three `TITLE_BAR_HEIGHT`-wide buttons — `TitleBar` draws
         //           min + max + close here.
         let strip_available = {
-            let rail_w = if expanded {
-                crate::sidebar::RAIL_EXPANDED_W
-            } else {
-                crate::sidebar::RAIL_W
-            };
+            // EXP-285/EXP-456: the full-height LEFT COLUMN (rail, or the
+            // settings nav while Settings is up) sits left of this bar — its
+            // target width is the budget's first term. macOS lights float
+            // over that column: expanded rail (164px) and settings nav
+            // (212px) clear the cluster entirely; the collapsed rail (44px)
+            // gets the Shell's tongue. Fullscreen hides the lights, so the
+            // reserve is reclaimed outright.
+            let rail_w = crate::shell::left_column_target_width(window, cx);
             let tongue_w = if crate::shell::traffic_tongue_visible(window, cx) {
                 crate::shell::TRAFFIC_TONGUE_TOTAL_W
             } else {

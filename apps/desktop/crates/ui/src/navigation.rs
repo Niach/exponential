@@ -74,9 +74,10 @@ impl Screen {
 
     /// EXP-288: whether the screen is a DETAIL view — the only kind that
     /// gets a tab chip. Settings is a tab-less full-screen mode
-    /// (leave by clicking any rail entry or open tab); Source Control's
-    /// diff and the file viewer are TOOL-DEFAULT center content driven by
-    /// the sidebar selection, never tabs.
+    /// (leave via the settings nav's back button, or by clicking any open
+    /// tab — the rail is slid away while it is up, EXP-456); Source
+    /// Control's diff and the file viewer are TOOL-DEFAULT center content
+    /// driven by the sidebar selection, never tabs.
     pub(crate) fn is_detail(&self) -> bool {
         matches!(
             self,
