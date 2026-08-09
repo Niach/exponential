@@ -53,7 +53,7 @@ Capture Play Store screenshots on a booted emulator via screengrab. Needs the se
 [bundle exec] fastlane android production
 ```
 
-Promote the current closed-testing build to the production track (no new binary).
+Promote the current closed-testing build to the production track (no new binary). Defaults version_code to the newest changelogs/<vc>.txt; override with version_code:NN.
 
 ### android sync_store
 
