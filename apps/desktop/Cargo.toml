@@ -4,7 +4,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2021"
-version = "0.14.5"
+version = "0.14.6"
 # The whole repo is Apache-2.0 (EXP-352; verbatim text in the repo-root LICENSE).
 # Every crate inherits this via `license.workspace = true`, except the vendored
 # gpui-markdown-editor which pins its own explicit Apache-2.0.
