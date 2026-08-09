@@ -5,10 +5,9 @@
 import { useEffect, useState } from "react"
 import { Link } from "@tanstack/react-router"
 import { conceptIcon } from "@/lib/icons.generated"
-import { useTeamPermissions } from "@/hooks/use-team-permissions"
-import { getRuntimeConfig, type RuntimeConfig } from "@/lib/runtime-config"
+import type { TeamPermissions } from "@/hooks/use-team-permissions"
+import { getRuntimeConfigCached, type RuntimeConfig } from "@/lib/runtime-config"
 import { SETTINGS_NAV } from "@/routes/t/$teamSlug/settings/-shared"
-import type { Team } from "@/db/schema"
 import { Separator } from "@/components/ui/separator"
 import {
   SidebarContent,
@@ -25,19 +24,21 @@ const UiBackIcon = conceptIcon(`ui-back`)
 
 interface SettingsSidebarProps {
   teamSlug: string
-  team: Team | null | undefined
+  // Computed once by TeamSidebar — this panel is mounted on every team route
+  // (off-screen until a settings route activates), so running its own
+  // useTeamPermissions here would duplicate the billing fetch (EXP-457).
+  permissions: TeamPermissions
   onBack: () => void
 }
 
 export function SettingsSidebar({
   teamSlug,
-  team,
+  permissions,
   onBack,
 }: SettingsSidebarProps) {
-  const permissions = useTeamPermissions(team)
   const [config, setConfig] = useState<RuntimeConfig | null>(null)
   useEffect(() => {
-    void getRuntimeConfig().then(setConfig)
+    void getRuntimeConfigCached().then(setConfig)
   }, [])
   const navContext = { isCloud: Boolean(config?.isCloud) }
 

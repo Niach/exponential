@@ -136,7 +136,8 @@ export function TeamSidebar({
   // dialog receives the LIVE row so a concurrent trash closes it.
   const [editBoardId, setEditBoardId] = useState<string | null>(null)
   const editBoard = boards?.find((board) => board.id === editBoardId) ?? null
-  const { isOwner, canCreate } = useTeamPermissions(team)
+  const permissions = useTeamPermissions(team)
+  const { isOwner, canCreate } = permissions
   // EXP-449: the header's New-issue button works from any team route — it
   // navigates to the active board (else the device's last-used / first board,
   // same resolution as the mobile FAB) with ?new=1, which opens the dialog.
@@ -489,7 +490,7 @@ export function TeamSidebar({
           >
             <SettingsSidebar
               teamSlug={teamSlug}
-              team={team}
+              permissions={permissions}
               onBack={handleSettingsBack}
             />
           </div>

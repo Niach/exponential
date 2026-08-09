@@ -53,3 +53,12 @@ export function buildRuntimeConfig(): RuntimeConfig {
 export const getRuntimeConfig = createServerFn({ method: `GET` }).handler(
   async () => buildRuntimeConfig()
 )
+
+// The config is env-derived and immutable for the life of the server process,
+// so client callers that re-mount per navigation share one fetch instead of a
+// round trip each (EXP-457).
+let cachedConfig: Promise<RuntimeConfig> | null = null
+export function getRuntimeConfigCached(): Promise<RuntimeConfig> {
+  cachedConfig ??= getRuntimeConfig()
+  return cachedConfig
+}
