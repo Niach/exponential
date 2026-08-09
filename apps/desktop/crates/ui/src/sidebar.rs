@@ -269,6 +269,20 @@ pub(crate) fn rail_expanded(window: &mut Window, cx: &mut App) -> bool {
     rail_shared_for_window(window, cx).read(cx).rail_expanded
 }
 
+/// EXP-456: flip the rail's expanded state WITHOUT touching the persisted
+/// preference. The Shell expands a collapsed rail while Settings is up (the
+/// swap animation reads as expand-then-slide) and recollapses it on the way
+/// back — a `settings.json` write here would overwrite what the user chose.
+pub(crate) fn set_rail_expanded_transient(window: &mut Window, cx: &mut App, expanded: bool) {
+    let shared = rail_shared_for_window(window, cx);
+    shared.update(cx, |shared, cx| {
+        if shared.rail_expanded != expanded {
+            shared.rail_expanded = expanded;
+            cx.notify();
+        }
+    });
+}
+
 /// The rail expand/collapse toggle (EXP-282). EXP-326: shared, because the
 /// collapsed windowed-macOS case renders it in the `Shell`'s traffic-light
 /// tongue instead of the rail's own strip — one recipe, two hosts.

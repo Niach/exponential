@@ -40,22 +40,24 @@ mod storage;
 mod team_general;
 mod tools;
 
-/// EXP-282: width of the settings nav column — it REPLACES the tool column
-/// while a settings screen is up (rendered by `shell::CenterPanel`), so it
-/// owns a fixed width like the right detail sidebars rather than riding the
-/// resizable split.
+/// EXP-282/EXP-456: width of the settings nav column — it REPLACES the RAIL
+/// (the window's leftmost column, rendered by the `Shell`) while a settings
+/// screen is up, so it owns a fixed width like the right detail sidebars
+/// rather than riding the resizable split.
 pub const SETTINGS_NAV_WIDTH: f32 = 212.;
 
 use gpui::{
     div, prelude::FluentBuilder as _, px, App, AppContext as _, Entity, FontWeight,
-    InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
-    StatefulInteractiveElement as _, Styled, Subscription, Window,
+    InteractiveElement as _, IntoElement, MouseButton, ParentElement, Render, SharedString,
+    StatefulInteractiveElement as _, Styled, Subscription, Window, WindowControlArea,
 };
-use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
+use gpui_component::{
+    h_flex, v_flex, ActiveTheme as _, Icon, InteractiveElementExt as _, Sizable as _,
+};
 use sync::Store;
 
 use crate::navigation::{
-    active_team_id, nav_for_window, navigate, Navigation, Screen,
+    active_team_id, go_back, nav_for_window, navigate, set_screen, Navigation, Screen,
 };
 use crate::icons::registry;
 use crate::queries;
@@ -501,13 +503,17 @@ pub(crate) fn detail_column() -> gpui::Div {
 // SettingsNavPanel — the settings nav as the window's LEFT column (EXP-282)
 // ---------------------------------------------------------------------------
 
-/// The settings navigation, rendered by `shell::CenterPanel` IN PLACE of the
-/// tool column while `Screen::Settings` is up. It reads and
+/// The settings navigation, rendered by the `Shell` as the window's LEFT
+/// column IN PLACE of the rail while `Screen::Settings` is up (EXP-456 — it
+/// slides in as the rail slides out). It reads and
 /// writes the window's shared [`RailShared::settings_section`], so the detail
 /// view ([`SettingsView`]) always shows what this column highlights.
 pub struct SettingsNavPanel {
     nav: Entity<Navigation>,
     shared: Entity<RailShared>,
+    /// EXP-456: the top strip's window-drag latch (the vendored `TitleBar`
+    /// `should_move` pattern, same as the rail's own strip).
+    should_move: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -529,6 +535,7 @@ impl SettingsNavPanel {
         Self {
             nav,
             shared,
+            should_move: false,
             _subscriptions: subscriptions,
         }
     }
@@ -592,7 +599,7 @@ impl SettingsNavPanel {
 }
 
 impl Render for SettingsNavPanel {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let owner = active_team_id(&self.nav, cx)
             .map(|ws| is_owner(cx, &ws))
             .unwrap_or(false);
@@ -685,15 +692,88 @@ impl Render for SettingsNavPanel {
             }
         }
 
+        // EXP-456: the nav occupies the rail's slot now, so its top 34px sit
+        // in the window-decoration band as a drag/zoom region — the rail's
+        // own strip recipe. Content-free: on windowed macOS the native
+        // traffic lights float over its left half (212px clears the 61px
+        // cluster like the expanded rail — no tongue needed), elsewhere it
+        // is pure drag space.
+        let client_chrome = crate::app_title_bar::client_chrome(window);
+        let top_strip = h_flex()
+            .id("settings-nav-titlebar-strip")
+            .w_full()
+            .h(gpui_component::TITLE_BAR_HEIGHT)
+            .flex_shrink_0()
+            .when(client_chrome, |strip| {
+                strip
+                    .window_control_area(WindowControlArea::Drag)
+                    .map(|strip| {
+                        if cfg!(target_os = "macos") {
+                            strip.on_double_click(|_, window, _| window.titlebar_double_click())
+                        } else if cfg!(target_os = "linux") {
+                            strip.on_double_click(|_, window, _| window.zoom_window())
+                        } else {
+                            strip
+                        }
+                    })
+                    .on_mouse_down_out(cx.listener(|this, _, _, _| this.should_move = false))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, _| this.should_move = true),
+                    )
+                    .on_mouse_up(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, _| this.should_move = false),
+                    )
+                    .on_mouse_move(cx.listener(|this, _, window, _| {
+                        if this.should_move {
+                            this.should_move = false;
+                            window.start_window_move();
+                        }
+                    }))
+            });
+
+        // EXP-456: the back affordance — web parity with the settings
+        // sidebar's header row. Direct calls, not action dispatch (EXP-17).
+        let back_row = h_flex()
+            .id("settings-nav-back")
+            .mx_2()
+            .px_2()
+            .py_1()
+            .gap_2()
+            .items_center()
+            .rounded(cx.theme().radius)
+            .cursor_pointer()
+            .hover(|this| this.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
+            .child(Icon::new(registry::UI_BACK).xsmall().flex_shrink_0())
+            .child(
+                div()
+                    .text_sm()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child("Settings"),
+            )
+            .on_click(cx.listener(|this, _, window, cx| {
+                if this.nav.read(cx).can_go_back() {
+                    go_back(window, cx);
+                } else {
+                    set_screen(window, cx, None);
+                }
+            }));
+
         v_flex()
             .size_full()
             .min_w_0()
             .overflow_hidden()
-            // EXP-285: like the tool column it replaces — no fill, just a
-            // hairline boundary over the one page gradient.
-            .border_r_1()
-            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+            // EXP-456/EXP-303: the nav is the window's glass column now —
+            // the rail's exact material: the ONE solid section wash over the
+            // column's sidebar-alpha ramp, rounding the window's left frame
+            // corners itself (rectangular content masks cannot clip it).
+            .bg(theme::tokens::glass::FILL_SECTION.to_hsla())
+            .rounded_tl(crate::window_frame::frame_radii(window).top_left)
+            .rounded_bl(crate::window_frame::frame_radii(window).bottom_left)
             .text_color(cx.theme().sidebar_foreground)
+            .child(top_strip)
+            .child(back_row)
             .child(
                 div()
                     .id("settings-nav")

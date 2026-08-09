@@ -100,11 +100,117 @@ pub(crate) const TRAFFIC_TONGUE_TOTAL_W: f32 = TRAFFIC_TONGUE_W + TRAFFIC_TONGUE
 /// while the native lights are actually over the rail's 44px top strip —
 /// fullscreen hides them, and the expanded rail is wide enough to clear the
 /// cluster on its own. Callers additionally gate on the rail being present
-/// (the tongue is part of the rail column's chrome).
+/// (the tongue is part of the rail column's chrome). EXP-456: in Settings the
+/// rail is replaced by the 212px settings nav, which clears the cluster like
+/// the expanded rail — the tongue is rail chrome and goes with it.
 pub(crate) fn traffic_tongue_visible(window: &mut Window, cx: &mut App) -> bool {
     cfg!(target_os = "macos")
         && !window.is_fullscreen()
         && !crate::sidebar::rail_expanded(window, cx)
+        && !window_in_settings(window, cx)
+}
+
+/// EXP-456: whether this window is in the tab-less Settings mode — the left
+/// column shows the settings nav instead of the rail.
+pub(crate) fn window_in_settings(window: &Window, cx: &mut App) -> bool {
+    let nav = nav_for_window(window, cx);
+    matches!(resolved_screen(&nav, cx), Some(Screen::Settings))
+}
+
+/// EXP-456: the left column's TARGET width — `app_title_bar`'s strip budget
+/// reads this instead of raw `RAIL_W`/`RAIL_EXPANDED_W` (during the swap
+/// animation the target is the width the strip is about to have; a ~200ms
+/// transient under-budget is invisible).
+pub(crate) fn left_column_target_width(window: &mut Window, cx: &mut App) -> f32 {
+    if window_in_settings(window, cx) {
+        SETTINGS_NAV_WIDTH
+    } else if crate::sidebar::rail_expanded(window, cx) {
+        crate::sidebar::RAIL_EXPANDED_W
+    } else {
+        crate::sidebar::RAIL_W
+    }
+}
+
+/// EXP-456: duration of the rail ⇄ settings-nav swap (matches upstream
+/// gpui-component's sidebar transition).
+const LEFT_COL_ANIM_DURATION: Duration = Duration::from_millis(200);
+
+/// EXP-456: pure state machine for the rail ⇄ settings-nav swap — the
+/// upstream `Sidebar` recipe (`gpui_component::sidebar`'s animation state)
+/// as plain `Shell` fields: from/target width, whether both children stay
+/// mounted, and an epoch guarding the unmount timer against retargets.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct LeftColumnAnim {
+    from: f32,
+    to: f32,
+    /// The rail's width inside the swap strip, captured at retarget time —
+    /// the slide distance (EXP-456 expands a collapsed rail transiently, so
+    /// this is usually `RAIL_EXPANDED_W`).
+    rail_w: f32,
+    /// Target occupant: true = settings nav.
+    settings: bool,
+    /// Both children stay mounted while the swap transition runs.
+    swapping: bool,
+    /// Guards the unmount timer against retargets (upstream `hide_request`).
+    epoch: u64,
+}
+
+impl LeftColumnAnim {
+    fn new(settings: bool, width: f32, rail_w: f32) -> Self {
+        Self {
+            from: width,
+            to: width,
+            rail_w,
+            settings,
+            swapping: false,
+            epoch: 0,
+        }
+    }
+
+    /// Sync with the rendered state. Returns `Some(epoch)` when a swap
+    /// STARTED and the caller must spawn the settle timer.
+    fn retarget(&mut self, settings: bool, target: f32, rail_w: f32) -> Option<u64> {
+        if self.settings == settings {
+            // Same occupant (rail expand/collapse, or no change): SNAP —
+            // only the settings swap animates, preserving today's instant
+            // rail toggle.
+            if !self.swapping {
+                self.from = target;
+                self.rail_w = rail_w;
+            }
+            self.to = target;
+            return None;
+        }
+        // Mid-flight reversal jumps from the previous TARGET (upstream has
+        // the same limitation) — acceptable over 200ms.
+        self.from = self.to;
+        self.to = target;
+        self.rail_w = rail_w;
+        self.settings = settings;
+        self.swapping = true;
+        self.epoch += 1;
+        Some(self.epoch)
+    }
+
+    /// Timer callback. True = the swap this epoch belongs to just settled.
+    fn finish(&mut self, epoch: u64) -> bool {
+        if self.swapping && self.epoch == epoch {
+            self.swapping = false;
+            self.from = self.to;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+/// EXP-456: animation id that encodes `from → to`, so a retargeted transition
+/// gets a NEW id and restarts cleanly (upstream `sidebar_animation_id`).
+fn left_anim_id(name: &'static str, from: f32, to: f32) -> gpui::ElementId {
+    gpui::ElementId::NamedInteger(
+        name.into(),
+        ((from.to_bits() as u64) << 32) | to.to_bits() as u64,
+    )
 }
 
 /// The tongue element: TRUE sidebar material — a flat sample of the sidebar
@@ -247,6 +353,18 @@ pub struct Shell {
     /// (so the bottom terminal dock spans everything right of it and lines
     /// up with the rail's terminal toggle).
     rail: Entity<RailView>,
+    /// EXP-456: the settings navigation — it takes the RAIL's slot (the
+    /// window's leftmost column) while `Screen::Settings` is up, sliding in
+    /// as the rail slides out; the settings detail fills everything right of
+    /// it (`CenterPanel` renders just the screens then).
+    settings_nav: Entity<SettingsNavPanel>,
+    /// EXP-456: the rail ⇄ settings-nav swap transition state.
+    left_anim: LeftColumnAnim,
+    _left_anim_task: Option<Task<()>>,
+    /// EXP-456: the rail was transiently expanded on settings entry (it was
+    /// collapsed) — recollapse it when settings close, without ever touching
+    /// the persisted preference.
+    restore_rail_collapsed: bool,
     /// The functional Phase-2 login surface — rendered INSTEAD of the dock
     /// whenever the session machine is not `Synced` (§5: a dead token routes
     /// to login, never an empty board).
@@ -295,7 +413,10 @@ impl Shell {
         // every `nav_for_window` lookup (sidebar, screens, cold-restored
         // panels) resolves to the same entity; the registry entry dies with
         // the window (release hook below).
-        let _ = navigation::nav_for_window(window, cx);
+        let nav = navigation::nav_for_window(window, cx);
+        // EXP-456: the left column swaps on the active screen (rail ⇄
+        // settings nav) — the Shell must re-render when navigation moves.
+        cx.observe(&nav, |_, _, cx| cx.notify()).detach();
         let window_id = window.window_handle().window_id();
 
         // ---- Shared-store window accounting (§3.10 multi-window gate) ------
@@ -452,11 +573,34 @@ impl Shell {
         // so the dock already exists.
         let rail = cx.new(|cx| RailView::new(window, cx));
         let title_bar = cx.new(|_| crate::app_title_bar::AppTitleBar::new());
+        // EXP-456: the settings nav shares the rail's slot (see the struct
+        // docs); building it here keeps its subscriptions alive across
+        // settings round-trips.
+        let settings_nav = cx.new(|cx| SettingsNavPanel::new(window, cx));
+
+        // EXP-456: seed the swap state from the CURRENT screen so a window
+        // that opens straight into settings (EXP_DEV_SCREEN=settings) shows
+        // no spurious entry animation.
+        let in_settings = window_in_settings(window, cx);
+        let rail_w = if crate::sidebar::rail_expanded(window, cx) {
+            crate::sidebar::RAIL_EXPANDED_W
+        } else {
+            crate::sidebar::RAIL_W
+        };
+        let left_anim = LeftColumnAnim::new(
+            in_settings,
+            if in_settings { SETTINGS_NAV_WIDTH } else { rail_w },
+            rail_w,
+        );
 
         Self {
             dock_area,
             title_bar,
             rail,
+            settings_nav,
+            left_anim,
+            _left_anim_task: None,
+            restore_rail_collapsed: false,
             login,
             onboarding,
             ordinal,
@@ -469,6 +613,158 @@ impl Shell {
                 crate::window_size::launch_size(),
             ),
         }
+    }
+
+    /// EXP-456: reconcile the left column's swap state with the active
+    /// screen. Called at the top of every render — retargets the transition
+    /// when settings open/close, handles the transient rail expansion for a
+    /// collapsed rail, and schedules the settle timer that unmounts the
+    /// outgoing child (the upstream `gpui_component::sidebar` recipe).
+    fn sync_left_column(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let in_settings = window_in_settings(window, cx);
+        // Entering settings from a COLLAPSED rail: expand it transiently so
+        // the swap reads as expand-then-slide (user decision on EXP-456);
+        // the flag recollapses it on the way out. Never persisted.
+        if in_settings
+            && !self.left_anim.settings
+            && !crate::sidebar::rail_expanded(window, cx)
+        {
+            crate::sidebar::set_rail_expanded_transient(window, cx, true);
+            self.restore_rail_collapsed = true;
+        }
+        let target = left_column_target_width(window, cx);
+        let rail_w = if crate::sidebar::rail_expanded(window, cx) {
+            crate::sidebar::RAIL_EXPANDED_W
+        } else {
+            crate::sidebar::RAIL_W
+        };
+        if let Some(epoch) = self.left_anim.retarget(in_settings, target, rail_w) {
+            // Settle after the transition: unmount the outgoing child (so its
+            // controls leave the hit-test/tab order) and restore a transient
+            // rail expansion. Dropping a superseded task cancels its timer;
+            // the epoch guards against a stale one that already fired.
+            self._left_anim_task = Some(cx.spawn_in(window, async move |this, window| {
+                window
+                    .background_executor()
+                    .timer(LEFT_COL_ANIM_DURATION)
+                    .await;
+                _ = this.update_in(window, move |this, window, cx| {
+                    if this.left_anim.finish(epoch) {
+                        this.restore_rail_after_settings(window, cx);
+                        cx.notify();
+                    }
+                });
+            }));
+        } else if !in_settings && !self.left_anim.swapping {
+            // Settings closed without a swap animation (session surface
+            // change, races) — restore the preference immediately.
+            self.restore_rail_after_settings(window, cx);
+        }
+    }
+
+    /// EXP-456: recollapse a transiently-expanded rail once settings are
+    /// gone (no-op unless the entry expansion actually happened).
+    fn restore_rail_after_settings(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if !self.left_anim.settings && self.restore_rail_collapsed {
+            self.restore_rail_collapsed = false;
+            crate::sidebar::set_rail_expanded_transient(window, cx, false);
+        }
+    }
+
+    /// EXP-456: the window's leftmost column — the rail, the settings nav,
+    /// or (mid-swap) both riding a sliding strip inside a width-morphing
+    /// clip.
+    ///
+    /// EXP-303: the COLUMN paints the one sidebar-alpha ramp and the
+    /// window's left frame corners; the children only add solid washes on
+    /// top (a solid quad over one gradient — the combination that provably
+    /// composites). Same look as EXP-293's rail, different layering: the
+    /// Shell root no longer paints a full-window base ramp, because a second
+    /// translucent GRADIENT stacked on it never composited to the intended
+    /// alpha — the content read fully opaque at any top-up value (the
+    /// EXP-293 "not verified visually" gap).
+    fn render_left_column(
+        &self,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        let _ = cx;
+        let radii = crate::window_frame::frame_radii(window);
+        let column = div()
+            .h_full()
+            .flex_shrink_0()
+            .relative()
+            .overflow_hidden()
+            .bg(theme::sidebar_background_gradient())
+            // EXP-269 corners, left half — the ramp runs flush into the
+            // window's left edge (the children round their washes the same
+            // way).
+            .rounded_tl(radii.top_left)
+            .rounded_bl(radii.bottom_left);
+
+        let anim = self.left_anim;
+        if !anim.swapping {
+            let child: AnyElement = if anim.settings {
+                // The explicit sized wrapper is load-bearing for entity
+                // children (the dock wrapper's flex-child rule).
+                div()
+                    .w(px(SETTINGS_NAV_WIDTH))
+                    .h_full()
+                    .child(self.settings_nav.clone())
+                    .into_any_element()
+            } else {
+                self.rail.clone().into_any_element()
+            };
+            return column.w(px(anim.to)).child(child).into_any_element();
+        }
+
+        // Swap in flight: BOTH children ride an absolute [rail | nav] strip
+        // that slides while the clip width morphs — the rail exits
+        // stage-left as the settings nav takes its place, and the reverse on
+        // the way back.
+        let (left_from, left_to) = if anim.settings {
+            (px(0.), px(-anim.rail_w))
+        } else {
+            (px(-anim.rail_w), px(0.))
+        };
+        let strip = h_flex()
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .w(px(anim.rail_w + SETTINGS_NAV_WIDTH))
+            .child(
+                div()
+                    .w(px(anim.rail_w))
+                    .h_full()
+                    .flex_shrink_0()
+                    .child(self.rail.clone()),
+            )
+            .child(
+                div()
+                    .w(px(SETTINGS_NAV_WIDTH))
+                    .h_full()
+                    .flex_shrink_0()
+                    .child(self.settings_nav.clone()),
+            );
+        let strip = gpui_component::animation::Transition::new(LEFT_COL_ANIM_DURATION)
+            .ease(gpui_component::animation::ease_in_out_cubic)
+            .slide_x(left_from, left_to)
+            .apply(
+                strip,
+                left_anim_id(
+                    "shell-leftcol-slide",
+                    f32::from(left_from),
+                    f32::from(left_to),
+                ),
+            );
+        gpui_component::animation::Transition::new(LEFT_COL_ANIM_DURATION)
+            .ease(gpui_component::animation::ease_in_out_cubic)
+            .width(px(anim.from), px(anim.to))
+            .apply(
+                column.child(strip),
+                left_anim_id("shell-leftcol-width", anim.from, anim.to),
+            )
+            .into_any_element()
     }
 
     /// Restore a persisted `DockAreaState` for this window slot.
@@ -701,6 +997,10 @@ impl Render for Shell {
         // surface — including `AuthExpired`, the dead-token
         // routing (login screen, never an empty board).
         let session = Store::global(cx).session(cx);
+        // EXP-456: keep the left column's rail ⇄ settings-nav swap in step
+        // with the active screen (no-op outside the Synced arm, where no
+        // left column renders).
+        self.sync_left_column(window, cx);
         // Synced shell = rail + dock area, no header (EXP-253 removed the top
         // bar) — the bottom terminal dock spans the full width right of the
         // rail (beneath the sidebar, which lives inside the center split).
@@ -733,27 +1033,10 @@ impl Render for Shell {
             SessionPhase::Synced { .. } => h_flex()
                 .size_full()
                 .min_h_0()
-                .child(
-                    // EXP-303: the rail column paints its OWN sidebar-alpha
-                    // ramp; the rail's white wash sits on top (a solid quad
-                    // over one gradient — the combination that provably
-                    // composites). Same look as EXP-293's rail, different
-                    // layering: the Shell root no longer paints a full-window
-                    // base ramp, because a second translucent GRADIENT stacked
-                    // on it never composited to the intended alpha — the
-                    // content read fully opaque at any top-up value (the
-                    // EXP-293 "not verified visually" gap).
-                    div()
-                        .h_full()
-                        .flex_shrink_0()
-                        .bg(theme::sidebar_background_gradient())
-                        // EXP-269 corners, left half — the ramp runs flush
-                        // into the window's left edge (the rail rounds its
-                        // wash the same way).
-                        .rounded_tl(crate::window_frame::frame_radii(window).top_left)
-                        .rounded_bl(crate::window_frame::frame_radii(window).bottom_left)
-                        .child(self.rail.clone()),
-                )
+                // EXP-456: the leftmost column — the rail, or the settings
+                // nav while `Screen::Settings` is up (animated swap). The
+                // EXP-303 material rules live on `render_left_column`.
+                .child(self.render_left_column(window, cx))
                 .child(
                     v_flex()
                         .flex_1()
@@ -1213,11 +1496,6 @@ pub struct CenterPanel {
     focus_handle: FocusHandle,
     sidebar: Entity<SidebarPanel>,
     screens: Entity<ScreensPanel>,
-    /// EXP-282: the settings navigation — it REPLACES the tool column
-    /// (`sidebar`) while a settings screen is up, so settings own the whole
-    /// window right of the rail instead of nesting a second nav inside the
-    /// center pane.
-    settings_nav: Entity<SettingsNavPanel>,
     /// The tool-column split's dragged width. Owned HERE, not by the element:
     /// `h_resizable`'s own state is per-frame element state (gpui drops what a
     /// frame never touched), and settings unmount the split entirely — without
@@ -1242,7 +1520,6 @@ impl CenterPanel {
             focus_handle: cx.focus_handle(),
             sidebar: cx.new(|cx| SidebarPanel::new(window, cx)),
             screens: cx.new(|cx| ScreensPanel::new(window, cx)),
-            settings_nav: cx.new(|cx| SettingsNavPanel::new(window, cx)),
             center_split: cx.new(|_| ResizableState::default()),
             nav,
             _subscriptions: subscriptions,
@@ -1280,36 +1557,15 @@ impl Focusable for CenterPanel {
 
 impl Render for CenterPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        // EXP-282: settings take over the whole area right of the rail — the
-        // fixed nav column replaces the tool column (no resizable split: the
-        // nav is a fixed-width list, and the detail column caps itself), and
-        // the settings detail fills the rest.
+        // EXP-456: in settings the nav column lives in the Shell's LEFT
+        // column (it replaces the rail), so the whole center is the settings
+        // detail — no resizable split (the detail column caps itself), and
+        // the tool column is unmounted.
         let in_settings = matches!(resolved_screen(&self.nav, cx), Some(Screen::Settings));
         if in_settings {
             return div()
                 .size_full()
-                .child(
-                    h_flex()
-                        .size_full()
-                        .min_h_0()
-                        .child(
-                            // The explicit sized wrapper is load-bearing for
-                            // entity children (the dock wrapper's flex-child
-                            // rule).
-                            div()
-                                .w(px(SETTINGS_NAV_WIDTH))
-                                .flex_shrink_0()
-                                .h_full()
-                                .child(self.settings_nav.clone()),
-                        )
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .h_full()
-                                .child(self.screens.clone()),
-                        ),
-                )
+                .child(self.screens.clone())
                 .into_any_element();
         }
         div()
@@ -1356,4 +1612,75 @@ fn save_layout_state(ordinal: usize, state: &DockAreaState) -> Result<()> {
 /// down, they just cost the user a restored layout.
 fn log_layout(message: &str) {
     eprintln!("[exp-desktop] layout: {message}");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::settings::SETTINGS_NAV_WIDTH;
+    use crate::sidebar::{RAIL_EXPANDED_W, RAIL_W};
+
+    #[test]
+    fn retarget_into_settings_starts_swap_and_bumps_epoch() {
+        let mut anim = LeftColumnAnim::new(false, RAIL_EXPANDED_W, RAIL_EXPANDED_W);
+        let epoch = anim.retarget(true, SETTINGS_NAV_WIDTH, RAIL_EXPANDED_W);
+        assert_eq!(epoch, Some(1));
+        assert!(anim.swapping);
+        assert_eq!(anim.from, RAIL_EXPANDED_W);
+        assert_eq!(anim.to, SETTINGS_NAV_WIDTH);
+        assert!(anim.settings);
+    }
+
+    #[test]
+    fn same_occupant_snaps_without_a_swap() {
+        // The rail expand/collapse toggle stays instant (EXP-456 only
+        // animates the settings swap).
+        let mut anim = LeftColumnAnim::new(false, RAIL_W, RAIL_W);
+        assert_eq!(anim.retarget(false, RAIL_EXPANDED_W, RAIL_EXPANDED_W), None);
+        assert!(!anim.swapping);
+        assert_eq!(anim.from, RAIL_EXPANDED_W);
+        assert_eq!(anim.to, RAIL_EXPANDED_W);
+        assert_eq!(anim.rail_w, RAIL_EXPANDED_W);
+    }
+
+    #[test]
+    fn finish_ignores_stale_epochs() {
+        let mut anim = LeftColumnAnim::new(false, RAIL_EXPANDED_W, RAIL_EXPANDED_W);
+        let first = anim.retarget(true, SETTINGS_NAV_WIDTH, RAIL_EXPANDED_W).unwrap();
+        // Mid-flight reversal: the new swap replaces the old one.
+        let second = anim.retarget(false, RAIL_EXPANDED_W, RAIL_EXPANDED_W).unwrap();
+        assert_ne!(first, second);
+        // The superseded timer fires anyway (cancellation raced) — no-op.
+        assert!(!anim.finish(first));
+        assert!(anim.swapping);
+        // The live one settles the swap.
+        assert!(anim.finish(second));
+        assert!(!anim.swapping);
+        assert_eq!(anim.from, anim.to);
+    }
+
+    #[test]
+    fn midflight_reversal_jumps_from_the_previous_target() {
+        // Upstream sidebar rule: a retarget restarts from the prior TARGET
+        // (the animation ids restart the transition, so the visual jump is
+        // bounded by one 200ms swap).
+        let mut anim = LeftColumnAnim::new(false, RAIL_W, RAIL_W);
+        anim.retarget(true, SETTINGS_NAV_WIDTH, RAIL_EXPANDED_W).unwrap();
+        anim.retarget(false, RAIL_EXPANDED_W, RAIL_EXPANDED_W).unwrap();
+        assert_eq!(anim.from, SETTINGS_NAV_WIDTH);
+        assert_eq!(anim.to, RAIL_EXPANDED_W);
+        assert!(!anim.settings);
+    }
+
+    #[test]
+    fn collapsed_entry_swaps_with_the_expanded_rail_in_the_strip() {
+        // Entering settings from a collapsed rail: the Shell transiently
+        // expands it first, so the strip's rail box is the EXPANDED width
+        // while the clip grows from the collapsed width.
+        let mut anim = LeftColumnAnim::new(false, RAIL_W, RAIL_W);
+        anim.retarget(true, SETTINGS_NAV_WIDTH, RAIL_EXPANDED_W).unwrap();
+        assert_eq!(anim.from, RAIL_W);
+        assert_eq!(anim.to, SETTINGS_NAV_WIDTH);
+        assert_eq!(anim.rail_w, RAIL_EXPANDED_W);
+    }
 }
