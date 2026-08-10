@@ -1000,7 +1000,7 @@ mod tests {
         // A RUNNABLE pi advertises its own plan default (EXP-441) — plan
         // rides through, ultracode/skip stay masked.
         let report = DoctorReport {
-            pi: green(Tool::Pi, "0.83.0"),
+            pi: green(Tool::Pi, "0.84.1"),
             ..report
         };
         let advert = report.agent_advertisement(&settings);

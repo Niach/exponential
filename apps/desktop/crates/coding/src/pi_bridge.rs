@@ -416,13 +416,14 @@ export default function (pi: any) {
             return undefined // allow the tool — execute() returns the approval text
           }
           setStatus(ctx, "plan mode")
-          // terminate is honored by newer pi (>=0.84) and ignored by 0.83 —
-          // the reason text must therefore ALSO instruct the model to end
-          // its turn, or a 0.83 agent would immediately re-present the plan.
+          // terminate stops the agent after this blocked batch (verified
+          // against pi 0.84.1: early termination fires when every blocked
+          // call in the batch sets it — this is a single call), handing
+          // control back to the user for feedback.
           return {
             block: true,
             reason:
-              "The user rejected the plan. Stay in plan mode and END YOUR TURN NOW without calling any more tools. Wait for the user's feedback, then revise the plan and call exit_plan_mode again.",
+              "The user rejected the plan. Stay in plan mode: wait for their feedback, then revise the plan and call exit_plan_mode again.",
             terminate: true,
           }
         }
