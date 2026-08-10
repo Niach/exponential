@@ -14,9 +14,9 @@ use gpui::{
     MouseButton, ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _,
     Subscription, Window,
 };
-use gpui_component::{h_flex, Icon, Sizable as _};
+use gpui_component::{h_flex, ActiveTheme as _, Icon, Sizable as _};
 
-use crate::icons::registry;
+use crate::icons::{registry, ExpIcon};
 
 // EXP-269: the vendored TitleBar (rounded window controls — see
 // `crate::title_bar`), not gpui-component's, whose close-button hover fill is
@@ -55,6 +55,39 @@ const NEW_ISSUE_RESERVE: f32 = NEW_ISSUE_BUTTON_W + BAR_INSET;
 pub(crate) fn client_chrome(window: &Window) -> bool {
     !cfg!(target_os = "linux")
         || matches!(window.window_decorations(), gpui::Decorations::Client { .. })
+}
+
+/// EXP-326: are the macOS traffic lights sitting in the left column's
+/// titlebar strip? That is the ONE case where the strip has no room of its
+/// own — windowed macOS under client chrome. Keep in step with
+/// `shell::traffic_tongue_visible`, which draws the tongue for the collapsed
+/// half of it.
+pub(crate) fn macos_lights_in_strip(window: &Window) -> bool {
+    cfg!(target_os = "macos") && client_chrome(window) && !window.is_fullscreen()
+}
+
+/// EXP-326: the app brand — logo glyph + [`APP_TITLE`] — rendered in the left
+/// column's titlebar strip (the expanded rail, and since EXP-464 the settings
+/// nav too) wherever [`macos_lights_in_strip`] leaves it room.
+pub(crate) fn brand(cx: &App) -> impl IntoElement {
+    h_flex()
+        .flex_1()
+        .min_w_0()
+        .items_center()
+        .gap_2()
+        .child(
+            Icon::from(ExpIcon::Logo)
+                .small()
+                .text_color(cx.theme().muted_foreground),
+        )
+        .child(
+            div()
+                .min_w_0()
+                .truncate()
+                .text_sm()
+                .text_color(cx.theme().foreground.opacity(0.7))
+                .child(APP_TITLE),
+        )
 }
 
 /// Wrap interactive titlebar content so pressing it can't start a window
@@ -192,8 +225,8 @@ impl Render for AppTitleBar {
             // EXP-285/EXP-456: the full-height LEFT COLUMN (rail, or the
             // settings nav while Settings is up) sits left of this bar — its
             // target width is the budget's first term. macOS lights float
-            // over that column: expanded rail (164px) and settings nav
-            // (212px) clear the cluster entirely; the collapsed rail (44px)
+            // over that column: the expanded rail and the settings nav (both
+            // 164px) clear the cluster entirely; the collapsed rail (44px)
             // gets the Shell's tongue. Fullscreen hides the lights, so the
             // reserve is reclaimed outright.
             let rail_w = crate::shell::left_column_target_width(window, cx);
