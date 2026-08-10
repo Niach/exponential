@@ -75,13 +75,9 @@ export function envInt(name: string, fallback: number): number {
 
 // Module singletons used by the submit endpoint. Env-tunable so e2e tests can
 // lower them; defaults: 60 submissions/hour per key (burst 10), 60/hour per
-// IP (burst 5), and 6/hour per reporter address (burst 3). The per-address
-// bucket exists because a submission carrying an email can trigger outbound
-// mail (support confirmation, later resolution notice) — without it, repeated
-// submits mail-bomb whoever's address was typed in.
+// IP (burst 5).
 let perKeyLimiter: TokenBucketLimiter | null = null
 let perIpLimiter: TokenBucketLimiter | null = null
-let perEmailLimiter: TokenBucketLimiter | null = null
 
 export function getWidgetRateLimiters() {
   perKeyLimiter ??= new TokenBucketLimiter({
@@ -92,11 +88,7 @@ export function getWidgetRateLimiters() {
     capacity: envInt(`WIDGET_RATE_LIMIT_IP_BURST`, 5),
     refillPerHour: envInt(`WIDGET_RATE_LIMIT_PER_IP_HOURLY`, 60),
   })
-  perEmailLimiter ??= new TokenBucketLimiter({
-    capacity: envInt(`WIDGET_RATE_LIMIT_EMAIL_BURST`, 3),
-    refillPerHour: envInt(`WIDGET_RATE_LIMIT_PER_EMAIL_HOURLY`, 6),
-  })
-  return { perKeyLimiter, perIpLimiter, perEmailLimiter }
+  return { perKeyLimiter, perIpLimiter }
 }
 
 // LAST hop of x-forwarded-for: every deploy target (Caddy locally, Traefik

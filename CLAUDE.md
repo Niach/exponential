@@ -160,7 +160,7 @@ Per-TEAM rows in six fixed categories (backlog/unstarted/started/completed/cance
 - `INITIAL_ADMIN_EMAILS` auto-promotes global admins — without it the admin console is unreachable.
 - `CLIENT_MIN_VERSION_{ANDROID,IOS,DESKTOP}` gate with HTTP 426 + a blocking update screen (unset = off); always MARKETING versions, NEVER versionCode/build numbers. `CLIENT_LATEST_VERSION_*` is informational.
 - `BUN_CONFIG_MAX_HTTP_REQUESTS` is baked to 65336 in the image — 16 long-polls per client saturate Bun's 256 default (REV2-6).
-- Widget submit limits: refill is `WIDGET_RATE_LIMIT_PER_{KEY,IP,EMAIL}_HOURLY` (60/60/6), burst is `WIDGET_RATE_LIMIT_{KEY,IP,EMAIL}_BURST` — the burst names have no `PER_`.
+- Widget submit limits: refill is `WIDGET_RATE_LIMIT_PER_{KEY,IP}_HOURLY` (60/60), burst is `WIDGET_RATE_LIMIT_{KEY,IP}_BURST` — the burst names have no `PER_`.
 
 ## Coding sessions & Actions
 
