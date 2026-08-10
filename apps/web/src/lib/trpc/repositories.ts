@@ -659,6 +659,7 @@ export const repositoriesRouter = router({
       await assertCanManageRepos(ctx.session.user.id, repo.teamId)
 
       let override = input.branch
+      let live: string | null = null
       if (override != null) {
         // Validate against GitHub so a typo can't brick every worktree/PR
         // base. Verified with the same gated token the reads use; an
@@ -679,12 +680,26 @@ export const repositoriesRouter = router({
             message: `'${override}' is not a branch of ${repo.fullName}`,
           })
         }
-        if (override === repo.defaultBranch) override = null
+        // Normalize against GitHub's LIVE default, not the possibly-stale
+        // stored column (EXP-466): right after a GitHub default-branch
+        // rename, pinning the stale-stored name must store the pin, not
+        // silently clear it. Unresolvable (App can't reach the repo right
+        // now) degrades to the stored value.
+        live = await resolveRepoDefaultBranchCached(repo.fullName)
+        if (override === (live ?? repo.defaultBranch)) override = null
       }
 
+      // Heal the GitHub-truth column in the same write when the live lookup
+      // disagreed, so the returned `githubDefaultBranch` is fresh (same
+      // spirit as healRepoDefaultBranches).
       const [updated] = await ctx.db
         .update(repositories)
-        .set({ defaultBranchOverride: override })
+        .set({
+          defaultBranchOverride: override,
+          ...(live && live !== repo.defaultBranch
+            ? { defaultBranch: live }
+            : {}),
+        })
         .where(eq(repositories.id, repo.id))
         .returning()
       if (!updated) {

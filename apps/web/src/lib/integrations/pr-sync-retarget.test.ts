@@ -18,9 +18,13 @@ const h = vi.hoisted(() => ({
     async (): Promise<Array<{ number: number; url: string; headRef: string }>> => []
   ),
   retargetPullRequest: vi.fn(async () => {}),
-  // The linked-issue → repo-row lookup (EXP-462 override resolution): rows the
-  // chainable select mock below resolves with.
-  linkedRepoRows: [] as Array<{ defaultBranchOverride: string | null }>,
+  // The linked-issue → repo-row lookup (EXP-462 override resolution + the
+  // EXP-466 raw-default guard): rows the chainable select mock below
+  // resolves with.
+  linkedRepoRows: [] as Array<{
+    defaultBranch: string
+    defaultBranchOverride: string | null
+  }>,
 }))
 
 vi.mock(`@/db/connection`, () => ({
@@ -133,7 +137,9 @@ describe(`retargetChildrenOfMergedPr (EXP-324)`, () => {
   })
 
   it(`retargets onto the team's pinned branch when an override is set (EXP-462)`, async () => {
-    h.linkedRepoRows = [{ defaultBranchOverride: `develop` }]
+    h.linkedRepoRows = [
+      { defaultBranch: `master`, defaultBranchOverride: `develop` },
+    ]
     h.listOpenPullsByBase.mockResolvedValue([
       { number: 241, url: `u1`, headRef: `exp/EXP-320` },
     ])
@@ -154,13 +160,30 @@ describe(`retargetChildrenOfMergedPr (EXP-324)`, () => {
   })
 
   it(`the head-is-default bail compares against the pinned branch, not GitHub's`, async () => {
-    h.linkedRepoRows = [{ defaultBranchOverride: `develop` }]
+    h.linkedRepoRows = [
+      { defaultBranch: `master`, defaultBranchOverride: `develop` },
+    ]
     await retargetChildrenOfMergedPr({
       prUrl: PARENT_PR_URL,
       headBranch: `develop`,
     })
     expect(h.listOpenPullsByBase).not.toHaveBeenCalled()
     expect(h.retargetPullRequest).not.toHaveBeenCalled()
+  })
+
+  it(`with an override pinned, a head equal to the RAW default still bails (EXP-466)`, async () => {
+    // Would otherwise sweep every master-based PR (prod/hotfix) onto the pin.
+    h.linkedRepoRows = [
+      { defaultBranch: `master`, defaultBranchOverride: `develop` },
+    ]
+    await retargetChildrenOfMergedPr({
+      prUrl: PARENT_PR_URL,
+      headBranch: `master`,
+    })
+    expect(h.listOpenPullsByBase).not.toHaveBeenCalled()
+    expect(h.retargetPullRequest).not.toHaveBeenCalled()
+    // The row answered both compares — GitHub is still never asked.
+    expect(h.resolveRepoDefaultBranchCached).not.toHaveBeenCalled()
   })
 
   it(`bails when the merged head IS the default branch (would match every default-based PR)`, async () => {
