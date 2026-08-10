@@ -255,6 +255,18 @@ impl PermissionPickerWatcher {
         self.pending.is_some()
     }
 
+    /// Forget the latched dialog WITHOUT a [`Transition::Resolved`]: the
+    /// caller swallowed the `Show`, and a latched snapshot would otherwise
+    /// stay silent for good if the suppression cause clears while the same
+    /// dialog is still on screen — unlatched, the steady dialog re-fires
+    /// `Show` a debounce later (EXP-458).
+    pub fn unlatch(&mut self) {
+        self.pending = None;
+        self.candidate = None;
+        self.present_streak = 0;
+        self.absent_streak = 0;
+    }
+
     /// Feed one poll tick. `display_offset > 0` (viewport scrolled into
     /// history) freezes the machine entirely.
     pub fn tick(&mut self, lines: &[String], display_offset: usize) -> Option<Transition> {
@@ -530,6 +542,32 @@ mod tests {
             other => panic!("expected Show, got {other:?}"),
         }
         assert!(w.is_pending());
+    }
+
+    #[test]
+    fn an_unlatched_dialog_refires_show_while_it_persists() {
+        // EXP-458: the emitter swallows a Show while an ask/plan owns the
+        // screen story — unlatching lets the still-up dialog re-fire so the
+        // question publishes once the suppression lifts.
+        let dialog = bash_permission_screen();
+        let blank = screen(&["$ claude", "✳ Deliberating…"]);
+        let mut w = PermissionPickerWatcher::new();
+
+        w.tick(&dialog, 0);
+        assert!(matches!(w.tick(&dialog, 0), Some(Transition::Show(_))));
+        w.unlatch();
+        assert!(!w.is_pending());
+        // The steady dialog re-fires after the usual debounce.
+        assert_eq!(w.tick(&dialog, 0), None);
+        assert!(matches!(w.tick(&dialog, 0), Some(Transition::Show(_))));
+        assert!(w.is_pending());
+
+        // And an unlatched dialog leaving the grid never emits a phantom
+        // Resolved for the Show nobody published.
+        w.unlatch();
+        assert_eq!(w.tick(&blank, 0), None);
+        assert_eq!(w.tick(&blank, 0), None);
+        assert!(!w.is_pending());
     }
 
     #[test]
