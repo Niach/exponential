@@ -388,6 +388,34 @@ export async function resolveRepoDefaultBranchCached(
   return value
 }
 
+// Branch names of a repo ("owner/name"), for the default-branch picker
+// (EXP-462). Paginated to a hard cap — a picker past a few hundred branches is
+// noise, and the caller can always type-to-set via GitHub itself. `token` may
+// be null for public repos (unauthenticated read, same degradation as
+// listOpenPulls). Throws on a non-OK first page so the UI can show a real
+// error instead of an empty menu.
+export const REPO_BRANCHES_MAX_PAGES = 3
+export async function listRepoBranches(
+  repo: string,
+  token: string | null
+): Promise<string[]> {
+  const perPage = 100
+  const names: string[] = []
+  for (let page = 1; page <= REPO_BRANCHES_MAX_PAGES; page++) {
+    const res = await fetch(
+      `https://api.github.com/repos/${repo}/branches?per_page=${perPage}&page=${page}`,
+      { headers: githubApiHeaders(token ?? undefined) }
+    )
+    if (!res.ok) {
+      throw new Error(`GitHub branch list failed (${res.status}) for ${repo}`)
+    }
+    const data = (await res.json()) as Array<{ name: string }>
+    names.push(...data.map((b) => b.name))
+    if (data.length < perPage) break
+  }
+  return names
+}
+
 // A changed file in a branch/PR diff reuses github-pr.ts's `PullFile` so every
 // client renders one diff shape across the PR-diff and pushed-branch-no-PR tiers
 // (§4.8). Re-exported for callers that reach for it via this module.

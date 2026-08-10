@@ -23,12 +23,16 @@
 //! refetch trigger: coming back re-reads the connect state without flashing
 //! the skeleton over a list that is already up.
 
+use std::collections::HashMap;
+
 use gpui::{
-    div, Entity, IntoElement, ParentElement, Render, SharedString, Styled, Subscription, Window,
+    div, px, Entity, IntoElement, ParentElement, Render, SharedString, Styled, Subscription,
+    Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
+    menu::{DropdownMenu as _, PopupMenuItem},
     notification::Notification,
     skeleton::Skeleton,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
@@ -58,8 +62,14 @@ pub(super) struct RepoRow {
     /// (`boards.setRepository`) and this pane's per-row remove.
     pub id: String,
     pub full_name: String,
+    /// The EFFECTIVE default branch (EXP-462): the team's pinned branch when
+    /// set, GitHub's default otherwise — the value every consumer acts on.
     #[serde(default)]
     pub default_branch: String,
+    /// GitHub's own default branch, for the picker's "(default)" entry —
+    /// picking it clears the pin server-side. Absent on older servers.
+    #[serde(default)]
+    pub github_default_branch: Option<String>,
     #[serde(default)]
     pub private: bool,
     #[serde(default)]
@@ -102,6 +112,15 @@ enum Load {
     Ready(Loaded),
 }
 
+/// One repo's lazily-fetched branch list for the default-branch picker
+/// (EXP-462). Fetched on first menu open, cached until the pane reloads.
+#[derive(Clone)]
+enum BranchLoad {
+    Loading,
+    Failed(String),
+    Ready(Vec<String>),
+}
+
 pub struct RepositoriesPane {
     nav: Entity<Navigation>,
     load: Load,
@@ -116,8 +135,12 @@ pub struct RepositoriesPane {
     loaded_links: Option<Vec<(String, String)>>,
     /// Monotonic guard: a stale in-flight fetch must not clobber a newer one.
     generation: u64,
-    /// A remove is in flight — disables every row's trash button.
+    /// A remove or branch-pin mutation is in flight — disables the rows'
+    /// buttons.
     busy: bool,
+    /// Branch lists for the per-row default-branch pickers, keyed by repo id
+    /// (EXP-462). Dropped with the repo list so a reload refetches.
+    branches: HashMap<String, BranchLoad>,
     /// Failure copy from the `exponential://github-connected?error=…` deep
     /// link (EXP-368) — the browser connect hand-off ended in an error.
     connect_error: Option<SharedString>,
@@ -186,6 +209,7 @@ impl RepositoriesPane {
             loaded_links: None,
             generation: 0,
             busy: false,
+            branches: HashMap::new(),
             connect_error: None,
             _subscriptions: subscriptions,
         }
@@ -244,6 +268,7 @@ impl RepositoriesPane {
 
         if show_loading {
             self.load = Load::Loading;
+            self.branches.clear();
             // A full (re)load is a fresh context (pane opened, team switch) —
             // retire any connect-failure notice. The non-loading
             // refetch_stale path deliberately keeps it: the window-activation
@@ -284,11 +309,99 @@ impl RepositoriesPane {
         .detach();
     }
 
-    /// Hard refetch after a mutation (add/remove): drop the cached list; the
-    /// next render re-fetches with the skeleton.
+    /// Hard refetch after a mutation (add/remove/branch pin): drop the cached
+    /// list; the next render re-fetches with the skeleton. The branch-list
+    /// cache goes with it — stale branches would resurrect a just-deleted
+    /// pick.
     pub(super) fn refresh(&mut self, cx: &mut gpui::Context<Self>) {
         self.load = Load::Idle;
+        self.branches.clear();
         cx.notify();
+    }
+
+    /// Kick the branch-list fetch for one repo's picker if it isn't already
+    /// cached/in flight (EXP-462). Called when the dropdown opens — the pane
+    /// never fans out a GitHub read per row up front.
+    fn ensure_branches(&mut self, repository_id: &str, cx: &mut gpui::Context<Self>) {
+        if self.branches.contains_key(repository_id) {
+            return;
+        }
+        let Some(trpc) = queries::trpc_client(cx) else {
+            return;
+        };
+        self.branches
+            .insert(repository_id.to_string(), BranchLoad::Loading);
+        let repository_id = repository_id.to_string();
+        cx.spawn(async move |this, cx| {
+            let fetch_id = repository_id.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::repositories::list_branches(&trpc, &fetch_id) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                let load = match result {
+                    Ok(out) => BranchLoad::Ready(out.branches),
+                    Err(err) => {
+                        log::warn!("[ui] repositories.listBranches({repository_id}) failed: {err}");
+                        BranchLoad::Failed(err.to_string())
+                    }
+                };
+                this.branches.insert(repository_id, load);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// `repositories.setDefaultBranch` → refetch (EXP-462). `None` = follow
+    /// GitHub again. Failures land as a notification on the settings window,
+    /// mirroring the remove flow.
+    fn set_default_branch(
+        &mut self,
+        repository_id: String,
+        branch: Option<String>,
+        handle: gpui::AnyWindowHandle,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let Some(trpc) = queries::trpc_client(cx) else {
+            return;
+        };
+        self.busy = true;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let mutate_id = repository_id.clone();
+            let mutate_branch = branch.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    api::repositories::set_default_branch(
+                        &trpc,
+                        &mutate_id,
+                        mutate_branch.as_deref(),
+                    )
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.busy = false;
+                if result.is_ok() {
+                    this.refresh(cx);
+                }
+                cx.notify();
+            });
+            if let Err(error) = result {
+                log::warn!("[ui] repositories.setDefaultBranch({repository_id}) failed: {error}");
+                let message = match &error {
+                    // BAD_REQUEST/BAD_GATEWAY messages name the branch/repo —
+                    // user-presentable verbatim.
+                    api::ApiError::Http { message, .. } => SharedString::from(message.clone()),
+                    other => SharedString::from(format!("Could not set the default branch: {other}")),
+                };
+                let _ = handle.update(cx, |_, window, cx| {
+                    window.push_notification(Notification::error(message), cx);
+                });
+            }
+        })
+        .detach();
     }
 
     /// The per-row remove confirm + `repositories.remove` → refetch. The
@@ -635,7 +748,7 @@ impl RepositoriesPane {
                     .text_ellipsis()
                     .child(SharedString::from(repo.full_name.clone())),
             )
-            .child(chip(SharedString::from(repo.default_branch.clone()), cx));
+            .child(self.branch_picker(index, repo, cx));
         if repo.private {
             head = head.child(private_chip(cx));
         }
@@ -702,6 +815,107 @@ impl RepositoriesPane {
             .border_color(super::row_stroke(cx))
             .child(head)
             .child(links)
+    }
+
+    /// The row's branch chip as a picker (EXP-462, web parity:
+    /// `DefaultBranchMenu`): shows the effective default branch; the menu
+    /// lists the repo's branches (fetched live from GitHub on first open),
+    /// "(default)" marks GitHub's own — picking it clears the pin so the repo
+    /// follows GitHub again.
+    fn branch_picker(
+        &self,
+        index: usize,
+        repo: &RepoRow,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let button = Button::new(("repo-branch", index))
+            .outline()
+            .xsmall()
+            .max_w(px(240.))
+            .label(SharedString::from(repo.default_branch.clone()))
+            .disabled(self.busy);
+
+        let pane = cx.entity().clone();
+        let repo_id = repo.id.clone();
+        let effective = repo.default_branch.clone();
+        let github_default = repo.github_default_branch.clone();
+        button
+            .dropdown_menu(move |menu, window, cx| {
+                let mut menu = menu.scrollable(true).max_h(px(320.));
+                // First open kicks the fetch; the built menu is cached until
+                // dismiss (same limitation as the Boards repo picker), so a
+                // reopen shows what the fetch brought in.
+                let load = pane.update(cx, |this, cx| {
+                    this.ensure_branches(&repo_id, cx);
+                    this.branches.get(&repo_id).cloned()
+                });
+                match load {
+                    None | Some(BranchLoad::Loading) => {
+                        menu = menu.label("Loading branches\u{2026}");
+                    }
+                    Some(BranchLoad::Failed(message)) => {
+                        menu = menu.label(SharedString::from(format!(
+                            "Couldn't load branches: {message}"
+                        )));
+                        let pane = pane.clone();
+                        let repo_id = repo_id.clone();
+                        menu = menu.separator().item(PopupMenuItem::new("Retry").on_click(
+                            move |_, _, cx| {
+                                pane.update(cx, |this, cx| {
+                                    this.branches.remove(&repo_id);
+                                    this.ensure_branches(&repo_id, cx);
+                                });
+                            },
+                        ));
+                    }
+                    Some(BranchLoad::Ready(branches)) => {
+                        // The effective branch always renders even when GitHub
+                        // no longer has it (a pinned branch deleted upstream) —
+                        // the menu must show what the row is set to.
+                        let mut names: Vec<String> = Vec::new();
+                        if !branches.contains(&effective) {
+                            names.push(effective.clone());
+                        }
+                        names.extend(branches);
+                        let handle = window.window_handle();
+                        for name in names {
+                            let is_github_default = github_default.as_deref() == Some(&name);
+                            let label: SharedString = if is_github_default {
+                                format!("{name} (default)").into()
+                            } else {
+                                name.clone().into()
+                            };
+                            let checked = name == effective;
+                            let pane = pane.clone();
+                            let repo_id = repo_id.clone();
+                            menu = menu.item(
+                                PopupMenuItem::new(label).checked(checked).on_click(
+                                    move |_, _, cx| {
+                                        if checked {
+                                            return;
+                                        }
+                                        let pick = if is_github_default {
+                                            None
+                                        } else {
+                                            Some(name.clone())
+                                        };
+                                        pane.update(cx, |this, cx| {
+                                            this.set_default_branch(
+                                                repo_id.clone(),
+                                                pick,
+                                                handle,
+                                                cx,
+                                            );
+                                        });
+                                    },
+                                ),
+                            );
+                        }
+                    }
+                }
+                menu
+            })
+            .into_any_element()
     }
 }
 

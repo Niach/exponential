@@ -22,7 +22,10 @@ import {
   assertTeamMember,
   getIssueTeamContext,
 } from "@/lib/team-membership"
-import { resolveBoardRepository } from "@/lib/trpc/repositories"
+import {
+  effectiveDefaultBranch,
+  resolveBoardRepository,
+} from "@/lib/trpc/repositories"
 import {
   getSteerRelayConfig,
   mintSteerTicket,
@@ -516,6 +519,7 @@ export const steerRouter = router({
                   id: repositories.id,
                   fullName: repositories.fullName,
                   defaultBranch: repositories.defaultBranch,
+                  defaultBranchOverride: repositories.defaultBranchOverride,
                 })
                 .from(boards)
                 .innerJoin(
@@ -534,7 +538,7 @@ export const steerRouter = router({
           repo = {
             repositoryId: repoRow.id,
             fullName: repoRow.fullName,
-            defaultBranch: repoRow.defaultBranch,
+            defaultBranch: effectiveDefaultBranch(repoRow),
           }
         } else if (action.repositoryId) {
           const [row] = await db
@@ -542,6 +546,7 @@ export const steerRouter = router({
               id: repositories.id,
               fullName: repositories.fullName,
               defaultBranch: repositories.defaultBranch,
+              defaultBranchOverride: repositories.defaultBranchOverride,
             })
             .from(repositories)
             .where(eq(repositories.id, action.repositoryId))
@@ -550,7 +555,7 @@ export const steerRouter = router({
             repo = {
               repositoryId: row.id,
               fullName: row.fullName,
-              defaultBranch: row.defaultBranch,
+              defaultBranch: effectiveDefaultBranch(row),
             }
           }
         }

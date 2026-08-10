@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   codingSessions,
@@ -612,7 +612,29 @@ export async function retargetChildrenOfMergedPr(opts: {
   const repo = repoFromPrUrl(opts.prUrl)
   if (!repo || !opts.headBranch) return
   if (!githubAppConfigured()) return
-  const defaultBranch = await resolveRepoDefaultBranchCached(repo)
+  // Override-first (EXP-462): children retarget onto the branch the team
+  // actually develops on. The repo row is reached through the merged PR's
+  // linked issues (prUrl → board → team) — same-team by construction; a PR
+  // with no linked row (external PR, board since retargeted) falls back to
+  // GitHub's live default. Duplicated inline rather than importing the
+  // repositories router (see repoFromPrUrl above for why).
+  const [linkedRepoRow] = await db
+    .select({ defaultBranchOverride: repositories.defaultBranchOverride })
+    .from(issues)
+    .innerJoin(boards, eq(boards.id, issues.boardId))
+    .innerJoin(
+      repositories,
+      and(
+        eq(repositories.teamId, boards.teamId),
+        eq(repositories.fullName, repo),
+        isNull(repositories.archivedAt)
+      )
+    )
+    .where(eq(issues.prUrl, opts.prUrl))
+    .limit(1)
+  const defaultBranch =
+    linkedRepoRow?.defaultBranchOverride ??
+    (await resolveRepoDefaultBranchCached(repo))
   if (!defaultBranch) return
   // Load-bearing guard: a default-based PR's "children" would be every other
   // default-based PR in the repo.

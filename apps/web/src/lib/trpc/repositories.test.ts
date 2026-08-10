@@ -26,6 +26,7 @@ vi.mock(`@/lib/trpc/integrations`, () => ({
 import {
   BRANCH_PREFIX_DEFAULT,
   connectRepositoryInTx,
+  effectiveDefaultBranch,
   healRepoDefaultBranches,
   isForeignKeyViolation,
   issueBranchName,
@@ -490,5 +491,44 @@ describe(`healRepoDefaultBranches`, () => {
 
     expect(healed[0].defaultBranch).toBe(`main`)
     expect(persist).not.toHaveBeenCalled()
+  })
+
+  it(`a team override rides through untouched — the heal only maintains the GitHub column (EXP-462)`, async () => {
+    // The pinned branch must survive every heal pass: GitHub renaming its
+    // default updates `defaultBranch` underneath, never the override.
+    const pinned = {
+      id: `r1`,
+      fullName: `acme/one`,
+      defaultBranch: `main`,
+      defaultBranchOverride: `develop`,
+    }
+    const persist = vi.fn<(id: string, patch: HealPatch) => Promise<void>>(
+      async () => {}
+    )
+    const resolve = vi.fn(async () => `master`)
+
+    const healed = await healRepoDefaultBranches([pinned], persist, resolve)
+
+    expect(healed[0].defaultBranch).toBe(`master`)
+    expect(healed[0].defaultBranchOverride).toBe(`develop`)
+    expect(persist).toHaveBeenCalledWith(`r1`, { defaultBranch: `master` })
+    expect(effectiveDefaultBranch(healed[0])).toBe(`develop`)
+  })
+})
+
+describe(`effectiveDefaultBranch (EXP-462)`, () => {
+  it(`prefers the team override and falls back to the GitHub column`, () => {
+    expect(
+      effectiveDefaultBranch({
+        defaultBranch: `master`,
+        defaultBranchOverride: `develop`,
+      })
+    ).toBe(`develop`)
+    expect(
+      effectiveDefaultBranch({
+        defaultBranch: `master`,
+        defaultBranchOverride: null,
+      })
+    ).toBe(`master`)
   })
 })

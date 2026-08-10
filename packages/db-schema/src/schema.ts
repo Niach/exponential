@@ -1029,6 +1029,11 @@ export const repositories = pgTable(
     // `owner/name` as GitHub reports it.
     fullName: text(`full_name`).notNull(),
     defaultBranch: text(`default_branch`).notNull().default(`main`),
+    // Team-chosen default branch (EXP-462, e.g. `develop` while GitHub's
+    // default stays `master`). NULL = follow GitHub. When set, it wins
+    // everywhere the product means "the default branch" — the heal passes keep
+    // maintaining `default_branch` underneath it.
+    defaultBranchOverride: text(`default_branch_override`),
     private: boolean().notNull().default(false),
     // Cached GitHub App installation id; nullable — the App JWT can still
     // resolve it on demand (github-app.ts is storage-free).

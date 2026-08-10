@@ -8,12 +8,14 @@ import { assertTeamMember, getIssueTeamContext } from "@/lib/team-membership"
 import {
   fetchBranchDiff,
   githubAppConfigured,
+  listRepoBranches,
   peekBranchDiff,
   resolveRepoDefaultBranch,
   resolveRepoDefaultBranchCached,
   resolveRepoInstallationTokenInfo,
 } from "@/lib/integrations/github-app"
 import {
+  branchExists,
   diagnoseUnmergeablePr,
   GitHubMergeError,
   listOpenPulls,
@@ -228,9 +230,46 @@ export async function healRepoDefaultBranches<
   )
 }
 
+// The branch the product treats as "the default branch" (EXP-462): the
+// team-chosen override when set, GitHub's healed default otherwise. Every
+// payload named `defaultBranch` that a consumer acts on (worktree base, PR
+// base, trunk reset, diffs) carries THIS value — the raw GitHub column only
+// surfaces as `githubDefaultBranch` in the settings payloads.
+export function effectiveDefaultBranch(repo: {
+  defaultBranch: string
+  defaultBranchOverride: string | null
+}): string {
+  return repo.defaultBranchOverride ?? repo.defaultBranch
+}
+
+// The override for a (team, "owner/name") pair, or null when the team follows
+// GitHub (or never connected the repo — a PR-URL-derived repo may not have a
+// row). For the paths that resolve the default branch live from GitHub
+// (retargetPr, prepareConflictFix, stacked-PR healing) instead of loading the
+// repo row.
+export async function repoBranchOverride(
+  teamId: string,
+  fullName: string
+): Promise<string | null> {
+  const { db } = await import(`@/db/connection`)
+  const [row] = await db
+    .select({ defaultBranchOverride: repositories.defaultBranchOverride })
+    .from(repositories)
+    .where(
+      and(
+        eq(repositories.teamId, teamId),
+        eq(repositories.fullName, fullName),
+        isNull(repositories.archivedAt)
+      )
+    )
+    .limit(1)
+  return row?.defaultBranchOverride ?? null
+}
+
 // Board → repo resolution (v4): a board is backed by exactly one repo via
 // `boards.repositoryId`. Returns null only for dangling data (archived repo).
 // Shared by repositories.forIssue and steer.startSession's precondition.
+// `defaultBranch` is the EFFECTIVE branch (override-aware).
 export async function resolveBoardRepository(boardId: string) {
   const { db } = await import(`@/db/connection`)
   const [row] = await db
@@ -238,13 +277,16 @@ export async function resolveBoardRepository(boardId: string) {
       repositoryId: repositories.id,
       fullName: repositories.fullName,
       defaultBranch: repositories.defaultBranch,
+      defaultBranchOverride: repositories.defaultBranchOverride,
       installationId: repositories.installationId,
     })
     .from(boards)
     .innerJoin(repositories, eq(repositories.id, boards.repositoryId))
     .where(and(eq(boards.id, boardId), isNull(repositories.archivedAt)))
     .limit(1)
-  return row ?? null
+  if (!row) return null
+  const { defaultBranchOverride, ...rest } = row
+  return { ...rest, defaultBranch: effectiveDefaultBranch(row) }
 }
 
 async function loadRepository(repositoryId: string) {
@@ -255,6 +297,7 @@ async function loadRepository(repositoryId: string) {
       teamId: repositories.teamId,
       fullName: repositories.fullName,
       defaultBranch: repositories.defaultBranch,
+      defaultBranchOverride: repositories.defaultBranchOverride,
       installationId: repositories.installationId,
       inaccessibleAt: repositories.inaccessibleAt,
     })
@@ -349,8 +392,13 @@ export const repositoriesRouter = router({
         .from(boards)
         .where(eq(boards.teamId, input.teamId))
 
+      // `defaultBranch` = the effective branch every consumer should act on
+      // (old desktop builds included); the raw healed GitHub value rides along
+      // as `githubDefaultBranch` for the settings picker.
       return repos.map((repo) => ({
         ...repo,
+        defaultBranch: effectiveDefaultBranch(repo),
+        githubDefaultBranch: repo.defaultBranch,
         boards: boardRows
           .filter((p) => p.repositoryId === repo.id)
           .map((p) => ({ id: p.id, name: p.name, slug: p.slug })),
@@ -468,7 +516,7 @@ export const repositoriesRouter = router({
             let message = err.message
             if (/not mergeable/i.test(err.message)) {
               const defaultBranch =
-                repo.defaultBranch ??
+                effectiveDefaultBranch(repo) ??
                 (await resolveRepoDefaultBranchCached(repo.fullName))
               const diagnosed = defaultBranch
                 ? await diagnoseUnmergeablePr({
@@ -570,6 +618,88 @@ export const repositoriesRouter = router({
         throw err
       }
       return { ok: true as const }
+    }),
+
+  // Owner/admin: the repo's branch names for the default-branch picker
+  // (EXP-462). Listed live from GitHub — never persisted. Gated like the
+  // settings surface that renders the picker (assertCanManageRepos), not
+  // plain membership.
+  listBranches: authedProcedure
+    .input(z.object({ repositoryId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const repo = await loadRepository(input.repositoryId)
+      await assertCanManageRepos(ctx.session.user.id, repo.teamId)
+      const token = await resolveGatedRepoToken(repo)
+      let branches: string[]
+      try {
+        branches = await listRepoBranches(repo.fullName, token)
+      } catch {
+        throw new TRPCError({
+          code: `BAD_GATEWAY`,
+          message: `Could not list branches of ${repo.fullName} from GitHub`,
+        })
+      }
+      return { branches }
+    }),
+
+  // Owner/admin: pin the branch the product treats as the repo's default
+  // (EXP-462) — PR base, worktree base, trunk sync, diffs. `branch: null`
+  // clears the pin (follow GitHub again), and picking GitHub's current
+  // default normalizes to null so such a repo keeps tracking GitHub renames.
+  // The GitHub-truth `defaultBranch` column keeps being healed underneath.
+  setDefaultBranch: authedProcedure
+    .input(
+      z.object({
+        repositoryId: z.string().uuid(),
+        branch: z.string().min(1).max(255).nullable(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const repo = await loadRepository(input.repositoryId)
+      await assertCanManageRepos(ctx.session.user.id, repo.teamId)
+
+      let override = input.branch
+      if (override != null) {
+        // Validate against GitHub so a typo can't brick every worktree/PR
+        // base. Verified with the same gated token the reads use; an
+        // unreachable repo surfaces as a real error, not a silent save.
+        const token = await resolveGatedRepoToken(repo)
+        let exists: boolean
+        try {
+          exists = await branchExists(repo.fullName, override, token)
+        } catch {
+          throw new TRPCError({
+            code: `BAD_GATEWAY`,
+            message: `Could not verify '${override}' on ${repo.fullName} — GitHub is unreachable`,
+          })
+        }
+        if (!exists) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `'${override}' is not a branch of ${repo.fullName}`,
+          })
+        }
+        if (override === repo.defaultBranch) override = null
+      }
+
+      const [updated] = await ctx.db
+        .update(repositories)
+        .set({ defaultBranchOverride: override })
+        .where(eq(repositories.id, repo.id))
+        .returning()
+      if (!updated) {
+        throw new TRPCError({
+          code: `NOT_FOUND`,
+          message: `Repository was removed concurrently`,
+        })
+      }
+      return {
+        repository: {
+          ...updated,
+          defaultBranch: effectiveDefaultBranch(updated),
+          githubDefaultBranch: updated.defaultBranch,
+        },
+      }
     }),
 
   // The launcher's clone-target resolution: issue → board → repositoryId.
@@ -719,6 +849,8 @@ export const repositoriesRouter = router({
       // (e.g. `main` for a `master` repo) would break the launcher's
       // `git worktree add … origin/<default>`. Prefer the live value; heal the
       // row when it drifted; fall back to the stored value if the lookup fails.
+      // A team-chosen override (EXP-462) wins over both — the launcher must
+      // base worktrees on the branch the team actually develops on.
       const liveDefaultBranch = await resolveRepoDefaultBranch(repo.fullName)
       if (liveDefaultBranch && liveDefaultBranch !== repo.defaultBranch) {
         await ctx.db
@@ -729,7 +861,8 @@ export const repositoriesRouter = router({
       return {
         token,
         fullName: repo.fullName,
-        defaultBranch: liveDefaultBranch ?? repo.defaultBranch,
+        defaultBranch:
+          repo.defaultBranchOverride ?? liveDefaultBranch ?? repo.defaultBranch,
         // GitHub's REAL expiry for the (possibly cache-served) token — EXP-73:
         // a synthetic now+55min here once labeled a nearly-dead cached token
         // "fresh", and every desktop freshness check trusted the fiction. The
