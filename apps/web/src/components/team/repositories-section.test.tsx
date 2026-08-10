@@ -176,6 +176,7 @@ describe(`TeamRepositoriesSection`, () => {
 
   // EXP-462: the row's branch badge is a picker — branches load on open, a
   // non-default pick pins it, and picking GitHub's own default clears the pin.
+  // EXP-469: it is a searchable Command popover, so opening happens on click.
   it(`the branch badge picks a default branch (default choice clears the pin)`, async () => {
     mockState.listQuery.mockResolvedValue([
       {
@@ -196,18 +197,22 @@ describe(`TeamRepositoriesSection`, () => {
     const trigger = await screen.findByLabelText(
       `Default branch for siteviewer-app/app`
     )
-    fireEvent.pointerDown(trigger, {
-      button: 0,
-      ctrlKey: false,
-      pointerType: `mouse`,
-    })
+    fireEvent.click(trigger)
 
-    // Branches were fetched lazily and render, the GitHub default labeled.
+    // Branches were fetched lazily and render behind a search input, the
+    // GitHub default labeled.
     await screen.findByText(`develop`)
     expect(mockState.listBranchesQuery).toHaveBeenCalledWith({
       repositoryId: `repo-1`,
     })
+    expect(screen.getByPlaceholderText(`Search branches…`)).toBeTruthy()
     expect(screen.getByText(`default`)).toBeTruthy()
+
+    // Typing filters the list (EXP-469).
+    fireEvent.change(screen.getByPlaceholderText(`Search branches…`), {
+      target: { value: `dev` },
+    })
+    await waitFor(() => expect(screen.queryByText(`staging`)).toBeNull())
 
     fireEvent.click(screen.getByText(`develop`))
     await waitFor(() =>
@@ -239,11 +244,7 @@ describe(`TeamRepositoriesSection`, () => {
     const trigger = await screen.findByLabelText(
       `Default branch for siteviewer-app/app`
     )
-    fireEvent.pointerDown(trigger, {
-      button: 0,
-      ctrlKey: false,
-      pointerType: `mouse`,
-    })
+    fireEvent.click(trigger)
 
     fireEvent.click(await screen.findByText(`master`))
     await waitFor(() =>

@@ -26,14 +26,15 @@
 use std::collections::HashMap;
 
 use gpui::{
-    div, px, Entity, IntoElement, ParentElement, Render, SharedString, Styled, Subscription,
-    Window,
+    div, px, AppContext as _, Entity, Focusable as _, IntoElement, ParentElement, Render,
+    SharedString, Styled, Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
-    menu::{DropdownMenu as _, PopupMenuItem},
+    input::{Input, InputState},
     notification::Notification,
+    popover::Popover,
     skeleton::Skeleton,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
 };
@@ -141,6 +142,10 @@ pub struct RepositoriesPane {
     /// Branch lists for the per-row default-branch pickers, keyed by repo id
     /// (EXP-462). Dropped with the repo list so a reload refetches.
     branches: HashMap<String, BranchLoad>,
+    /// Search query of the default-branch pickers (EXP-469 — the searchable
+    /// popover recipe of `crate::pickers`). ONE shared state — only one
+    /// popover is ever open, and every open resets it.
+    branch_query: Entity<InputState>,
     /// Failure copy from the `exponential://github-connected?error=…` deep
     /// link (EXP-368) — the browser connect hand-off ended in an error.
     connect_error: Option<SharedString>,
@@ -158,8 +163,12 @@ impl RepositoriesPane {
         // the per-repo board chips mirror `boards.repository_id` — a
         // synced repo-link change drive the re-render/re-fetch (EXP-139).
         let boards = Store::global(cx).collections().boards.clone();
+        let branch_query =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Search branches..."));
         let subscriptions = vec![
             cx.observe(&nav, |_, _, cx| cx.notify()),
+            // Typing in a branch picker re-filters its rows.
+            cx.observe(&branch_query, |_, _, cx| cx.notify()),
             cx.observe(&boards, |this: &mut Self, _, cx| {
                 this.refresh_if_links_changed(cx);
             }),
@@ -210,6 +219,7 @@ impl RepositoriesPane {
             generation: 0,
             busy: false,
             branches: HashMap::new(),
+            branch_query,
             connect_error: None,
             _subscriptions: subscriptions,
         }
@@ -818,16 +828,19 @@ impl RepositoriesPane {
     }
 
     /// The row's branch chip as a picker (EXP-462, web parity:
-    /// `DefaultBranchMenu`): shows the effective default branch; the menu
-    /// lists the repo's branches (fetched live from GitHub on first open),
-    /// "(default)" marks GitHub's own — picking it clears the pin so the repo
-    /// follows GitHub again.
+    /// `DefaultBranchMenu`): shows the effective default branch; the popover
+    /// lists the repo's branches (fetched live from GitHub on first open)
+    /// behind a search input (EXP-469 — repos routinely carry more branches
+    /// than a scrollable menu can be skimmed for), "default" marks GitHub's
+    /// own — picking it clears the pin so the repo follows GitHub again.
     fn branch_picker(
         &self,
         index: usize,
         repo: &RepoRow,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
+        use gpui::{ElementId, InteractiveElement as _, StatefulInteractiveElement as _};
+
         let button = Button::new(("repo-branch", index))
             .outline()
             .xsmall()
@@ -839,81 +852,159 @@ impl RepositoriesPane {
         let repo_id = repo.id.clone();
         let effective = repo.default_branch.clone();
         let github_default = repo.github_default_branch.clone();
-        button
-            .dropdown_menu(move |menu, window, cx| {
-                let mut menu = menu.scrollable(true).max_h(px(320.));
-                // First open kicks the fetch; the built menu is cached until
-                // dismiss (same limitation as the Boards repo picker), so a
-                // reopen shows what the fetch brought in.
-                let load = pane.update(cx, |this, cx| {
-                    this.ensure_branches(&repo_id, cx);
-                    this.branches.get(&repo_id).cloned()
-                });
+        let query = self.branch_query.clone();
+        let query_for_open = query.clone();
+        let pane_for_open = pane.clone();
+        let repo_id_for_open = repo_id.clone();
+        Popover::new(("repo-branch-picker", index))
+            .p_1()
+            .w(px(crate::pickers::PICKER_SEARCH_WIDTH))
+            .trigger(button)
+            .on_open_change(move |open, window, cx| {
+                // Fresh search per open; the input takes focus like the web
+                // CommandInput. Opening also kicks the lazy branch fetch —
+                // the popover content re-renders on pane notify, so the list
+                // appears in place once it lands.
+                query_for_open.update(cx, |input, cx| input.set_value("", window, cx));
+                if *open {
+                    query_for_open.read(cx).focus_handle(cx).focus(window, cx);
+                    pane_for_open.update(cx, |this, cx| {
+                        this.ensure_branches(&repo_id_for_open, cx);
+                    });
+                }
+            })
+            .content(move |_, window, cx| {
+                let popover_state = cx.entity();
+                let load = pane.read(cx).branches.get(&repo_id).cloned();
+                let filter = query.read(cx).value().trim().to_lowercase();
+
+                let mut column = v_flex()
+                    .w_full()
+                    .child(Input::new(&query).small().appearance(false).cleanable(true))
+                    .child(
+                        div()
+                            .h(px(1.))
+                            .w_full()
+                            .my_1()
+                            .bg(cx.theme().border.opacity(0.5)),
+                    );
                 match load {
                     None | Some(BranchLoad::Loading) => {
-                        menu = menu.label("Loading branches\u{2026}");
+                        column = column.child(
+                            h_flex()
+                                .gap_2()
+                                .px_2()
+                                .py_1()
+                                .text_sm()
+                                .text_color(cx.theme().muted_foreground)
+                                .child("Loading branches\u{2026}"),
+                        );
                     }
                     Some(BranchLoad::Failed(message)) => {
-                        menu = menu.label(SharedString::from(format!(
-                            "Couldn't load branches: {message}"
-                        )));
+                        column = column.child(
+                            div()
+                                .px_2()
+                                .py_1()
+                                .text_sm()
+                                .text_color(cx.theme().danger)
+                                .child(SharedString::from(format!(
+                                    "Couldn't load branches: {message}"
+                                ))),
+                        );
                         let pane = pane.clone();
                         let repo_id = repo_id.clone();
-                        menu = menu.separator().item(PopupMenuItem::new("Retry").on_click(
-                            move |_, _, cx| {
-                                pane.update(cx, |this, cx| {
-                                    this.branches.remove(&repo_id);
-                                    this.ensure_branches(&repo_id, cx);
-                                });
-                            },
-                        ));
+                        column = column.child(
+                            crate::pickers::picker_row(("repo-branch-retry", index), cx)
+                                .child("Retry")
+                                .on_click(move |_, _, cx| {
+                                    pane.update(cx, |this, cx| {
+                                        this.branches.remove(&repo_id);
+                                        this.ensure_branches(&repo_id, cx);
+                                    });
+                                }),
+                        );
                     }
                     Some(BranchLoad::Ready(branches)) => {
                         // The effective branch always renders even when GitHub
                         // no longer has it (a pinned branch deleted upstream) —
-                        // the menu must show what the row is set to.
+                        // the list must show what the row is set to.
                         let mut names: Vec<String> = Vec::new();
                         if !branches.contains(&effective) {
                             names.push(effective.clone());
                         }
                         names.extend(branches);
+                        names.retain(|name| {
+                            filter.is_empty() || name.to_lowercase().contains(&filter)
+                        });
+                        if names.is_empty() {
+                            return column
+                                .child(crate::pickers::empty_picker_row("No branches found.", cx));
+                        }
+
                         let handle = window.window_handle();
+                        let mut rows = v_flex()
+                            .id(("repo-branch-rows", index))
+                            .w_full()
+                            .max_h(px(240.))
+                            .overflow_y_scroll();
                         for name in names {
                             let is_github_default = github_default.as_deref() == Some(&name);
-                            let label: SharedString = if is_github_default {
-                                format!("{name} (default)").into()
-                            } else {
-                                name.clone().into()
-                            };
                             let checked = name == effective;
-                            let pane = pane.clone();
-                            let repo_id = repo_id.clone();
-                            menu = menu.item(
-                                PopupMenuItem::new(label).checked(checked).on_click(
-                                    move |_, _, cx| {
-                                        if checked {
-                                            return;
-                                        }
-                                        let pick = if is_github_default {
-                                            None
-                                        } else {
-                                            Some(name.clone())
-                                        };
-                                        pane.update(cx, |this, cx| {
-                                            this.set_default_branch(
-                                                repo_id.clone(),
-                                                pick,
-                                                handle,
-                                                cx,
-                                            );
-                                        });
-                                    },
-                                ),
+                            let mut row = crate::pickers::picker_row(
+                                ElementId::Name(SharedString::from(format!(
+                                    "repo-branch-{repo_id}-{name}"
+                                ))),
+                                cx,
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .whitespace_nowrap()
+                                    .overflow_hidden()
+                                    .text_ellipsis()
+                                    .font_family(theme::terminal::FONT_FAMILY)
+                                    .text_xs()
+                                    .child(SharedString::from(name.clone())),
                             );
+                            if is_github_default {
+                                row = row.child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .flex_shrink_0()
+                                        .child("default"),
+                                );
+                            }
+                            if checked {
+                                row = row.child(
+                                    Icon::new(registry::UI_CHECK)
+                                        .size_3()
+                                        .flex_shrink_0()
+                                        .text_color(cx.theme().muted_foreground),
+                                );
+                            } else {
+                                let pane = pane.clone();
+                                let repo_id = repo_id.clone();
+                                let popover_state = popover_state.clone();
+                                row = row.on_click(move |_, window, cx| {
+                                    let pick = if is_github_default {
+                                        None
+                                    } else {
+                                        Some(name.clone())
+                                    };
+                                    pane.update(cx, |this, cx| {
+                                        this.set_default_branch(repo_id.clone(), pick, handle, cx);
+                                    });
+                                    popover_state.update(cx, |state, cx| state.dismiss(window, cx));
+                                });
+                            }
+                            rows = rows.child(row);
                         }
+                        column = column.child(rows);
                     }
                 }
-                menu
+                column
             })
             .into_any_element()
     }

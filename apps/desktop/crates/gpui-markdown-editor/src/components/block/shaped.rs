@@ -35,8 +35,17 @@ const SEPARATOR: &str = "\u{00a0}";
 /// be Rust-whitespace and wrap). The `#` stays VISIBLE after the gutter —
 /// the native apps hide it under the icon, but the desktop editor keeps it
 /// for the edit affordance and the offset-map invariants (EXP-423 ruling 3;
-/// documented divergence).
-pub(crate) const ICON_GUTTER: &str = "\u{00a0}\u{00a0}\u{00a0}";
+/// documented divergence). Four glyphs (EXP-469): three left the painted
+/// icon wider than its reserved space, shoving it against both the pill's
+/// edge and the `#`.
+pub(crate) const ICON_GUTTER: &str = "\u{00a0}\u{00a0}\u{00a0}\u{00a0}";
+
+/// EXP-469: one blank NBSP injected on EACH side of an icon-carrying chip,
+/// OUTSIDE its chip range — the pill quad overdraws `reference_pad_x` beyond
+/// its glyphs, which used to swallow the document's own space and leave the
+/// pill glued to the surrounding text. The margin stays out of `chip_range`,
+/// so it neither fills with pill paint nor hit-tests as the chip.
+pub(crate) const CHIP_MARGIN: &str = "\u{00a0}";
 
 /// The text actually shaped for a block, plus the map back to document offsets.
 #[derive(Clone, Debug)]
@@ -125,15 +134,19 @@ impl ChipShapedText {
                 continue;
             }
             text.push_str(&source[last..start]);
-            let chip_start = text.len();
+            let mut chip_start = text.len();
             // EXP-423: the leading icon gutter — blank NBSP glyphs the paint
             // pass draws the status icon over. Inserted AT the token start:
             // `to_shaped` is strictly-`<` there, so a caret at the token
             // start renders before the gutter (left of the pill), and
             // `to_doc` snaps clicks inside the gutter to the token start.
+            // EXP-469: a `CHIP_MARGIN` rides the same insertion but stays
+            // BEFORE `chip_start`, so the pill quad never paints over it.
             if span.icon.is_some() {
+                text.push_str(CHIP_MARGIN);
+                chip_start = text.len();
                 text.push_str(ICON_GUTTER);
-                insertions.push((start, ICON_GUTTER.len()));
+                insertions.push((start, CHIP_MARGIN.len() + ICON_GUTTER.len()));
             }
             let token_start = text.len();
             text.push_str(&source[start..end]);
@@ -146,7 +159,16 @@ impl ChipShapedText {
                 let piece = format!("{SEPARATOR}{}", suffix.replace('\n', " "));
                 text.push_str(&piece);
                 inserted = piece.len();
-                insertions.push((end, inserted));
+            }
+            // EXP-469: the trailing margin — outside the chip range, merged
+            // into the same insertion point as the suffix.
+            let mut trailing_margin = 0usize;
+            if span.icon.is_some() {
+                text.push_str(CHIP_MARGIN);
+                trailing_margin = CHIP_MARGIN.len();
+            }
+            if inserted + trailing_margin > 0 {
+                insertions.push((end, inserted + trailing_margin));
             }
             chip_ranges.push(chip_start..token_end + inserted);
             token_ranges.push(token_start..token_end);
@@ -429,7 +451,7 @@ mod tests {
         let shaped = ChipShapedText::build(&doc, vec![icon_span(4..10, Some("Title"))]);
         assert_eq!(
             shaped.text().as_ref(),
-            &format!("see {ICON_GUTTER}#EXP-1\u{00a0}Title now")
+            &format!("see {CHIP_MARGIN}{ICON_GUTTER}#EXP-1\u{00a0}Title{CHIP_MARGIN} now")
         );
         // The document is untouched — serialization never sees the gutter.
         assert_eq!(shaped.document().as_ref(), doc.as_ref());
@@ -440,17 +462,17 @@ mod tests {
         let doc = SharedString::from("see #EXP-1 now");
         let shaped = ChipShapedText::build(&doc, vec![icon_span(4..10, Some("Title"))]);
         // Strictly-`<` at the insertion point: the caret renders LEFT of the
-        // pill, not between gutter and `#`.
+        // pill (and its margin), not between gutter and `#`.
         assert_eq!(shaped.to_shaped(4), 4);
         // One byte into the token is past the insertion → shifted.
-        assert_eq!(shaped.to_shaped(5), 5 + ICON_GUTTER.len());
+        assert_eq!(shaped.to_shaped(5), 5 + CHIP_MARGIN.len() + ICON_GUTTER.len());
     }
 
     #[test]
     fn clicks_inside_the_gutter_snap_to_the_token_start() {
         let doc = SharedString::from("see #EXP-1 now");
         let shaped = ChipShapedText::build(&doc, vec![icon_span(4..10, Some("Title"))]);
-        for offset in 5..=4 + ICON_GUTTER.len() {
+        for offset in 5..=4 + CHIP_MARGIN.len() + ICON_GUTTER.len() {
             assert_eq!(shaped.to_doc(offset), 4, "at shaped {offset}");
         }
     }
@@ -461,6 +483,8 @@ mod tests {
         let shaped = ChipShapedText::build(&doc, vec![icon_span(4..10, Some("Title"))]);
         let token = shaped.token_range(0).expect("token range");
         assert_eq!(&shaped.text()[token.clone()], "#EXP-1");
+        // EXP-469: the chip range carries gutter + token + title but NEITHER
+        // margin — the pill quad and hit-testing stop before them.
         let chip = shaped.chip_range(0).expect("chip range");
         assert_eq!(
             &shaped.text()[chip.clone()],
@@ -493,7 +517,7 @@ mod tests {
         let shaped = ChipShapedText::build(&doc, vec![icon_span(4..10, None)]);
         assert_eq!(
             shaped.text().as_ref(),
-            &format!("see {ICON_GUTTER}#EXP-1 now")
+            &format!("see {CHIP_MARGIN}{ICON_GUTTER}#EXP-1{CHIP_MARGIN} now")
         );
         assert!(shaped.icon_gutter_range(0).is_some());
     }
