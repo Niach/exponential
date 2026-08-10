@@ -20,7 +20,11 @@ import {
 } from "@/lib/oidc-providers"
 import { isCloudInstance, maybePromoteNewUser } from "@/lib/bootstrap-cloud"
 import { isPasswordSignupDisabled } from "@/lib/auth/config"
-import { sendPasswordResetEmail, sendVerificationEmail } from "@/lib/email"
+import {
+  recordEmailDelivery,
+  sendPasswordResetEmail,
+  sendVerificationEmail,
+} from "@/lib/email"
 import { emailEnabled } from "@/lib/email-enabled"
 import { dailyAnonymousIdFromHeaders } from "@/lib/conversion/anonymous"
 import { recordConversionEvent } from "@/lib/conversion/events"
@@ -139,7 +143,13 @@ export const auth = betterAuth({
     disableSignUp: isPasswordSignupDisabled(),
     minPasswordLength: process.env.NODE_ENV === `production` ? 8 : 1,
     sendResetPassword: async ({ user, url }) => {
-      await sendPasswordResetEmail({ to: user.email, url })
+      const result = await sendPasswordResetEmail({ to: user.email, url })
+      await recordEmailDelivery({
+        userId: user.id,
+        toEmail: user.email,
+        kind: `password_reset`,
+        result,
+      })
     },
   },
   emailVerification: {
@@ -150,7 +160,13 @@ export const auth = betterAuth({
     // until the mailbox is proven (see maybePromoteNewUser).
     sendOnSignUp: emailEnabled,
     sendVerificationEmail: async ({ user, url }) => {
-      await sendVerificationEmail({ to: user.email, url })
+      const result = await sendVerificationEmail({ to: user.email, url })
+      await recordEmailDelivery({
+        userId: user.id,
+        toEmail: user.email,
+        kind: `email_verification`,
+        result,
+      })
     },
     afterEmailVerification: async (user) => {
       try {

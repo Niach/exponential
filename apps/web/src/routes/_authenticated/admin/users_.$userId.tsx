@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/dialog"
 import { getInitials } from "@/lib/utils"
 import {
-  EmailStatusBadge,
+  EmailDeliveriesTable,
   PlanBadge,
   formatDate,
   formatDateTime,
@@ -274,35 +274,7 @@ function AdminUserDetail() {
           {detail.emailDeliveries.length === 0 ? (
             <p className="text-sm text-muted-foreground">No emails sent.</p>
           ) : (
-            <div className="rounded-md border overflow-x-auto">
-              <div className="min-w-[560px]">
-                <div className="grid grid-cols-[1fr_110px_80px_90px_140px] items-center gap-3 border-b px-3 py-2 text-xs font-medium text-muted-foreground">
-                  <div>To</div>
-                  <div>Kind</div>
-                  <div>Status</div>
-                  <div>Issue</div>
-                  <div>Sent</div>
-                </div>
-                {detail.emailDeliveries.map((d) => (
-                  <div
-                    key={d.id}
-                    className="grid grid-cols-[1fr_110px_80px_90px_140px] items-center gap-3 border-b px-3 py-2 last:border-b-0 text-xs"
-                  >
-                    <div className="truncate">{d.toEmail}</div>
-                    <div className="text-muted-foreground">{d.kind}</div>
-                    <div title={d.error ?? undefined}>
-                      <EmailStatusBadge status={d.status} />
-                    </div>
-                    <div className="text-muted-foreground">
-                      {d.issueIdentifier ?? `—`}
-                    </div>
-                    <div className="text-muted-foreground">
-                      {formatDateTime(d.sentAt ?? d.createdAt)}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <EmailDeliveriesTable rows={detail.emailDeliveries} showSubject />
           )}
         </CardContent>
       </Card>

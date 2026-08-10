@@ -724,6 +724,7 @@ export function fireAndForgetReporterResolution(args: {
               status: deliveryStatus(result),
               provider: result.provider,
               providerMessageId: result.messageId,
+              subject: result.subject,
               sentAt: result.delivered ? new Date() : null,
             })
           } catch (err) {

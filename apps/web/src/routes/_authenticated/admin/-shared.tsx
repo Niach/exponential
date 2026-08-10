@@ -167,3 +167,83 @@ export function EmailStatusBadge({ status }: { status: string }) {
     </Badge>
   )
 }
+
+export interface EmailDeliveryRow {
+  id: string
+  toEmail: string
+  // Absent on rows written before the column existed (and on queued-only
+  // digest rows / invite-cap refusals, which never got a send result).
+  subject?: string | null
+  kind: string
+  status: string
+  error: string | null
+  sentAt: Date | string | null
+  createdAt: Date | string
+  issueIdentifier: string | null
+  userName?: string | null
+}
+
+// The one email-deliveries grid — shared by the global /admin/email list
+// (showSubject) and the per-user/per-team detail cards.
+export function EmailDeliveriesTable({
+  rows,
+  showSubject = false,
+}: {
+  rows: EmailDeliveryRow[]
+  showSubject?: boolean
+}) {
+  const cols = showSubject
+    ? `grid-cols-[minmax(160px,1fr)_minmax(160px,1.2fr)_130px_80px_90px_140px]`
+    : `grid-cols-[1fr_130px_80px_90px_140px]`
+  return (
+    <div className="rounded-md border overflow-x-auto">
+      <div className={showSubject ? `min-w-[780px]` : `min-w-[580px]`}>
+        <div
+          className={`grid ${cols} items-center gap-3 border-b px-3 py-2 text-xs font-medium text-muted-foreground`}
+        >
+          <div>To</div>
+          {showSubject && <div>Subject</div>}
+          <div>Kind</div>
+          <div>Status</div>
+          <div>Issue</div>
+          <div>Sent</div>
+        </div>
+        {rows.map((d) => (
+          <div
+            key={d.id}
+            className={`grid ${cols} items-center gap-3 border-b px-3 py-2 last:border-b-0 text-xs`}
+          >
+            <div className="min-w-0">
+              <div className="truncate">{d.toEmail}</div>
+              {d.userName && (
+                <div className="truncate text-muted-foreground">
+                  {d.userName}
+                </div>
+              )}
+            </div>
+            {showSubject && (
+              <div
+                className="truncate text-muted-foreground"
+                title={d.subject ?? undefined}
+              >
+                {d.subject ?? `—`}
+              </div>
+            )}
+            <div className="truncate text-muted-foreground" title={d.kind}>
+              {d.kind}
+            </div>
+            <div title={d.error ?? undefined}>
+              <EmailStatusBadge status={d.status} />
+            </div>
+            <div className="text-muted-foreground">
+              {d.issueIdentifier ?? `—`}
+            </div>
+            <div className="text-muted-foreground">
+              {formatDateTime(d.sentAt ?? d.createdAt)}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}

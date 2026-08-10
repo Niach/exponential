@@ -257,6 +257,7 @@ export const helpdeskRouter = router({
               status: deliveryStatus(result),
               provider: result.provider,
               providerMessageId: result.messageId,
+              subject: result.subject,
               sentAt: result.delivered ? new Date() : null,
             })
             .returning({ id: emailDeliveries.id })
