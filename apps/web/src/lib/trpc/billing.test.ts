@@ -43,6 +43,7 @@ vi.mock(`@/lib/team-membership`, () => ({
 
 vi.mock(`@/lib/billing`, () => ({
   countOwnedTeams: vi.fn(async () => 0),
+  countTeamWidgetSubmissionsLastHour: vi.fn(async () => 0),
   getUserPlan: vi.fn(async () => ({ plan: `free` })),
   getTeamPlan: vi.fn(async () => ({ plan: `free`, limits: {} })),
   getTeamUsage: vi.fn(async () => ({})),

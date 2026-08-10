@@ -5,6 +5,7 @@ import {
   clientIpFromRequest,
   getWidgetRateLimiters,
 } from "@/lib/widget/rate-limit"
+import { takeWidgetSubmitToken } from "@/lib/widget/submit-limit"
 import {
   createWidgetSubmission,
   createWidgetSupportSubmission,
@@ -55,10 +56,10 @@ async function handleWidgetSubmit(request: Request): Promise<Response> {
     return jsonResponse(403, { error: `Widget is disabled` }, cors)
   }
 
-  const { perKeyLimiter, perIpLimiter } = getWidgetRateLimiters()
+  const { perIpLimiter } = getWidgetRateLimiters()
   // Per-IP bucket first, short-circuiting: a request already throttled by its
-  // own IP must not keep draining the shared per-key bucket — otherwise one
-  // hostile IP 429s every legitimate reporter of that widget.
+  // own IP must not keep draining the shared per-key/per-team bucket —
+  // otherwise one hostile IP 429s every legitimate reporter of that widget.
   const ipLimit = perIpLimiter.tryTake(`ip:${clientIpFromRequest(request)}`)
   if (!ipLimit.ok) {
     return jsonResponse(
@@ -67,12 +68,15 @@ async function handleWidgetSubmit(request: Request): Promise<Response> {
       { ...cors, "Retry-After": String(ipLimit.retryAfterSeconds) }
     )
   }
-  const keyLimit = perKeyLimiter.tryTake(`key:${config.publicKey}`)
-  if (!keyLimit.ok) {
+  // Self-hosted: the env-tunable per-key bucket. Cloud: a per-team bucket
+  // sized by the team's plan (paid = unlimited). The body stays generic —
+  // reporters must not learn the team's plan.
+  const submitLimit = await takeWidgetSubmitToken(config)
+  if (!submitLimit.ok) {
     return jsonResponse(
       429,
       { error: `Too many submissions, try again later` },
-      { ...cors, "Retry-After": String(keyLimit.retryAfterSeconds) }
+      { ...cors, "Retry-After": String(submitLimit.retryAfterSeconds) }
     )
   }
   // Honeypot: the real widget never fills this hidden field. Pretend success

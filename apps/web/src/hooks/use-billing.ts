@@ -18,11 +18,13 @@ export type BillingPlan = {
     seats: number
     storageMb: number
     widgetConfigs: number
+    widgetSubmissionsPerHour: number
   }
   usage: {
     members: number
     storageMb: number
     widgetConfigs: number
+    widgetSubmissionsLastHour: number
   }
   // The team's active subscription, when it has one. Its presence
   // switches the settings UI from "checkout" to "adjust seats / switch plan"
@@ -36,8 +38,14 @@ const UNLIMITED_PLAN: BillingPlan = {
     seats: Infinity,
     storageMb: Infinity,
     widgetConfigs: Infinity,
+    widgetSubmissionsPerHour: Infinity,
   },
-  usage: { members: 0, storageMb: 0, widgetConfigs: 0 },
+  usage: {
+    members: 0,
+    storageMb: 0,
+    widgetConfigs: 0,
+    widgetSubmissionsLastHour: 0,
+  },
   subscription: null,
 }
 
@@ -90,6 +98,7 @@ export function useBillingPlan(
           seats: n(data.limits.seats),
           storageMb: n(data.limits.storageMb),
           widgetConfigs: n(data.limits.widgetConfigs),
+          widgetSubmissionsPerHour: n(data.limits.widgetSubmissionsPerHour),
         },
         usage: data.usage,
         subscription: data.subscription ?? null,
