@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
+  codingSessions,
   emailDeliveries,
   issueSubscribers,
   issues,
@@ -430,12 +431,35 @@ export function fireAndForgetStatusChangeNotify(args: {
   })()
 }
 
+// Fallback attribution for webhook/cron PR events, which carry no mapped app
+// user (EXP-463): the owner of the issue's most recent coding session is the
+// human whose agent produced the PR. Without this, a null actor makes the
+// exclusion below a no-op and the auto-subscribed creator gets pushed about
+// their OWN agent's PR — the GitHub `opened`/`closed` webhook usually beats
+// the MCP open_pr/merge write, so the anonymous fan-out was the one that
+// fired. Resolving the same actor also makes the racing pair's titles
+// identical, so deliver()'s dedupe window collapses them for everyone else.
+// Accepted residual edge: a teammate merging on GitHub itself (or losing the
+// mergePr-vs-webhook race) is misattributed to the session owner —
+// notification-only, and the in-app merge path passes the real actor.
+async function sessionOwnerFallback(issueId: string): Promise<string | null> {
+  const [session] = await db
+    .select({ userId: codingSessions.userId })
+    .from(codingSessions)
+    .where(eq(codingSessions.issueId, issueId))
+    .orderBy(desc(codingSessions.startedAt))
+    .limit(1)
+  return session?.userId ?? null
+}
+
 /**
  * PR lifecycle fan-out (pr_opened from the MCP open_pr tool + the webhook's
  * out-of-band linking; pr_merged from applyPrMergeState's idempotent guard).
  * Targets the assignee + active subscribers, minus the actor — the away/phone
  * flow's "PR opened" / "it's merged" on all three channels. actorUserId is
- * null for webhook/cron-driven merges with no mapped app user.
+ * null for webhook/cron-driven events with no mapped app user; those fall
+ * back to the issue's coding-session owner (sessionOwnerFallback above), and
+ * only a genuinely out-of-band PR with no session stays anonymous.
  */
 export function fireAndForgetPrNotify(args: {
   issueId: string
@@ -443,12 +467,14 @@ export function fireAndForgetPrNotify(args: {
   actorUserId?: string | null
 }): void {
   const { issueId, type } = args
-  const actorUserId = args.actorUserId ?? null
 
   void (async () => {
     try {
       const issue = await loadIssueMeta(issueId)
       if (!issue) return
+
+      const actorUserId =
+        args.actorUserId ?? (await sessionOwnerFallback(issueId))
 
       const recipients = new Set(
         await subscriberRecipients(issueId, actorUserId)
