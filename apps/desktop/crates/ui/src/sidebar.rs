@@ -103,9 +103,6 @@ pub(crate) enum ToolWindow {
     /// polled). The rail icon renders only while the active team's synced
     /// `helpdesk_enabled` flag is on.
     Support,
-    /// The team's reusable action prompts (EXP-253 — server-only tRPC data,
-    /// fetched on open; runs are trust-gated claude sessions).
-    Actions,
     /// The trunk file tree at full panel height.
     Files,
     /// The trunk's local branches; activating also opens the changes screen.
@@ -685,6 +682,58 @@ impl RailView {
                         .size_1p5()
                         .rounded_full()
                         .bg(color),
+                )
+            })
+            .into_any_element()
+    }
+
+    /// The Actions entry (EXP-467): not a tool window anymore — it navigates
+    /// to the [`Screen::Actions`] center page (the web agents page), the
+    /// settings gear's direct-navigation shape in the tool-icon slot.
+    fn rail_actions_entry(
+        &self,
+        accent: Hsla,
+        expanded: bool,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let active = matches!(
+            resolved_screen(&self.nav, cx),
+            Some(Screen::Actions)
+        );
+        let icon = Icon::from(icons::registry::NAV_AGENTS);
+        if expanded {
+            return rail_row("rail-actions", icon, "Actions", active, accent, None, cx)
+                .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
+                    navigate(window, cx, Screen::Actions);
+                }))
+                .into_any_element();
+        }
+        let icon = if active { icon.text_color(accent) } else { icon };
+        div()
+            .relative()
+            .child(
+                Button::new("rail-actions")
+                    .ghost()
+                    .small()
+                    .icon(icon)
+                    .selected(active)
+                    .tooltip("Actions")
+                    .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
+                        navigate(window, cx, Screen::Actions);
+                    })),
+            )
+            .when(active, |this| {
+                // The tool icons' JetBrains-style selection marker — this
+                // entry sits among them, so it carries the same bar.
+                this.child(
+                    div()
+                        .absolute()
+                        .left(px(-6.))
+                        .top_0()
+                        .bottom_0()
+                        .w(px(2.))
+                        .rounded_full()
+                        .bg(accent),
                 )
             })
             .into_any_element()
@@ -1275,17 +1324,7 @@ impl Render for RailView {
                         cx,
                     ))
                     .children(support_icon)
-                    .child(self.rail_tool_icon(
-                        "rail-actions",
-                        Icon::from(icons::registry::NAV_AGENTS),
-                        ToolWindow::Actions,
-                        "Actions",
-                        "Actions",
-                        None,
-                        accent,
-                        expanded,
-                        cx,
-                    ))
+                    .child(self.rail_actions_entry(accent, expanded, cx))
                     .child(self.divider(expanded, cx))
                     .children(board_icons)
                     .children(new_board)
@@ -1360,8 +1399,6 @@ pub struct SidebarPanel {
     /// The Source Control tool window's commit history (EXP-253 — it
     /// replaced the branch flow graph; master-only IDE).
     history: Entity<crate::source_control::HistoryList>,
-    /// The Actions tool window (EXP-253).
-    actions_panel: Entity<crate::actions_panel::ActionsPanel>,
     /// Fetched `repositories.openPulls` result: `(team_id, repos)` —
     /// open PRs with NO issue link (release PRs, manual branches, external
     /// contributors), listed straight from GitHub. Rendered below the board
@@ -1442,7 +1479,6 @@ impl SidebarPanel {
         let board_active = shared.read(cx).board_active.clone();
         let board_my = shared.read(cx).board_my.clone();
         let history = cx.new(|cx| crate::source_control::HistoryList::new(window, cx));
-        let actions_panel = cx.new(|cx| crate::actions_panel::ActionsPanel::new(window, cx));
         let collections = Store::global(cx).collections().clone();
         let local_sessions = coding_flow::LocalSessions::global(cx);
         let merge_state = MergeState::global(cx);
@@ -1483,7 +1519,6 @@ impl SidebarPanel {
             support_seq: 0,
             support_poll_seq: 0,
             history,
-            actions_panel,
             _subscriptions: subscriptions,
         }
     }
@@ -2983,48 +3018,6 @@ impl SidebarPanel {
             .into_any_element()
     }
 
-    // -- Actions tool window ----------------------------------------------------
-
-    /// *Actions* tool window (EXP-253): the team's reusable prompts —
-    /// [`crate::actions_panel::ActionsPanel`] owns the list. EXP-431: the
-    /// header's "New action" button IS the creation entry point (the create
-    /// builtin left the list), opening the Start-coding dialog in create mode.
-    fn render_actions_tool(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        // EXP-367 parity with the rows' ▶: no agent CLI → disabled with the
-        // reason, never hidden.
-        let no_agent = crate::coding_flow::no_agent_reason(cx);
-        let header = self.tool_header(Icon::from(ExpIcon::Zap), "Actions", cx).child(
-            Button::new("actions-new")
-                .ghost()
-                .xsmall()
-                .icon(Icon::from(registry::ACTION_CREATE))
-                .tooltip(no_agent.clone().unwrap_or_else(|| "New action".into()))
-                .disabled(no_agent.is_some())
-                .on_click(move |_, window, cx| {
-                    let nav = crate::navigation::nav_for_window(window, cx);
-                    if let Some(team_id) = crate::navigation::active_team_id(&nav, cx) {
-                        crate::start_coding_dialog::open_for_create_action(window, cx, team_id);
-                    }
-                }),
-        );
-        v_flex()
-            .flex_1()
-            .min_h_0()
-            .min_w_0()
-            .child(header)
-            // Sized wrapper — the flex-child rule for entity children.
-            .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .w_full()
-                    .flex()
-                    .flex_col()
-                    .child(self.actions_panel.clone()),
-            )
-            .into_any_element()
-    }
-
     // -- Source Control tool window --------------------------------------------
 
     /// *Source Control* tool window (EXP-253 master-only): the trunk's
@@ -3095,7 +3088,6 @@ impl Render for SidebarPanel {
                 ToolWindow::BoardIssues => self.render_board_issues_tool(cx),
                 ToolWindow::Reviews => self.render_reviews_tool(cx),
                 ToolWindow::Support => self.render_support_tool(cx),
-                ToolWindow::Actions => self.render_actions_tool(cx),
                 ToolWindow::Files => self.render_files_tool(cx),
                 ToolWindow::SourceControl => self.render_source_control_tool(cx),
             })

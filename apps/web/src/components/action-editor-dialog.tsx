@@ -147,7 +147,7 @@ export function ActionEditorDialog({
           is the tall field, so splitting columns keeps the dialog 16:9-ish
           instead of a narrow tower. On mobile the base dialog is a
           full-screen page and the grid stacks to one column. */}
-      <DialogContent className="sm:max-w-4xl">
+      <DialogContent className="sm:max-h-[85dvh] sm:max-w-4xl">
         <DialogHeader>
           <DialogTitle>Edit action</DialogTitle>
         </DialogHeader>
@@ -156,7 +156,12 @@ export function ActionEditorDialog({
           onSubmit={handleSubmit}
           className="flex min-h-0 flex-1 flex-col gap-4"
         >
-          <DialogBody className="grid gap-4 sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] sm:gap-x-6">
+          {/* EXP-467: the BODY never scrolls on desktop — the prompt textarea
+              is the scrollable element (field-sizing-fixed below), so the
+              dialog's height tracks the short metadata column instead of
+              growing to the viewport cap with whitespace beside it. Mobile
+              keeps the base single-column body scroll. */}
+          <DialogBody className="grid gap-4 sm:min-h-0 sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] sm:gap-x-6 sm:overflow-y-visible">
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="action-name">Name</Label>
@@ -213,7 +218,7 @@ export function ActionEditorDialog({
               </div>
             </div>
 
-            <div className="flex flex-col gap-2">
+            <div className="flex min-h-0 flex-col gap-2">
               <Label htmlFor="action-body">Prompt</Label>
               <Textarea
                 id="action-body"
@@ -226,7 +231,7 @@ export function ActionEditorDialog({
                 }
                 disabled={bodyLoading}
                 rows={12}
-                className="min-h-48 flex-1 font-mono text-xs"
+                className="min-h-48 flex-1 resize-none field-sizing-fixed font-mono text-xs"
               />
             </div>
 

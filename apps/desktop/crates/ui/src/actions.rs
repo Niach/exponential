@@ -63,13 +63,6 @@ pub struct OpenIssue {
     pub issue_id: String,
 }
 
-/// Open an action's full-page detail (EXP-277 — Actions tool-window rows).
-#[derive(Clone, Action, PartialEq, Eq, Deserialize)]
-#[action(namespace = exp, no_json)]
-pub struct OpenAction {
-    pub action_id: String,
-}
-
 /// Switch the window's active team. Dispatched from the top bar's
 /// merged board picker (EXP-69) for board-less teams; teams
 /// with boards switch implicitly via [`OpenBoard`].

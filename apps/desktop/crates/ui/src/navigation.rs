@@ -29,7 +29,7 @@ use gpui::{
 use sync::Store;
 
 use crate::actions::{
-    GoBack, OpenAction, OpenInbox, OpenIssue, OpenMyIssues, OpenBoard, OpenSettings,
+    GoBack, OpenInbox, OpenIssue, OpenMyIssues, OpenBoard, OpenSettings,
     OpenSourceControl, SwitchTeam, SyncNow,
 };
 
@@ -53,12 +53,10 @@ pub enum Screen {
     /// tool window rows open this instead of the issue detail; data via
     /// `issues.prFiles`, rendered by the shared side-by-side `DiffView`).
     PrDiff { issue_id: String },
-    /// One action's full-page detail (EXP-277 — prompt body center + a
-    /// properties-style sidebar; opened from the Actions tool window's
-    /// rows). EXP-298: the two virtual builtins open here too, read-only —
-    /// the view constructs their row locally and renders the shipped prompt
-    /// preview instead of a fetched body.
-    ActionDetail { action_id: String },
+    /// The Actions page (EXP-467 — the web `t/$teamSlug/agents` page 1:1:
+    /// machines + the action card grid; editing lives in the edit dialog).
+    /// A singleton center tab, opened from the rail's Actions entry.
+    Actions,
 }
 
 impl Screen {
@@ -66,10 +64,7 @@ impl Screen {
     /// (EXP-65). Content screens only — Settings is app-config
     /// singletons with near-zero value as standalone windows.
     pub(crate) fn undockable(&self) -> bool {
-        matches!(
-            self,
-            Screen::IssueDetail { .. } | Screen::PrDiff { .. } | Screen::ActionDetail { .. }
-        )
+        matches!(self, Screen::IssueDetail { .. } | Screen::PrDiff { .. })
     }
 
     /// EXP-288: whether the screen is a DETAIL view — the only kind that
@@ -84,7 +79,7 @@ impl Screen {
             Screen::IssueDetail { .. }
                 | Screen::SupportThread { .. }
                 | Screen::PrDiff { .. }
-                | Screen::ActionDetail { .. }
+                | Screen::Actions
         )
     }
 }
@@ -144,21 +139,7 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
             .get(issue_id)
             .map(|issue| gpui::SharedString::from(format!("{} · Diff", issue_tab_title(issue))))
             .unwrap_or_else(|| "Diff".into()),
-        // Actions ARE synced (body-less rows carry the name) — no process
-        // global needed, unlike support threads. The two builtins are not DB
-        // rows, so their names come from the shipped constants (EXP-298).
-        Screen::ActionDetail { action_id } => api::actions::builtin_action_name(action_id)
-            .map(gpui::SharedString::from)
-            .or_else(|| {
-                Store::global(cx)
-                    .collections()
-                    .actions
-                    .read(cx)
-                    .get(action_id)
-                    .and_then(|action| action.name.clone())
-                    .map(gpui::SharedString::from)
-            })
-            .unwrap_or_else(|| "Action".into()),
+        Screen::Actions => "Actions".into(),
     }
 }
 
@@ -230,23 +211,17 @@ impl Navigation {
     }
 }
 
-/// DEV-ONLY `EXP_DEV_SCREEN` values: `settings` | `account` | `issue:<uuid>`
-/// | `action:<uuid>` (anything else = no pre-route).
+/// DEV-ONLY `EXP_DEV_SCREEN` values: `settings` | `account` | `actions`
+/// | `issue:<uuid>` (anything else = no pre-route).
 fn parse_dev_screen(spec: &str) -> Option<Screen> {
     match spec {
         "settings" => Some(Screen::Settings),
         // EXP-238: Account merged into Settings — the dev value keeps working.
         "account" => Some(Screen::Settings),
-        _ => spec
-            .strip_prefix("issue:")
-            .map(|id| Screen::IssueDetail {
-                issue_id: id.to_string(),
-            })
-            .or_else(|| {
-                spec.strip_prefix("action:").map(|id| Screen::ActionDetail {
-                    action_id: id.to_string(),
-                })
-            }),
+        "actions" => Some(Screen::Actions),
+        _ => spec.strip_prefix("issue:").map(|id| Screen::IssueDetail {
+            issue_id: id.to_string(),
+        }),
     }
 }
 
@@ -689,10 +664,6 @@ pub fn init(cx: &mut App) {
     cx.on_action(|action: &OpenIssue, cx| {
         let issue_id = action.issue_id.clone();
         navigate_active(cx, Screen::IssueDetail { issue_id });
-    });
-    cx.on_action(|action: &OpenAction, cx| {
-        let action_id = action.action_id.clone();
-        navigate_active(cx, Screen::ActionDetail { action_id });
     });
     cx.on_action(|action: &SwitchTeam, cx| {
         let team_id = action.team_id.clone();
