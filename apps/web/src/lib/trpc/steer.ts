@@ -295,10 +295,16 @@ export const steerRouter = router({
               message: `Unknown ${agent} effort`,
             })
           }
-          if (agent !== `claude` && (value.ultracode || value.planMode)) {
+          if (agent !== `claude` && value.ultracode) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
-              message: `ultracode/planMode are Claude-only options`,
+              message: `ultracode is a Claude-only option`,
+            })
+          }
+          if (agent === `codex` && value.planMode) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `planMode is a claude/pi-only option`,
             })
           }
           if (agent === `pi` && value.skipPermissions) {

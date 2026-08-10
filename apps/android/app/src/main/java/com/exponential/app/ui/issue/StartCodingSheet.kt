@@ -195,7 +195,8 @@ fun StartCodingSheet(
     var effort by remember { mutableStateOf(initialSeed.effort) }
     // A run seeded with 2+ in-pool issues starts as a batch (ultracode ON, plan
     // OFF) until the user touches a toggle; ≤1 uses the device's defaults.
-    // Batch seeding is a claude-only concept — other agents have no ultracode.
+    // Ultracode is claude-only; the plan-off batch seed also applies to pi
+    // (EXP-441 — pi plans via the injected extension).
     var ultracode by remember {
         mutableStateOf(
             if (initialAgent == DEFAULT_AGENT && initialInPoolCount >= 2) true else initialSeed.ultracode,
@@ -203,7 +204,7 @@ fun StartCodingSheet(
     }
     var planMode by remember {
         mutableStateOf(
-            if (initialAgent == DEFAULT_AGENT && initialInPoolCount >= 2) false else initialSeed.planMode,
+            if (supportsPlanMode(initialAgent) && initialInPoolCount >= 2) false else initialSeed.planMode,
         )
     }
     var skipPermissions by remember { mutableStateOf(initialSeed.skipPermissions) }
@@ -346,8 +347,8 @@ fun StartCodingSheet(
         applyAgentSeed(defaultAgentFor(settled))
         // The batch override outranks a seeded single-run toggle, exactly as
         // it does when the 1↔2+ boundary is crossed by checking issues.
-        if (!touchedToggles && agent == DEFAULT_AGENT && checked.count { it in poolIds } >= 2) {
-            ultracode = true
+        if (!touchedToggles && supportsPlanMode(agent) && checked.count { it in poolIds } >= 2) {
+            ultracode = agent == DEFAULT_AGENT
             planMode = false
         }
     }
@@ -358,13 +359,14 @@ fun StartCodingSheet(
         val before = checked.count { it in poolIds }
         checked = if (id in checked) checked - id else checked + id
         val after = checked.count { it in poolIds }
-        // Batch defaults (ultracode ON, plan OFF) only exist for claude.
-        if (!touchedToggles && agent == DEFAULT_AGENT) {
+        // Batch defaults (ultracode ON for claude, plan OFF) exist for the
+        // plan-capable agents — claude and, since EXP-441, pi.
+        if (!touchedToggles && supportsPlanMode(agent)) {
             if (before <= 1 && after >= 2) {
-                ultracode = true
+                ultracode = agent == DEFAULT_AGENT
                 planMode = false
             } else if (before >= 2 && after <= 1) {
-                // Back to a single run: the machine's own claude defaults
+                // Back to a single run: the machine's own per-agent defaults
                 // (both false when it advertises none).
                 val seed = agentSeed(device, agent)
                 ultracode = seed.ultracode
@@ -466,7 +468,7 @@ fun StartCodingSheet(
                             // ultracode/plan are claude-only; skip-permissions
                             // applies to every guarded agent (i.e. not pi).
                             ultracode = if (agent == DEFAULT_AGENT) ultracode else null,
-                            planMode = if (agent == DEFAULT_AGENT) planMode else null,
+                            planMode = if (supportsPlanMode(agent)) planMode else null,
                             agent = agent,
                             skipPermissions = if (agent == "pi") null else skipPermissions,
                         )
@@ -914,30 +916,34 @@ fun StartCodingSheet(
 
                 // ── Toggles ──────────────────────────────────────────────────
                 // ONE group: claude gets Ultracode + Plan mode + Skip
-                // permissions, codex just Skip permissions, pi nothing at all
-                // (it is always unguarded — no row, no notice; EXP-208).
-                if (agent != "pi") {
-                    OptionGroup {
-                        if (agent == DEFAULT_AGENT) {
-                            SwitchRow(
-                                title = "Ultracode",
-                                checked = ultracode,
-                                onCheckedChange = {
-                                    ultracode = it
-                                    touchedToggles = true
-                                },
-                            )
-                            GroupDivider()
-                            SwitchRow(
-                                title = "Plan mode",
-                                checked = planMode,
-                                onCheckedChange = {
-                                    planMode = it
-                                    touchedToggles = true
-                                },
-                            )
+                // permissions, codex just Skip permissions, pi just Plan mode
+                // (EXP-441 — pi stays otherwise unguarded; EXP-208).
+                OptionGroup {
+                    if (agent == DEFAULT_AGENT) {
+                        SwitchRow(
+                            title = "Ultracode",
+                            checked = ultracode,
+                            onCheckedChange = {
+                                ultracode = it
+                                touchedToggles = true
+                            },
+                        )
+                        GroupDivider()
+                    }
+                    if (supportsPlanMode(agent)) {
+                        SwitchRow(
+                            title = "Plan mode",
+                            checked = planMode,
+                            onCheckedChange = {
+                                planMode = it
+                                touchedToggles = true
+                            },
+                        )
+                        if (agent != "pi") {
                             GroupDivider()
                         }
+                    }
+                    if (agent != "pi") {
                         SwitchRow(
                             title = "Skip permissions",
                             checked = skipPermissions,
@@ -1427,6 +1433,13 @@ private fun effortValuesFor(agent: String): List<String> = when (agent) {
 private fun defaultModelFor(agent: String): String =
     if (agent == DEFAULT_AGENT) DomainContract.codingModelValues.first() else CLI_DEFAULT_MODEL
 
+/**
+ * Plan mode is claude (native) + pi (via the launcher-injected extension,
+ * EXP-441); codex has no launch-into-plan mode.
+ */
+private fun supportsPlanMode(agent: String): Boolean =
+    agent == DEFAULT_AGENT || agent == "pi"
+
 /** Every launch option for one agent, ready to drop into the sheet's state. */
 private data class AgentSeed(
     val model: String,
@@ -1474,7 +1487,7 @@ private fun agentSeed(device: SteerDevice?, agent: String): AgentSeed {
             ?.takeIf { it == CLI_DEFAULT_EFFORT || it in effortValuesFor(agent) }
             ?: CLI_DEFAULT_EFFORT,
         ultracode = defaults.ultracode && agent == DEFAULT_AGENT,
-        planMode = defaults.planMode && agent == DEFAULT_AGENT,
+        planMode = defaults.planMode && supportsPlanMode(agent),
         skipPermissions = defaults.skipPermissions && agent != "pi",
     )
 }

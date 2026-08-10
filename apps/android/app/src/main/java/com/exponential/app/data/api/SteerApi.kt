@@ -39,8 +39,8 @@ data class DeviceOwner(
  * [model]/[effort] are contract values where an EMPTY string is the explicit
  * "CLI default" (omit the flag) — the same convention the start options use.
  * The booleans ride only when true, so an absent one IS false; capability
- * clamping (ultracode/plan mode are claude-only, skip-permissions never
- * applies to pi) stays the reader's job.
+ * clamping (ultracode is claude-only, plan mode is claude/pi-only (EXP-441),
+ * skip-permissions never applies to pi) stays the reader's job.
  */
 @Serializable
 data class AgentLaunchDefaults(

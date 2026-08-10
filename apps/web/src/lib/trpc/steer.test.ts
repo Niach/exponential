@@ -410,15 +410,25 @@ describe(`steer.startSession — agent selection (EXP-201)`, () => {
     )
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
 
+    // Plan mode is claude/pi-only (EXP-441) — codex rejects it, pi carries
+    // it through to the relay.
     error = await rejectionOf(
       caller.startSession({
         issueId: ISSUE_A,
         deviceId: `dev-1`,
-        agent: `pi`,
+        agent: `codex`,
         planMode: true,
       })
     )
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+
+    await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      agent: `pi`,
+      planMode: true,
+    })
+    expect(lastStartBody()).toMatchObject({ agent: `pi`, planMode: true })
 
     // pi has no permission system to skip.
     error = await rejectionOf(

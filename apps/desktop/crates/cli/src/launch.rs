@@ -54,10 +54,10 @@ pub fn agent_options(
         options.plan_mode = false;
     }
     if flags.plan {
-        options.plan_mode = agent.supports_plan_mode();
         if !agent.supports_plan_mode() {
-            bail!("--plan is Claude-only");
+            bail!("--plan is not available for {}", agent.id());
         }
+        options.plan_mode = true;
     }
     if flags.skip_permissions {
         if !agent.supports_skip_permissions() {

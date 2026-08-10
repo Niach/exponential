@@ -63,13 +63,14 @@ export function agentAllowsBlankModel(agent: string): boolean {
   return agent !== `claude`
 }
 
-/** Ultracode + plan mode are Claude-only; pi has no permission system. */
+/** Ultracode is Claude-only; plan mode is claude + pi (EXP-441: pi via the
+ * launcher-injected extension); pi has no permission system. */
 export function agentSupportsUltracode(agent: string): boolean {
   return agent === `claude`
 }
 
 export function agentSupportsPlanMode(agent: string): boolean {
-  return agent === `claude`
+  return agent === `claude` || agent === `pi`
 }
 
 export function agentSupportsSkipPermissions(agent: string): boolean {

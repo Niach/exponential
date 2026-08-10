@@ -80,6 +80,7 @@ pub struct AgentsPane {
     /// box, everything else OFF.
     claude_ultracode: bool,
     claude_plan_mode: bool,
+    pi_plan_mode: bool,
     claude_skip_permissions: bool,
     codex_skip_permissions: bool,
     /// The hub settings the controls were last synced from (dirty baseline).
@@ -180,6 +181,7 @@ impl AgentsPane {
             agent_tab: defaults.default_agent,
             claude_ultracode: defaults.claude_ultracode,
             claude_plan_mode: defaults.claude_plan_mode,
+            pi_plan_mode: defaults.pi_plan_mode,
             claude_skip_permissions: defaults.claude_skip_permissions,
             codex_skip_permissions: defaults.codex_skip_permissions,
             synced: None,
@@ -206,6 +208,7 @@ impl AgentsPane {
         onto.pi_thinking = from.pi_thinking.clone();
         onto.claude_ultracode = from.claude_ultracode;
         onto.claude_plan_mode = from.claude_plan_mode;
+        onto.pi_plan_mode = from.pi_plan_mode;
         onto.claude_skip_permissions = from.claude_skip_permissions;
         onto.codex_skip_permissions = from.codex_skip_permissions;
     }
@@ -257,6 +260,7 @@ impl AgentsPane {
         }
         self.claude_ultracode = settings.claude_ultracode;
         self.claude_plan_mode = settings.claude_plan_mode;
+        self.pi_plan_mode = settings.pi_plan_mode;
         self.claude_skip_permissions = settings.claude_skip_permissions;
         self.codex_skip_permissions = settings.codex_skip_permissions;
         // Open the Agents card on the saved default agent (first sync only —
@@ -298,6 +302,7 @@ impl AgentsPane {
             pi_thinking: selected(&self.pi_thinking_select, cx),
             claude_ultracode: self.claude_ultracode,
             claude_plan_mode: self.claude_plan_mode,
+            pi_plan_mode: self.pi_plan_mode,
             claude_skip_permissions: self.claude_skip_permissions,
             codex_skip_permissions: self.codex_skip_permissions,
             ..defaults
@@ -527,6 +532,13 @@ impl AgentsPane {
                     "Thinking level",
                     "Passed as --thinking on every pi session. CLI default leaves it unset.",
                     &self.pi_thinking_select,
+                    cx,
+                ))
+                .child(Self::toggle_row(
+                    "pi-plan-mode",
+                    "Plan mode",
+                    self.pi_plan_mode,
+                    |this, checked, _| this.pi_plan_mode = *checked,
                     cx,
                 )),
         };

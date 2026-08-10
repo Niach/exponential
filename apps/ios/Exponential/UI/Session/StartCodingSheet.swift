@@ -327,14 +327,16 @@ struct StartCodingSheet: View {
                 }
 
                 // One footer-less toggle section (EXP-208 — no helper notices,
-                // like the IDE). pi has no toggles at all, so the whole section
-                // is absent for it.
-                if agent != "pi" {
-                    Section {
-                        if agent == "claude" {
-                            Toggle("Ultracode", isOn: ultracodeBinding)
-                            Toggle("Plan mode", isOn: planModeBinding)
-                        }
+                // like the IDE). Ultracode is claude-only, plan mode is
+                // claude+pi (EXP-441), skip permissions doesn't exist for pi.
+                Section {
+                    if agent == "claude" {
+                        Toggle("Ultracode", isOn: ultracodeBinding)
+                    }
+                    if Self.supportsPlanMode(agent) {
+                        Toggle("Plan mode", isOn: planModeBinding)
+                    }
+                    if agent != "pi" {
                         Toggle("Skip permissions", isOn: skipPermissionsBinding)
                     }
                 }
@@ -369,19 +371,21 @@ struct StartCodingSheet: View {
         .onAppear { seed() }
         .task { await loadActionsData() }
         // Crossing into/out of batch flips the mode defaults — unless the user
-        // has already touched the option controls, and only for claude (the
-        // toggles don't exist on codex/pi). Tracks the IN-POOL count so a stray
-        // preselected id can't be mistaken for a real second issue.
+        // has already touched the option controls, and only for the agents
+        // whose toggles the crossing changes (claude's ultracode/plan, pi's
+        // plan since EXP-441). Tracks the IN-POOL count so a stray preselected
+        // id can't be mistaken for a real second issue.
         .onChange(of: effectiveChecked.count) { oldCount, newCount in
-            guard subjectTab == .issues, !touchedToggles, agent == "claude" else { return }
+            guard subjectTab == .issues, !touchedToggles, Self.supportsPlanMode(agent)
+            else { return }
             if oldCount < 2, newCount >= 2 {
-                ultracode = true
+                ultracode = agent == "claude"
                 planMode = false
             } else if oldCount >= 2, newCount < 2 {
                 // Back to single: restore what the MACHINE advertises for the
                 // agent (EXP-437), which is off unless it says otherwise.
                 let advertised = device?.agentDefaults(for: agent)
-                ultracode = advertised?.ultracode ?? false
+                ultracode = agent == "claude" && (advertised?.ultracode ?? false)
                 planMode = advertised?.planMode ?? false
             }
         }
@@ -1138,9 +1142,17 @@ struct StartCodingSheet: View {
         applyAgentDefaults(for: value)
     }
 
+    /// Plan mode is claude (native) + pi (via the launcher-injected
+    /// extension, EXP-441); codex has no launch-into-plan mode.
+    static func supportsPlanMode(_ agent: String) -> Bool {
+        agent == "claude" || agent == "pi"
+    }
+
     private func clampToggles() {
         if agent != "claude" {
             ultracode = false
+        }
+        if !Self.supportsPlanMode(agent) {
             planMode = false
         }
         if agent == "pi" {
@@ -1161,9 +1173,9 @@ struct StartCodingSheet: View {
         seeded = true
         applyDeviceDefaults()
         // Opening already in batch (2+ in-pool preselected) applies the batch
-        // defaults (claude-only toggles) — LAST, so they win over the machine's.
-        if agent == "claude", effectiveChecked.count >= 2 {
-            ultracode = true
+        // defaults — LAST, so they win over the machine's.
+        if effectiveChecked.count >= 2 {
+            if agent == "claude" { ultracode = true }
             planMode = false
         }
     }
@@ -1225,7 +1237,7 @@ struct StartCodingSheet: View {
             // The toggles only exist for the agents that support them — never
             // send a stale value the launcher would reject or misread.
             ultracode: isClaude ? ultracode : nil,
-            planMode: isClaude ? planMode : nil,
+            planMode: Self.supportsPlanMode(agent) ? planMode : nil,
             skipPermissions: agent == "pi" ? nil : skipPermissions
         )
     }

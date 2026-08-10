@@ -996,6 +996,19 @@ mod tests {
         let advert = report.agent_advertisement(&settings);
         assert_eq!(advert.default_agent, "pi");
         assert!(!advert.launch_defaults.contains_key("pi"));
+
+        // A RUNNABLE pi advertises its own plan default (EXP-441) — plan
+        // rides through, ultracode/skip stay masked.
+        let report = DoctorReport {
+            pi: green(Tool::Pi, "0.84.1"),
+            ..report
+        };
+        let advert = report.agent_advertisement(&settings);
+        let pi = &advert.launch_defaults["pi"];
+        assert_eq!(pi.model, "grok-4.5");
+        assert!(pi.plan_mode, "pi_plan_mode defaults ON");
+        assert!(!pi.ultracode);
+        assert!(!pi.skip_permissions);
     }
 
     /// EXP-409: `claude auth status` JSON classification — noise-tolerant,

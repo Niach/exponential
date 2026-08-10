@@ -49,7 +49,7 @@ use crate::batch_launcher::{batch_branch_name, BatchLaunchRequest, RepoGroup};
 use domain::IssueStatus;
 use crate::batch_prompt::{render_batch_prompt, BatchPromptArgs};
 use crate::doctor::{run_doctor, ToolCheck};
-use crate::pi_bridge::{write_pi_bridge, write_pi_observer};
+use crate::pi_bridge::{write_pi_bridge, write_pi_observer, write_pi_plan};
 use crate::git_credentials;
 use crate::git_worktree::{
     branch_name, clone_path, create_worktree, ensure_clone, fetch_base,
@@ -306,6 +306,7 @@ impl WorktreeProvider for GitWorktrees {
                 crate::mcp_json::MCP_JSON_FILE,
                 crate::pi_bridge::PI_BRIDGE_FILE,
                 crate::pi_bridge::PI_OBSERVER_FILE,
+                crate::pi_bridge::PI_PLAN_FILE,
                 crate::worktree_agents::AGENTS_FILE,
             ],
         );
@@ -640,8 +641,23 @@ fn wire_agent_mcp(
             // failure is only logged when no observer is wired anyway.
             write_pi_observer(cwd)
                 .map_err(|e| CodingError::Io(format!("write .exp-pi-observer.ts: {e}")))?;
+            // Same posture for the plan-mode extension (EXP-441): always on
+            // the argv, inert without EXP_PI_PLAN_MODE.
+            write_pi_plan(cwd)
+                .map_err(|e| CodingError::Io(format!("write .exp-pi-plan.ts: {e}")))?;
             Ok(AgentMcp::PiExtension)
         }
+    }
+}
+
+/// The spawn-env gate of the pi plan-mode extension (EXP-441): a pi launch
+/// with plan mode on sets [`crate::argv::PI_PLAN_MODE_ENV`]; without it the
+/// always-written `.exp-pi-plan.ts` returns immediately.
+fn apply_pi_plan_env(spawn: SpawnSpec, agent: CodingAgent, plan_mode: bool) -> SpawnSpec {
+    if agent == CodingAgent::Pi && plan_mode {
+        spawn.env(crate::argv::PI_PLAN_MODE_ENV, "1")
+    } else {
+        spawn
     }
 }
 
@@ -1071,6 +1087,7 @@ pub fn prepare_with_hooks(
     spawn = apply_mcp_env(spawn, agent, deps.trpc.base_url(), &personal_key);
     spawn = apply_hook_env(spawn, hooks, hook_settings.as_ref());
     spawn = apply_observer_env(spawn, agent, observer);
+    spawn = apply_pi_plan_env(spawn, agent, options.plan_mode);
     if let Some(originator) = &codex_originator {
         spawn = spawn.env(crate::argv::CODEX_ORIGINATOR_ENV, originator);
     }
@@ -1259,6 +1276,7 @@ fn prepare_action(
                     crate::mcp_json::MCP_JSON_FILE,
                     crate::pi_bridge::PI_BRIDGE_FILE,
                     crate::pi_bridge::PI_OBSERVER_FILE,
+                    crate::pi_bridge::PI_PLAN_FILE,
                 ],
             );
             let cwd = match &req.kind {
@@ -1433,6 +1451,7 @@ fn prepare_action(
     spawn = apply_mcp_env(spawn, agent, deps.trpc.base_url(), &personal_key);
     spawn = apply_hook_env(spawn, hooks, hook_settings.as_ref());
     spawn = apply_observer_env(spawn, agent, observer);
+    spawn = apply_pi_plan_env(spawn, agent, options.plan_mode);
     if let Some(originator) = &codex_originator {
         spawn = spawn.env(crate::argv::CODEX_ORIGINATOR_ENV, originator);
     }
@@ -1586,6 +1605,7 @@ pub fn prepare_agent_shell(
             crate::mcp_json::MCP_JSON_FILE,
             crate::pi_bridge::PI_BRIDGE_FILE,
             crate::pi_bridge::PI_OBSERVER_FILE,
+            crate::pi_bridge::PI_PLAN_FILE,
         ],
     );
 
@@ -3405,8 +3425,8 @@ mod tests {
             other => panic!("expected Ready, got {other:?}"),
         };
 
-        // Both extensions ride argv; the observer file is on disk and
-        // secret-free.
+        // All three extensions ride argv; the observer + plan files are on
+        // disk and secret-free.
         let args = &prepared.spawn.args;
         let extensions: Vec<&str> = args
             .iter()
@@ -3414,12 +3434,20 @@ mod tests {
             .filter(|(_, arg)| *arg == "-e")
             .filter_map(|(i, _)| args.get(i + 1).map(String::as_str))
             .collect();
-        assert_eq!(extensions, ["./.exp-pi-mcp.ts", "./.exp-pi-observer.ts"]);
+        assert_eq!(
+            extensions,
+            ["./.exp-pi-mcp.ts", "./.exp-pi-observer.ts", "./.exp-pi-plan.ts"]
+        );
         let observer_source = fs::read_to_string(worktree.join(".exp-pi-observer.ts")).unwrap();
         assert!(!observer_source.contains("expu_"));
+        let plan_source = fs::read_to_string(worktree.join(".exp-pi-plan.ts")).unwrap();
+        assert!(!plan_source.contains("expu_"));
         for (key, value) in [
             ("EXP_OBSERVER_URL", "http://127.0.0.1:45678".to_string()),
             ("EXP_OBSERVER_TOKEN", "obs-token".to_string()),
+            // The request fixture launches with plan mode ON — the pi plan
+            // gate env must be set (EXP-441).
+            ("EXP_PI_PLAN_MODE", "1".to_string()),
         ] {
             assert!(
                 prepared.spawn.env.contains(&(key.to_string(), value.clone())),
@@ -3428,9 +3456,11 @@ mod tests {
             );
         }
 
-        // No sidecar ⇒ no env (the extension returns immediately).
+        // No sidecar ⇒ no env (the extension returns immediately); plan mode
+        // OFF ⇒ no EXP_PI_PLAN_MODE either (the plan extension stays inert).
         let mut req = request("EXP-43");
         req.options.agent = CodingAgent::Pi;
+        req.options.plan_mode = false;
         let prepared = match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
             Prepared::Ready(prepared) => prepared,
             other => panic!("expected Ready, got {other:?}"),
@@ -3440,7 +3470,7 @@ mod tests {
                 .spawn
                 .env
                 .iter()
-                .any(|(key, _)| key.starts_with("EXP_OBSERVER_")),
+                .any(|(key, _)| key.starts_with("EXP_OBSERVER_") || key == "EXP_PI_PLAN_MODE"),
             "{:?}",
             prepared.spawn.env
         );

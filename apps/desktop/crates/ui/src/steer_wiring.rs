@@ -1015,9 +1015,13 @@ pub fn attach_publisher(
     };
     let is_claude = session_agent == steer::activity::SessionAgent::Claude;
     // EXP-455: keystroke-choreographed remote answering — claude's pickers
-    // and codex's approval modals. Pi steers through its observer extension.
+    // and codex's approval modals. Pi steers through its observer extension,
+    // but its ONE answerable question — the plan-approval confirm dialog
+    // (EXP-441) — resolves by keystroke too, so the answer seam covers it.
     let steers_by_keystroke =
         is_claude || session_agent == steer::activity::SessionAgent::Codex;
+    let answers_remotely =
+        steers_by_keystroke || session_agent == steer::activity::SessionAgent::Pi;
     let Some(runtime) = runtime(cx) else {
         return; // steer off (runtime failed to init)
     };
@@ -1075,9 +1079,11 @@ pub fn attach_publisher(
         }),
         // EXP-383/EXP-455: the semantic answer path drives the claude and
         // codex TUIs by grid keystroke choreography (claude: plan/ask/login/
-        // permission pickers; codex: approval modals) — `None` keeps the
-        // publisher's Enter-cascade/Esc-reroute logic inert for pi.
-        answers: steers_by_keystroke.then(|| answer_link.clone()),
+        // permission pickers; codex: approval modals). Pi carries it ONLY
+        // for the plan gate (EXP-441) — its free text short-circuits into
+        // `text_sink` first, so the publisher's Enter-cascade/Esc-reroute
+        // logic stays inert (the pi emitter never sets the link flags).
+        answers: answers_remotely.then(|| answer_link.clone()),
         agent: session_agent,
         text_sink: pi_steer.map(|handle| {
             Arc::new(move |text: String| handle.push(text)) as Arc<dyn Fn(String) + Send + Sync>
@@ -1179,9 +1185,9 @@ pub fn attach_publisher(
             })),
             hooks: hook_events,
             // EXP-383/EXP-455: the Steering seam drives the claude TUI's
-            // pickers and codex's approval modals by keystroke; pi has
-            // neither.
-            steering: steers_by_keystroke.then(|| Steering {
+            // pickers and codex's approval modals by keystroke; pi rides it
+            // for the plan-approval confirm dialog only (EXP-441).
+            steering: answers_remotely.then(|| Steering {
                 answers,
                 link: answer_link,
                 write_input,

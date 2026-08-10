@@ -115,6 +115,9 @@ pub struct Settings {
     /// Claude native plan-mode default — ON by default (Claude presents a
     /// plan for approval in the terminal before editing).
     pub claude_plan_mode: bool,
+    /// pi plan-mode default — ON by default like Claude's (EXP-441: pi's
+    /// plan mode is the launcher-injected `.exp-pi-plan.ts` extension).
+    pub pi_plan_mode: bool,
     /// Claude "skip permissions" default — OFF by default (sessions start in
     /// the guarded `--permission-mode auto`; ON opts into the full
     /// `--dangerously-skip-permissions` bypass).
@@ -172,6 +175,7 @@ impl Default for Settings {
             pi_thinking: String::new(),
             claude_ultracode: false,
             claude_plan_mode: true,
+            pi_plan_mode: true,
             claude_skip_permissions: false,
             codex_skip_permissions: false,
             rail_expanded: None,
@@ -312,6 +316,16 @@ impl Settings {
             CodingAgent::Claude => &self.claude_effort,
             CodingAgent::Codex => &self.codex_effort,
             CodingAgent::Pi => &self.pi_thinking,
+        }
+    }
+
+    /// The plan-mode default for `agent` (dialog seed). Always `false` for
+    /// codex: it has no launch-into-plan mode.
+    pub fn plan_mode_for(&self, agent: CodingAgent) -> bool {
+        match agent {
+            CodingAgent::Claude => self.claude_plan_mode,
+            CodingAgent::Codex => false,
+            CodingAgent::Pi => self.pi_plan_mode,
         }
     }
 
@@ -530,6 +544,7 @@ mod tests {
         // (guarded auto mode is the default posture).
         assert!(!settings.claude_ultracode);
         assert!(settings.claude_plan_mode);
+        assert!(settings.pi_plan_mode);
         assert!(!settings.claude_skip_permissions);
         assert!(!settings.codex_skip_permissions);
         // EXP-288: no shell override by default (auto-detect).
@@ -678,17 +693,19 @@ mod tests {
         let settings = Settings::load(&path);
         assert!(!settings.claude_ultracode, "missing key must default FALSE");
         assert!(settings.claude_plan_mode, "missing key must default TRUE");
+        assert!(settings.pi_plan_mode, "missing key must default TRUE");
         assert!(!settings.claude_skip_permissions);
         assert!(!settings.codex_skip_permissions);
 
         fs::write(
             &path,
-            r#"{"claudeUltracode":true,"claudePlanMode":false,"claudeSkipPermissions":true,"codexSkipPermissions":true,"subagentModel":"opus","releaseUltracode":false,"issueUltracode":true,"batchPlanMode":true,"issueSkipPermissions":true}"#,
+            r#"{"claudeUltracode":true,"claudePlanMode":false,"piPlanMode":false,"claudeSkipPermissions":true,"codexSkipPermissions":true,"subagentModel":"opus","releaseUltracode":false,"issueUltracode":true,"batchPlanMode":true,"issueSkipPermissions":true}"#,
         )
         .unwrap();
         let settings = Settings::load(&path);
         assert!(settings.claude_ultracode);
         assert!(!settings.claude_plan_mode);
+        assert!(!settings.pi_plan_mode);
         assert!(settings.claude_skip_permissions);
         assert!(settings.codex_skip_permissions);
 
@@ -696,6 +713,14 @@ mod tests {
         assert!(settings.skip_permissions_for(CodingAgent::Claude));
         assert!(settings.skip_permissions_for(CodingAgent::Codex));
         assert!(!settings.skip_permissions_for(CodingAgent::Pi));
+
+        // plan_mode_for maps per agent; codex has no launch-into-plan mode.
+        let defaults = Settings::default();
+        assert!(defaults.plan_mode_for(CodingAgent::Claude));
+        assert!(defaults.plan_mode_for(CodingAgent::Pi));
+        assert!(!defaults.plan_mode_for(CodingAgent::Codex));
+        assert!(!settings.plan_mode_for(CodingAgent::Claude));
+        assert!(!settings.plan_mode_for(CodingAgent::Pi));
 
         // Saving scrubs the retired keys the merge-save would otherwise
         // carry forever.
@@ -736,6 +761,7 @@ mod tests {
             pi_thinking: "high".to_string(),
             claude_ultracode: true,
             claude_plan_mode: false,
+            pi_plan_mode: false,
             claude_skip_permissions: true,
             codex_skip_permissions: true,
             rail_expanded: Some(true),
@@ -751,6 +777,7 @@ mod tests {
         assert!(raw.contains("\"claudeEffort\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"claudeUltracode\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"claudePlanMode\""), "camelCase keys: {raw}");
+        assert!(raw.contains("\"piPlanMode\""), "camelCase keys: {raw}");
         assert!(
             raw.contains("\"claudeSkipPermissions\""),
             "camelCase keys: {raw}"

@@ -302,14 +302,14 @@ enum RepoState {
 }
 
 /// The `(ultracode, plan_mode, skip_permissions)` settings defaults for
-/// `agent`, capability-masked (EXP-201: ultracode/plan are Claude-only, skip
-/// does not exist for pi). EXP-206: ONE set of defaults — a single-issue run
-/// and a multi-issue batch run seed identically, and skip permissions is a
-/// per-AGENT setting.
+/// `agent`, capability-masked (EXP-201: ultracode is Claude-only, plan mode
+/// is claude+pi since EXP-441, skip does not exist for pi). EXP-206: ONE set
+/// of defaults — a single-issue run and a multi-issue batch run seed
+/// identically, and plan/skip are per-AGENT settings.
 fn agent_defaults(settings: &coding::Settings, agent: CodingAgent) -> (bool, bool, bool) {
     (
         settings.claude_ultracode && agent.supports_ultracode(),
-        settings.claude_plan_mode && agent.supports_plan_mode(),
+        settings.plan_mode_for(agent) && agent.supports_plan_mode(),
         settings.skip_permissions_for(agent) && agent.supports_skip_permissions(),
     )
 }
