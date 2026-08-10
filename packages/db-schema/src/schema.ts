@@ -1136,6 +1136,9 @@ export const emailDeliveries = pgTable(
     // Nullable: external widget reporters have no users row.
     userId: text(`user_id`).references(() => users.id, { onDelete: `cascade` }),
     toEmail: varchar(`to_email`, { length: 320 }).notNull(),
+    // NULL on rows written before the column existed and on rows whose send
+    // never produced a result (queued-only digest rows, invite-cap refusals).
+    subject: text(),
     // Legacy: the pre-digest per-event pipeline wrote one delivery per
     // notification row. No current path sets it (a digest email covers many
     // notifications; the support/widget paths have none) — kept for old
@@ -1147,7 +1150,8 @@ export const emailDeliveries = pgTable(
       onDelete: `set null`,
     }),
     // digest|support_reply|support_confirmation|widget_resolution|team_invite
-    // — documented varchar (legacy rows: notification).
+    // |password_reset|email_verification|contact — documented varchar (legacy
+    // rows: notification).
     kind: varchar({ length: 32 }).notNull(),
     // queued|sent|failed|suppressed|bounced|complained — documented varchar
     // (suppressed = the send-time application-side suppression check refused
@@ -1163,6 +1167,8 @@ export const emailDeliveries = pgTable(
   (table) => [
     index(`idx_email_deliveries_user`).on(table.userId),
     index(`idx_email_deliveries_issue`).on(table.issueId),
+    // The admin console's global sent-mail list orders by created_at desc.
+    index(`idx_email_deliveries_created`).on(table.createdAt),
     // Legacy pre-digest idempotency guard — inert on new rows (Postgres
     // treats NULLs as distinct, and notification_id is now always NULL).
     unique(`uniq_email_delivery_notification`).on(table.notificationId),

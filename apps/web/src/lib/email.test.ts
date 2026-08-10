@@ -125,7 +125,12 @@ describe(`sendEmail with no transport`, () => {
       text: `hi`,
     })
 
-    expect(result).toEqual({ delivered: false, provider: null, messageId: null })
+    expect(result).toEqual({
+      delivered: false,
+      provider: null,
+      messageId: null,
+      subject: `Hello`,
+    })
     expect(stderrSpy).toHaveBeenCalled()
     expect(sesSendMock).not.toHaveBeenCalled()
     stderrSpy.mockRestore()
@@ -212,6 +217,7 @@ describe(`send-time suppression (bounce/complaint on record)`, () => {
       delivered: false,
       provider: null,
       messageId: null,
+      subject: `Hello`,
       suppressed: true,
     })
     expect(sesSendMock).not.toHaveBeenCalled()
@@ -273,6 +279,7 @@ describe(`sendNotificationDigestEmail over the SES transport (mocked)`, () => {
       delivered: true,
       provider: `ses`,
       messageId: `msg_1`,
+      subject: `2 unread notifications in Exponential`,
     })
     expect(sesSendMock).toHaveBeenCalledTimes(1)
     const input = sesCallInput()

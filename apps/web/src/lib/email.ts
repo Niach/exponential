@@ -30,7 +30,7 @@ import {
 import type { Transporter } from "nodemailer"
 import { eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { emailBounces } from "@/db/schema"
+import { emailBounces, emailDeliveries } from "@/db/schema"
 
 export type EmailProvider = `ses` | `smtp`
 
@@ -40,6 +40,9 @@ export type EmailSendResult = {
   delivered: boolean
   provider: EmailProvider | null
   messageId: string | null
+  // Echoed back so ledger writers can persist it without re-deriving the
+  // wrapper-internal subject string.
+  subject: string
   // true when the send was refused because the address has a hard bounce or
   // complaint on record — the application-side suppression layer on top of
   // the SES account-level suppression list. Covers both transports.
@@ -52,6 +55,55 @@ export function deliveryStatus(
 ): `sent` | `suppressed` | `failed` {
   if (result.delivered) return `sent`
   return result.suppressed ? `suppressed` : `failed`
+}
+
+// Pure mapping from a send result to the email_deliveries columns it
+// determines — split out of recordEmailDelivery so it is unit-testable.
+export function deliveryRowFromResult(result: EmailSendResult): {
+  status: `sent` | `suppressed` | `failed`
+  provider: EmailProvider | null
+  providerMessageId: string | null
+  subject: string
+  sentAt: Date | null
+  error: string | null
+} {
+  return {
+    status: deliveryStatus(result),
+    provider: result.provider,
+    providerMessageId: result.messageId,
+    subject: result.subject,
+    sentAt: result.delivered ? new Date() : null,
+    error: result.delivered
+      ? null
+      : result.suppressed
+        ? `recipient suppressed (bounce/complaint on record)`
+        : `no email transport configured`,
+  }
+}
+
+// Append an email_deliveries ledger row for a completed send. Used by the
+// streams without their own inline ledger writes (auth mail, the contact
+// form); the older streams keep their call-site inserts. Failures are
+// swallowed on purpose — an audit-ledger insert must never break a password
+// reset or a contact-form submission.
+export async function recordEmailDelivery(args: {
+  userId?: string | null
+  toEmail: string
+  issueId?: string | null
+  kind: string
+  result: EmailSendResult
+}): Promise<void> {
+  try {
+    await db.insert(emailDeliveries).values({
+      userId: args.userId ?? null,
+      toEmail: args.toEmail,
+      issueId: args.issueId ?? null,
+      kind: args.kind,
+      ...deliveryRowFromResult(args.result),
+    })
+  } catch (err) {
+    console.error(`[email] failed to record ${args.kind} delivery:`, err)
+  }
 }
 
 // Application-side suppression: an address with a recorded complaint or a
@@ -146,6 +198,7 @@ export async function sendEmail(args: {
       delivered: false,
       provider: null,
       messageId: null,
+      subject: args.subject,
       suppressed: true,
     }
   }
@@ -183,6 +236,7 @@ export async function sendEmail(args: {
       delivered: true,
       provider: `ses`,
       messageId: out.MessageId ?? null,
+      subject: args.subject,
     }
   }
 
@@ -201,13 +255,14 @@ export async function sendEmail(args: {
       delivered: true,
       provider: `smtp`,
       messageId: (info as { messageId?: string }).messageId ?? null,
+      subject: args.subject,
     }
   }
 
   process.stderr.write(
     `[email] no transport configured (AWS_SES_REGION / SMTP_HOST unset) — dropping "${args.subject}" to ${args.to}\n`
   )
-  return { delivered: false, provider: null, messageId: null }
+  return { delivered: false, provider: null, messageId: null, subject: args.subject }
 }
 
 // Headings/bodies interpolate user content (issue titles, comment previews) —
@@ -261,8 +316,8 @@ function actionEmailHtml(args: {
 export async function sendPasswordResetEmail(args: {
   to: string
   url: string
-}): Promise<void> {
-  await sendEmail({
+}): Promise<EmailSendResult> {
+  return await sendEmail({
     to: args.to,
     subject: `Reset your Exponential password`,
     html: actionEmailHtml({
@@ -302,8 +357,8 @@ export async function sendTeamInviteEmail(args: {
 export async function sendVerificationEmail(args: {
   to: string
   url: string
-}): Promise<void> {
-  await sendEmail({
+}): Promise<EmailSendResult> {
+  return await sendEmail({
     to: args.to,
     subject: `Verify your email for Exponential`,
     html: actionEmailHtml({

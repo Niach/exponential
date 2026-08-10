@@ -887,6 +887,7 @@ export async function createWidgetSupportSubmission(args: {
       status: deliveryStatus(sendResult),
       provider: sendResult.provider,
       providerMessageId: sendResult.messageId,
+      subject: sendResult.subject,
       sentAt: sendResult.delivered ? new Date() : null,
     })
   } catch (error) {

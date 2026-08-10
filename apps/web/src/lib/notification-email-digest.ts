@@ -285,6 +285,7 @@ export async function runEmailDigestSweep(
             status: deliveryStatus(result),
             provider: result.provider,
             providerMessageId: result.messageId,
+            subject: result.subject,
             sentAt: result.delivered ? now : null,
             error: result.delivered
               ? null

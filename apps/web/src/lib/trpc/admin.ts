@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, desc, eq, inArray, isNotNull, or, sql } from "drizzle-orm"
+import { and, desc, eq, ilike, inArray, isNotNull, lt, or, sql } from "drizzle-orm"
 import { router, adminProcedure, generateTxId } from "@/lib/trpc"
 import { users, accounts, sessions } from "@/db/auth-schema"
 import {
@@ -15,6 +15,7 @@ import {
   creem_subscriptions,
 } from "@/db/schema"
 import { suppressSesDestination } from "@/lib/email"
+import { escapeLikePattern } from "@/lib/like-pattern"
 import {
   getTeamPlan,
   getTeamUsage,
@@ -61,6 +62,29 @@ function effectivePlanForAdmin(
   const plan = resolveEffectiveTier(creemTier, compTier)
   return { plan, creemTier, compTier, compApplied: plan !== creemTier }
 }
+
+// email_deliveries.kind values (documented varchar — schema.ts). `notification`
+// is the legacy pre-digest per-event kind, kept so old rows stay filterable.
+export const EMAIL_DELIVERY_KINDS = [
+  `digest`,
+  `team_invite`,
+  `support_reply`,
+  `support_confirmation`,
+  `widget_resolution`,
+  `password_reset`,
+  `email_verification`,
+  `contact`,
+  `notification`,
+] as const
+
+export const EMAIL_DELIVERY_STATUSES = [
+  `queued`,
+  `sent`,
+  `failed`,
+  `suppressed`,
+  `bounced`,
+  `complained`,
+] as const
 
 export const adminRouter = router({
   listUsers: adminProcedure.query(async ({ ctx }) => {
@@ -445,6 +469,7 @@ export const adminRouter = router({
         .select({
           id: emailDeliveries.id,
           toEmail: emailDeliveries.toEmail,
+          subject: emailDeliveries.subject,
           kind: emailDeliveries.kind,
           status: emailDeliveries.status,
           provider: emailDeliveries.provider,
@@ -570,6 +595,7 @@ export const adminRouter = router({
             .select({
               id: emailDeliveries.id,
               toEmail: emailDeliveries.toEmail,
+              subject: emailDeliveries.subject,
               kind: emailDeliveries.kind,
               status: emailDeliveries.status,
               provider: emailDeliveries.provider,
@@ -745,6 +771,57 @@ export const adminRouter = router({
       teamsByDay: wsCreatedRows,
     }
   }),
+
+  // Global outbound-email ledger (EXP-461): every email_deliveries row,
+  // newest first, cursor-paginated on created_at (helpdesk listThreads
+  // style — the client passes the oldest loaded createdAt to fetch the next
+  // page and infers hasMore from a full page).
+  listEmailDeliveries: adminProcedure
+    .input(
+      z.object({
+        kind: z.enum(EMAIL_DELIVERY_KINDS).optional(),
+        status: z.enum(EMAIL_DELIVERY_STATUSES).optional(),
+        // Substring match on the recipient address.
+        q: z.string().trim().min(1).max(320).optional(),
+        limit: z.number().int().min(1).max(100).default(50),
+        cursor: z.coerce.date().optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      return await ctx.db
+        .select({
+          id: emailDeliveries.id,
+          toEmail: emailDeliveries.toEmail,
+          subject: emailDeliveries.subject,
+          kind: emailDeliveries.kind,
+          status: emailDeliveries.status,
+          provider: emailDeliveries.provider,
+          error: emailDeliveries.error,
+          sentAt: emailDeliveries.sentAt,
+          createdAt: emailDeliveries.createdAt,
+          userId: emailDeliveries.userId,
+          userName: users.name,
+          issueIdentifier: issues.identifier,
+        })
+        .from(emailDeliveries)
+        .leftJoin(issues, eq(issues.id, emailDeliveries.issueId))
+        .leftJoin(users, eq(users.id, emailDeliveries.userId))
+        .where(
+          and(
+            input.kind ? eq(emailDeliveries.kind, input.kind) : undefined,
+            input.status ? eq(emailDeliveries.status, input.status) : undefined,
+            input.q
+              ? ilike(
+                  emailDeliveries.toEmail,
+                  `%${escapeLikePattern(input.q)}%`
+                )
+              : undefined,
+            input.cursor ? lt(emailDeliveries.createdAt, input.cursor) : undefined
+          )
+        )
+        .orderBy(desc(emailDeliveries.createdAt))
+        .limit(input.limit)
+    }),
 
   // Bounce/complaint feedback per address (fed by /api/webhooks/ses) — the
   // worklist for suppressing bad addresses before they damage sender

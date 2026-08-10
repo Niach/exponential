@@ -11,7 +11,7 @@ import {
   envInt,
   TokenBucketLimiter,
 } from "@/lib/widget/rate-limit"
-import { sendEmail } from "@/lib/email"
+import { recordEmailDelivery, sendEmail } from "@/lib/email"
 
 // EXP-39: contact/enterprise-inquiry endpoint for the marketing site's form
 // (replaces the bare mailto CTA). Mirrors /api/widget/submit's structure —
@@ -164,13 +164,15 @@ async function handleContact(request: Request): Promise<Response> {
   const text = `${rows.map(([label, value]) => `${label}: ${value}`).join(`\n`)}\n\n${message}`
 
   try {
+    const to = process.env.CONTACT_EMAIL_TO ?? `support@exponential.at`
     const result = await sendEmail({
-      to: process.env.CONTACT_EMAIL_TO ?? `support@exponential.at`,
+      to,
       subject,
       html,
       text,
       replyTo: email,
     })
+    await recordEmailDelivery({ toEmail: to, kind: `contact`, result })
     if (!result.delivered) {
       // No transport configured — tell the form so it can fall back to mailto.
       return jsonResponse(503, { error: `Email is not configured` }, cors)
