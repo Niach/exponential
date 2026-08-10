@@ -210,8 +210,10 @@ pub fn launch(
         let is_claude = agent == CodingAgent::Claude;
         // EXP-455: keystroke-choreographed remote answering — claude's
         // pickers and codex's approval modals. Pi steers through its
-        // observer extension.
+        // observer extension, but its plan-approval confirm dialog
+        // (EXP-441) resolves by keystroke too.
         let steers_by_keystroke = is_claude || agent == CodingAgent::Codex;
+        let answers_remotely = steers_by_keystroke || agent == CodingAgent::Pi;
         let session_agent = match agent {
             CodingAgent::Claude => steer::activity::SessionAgent::Claude,
             CodingAgent::Codex => steer::activity::SessionAgent::Codex,
@@ -233,7 +235,7 @@ pub fn launch(
                 let _ = kill_tx.send(Control::Kill { outcome: "killed" });
             }),
             error: Arc::new(|message| log::warn!("steer publisher: {message}")),
-            answers: steers_by_keystroke.then(|| Arc::clone(&answer_link)),
+            answers: answers_remotely.then(|| Arc::clone(&answer_link)),
             agent: session_agent,
             text_sink: pi_steer.map(|handle| {
                 Arc::new(move |text: String| handle.push(text)) as Arc<dyn Fn(String) + Send + Sync>
@@ -271,7 +273,7 @@ pub fn launch(
                             .subscribe_hooks(&worktree, claude_session_id.as_deref())
                     })
                     .flatten(),
-                steering: steers_by_keystroke.then(|| Steering {
+                steering: answers_remotely.then(|| Steering {
                     answers,
                     link: answer_link,
                     write_input,

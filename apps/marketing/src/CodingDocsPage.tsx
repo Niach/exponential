@@ -159,8 +159,9 @@ export function CodingDocsPage() {
                 effort setting.
               </li>
               <li>
-                <strong>Plan mode</strong>, Claude only. It proposes a plan
-                you approve before it touches code.
+                <strong>Plan mode</strong>, Claude and pi. It proposes a plan
+                you approve before it touches code — in the terminal, or from
+                the plan card in the session view on web and mobile.
               </li>
             </ul>
             <p>
@@ -194,7 +195,7 @@ export function CodingDocsPage() {
               </li>
               <li>
                 The agent opens in the embedded terminal, seeded with the
-                issue. With Claude&apos;s plan mode on it{` `}
+                issue. With plan mode on it{` `}
                 <strong>plans first</strong>; you approve before implementation
                 starts.
               </li>

@@ -151,16 +151,20 @@ describe(`device launch defaults`, () => {
       planMode: false,
       skipPermissions: false,
     })
-    // Capability masking beats a lying advertisement: pi never skips, codex
-    // never plans.
+    // Capability masking beats a lying advertisement: pi never skips or
+    // ultracodes, but its advertised plan default rides through (EXP-441).
     expect(
       agentSeed(`pi`, { skipPermissions: true, planMode: true, ultracode: true })
     ).toEqual({
       model: ``,
       effort: ``,
       ultracode: false,
-      planMode: false,
+      planMode: true,
       skipPermissions: false,
+    })
+    // Codex never plans.
+    expect(agentSeed(`codex`, { planMode: true })).toMatchObject({
+      planMode: false,
     })
     // `null` = the static fallback for devices that advertise nothing.
     expect(agentSeed(`claude`, null)).toEqual({

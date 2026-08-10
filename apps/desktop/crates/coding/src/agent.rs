@@ -91,11 +91,12 @@ impl CodingAgent {
         matches!(self, CodingAgent::Claude)
     }
 
-    /// A launch-into-plan mode — Claude Code only (`--permission-mode plan`).
-    /// Codex HAS an interactive plan mode (`/plan`) but no flag to start in
-    /// it; pi has none at all.
+    /// A launch-into-plan mode. Claude Code natively (`--permission-mode
+    /// plan`); pi via the launcher-injected `.exp-pi-plan.ts` extension
+    /// (EXP-441, [`crate::pi_bridge::PI_PLAN_SOURCE`]). Codex HAS an
+    /// interactive plan mode (`/plan`) but no flag to start in it.
     pub fn supports_plan_mode(self) -> bool {
-        matches!(self, CodingAgent::Claude)
+        matches!(self, CodingAgent::Claude | CodingAgent::Pi)
     }
 
     /// Whether the "Skip permissions" (full-bypass) checkbox applies: pi has
@@ -172,17 +173,19 @@ mod tests {
 
     #[test]
     fn capability_matrix() {
-        // Ultracode + native plan mode are Claude-only; the skip-permissions
-        // checkbox exists everywhere but pi (pi is always unguarded).
+        // Ultracode is Claude-only; plan mode is claude (native) + pi (via
+        // the injected extension, EXP-441); the skip-permissions checkbox
+        // exists everywhere but pi (pi is always unguarded).
         assert!(CodingAgent::Claude.supports_ultracode());
         assert!(CodingAgent::Claude.supports_plan_mode());
         assert!(CodingAgent::Claude.supports_skip_permissions());
         assert!(!CodingAgent::Claude.allows_blank_model());
         for agent in [CodingAgent::Codex, CodingAgent::Pi] {
             assert!(!agent.supports_ultracode(), "{agent}");
-            assert!(!agent.supports_plan_mode(), "{agent}");
             assert!(agent.allows_blank_model(), "{agent}");
         }
+        assert!(!CodingAgent::Codex.supports_plan_mode());
+        assert!(CodingAgent::Pi.supports_plan_mode());
         assert!(CodingAgent::Codex.supports_skip_permissions());
         assert!(!CodingAgent::Pi.supports_skip_permissions());
     }

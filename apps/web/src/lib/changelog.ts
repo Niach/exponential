@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-pi-plan-mode`,
+    date: `2026-08-10`,
+    title: `Plan mode for pi`,
+    summary: `pi sessions can now start in plan mode: the agent investigates read-only, proposes a plan, and waits for your approval before touching code.`,
+    body: `- **Plan-first pi runs**: the launcher injects a plan-mode extension that blocks edits until you approve the plan pi presents in its terminal dialog.
+- **Approve from anywhere**: the plan shows up as the familiar plan card in the session view, answerable from web, iOS, and Android.
+- **Per-agent default**: pi gets its own Plan mode toggle under Settings, Agents on the desktop, on by default like Claude's.`,
+  },
+  {
     id: `2026-08-remote-permission-approval`,
     date: `2026-08-09`,
     title: `Approve agent permissions from anywhere`,

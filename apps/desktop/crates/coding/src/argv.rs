@@ -25,7 +25,7 @@ use std::path::Path;
 
 use crate::agent::CodingAgent;
 use crate::mcp_json::MCP_JSON_FILE;
-use crate::pi_bridge::{PI_BRIDGE_FILE, PI_OBSERVER_FILE};
+use crate::pi_bridge::{PI_BRIDGE_FILE, PI_OBSERVER_FILE, PI_PLAN_FILE};
 use crate::settings::Settings;
 
 /// The env var carrying the raw `expu_` key for codex + pi sessions (EXP-201)
@@ -49,6 +49,12 @@ pub const HOOK_TOKEN_ENV: &str = "EXP_HOOK_TOKEN";
 /// depend on each other, §3.1).
 pub const OBSERVER_URL_ENV: &str = "EXP_OBSERVER_URL";
 pub const OBSERVER_TOKEN_ENV: &str = "EXP_OBSERVER_TOKEN";
+
+/// Spawn-env gate for the pi plan-mode extension (EXP-441): the launcher
+/// sets it to `1` on a pi launch with plan mode on. The extension file
+/// itself rides `-e` unconditionally (like the observer) and is inert
+/// without this value.
+pub const PI_PLAN_MODE_ENV: &str = "EXP_PI_PLAN_MODE";
 
 /// EXP-443: codex's per-spawn originator override — the value lands verbatim
 /// in every rollout meta this spawn writes, giving the activity emitter a
@@ -160,7 +166,9 @@ pub struct LaunchOptions {
     /// Dynamic workflows (`--effort ultracode`, CLI ≥2.1.203 —
     /// model-independent, no opus pin). Claude-only; wins over `effort`.
     pub ultracode: bool,
-    /// Native plan mode (`--permission-mode plan`). Claude-only.
+    /// Launch-into-plan mode: claude natively (`--permission-mode plan`),
+    /// pi via the injected `.exp-pi-plan.ts` extension gated on
+    /// [`PI_PLAN_MODE_ENV`] (EXP-441). Never codex.
     pub plan_mode: bool,
     /// Full permission bypass (claude `--dangerously-skip-permissions` /
     /// codex `--dangerously-bypass-approvals-and-sandbox`). OFF = the
@@ -187,7 +195,7 @@ impl LaunchOptions {
             model: settings.model_for(agent).to_string(),
             effort: settings.effort_for(agent).to_string(),
             ultracode: settings.claude_ultracode && agent.supports_ultracode(),
-            plan_mode: settings.claude_plan_mode && agent.supports_plan_mode(),
+            plan_mode: settings.plan_mode_for(agent) && agent.supports_plan_mode(),
             skip_permissions: settings.skip_permissions_for(agent)
                 && agent.supports_skip_permissions(),
         }
@@ -210,7 +218,7 @@ impl LaunchOptions {
     ///   start must never park an unattended desktop at the plan-approval
     ///   TUI); a remote client sending `plan_mode: true` opted in knowingly.
     /// - Capabilities mask everything: a non-claude agent can never carry
-    ///   ultracode/plan, pi never carries skip.
+    ///   ultracode, codex never carries plan, pi never carries skip.
     #[allow(clippy::too_many_arguments)]
     pub fn remote(
         settings: &Settings,
@@ -412,6 +420,11 @@ pub fn session_args(
             // without the EXP_OBSERVER_* env, so it rides unconditionally.
             args.push("-e".into());
             args.push(format!("./{PI_OBSERVER_FILE}"));
+            // The plan-mode extension (EXP-441): blocks mutating tools until
+            // the user approves a plan via the exit_plan_mode tool. Inert
+            // without [`PI_PLAN_MODE_ENV`], so it rides unconditionally too.
+            args.push("-e".into());
+            args.push(format!("./{PI_PLAN_FILE}"));
         }
     }
     match tail {
@@ -741,6 +754,8 @@ mod tests {
                 "./.exp-pi-mcp.ts",
                 "-e",
                 "./.exp-pi-observer.ts",
+                "-e",
+                "./.exp-pi-plan.ts",
                 "prompt",
             ]
         );
@@ -758,7 +773,15 @@ mod tests {
         let args = session_args(&opts, &AgentMcp::PiExtension, None, None, SessionTail::Prompt("p"));
         assert_eq!(
             args,
-            vec!["-e", "./.exp-pi-mcp.ts", "-e", "./.exp-pi-observer.ts", "p"]
+            vec![
+                "-e",
+                "./.exp-pi-mcp.ts",
+                "-e",
+                "./.exp-pi-observer.ts",
+                "-e",
+                "./.exp-pi-plan.ts",
+                "p"
+            ]
         );
         assert!(!args.iter().any(|arg| arg == "-a" || arg == "--approve"));
     }
@@ -795,6 +818,8 @@ mod tests {
                 "./.exp-pi-mcp.ts",
                 "-e",
                 "./.exp-pi-observer.ts",
+                "-e",
+                "./.exp-pi-plan.ts",
                 "--continue"
             ]
         );
@@ -870,7 +895,14 @@ mod tests {
         let args = session_args(&pi, &AgentMcp::PiExtension, None, None, SessionTail::None);
         assert_eq!(
             args,
-            vec!["-e", "./.exp-pi-mcp.ts", "-e", "./.exp-pi-observer.ts"]
+            vec![
+                "-e",
+                "./.exp-pi-mcp.ts",
+                "-e",
+                "./.exp-pi-observer.ts",
+                "-e",
+                "./.exp-pi-plan.ts"
+            ]
         );
     }
 
@@ -904,6 +936,12 @@ mod tests {
         let opts = LaunchOptions::defaults_for(&settings, CodingAgent::Pi);
         assert_eq!(opts.agent, CodingAgent::Pi);
         assert!(!opts.skip_permissions, "pi has no permission system");
+        assert!(opts.plan_mode, "pi seeds its OWN plan default (EXP-441)");
+
+        // The pi plan default is its own field — independent of claude's.
+        settings.pi_plan_mode = false;
+        assert!(!LaunchOptions::defaults_for(&settings, CodingAgent::Pi).plan_mode);
+        assert!(LaunchOptions::defaults_for(&settings, CodingAgent::Claude).plan_mode);
     }
 
     #[test]
@@ -1031,7 +1069,7 @@ mod tests {
             Some("gpt-5.6-luna"),
             Some("minimal"),
             Some(true), // ultracode — claude-only, must mask
-            Some(true), // plan — claude-only, must mask
+            Some(true), // plan — claude/pi-only, must mask on codex
             None,
         );
         assert_eq!(opts.agent, CodingAgent::Codex);
@@ -1053,20 +1091,27 @@ mod tests {
         );
         assert_eq!(opts.model, "");
 
-        // pi: thinking set, skip masked off.
+        // pi: thinking set, skip masked off; an explicit plan opt-in passes
+        // through (EXP-441 — pi plans via the injected extension).
         let opts = LaunchOptions::remote(
             &settings,
             Some("pi"),
             Some("grok-4.5"),
             Some("xhigh"),
             None,
-            None,
+            Some(true),
             Some(true),
         );
         assert_eq!(opts.agent, CodingAgent::Pi);
         assert_eq!(opts.model, "grok-4.5");
         assert_eq!(opts.effort, "xhigh");
+        assert!(opts.plan_mode, "explicit remote opt-in (EXP-441)");
         assert!(!opts.skip_permissions);
+
+        // F7 holds for pi too: an option-less start must never park an
+        // unattended desktop at the plan gate.
+        let opts = LaunchOptions::remote(&settings, Some("pi"), None, None, None, None, None);
+        assert!(!opts.plan_mode, "absent plan defaults OFF");
 
         // Unknown agent string → claude with claude normalization.
         let opts = LaunchOptions::remote(

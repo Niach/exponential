@@ -80,6 +80,12 @@ pub enum PiEvent {
         args: Value,
     },
     ToolEnd { id: String, is_error: bool },
+    /// EXP-441: the plan extension presented a plan and is now parked on
+    /// pi's confirm dialog awaiting approval.
+    PlanPending { id: String, plan: String },
+    /// EXP-441: the confirm dialog resolved (locally or by an injected
+    /// remote keystroke).
+    PlanResolved { id: String, approved: bool },
     SessionShutdown,
 }
 
@@ -116,6 +122,23 @@ fn parse_event(value: &Value) -> Option<PiEvent> {
             id: string_field(value, "id").unwrap_or_default(),
             is_error: value
                 .get("isError")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        }),
+        "plan_pending" => Some(PiEvent::PlanPending {
+            id: string_field(value, "id")?,
+            // An empty plan still shows an approval card — the gate is real
+            // even when the agent sent no markdown.
+            plan: value
+                .get("plan")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+        }),
+        "plan_resolved" => Some(PiEvent::PlanResolved {
+            id: string_field(value, "id")?,
+            approved: value
+                .get("approved")
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
         }),
@@ -510,6 +533,8 @@ mod tests {
                 { "kind": "input", "text": "fix it", "source": "interactive" },
                 { "kind": "tool_start", "id": "t1", "name": "bash", "args": { "command": "ls -la" } },
                 { "kind": "future_kind", "x": 1 },
+                { "kind": "plan_pending", "id": "call-1", "plan": "## Plan\n1. do it" },
+                { "kind": "plan_resolved", "id": "call-1", "approved": true },
                 { "kind": "agent_settled" }
             ]
         })
@@ -535,7 +560,22 @@ mod tests {
                 args: serde_json::json!({ "command": "ls -la" }),
             }
         );
-        // The unknown kind was dropped; settled comes straight after.
+        // The unknown kind was dropped; the plan lifecycle (EXP-441) comes
+        // straight after.
+        assert_eq!(
+            events.recv_timeout(Duration::from_secs(2)).unwrap(),
+            PiEvent::PlanPending {
+                id: "call-1".into(),
+                plan: "## Plan\n1. do it".into(),
+            }
+        );
+        assert_eq!(
+            events.recv_timeout(Duration::from_secs(2)).unwrap(),
+            PiEvent::PlanResolved {
+                id: "call-1".into(),
+                approved: true,
+            }
+        );
         assert_eq!(
             events.recv_timeout(Duration::from_secs(2)).unwrap(),
             PiEvent::AgentSettled
