@@ -40,6 +40,7 @@ vi.mock(`@/lib/bootstrap-cloud`, () => ({
 
 import {
   ACTIVE_STATUSES,
+  countTeamWidgetSubmissionsLastHour,
   getPlanLimits,
   planFromSubscription,
   parseCompTier,
@@ -71,23 +72,26 @@ beforeEach(() => {
 })
 
 describe(`getPlanLimits — the tier table`, () => {
-  it(`free = 3 seats / 250 MB / 1 widget`, () => {
+  it(`free = 3 seats / 250 MB / 1 widget / 60 submissions per hour`, () => {
     expect(getPlanLimits(`free`)).toEqual({
       seats: 3,
       storageMb: 250,
       widgetConfigs: 1,
+      widgetSubmissionsPerHour: 60,
     })
   })
-  it(`team = 10 GB / unlimited widgets`, () => {
+  it(`team = 10 GB / unlimited widgets + submissions`, () => {
     const team = getPlanLimits(`team`)
     expect(team.storageMb).toBe(10240)
     expect(team.widgetConfigs).toBe(Infinity)
+    expect(team.widgetSubmissionsPerHour).toBe(Infinity)
   })
   it(`unlimited = everything Infinity`, () => {
     expect(getPlanLimits(`unlimited`)).toEqual({
       seats: Infinity,
       storageMb: Infinity,
       widgetConfigs: Infinity,
+      widgetSubmissionsPerHour: Infinity,
     })
   })
 })
@@ -96,7 +100,12 @@ describe(`planFromSubscription — team-bound resolution`, () => {
   it(`null subscription → free defaults`, () => {
     expect(planFromSubscription(null)).toEqual({
       plan: `free`,
-      limits: { seats: 3, storageMb: 250, widgetConfigs: 1 },
+      limits: {
+        seats: 3,
+        storageMb: 250,
+        widgetConfigs: 1,
+        widgetSubmissionsPerHour: 60,
+      },
     })
   })
 
@@ -335,6 +344,18 @@ describe(`getTeamUsage`, () => {
     selectResults.push([{ count: 2 }]) // widget configs
     const usage = await getTeamUsage(WS)
     expect(usage).toEqual({ members: 1, storageMb: 5, widgetConfigs: 2 })
+  })
+})
+
+describe(`countTeamWidgetSubmissionsLastHour`, () => {
+  it(`returns the joined trailing-hour count`, async () => {
+    selectResults.push([{ count: 4 }])
+    await expect(countTeamWidgetSubmissionsLastHour(WS)).resolves.toBe(4)
+  })
+
+  it(`empty result → 0`, async () => {
+    selectResults.push([])
+    await expect(countTeamWidgetSubmissionsLastHour(WS)).resolves.toBe(0)
   })
 })
 

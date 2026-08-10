@@ -9,12 +9,15 @@ import {
   LoaderCircle,
   MessageSquarePlus,
   Pencil,
+  Sparkles,
   Trash2,
 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { buildWidgetSnippet } from "@/lib/widget-snippet"
 import { isPlanLimitError } from "@/lib/plan-limit-error"
+import { useBillingPlan } from "@/hooks/use-billing"
 import { useTeamBoards } from "@/hooks/use-team-data"
+import { UsageBar } from "@/components/team/billing-section"
 import {
   WidgetConfigDialog,
   type WidgetListItem,
@@ -48,6 +51,9 @@ function buildSnippet(publicKey: string): string {
 export function TeamWidgetSection({ team }: { team: Team }) {
   const teamId = team.id
   const boards = useTeamBoards(teamId)
+  // Free-plan-only submissions meter (EXP-459). Self-hosted resolves to
+  // `unlimited` without a network call, so the block never renders there.
+  const billingPlan = useBillingPlan(teamId)
   const [widgets, setWidgets] = useState<WidgetListItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -277,6 +283,34 @@ export function TeamWidgetSection({ team }: { team: Team }) {
               ))
             )}
           </div>
+
+          {/* Free plan caps widget submissions at 60/hour per team (EXP-459);
+              paid tiers are unlimited, so this meter — the ONLY place the
+              limit is promoted — renders on free only. */}
+          {billingPlan?.plan === `free` && (
+            <div className="space-y-2 border-t pt-4">
+              <UsageBar
+                label="Widget submissions (last hour)"
+                current={billingPlan.usage.widgetSubmissionsLastHour}
+                max={billingPlan.limits.widgetSubmissionsPerHour}
+              />
+              <div className="flex flex-wrap items-center gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm">
+                <Sparkles className="h-3.5 w-3.5 shrink-0 text-primary" />
+                <span className="min-w-0 flex-1">
+                  Upgrade to Team for unlimited submissions.
+                </span>
+                <Button asChild size="sm" variant="outline">
+                  <Link
+                    to="/t/$teamSlug/settings/billing"
+                    params={{ teamSlug: team.slug }}
+                    hash="plans"
+                  >
+                    Upgrade
+                  </Link>
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
 
         <WidgetConfigDialog

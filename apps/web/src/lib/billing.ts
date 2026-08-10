@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server"
-import { and, desc, eq, inArray, sql } from "drizzle-orm"
+import { and, desc, eq, gte, inArray, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   teamMembers,
@@ -7,6 +7,7 @@ import {
   attachments,
   creem_subscriptions,
   widgetConfigs,
+  widgetSubmissions,
 } from "@/db/schema"
 import { isCloudInstance } from "@/lib/bootstrap-cloud"
 import { PLAN_LIMIT_MESSAGE_PREFIX } from "@/lib/plan-limit-error"
@@ -28,6 +29,12 @@ type PlanLimits = {
   // Feedback-widget configs a team may create. Free = 1 (EXP-180),
   // Team = unlimited.
   widgetConfigs: number
+  // Widget submissions per hour, aggregated per TEAM (the billing boundary —
+  // paid teams have unlimited widget configs, so a per-key ceiling would be
+  // trivially bypassed). Enforced only by the widget submit path on cloud
+  // (lib/widget/submit-limit.ts); the per-IP abuse bucket stays global and
+  // plan-independent.
+  widgetSubmissionsPerHour: number
 }
 
 // NOTE: the `seats` value on the paid tier is only a placeholder — the real
@@ -39,16 +46,19 @@ const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
     seats: 3,
     storageMb: 250,
     widgetConfigs: 1,
+    widgetSubmissionsPerHour: 60,
   },
   team: {
     seats: 1,
     storageMb: 10240,
     widgetConfigs: Infinity,
+    widgetSubmissionsPerHour: Infinity,
   },
   unlimited: {
     seats: Infinity,
     storageMb: Infinity,
     widgetConfigs: Infinity,
+    widgetSubmissionsPerHour: Infinity,
   },
 }
 
@@ -285,6 +295,31 @@ export async function getTeamUsage(
     storageMb: Math.round((totalBytes / (1024 * 1024)) * 10) / 10,
     widgetConfigs: widgetCount.count,
   }
+}
+
+// Widget submissions filed for the team's widgets in the trailing hour —
+// display-only fuel for the settings usage bar (enforcement is the in-process
+// token bucket in lib/widget/submit-limit.ts, which the two deliberately
+// approximate: the bucket also counts honeypot-dropped attempts the DB never
+// sees). NOT part of getTeamUsage — that runs on hot enforcement paths
+// (invites, widget create, attachment upload) that don't need this join.
+export async function countTeamWidgetSubmissionsLastHour(
+  teamId: string
+): Promise<number> {
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(widgetSubmissions)
+    .innerJoin(
+      widgetConfigs,
+      eq(widgetConfigs.id, widgetSubmissions.widgetConfigId)
+    )
+    .where(
+      and(
+        eq(widgetConfigs.teamId, teamId),
+        gte(widgetSubmissions.createdAt, sql`now() - interval '1 hour'`)
+      )
+    )
+  return row?.count ?? 0
 }
 
 // Pure seat gate: a team may hold at most `seats` members. Throws the

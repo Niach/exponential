@@ -9,6 +9,7 @@ import { withCreemRef } from "@/lib/billing/affiliate"
 import { recordConversionEvent } from "@/lib/conversion/events"
 import {
   countOwnedTeams,
+  countTeamWidgetSubmissionsLastHour,
   getUserPlan,
   getTeamPlan,
   getTeamUsage,
@@ -68,8 +69,14 @@ export const billingRouter = router({
             seats: Infinity,
             storageMb: Infinity,
             widgetConfigs: Infinity,
+            widgetSubmissionsPerHour: Infinity,
           },
-          usage: { members: 0, storageMb: 0, widgetConfigs: 0 },
+          usage: {
+            members: 0,
+            storageMb: 0,
+            widgetConfigs: 0,
+            widgetSubmissionsLastHour: 0,
+          },
           subscription: null,
         }
       }
@@ -77,15 +84,17 @@ export const billingRouter = router({
       // Only someone who can read the team may see its plan/usage.
       await resolveTeamAccess(ctx.session.user.id, input.teamId)
 
-      const [planData, usage, subscription] = await Promise.all([
-        getTeamPlan(input.teamId),
-        getTeamUsage(input.teamId),
-        getActiveTeamSubscription(input.teamId),
-      ])
+      const [planData, usage, widgetSubmissionsLastHour, subscription] =
+        await Promise.all([
+          getTeamPlan(input.teamId),
+          getTeamUsage(input.teamId),
+          countTeamWidgetSubmissionsLastHour(input.teamId),
+          getActiveTeamSubscription(input.teamId),
+        ])
 
       return {
         ...planData,
-        usage,
+        usage: { ...usage, widgetSubmissionsLastHour },
         // The active subscription drives the settings UI: with one present,
         // seat/plan changes go through updateSeats/changePlan (mutating the
         // existing Creem subscription), NEVER through a second checkout.
