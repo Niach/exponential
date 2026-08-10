@@ -101,8 +101,8 @@ pub(crate) const TRAFFIC_TONGUE_TOTAL_W: f32 = TRAFFIC_TONGUE_W + TRAFFIC_TONGUE
 /// fullscreen hides them, and the expanded rail is wide enough to clear the
 /// cluster on its own. Callers additionally gate on the rail being present
 /// (the tongue is part of the rail column's chrome). EXP-456: in Settings the
-/// rail is replaced by the 212px settings nav, which clears the cluster like
-/// the expanded rail — the tongue is rail chrome and goes with it.
+/// rail is replaced by the expanded-rail-width settings nav, which clears the
+/// cluster like the expanded rail — the tongue is rail chrome and goes with it.
 pub(crate) fn traffic_tongue_visible(window: &mut Window, cx: &mut App) -> bool {
     cfg!(target_os = "macos")
         && !window.is_fullscreen()

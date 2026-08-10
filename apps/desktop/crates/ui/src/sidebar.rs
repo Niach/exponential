@@ -1083,37 +1083,12 @@ impl Render for RailView {
         // `TitleBar` `should_move` pattern; on macOS the native traffic
         // lights float over the strip's left).
         let client_chrome = crate::app_title_bar::client_chrome(window);
-        // EXP-326: are the macOS traffic lights sitting in this strip? That is
-        // the ONE case where the strip has no room of its own — windowed
-        // macOS under client chrome. Keep in step with
-        // `shell::traffic_tongue_visible`, which draws the tongue for the
-        // collapsed half of it.
-        let macos_lights =
-            cfg!(target_os = "macos") && client_chrome && !window.is_fullscreen();
+        let macos_lights = crate::app_title_bar::macos_lights_in_strip(window);
         // EXP-326: the app brand moved out of the titlebar (which is all tab
         // strip now) into the rail — but only where it fits: the expanded rail
         // minus the lights. Collapsed there is no room at 44px, and windowed
         // macOS spends the expanded strip's left half on the light cluster.
-        let brand = (expanded && !macos_lights).then(|| {
-            h_flex()
-                .flex_1()
-                .min_w_0()
-                .items_center()
-                .gap_2()
-                .child(
-                    Icon::from(ExpIcon::Logo)
-                        .small()
-                        .text_color(cx.theme().muted_foreground),
-                )
-                .child(
-                    div()
-                        .min_w_0()
-                        .truncate()
-                        .text_sm()
-                        .text_color(cx.theme().foreground.opacity(0.7))
-                        .child(crate::app_title_bar::APP_TITLE),
-                )
-        });
+        let brand = (expanded && !macos_lights).then(|| crate::app_title_bar::brand(cx));
         let top_strip = h_flex()
             .id("rail-titlebar-strip")
             .w_full()
