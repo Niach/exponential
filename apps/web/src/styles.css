@@ -597,7 +597,10 @@ html {
      now share (desktop 4px, iOS ~5pt, Android 5dp). Mention pills stay
      fully round. */
   border-radius: 6px;
-  padding: 0.05rem 0.4rem;
+  /* EXP-469: the left padding sits directly against the status glyph
+     (`::before`), which carries its own margin-right — a symmetric 0.4rem
+     read as the icon floating too far off the pill's edge. */
+  padding: 0.05rem 0.4rem 0.05rem 0.25rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.75rem;
   /* The identifier recedes; the title below carries the weight. */

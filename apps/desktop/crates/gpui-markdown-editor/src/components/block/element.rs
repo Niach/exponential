@@ -1551,7 +1551,14 @@ impl Element for BlockTextElement {
                     .into_iter()
                     .next()
                     {
-                        let side = segment.size.height.min(px(14.0));
+                        // EXP-469: cap the icon to the gutter's width minus a
+                        // 2px margin per side — at 14px it painted WIDER than
+                        // the gutter, flush against the pill edge and the `#`.
+                        let side = segment
+                            .size
+                            .height
+                            .min(px(14.0))
+                            .min((segment.size.width - px(4.0)).max(px(8.0)));
                         let origin = point(
                             segment.left() + (segment.size.width - side) / 2.0,
                             segment.top() + (segment.size.height - side) / 2.0,

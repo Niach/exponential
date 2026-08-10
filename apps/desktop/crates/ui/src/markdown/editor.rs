@@ -2531,7 +2531,14 @@ impl gpui::Element for PillText {
                 .into_iter()
                 .next()
             {
-                let side = segment.size.height.min(px(14.));
+                // EXP-469: cap the icon to the gutter's width minus a 2px
+                // margin per side — at 14px it painted WIDER than the gutter,
+                // flush against the pill edge and the `#` (wysiwyg mirror).
+                let side = segment
+                    .size
+                    .height
+                    .min(px(14.))
+                    .min((segment.size.width - px(4.)).max(px(8.)));
                 let origin = point(
                     segment.left() + (segment.size.width - side) / 2.0,
                     segment.top() + (segment.size.height - side) / 2.0,
@@ -2644,8 +2651,16 @@ enum DecorationStyle {
 /// word-wraps away from the token; mirrors the wysiwyg editor's
 /// `ICON_GUTTER`). The `#` stays VISIBLE after the gutter — the native apps
 /// hide it under the icon, but desktop keeps it (EXP-423 ruling 3; documented
-/// divergence).
-const CHIP_GUTTER: &str = "\u{00a0}\u{00a0}\u{00a0}";
+/// divergence). Four glyphs (EXP-469): three left the painted icon wider
+/// than its reserved space, flush against the pill edge and the `#`.
+const CHIP_GUTTER: &str = "\u{00a0}\u{00a0}\u{00a0}\u{00a0}";
+
+/// EXP-469: one blank NBSP on EACH side of an issue chip's display text,
+/// OUTSIDE the pill/click ranges — the pill quad overdraws `PILL_PAD_X`
+/// beyond its glyphs, which used to swallow the document's own space and
+/// leave the chip glued to the surrounding text (wysiwyg `CHIP_MARGIN`
+/// mirror).
+const CHIP_MARGIN: &str = "\u{00a0}";
 
 fn build_display_line(
     line: &str,
@@ -2686,11 +2701,12 @@ fn build_display_line(
                 // EXP-307: the chip shows the whole title next to the short
                 // code (web parity — the web pill renders the same suffix
                 // via CSS). The document text stays the plain token.
-                // EXP-423: the leading gutter reserves room for the icon.
+                // EXP-423: the leading gutter reserves room for the icon;
+                // EXP-469: the margins keep the pill off the neighbors.
                 decorations.push(Decoration {
                     range: token.clone(),
                     display_text: format!(
-                        "{CHIP_GUTTER}{} {}",
+                        "{CHIP_MARGIN}{CHIP_GUTTER}{} {}{CHIP_MARGIN}",
                         &line[token.clone()],
                         truncate_chip_title(&chip.title)
                     ),
@@ -2805,13 +2821,14 @@ fn build_display_line(
             }
             DecorationStyle::IssuePill { identifier, icon } => {
                 bits.issue = true;
-                targets.push((
-                    replacement.display.clone(),
-                    ClickTarget::Issue(identifier.clone()),
-                ));
-                // EXP-423: the display text is `<gutter><token> <title>`, so
-                // the token's display range starts right after the gutter.
-                let token_start = replacement.display.start + CHIP_GUTTER.len();
+                // EXP-469: the display text is
+                // `<margin><gutter><token> <title><margin>` — the pill quad
+                // and the click target cover everything BETWEEN the margins,
+                // so the margins stay plain blank text beside the chip.
+                let chip_start = replacement.display.start + CHIP_MARGIN.len();
+                let chip_end = replacement.display.end - CHIP_MARGIN.len();
+                targets.push((chip_start..chip_end, ClickTarget::Issue(identifier.clone())));
+                let token_start = chip_start + CHIP_GUTTER.len();
                 let token_range = token_start..token_start + decoration.range.len();
                 issue_token_ranges.push(token_range.clone());
                 ranges.push((
@@ -2821,12 +2838,8 @@ fn build_display_line(
                         ..Bits::default()
                     },
                 ));
-                icon_ranges.push((
-                    replacement.display.start..token_start,
-                    icon.0.clone(),
-                    icon.1,
-                ));
-                issue_pill_ranges.push(replacement.display.clone());
+                icon_ranges.push((chip_start..token_start, icon.0.clone(), icon.1));
+                issue_pill_ranges.push(chip_start..chip_end);
             }
         }
         if bits != Bits::default() {
@@ -3106,14 +3119,20 @@ mod tests {
             let line = "Ping @ada@example.com about #EXP-42 now";
             let display = build_display_line(line, &[], Some(&test_resolver()), cx);
 
-            // EXP-423: the chip display text carries the leading icon gutter.
+            // EXP-423: the chip display text carries the leading icon gutter;
+            // EXP-469: a blank margin NBSP on each side keeps the pill quad's
+            // overdraw off the surrounding text.
             assert_eq!(
                 display.text,
-                format!("Ping @Ada about {CHIP_GUTTER}#EXP-42 Fix login flow now")
+                format!(
+                    "Ping @Ada about {CHIP_MARGIN}{CHIP_GUTTER}#EXP-42 Fix login flow{CHIP_MARGIN} now"
+                )
             );
             let mention = display.text.find("@Ada").expect("mention");
-            let chip = display.text.find(CHIP_GUTTER).expect("issue chip gutter");
             let issue = display.text.find("#EXP-42").expect("issue token");
+            // The chip (pill/click/icon) starts at the gutter — AFTER the
+            // leading margin, which stays outside every chip range.
+            let chip = issue - CHIP_GUTTER.len();
             assert_eq!(
                 display.mention_pill_ranges,
                 vec![mention..mention + "@Ada".len()]
