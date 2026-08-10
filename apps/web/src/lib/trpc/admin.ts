@@ -773,9 +773,14 @@ export const adminRouter = router({
   }),
 
   // Global outbound-email ledger (EXP-461): every email_deliveries row,
-  // newest first, cursor-paginated on created_at (helpdesk listThreads
-  // style — the client passes the oldest loaded createdAt to fetch the next
-  // page and infers hasMore from a full page).
+  // newest first, cursor-paginated on (created_at, id) — the client passes
+  // the LAST loaded row's cursor back verbatim and infers hasMore from a
+  // full page. The cursor's createdAt is the µs-exact Postgres text
+  // rendering of created_at (`cursorCreatedAt` on each row), NOT the row's
+  // Date: Drizzle's date mode truncates timestamptz to JS-Date ms, so a
+  // Date-based `lt`/`eq` skips rows sharing a millisecond across a page
+  // boundary. Cast back with `::timestamptz` so precision survives, and
+  // tie-break equal timestamps on id.
   listEmailDeliveries: adminProcedure
     .input(
       z.object({
@@ -784,7 +789,14 @@ export const adminRouter = router({
         // Substring match on the recipient address.
         q: z.string().trim().min(1).max(320).optional(),
         limit: z.number().int().min(1).max(100).default(50),
-        cursor: z.coerce.date().optional(),
+        cursor: z
+          .object({
+            // Postgres timestamptz text (e.g. `2026-08-10 12:34:56.123456+00`)
+            // — round-tripped opaquely from `cursorCreatedAt` below.
+            createdAt: z.string().min(1).max(64),
+            id: z.string().uuid(),
+          })
+          .optional(),
       })
     )
     .query(async ({ ctx, input }) => {
@@ -799,6 +811,8 @@ export const adminRouter = router({
           error: emailDeliveries.error,
           sentAt: emailDeliveries.sentAt,
           createdAt: emailDeliveries.createdAt,
+          // µs-exact created_at for the pagination cursor (see above).
+          cursorCreatedAt: sql<string>`${emailDeliveries.createdAt}::text`,
           userId: emailDeliveries.userId,
           userName: users.name,
           issueIdentifier: issues.identifier,
@@ -816,10 +830,24 @@ export const adminRouter = router({
                   `%${escapeLikePattern(input.q)}%`
                 )
               : undefined,
-            input.cursor ? lt(emailDeliveries.createdAt, input.cursor) : undefined
+            input.cursor
+              ? or(
+                  lt(
+                    emailDeliveries.createdAt,
+                    sql`${input.cursor.createdAt}::timestamptz`
+                  ),
+                  and(
+                    eq(
+                      emailDeliveries.createdAt,
+                      sql`${input.cursor.createdAt}::timestamptz`
+                    ),
+                    lt(emailDeliveries.id, input.cursor.id)
+                  )
+                )
+              : undefined
           )
         )
-        .orderBy(desc(emailDeliveries.createdAt))
+        .orderBy(desc(emailDeliveries.createdAt), desc(emailDeliveries.id))
         .limit(input.limit)
     }),
 

@@ -188,7 +188,9 @@ function AdminEmail() {
         status: search.status,
         q: search.q,
         limit: PAGE_SIZE,
-        cursor: last.createdAt,
+        // The µs-exact (created_at, id) cursor — round-tripped verbatim so
+        // rows sharing a millisecond across a page boundary aren't skipped.
+        cursor: { createdAt: last.cursorCreatedAt, id: last.id },
       })
       setExtraPages((pages) => [...pages, page])
     } catch (err) {
