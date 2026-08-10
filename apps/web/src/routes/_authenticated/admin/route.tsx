@@ -48,18 +48,21 @@ function AdminLayout() {
   return (
     <div className="min-h-screen flex flex-col">
       <header className="flex items-center gap-3 border-b px-4 h-12">
-        <Button asChild variant="ghost" size="sm" className="-ml-2">
+        <Button asChild variant="ghost" size="sm" className="-ml-2 shrink-0">
           <Link to="/">
             <ArrowLeft className="h-4 w-4" />
             Back
           </Link>
         </Button>
-        <Separator orientation="vertical" className="h-5" />
-        <div className="flex items-center gap-2 text-sm font-medium">
+        <Separator orientation="vertical" className="h-5 shrink-0" />
+        <div className="flex shrink-0 items-center gap-2 text-sm font-medium">
           <Shield className="h-4 w-4" />
-          <span>Admin</span>
+          <span className="hidden sm:inline">Admin</span>
         </div>
-        <nav className="flex items-center gap-1 ml-4">
+        {/* The entries outgrow narrow viewports — scroll the nav instead of
+            clipping it (buttons stay nowrap, so without this they vanish
+            off-screen on mobile). */}
+        <nav className="ml-4 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
           <Button asChild variant="ghost" size="sm">
             <Link
               to="/admin"

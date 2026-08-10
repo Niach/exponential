@@ -23,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { EmailDeliveriesTable, formatRelative } from "./-shared"
 
 type BounceRow = Awaited<
@@ -68,10 +69,18 @@ function isAutoBlocked(row: BounceRow): boolean {
 
 export const Route = createFileRoute(`/_authenticated/admin/email`)({
   // Filters stay OPTIONAL in the search schema so plain links to /admin/email
-  // (the admin nav) don't have to carry them; invalid values just drop.
+  // (the admin nav) don't have to carry them; invalid values just drop. The
+  // active tab lives in the URL too (?tab=bounces; absent = sent), matching
+  // the inbox ?tab= pattern.
   validateSearch: (
     search: Record<string, unknown>
-  ): { kind?: DeliveryKind; status?: DeliveryStatus; q?: string } => ({
+  ): {
+    tab?: `bounces`
+    kind?: DeliveryKind
+    status?: DeliveryStatus
+    q?: string
+  } => ({
+    tab: search.tab === `bounces` ? `bounces` : undefined,
     kind: DELIVERY_KINDS.includes(search.kind as DeliveryKind)
       ? (search.kind as DeliveryKind)
       : undefined,
@@ -218,198 +227,215 @@ function AdminEmail() {
         </div>
       )}
 
-      <section className="space-y-3">
-        <div>
-          <h2 className="text-lg font-semibold">Sent emails</h2>
-          <p className="text-sm text-muted-foreground">
-            The outbound-email ledger, newest first — what is going out to
-            whom.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Select
-            value={search.kind ?? `all`}
-            onValueChange={(value) =>
-              void navigate({
-                search: (prev) => ({
-                  ...prev,
-                  kind: value === `all` ? undefined : (value as DeliveryKind),
-                }),
-              })
-            }
-          >
-            <SelectTrigger size="sm" className="w-[190px]">
-              <SelectValue placeholder="Kind" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All kinds</SelectItem>
-              {DELIVERY_KINDS.map((kind) => (
-                <SelectItem key={kind} value={kind}>
-                  {kind}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select
-            value={search.status ?? `all`}
-            onValueChange={(value) =>
-              void navigate({
-                search: (prev) => ({
-                  ...prev,
-                  status:
-                    value === `all` ? undefined : (value as DeliveryStatus),
-                }),
-              })
-            }
-          >
-            <SelectTrigger size="sm" className="w-[150px]">
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All statuses</SelectItem>
-              {DELIVERY_STATUSES.map((status) => (
-                <SelectItem key={status} value={status}>
-                  {status}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Input
-            value={qDraft}
-            onChange={(e) => setQDraft(e.target.value)}
-            onBlur={() => commitSearch(qDraft)}
-            onKeyDown={(e) => {
-              if (e.key === `Enter`) commitSearch(qDraft)
-            }}
-            placeholder="Search recipient…"
-            className="h-8 max-w-xs"
-          />
-        </div>
-
-        {allRows.length === 0 ? (
-          <div className="rounded-md border px-4 py-8 text-center text-sm text-muted-foreground">
-            No emails match.
-          </div>
-        ) : (
-          <>
-            <EmailDeliveriesTable rows={allRows} showSubject />
-            {hasMore && (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={loadingMore}
-                onClick={() => void loadMore()}
-              >
-                {loadingMore ? `Loading…` : `Load more`}
-              </Button>
+      <Tabs
+        value={search.tab ?? `sent`}
+        onValueChange={(value) =>
+          void navigate({
+            search: (prev) => ({
+              ...prev,
+              tab: value === `bounces` ? `bounces` : undefined,
+            }),
+          })
+        }
+      >
+        <TabsList>
+          <TabsTrigger value="sent">Sent emails</TabsTrigger>
+          <TabsTrigger value="bounces">
+            Bounces &amp; complaints
+            {bounces.length > 0 && (
+              <Badge variant="secondary" className="text-xs">
+                {bounces.length}
+              </Badge>
             )}
-          </>
-        )}
-      </section>
+          </TabsTrigger>
+        </TabsList>
 
-      {/* Bounced/complaining recipient addresses reported by SES (via the SNS
-          feedback webhook). Complaints and Permanent bounces are refused
-          automatically at send time (sendEmail's suppression check — the
-          "Auto-blocked" badge mirrors exactly that predicate) AND auto-added
-          to the SES account-level suppression list by the webhook. The button
-          covers only what automation deliberately leaves alone: Transient
-          (soft) bounces an operator wants blocked anyway. */}
-      <section className="space-y-3">
-        <div>
-          <h2 className="text-lg font-semibold">Bounces &amp; complaints</h2>
+        <TabsContent value="sent" className="mt-3 space-y-3">
+          <p className="text-sm text-muted-foreground">
+            The outbound-email ledger, newest first — what is going out to whom.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Select
+              value={search.kind ?? `all`}
+              onValueChange={(value) =>
+                void navigate({
+                  search: (prev) => ({
+                    ...prev,
+                    kind: value === `all` ? undefined : (value as DeliveryKind),
+                  }),
+                })
+              }
+            >
+              <SelectTrigger size="sm" className="w-[190px]">
+                <SelectValue placeholder="Kind" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All kinds</SelectItem>
+                {DELIVERY_KINDS.map((kind) => (
+                  <SelectItem key={kind} value={kind}>
+                    {kind}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={search.status ?? `all`}
+              onValueChange={(value) =>
+                void navigate({
+                  search: (prev) => ({
+                    ...prev,
+                    status:
+                      value === `all` ? undefined : (value as DeliveryStatus),
+                  }),
+                })
+              }
+            >
+              <SelectTrigger size="sm" className="w-[150px]">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All statuses</SelectItem>
+                {DELIVERY_STATUSES.map((status) => (
+                  <SelectItem key={status} value={status}>
+                    {status}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Input
+              value={qDraft}
+              onChange={(e) => setQDraft(e.target.value)}
+              onBlur={() => commitSearch(qDraft)}
+              onKeyDown={(e) => {
+                if (e.key === `Enter`) commitSearch(qDraft)
+              }}
+              placeholder="Search recipient…"
+              className="h-8 max-w-xs"
+            />
+          </div>
+
+          {allRows.length === 0 ? (
+            <div className="rounded-md border px-4 py-8 text-center text-sm text-muted-foreground">
+              No emails match.
+            </div>
+          ) : (
+            <>
+              <EmailDeliveriesTable rows={allRows} showSubject />
+              {hasMore && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={loadingMore}
+                  onClick={() => void loadMore()}
+                >
+                  {loadingMore ? `Loading…` : `Load more`}
+                </Button>
+              )}
+            </>
+          )}
+        </TabsContent>
+
+        {/* Bounced/complaining recipient addresses reported by SES (via the
+            SNS feedback webhook). Complaints and Permanent bounces are refused
+            automatically at send time (sendEmail's suppression check — the
+            "Auto-blocked" badge mirrors exactly that predicate) AND auto-added
+            to the SES account-level suppression list by the webhook. The
+            button covers only what automation deliberately leaves alone:
+            Transient (soft) bounces an operator wants blocked anyway. */}
+        <TabsContent value="bounces" className="mt-3 space-y-3">
           <p className="text-sm text-muted-foreground">
             Addresses that bounced or complained, reported by SES. Hard bounces
             and complaints are blocked automatically, at send time and via the
             SES account-level suppression list. The button suppresses a soft
             (Transient) bounce manually.
           </p>
-        </div>
 
-        {bounces.length === 0 ? (
-          <div className="rounded-md border px-4 py-8 text-center text-sm text-muted-foreground">
-            No bounces or complaints reported. (Requires the SES feedback
-            webhook: an SNS topic subscribed to{` `}
-            <code className="text-xs">/api/webhooks/ses</code>.)
-          </div>
-        ) : (
-          <div className="rounded-md border">
-            <div className="hidden md:grid grid-cols-[1fr_110px_150px_60px_100px_150px] items-center gap-3 border-b px-4 py-2 text-xs font-medium text-muted-foreground">
-              <div>Address</div>
-              <div>Kind</div>
-              <div>Type</div>
-              <div>Events</div>
-              <div>Last event</div>
-              <div />
+          {bounces.length === 0 ? (
+            <div className="rounded-md border px-4 py-8 text-center text-sm text-muted-foreground">
+              No bounces or complaints reported. (Requires the SES feedback
+              webhook: an SNS topic subscribed to{` `}
+              <code className="text-xs">/api/webhooks/ses</code>.)
             </div>
-            {bounces.map((row: BounceRow) => (
-              <div
-                key={row.id}
-                className="flex flex-col md:grid md:grid-cols-[1fr_110px_150px_60px_100px_150px] md:items-center gap-2 md:gap-3 border-b px-4 py-3 last:border-b-0"
-              >
-                <div className="min-w-0">
-                  <div className="text-sm font-medium truncate">
-                    {row.email}
-                  </div>
-                  {row.diagnostic && (
-                    <div
-                      className="text-xs text-muted-foreground truncate"
-                      title={row.diagnostic}
-                    >
-                      {row.diagnostic}
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <Badge variant="destructive" className="text-xs">
-                    {row.kind}
-                  </Badge>
-                </div>
-                <div className="text-xs text-muted-foreground truncate">
-                  {[row.bounceType, row.bounceSubType]
-                    .filter(Boolean)
-                    .join(` / `) || `—`}
-                </div>
-                <div className="text-sm tabular-nums">{row.eventCount}</div>
-                <div
-                  className="text-xs text-muted-foreground"
-                  title={new Date(row.lastEventAt).toLocaleString()}
-                >
-                  {formatRelative(row.lastEventAt)}
-                </div>
-                <div className="flex flex-col items-start gap-1 md:items-end md:justify-self-end">
-                  {isAutoBlocked(row) && (
-                    <Badge variant="secondary" className="text-xs">
-                      <ShieldCheck className="h-3 w-3" />
-                      Auto-blocked
-                    </Badge>
-                  )}
-                  {row.suppressedAt ? (
-                    <Badge variant="secondary" className="text-xs">
-                      <ShieldCheck className="h-3 w-3" />
-                      Suppressed in SES
-                    </Badge>
-                  ) : (
-                    // Auto-blocked rows need no operator action (send-time
-                    // check + webhook auto-suppression); the button covers
-                    // only soft bounces.
-                    !isAutoBlocked(row) && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={busy !== null}
-                        onClick={() => handleSuppress(row)}
-                      >
-                        <ShieldBan className="h-4 w-4" />
-                        Suppress in SES
-                      </Button>
-                    )
-                  )}
-                </div>
+          ) : (
+            <div className="rounded-md border">
+              <div className="hidden md:grid grid-cols-[1fr_110px_150px_60px_100px_150px] items-center gap-3 border-b px-4 py-2 text-xs font-medium text-muted-foreground">
+                <div>Address</div>
+                <div>Kind</div>
+                <div>Type</div>
+                <div>Events</div>
+                <div>Last event</div>
+                <div />
               </div>
-            ))}
-          </div>
-        )}
-      </section>
+              {bounces.map((row: BounceRow) => (
+                <div
+                  key={row.id}
+                  className="flex flex-col md:grid md:grid-cols-[1fr_110px_150px_60px_100px_150px] md:items-center gap-2 md:gap-3 border-b px-4 py-3 last:border-b-0"
+                >
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium truncate">
+                      {row.email}
+                    </div>
+                    {row.diagnostic && (
+                      <div
+                        className="text-xs text-muted-foreground truncate"
+                        title={row.diagnostic}
+                      >
+                        {row.diagnostic}
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <Badge variant="destructive" className="text-xs">
+                      {row.kind}
+                    </Badge>
+                  </div>
+                  <div className="text-xs text-muted-foreground truncate">
+                    {[row.bounceType, row.bounceSubType]
+                      .filter(Boolean)
+                      .join(` / `) || `—`}
+                  </div>
+                  <div className="text-sm tabular-nums">{row.eventCount}</div>
+                  <div
+                    className="text-xs text-muted-foreground"
+                    title={new Date(row.lastEventAt).toLocaleString()}
+                  >
+                    {formatRelative(row.lastEventAt)}
+                  </div>
+                  <div className="flex flex-col items-start gap-1 md:items-end md:justify-self-end">
+                    {isAutoBlocked(row) && (
+                      <Badge variant="secondary" className="text-xs">
+                        <ShieldCheck className="h-3 w-3" />
+                        Auto-blocked
+                      </Badge>
+                    )}
+                    {row.suppressedAt ? (
+                      <Badge variant="secondary" className="text-xs">
+                        <ShieldCheck className="h-3 w-3" />
+                        Suppressed in SES
+                      </Badge>
+                    ) : (
+                      // Auto-blocked rows need no operator action (send-time
+                      // check + webhook auto-suppression); the button covers
+                      // only soft bounces.
+                      !isAutoBlocked(row) && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={busy !== null}
+                          onClick={() => handleSuppress(row)}
+                        >
+                          <ShieldBan className="h-4 w-4" />
+                          Suppress in SES
+                        </Button>
+                      )
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }
