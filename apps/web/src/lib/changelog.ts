@@ -31,7 +31,8 @@ export const CHANGELOG: ChangelogEntry[] = [
     summary: `pi sessions can now start in plan mode: the agent investigates read-only, proposes a plan, and waits for your approval before touching code.`,
     body: `- **Plan-first pi runs**: the launcher injects a plan-mode extension that blocks edits until you approve the plan pi presents in its terminal dialog.
 - **Approve from anywhere**: the plan shows up as the familiar plan card in the session view, answerable from web, iOS, and Android.
-- **Per-agent default**: pi gets its own Plan mode toggle under Settings, Agents on the desktop, on by default like Claude's.`,
+- **Per-agent default**: pi gets its own Plan mode toggle under Settings, Agents on the desktop, on by default like Claude's.
+- **Pin a default branch**: repository settings on web and desktop can pin the branch coding sessions branch from and PRs target, overriding GitHub's default everywhere.`,
   },
   {
     id: `2026-08-remote-permission-approval`,
