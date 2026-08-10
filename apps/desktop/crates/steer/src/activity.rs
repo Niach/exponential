@@ -2238,9 +2238,20 @@ impl SteerState {
                 // publishes the dialog as an ANSWERABLE question when it
                 // confirms; only a never-confirmed prompt degrades to the
                 // card ([`Self::permission_timeout`]). With the question
-                // already live (or a hold already armed), the nudge repeat
-                // claude sends while parked adds nothing.
-                if self.permission.is_none() && self.pending_permission.is_none() {
+                // already live (or a hold still fresh), the nudge repeat
+                // claude sends while parked adds nothing. A DEGRADED hold
+                // already spent its card, and nothing retires it before turn
+                // end when the grid detector keeps missing — so a further
+                // Notification re-arms instead of being swallowed: each
+                // prompt gets its own confirm window and, unconfirmed, its
+                // own informational card, the pre-EXP-455 per-Notification
+                // behavior (EXP-458). A repeat nudge for the SAME parked
+                // prompt re-publishes ~10s later — the old posture too.
+                let armable = self
+                    .pending_permission
+                    .as_ref()
+                    .is_none_or(|pending| pending.degraded);
+                if self.permission.is_none() && armable {
                     self.pending_permission = Some(PendingPermission {
                         tool: truncate(tool.as_deref().unwrap_or("Tool"), ID_MAX),
                         detail: Some(truncate(&redactor.redact(&message), TOOL_DETAIL_MAX)),
@@ -3440,6 +3451,13 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
                     // apply_hook and must not resurface as a card here.
                     if steer.ask.is_none() && steer.plan.is_none() {
                         steer.publish_permission_question(snapshot, &sender, &redactor);
+                    } else {
+                        // The watcher latched this snapshot — left alone it
+                        // would go silent for good if the ask/plan clears
+                        // while the same dialog is still up. Unlatch so the
+                        // steady dialog re-fires Show a debounce later and
+                        // publishes once the suppression lifts (EXP-458).
+                        permission_watcher.unlatch();
                     }
                 }
                 Some(permission_picker::Transition::Resolved) => {
@@ -5936,6 +5954,65 @@ mod tests {
         // Once only.
         steer.permission_timeout(&sender);
         assert!(drained(&rx).is_empty());
+    }
+
+    #[test]
+    fn a_fresh_notification_rearms_a_degraded_hold() {
+        // EXP-458: with grid detection missing every dialog, nothing retires
+        // a degraded hold before turn end — a further Notification must
+        // re-arm it, or every later prompt in the turn loses its card.
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(permission_hook(), &sender, &redactor, &mut transcript);
+
+        // A repeat nudge while the hold is still FRESH is swallowed — the
+        // original confirm window keeps ticking.
+        steer.pending_permission.as_mut().unwrap().seen =
+            Instant::now() - PERMISSION_GRID_CONFIRM;
+        steer.apply_hook(permission_hook(), &sender, &redactor, &mut transcript);
+        steer.permission_timeout(&sender);
+        match &drained(&rx)[..] {
+            [ActivityEvent::Permission { tool, .. }] => assert_eq!(tool, "Bash"),
+            other => panic!("expected the informational card, got {other:?}"),
+        }
+
+        // The hold is degraded now: the NEXT prompt's Notification re-arms
+        // a fresh hold instead of vanishing.
+        steer.apply_hook(
+            hook(HookEventKind::PermissionPrompt {
+                message: "Claude needs your permission to use Write".to_string(),
+                tool: Some("Write".to_string()),
+            }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        let pending = steer.pending_permission.as_ref().expect("re-armed");
+        assert!(!pending.degraded, "a fresh confirm window");
+        // Quiet inside the new window…
+        steer.permission_timeout(&sender);
+        assert!(drained(&rx).is_empty());
+        // …and past it, the second prompt gets its own card.
+        steer.pending_permission.as_mut().unwrap().seen =
+            Instant::now() - PERMISSION_GRID_CONFIRM;
+        steer.permission_timeout(&sender);
+        match &drained(&rx)[..] {
+            [ActivityEvent::Permission { tool, .. }] => assert_eq!(tool, "Write"),
+            other => panic!("expected the second informational card, got {other:?}"),
+        }
+
+        // A LIVE grid question still swallows nudges outright.
+        let snapshot =
+            crate::permission_picker::detect(&permission_dialog_rows()).expect("dialog detected");
+        steer.publish_permission_question(snapshot, &sender, &redactor);
+        drained(&rx);
+        steer.apply_hook(permission_hook(), &sender, &redactor, &mut transcript);
+        assert!(
+            steer.pending_permission.is_none(),
+            "no hold behind a live question"
+        );
     }
 
     #[test]
