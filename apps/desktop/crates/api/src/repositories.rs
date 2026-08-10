@@ -124,6 +124,13 @@ pub struct RemoveResult {
     pub ok: bool,
 }
 
+/// Output of `repositories.listBranches` — the repo's branch names, listed
+/// live from GitHub for the default-branch picker (EXP-462).
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct RepoBranches {
+    pub branches: Vec<String>,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ForIssueInput<'a> {
@@ -171,6 +178,21 @@ struct AddInput<'a> {
 #[serde(rename_all = "camelCase")]
 struct RemoveInput<'a> {
     repository_id: &'a str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ListBranchesInput<'a> {
+    repository_id: &'a str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SetDefaultBranchInput<'a> {
+    repository_id: &'a str,
+    /// `None` serializes as JSON `null` — the explicit "follow GitHub again"
+    /// signal, deliberately NOT skipped like AddInput's optionals.
+    branch: Option<&'a str>,
 }
 
 /// `repositories.forIssue` — query. `Ok(None)` = no repo linked (the
@@ -248,6 +270,35 @@ pub fn add(
 /// the blocking boards — it is user-presentable and must be surfaced verbatim.
 pub fn remove(trpc: &TrpcClient, repository_id: &str) -> Result<RemoveResult, ApiError> {
     trpc.mutation("repositories.remove", &RemoveInput { repository_id })
+}
+
+/// `repositories.listBranches` — query (owner-gated, live from GitHub). Feeds
+/// the settings pane's default-branch dropdown (EXP-462).
+pub fn list_branches(trpc: &TrpcClient, repository_id: &str) -> Result<RepoBranches, ApiError> {
+    trpc.query_with_input(
+        "repositories.listBranches",
+        &ListBranchesInput { repository_id },
+    )
+}
+
+/// `repositories.setDefaultBranch` — mutation (owner-gated). Pins the branch
+/// the product treats as the repo's default; `None` clears the pin (follow
+/// GitHub). The server validates the branch exists and normalizes picking
+/// GitHub's own default back to `None` — a `BAD_REQUEST`/`BAD_GATEWAY`
+/// message is user-presentable verbatim.
+pub fn set_default_branch(
+    trpc: &TrpcClient,
+    repository_id: &str,
+    branch: Option<&str>,
+) -> Result<(), ApiError> {
+    let _: serde_json::Value = trpc.mutation(
+        "repositories.setDefaultBranch",
+        &SetDefaultBranchInput {
+            repository_id,
+            branch,
+        },
+    )?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -427,6 +478,46 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/repositories.remove HTTP/1.1"));
         assert!(request.ends_with(r#"{"repositoryId":"repo-1"}"#));
+    }
+
+    #[test]
+    fn list_branches_gets_with_encoded_input_and_decodes() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"branches":["master","develop"]}}}"#,
+        );
+        let out = list_branches(&client(&base), "repo-1").unwrap();
+        assert_eq!(
+            out,
+            RepoBranches {
+                branches: vec!["master".to_string(), "develop".to_string()],
+            }
+        );
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with(
+            "GET /api/trpc/repositories.listBranches?input=%7B%22repositoryId%22%3A%22repo-1%22%7D HTTP/1.1"
+        ));
+    }
+
+    #[test]
+    fn set_default_branch_posts_the_pin() {
+        let (base, captured) =
+            one_shot_server(200, r#"{"result":{"data":{"repository":{"id":"repo-1"}}}}"#);
+        set_default_branch(&client(&base), "repo-1", Some("develop")).unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/repositories.setDefaultBranch HTTP/1.1"));
+        assert!(request.ends_with(r#"{"repositoryId":"repo-1","branch":"develop"}"#));
+    }
+
+    #[test]
+    fn set_default_branch_none_sends_an_explicit_null() {
+        // `null` is the "follow GitHub again" signal — omitting the field
+        // would be a schema error, not a clear.
+        let (base, captured) =
+            one_shot_server(200, r#"{"result":{"data":{"repository":{"id":"repo-1"}}}}"#);
+        set_default_branch(&client(&base), "repo-1", None).unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(r#"{"repositoryId":"repo-1","branch":null}"#));
     }
 
     #[test]

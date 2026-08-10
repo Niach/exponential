@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react"
 import { Link, useParams } from "@tanstack/react-router"
 import {
   TriangleAlert,
+  Check,
+  ChevronDown,
   ExternalLink,
   Github,
   LoaderCircle,
@@ -39,6 +41,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   Tooltip,
   TooltipContent,
@@ -285,6 +293,14 @@ export function TeamRepositoriesSection({ teamId }: { teamId: string }) {
                   manageUrl={manageUrlForRepo(repo)}
                   installationSuspended={suspendedForRepo(repo)}
                   onRemove={() => setRemoveTarget(repo)}
+                  onSetDefaultBranch={(branch) =>
+                    run(() =>
+                      trpc.repositories.setDefaultBranch.mutate(
+                        { repositoryId: repo.id, branch },
+                        { context: { skipErrorToast: true } }
+                      )
+                    )
+                  }
                 />
               ))}
             </div>
@@ -529,12 +545,14 @@ function RepoRow({
   manageUrl,
   installationSuspended,
   onRemove,
+  onSetDefaultBranch,
 }: {
   repo: RepoRowData
   busy: boolean
   manageUrl: string | null
   installationSuspended: boolean
   onRemove: () => void
+  onSetDefaultBranch: (branch: string | null) => void
 }) {
   const inUse = repo.boards.length > 0
 
@@ -545,9 +563,11 @@ function RepoRow({
         <span className="min-w-0 flex-1 truncate text-sm font-medium">
           {repo.fullName}
         </span>
-        <Badge variant="outline" className="shrink-0 font-mono text-xs">
-          {repo.defaultBranch}
-        </Badge>
+        <DefaultBranchMenu
+          repo={repo}
+          busy={busy}
+          onPick={onSetDefaultBranch}
+        />
         {repo.private && (
           <Badge variant="secondary" className="shrink-0 gap-1 text-xs">
             <Lock className="h-3 w-3" />
@@ -634,5 +654,107 @@ function RepoRow({
         )}
       </div>
     </div>
+  )
+}
+
+// The row's branch badge as a picker (EXP-462): the shown value is the branch
+// the product treats as the repo's default (PR base, worktree base, trunk
+// sync). Branch names load from GitHub on first open; picking GitHub's own
+// default clears the pin server-side so the repo keeps following GitHub.
+function DefaultBranchMenu({
+  repo,
+  busy,
+  onPick,
+}: {
+  repo: RepoRowData
+  busy: boolean
+  onPick: (branch: string | null) => void
+}) {
+  const [branches, setBranches] = useState<string[] | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setLoadError(null)
+    try {
+      const { branches: names } = await trpc.repositories.listBranches.query({
+        repositoryId: repo.id,
+      })
+      setBranches(names)
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setLoading(false)
+    }
+  }, [repo.id])
+
+  // The effective branch always renders even when GitHub no longer has it
+  // (a pinned branch deleted upstream) — otherwise the menu couldn't show
+  // what the row is set to, let alone offer the way back to the default.
+  const names =
+    branches && !branches.includes(repo.defaultBranch)
+      ? [repo.defaultBranch, ...branches]
+      : branches
+
+  return (
+    <DropdownMenu
+      onOpenChange={(open) => {
+        if (open && branches === null && !loading) void load()
+      }}
+    >
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={busy}
+          className="h-5 shrink-0 gap-1 rounded-md px-1.5 font-mono text-xs font-normal"
+          aria-label={`Default branch for ${repo.fullName}`}
+        >
+          {repo.defaultBranch}
+          <ChevronDown className="h-3 w-3 text-muted-foreground" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="max-h-80 overflow-y-auto">
+        {loading && (
+          <div className="flex items-center gap-2 px-2 py-1.5 text-sm text-muted-foreground">
+            <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+            Loading branches…
+          </div>
+        )}
+        {loadError && (
+          <DropdownMenuItem
+            onSelect={(event) => {
+              event.preventDefault()
+              void load()
+            }}
+            className="text-destructive"
+          >
+            Couldn&rsquo;t load branches — retry
+          </DropdownMenuItem>
+        )}
+        {names?.map((name) => (
+          <DropdownMenuItem
+            key={name}
+            onClick={() => {
+              if (name === repo.defaultBranch) return
+              onPick(name === repo.githubDefaultBranch ? null : name)
+            }}
+          >
+            <Check
+              className={`mr-2 h-4 w-4 ${name === repo.defaultBranch ? `` : `invisible`}`}
+            />
+            <span className="min-w-0 flex-1 truncate font-mono text-xs">
+              {name}
+            </span>
+            {name === repo.githubDefaultBranch && (
+              <span className="ml-2 text-xs text-muted-foreground">
+                default
+              </span>
+            )}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }

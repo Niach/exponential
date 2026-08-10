@@ -41,6 +41,7 @@ import {
 } from "@/lib/integrations/github-app"
 import { recordConversionEvent } from "@/lib/conversion/events"
 import { isInstallationLinkedToTeam } from "@/lib/trpc/integrations"
+import { repoBranchOverride } from "@/lib/trpc/repositories"
 import { escapeLikePattern } from "@/lib/like-pattern"
 import { applyStatusDerivations } from "@/lib/status-derivations"
 import {
@@ -1266,7 +1267,8 @@ export const issuesRouter = router({
             let message = err.message
             if (/not mergeable/i.test(err.message)) {
               const defaultBranch =
-                await resolveRepoDefaultBranchCached(repoFullName)
+                (await repoBranchOverride(teamId, repoFullName)) ??
+                (await resolveRepoDefaultBranchCached(repoFullName))
               const diagnosed = defaultBranch
                 ? await diagnoseUnmergeablePr({
                     repo: repoFullName,
@@ -1533,7 +1535,9 @@ export const issuesRouter = router({
         }
 
         const base =
-          input.base ?? (await resolveRepoDefaultBranchCached(repoFullName))
+          input.base ??
+          (await repoBranchOverride(teamId, repoFullName)) ??
+          (await resolveRepoDefaultBranchCached(repoFullName))
         if (!base) {
           throw new TRPCError({
             code: `PRECONDITION_FAILED`,
@@ -1645,7 +1649,11 @@ export const issuesRouter = router({
         })
       }
 
-      const defaultBranch = await resolveRepoDefaultBranchCached(repoFullName)
+      // Override-first (EXP-462): a team pinned to `develop` rebases conflict
+      // fixes onto `develop`, and a base classified as dead retargets there.
+      const defaultBranch =
+        (await repoBranchOverride(teamId, repoFullName)) ??
+        (await resolveRepoDefaultBranchCached(repoFullName))
       if (!defaultBranch) {
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,

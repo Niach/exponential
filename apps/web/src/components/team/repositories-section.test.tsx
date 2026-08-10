@@ -13,6 +13,8 @@ const mockState = vi.hoisted(() => ({
   reposQuery: vi.fn(),
   addMutate: vi.fn(),
   unlinkMutate: vi.fn(),
+  listBranchesQuery: vi.fn(),
+  setDefaultBranchMutate: vi.fn(),
 }))
 
 vi.mock(`@/lib/trpc-client`, () => ({
@@ -21,6 +23,8 @@ vi.mock(`@/lib/trpc-client`, () => ({
       list: { query: mockState.listQuery },
       add: { mutate: mockState.addMutate },
       remove: { mutate: vi.fn() },
+      listBranches: { query: mockState.listBranchesQuery },
+      setDefaultBranch: { mutate: mockState.setDefaultBranchMutate },
     },
     integrations: {
       github: {
@@ -100,6 +104,12 @@ describe(`TeamRepositoriesSection`, () => {
       .mockResolvedValue(githubRepos([installation()]))
     mockState.addMutate.mockReset().mockResolvedValue({ repository: {} })
     mockState.unlinkMutate.mockReset().mockResolvedValue({})
+    mockState.listBranchesQuery
+      .mockReset()
+      .mockResolvedValue({ branches: [`master`, `develop`, `staging`] })
+    mockState.setDefaultBranchMutate
+      .mockReset()
+      .mockResolvedValue({ repository: {} })
   })
 
   it(`selecting a row does NOT connect — the footer Add button does`, async () => {
@@ -162,6 +172,87 @@ describe(`TeamRepositoriesSection`, () => {
       screen.getByText(/which repositories you can access.*from Niach/)
     ).toBeTruthy()
     expect(screen.getByRole(`button`, { name: `Reconnect` })).toBeTruthy()
+  })
+
+  // EXP-462: the row's branch badge is a picker — branches load on open, a
+  // non-default pick pins it, and picking GitHub's own default clears the pin.
+  it(`the branch badge picks a default branch (default choice clears the pin)`, async () => {
+    mockState.listQuery.mockResolvedValue([
+      {
+        id: `repo-1`,
+        teamId: `team-1`,
+        fullName: `siteviewer-app/app`,
+        defaultBranch: `master`,
+        githubDefaultBranch: `master`,
+        defaultBranchOverride: null,
+        private: false,
+        installationId: 1,
+        inaccessibleAt: null,
+        boards: [],
+      },
+    ])
+    renderSection()
+
+    const trigger = await screen.findByLabelText(
+      `Default branch for siteviewer-app/app`
+    )
+    fireEvent.pointerDown(trigger, {
+      button: 0,
+      ctrlKey: false,
+      pointerType: `mouse`,
+    })
+
+    // Branches were fetched lazily and render, the GitHub default labeled.
+    await screen.findByText(`develop`)
+    expect(mockState.listBranchesQuery).toHaveBeenCalledWith({
+      repositoryId: `repo-1`,
+    })
+    expect(screen.getByText(`default`)).toBeTruthy()
+
+    fireEvent.click(screen.getByText(`develop`))
+    await waitFor(() =>
+      expect(mockState.setDefaultBranchMutate).toHaveBeenCalledTimes(1)
+    )
+    expect(mockState.setDefaultBranchMutate.mock.calls[0][0]).toEqual({
+      repositoryId: `repo-1`,
+      branch: `develop`,
+    })
+  })
+
+  it(`picking GitHub's own default sends branch: null`, async () => {
+    mockState.listQuery.mockResolvedValue([
+      {
+        id: `repo-1`,
+        teamId: `team-1`,
+        fullName: `siteviewer-app/app`,
+        defaultBranch: `develop`,
+        githubDefaultBranch: `master`,
+        defaultBranchOverride: `develop`,
+        private: false,
+        installationId: 1,
+        inaccessibleAt: null,
+        boards: [],
+      },
+    ])
+    renderSection()
+
+    const trigger = await screen.findByLabelText(
+      `Default branch for siteviewer-app/app`
+    )
+    fireEvent.pointerDown(trigger, {
+      button: 0,
+      ctrlKey: false,
+      pointerType: `mouse`,
+    })
+
+    fireEvent.click(await screen.findByText(`master`))
+    await waitFor(() =>
+      expect(mockState.setDefaultBranchMutate).toHaveBeenCalledTimes(1)
+    )
+    expect(mockState.setDefaultBranchMutate.mock.calls[0][0]).toEqual({
+      repositoryId: `repo-1`,
+      branch: null,
+    })
   })
 
   it(`suspension outranks reconnect and never offers it`, async () => {
