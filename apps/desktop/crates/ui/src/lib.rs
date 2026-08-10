@@ -4,7 +4,7 @@
 //! `issue_list` (virtualized), `issue_detail`, `markdown_editor` +
 //! `mention_popover`, `filter_bar`/`pills`, `create_issue_dialog`,
 //! `create_board`/`create_team`, `inbox`, `my_issues`, `settings/*`,
-//! `account`, `diff_view`, `actions_panel`. Lands across Phases 1–5.
+//! `account`, `diff_view`, `actions_view`. Lands across Phases 1–5.
 //!
 //! Dependency rule (§3.1): lower crates never depend on `ui` (no back-edges).
 //!
@@ -19,10 +19,10 @@
 //! login whenever the session is not `Synced`). The Phase-2 [`debug_board`]
 //! stays reachable behind `EXP_DEV_BOARD=1`.
 
-mod action_detail;
+mod action_editor_dialog;
 mod action_run;
 mod actions;
-mod actions_panel;
+mod actions_view;
 mod active_filter_pills;
 mod app_title_bar;
 mod attachments_row;

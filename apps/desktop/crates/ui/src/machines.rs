@@ -573,9 +573,9 @@ impl Render for MachinesSection {
         gpui_component::v_flex()
             .w_full()
             .min_w_0()
+            // EXP-467: no top hairline — the section now LEADS the Actions
+            // page (web order: machines first), nothing above to separate.
             .pt_1()
-            .border_t_1()
-            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
             .child(
                 div()
                     .px_3()

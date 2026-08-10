@@ -1,6 +1,6 @@
 //! The center panel (masterplan-v3 §4.2, reworked twice — EXP-288): a
 //! TAB-BASED editor area whose tabs are DETAIL VIEWS ONLY (issue detail,
-//! PR diff, support thread, action detail). High-level surfaces get no
+//! PR diff, support thread, the Actions page). High-level surfaces get no
 //! tabs: Source Control's diff and the file viewer are the center content
 //! their rail tool shows (driven by the sidebar's commit/file selection),
 //! and Settings is a tab-less full-screen mode. Every tab REMEMBERS
@@ -117,14 +117,11 @@ pub(crate) fn build_screen_content(
             view.update(cx, |diff, cx| diff.set_issue(issue_id, cx));
             view.into()
         }
-        Screen::ActionDetail { action_id } => {
-            let view = cx.new(|cx| crate::action_detail::ActionDetailView::new(window, cx));
-            let action_id = action_id.clone();
-            view.update(cx, |detail, cx| detail.set_action(action_id, cx));
-            view.into()
-        }
         // Never undockable — unreachable via the undock path, kept total for
         // the compiler.
+        Screen::Actions => cx
+            .new(|cx| crate::actions_view::ActionsView::new(window, cx))
+            .into(),
         Screen::Settings => cx.new(|cx| crate::settings::SettingsView::new(window, cx)).into(),
     }
 }
@@ -260,9 +257,8 @@ enum ChipLead {
     /// Resolution is per-issue, so it stays correct on this cross-team strip
     /// — only GROUPING is team-scoped.
     Status(domain::statuses::ResolvedStatus),
-    /// The action's curated icon name (`None` name = the Zap default —
-    /// `icons::action_icon` handles the fallback).
-    Action(Option<String>),
+    /// The Actions page tab (EXP-467) — the generic action glyph.
+    Actions,
 }
 
 impl ChipLead {
@@ -270,9 +266,8 @@ impl ChipLead {
         match self {
             ChipLead::None => None,
             ChipLead::Status(status) => Some(crate::icons::resolved_status_icon(status, cx)),
-            ChipLead::Action(name) => Some(
-                crate::icons::action_icon(name.as_deref())
-                    .text_color(cx.theme().muted_foreground),
+            ChipLead::Actions => Some(
+                crate::icons::action_icon(None).text_color(cx.theme().muted_foreground),
             ),
         }
     }
@@ -302,21 +297,10 @@ fn chip_content(screen: &Screen, cx: &App) -> ChipContent {
             };
         }
     }
-    // EXP-426: action tabs carry the action's curated glyph — the builtin
-    // constants first (no synced row), then the synced row's icon (the same
-    // two-source shape as `screen_title`).
-    if let Screen::ActionDetail { action_id } = screen {
-        let icon = match api::actions::builtin_action_icon(action_id) {
-            Some(name) => Some(name.to_string()),
-            None => Store::global(cx)
-                .collections()
-                .actions
-                .read(cx)
-                .get(action_id)
-                .and_then(|action| action.icon.clone()),
-        };
+    // EXP-467: the Actions page tab carries the generic action glyph.
+    if matches!(screen, Screen::Actions) {
         return ChipContent {
-            lead: ChipLead::Action(icon),
+            lead: ChipLead::Actions,
             identifier: None,
             title: Some(screen_title(screen, cx)),
         };
@@ -341,9 +325,9 @@ pub struct ScreensPanel {
     /// One shared PR diff view, re-pointed on tab switch (EXP-181 — the
     /// Reviews rows' target).
     pr_diff: Entity<crate::pr_diff::PrDiffView>,
-    /// One shared action detail view, re-pointed on tab switch (EXP-277 —
-    /// the Actions tool-window rows' target).
-    action_detail: Entity<crate::action_detail::ActionDetailView>,
+    /// The Actions page (EXP-467 — the web agents page: machines + the
+    /// action card grid; a singleton tab, nothing to re-point).
+    actions: Entity<crate::actions_view::ActionsView>,
     /// The window's shared rail state (EXP-288): the active tool drives the
     /// tab-less center default (SC diff / file viewer), and the file
     /// selection re-points the viewer.
@@ -371,7 +355,7 @@ impl ScreensPanel {
         let support_thread =
             cx.new(|cx| crate::support_thread::SupportThreadView::new(window, cx));
         let pr_diff = cx.new(|cx| crate::pr_diff::PrDiffView::new(window, cx));
-        let action_detail = cx.new(|cx| crate::action_detail::ActionDetailView::new(window, cx));
+        let actions = cx.new(|cx| crate::actions_view::ActionsView::new(window, cx));
         let nav = nav_for_window(window, cx);
         let rail = rail_shared_for_window(window, cx);
 
@@ -427,7 +411,7 @@ impl ScreensPanel {
             file_viewer,
             support_thread,
             pr_diff,
-            action_detail,
+            actions,
             rail,
             tabs: Vec::new(),
             tabs_team: None,
@@ -486,12 +470,10 @@ impl ScreensPanel {
         let pending_origin = crate::navigation::take_pending_origin(&self.nav, cx);
         let team = active_team_id(&self.nav, cx);
         if team != self.tabs_team {
-            // Dropping the tabs tears the issue / action detail down without a
-            // blur — flush a pending description or prompt edit first (EXP-68).
+            // Dropping the tabs tears the issue detail down without a blur —
+            // flush a pending description edit first (EXP-68).
             self.issue_detail
                 .update(cx, |detail, cx| detail.flush_description(cx));
-            self.action_detail
-                .update(cx, |detail, cx| detail.flush_body(cx));
             self.tabs_team = team;
             self.tabs.clear();
             // The sidebar selections are team-scoped too (trunk-relative
@@ -573,10 +555,9 @@ impl ScreensPanel {
                 self.pr_diff
                     .update(cx, |diff, cx| diff.set_issue(issue_id, cx));
             }
-            Screen::ActionDetail { action_id } => {
-                self.action_detail
-                    .update(cx, |detail, cx| detail.set_action(action_id, cx));
-            }
+            // A singleton page over live collection reads — nothing to
+            // re-point.
+            Screen::Actions => {}
             Screen::Settings => unreachable!("filtered by is_detail"),
         }
     }
@@ -629,15 +610,10 @@ impl ScreensPanel {
         }
         // Closing (or undocking) the active issue tab unmounts the detail's
         // description editor without a blur — flush the pending edit so it
-        // is written before teardown (EXP-68). EXP-298: the action detail's
-        // prompt editor is the same story.
+        // is written before teardown (EXP-68).
         if matches!(self.tabs[ix].screen, Screen::IssueDetail { .. }) {
             self.issue_detail
                 .update(cx, |detail, cx| detail.flush_description(cx));
-        }
-        if matches!(self.tabs[ix].screen, Screen::ActionDetail { .. }) {
-            self.action_detail
-                .update(cx, |detail, cx| detail.flush_body(cx));
         }
         let closed = self.tabs.remove(ix);
         let active = resolved_screen(&self.nav, cx);
@@ -660,7 +636,7 @@ impl ScreensPanel {
         }
         let keep = self.tabs[ix].screen.clone();
         // Same EXP-68 flush as `close_tab`: a closing issue tab may hold a
-        // pending description edit, an action tab a pending prompt edit.
+        // pending description edit.
         if self
             .tabs
             .iter()
@@ -668,14 +644,6 @@ impl ScreensPanel {
         {
             self.issue_detail
                 .update(cx, |detail, cx| detail.flush_description(cx));
-        }
-        if self
-            .tabs
-            .iter()
-            .any(|tab| tab.screen != keep && matches!(tab.screen, Screen::ActionDetail { .. }))
-        {
-            self.action_detail
-                .update(cx, |detail, cx| detail.flush_body(cx));
         }
         self.tabs.retain(|tab| tab.screen == keep);
         set_screen(window, cx, Some(keep));
@@ -694,14 +662,6 @@ impl ScreensPanel {
         {
             self.issue_detail
                 .update(cx, |detail, cx| detail.flush_description(cx));
-        }
-        if self
-            .tabs
-            .iter()
-            .any(|tab| matches!(tab.screen, Screen::ActionDetail { .. }))
-        {
-            self.action_detail
-                .update(cx, |detail, cx| detail.flush_body(cx));
         }
         self.tabs.clear();
         set_screen(window, cx, None);
@@ -1208,9 +1168,7 @@ impl Render for ScreensPanel {
                 self.support_thread.clone().into_any_element()
             }
             Some(Screen::PrDiff { .. }) => self.pr_diff.clone().into_any_element(),
-            Some(Screen::ActionDetail { .. }) => {
-                self.action_detail.clone().into_any_element()
-            }
+            Some(Screen::Actions) => self.actions.clone().into_any_element(),
             // EXP-288: no tab selected — the active TOOL owns the center.
             // Source Control shows its diff (following the History
             // selection), Files the read-only viewer (its Idle phase covers
