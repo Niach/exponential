@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   codingSessions,
@@ -616,18 +616,22 @@ export async function retargetChildrenOfMergedPr(opts: {
   // actually develops on. The repo row is reached through the merged PR's
   // linked issues (prUrl → board → team) — same-team by construction; a PR
   // with no linked row (external PR, board since retargeted) falls back to
-  // GitHub's live default. Duplicated inline rather than importing the
-  // repositories router (see repoFromPrUrl above for why).
+  // GitHub's live default. Archived rows still count: this read only wants
+  // the team's pin + raw default, and an archived pin beats falling back to
+  // GitHub's raw default (EXP-466). Duplicated inline rather than importing
+  // the repositories router (see repoFromPrUrl above for why).
   const [linkedRepoRow] = await db
-    .select({ defaultBranchOverride: repositories.defaultBranchOverride })
+    .select({
+      defaultBranch: repositories.defaultBranch,
+      defaultBranchOverride: repositories.defaultBranchOverride,
+    })
     .from(issues)
     .innerJoin(boards, eq(boards.id, issues.boardId))
     .innerJoin(
       repositories,
       and(
         eq(repositories.teamId, boards.teamId),
-        eq(repositories.fullName, repo),
-        isNull(repositories.archivedAt)
+        eq(repositories.fullName, repo)
       )
     )
     .where(eq(issues.prUrl, opts.prUrl))
@@ -639,6 +643,11 @@ export async function retargetChildrenOfMergedPr(opts: {
   // Load-bearing guard: a default-based PR's "children" would be every other
   // default-based PR in the repo.
   if (opts.headBranch === defaultBranch) return
+  // EXP-466: with an override pinned, the effective compare above no longer
+  // catches a head equal to the RAW GitHub default — and sweeping every
+  // raw-default-based PR (prod/hotfix PRs) onto the pin would be the same
+  // disaster. Guard on the stored raw default too.
+  if (linkedRepoRow && opts.headBranch === linkedRepoRow.defaultBranch) return
   const resolved = await resolveRepoInstallationTokenInfo(repo)
   if (!resolved) return
 
