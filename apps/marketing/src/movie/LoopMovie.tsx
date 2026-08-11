@@ -259,16 +259,24 @@ export function LoopMovie() {
         </span>
       </p>
       <div className={`movie-stage`}>
-        {/* Two posters, one per framing (EXP-392): the film cuts to a tight
-            mobile camera under SMALL_MEDIA, so the wide poster would visibly
-            jump when the player takes over there. <picture> resolves to ONE
-            url before any fetch, so phones never pay for the wide file (the
-            small one is half-scale on top). The class and the ready toggle
-            stay on the <img> — <picture> is position:static, so `inset: 0`
-            still resolves against .movie-stage. `alt` can't vary per source,
-            hence the framing-neutral wording. */}
+        {/* Two posters, one per framing (EXP-392/482): under SMALL_MEDIA the
+            film plays the 1080×1350 PORTRAIT cut, so the wide poster would
+            visibly jump when the player takes over there. <picture> resolves
+            to ONE url before any fetch, so phones never pay for the wide
+            file (the portrait one is half-scale on top). The <source> dims
+            are art-direction hints; actual layout is .movie-stage's CSS
+            aspect-ratio + object-fit cover, so CLS is safe either way. The
+            class and the ready toggle stay on the <img> — <picture> is
+            position:static, so `inset: 0` still resolves against
+            .movie-stage. `alt` can't vary per source, hence the
+            framing-neutral wording. */}
         <picture>
-          <source media={SMALL_MEDIA} srcSet={`/posters/loop-poster-sm.webp`} />
+          <source
+            media={SMALL_MEDIA}
+            srcSet={`/posters/loop-poster-portrait.webp`}
+            width={1080}
+            height={1350}
+          />
           <img
             className={`movie-poster${ready ? ` is-hidden` : ``}`}
             src={`/posters/loop-poster.webp`}

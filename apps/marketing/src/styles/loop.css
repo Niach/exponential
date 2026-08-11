@@ -218,7 +218,12 @@
     gap: 10px;
   }
 
+  /* Phones play the PORTRAIT cut (EXP-482): the Player and the poster swap
+     to the 1080×1350 composition under the same 720px breakpoint
+     (viewport.ts SMALL_MEDIA) — the stage box must agree or the film
+     letterboxes inside it. */
   .movie-stage {
+    aspect-ratio: 1080 / 1350;
     border-radius: 0;
     border-left: none;
     border-right: none;

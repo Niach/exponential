@@ -40,18 +40,19 @@ export default function LoopMoviePlayer({
   const percentRef = useRef(-1)
 
   /* This chunk is client-only (React.lazy), so matchMedia is safe in the
-     lazy initializer. On phone widths the composition enlarges its
-     screen-space captions and cuts to tight per-clip camera framings — the
-     film scales down to ~360px there, where the mocked UI's 11-13px type is
-     otherwise unreadable (EXP-176/200/392). SMALL_MEDIA is shared with the
-     poster <source> in LoopMovie so the two can't disagree at the boundary. */
-  const [small, setSmall] = useState(
+     lazy initializer. On phone widths the film plays the PORTRAIT cut
+     (EXP-482): a 1080×1350 canvas with per-clip portrait camera framings
+     that hold each subject whole, instead of the old 16:9 crops that sliced
+     phones and windows at ~360px. SMALL_MEDIA is shared with the poster
+     <source> in LoopMovie and mirrored by loop.css's stage aspect-ratio so
+     the three can't disagree at the boundary. */
+  const [portrait, setPortrait] = useState(
     () => window.matchMedia(SMALL_MEDIA).matches
   )
 
   useEffect(() => {
     const mq = window.matchMedia(SMALL_MEDIA)
-    const apply = () => setSmall(mq.matches)
+    const apply = () => setPortrait(mq.matches)
     mq.addEventListener(`change`, apply)
     return () => mq.removeEventListener(`change`, apply)
   }, [])
@@ -107,11 +108,16 @@ export default function LoopMoviePlayer({
     <Player
       ref={playerRef}
       component={ClosedLoop}
+      /* Keyed so crossing the breakpoint (resize/rotate) remounts the Player
+         cleanly — compositionWidth/Height are sizing contracts, not reactive
+         layout inputs, and swapping them on a live player risks a stale
+         letterbox scale. The dims must match remotion/Root.tsx. */
+      key={portrait ? `portrait` : `wide`}
       durationInFrames={DURATION_IN_FRAMES}
       fps={FPS}
-      compositionWidth={1920}
-      compositionHeight={1080}
-      inputProps={{ small }}
+      compositionWidth={portrait ? 1080 : 1920}
+      compositionHeight={portrait ? 1350 : 1080}
+      inputProps={{ portrait }}
       autoPlay={autoPlay}
       loop
       /* The composition is silent, and an UNMUTED Player anchors its clock

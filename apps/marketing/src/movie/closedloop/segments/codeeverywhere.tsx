@@ -108,15 +108,16 @@ const FEED_SCHEDULE = [...B.feed, B.steerLand, ...B.reply]
 // The steer lands while the framing stands still (EXP-388: no camera moves).
 const CAMERA_KEYS: CamKey[] = [{ f: 0, s: 1.06, x: 790, y: 513 }]
 
-// Phones (EXP-392): the sheet IS the story for the first ~100f, then the
-// story moves to the phone's session feed and the dock — two shots. The cut
-// sits 4f before `simul`, so the dock springs open ON camera in shot B, and
-// in the caption gap (ce1 is gone by 106, ce2 arrives at 116). Shot A's x is
-// biased right of the phone's own center to keep the wallpaper out of frame
-// (the phone's left edge is at local x 34).
-const CAMERA_KEYS_SM: CamKey[] = shotKeys([
-  { at: 0, s: 3.4, x: 290, y: 622 }, // the start sheet: issues, agent, model
-  { at: 108, s: 2.8, x: 367, y: 760 }, // the steer composer + the terminal dock
+// Portrait (EXP-482): the phone IS the story — and at 1080×1350 the whole
+// device fits the frame (comp rect ~380×780 at its 1.15 scale), start sheet
+// and all, instead of the old sheet-only crop. Two shots: the cut sits 4f
+// before `simul`, so the dock springs open ON camera in shot B, and in the
+// caption gap (ce1 is gone by 106, ce2 arrives at 116). Shot B slides right
+// and down so a band of the terminal dock rides beside the phone — the
+// steer must be SEEN landing there.
+const CAMERA_KEYS_PT: CamKey[] = shotKeys([
+  { at: 0, s: 1.7, x: 224, y: 610 }, // the WHOLE phone, start sheet up
+  { at: 108, s: 1.7, x: 334, y: 590 }, // phone session feed + dock band
 ])
 
 const TAB_151 = (frame: number): ChromeTab => ({
@@ -144,11 +145,11 @@ const PHONE_POS = { x: 210, y: 268, scale: 1.15 } as const
 // ── The clip ──────────────────────────────────────────────────────────────────
 export const CodeEverywhereSegment: React.FC<SegmentProps> = ({
   frame,
-  small,
+  portrait,
 }) => {
   const dockH = dockHeightAt(frame)
   const paneH = WIN.h - CONTENT_TOP - dockH
-  const capSize = captionSize(small)
+  const capSize = captionSize(portrait)
 
   const heroStatus =
     frame >= B.simul ? ("in_progress" as const) : ("todo" as const)
@@ -184,7 +185,7 @@ export const CodeEverywhereSegment: React.FC<SegmentProps> = ({
   return (
     <SegmentShell frame={frame} dur={DUR}>
       <AbsoluteFill>
-        <Camera keys={small ? CAMERA_KEYS_SM : CAMERA_KEYS} frame={frame}>
+        <Camera keys={portrait ? CAMERA_KEYS_PT : CAMERA_KEYS} frame={frame}>
           <WindowChassis>
             <TitleBar frame={frame} tabs={[TAB_151(frame)]} activeId="exp151" />
             <ExpandedRail
@@ -308,6 +309,7 @@ export const CodeEverywhereSegment: React.FC<SegmentProps> = ({
           in={CAPTIONS[key].in}
           out={CAPTIONS[key].out}
           size={capSize}
+          centered={portrait}
           fontFamily={PAGE_FONT}
           letterSpacing="-0.03em"
         >

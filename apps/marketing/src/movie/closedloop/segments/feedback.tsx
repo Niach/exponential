@@ -73,18 +73,20 @@ const CAPTIONS = {
 // whip-pan, no camera moves).
 const CAMERA_KEYS: CamKey[] = [{ f: 0, s: 1.45, x: 1050, y: 600 }]
 
-// Phones (EXP-392): three beats, three shots — the dead Pay button, the
-// widget panel, the phone. Never cut under a live caption: Caption holds to
-// out+6, so fb1 (out 60) is only fully gone at 66 and the first cut waits for
-// 67 rather than riding panelAppear at 64 — the panel gets a beat in shot A's
-// corner first, which reads fine. The second cut is 2f before phoneIn and
-// long clear of fb2 (in 198). Shot B runs caption-free by design: typing into
-// two fields and a green success state is a show-don't-tell beat. Every shot
-// stays inside the browser chassis — no wallpaper, unlike the wide framing.
-const CAMERA_KEYS_SM: CamKey[] = shotKeys([
-  { at: 0, s: 2.8, x: 1114, y: 370 }, // the checkout card + the dead Pay button
-  { at: 67, s: 2.24, x: 1140, y: 663 }, // the widget panel, near enough exactly
-  { at: 166, s: 4.0, x: 930, y: 380 }, // the phone: "New feedback: EXP-151"
+// Portrait (EXP-482): three beats, three shots — the checkout card, the
+// WHOLE widget panel, the WHOLE phone; every subject here is a tall card, so
+// this is the most portrait-native clip. Never cut under a live caption:
+// Caption holds to out+6, so fb1 (out 60) is only fully gone at 66 and the
+// first cut waits for 67 rather than riding panelAppear at 64 — the panel
+// gets a beat in shot A's corner first, which reads fine. The second cut is
+// 2f before phoneIn and long clear of fb2 (in 198). Shot B runs caption-free
+// by design: typing into two fields and a green success state is a
+// show-don't-tell beat. Every shot stays inside the browser chassis — no
+// wallpaper, unlike the wide framing.
+const CAMERA_KEYS_PT: CamKey[] = shotKeys([
+  { at: 0, s: 2.2, x: 1114, y: 430 }, // the checkout card + the dead Pay button
+  { at: 67, s: 2.3, x: 1330, y: 663 }, // the WHOLE widget panel
+  { at: 166, s: 1.85, x: 930, y: 572 }, // the WHOLE phone: "New feedback"
 ])
 
 // ── Cursor (site side) ────────────────────────────────────────────────────────
@@ -122,8 +124,11 @@ const CURSOR_CLICKS = [
 const PHONE_POS = { x: 950, y: 300, scale: 0.95 } as const
 
 // ── The clip ──────────────────────────────────────────────────────────────────
-export const FeedbackSegment: React.FC<SegmentProps> = ({ frame, small }) => {
-  const capSize = captionSize(small)
+export const FeedbackSegment: React.FC<SegmentProps> = ({
+  frame,
+  portrait,
+}) => {
+  const capSize = captionSize(portrait)
 
   const phoneRise = interpolate(
     frame,
@@ -141,7 +146,7 @@ export const FeedbackSegment: React.FC<SegmentProps> = ({ frame, small }) => {
   return (
     <SegmentShell frame={frame} dur={DUR}>
       <AbsoluteFill>
-        <Camera keys={small ? CAMERA_KEYS_SM : CAMERA_KEYS} frame={frame}>
+        <Camera keys={portrait ? CAMERA_KEYS_PT : CAMERA_KEYS} frame={frame}>
           <BrowserChassis>
             <SiteViewport frame={frame} shakeAts={[B.payClick]} />
             <FeedbackFab
@@ -216,6 +221,7 @@ export const FeedbackSegment: React.FC<SegmentProps> = ({ frame, small }) => {
           in={CAPTIONS[key].in}
           out={CAPTIONS[key].out}
           size={capSize}
+          centered={portrait}
           fontFamily={PAGE_FONT}
           letterSpacing="-0.03em"
         >

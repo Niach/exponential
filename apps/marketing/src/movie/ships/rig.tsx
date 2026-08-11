@@ -3,12 +3,14 @@
 // frames unless a component is documented as sequence-local.
 
 import React, { useId } from "react"
-import { AbsoluteFill, interpolate } from "remotion"
+import { AbsoluteFill, interpolate, useVideoConfig } from "remotion"
 import { C, EASE, GLASS, UI_FONT, WIN } from "./theme"
 
 // ── Camera ────────────────────────────────────────────────────────────────────
-// Keyframes reference window-local focus points; the camera keeps focus at comp
-// center: translate = (960,540) − s·(focus + windowOrigin). transformOrigin 0 0.
+// Keyframes reference window-local focus points; the camera keeps focus at the
+// COMP center (useVideoConfig — the wide 1920×1080 and the portrait 1080×1350
+// canvases share the rig): translate = center − s·(focus + windowOrigin).
+// transformOrigin 0 0.
 export type CamKey = {
   f: number
   s: number
@@ -70,12 +72,13 @@ export const Camera: React.FC<{
   frame: number
   children: React.ReactNode
 }> = ({ keys, frame, children }) => {
+  const { width, height } = useVideoConfig()
   const { s, x, y } = camAt(keys, frame)
   return (
     <AbsoluteFill
       style={{
         transformOrigin: "0 0",
-        translate: `${960 - s * (x + WIN.x)}px ${540 - s * (y + WIN.y)}px`,
+        translate: `${width / 2 - s * (x + WIN.x)}px ${height / 2 - s * (y + WIN.y)}px`,
         scale: String(s),
       }}
     >
@@ -420,8 +423,8 @@ export const Caption: React.FC<{
       <div
         style={{
           position: "absolute",
-          left: centered ? 0 : 120,
-          right: centered ? 0 : undefined,
+          left: centered ? 60 : 120,
+          right: centered ? 60 : undefined,
           bottom: 1080 - 1020,
           textAlign: centered ? "center" : "left",
           fontFamily,

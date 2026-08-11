@@ -11,13 +11,7 @@
 import React from "react"
 import { AbsoluteFill, interpolate } from "remotion"
 import { C, EASE, PAGE_FONT, WIN } from "../../ships/theme"
-import {
-  Camera,
-  ExpLogo,
-  WindowChassis,
-  shotKeys,
-  type CamKey,
-} from "../../ships/rig"
+import { ExpLogo, WindowChassis } from "../../ships/rig"
 import {
   BoardActions,
   BoardTool,
@@ -36,6 +30,7 @@ import {
   GlobeIcon,
   LinuxIcon,
   MacBook,
+  WEB,
   WebBrowserMock,
   WindowsIcon,
 } from "../surfaces/platformmocks"
@@ -51,7 +46,12 @@ import {
   PLATFORMS_COPY,
   REMOTE_DRAG_ID,
 } from "../fixtures"
-import { SEGMENT_DURATIONS } from "../timeline"
+import {
+  SEGMENT_DURATIONS,
+  STORY_FRAMES,
+  WRAP_FADE_FROM,
+  WRAP_FADE_TO,
+} from "../timeline"
 import {
   CENTER_W,
   CENTER_X,
@@ -64,17 +64,22 @@ import {
 const DUR = SEGMENT_DURATIONS.platforms
 
 // ── Beats (local frames) ──────────────────────────────────────────────────────
+// The intro beats sit early (EXP-482): this clip cross-fades in over the
+// feedback outro, so its content must be rising DURING the overlap window or
+// the dissolve lands on a bare canvas. The outro fade window is DERIVED from
+// the timeline's loop-wrap constants — the Reel raises boardlive's f0 under
+// exactly this fade, and the two must never drift apart.
 const B = {
-  logoDrawFrom: 8,
-  logoDrawTo: 30,
-  brandAt: 10,
-  subAt: 20,
-  webAt: 24,
-  macAt: 30,
-  phoneAt: 36,
-  iconsAt: 46,
-  fadeFrom: 126, // content fades toward the canvas ahead of the settle
-  fadeTo: 144,
+  logoDrawFrom: 4,
+  logoDrawTo: 26,
+  brandAt: 4,
+  subAt: 12,
+  webAt: 16,
+  macAt: 22,
+  phoneAt: 28,
+  iconsAt: 38,
+  fadeFrom: DUR - (STORY_FRAMES - WRAP_FADE_FROM), // 126
+  fadeTo: DUR - (STORY_FRAMES - WRAP_FADE_TO), // 144
 } as const
 
 const EASED = { ...CLAMP, easing: EASE } as const
@@ -165,19 +170,25 @@ const MacScreenFrozen: React.FC = () => {
 const PHONE_SCALE = 0.78
 const COLS = { web: 560, mac: 818, phone: Math.ceil(PHONE.w * PHONE_SCALE) } as const
 
-// ── Camera ────────────────────────────────────────────────────────────────────
-// The wide clip has NO camera: it's a title card laid out in raw comp coords,
-// and a camera would only re-raster it. Phones DO get one (EXP-392) — this is
-// the clip that reads worst there, and the fix isn't the devices (they're
-// shapes at any size) but the type: the 40px wordmark lands at ~7 CSS px on a
-// 360px stage and the 23px tagline at ~4. Shot A pushes into the brand lockup
-// while the devices rise underneath, then cuts back out to the full lineup
-// just before the icon rows animate. Camera keys are window-local, so these
-// are comp coords minus WIN.x/WIN.y (176, 50).
-const CAMERA_KEYS_SM: CamKey[] = shotKeys([
-  { at: 0, s: 2.6, x: 784, y: 170 }, // the wordmark + "Go exponential."
-  { at: 40, s: 1.0, x: 784, y: 490 }, // the three clients on one shelf
-])
+// ── Portrait layout (EXP-482, 1080×1350) ─────────────────────────────────────
+// NO camera in either framing — this is a title card laid out in raw comp
+// coords, and a camera would only re-raster it (the wide comment below still
+// protects the checked-in poster/mp4). Portrait re-authors the horizontal
+// shelf as a STACK: brand lockup on top, the MacBook as the hero, then web +
+// phone side by side, each device over its platform icon row. Same beats,
+// same contentO outro.
+const PT = {
+  brandTop: 56,
+  subTop: 126,
+  macTop: 200,
+  macScreenW: 640, // MacBook lands ≈ 446 tall at this screen width
+  macIconsTop: 672,
+  rowTop: 736,
+  rowIconsTop: 1128,
+  webScale: 0.82, // WebBrowserMock 560×382 → 459×313
+  phoneScale: 0.52, // phone 330×678 → 172×353
+  gap: 48,
+} as const
 
 const IconRow: React.FC<{
   frame: number
@@ -202,7 +213,10 @@ const IconRow: React.FC<{
 )
 
 // ── The clip ──────────────────────────────────────────────────────────────────
-export const PlatformsSegment: React.FC<SegmentProps> = ({ frame, small }) => {
+export const PlatformsSegment: React.FC<SegmentProps> = ({
+  frame,
+  portrait,
+}) => {
   const drawT = interpolate(
     frame,
     [B.logoDrawFrom, B.logoDrawTo],
@@ -375,18 +389,192 @@ export const PlatformsSegment: React.FC<SegmentProps> = ({ frame, small }) => {
     </AbsoluteFill>
   )
 
+  // The frozen post-story mobile board, shared by both framings' phone.
+  const frozenPhone = (scale: number) => (
+    <div
+      style={{
+        width: PHONE.w * scale,
+        height: PHONE_TOTAL_H * scale,
+      }}
+    >
+      <div
+        style={{
+          transform: `scale(${scale})`,
+          transformOrigin: "0 0",
+        }}
+      >
+        {/* the real mobile board, frozen post-story */}
+        <PhoneChassis>
+          <BoardScreen
+            frame={FROZEN}
+            boardName={CL.project}
+            rows={CL_PHONE_BOARD}
+            overrides={{
+              [NEW_ISSUE_ID]: "done",
+              [REMOTE_DRAG_ID]: "in_progress",
+            }}
+            moveT={1}
+          />
+        </PhoneChassis>
+      </div>
+    </div>
+  )
+
+  const portraitBody = (
+    <AbsoluteFill style={{ opacity: contentO, fontFamily: PAGE_FONT }}>
+      {/* brand header — logo stroke-draw + wordmark + tagline */}
+      <div
+        style={{
+          position: "absolute",
+          top: PT.brandTop,
+          left: 0,
+          right: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 18,
+          ...rise(frame, B.brandAt, 12, 16),
+        }}
+      >
+        <ExpLogo size={46} drawT={drawT} />
+        <span
+          style={{
+            fontSize: 40,
+            fontWeight: 600,
+            letterSpacing: "-0.03em",
+            color: C.text,
+          }}
+        >
+          {PLATFORMS_COPY.title}
+        </span>
+      </div>
+      <div
+        style={{
+          position: "absolute",
+          top: PT.subTop,
+          left: 0,
+          right: 0,
+          textAlign: "center",
+          fontSize: 23,
+          fontWeight: 500,
+          letterSpacing: "-0.02em",
+          color: C.muted,
+          ...rise(frame, B.subAt, 10, 12),
+        }}
+      >
+        {PLATFORMS_COPY.sub}
+      </div>
+
+      {/* the MacBook hero over its platform icon row */}
+      <div
+        style={{
+          position: "absolute",
+          top: PT.macTop,
+          left: 0,
+          right: 0,
+          display: "flex",
+          justifyContent: "center",
+          ...rise(frame, B.macAt, 12, 22),
+        }}
+      >
+        <MacBook screenW={PT.macScreenW}>
+          <MacScreenFrozen />
+        </MacBook>
+      </div>
+      <div
+        style={{
+          position: "absolute",
+          top: PT.macIconsTop,
+          left: 0,
+          right: 0,
+        }}
+      >
+        <IconRow
+          frame={frame}
+          at={B.iconsAt + 3}
+          icons={[
+            <AppleIcon key="mac" size={34} />,
+            <WindowsIcon key="win" size={32} />,
+            <LinuxIcon key="linux" size={34} />,
+          ]}
+        />
+      </div>
+
+      {/* web + phone side by side, bottom-aligned */}
+      <div
+        style={{
+          position: "absolute",
+          top: PT.rowTop,
+          left: 0,
+          right: 0,
+          display: "flex",
+          alignItems: "flex-end",
+          justifyContent: "center",
+          gap: PT.gap,
+        }}
+      >
+        <div style={{ ...rise(frame, B.webAt, 12, 22) }}>
+          <div
+            style={{
+              width: WEB.w * PT.webScale,
+              height: (WEB.chrome + WEB.viewport) * PT.webScale,
+            }}
+          >
+            <div
+              style={{
+                transform: `scale(${PT.webScale})`,
+                transformOrigin: "0 0",
+              }}
+            >
+              <WebBrowserMock />
+            </div>
+          </div>
+        </div>
+        <div style={{ ...rise(frame, B.phoneAt, 12, 22) }}>
+          {frozenPhone(PT.phoneScale)}
+        </div>
+      </div>
+
+      {/* per-client platform icon rows under the pair */}
+      <div
+        style={{
+          position: "absolute",
+          top: PT.rowIconsTop,
+          left: 0,
+          right: 0,
+          display: "flex",
+          justifyContent: "center",
+          gap: PT.gap,
+        }}
+      >
+        <div style={{ width: WEB.w * PT.webScale }}>
+          <IconRow
+            frame={frame}
+            at={B.iconsAt}
+            icons={[<GlobeIcon key="web" size={34} />]}
+          />
+        </div>
+        <div style={{ width: PHONE.w * PT.phoneScale }}>
+          <IconRow
+            frame={frame}
+            at={B.iconsAt + 6}
+            icons={[
+              <AppleIcon key="ios" size={32} />,
+              <AndroidIcon key="android" size={34} />,
+            ]}
+          />
+        </div>
+      </div>
+    </AbsoluteFill>
+  )
+
   return (
     <SegmentShell frame={frame} dur={DUR}>
-      {/* The camera is mounted ONLY on phones. An identity camera would
-          still promote a transform layer and shift subpixel AA — enough to
-          move the checked-in wide poster and mp4, which must not change. */}
-      {small ? (
-        <Camera keys={CAMERA_KEYS_SM} frame={frame}>
-          {body}
-        </Camera>
-      ) : (
-        body
-      )}
+      {/* NO camera in either framing — even an identity camera would promote
+          a transform layer and shift subpixel AA, enough to move the
+          checked-in wide poster and mp4, which must not change. Portrait is
+          its own layout instead of a crop. */}
+      {portrait ? portraitBody : body}
     </SegmentShell>
   )
 }
