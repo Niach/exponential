@@ -17,7 +17,6 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::rc::Rc;
 use std::sync::Once;
 
@@ -140,10 +139,10 @@ static REGISTER_ACTIONS: Once = Once::new();
 pub(crate) fn ensure_actions_registered(cx: &mut App) {
     REGISTER_ACTIONS.call_once(|| {
         cx.on_action(|action: &RevealInFileManager, cx| {
-            let path = action.path.clone();
-            cx.background_executor()
-                .spawn(async move { reveal_in_file_manager(&path) })
-                .detach();
+            // gpui's reveal selects the file where the OS supports it (macOS
+            // Finder `-R`, Windows `/select`, Linux via the XDG portal with an
+            // open-the-parent fallback) — best-effort, detached internally.
+            cx.reveal_path(Path::new(&action.path));
         });
         cx.on_action(|action: &OpenTerminalHere, cx| {
             let dir = PathBuf::from(&action.path);
@@ -184,29 +183,6 @@ pub(crate) fn ensure_actions_registered(cx: &mut App) {
             });
         });
     });
-}
-
-/// Open the platform file manager on `path` (revealing/selecting it where the
-/// OS supports it). Best-effort — a missing launcher is logged, never fatal.
-fn reveal_in_file_manager(path: &str) {
-    #[cfg(target_os = "macos")]
-    let attempt = Command::new("open").args(["-R", path]).spawn();
-    #[cfg(target_os = "windows")]
-    let attempt = Command::new("explorer")
-        .arg(format!("/select,{path}"))
-        .spawn();
-    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
-    let attempt = {
-        // Linux: no portable "reveal & select"; open the containing directory.
-        let dir = Path::new(path)
-            .parent()
-            .map(Path::to_path_buf)
-            .unwrap_or_else(|| PathBuf::from(path));
-        Command::new("xdg-open").arg(dir).spawn()
-    };
-    if let Err(err) = attempt {
-        log::warn!("[ui] file tree: reveal in file manager failed: {err}");
-    }
 }
 
 // ---------------------------------------------------------------------------

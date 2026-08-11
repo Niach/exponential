@@ -2,7 +2,9 @@
 //! syntax highlighted and **selectable** (mouse selection + ctrl/cmd-C via the
 //! shared `TextView` selection layer — the same machinery the issue
 //! description uses). Binary/oversized (>2 MB) files show a placeholder with
-//! size + "Open in terminal".
+//! size + "Open file" (system default app) / "Show in files" / "Open in
+//! terminal" (EXP-473 — the app ships no viewers of its own, so PDFs and
+//! friends are handed to the OS).
 //!
 //! Multi-file is the CENTER TAB STRIP's job now (`screens.rs` — one
 //! `Screen::FileViewer { path }` tab per file), so this view is deliberately
@@ -26,11 +28,12 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
+    h_flex,
     text::TextView,
     v_flex, ActiveTheme as _, Sizable as _,
 };
 
-use crate::file_tree::{self, OpenTerminalHere, MAX_VIEWER_BYTES};
+use crate::file_tree::{self, OpenTerminalHere, RevealInFileManager, MAX_VIEWER_BYTES};
 use crate::icons::registry;
 
 /// The completed background read for a file — `Send` (built off the UI thread).
@@ -66,6 +69,9 @@ pub struct FileViewerView {
     path: Option<String>,
     /// Absolute directory of the open file (the "Open terminal here" target).
     parent_dir: Option<PathBuf>,
+    /// Absolute path of the open file (the "Open file" / "Show in files"
+    /// targets on the unviewable placeholder).
+    abs_path: Option<PathBuf>,
     phase: Phase,
     /// Stale-load guard (bumped on each (re)load).
     load_gen: u64,
@@ -78,6 +84,7 @@ impl FileViewerView {
             window_id: window.window_handle().window_id(),
             path: None,
             parent_dir: None,
+            abs_path: None,
             phase: Phase::Idle,
             load_gen: 0,
             focus_handle: cx.focus_handle(),
@@ -103,6 +110,7 @@ impl FileViewerView {
         }
         self.path = None;
         self.parent_dir = None;
+        self.abs_path = None;
         self.load_gen += 1; // supersede any in-flight load
         self.phase = Phase::Idle;
         cx.notify();
@@ -118,6 +126,7 @@ impl FileViewerView {
             // The tree hasn't resolved a trunk root for this window — nothing
             // to read against (should not happen via the tree click path).
             self.parent_dir = None;
+            self.abs_path = None;
             self.phase = Phase::Idle;
             cx.notify();
             return;
@@ -126,6 +135,7 @@ impl FileViewerView {
         self.load_gen += 1;
         let generation = self.load_gen;
         self.parent_dir = abs.parent().map(Path::to_path_buf);
+        self.abs_path = Some(abs.clone());
         self.phase = Phase::Loading;
         cx.notify();
         cx.spawn(async move |this, cx| {
@@ -152,8 +162,10 @@ impl FileViewerView {
 
     // -- rendering ----------------------------------------------------------
 
-    /// Binary / oversized placeholder (§4.5): the human-readable size + an
-    /// "Open in terminal" button (the `+` shell tab at the file's directory).
+    /// Binary / oversized placeholder (§4.5, EXP-473): the human-readable
+    /// size + OS hand-offs — "Open file" (system default app), "Show in
+    /// files" (reveal in the file manager) and "Open in terminal" (the `+`
+    /// shell tab at the file's directory).
     fn render_unviewable(
         &self,
         headline: &str,
@@ -161,6 +173,8 @@ impl FileViewerView {
         dir: Option<PathBuf>,
         cx: &App,
     ) -> AnyElement {
+        let open_target = self.abs_path.clone();
+        let reveal_target = self.abs_path.clone();
         v_flex()
             .size_full()
             .items_center()
@@ -173,21 +187,54 @@ impl FileViewerView {
                     .child(SharedString::from(format!("{headline} · {}", human_size(bytes)))),
             )
             .child(
-                Button::new("file-viewer-open-terminal")
-                    .icon(registry::NAV_TERMINAL)
-                    .label("Open in terminal")
-                    .ghost()
-                    .small()
-                    .on_click(move |_, window, cx| {
-                        if let Some(dir) = &dir {
-                            window.dispatch_action(
-                                Box::new(OpenTerminalHere {
-                                    path: dir.to_string_lossy().into_owned(),
-                                }),
-                                cx,
-                            );
-                        }
-                    }),
+                h_flex()
+                    .gap_2()
+                    .child(
+                        Button::new("file-viewer-open-file")
+                            .icon(registry::UI_EXTERNAL_LINK)
+                            .label("Open file")
+                            .ghost()
+                            .small()
+                            .on_click(move |_, _window, cx| {
+                                if let Some(file) = &open_target {
+                                    cx.open_with_system(file);
+                                }
+                            }),
+                    )
+                    .child(
+                        Button::new("file-viewer-show-in-files")
+                            .icon(registry::UI_FOLDER)
+                            .label("Show in files")
+                            .ghost()
+                            .small()
+                            .on_click(move |_, window, cx| {
+                                if let Some(file) = &reveal_target {
+                                    window.dispatch_action(
+                                        Box::new(RevealInFileManager {
+                                            path: file.to_string_lossy().into_owned(),
+                                        }),
+                                        cx,
+                                    );
+                                }
+                            }),
+                    )
+                    .child(
+                        Button::new("file-viewer-open-terminal")
+                            .icon(registry::NAV_TERMINAL)
+                            .label("Open in terminal")
+                            .ghost()
+                            .small()
+                            .on_click(move |_, window, cx| {
+                                if let Some(dir) = &dir {
+                                    window.dispatch_action(
+                                        Box::new(OpenTerminalHere {
+                                            path: dir.to_string_lossy().into_owned(),
+                                        }),
+                                        cx,
+                                    );
+                                }
+                            }),
+                    ),
             )
             .into_any_element()
     }
@@ -283,15 +330,53 @@ fn read_file(abs: &std::path::Path, rel: &str) -> Loaded {
         Ok(bytes) => bytes,
         Err(err) => return Loaded::Error(err.to_string()),
     };
-    // Binary heuristic: a NUL byte in the first chunk (same signal editors use).
-    let probe = bytes.len().min(8192);
-    if bytes[..probe].contains(&0) {
+    if looks_binary(rel, &bytes) {
         return Loaded::Binary(size);
     }
 
     let text = String::from_utf8_lossy(&bytes);
     let lang = crate::diff::language_for_filename(rel);
     Loaded::Text(SharedString::from(fence_code(&text, lang)))
+}
+
+/// Extensions that are always binary — the NUL/UTF-8 probes below miss
+/// ASCII-heavy formats (a linearized PDF's first 8 KB is header + xref
+/// tables), and rendering megabytes of such "text" as ONE code block is a
+/// freeze/OOM (`TextView` virtualizes top-level blocks, and a file is exactly
+/// one). EXP-473.
+const BINARY_EXTENSIONS: &[&str] = &[
+    "pdf", // documents
+    "png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "icns", "tiff", "heic", // images
+    "zip", "gz", "bz2", "xz", "zst", "7z", "tar", "jar", // archives
+    "exe", "dll", "so", "dylib", "a", "o", "wasm", "pyc", "class", "bin", // executables/objects
+    "woff", "woff2", "ttf", "otf", "eot", // fonts
+    "mp3", "mp4", "mov", "avi", "mkv", "webm", "wav", "ogg", "flac", // media
+    "sqlite", "db", // databases
+];
+
+/// Classify `bytes` (already size-capped) as unviewable binary: a known
+/// binary extension, a `%PDF` magic (mis-named PDFs — the reported crash), a
+/// NUL byte in the first 8 KB (the classic editor signal), or invalid UTF-8
+/// in that window (anything else would render as U+FFFD soup).
+fn looks_binary(rel: &str, bytes: &[u8]) -> bool {
+    let ext = Path::new(rel)
+        .extension()
+        .map(|ext| ext.to_string_lossy().to_ascii_lowercase());
+    if ext.is_some_and(|ext| BINARY_EXTENSIONS.contains(&ext.as_str())) {
+        return true;
+    }
+    if bytes.starts_with(b"%PDF") {
+        return true;
+    }
+    let probe = &bytes[..bytes.len().min(8192)];
+    if probe.contains(&0) {
+        return true;
+    }
+    // `error_len() == None` means the probe merely cut a multi-byte char at
+    // its edge — that is not a binary signal.
+    std::str::from_utf8(probe)
+        .err()
+        .is_some_and(|err| err.error_len().is_some())
 }
 
 /// Wrap `text` in a markdown code fence long enough that backtick runs inside
@@ -336,5 +421,42 @@ mod tests {
     fn fence_defaults_to_three_ticks_and_drops_the_text_lang() {
         let fenced = fence_code("plain contents", "text");
         assert_eq!(fenced, "```\nplain contents\n```");
+    }
+
+    #[test]
+    fn ascii_only_pdf_is_binary() {
+        // A linearized PDF's first 8 KB can be pure ASCII — the NUL probe
+        // alone misses it (the EXP-473 crash).
+        let ascii_pdf = b"%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n".to_vec();
+        assert!(looks_binary("docs/report.pdf", &ascii_pdf));
+        // Magic alone catches a mis-named PDF too.
+        assert!(looks_binary("docs/report.txt", &ascii_pdf));
+    }
+
+    #[test]
+    fn binary_extension_wins_regardless_of_content() {
+        assert!(looks_binary("logo.PNG", b"plain ascii"));
+        assert!(looks_binary("vendor/lib.so", b"plain ascii"));
+    }
+
+    #[test]
+    fn text_sources_are_not_binary() {
+        assert!(!looks_binary("src/main.rs", "fn main() {} // ünïcode".as_bytes()));
+        assert!(!looks_binary("README", b"no extension at all"));
+    }
+
+    #[test]
+    fn nul_byte_is_binary() {
+        assert!(looks_binary("data.dat", b"ascii\0more"));
+    }
+
+    #[test]
+    fn invalid_utf8_is_binary_but_a_probe_cut_char_is_not() {
+        assert!(looks_binary("data.dat", &[b'a', 0xFF, 0xFE, b'b']));
+        // 8 KB of ASCII, then a 3-byte char ("€") cut by the probe edge —
+        // `error_len() == None`, not a binary signal.
+        let mut cut = vec![b'a'; 8190];
+        cut.extend_from_slice(&[0xE2, 0x82]);
+        assert!(!looks_binary("notes.txt", &cut));
     }
 }
