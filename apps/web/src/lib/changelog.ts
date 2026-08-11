@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-worktree-autoclean`,
+    date: `2026-08-11`,
+    title: `Tidy worktrees and a reworked Actions view`,
+    summary: `The desktop IDE now cleans up landed worktrees and stale branches automatically, and its Actions surface matches the web agents page.`,
+    body: `- **Worktree auto-clean**: landed session worktrees and their branches are pruned automatically once git confirms the work is in the default branch; anything with uncommitted or unpushed work always survives.
+- **Actions as cards**: the desktop Actions surface is now the web agents page 1:1, with a card grid, owner edit dialog, and Run on every card.
+- **Safer file previews**: binary files no longer freeze the viewer; the placeholder offers opening the file in its default app or revealing it in your file manager.
+- **Smarter PR notifications**: pull request activity from your own agent no longer pings you, and webhook events are attributed to the session owner.`,
+  },
+  {
     id: `2026-08-pi-plan-mode`,
     date: `2026-08-10`,
     title: `Plan mode for pi`,
