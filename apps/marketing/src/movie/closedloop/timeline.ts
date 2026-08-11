@@ -46,9 +46,20 @@ export const CHAPTERS: Chapter[] = SEGMENTS.map(({ id, label, from }) => ({
   frame: from,
 }))
 
-// The authored story — the last clip has fully settled to the bare canvas by
-// here; the END_HOLD tail rests on that canvas so the Player loop breathes
-// before wrapping back to the composed f0 IDE frame (the poster).
+// Cross-fade window between adjacent clips (EXP-482). Segment start frames
+// stay untouched (CHAPTERS/seek stability): the OUTGOING clip simply keeps
+// rendering `OVERLAP` frames past its nominal duration, underneath the
+// incoming clip's rise, so the canvas never shows through at a boundary.
+export const OVERLAP = 14
+
 export const STORY_FRAMES = SEGMENTS.reduce((sum, s) => sum + s.dur, 0)
+
+// The loop wrap (EXP-482): while the platforms outro fades its content to the
+// canvas (its local fadeFrom/fadeTo — asserted against these in the segment),
+// the Reel raises boardlive's STATIC f0 (the poster frame) underneath over the
+// same window. The END_HOLD tail then rests on that composed frame, so
+// DURATION_IN_FRAMES-1 → 0 is pixel-identical instead of a hard pop.
 export const END_HOLD = 15
+export const WRAP_FADE_FROM = STORY_FRAMES - 24
+export const WRAP_FADE_TO = STORY_FRAMES - 6
 export const DURATION_IN_FRAMES = STORY_FRAMES + END_HOLD

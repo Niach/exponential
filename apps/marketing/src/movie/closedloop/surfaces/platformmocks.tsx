@@ -225,7 +225,7 @@ const Avatar: React.FC<{ size: number; text: string }> = ({ size, text }) => (
 )
 
 // ── The web app inside a browser window ──────────────────────────────────────
-const WEB = { w: 560, chrome: 34, viewport: 348, sidebar: 148 } as const
+export const WEB = { w: 560, chrome: 34, viewport: 348, sidebar: 148 } as const
 
 const WebNavRow: React.FC<{ icon: React.ReactNode; label: string }> = ({ icon, label }) => (
   <div style={{ display: "flex", alignItems: "center", gap: 8, height: 26, padding: "0 10px", borderRadius: 6, color: C.muted }}>

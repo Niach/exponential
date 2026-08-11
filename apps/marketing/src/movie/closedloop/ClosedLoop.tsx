@@ -2,12 +2,13 @@
 // (EXP-337): start coding → live steer → review & merge → live board →
 // feedback intake, plus an END_HOLD rest tail (see timeline.ts).
 // Player-compatible by construction: the background is a static CSS gradient
-// (no staticFile assets), everything below is frame-driven. `small` (Player
-// inputProps, true under viewport.ts SMALL_MEDIA) is the ONE phone signal the
-// composition gets: it enlarges the screen-space caption layer (EXP-176) and
-// swaps each clip onto its tight mobile camera framing (EXP-392). It replaced
-// the old numeric `textScale` — a single multiplier cannot express a per-clip
-// crop, and two props saying "this is a phone" could disagree.
+// (no staticFile assets), everything below is frame-driven. `portrait`
+// (Player inputProps, true under viewport.ts SMALL_MEDIA) is the ONE phone
+// signal the composition gets: under it the comp is 1080×1350 (EXP-482,
+// replacing the EXP-392 landscape crops) and each clip swaps onto its
+// portrait camera framing with the portrait caption treatment. One boolean —
+// a single multiplier cannot express a per-clip crop, and two props saying
+// "this is a phone" could disagree.
 
 import React from "react"
 import { AbsoluteFill } from "remotion"
@@ -21,18 +22,25 @@ import { Reel } from "./scenes/Reel"
 // positioned so the bleed lands where the reference screenshot shows it
 // (strong violet at the window's bottom-left corner, a softer wash along the
 // right edge). ONE blob list shared with WindowChassis (rig.tsx), which
-// paints the same wallpaper window-locally as the glass "backdrop".
-const GradientBackground: React.FC = () => (
+// paints the same wallpaper window-locally as the glass "backdrop". The blob
+// field is authored on the 1920×1080 canvas; portrait shifts it to keep the
+// same composition centered on the 1080×1350 one (EXP-482).
+const GradientBackground: React.FC<{ portrait: boolean }> = ({ portrait }) => (
   <AbsoluteFill
-    style={{ backgroundColor: C.canvas, backgroundImage: wallpaperBackground() }}
+    style={{
+      backgroundColor: C.canvas,
+      backgroundImage: portrait
+        ? wallpaperBackground(-420, 135)
+        : wallpaperBackground(),
+    }}
   />
 )
 
-export const ClosedLoop: React.FC<{ small?: boolean }> = ({
-  small = false,
+export const ClosedLoop: React.FC<{ portrait?: boolean }> = ({
+  portrait = false,
 }) => (
   <AbsoluteFill>
-    <GradientBackground />
-    <Reel small={small} />
+    <GradientBackground portrait={portrait} />
+    <Reel portrait={portrait} />
   </AbsoluteFill>
 )

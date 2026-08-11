@@ -48,7 +48,7 @@ import {
   REMOTE_DRAG_ID,
   REMOTE_USER,
 } from "../fixtures"
-import { SEGMENT_DURATIONS } from "../timeline"
+import { OVERLAP, SEGMENT_DURATIONS } from "../timeline"
 import {
   CENTER_W,
   CENTER_X,
@@ -87,19 +87,20 @@ const CAMERA_KEYS: CamKey[] = [
   { f: DUR, s: 1.15, x: 850, y: 470, ease: "linear" },
 ]
 
-// Phones (EXP-392) can't hold both subjects — the issue list ends at local
-// x 684 and the phone starts at 1314, and any crop tight enough to read
-// 13px rows is ~600 local px wide. So it's two shots. The cut sits in the
-// caption gap (bl1 is gone by 110, bl2 arrives at 118) and 12f after the
-// push lands, so the banner has fully sprung by the time we arrive.
-// Shot A doubles as the SMALL POSTER frame (movie:poster:small) — re-run
-// that script if these numbers move.
-const CAMERA_KEYS_SM: CamKey[] = shotKeys([
-  { at: 0, s: 3.2, x: 424, y: 170 }, // the issue list + facepile + Mara
-  // x is pulled left of the phone's own center so the frame's right edge
-  // stops at the window (1568) — the phone overhangs it, and past that
-  // there is only wallpaper.
-  { at: 112, s: 4.0, x: 1328, y: 341 }, // the phone's push banner
+// Portrait (EXP-482, 1080×1350) can't hold both subjects either — the issue
+// list ends at local x 684 and the phone starts at 1314 — so it stays two
+// shots, but each subject now fits WHOLE: the full-height issue list column,
+// then the entire phone. The cut sits in the caption gap (bl1 is gone by
+// 110, bl2 arrives at 118) and 12f after the push lands, so the banner has
+// fully sprung by the time we arrive.
+// Shot A doubles as the PORTRAIT POSTER frame (movie:poster:portrait) —
+// re-run that script if these numbers move.
+const CAMERA_KEYS_PT: CamKey[] = shotKeys([
+  { at: 0, s: 2.0, x: 424, y: 340 }, // the issue list column + facepile
+  // x is biased left of the phone's own center so the visible band stays on
+  // the set — the phone overhangs the window's right edge (1568), and past
+  // comp 1920 there is nothing at all.
+  { at: 112, s: 1.8, x: 1444, y: 569 }, // the WHOLE phone + push banner
 ])
 
 // ── Cursors (window-local tool-window coords; rows y = 104 + layout offset) ──
@@ -137,10 +138,13 @@ const TAB_151: ChromeTab = {
 const PHONE_POS = { x: 1490, y: 280, scale: 1 } as const
 
 // ── The clip ──────────────────────────────────────────────────────────────────
-export const BoardLiveSegment: React.FC<SegmentProps> = ({ frame, small }) => {
+export const BoardLiveSegment: React.FC<SegmentProps> = ({
+  frame,
+  portrait,
+}) => {
   const dockH = WIN.dockStrip
   const paneH = WIN.h - CONTENT_TOP - dockH
-  const capSize = captionSize(small)
+  const capSize = captionSize(portrait)
 
   const dragging = frame >= B.dragFrom
   const overrides: Record<
@@ -171,7 +175,7 @@ export const BoardLiveSegment: React.FC<SegmentProps> = ({ frame, small }) => {
   return (
     <SegmentShell frame={frame} dur={DUR} openComposed>
       <AbsoluteFill>
-        <Camera keys={small ? CAMERA_KEYS_SM : CAMERA_KEYS} frame={frame}>
+        <Camera keys={portrait ? CAMERA_KEYS_PT : CAMERA_KEYS} frame={frame}>
           <WindowChassis>
             <TitleBar
               frame={frame}
@@ -240,7 +244,14 @@ export const BoardLiveSegment: React.FC<SegmentProps> = ({ frame, small }) => {
               name={REMOTE_USER.name}
               color={REMOTE_USER.color}
             />
-            <CursorLayer keys={LOCAL_KEYS} frame={frame} from={0} to={DUR} />
+            {/* to reaches into the cross-fade overrun (EXP-482) so the
+                cursor doesn't pop off while the clip is still opaque */}
+            <CursorLayer
+              keys={LOCAL_KEYS}
+              frame={frame}
+              from={0}
+              to={DUR + OVERLAP}
+            />
           </WindowChassis>
 
           {/* the phone, composed from f0 (it IS part of the poster): the real
@@ -286,6 +297,7 @@ export const BoardLiveSegment: React.FC<SegmentProps> = ({ frame, small }) => {
           in={CAPTIONS[key].in}
           out={CAPTIONS[key].out}
           size={capSize}
+          centered={portrait}
           fontFamily={PAGE_FONT}
           letterSpacing="-0.03em"
         >
