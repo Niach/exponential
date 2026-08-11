@@ -26,7 +26,7 @@ use std::rc::Rc;
 use chrono::NaiveDate;
 
 use gpui::{
-    div, px, App, AppContext as _, ClipboardItem, Entity, FontWeight, IntoElement, ParentElement,
+    div, px, App, AppContext as _, ClipboardItem, Entity, IntoElement, ParentElement,
     SharedString, Styled, Subscription, Window,
 };
 use gpui_component::{
@@ -1157,18 +1157,6 @@ use gpui::prelude::FluentBuilder as _;
 // ---------------------------------------------------------------------------
 // Pieces
 // ---------------------------------------------------------------------------
-
-/// A section's UPPERCASE micro-label (EXP-298): the action detail's PROMPT /
-/// INPUTS headers and the machines list. Web `PropertyGroup` label styling
-/// (`text-[11px] font-medium uppercase tracking-wide text-muted-foreground` —
-/// the CSS `uppercase` transform is baked into the string here).
-pub(crate) fn group_label(label: &str, cx: &App) -> impl IntoElement {
-    div()
-        .text_size(px(11.))
-        .font_weight(FontWeight::MEDIUM)
-        .text_color(cx.theme().muted_foreground)
-        .child(SharedString::from(label.to_uppercase()))
-}
 
 /// Web `issueLabels.add` / `issueLabels.remove` toggle. `pub(crate)` — shared
 /// with the issue-row context menu's Labels submenu (§4.2).

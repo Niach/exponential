@@ -637,7 +637,11 @@ impl RailView {
         expanded: bool,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
-        let active = self.shared.read(cx).tool == tool;
+        // EXP-480: while the Actions full-page mode is up the tool column is
+        // unmounted, so no tool entry may read as selected — exactly one rail
+        // entry (Actions) highlights, like a tool switch.
+        let active = self.shared.read(cx).tool == tool
+            && !matches!(resolved_screen(&self.nav, cx), Some(Screen::Actions));
         if expanded {
             return rail_row(id, icon, label, active, accent, badge, cx)
                 .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
@@ -690,6 +694,8 @@ impl RailView {
     /// The Actions entry (EXP-467): not a tool window anymore — it navigates
     /// to the [`Screen::Actions`] center page (the web agents page), the
     /// settings gear's direct-navigation shape in the tool-icon slot.
+    /// EXP-480: the page is a tab-less full-page mode (no tool column, no
+    /// tab chip), so while it is up this entry is the ONE highlighted row.
     fn rail_actions_entry(
         &self,
         accent: Hsla,
@@ -883,8 +889,11 @@ impl RailView {
     ) -> gpui::AnyElement {
         let shared = self.shared.read(cx);
         let active_board = active_board_id(&self.nav, cx);
+        // Same EXP-480 suppression as `rail_tool_icon`: the Actions
+        // full-page mode owns the highlight while it is up.
         let active = shared.tool == ToolWindow::BoardIssues
-            && active_board.as_deref() == Some(board.id.as_str());
+            && active_board.as_deref() == Some(board.id.as_str())
+            && !matches!(resolved_screen(&self.nav, cx), Some(Screen::Actions));
         let tint = board
             .color
             .as_deref()
