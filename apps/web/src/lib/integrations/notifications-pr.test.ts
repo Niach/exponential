@@ -8,6 +8,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 // so deliver()'s dedupe window collapses the webhook-vs-open_pr racing pair.
 // A PR with no session stays anonymous with nobody excluded (locked here so
 // a fallback regression can't silently drop notifications).
+//
+// EXP-479: batch runs are issue-less, so an issue linked to a batch PR (its
+// branch is the launcher's `exp/batch-<id8>` convention) resolves through the
+// team's most recent batch-shaped session instead; non-batch branches never
+// take that lookup, keeping out-of-band PRs anonymous.
 
 const h = vi.hoisted(() => ({
   // Each db.select() call consumes the next result set, in call order.
@@ -62,6 +67,9 @@ const issueMeta = {
   // Null keeps the assignee opt-out lookup out of the select order — the
   // assignee-add path is exercised by the recipients themselves here.
   assigneeId: null,
+  // Non-batch by default: the batch-session lookup must consume a select ONLY
+  // for `exp/batch-` branches (the queues below depend on it).
+  branch: null,
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -166,6 +174,77 @@ describe(`fireAndForgetPrNotify actor attribution (EXP-463)`, () => {
       ],
       expect.objectContaining({
         title: `A pull request was opened for EXP-9`,
+      })
+    )
+  })
+
+  it(`resolves a batch PR to the team's batch-session owner (EXP-479)`, async () => {
+    h.selectQueue.push(
+      // loadIssueMeta: the issue is linked to a batch run's combined PR
+      [{ ...issueMeta, branch: `exp/batch-1b81d4c7` }],
+      // sessionOwnerFallback: no issue-scoped session (batch rows are
+      // issue-less)…
+      [],
+      // …so the team-scoped batch lookup resolves the owner
+      [{ userId: `u-owner` }],
+      // subscriberRecipients: the owner is the auto-subscribed creator
+      [{ userId: `u-owner` }, { userId: `u2` }],
+      // actorName (resolved for the batch owner)
+      [{ name: `Danny`, email: `danny@acme.test` }],
+      // deliverableRecipients (deliver)
+      [{ id: `u2` }]
+    )
+    h.executeRows.push({ id: `n5`, user_id: `u2` })
+
+    fireAndForgetPrNotify({
+      issueId: issueMeta.id,
+      type: `pr_merged`,
+      actorUserId: null,
+    })
+
+    await vi.waitFor(() => expect(h.sendToUsers).toHaveBeenCalledTimes(1))
+    // The batch owner is excluded from their own agent's fan-out, and the
+    // title matches the attributed MCP variant — the dedupe-collapse contract.
+    expect(h.sendToUsers).toHaveBeenCalledWith(
+      [{ userId: `u2`, data: { notificationId: `n5` } }],
+      expect.objectContaining({
+        title: `Danny merged the pull request for EXP-9`,
+      })
+    )
+  })
+
+  it(`keeps a sessionless batch PR anonymous`, async () => {
+    h.selectQueue.push(
+      // loadIssueMeta
+      [{ ...issueMeta, branch: `exp/batch-1b81d4c7` }],
+      // sessionOwnerFallback: no issue-scoped session…
+      [],
+      // …and no batch-shaped session in the team either
+      [],
+      // subscriberRecipients
+      [{ userId: `u1` }, { userId: `u2` }],
+      // deliverableRecipients (no actorName lookup — actor stayed null)
+      [{ id: `u1` }, { id: `u2` }]
+    )
+    h.executeRows.push(
+      { id: `n6`, user_id: `u1` },
+      { id: `n7`, user_id: `u2` }
+    )
+
+    fireAndForgetPrNotify({
+      issueId: issueMeta.id,
+      type: `pr_merged`,
+      actorUserId: null,
+    })
+
+    await vi.waitFor(() => expect(h.sendToUsers).toHaveBeenCalledTimes(1))
+    expect(h.sendToUsers).toHaveBeenCalledWith(
+      [
+        { userId: `u1`, data: { notificationId: `n6` } },
+        { userId: `u2`, data: { notificationId: `n7` } },
+      ],
+      expect.objectContaining({
+        title: `The pull request for EXP-9 was merged`,
       })
     )
   })

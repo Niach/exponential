@@ -38,6 +38,7 @@ interface IssueMeta {
   teamSlug: string
   boardSlug: string
   assigneeId: string | null
+  branch: string | null
 }
 
 async function loadIssueMeta(issueId: string): Promise<IssueMeta | null> {
@@ -50,6 +51,7 @@ async function loadIssueMeta(issueId: string): Promise<IssueMeta | null> {
       teamSlug: teams.slug,
       boardSlug: boards.slug,
       assigneeId: issues.assigneeId,
+      branch: issues.branch,
     })
     .from(issues)
     .innerJoin(boards, eq(boards.id, issues.boardId))
@@ -442,14 +444,41 @@ export function fireAndForgetStatusChangeNotify(args: {
 // Accepted residual edge: a teammate merging on GitHub itself (or losing the
 // mergePr-vs-webhook race) is misattributed to the session owner —
 // notification-only, and the in-app merge path passes the real actor.
-async function sessionOwnerFallback(issueId: string): Promise<string | null> {
+//
+// Batch runs are issue-less (issue XOR batch XOR action, EXP-479), so the
+// issue-scoped lookup misses a batch run's combined PR entirely. When the
+// linked branch is the launcher's hardcoded batch convention (`exp/batch-`,
+// deliberately independent of the user's branch prefix — see the desktop's
+// batch_branch_name), fall back to the team's most recent truly batch-shaped
+// session (issue_id AND action_id NULL — action runs are issue-less rows too
+// and must not win the recency sort). The schema has no batch↔PR linkage to
+// be more precise with, so like the MCP open_pr batch flip this is
+// deliberately loose: overlapping batch runs in one team attribute to the
+// most recent one's owner. Non-batch branches never take this path, so a
+// genuinely out-of-band PR with no session stays anonymous.
+async function sessionOwnerFallback(issue: IssueMeta): Promise<string | null> {
   const [session] = await db
     .select({ userId: codingSessions.userId })
     .from(codingSessions)
-    .where(eq(codingSessions.issueId, issueId))
+    .where(eq(codingSessions.issueId, issue.id))
     .orderBy(desc(codingSessions.startedAt))
     .limit(1)
-  return session?.userId ?? null
+  if (session) return session.userId
+
+  if (!issue.branch?.startsWith(`exp/batch-`)) return null
+  const [batch] = await db
+    .select({ userId: codingSessions.userId })
+    .from(codingSessions)
+    .where(
+      and(
+        eq(codingSessions.teamId, issue.teamId),
+        isNull(codingSessions.issueId),
+        isNull(codingSessions.actionId)
+      )
+    )
+    .orderBy(desc(codingSessions.startedAt))
+    .limit(1)
+  return batch?.userId ?? null
 }
 
 /**
@@ -474,7 +503,7 @@ export function fireAndForgetPrNotify(args: {
       if (!issue) return
 
       const actorUserId =
-        args.actorUserId ?? (await sessionOwnerFallback(issueId))
+        args.actorUserId ?? (await sessionOwnerFallback(issue))
 
       const recipients = new Set(
         await subscriberRecipients(issueId, actorUserId)
