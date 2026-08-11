@@ -49,6 +49,7 @@ pub mod codex_trust;
 pub mod doctor;
 pub mod git_credentials;
 pub mod git_worktree;
+pub mod launch_gate;
 pub mod launcher;
 pub mod mcp_json;
 pub mod pi_bridge;
@@ -94,6 +95,7 @@ pub use trunk_state::TrunkState;
 pub use git_worktree::{
     branch_name, clone_path, shell_cwd, worktree_path, GitError, TokenUrl,
 };
+pub use launch_gate::LaunchHold;
 #[cfg(feature = "gpui")]
 pub use launcher::{spawn_prepared, spawn_prepared_with, ExitNotify};
 pub use launcher::SESSION_HEARTBEAT_INTERVAL;

@@ -478,6 +478,16 @@ pub struct PreparedLaunch {
     /// the strongest discovery pin (an id match beats any originator/mtime
     /// heuristic). `None` on fresh spawns and non-codex agents.
     pub codex_resume_id: Option<String>,
+    /// EXP-478: the clone's launch gate, held since BEFORE the worktree was
+    /// created — the auto-prune's policy is a pre-fetch snapshot that cannot
+    /// protect a worktree born after it, so the gate parks the prune for the
+    /// launch's whole flight. The UI `.take()`s it out (the
+    /// [`spawn_prepared_with`] destructure would drop it pre-spawn) and drops
+    /// it only after `LocalSessions` registers the session; failure paths
+    /// release via RAII. `None` for runs that never touch a session worktree
+    /// (trunk-clone and scratch-dir action runs — the prune skips the clone
+    /// root itself).
+    pub launch_hold: Option<crate::launch_gate::LaunchHold>,
 }
 
 /// [`prepare`]'s outcome: ready to spawn, or disabled-with-reason.
@@ -845,6 +855,11 @@ pub fn prepare_with_hooks(
     };
     let url = minted.url.clone();
     let repos_root = deps.settings.repos_root_path();
+    // The clone path the worktree hangs off — the P9 token refresher's target.
+    let clone = clone_path(&repos_root, url.full_name());
+    // EXP-478: gate BEFORE the worktree exists — from here until the UI
+    // registers the session, the auto-prune must not run on this clone.
+    let launch_hold = crate::launch_gate::hold(&clone);
     let worktree = deps.worktrees.prepare(
         &repos_root,
         url.full_name(),
@@ -853,8 +868,6 @@ pub fn prepare_with_hooks(
         &url,
         minted.expires_at.as_deref(),
     )?;
-    // The clone path the worktree hangs off — the P9 token refresher's target.
-    let clone = clone_path(&repos_root, url.full_name());
 
     // Step 4 — per-agent MCP wiring ([`wire_agent_mcp`], shared with the
     // action path since EXP-257).
@@ -1142,6 +1155,7 @@ pub fn prepare_with_hooks(
         claude_session_id,
         codex_originator,
         codex_resume_id,
+        launch_hold: Some(launch_hold),
     }))
 }
 
@@ -1227,6 +1241,10 @@ fn prepare_action(
     // repo-backed arm below (None for every other kind); consumed by the
     // prompt render in step 3.
     let mut fix_rebase_onto: Option<String> = None;
+    // EXP-478: fix-conflicts runs on a session worktree, so it gates the
+    // clone like an issue/batch launch; every other kind runs on the trunk
+    // clone or a scratch dir, which the prune never touches.
+    let mut launch_hold: Option<crate::launch_gate::LaunchHold> = None;
     let (cwd, repository_id) = match repo {
         Some(repo) => {
             // Repo-backed: JIT token via the cache (same refresher-lead
@@ -1294,6 +1312,7 @@ fn prepare_action(
                 // from origin/<branch>.
                 ActionRunKind::FixConflicts { branch, .. } => {
                     crate::git_worktree::validate_branch_arg(branch, "fix conflicts")?;
+                    launch_hold = Some(crate::launch_gate::hold(&clone));
                     crate::git_worktree::fetch_base(&clone, branch, &url)?;
                     // EXP-324: the rebase target must exist as a local
                     // remote-tracking ref too — auto_sync above is
@@ -1508,6 +1527,7 @@ fn prepare_action(
         claude_session_id,
         codex_originator,
         codex_resume_id: None,
+        launch_hold,
     }))
 }
 
@@ -2479,6 +2499,42 @@ mod tests {
             .iter()
             .any(|(key, _)| key == HOOK_PORT_ENV || key == HOOK_TOKEN_ENV));
         assert!(!dir.0.join(HOOK_SETTINGS_DIR).exists());
+    }
+
+    /// EXP-478: `prepare` gates the clone from before the worktree exists,
+    /// and the hold rides the `PreparedLaunch` until the caller drops it —
+    /// the auto-prune's `try_exclusive` must refuse for that whole span.
+    #[test]
+    fn prepare_takes_the_launch_gate_hold_until_dropped() {
+        let dir = temp_dir("launch-gate");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let base = canned_server(vec![
+            (200, FOR_ISSUE_OK.to_string()),
+            (200, TOKEN_OK.to_string()),
+            (200, START_OK.to_string()),
+        ]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: worktree.clone(),
+            seen: Default::default(),
+        });
+        let deps = make_deps(&base, &dir.0, worktrees);
+
+        let prepared = match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        let clone = prepared.clone.clone();
+        assert!(prepared.launch_hold.is_some());
+        assert!(
+            crate::launch_gate::try_exclusive(&clone, || ()).is_none(),
+            "the prune must be refused while the launch is in flight"
+        );
+        drop(prepared);
+        assert!(
+            crate::launch_gate::try_exclusive(&clone, || ()).is_some(),
+            "dropping the prepared launch releases the gate"
+        );
     }
 
     /// An action run is a claude session too — same sidecar, keyed by ITS

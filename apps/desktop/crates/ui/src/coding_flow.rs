@@ -955,7 +955,7 @@ pub fn build_action_deps(cx: &mut App) -> Option<CodingDeps> {
 /// the [`SessionSubject`] differs. A spawn failure never strands the row —
 /// `spawn_prepared_with` already ends it.
 pub fn spawn_into_window(
-    prepared: coding::PreparedLaunch,
+    mut prepared: coding::PreparedLaunch,
     subject: SessionSubject,
     window: &mut Window,
     cx: &mut App,
@@ -979,6 +979,9 @@ pub fn spawn_into_window(
     // The P9 refresher inputs, snapshotted before the spawn consumes them.
     let clone = prepared.clone.clone();
     let repository_id = prepared.repository_id.clone();
+    // EXP-478: taken out BEFORE `spawn_prepared_with` — its `..` destructure
+    // would drop the hold pre-spawn, reopening the prune window it guards.
+    let launch_hold = prepared.launch_hold.take();
     // The emitter's per-session facts (EXP-275 posture, EXP-383 agent,
     // EXP-443 identities, EXP-432 requester), snapshotted the same way.
     let steer_info = crate::steer_wiring::SteerSessionInfo {
@@ -1054,6 +1057,11 @@ pub fn spawn_into_window(
                 trpc,
                 cx,
             );
+            // EXP-478: released only now that the session is registered —
+            // every prune policy derived from here on carries the branch in
+            // `held_branches`; the gate covered the gap since before the
+            // worktree existed. Failure arms release via RAII instead.
+            drop(launch_hold);
             Ok(())
         }
         Ok(LaunchOutcome::Disabled { reason }) => Err(reason.message()),

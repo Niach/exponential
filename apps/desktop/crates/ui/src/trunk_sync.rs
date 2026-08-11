@@ -1066,7 +1066,14 @@ fn run_sync_worker(
             // under the old discarded result.
             if let Some(policy) = prune_policy {
                 let report = coding::prune::prune_landed(clone, policy);
-                if !report.is_empty() {
+                if report.blocked_by_launch {
+                    // EXP-478: a coding launch held the clone's gate — the
+                    // 120s cadence retries on its own.
+                    log::info!(
+                        "[ui] auto-prune {}: skipped — a coding launch is in progress",
+                        repo.full_name,
+                    );
+                } else if !report.is_empty() {
                     log::info!(
                         "[ui] auto-prune {}: removed worktrees {:?}, deleted branches {:?}, skipped {:?}",
                         repo.full_name,
