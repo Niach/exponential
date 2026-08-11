@@ -279,6 +279,7 @@ pub fn create_worktree(
 ) -> Result<PathBuf, GitError> {
     let worktree = worktree_path(clone, branch);
     if worktree.join(".git").exists() {
+        refresh_worktree_stamp(&worktree);
         return Ok(worktree); // reuse — one issue = one worktree
     }
     if let Some(parent) = worktree.parent() {
@@ -300,6 +301,7 @@ pub fn create_worktree(
     // that exists instead of demanding our own path.
     if let Some(existing) = checked_out_at(clone, branch) {
         if !same_path(&existing, clone) {
+            refresh_worktree_stamp(&existing);
             return Ok(existing);
         }
         // The trunk clone itself holds the branch: reusing it would put the
@@ -331,6 +333,18 @@ default branch and retry.",
         )?;
     }
     Ok(worktree)
+}
+
+/// EXP-478: stamp "a launch (re)claimed this worktree now" — the prune's
+/// launch grace reads the `.git` link file's mtime, and reuse (a relaunch on
+/// a merged issue, a fix-conflicts run) must renew it or the old stamp lets
+/// the auto-prune remove the worktree mid-launch. Best-effort: a fresh
+/// `worktree add` just wrote the file, and a hand-made non-worktree dir
+/// no-ops via the failed open (`write(true)` never truncates).
+fn refresh_worktree_stamp(worktree: &Path) {
+    if let Ok(file) = std::fs::OpenOptions::new().write(true).open(worktree.join(".git")) {
+        let _ = file.set_modified(std::time::SystemTime::now());
+    }
 }
 
 /// Bring an existing local `branch` (checked out in `worktree`) up to the
@@ -924,6 +938,44 @@ mod tests {
         // Relaunch: same issue → same worktree, no error (idempotent reuse).
         let again = create_worktree(&clone, &branch, "origin/main", &url).unwrap();
         assert_eq!(again, worktree);
+    }
+
+    /// EXP-478: reuse re-stamps the `.git` link file — the prune's launch
+    /// grace reads its mtime, and an OLD worktree a relaunch just reclaimed
+    /// must count as young again.
+    #[test]
+    fn reuse_refreshes_the_grace_stamp() {
+        let dir = temp_dir("stamp");
+        let origin = seed_origin(&dir.0);
+        let repos_root = dir.0.join("repos");
+        let clone = clone_path(&repos_root, "acme/web");
+        fs::create_dir_all(clone.parent().unwrap()).unwrap();
+        git(
+            &dir.0,
+            &["clone", "--quiet", origin.to_str().unwrap(), clone.to_str().unwrap()],
+        );
+        let url = TokenUrl::new("acme/web", "ghs_dead");
+        let worktree = create_worktree(&clone, "exp/EXP-42", "origin/main", &url).unwrap();
+
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(60 * 60 * 24);
+        let stamp = worktree.join(".git");
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&stamp)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+
+        let reused = create_worktree(&clone, "exp/EXP-42", "origin/main", &url).unwrap();
+        assert_eq!(reused, worktree);
+        let mtime = fs::metadata(&stamp).unwrap().modified().unwrap();
+        assert!(
+            mtime.elapsed().unwrap() < std::time::Duration::from_secs(60),
+            "reuse must refresh the stamp"
+        );
+        // The link file's content survives the touch (write without truncate).
+        let content = fs::read_to_string(&stamp).unwrap();
+        assert!(content.starts_with("gitdir:"), "clobbered: {content:?}");
     }
 
     /// EXP-357: the branch is checked out at a path that is NOT the layout

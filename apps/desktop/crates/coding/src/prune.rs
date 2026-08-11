@@ -41,8 +41,16 @@
 
 use std::collections::HashSet;
 use std::path::Path;
+use std::time::{Duration, SystemTime};
 
 use crate::git_worktree::{list_worktrees, run_git, validate_branch_arg};
+
+/// EXP-478: worktrees younger than this never prune — covers launches the
+/// in-process launch gate cannot see (the CLI daemon shares clone paths from
+/// its own process) and the stale-policy window (a launch that starts AND
+/// finishes entirely inside one prune interval leaves the gate free while
+/// the pass's snapshot sets still lack its branch).
+pub const LAUNCH_GRACE: Duration = Duration::from_secs(15 * 60);
 
 /// What the caller knows (issue state, live sessions) and wants (branch
 /// sweep), fed into [`prune_landed`]. All sets hold full branch names
@@ -84,6 +92,8 @@ pub enum SkipReason {
     RemoveFailed(String),
     /// No default branch could be resolved, so landed checks were impossible.
     NoDefaultBranch,
+    /// Younger than [`LAUNCH_GRACE`] — likely a launch in flight (EXP-478).
+    RecentlyCreated,
 }
 
 impl SkipReason {
@@ -97,6 +107,7 @@ impl SkipReason {
             },
             Self::RemoveFailed(detail) => detail.clone(),
             Self::NoDefaultBranch => "no default branch to compare against".to_string(),
+            Self::RecentlyCreated => "recently created".to_string(),
         }
     }
 }
@@ -112,6 +123,9 @@ pub struct PruneReport {
     pub skipped: Vec<(String, SkipReason)>,
     /// The default branch the landed checks compared against, for messages.
     pub default_branch: Option<String>,
+    /// EXP-478: the pass never ran — a coding launch held the clone's gate.
+    /// The auto-sync cadence retries on its own; the settings button reports.
+    pub blocked_by_launch: bool,
 }
 
 impl PruneReport {
@@ -130,6 +144,17 @@ pub enum DirtyState {
     Clean,
     UntrackedOnly,
     TrackedChanges,
+}
+
+/// EXP-478: age via the worktree's `.git` link file (written by `git
+/// worktree add`, refreshed by `create_worktree`'s reuse paths — "when did a
+/// launch last claim this worktree"). Unreadable → NOT young (the keep/busy/
+/// gate shields still apply); a future mtime reads as young.
+fn worktree_is_young(worktree: &Path, now: SystemTime) -> bool {
+    std::fs::metadata(worktree.join(".git"))
+        .and_then(|meta| meta.modified())
+        .ok()
+        .is_some_and(|mtime| now.duration_since(mtime).map_or(true, |age| age < LAUNCH_GRACE))
 }
 
 /// Classify a worktree's status. A failing `git status` counts as
@@ -311,7 +336,23 @@ fn branch_landed(
 /// Remove every landed session worktree of `clone` (+ its branch), then
 /// optionally sweep landed prefix branches that lost their worktree long ago.
 /// Blocking (spawned gits) — callers run it on a background executor.
+///
+/// EXP-478: the whole pass runs inside the clone's launch gate — a launch in
+/// flight (worktree created, session not yet registered) aborts the pass
+/// entirely, and no launch can begin while the pass runs. The policy the
+/// caller derived is a pre-fetch snapshot, so it cannot protect a worktree
+/// born after it.
 pub fn prune_landed(clone: &Path, policy: &PrunePolicy) -> PruneReport {
+    match crate::launch_gate::try_exclusive(clone, || prune_landed_locked(clone, policy)) {
+        Some(report) => report,
+        None => PruneReport {
+            blocked_by_launch: true,
+            ..Default::default()
+        },
+    }
+}
+
+fn prune_landed_locked(clone: &Path, policy: &PrunePolicy) -> PruneReport {
     let mut report = PruneReport::default();
     let Ok(entries) = list_worktrees(clone) else {
         return report;
@@ -396,6 +437,16 @@ pub fn prune_landed(clone: &Path, policy: &PrunePolicy) -> PruneReport {
                     // refuses untracked files without --force.
                     DirtyState::UntrackedOnly => &["worktree", "remove", "--force", &path],
                 };
+                // EXP-478: last shield before removal — checked only when the
+                // removal is otherwise imminent, so a registered session never
+                // shows up here (`keep`/`busy` shield it first) and dirty
+                // worktrees keep their more informative `TrackedChanges`.
+                if worktree_is_young(&entry.path, SystemTime::now()) {
+                    report
+                        .skipped
+                        .push((branch.clone(), SkipReason::RecentlyCreated));
+                    continue;
+                }
                 match run_git(Some(clone), args, None, &format!("git worktree remove ({branch})"))
                 {
                     Ok(_) => {
@@ -422,6 +473,11 @@ pub fn prune_landed(clone: &Path, policy: &PrunePolicy) -> PruneReport {
     }
 
     // ---- branch-only sweep: landed prefix branches without a worktree ----
+    // No launch grace here (branch-only — nothing to stamp), and none needed:
+    // an in-process launch is excluded by the gate, and a cross-process
+    // `worktree add -b` creates branch+checkout atomically, so even against
+    // the stale `checked_out` snapshot the `-D` below fails harmlessly (git
+    // refuses to delete a branch checked out anywhere, per live state).
     if policy.delete_stale_branches {
         let checked_out: HashSet<String> = entries
             .iter()
@@ -534,6 +590,16 @@ mod tests {
             .unwrap()
     }
 
+    /// EXP-478: age a worktree past the launch grace so removal assertions
+    /// exercise the landed logic, not the grace shield.
+    fn backdate(worktree: &Path) {
+        let file = fs::OpenOptions::new()
+            .write(true)
+            .open(worktree.join(".git"))
+            .unwrap();
+        file.set_modified(SystemTime::now() - 2 * LAUNCH_GRACE).unwrap();
+    }
+
     fn commit_file(worktree: &Path, name: &str, content: &str, message: &str) {
         fs::write(worktree.join(name), content).unwrap();
         git(worktree, &["add", "."]);
@@ -572,6 +638,7 @@ mod tests {
         git(&origin, &["add", "."]);
         git(&origin, &["commit", "--quiet", "-m", "EXP-1: squashed"]);
         git(&clone, &["fetch", "--quiet", "origin"]);
+        backdate(&wt);
 
         // Ancestry can NOT see a squash merge — the probe must.
         let out = Command::new("git")
@@ -617,6 +684,7 @@ mod tests {
         let dir = temp_dir("keep");
         let (_origin, clone) = seed(&dir.0);
         let wt = worktree(&clone, "exp/EXP-3");
+        backdate(&wt);
 
         let mut kept = policy(&["exp/"]);
         kept.keep.insert("exp/EXP-3".to_string());
@@ -638,6 +706,10 @@ mod tests {
         // tracked modification.
         let debris = worktree(&clone, "exp/EXP-4");
         fs::write(debris.join("docker-compose.override.yaml"), "ports: []\n").unwrap();
+        backdate(&debris);
+        // `real` stays FRESH on purpose: `TrackedChanges` must win the skip
+        // report over the EXP-478 grace (the grace runs only when a removal
+        // is otherwise imminent).
         let real = worktree(&clone, "exp/EXP-5");
         fs::write(real.join("README.md"), "edited\n").unwrap();
 
@@ -668,6 +740,7 @@ mod tests {
         let (origin, clone) = seed(&dir.0);
         let wt = worktree(&clone, "exp/EXP-6");
         commit_file(&wt, "follow-up.txt", "x\n", "post-merge follow-up");
+        backdate(&wt);
 
         let mut merged = policy(&["exp/"]);
         merged.merged.insert("exp/EXP-6".to_string());
@@ -818,5 +891,80 @@ mod tests {
             worktree_dirty_state(&dir.0.join("missing")),
             DirtyState::TrackedChanges
         );
+    }
+
+    /// EXP-478: a just-created 0-ahead worktree is exactly what a mid-launch
+    /// session looks like to a stale policy — the grace must shield it even
+    /// with EMPTY protection sets, and stop once it ages out.
+    #[test]
+    fn fresh_worktree_survives_the_launch_grace() {
+        let dir = temp_dir("grace");
+        let (_origin, clone) = seed(&dir.0);
+        let wt = worktree(&clone, "exp/EXP-20");
+
+        let report = prune_landed(&clone, &policy(&["exp/"]));
+        assert!(report.removed_worktrees.is_empty());
+        assert_eq!(
+            report.skipped,
+            vec![("exp/EXP-20".to_string(), SkipReason::RecentlyCreated)]
+        );
+        assert!(wt.exists());
+        assert!(branch_exists(&clone, "exp/EXP-20"));
+
+        backdate(&wt);
+        let report = prune_landed(&clone, &policy(&["exp/"]));
+        assert_eq!(report.removed_worktrees, vec!["exp/EXP-20".to_string()]);
+        assert!(!wt.exists());
+        assert!(!branch_exists(&clone, "exp/EXP-20"));
+    }
+
+    /// EXP-478: reuse (a relaunch on a merged issue, fix-conflicts) refreshes
+    /// the stamp — an OLD worktree a launch just reclaimed is young again.
+    #[test]
+    fn reused_worktree_regains_the_grace() {
+        let dir = temp_dir("reuse");
+        let (_origin, clone) = seed(&dir.0);
+        let wt = worktree(&clone, "exp/EXP-22");
+        backdate(&wt);
+        // The reuse path of `create_worktree` — same call a relaunch makes.
+        let reused = worktree(&clone, "exp/EXP-22");
+        assert_eq!(reused, wt);
+
+        let report = prune_landed(&clone, &policy(&["exp/"]));
+        assert!(report.removed_worktrees.is_empty());
+        assert_eq!(
+            report.skipped,
+            vec![("exp/EXP-22".to_string(), SkipReason::RecentlyCreated)]
+        );
+        assert!(wt.exists());
+    }
+
+    /// EXP-478: a live launch hold parks the WHOLE pass — worktree removals
+    /// and the branch sweep — and the pass reports it ran into the gate.
+    #[test]
+    fn launch_hold_blocks_the_whole_pass() {
+        let dir = temp_dir("gate");
+        let (_origin, clone) = seed(&dir.0);
+        let wt = worktree(&clone, "exp/EXP-21");
+        backdate(&wt);
+        git(&clone, &["branch", "exp/OLD-9", "origin/main"]);
+        let mut sweeping = policy(&["exp/"]);
+        sweeping.delete_stale_branches = true;
+
+        let hold = crate::launch_gate::hold(&clone);
+        let report = prune_landed(&clone, &sweeping);
+        assert!(report.blocked_by_launch, "{report:?}");
+        assert!(report.removed_worktrees.is_empty());
+        assert!(report.deleted_branches.is_empty());
+        assert!(wt.exists());
+        assert!(branch_exists(&clone, "exp/OLD-9"));
+
+        drop(hold);
+        let report = prune_landed(&clone, &sweeping);
+        assert!(!report.blocked_by_launch);
+        assert_eq!(report.removed_worktrees, vec!["exp/EXP-21".to_string()]);
+        assert!(report.deleted_branches.contains(&"exp/OLD-9".to_string()));
+        assert!(!wt.exists());
+        assert!(!branch_exists(&clone, "exp/OLD-9"));
     }
 }

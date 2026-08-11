@@ -1105,6 +1105,10 @@ fn format_size(bytes: u64) -> String {
 /// The inline result line for a prune (`Removed 2 worktrees. Deleted 14
 /// branches. Skipped exp/EXP-3 (uncommitted changes).`).
 fn format_prune_result(report: &coding::PruneReport) -> SharedString {
+    if report.blocked_by_launch {
+        // EXP-478: the pass never ran — a launch held the clone's gate.
+        return "A coding session is being launched — try again in a moment.".into();
+    }
     if report.is_empty() {
         return "No merged worktrees to prune.".into();
     }
@@ -1163,6 +1167,7 @@ mod tests {
                 ],
                 skipped: vec![],
                 default_branch: Some("master".into()),
+                ..Default::default()
             }),
             SharedString::from("Removed 2 worktrees. Deleted 3 branches.")
         );
@@ -1175,11 +1180,25 @@ mod tests {
                     ("exp/EXP-4".to_string(), SkipReason::NotLanded),
                 ],
                 default_branch: Some("master".into()),
+                ..Default::default()
             }),
             SharedString::from(
                 "Removed 1 worktree. Deleted 1 branch. Skipped exp/EXP-3 \
                  (uncommitted changes), exp/EXP-4 (not merged into master)."
             )
+        );
+    }
+
+    /// EXP-478: a blocked pass reports as such — never as "nothing to prune".
+    #[test]
+    fn prune_result_reports_a_launch_blocked_pass() {
+        use coding::PruneReport;
+        assert_eq!(
+            format_prune_result(&PruneReport {
+                blocked_by_launch: true,
+                ..Default::default()
+            }),
+            SharedString::from("A coding session is being launched — try again in a moment.")
         );
     }
 
