@@ -80,6 +80,7 @@ mod start_coding_dialog;
 pub mod steer_wiring;
 mod support_thread;
 mod terminal_dock;
+mod worktree_prune;
 mod trunk_sync;
 mod timeline;
 mod title_bar;

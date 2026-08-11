@@ -15,11 +15,14 @@
 //!   force-remove is **blocked while a coding session holds that worktree's
 //!   branch** — the same guard as "Remove local copy", one level down (a
 //!   `--force` remove would otherwise yank a running agent's cwd).
-//! - **Prune merged worktrees**: for each of a clone's linked worktrees whose
-//!   issue has `prState = 'merged'`, `git worktree remove` + `git branch -D`.
-//!   A worktree with uncommitted changes is **skipped** (never force-removed)
-//!   and reported. All git ops are `std::process::Command("git")` with explicit
-//!   argv (masterplan L5) — no `gh`, no git library, no shell.
+//! - **Prune merged worktrees** (EXP-465): [`coding::prune::prune_landed`]
+//!   under the [`crate::worktree_prune`] policy — worktrees whose work has
+//!   LANDED on the default branch (merged PR, or git-confirmed for finished/
+//!   deleted issues and stale batch branches; squash merges detected) go,
+//!   along with their branches and any stale landed prefix branches. Tracked
+//!   modifications always skip (reported); untracked-only debris does not.
+//!   All git ops are `std::process::Command("git")` with explicit argv
+//!   (masterplan L5) — no `gh`, no git library, no shell.
 //! - **Remove local copy**: delete the clone dir + its `.worktrees` sibling
 //!   behind a confirm dialog. **Blocked while a coding session is running** on
 //!   one of the clone's worktrees (the Remove button disables with the reason).
@@ -224,31 +227,51 @@ impl LocalReposPane {
         self.actions.entry(full_name.to_string()).or_default()
     }
 
-    /// Prune the clone's merged worktrees: gather the merged-branch set from the
-    /// synced issues (foreground), then remove + delete-branch off the
-    /// foreground; a dirty worktree is skipped and reported (§4.7).
-    fn run_prune(&mut self, full_name: String, clone: PathBuf, cx: &mut gpui::Context<Self>) {
+    /// Prune the clone's landed worktrees + stale branches (EXP-465): derive
+    /// the issue-state policy on the foreground (repo-scoped when the
+    /// resolver knows this clone, git-truth-only otherwise), run
+    /// [`coding::prune::prune_landed`] off it, report inline. Tracked changes
+    /// always skip; untracked-only debris goes with the worktree (§4.7's
+    /// "explicit user action" — this button IS the confirmation).
+    fn run_prune(
+        &mut self,
+        full_name: String,
+        clone: PathBuf,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
         if self.action_mut(&full_name).busy {
             return;
         }
-        let prefix = CodingHub::global(cx)
-            .read(cx)
-            .settings
-            .branch_prefix
-            .clone();
-        let merged = collect_merged_branches(&prefix, cx);
+        let resolved = self
+            .resolver
+            .as_ref()
+            .and_then(|resolver| resolver.read(cx).all_repos())
+            .and_then(|repos| repos.iter().find(|repo| repo.full_name == full_name))
+            .map(|repo| (repo.repository_id.clone(), repo.default_branch.clone()));
+        let policy = match resolved {
+            Some((repository_id, default_branch)) => {
+                crate::worktree_prune::prune_policy_for_repo(
+                    &repository_id,
+                    default_branch,
+                    window,
+                    cx,
+                )
+            }
+            None => crate::worktree_prune::prune_policy_unscoped(window, cx),
+        };
         self.action_mut(&full_name).busy = true;
         cx.notify();
 
         cx.spawn(async move |this, cx| {
-            let result = cx
+            let report = cx
                 .background_executor()
-                .spawn(async move { prune_merged(&clone, &merged) })
+                .spawn(async move { coding::prune::prune_landed(&clone, &policy) })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 let entry = this.action_mut(&full_name);
                 entry.busy = false;
-                entry.message = Some((false, format_prune_result(&result)));
+                entry.message = Some((false, format_prune_result(&report)));
                 // Counts and size moved — re-scan.
                 this.scan = Scan::Idle;
                 cx.notify();
@@ -483,13 +506,15 @@ impl LocalReposPane {
                 .xsmall()
                 .label("Prune merged worktrees")
                 .tooltip(
-                    "Remove worktrees whose PR is merged (git worktree remove + delete \
-                     branch). A worktree with uncommitted changes is skipped.",
+                    "Remove worktrees whose work has landed on the default branch \
+                     (merged PR, squash merges included, or a finished issue) and \
+                     delete stale session branches. Uncommitted changes to tracked \
+                     files are never discarded; live sessions are never touched.",
                 )
                 .loading(busy)
                 .disabled(busy)
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.run_prune(full_name.clone(), clone.clone(), cx);
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.run_prune(full_name.clone(), clone.clone(), window, cx);
                 }))
         };
 
@@ -817,24 +842,6 @@ impl Render for LocalReposPane {
 // Foreground helpers (synced-collection reads)
 // ---------------------------------------------------------------------------
 
-/// The set of coding branches whose issue's PR is merged — matched against a
-/// clone's worktree branches by [`prune_merged`]. Both the DB `branch` field
-/// and the locally-composed `<prefix><IDENTIFIER>` are included so a changed
-/// branch prefix still resolves.
-fn collect_merged_branches(prefix: &str, cx: &App) -> HashSet<String> {
-    let mut set = HashSet::new();
-    for issue in Store::global(cx).collections().issues.read(cx).iter() {
-        if issue.pr_state.as_deref() != Some(domain::contract::PR_STATE_MERGED) {
-            continue;
-        }
-        set.insert(branch_name(prefix, &issue.identifier));
-        if let Some(branch) = &issue.branch {
-            set.insert(branch.clone());
-        }
-    }
-    set
-}
-
 /// The branches held by a live coding session ANYWHERE: a synced
 /// `running`/`in_review`/`merged` session mapped through its issue to
 /// `<prefix><IDENTIFIER>` (EXP-358: a merged run's session keeps running, so
@@ -1024,46 +1031,6 @@ fn worktree_list(clone: &Path) -> Option<Vec<(PathBuf, Option<String>)>> {
     Some(entries)
 }
 
-/// Outcome of a prune: worktrees removed + skipped `(branch, reason)` pairs.
-#[derive(Debug, Default, PartialEq, Eq)]
-struct PruneResult {
-    removed: usize,
-    skipped: Vec<(String, String)>,
-}
-
-/// Remove every merged-branch worktree of `clone`: `git worktree remove` +
-/// `git branch -D`. A worktree with uncommitted changes (or a failing remove)
-/// is skipped and reported — never force-removed (§4.7). Blocking; runs on the
-/// background executor.
-fn prune_merged(clone: &Path, merged_branches: &HashSet<String>) -> PruneResult {
-    let mut result = PruneResult::default();
-    let Some(worktrees) = worktree_list(clone) else {
-        return result;
-    };
-    for (path, branch) in worktrees {
-        let Some(branch) = branch else {
-            continue; // detached — no issue mapping
-        };
-        if !merged_branches.contains(&branch) {
-            continue;
-        }
-        if is_dirty(&path) {
-            result
-                .skipped
-                .push((branch, "uncommitted changes".to_string()));
-            continue;
-        }
-        if let Err(detail) = git_ok(clone, &["worktree", "remove", &path.to_string_lossy()]) {
-            result.skipped.push((branch, detail));
-            continue;
-        }
-        // Branch delete is best-effort — the worktree (the disk win) is gone.
-        let _ = git_ok(clone, &["branch", "-D", &branch]);
-        result.removed += 1;
-    }
-    result
-}
-
 /// Remove ONE worktree of `clone` (EXP-369, the sub-row's trash action).
 /// `--force` because the confirm dialog already warned that uncommitted work
 /// goes with it — the prune path stays non-forcing on purpose. The branch is
@@ -1074,16 +1041,6 @@ fn remove_worktree(clone: &Path, worktree: &Path) -> Result<(), String> {
         clone,
         &["worktree", "remove", "--force", &worktree.to_string_lossy()],
     )
-}
-
-/// Whether a worktree has staged/unstaged/untracked changes
-/// (`git status --porcelain` non-empty). A failure is treated as dirty (fail
-/// safe — never prune a worktree we couldn't inspect).
-fn is_dirty(worktree: &Path) -> bool {
-    match base_git(worktree).args(["status", "--porcelain"]).output() {
-        Ok(output) if output.status.success() => !output.stdout.iter().all(u8::is_ascii_whitespace),
-        _ => true,
-    }
 }
 
 /// Delete the clone and its `.worktrees` sibling from disk. Best-effort on the
@@ -1145,22 +1102,30 @@ fn format_size(bytes: u64) -> String {
     format!("{size:.1} {}", UNITS[unit])
 }
 
-/// The inline result line for a prune (`Removed 2. Skipped exp/EXP-3
-/// (uncommitted changes).`).
-fn format_prune_result(result: &PruneResult) -> SharedString {
-    if result.removed == 0 && result.skipped.is_empty() {
+/// The inline result line for a prune (`Removed 2 worktrees. Deleted 14
+/// branches. Skipped exp/EXP-3 (uncommitted changes).`).
+fn format_prune_result(report: &coding::PruneReport) -> SharedString {
+    if report.is_empty() {
         return "No merged worktrees to prune.".into();
     }
     let mut parts = Vec::new();
-    if result.removed > 0 {
-        let noun = if result.removed == 1 { "worktree" } else { "worktrees" };
-        parts.push(format!("Removed {} {noun}.", result.removed));
+    let removed = report.removed_worktrees.len();
+    if removed > 0 {
+        let noun = if removed == 1 { "worktree" } else { "worktrees" };
+        parts.push(format!("Removed {removed} {noun}."));
     }
-    if !result.skipped.is_empty() {
-        let detail = result
+    let deleted = report.deleted_branches.len();
+    if deleted > 0 {
+        let noun = if deleted == 1 { "branch" } else { "branches" };
+        parts.push(format!("Deleted {deleted} {noun}."));
+    }
+    if !report.skipped.is_empty() {
+        let detail = report
             .skipped
             .iter()
-            .map(|(branch, reason)| format!("{branch} ({reason})"))
+            .map(|(branch, reason)| {
+                format!("{branch} ({})", reason.describe(report.default_branch.as_deref()))
+            })
             .collect::<Vec<_>>()
             .join(", ");
         parts.push(format!("Skipped {detail}."));
@@ -1182,21 +1147,39 @@ mod tests {
     }
 
     #[test]
-    fn prune_result_renders_removed_and_skipped() {
+    fn prune_result_renders_removed_deleted_and_skipped() {
+        use coding::{PruneReport, SkipReason};
         assert_eq!(
-            format_prune_result(&PruneResult::default()),
+            format_prune_result(&PruneReport::default()),
             SharedString::from("No merged worktrees to prune.")
         );
         assert_eq!(
-            format_prune_result(&PruneResult { removed: 2, skipped: vec![] }),
-            SharedString::from("Removed 2 worktrees.")
+            format_prune_result(&PruneReport {
+                removed_worktrees: vec!["exp/EXP-1".into(), "exp/EXP-2".into()],
+                deleted_branches: vec![
+                    "exp/EXP-1".into(),
+                    "exp/EXP-2".into(),
+                    "exp/OLD-9".into()
+                ],
+                skipped: vec![],
+                default_branch: Some("master".into()),
+            }),
+            SharedString::from("Removed 2 worktrees. Deleted 3 branches.")
         );
         assert_eq!(
-            format_prune_result(&PruneResult {
-                removed: 1,
-                skipped: vec![("exp/EXP-3".to_string(), "uncommitted changes".to_string())],
+            format_prune_result(&PruneReport {
+                removed_worktrees: vec!["exp/EXP-1".into()],
+                deleted_branches: vec!["exp/EXP-1".into()],
+                skipped: vec![
+                    ("exp/EXP-3".to_string(), SkipReason::TrackedChanges),
+                    ("exp/EXP-4".to_string(), SkipReason::NotLanded),
+                ],
+                default_branch: Some("master".into()),
             }),
-            SharedString::from("Removed 1 worktree. Skipped exp/EXP-3 (uncommitted changes).")
+            SharedString::from(
+                "Removed 1 worktree. Deleted 1 branch. Skipped exp/EXP-3 \
+                 (uncommitted changes), exp/EXP-4 (not merged into master)."
+            )
         );
     }
 
@@ -1350,41 +1333,6 @@ mod tests {
         assert!(worktree_in_use(&clone, &row, &live));
         let other: HashSet<String> = ["exp/EXP-8".to_string()].into_iter().collect();
         assert!(!worktree_in_use(&clone, &row, &other));
-    }
-
-    #[test]
-    fn prune_removes_merged_clean_worktrees_and_skips_dirty() {
-        let dir = temp_dir("prune");
-        let (_root, clone) = seed_clone(&dir.0);
-
-        // EXP-2 is dirty (uncommitted change); EXP-1 is clean.
-        let dirty = worktrees_dir(&clone).join(sanitize_branch_for_path("exp/EXP-2"));
-        std::fs::write(dirty.join("README.md"), "changed\n").unwrap();
-
-        let merged: HashSet<String> =
-            ["exp/EXP-1".to_string(), "exp/EXP-2".to_string()].into_iter().collect();
-        let result = prune_merged(&clone, &merged);
-
-        assert_eq!(result.removed, 1);
-        assert_eq!(result.skipped.len(), 1);
-        assert_eq!(result.skipped[0].0, "exp/EXP-2");
-
-        // The clean worktree + its branch are gone; the dirty one survives.
-        assert!(!worktrees_dir(&clone)
-            .join(sanitize_branch_for_path("exp/EXP-1"))
-            .exists());
-        assert!(dirty.exists());
-        assert!(git_ok(&clone, &["rev-parse", "--verify", "--quiet", "refs/heads/exp/EXP-1"]).is_err());
-    }
-
-    #[test]
-    fn prune_ignores_unmerged_worktrees() {
-        let dir = temp_dir("unmerged");
-        let (_root, clone) = seed_clone(&dir.0);
-        // Empty merged set → nothing pruned.
-        let result = prune_merged(&clone, &HashSet::new());
-        assert_eq!(result, PruneResult::default());
-        assert_eq!(list_repo_worktrees(&clone).len(), 2);
     }
 
     #[test]
