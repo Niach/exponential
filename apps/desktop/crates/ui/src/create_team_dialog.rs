@@ -121,6 +121,7 @@ impl CreateTeamDialogView {
         self.submitting = true;
         cx.notify();
 
+        let submitted_name = name.clone();
         cx.spawn_in(window, async move |this, window| {
             let result = window
                 .background_executor()
@@ -129,11 +130,25 @@ impl CreateTeamDialogView {
 
             match result {
                 Ok(output) => {
-                    // Gate on the Electric echo, then switch the window to
-                    // the new team (web navigates to the new slug).
+                    // Seed the row from the mutation response so the switch
+                    // is instant (EXP-470) — the Electric echo only lands
+                    // after the shape-identity rotation resolves. The seed
+                    // also satisfies the await below immediately; the
+                    // pipeline restart makes the rotated shapes re-poll now
+                    // instead of waiting out their parked long-polls.
                     let team_id = output.team.id.clone();
+                    let seeded = domain::rows::Team::seeded(
+                        team_id.clone(),
+                        output.team.name.clone().unwrap_or(submitted_name),
+                        output.team.slug.clone(),
+                    );
                     let teams = window
-                        .update(|_, cx| Store::global(cx).collections().teams.clone())
+                        .update(|_, cx| {
+                            let store = Store::global(cx).clone();
+                            store.collections().seed_team(seeded, cx);
+                            store.resync_active(cx);
+                            store.collections().teams.clone()
+                        })
                         .ok();
                     if let Some(teams) = teams {
                         queries::await_row_visible(&teams, &team_id, window).await;

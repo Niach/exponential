@@ -61,6 +61,27 @@ pub struct Team {
     pub updated_at: Option<String>,
 }
 
+impl Team {
+    /// Optimistic local row built from a mutation's own response (EXP-470) —
+    /// identity fields only; everything else stays `None` (degrading like a
+    /// pre-column row) until the Electric echo overwrites it.
+    pub fn seeded(id: impl Into<String>, name: impl Into<String>, slug: Option<String>) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+            slug,
+            icon_url: None,
+            helpdesk_enabled: None,
+            pr_opened_status_id: None,
+            pr_opened_automation: None,
+            pr_merged_status_id: None,
+            pr_merged_automation: None,
+            created_at: None,
+            updated_at: None,
+        }
+    }
+}
+
 /// `boards` shape row.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Board {
@@ -89,6 +110,30 @@ pub struct Board {
     pub created_at: Option<String>,
     #[serde(default)]
     pub updated_at: Option<String>,
+}
+
+impl Board {
+    /// Optimistic local row from a mutation response (EXP-470) — see
+    /// [`Team::seeded`]. Callers set the optional fields they know.
+    pub fn seeded(
+        id: impl Into<String>,
+        team_id: impl Into<String>,
+        name: impl Into<String>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            team_id: team_id.into(),
+            name: name.into(),
+            slug: None,
+            prefix: None,
+            color: None,
+            icon: None,
+            repository_id: None,
+            sort_order: None,
+            created_at: None,
+            updated_at: None,
+        }
+    }
 }
 
 /// `issues` shape row (§5.5's exemplar struct plus the full column set).

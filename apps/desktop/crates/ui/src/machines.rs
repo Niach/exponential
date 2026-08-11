@@ -189,48 +189,6 @@ impl MachinesSection {
 
     // -- dialogs -------------------------------------------------------------
 
-    /// The web "Add a server" dialog (EXP-480): the install one-liner for the
-    /// headless `exponential` CLI, with OK = copy to clipboard. The script is
-    /// served by the CLOUD marketing site for every instance (self-hosted
-    /// ships no marketing pages), so the snippet always names the target
-    /// instance explicitly via `EXP_INSTANCE` — the web
-    /// `buildServerInstallSnippet` shape exactly.
-    fn prompt_add_server(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let origin = queries::active_account(cx)
-            .map(|account| account.instance_url.trim_end_matches('/').to_string())
-            .unwrap_or_else(|| "https://app.exponential.at".to_string());
-        let snippet =
-            format!("curl -fsSL https://exponential.at/install.sh | EXP_INSTANCE={origin} sh");
-        let content_snippet = SharedString::from(snippet.clone());
-        let spec = AlertSpec::new(
-            "Add a server",
-            "Run this on any Linux or macOS machine. It installs the \
-             exponential CLI, signs you in with a device code, and registers \
-             the machine here.",
-            "Copy",
-        )
-        // Description + the wrapped two-line snippet box.
-        .height(px(264.))
-        .content(move |_, cx| {
-            div()
-                .mt_2()
-                .p_2()
-                .rounded(px(theme::tokens::radius::SM))
-                .border_1()
-                .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-                .text_xs()
-                .font_family(theme::terminal::FONT_FAMILY)
-                .text_color(cx.theme().foreground)
-                .child(content_snippet.clone())
-                .into_any_element()
-        })
-        .on_ok(move |_, cx| {
-            cx.write_to_clipboard(ClipboardItem::new_string(snippet.clone()));
-            true
-        });
-        native_dialog::open_alert(window, cx, spec);
-    }
-
     /// Rename behind the shared alert window, the typed-input pattern from
     /// the team Danger Zone (the input is a long-lived child so its state
     /// survives the dialog window).
@@ -506,6 +464,49 @@ impl MachinesSection {
     }
 }
 
+/// The web "Add a server" dialog (EXP-480): the install one-liner for the
+/// headless `exponential` CLI, with OK = copy to clipboard. The script is
+/// served by the CLOUD marketing site for every instance (self-hosted ships
+/// no marketing pages), so the snippet always names the target instance
+/// explicitly via `EXP_INSTANCE` — the web `buildServerInstallSnippet` shape
+/// exactly. Shared (EXP-470): opened from this section's band and from the
+/// Getting-started page's server card.
+pub(crate) fn open_add_server_dialog(window: &mut Window, cx: &mut gpui::App) {
+    let origin = queries::active_account(cx)
+        .map(|account| account.instance_url.trim_end_matches('/').to_string())
+        .unwrap_or_else(|| "https://app.exponential.at".to_string());
+    let snippet =
+        format!("curl -fsSL https://exponential.at/install.sh | EXP_INSTANCE={origin} sh");
+    let content_snippet = SharedString::from(snippet.clone());
+    let spec = AlertSpec::new(
+        "Add a server",
+        "Run this on any Linux or macOS machine. It installs the \
+         exponential CLI, signs you in with a device code, and registers \
+         the machine here.",
+        "Copy",
+    )
+    // Description + the wrapped two-line snippet box.
+    .height(px(264.))
+    .content(move |_, cx| {
+        div()
+            .mt_2()
+            .p_2()
+            .rounded(px(theme::tokens::radius::SM))
+            .border_1()
+            .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+            .text_xs()
+            .font_family(theme::terminal::FONT_FAMILY)
+            .text_color(cx.theme().foreground)
+            .child(content_snippet.clone())
+            .into_any_element()
+    })
+    .on_ok(move |_, cx| {
+        cx.write_to_clipboard(ClipboardItem::new_string(snippet.clone()));
+        true
+    });
+    native_dialog::open_alert(window, cx, spec);
+}
+
 /// EXP-409: online with NOTHING runnable — every installed agent is signed
 /// out, so the row reads amber with the sign-in reason instead of "Online".
 fn sign_in_needed(device: &api::devices::DeviceEntry) -> bool {
@@ -620,9 +621,9 @@ impl Render for MachinesSection {
             .xsmall()
             .icon(registry::UI_ADD)
             .label("Add server")
-            .on_click(cx.listener(|this, _: &gpui::ClickEvent, window, cx| {
-                this.prompt_add_server(window, cx);
-            }))
+            .on_click(|_: &gpui::ClickEvent, window, cx| {
+                open_add_server_dialog(window, cx);
+            })
             .into_any_element();
         let count = devices.as_ref().map(Vec::len).unwrap_or(0);
 

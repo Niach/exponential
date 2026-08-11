@@ -48,6 +48,11 @@ pub struct Account {
     /// ISO timestamp when onboarding finished; `None` gates the wizard.
     #[serde(default)]
     pub onboarding_completed_at: Option<String>,
+    /// ISO timestamp of the getting-started checklist dismissal (EXP-470);
+    /// `None` keeps the rail entry visible. Same lifecycle as the onboarding
+    /// stamp: server flag mirrored locally, one-way.
+    #[serde(default)]
+    pub getting_started_dismissed_at: Option<String>,
 }
 
 /// Derive the stable, filesystem-safe account id for (instance URL, user id).
@@ -230,6 +235,7 @@ impl AuthStore {
             name: user.name.clone(),
             is_admin: user.is_admin.unwrap_or(false),
             onboarding_completed_at: user.onboarding_completed_at.clone(),
+            getting_started_dismissed_at: user.getting_started_dismissed_at.clone(),
         };
 
         self.token_store
@@ -240,15 +246,20 @@ impl AuthStore {
             state.tokens.insert(account.id.clone(), token.to_string());
             match state.accounts.iter_mut().find(|a| a.id == account.id) {
                 Some(existing) => {
-                    // Preserve a previously-known onboarding flag so a login
-                    // response that omits it doesn't re-trigger the wizard
-                    // (iOS AuthRepository parity).
+                    // Preserve previously-known one-way flags so a login
+                    // response that omits them doesn't re-trigger the wizard
+                    // or the checklist (iOS AuthRepository parity).
                     let onboarding = account
                         .onboarding_completed_at
                         .clone()
                         .or_else(|| existing.onboarding_completed_at.clone());
+                    let getting_started = account
+                        .getting_started_dismissed_at
+                        .clone()
+                        .or_else(|| existing.getting_started_dismissed_at.clone());
                     *existing = Account {
                         onboarding_completed_at: onboarding,
+                        getting_started_dismissed_at: getting_started,
                         ..account.clone()
                     };
                 }
@@ -274,6 +285,18 @@ impl AuthStore {
         if let Some(account) = state.accounts.iter_mut().find(|a| a.id == account_id) {
             if account.onboarding_completed_at.is_none() {
                 account.onboarding_completed_at = Some(completed_at.to_string());
+                self.persist_locked(&state);
+            }
+        }
+    }
+
+    /// One-way LOCAL stamp mirroring `users.dismissGettingStarted` (EXP-470)
+    /// — same rationale as [`AuthStore::set_onboarding_completed`].
+    pub fn set_getting_started_dismissed(&self, account_id: &str, dismissed_at: &str) {
+        let mut state = self.state.write().unwrap();
+        if let Some(account) = state.accounts.iter_mut().find(|a| a.id == account_id) {
+            if account.getting_started_dismissed_at.is_none() {
+                account.getting_started_dismissed_at = Some(dismissed_at.to_string());
                 self.persist_locked(&state);
             }
         }
@@ -388,6 +411,7 @@ mod tests {
             name: Some("Danny".to_string()),
             is_admin: Some(false),
             onboarding_completed_at: Some("2026-01-01T00:00:00.000Z".to_string()),
+            getting_started_dismissed_at: None,
         }
     }
 
@@ -436,6 +460,48 @@ mod tests {
             AuthEvent::SignedIn {
                 account_id: account.id.clone()
             }
+        );
+    }
+
+    #[test]
+    fn relogin_preserves_one_way_flags_and_local_stamps_set_once() {
+        let dir = TempDir::new("flags");
+        let store = test_store(&dir);
+        let account = store
+            .sign_in("app.exponential.at", "tok-A", &user())
+            .unwrap();
+
+        // Local dismissal stamp sets once and never overwrites.
+        store.set_getting_started_dismissed(&account.id, "2026-02-01T00:00:00.000Z");
+        store.set_getting_started_dismissed(&account.id, "2026-03-01T00:00:00.000Z");
+        let read = |store: &AuthStore| {
+            store
+                .signed_in_accounts()
+                .into_iter()
+                .find(|a| a.id == account.id)
+                .unwrap()
+        };
+        assert_eq!(
+            read(&store).getting_started_dismissed_at.as_deref(),
+            Some("2026-02-01T00:00:00.000Z")
+        );
+
+        // A re-login whose session response omits both one-way flags must not
+        // resurrect the wizard or the checklist.
+        let bare = AuthUser {
+            onboarding_completed_at: None,
+            getting_started_dismissed_at: None,
+            ..user()
+        };
+        store.sign_in("app.exponential.at", "tok-B", &bare).unwrap();
+        let account = read(&store);
+        assert_eq!(
+            account.onboarding_completed_at.as_deref(),
+            Some("2026-01-01T00:00:00.000Z")
+        );
+        assert_eq!(
+            account.getting_started_dismissed_at.as_deref(),
+            Some("2026-02-01T00:00:00.000Z")
         );
     }
 

@@ -5,6 +5,7 @@ import { trpc } from "@/lib/trpc-client"
 import { useSession } from "@/hooks/use-session"
 import {
   useTeamBoards,
+  useTeamInvites,
   useTeamUsers,
 } from "@/hooks/use-team-data"
 import {
@@ -29,6 +30,7 @@ export function useGettingStartedProgress(
 } {
   const { data: session } = useSession()
   const { members } = useTeamUsers(team?.id)
+  const invites = useTeamInvites(team?.id)
   const permissions = useTeamPermissions(team)
   const teamId = team?.id
 
@@ -65,6 +67,10 @@ export function useGettingStartedProgress(
   const [githubInstalled, setGithubInstalled] = useState<boolean | null>(null)
   const [hasWidget, setHasWidget] = useState<boolean | null>(null)
   const [mcpConnected, setMcpConnected] = useState<boolean | null>(null)
+  const [deviceKinds, setDeviceKinds] = useState<{
+    desktop: boolean
+    server: boolean
+  } | null>(null)
 
   // Team-scoped answers must not leak across a team switch — the
   // sidebar keeps this hook mounted, and a stale `true` would flash the new
@@ -121,6 +127,40 @@ export function useGettingStartedProgress(
     }
   }, [resolved, canManageWidgets, teamId])
 
+  // User-level, team-independent — fire immediately. devices.list without a
+  // teamId returns only the caller's own rows (no shared-device join, no
+  // relay presence fetches) and works with the steer relay unconfigured, so
+  // this stays a cheap one-shot rather than the 15s useRemoteStart poll. The
+  // focus listener catches "installed the app / ran the server one-liner in
+  // another window" and retires once both kinds exist.
+  useEffect(() => {
+    let cancelled = false
+    const check = () => {
+      trpc.devices.list
+        .query(undefined)
+        .then((result) => {
+          if (cancelled) return
+          const desktop = result.devices.some(
+            (device) => device.kind === `desktop`
+          )
+          const server = result.devices.some(
+            (device) => device.kind === `server`
+          )
+          setDeviceKinds({ desktop, server })
+          if (desktop && server) window.removeEventListener(`focus`, check)
+        })
+        .catch(() => {
+          if (!cancelled) setDeviceKinds({ desktop: false, server: false })
+        })
+    }
+    check()
+    window.addEventListener(`focus`, check)
+    return () => {
+      cancelled = true
+      window.removeEventListener(`focus`, check)
+    }
+  }, [])
+
   // User-level, team-independent — fire immediately.
   useEffect(() => {
     let cancelled = false
@@ -141,7 +181,10 @@ export function useGettingStartedProgress(
 
   const signals: GettingStartedSignals = useMemo(
     () => ({
+      hasDesktopDevice: deviceKinds?.desktop === true,
+      hasServerDevice: deviceKinds?.server === true,
       githubInstalled: githubInstalled === true,
+      hasInvitedTeam: members.length > 1 || invites.length > 0,
       hasBoard: liveBoards.length > 0,
       hasRepoBoard: liveBoards.some(
         (board) => board.repositoryId != null
@@ -152,7 +195,10 @@ export function useGettingStartedProgress(
       mcpConnected: mcpConnected === true,
     }),
     [
+      deviceKinds,
       githubInstalled,
+      members,
+      invites,
       liveBoards,
       sessionRows,
       team?.helpdeskEnabled,
@@ -167,6 +213,7 @@ export function useGettingStartedProgress(
     !resolved ||
     !sessionsReady ||
     githubInstalled === null ||
+    deviceKinds === null ||
     (canManageWidgets && hasWidget === null) ||
     mcpConnected === null
 

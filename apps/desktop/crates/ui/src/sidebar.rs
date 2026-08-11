@@ -637,11 +637,15 @@ impl RailView {
         expanded: bool,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
-        // EXP-480: while the Actions full-page mode is up the tool column is
-        // unmounted, so no tool entry may read as selected — exactly one rail
-        // entry (Actions) highlights, like a tool switch.
+        // EXP-480: while the Actions (or Getting-started, EXP-470) full-page
+        // mode is up the tool column is unmounted, so no tool entry may read
+        // as selected — exactly one rail entry highlights, like a tool
+        // switch.
         let active = self.shared.read(cx).tool == tool
-            && !matches!(resolved_screen(&self.nav, cx), Some(Screen::Actions));
+            && !matches!(
+                resolved_screen(&self.nav, cx),
+                Some(Screen::Actions) | Some(Screen::GettingStarted)
+            );
         if expanded {
             return rail_row(id, icon, label, active, accent, badge, cx)
                 .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
@@ -731,6 +735,65 @@ impl RailView {
             .when(active, |this| {
                 // The tool icons' JetBrains-style selection marker — this
                 // entry sits among them, so it carries the same bar.
+                this.child(
+                    div()
+                        .absolute()
+                        .left(px(-6.))
+                        .top_0()
+                        .bottom_0()
+                        .w(px(2.))
+                        .rounded_full()
+                        .bg(accent),
+                )
+            })
+            .into_any_element()
+    }
+
+    /// The Getting-started entry (EXP-470): the desktop mirror of the web
+    /// sidebar's re-entry point — navigates to the tab-less
+    /// [`Screen::GettingStarted`] page, the `rail_actions_entry` shape.
+    /// Rendered conditionally (the Support pattern): hidden once dismissed.
+    fn rail_getting_started_entry(
+        &self,
+        accent: Hsla,
+        expanded: bool,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let active = matches!(
+            resolved_screen(&self.nav, cx),
+            Some(Screen::GettingStarted)
+        );
+        let icon = Icon::from(icons::registry::NAV_GETTING_STARTED);
+        if expanded {
+            return rail_row(
+                "rail-getting-started",
+                icon,
+                "Getting started",
+                active,
+                accent,
+                None,
+                cx,
+            )
+            .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
+                navigate(window, cx, Screen::GettingStarted);
+            }))
+            .into_any_element();
+        }
+        let icon = if active { icon.text_color(accent) } else { icon };
+        div()
+            .relative()
+            .child(
+                Button::new("rail-getting-started")
+                    .ghost()
+                    .small()
+                    .icon(icon)
+                    .selected(active)
+                    .tooltip("Getting started")
+                    .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
+                        navigate(window, cx, Screen::GettingStarted);
+                    })),
+            )
+            .when(active, |this| {
                 this.child(
                     div()
                         .absolute()
@@ -889,11 +952,14 @@ impl RailView {
     ) -> gpui::AnyElement {
         let shared = self.shared.read(cx);
         let active_board = active_board_id(&self.nav, cx);
-        // Same EXP-480 suppression as `rail_tool_icon`: the Actions
-        // full-page mode owns the highlight while it is up.
+        // Same EXP-480 suppression as `rail_tool_icon`: a full-page mode
+        // (Actions / Getting-started) owns the highlight while it is up.
         let active = shared.tool == ToolWindow::BoardIssues
             && active_board.as_deref() == Some(board.id.as_str())
-            && !matches!(resolved_screen(&self.nav, cx), Some(Screen::Actions));
+            && !matches!(
+                resolved_screen(&self.nav, cx),
+                Some(Screen::Actions) | Some(Screen::GettingStarted)
+            );
         let tint = board
             .color
             .as_deref()
@@ -1052,6 +1118,10 @@ impl Render for RailView {
                 cx,
             )
         });
+        // Getting-started entry (EXP-470): conditional like Support —
+        // rendered until the account dismisses the checklist.
+        let getting_started_icon = crate::getting_started::getting_started_visible(cx)
+            .then(|| self.rail_getting_started_entry(accent, expanded, cx));
 
         // Projects section (EXP-253 — the top-bar board picker flattened into
         // the rail): the ACTIVE team's boards as tinted icons + "+".
@@ -1334,6 +1404,7 @@ impl Render for RailView {
                     ))
                     .children(support_icon)
                     .child(self.rail_actions_entry(accent, expanded, cx))
+                    .children(getting_started_icon)
                     .child(self.divider(expanded, cx))
                     .children(board_icons)
                     .children(new_board)

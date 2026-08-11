@@ -165,8 +165,21 @@ impl ShapeRow for IssueLabel {
 /// In-memory reactive projection of one shape (§5.8): a `HashMap<RowKey, T>`
 /// of hydrated `domain` structs plus a monotonic revision counter for cheap
 /// diffing and the shape's sync phase.
+///
+/// `seeded` (EXP-470) is the optimistic overlay: rows built locally from a
+/// mutation's own response so the UI can act on them before the Electric
+/// echo arrives (a new team's row only lands after the shape-identity
+/// rotation resolves — seconds). It is deliberately a SEPARATE map, memory
+/// only, never SQLite: a post-409 refetch (or the startup hydrate) calls
+/// [`Collection::replace_all`], and a snapshot computed before the server's
+/// membership view caught up would silently truncate an optimistic row out
+/// of `rows` — bouncing the UI back. The overlay survives every
+/// `replace_all` and an entry is removed only by an authoritative signal for
+/// its exact key (a sync upsert/delete, or a snapshot that contains the
+/// key). Invariant: a key is never in both maps — `rows` wins.
 pub struct Collection<T> {
     rows: HashMap<RowKey, T>,
+    seeded: HashMap<RowKey, T>,
     phase: ShapeSyncPhase,
     revision: u64,
 }
@@ -175,30 +188,47 @@ impl<T> Collection<T> {
     fn new() -> Self {
         Self {
             rows: HashMap::new(),
+            seeded: HashMap::new(),
             phase: ShapeSyncPhase::Waiting,
             revision: 0,
         }
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &T> {
-        self.rows.values()
+        self.rows.values().chain(self.seeded.values())
     }
 
     pub fn len(&self) -> usize {
-        self.rows.len()
+        self.rows.len() + self.seeded.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.rows.is_empty()
+        self.rows.is_empty() && self.seeded.is_empty()
     }
 
     /// Single-`id` lookup (composite-PK rows use [`Collection::get_key`]).
     pub fn get(&self, id: &str) -> Option<&T> {
-        self.rows.get(&RowKey::Single(id.to_string()))
+        self.get_key(&RowKey::Single(id.to_string()))
     }
 
     pub fn get_key(&self, key: &RowKey) -> Option<&T> {
-        self.rows.get(key)
+        self.rows.get(key).or_else(|| self.seeded.get(key))
+    }
+
+    /// True while the row exists only as an optimistic seed — sync has not
+    /// yet confirmed it. Drives "setting up…" surfaces.
+    pub fn is_seeded(&self, id: &str) -> bool {
+        self.seeded.contains_key(&RowKey::Single(id.to_string()))
+    }
+
+    /// Optimistically insert a locally-built row (EXP-470). No-op when sync
+    /// already delivered the key.
+    pub fn seed(&mut self, key: RowKey, row: T) {
+        if self.rows.contains_key(&key) {
+            return;
+        }
+        self.seeded.insert(key, row);
+        self.revision += 1;
     }
 
     /// Monotonic change counter — bumps on every applied delta.
@@ -226,22 +256,29 @@ impl<T> Collection<T> {
 
     fn replace_all(&mut self, rows: Vec<(RowKey, T)>) {
         self.rows = rows.into_iter().collect();
+        // Only a snapshot that CONTAINS a seeded key confirms it; a snapshot
+        // without it may predate the mutation (stale where clause) and must
+        // not evict the optimistic row.
+        self.seeded.retain(|key, _| !self.rows.contains_key(key));
         self.revision += 1;
     }
 
     fn upsert(&mut self, key: RowKey, row: T) {
+        self.seeded.remove(&key);
         self.rows.insert(key, row);
         self.revision += 1;
     }
 
     fn remove(&mut self, key: &RowKey) {
-        if self.rows.remove(key).is_some() {
+        let seeded = self.seeded.remove(key).is_some();
+        if self.rows.remove(key).is_some() || seeded {
             self.revision += 1;
         }
     }
 
     fn clear(&mut self) {
         self.rows.clear();
+        self.seeded.clear();
         self.phase = ShapeSyncPhase::Waiting;
         self.revision += 1;
     }
@@ -426,6 +463,26 @@ impl Collections {
 }
 
 impl Collections {
+    /// Optimistically seed a team row from a mutation response (EXP-470) —
+    /// the create/join flows switch to the team immediately instead of
+    /// waiting out the Electric shape-identity rotation.
+    pub fn seed_team(&self, team: Team, cx: &mut App) {
+        self.teams.update(cx, |collection, cx| {
+            collection.seed(team.key(), team);
+            cx.notify();
+        });
+    }
+
+    /// Optimistically seed a board row from a mutation response (EXP-470) —
+    /// covers the onboarding wizard's board step in a just-created team,
+    /// whose boards shape has not rotated yet.
+    pub fn seed_board(&self, board: Board, cx: &mut App) {
+        self.boards.update(cx, |collection, cx| {
+            collection.seed(board.key(), board);
+            cx.notify();
+        });
+    }
+
     // -- team-scoped query helpers (§5.8: derived queries are plain Rust
     // over the in-memory collections; §4.1 moves the full set into
     // `ui/src/queries.rs` with the Phase-3 screens) ---------------------------
@@ -730,6 +787,16 @@ impl Store {
         Ok(())
     }
 
+    /// Restart the active account's shape pipeline (EXP-470): after a team
+    /// create/join the rotated shapes re-poll immediately instead of waiting
+    /// out their parked live long-polls. No-op when not `Synced`.
+    pub fn resync_active(&self, cx: &App) {
+        let session = self.session(cx);
+        if let Some(account_id) = session.account_id() {
+            self.manager.restart_account(account_id);
+        }
+    }
+
     /// `Synced/AuthExpired → SignedOut` (§5.10 sign-out): stop the pipeline
     /// (SQLite stays on disk for offline resume), clear the in-memory
     /// collections, route to login.
@@ -918,6 +985,92 @@ mod tests {
         // Removing an absent key does not bump the revision.
         collection.remove(&RowKey::Single("gone".into()));
         assert_eq!(collection.revision(), 2);
+    }
+
+    fn team(id: &str, name: &str) -> Team {
+        serde_json::from_value(json!({ "id": id, "name": name })).unwrap()
+    }
+
+    #[test]
+    fn seeded_rows_read_like_synced_rows_until_confirmed() {
+        let mut collection: Collection<Team> = Collection::new();
+        let seeded = team("t-new", "New team");
+        collection.seed(seeded.key(), seeded.clone());
+
+        assert_eq!(collection.len(), 1);
+        assert!(!collection.is_empty());
+        assert_eq!(collection.get("t-new").map(|t| t.name.as_str()), Some("New team"));
+        assert_eq!(collection.iter().count(), 1);
+        assert!(collection.is_seeded("t-new"));
+        assert_eq!(collection.revision(), 1);
+
+        // The Electric echo confirms: the server row wins, the overlay entry
+        // is gone.
+        let echo = team("t-new", "New team (server)");
+        collection.upsert(echo.key(), echo);
+        assert!(!collection.is_seeded("t-new"));
+        assert_eq!(collection.len(), 1);
+        assert_eq!(
+            collection.get("t-new").map(|t| t.name.as_str()),
+            Some("New team (server)")
+        );
+    }
+
+    #[test]
+    fn seed_is_a_noop_when_sync_already_delivered_the_key() {
+        let mut collection: Collection<Team> = Collection::new();
+        let synced = team("t-1", "Synced");
+        collection.upsert(synced.key(), synced.clone());
+
+        collection.seed(synced.key(), team("t-1", "Stale local"));
+        assert!(!collection.is_seeded("t-1"));
+        assert_eq!(collection.get("t-1").map(|t| t.name.as_str()), Some("Synced"));
+        assert_eq!(collection.len(), 1);
+    }
+
+    #[test]
+    fn replace_all_without_the_key_keeps_the_seeded_row() {
+        // The truncation guard (EXP-470): a post-409 refetch snapshot computed
+        // under a stale membership view must not evict the optimistic row —
+        // otherwise the UI would bounce back to the old team.
+        let mut collection: Collection<Team> = Collection::new();
+        let seeded = team("t-new", "New team");
+        collection.seed(seeded.key(), seeded.clone());
+
+        let old = team("t-old", "Old team");
+        collection.replace_all(vec![(old.key(), old)]);
+        assert!(collection.is_seeded("t-new"));
+        assert!(collection.get("t-new").is_some());
+        assert!(collection.get("t-old").is_some());
+        assert_eq!(collection.len(), 2);
+
+        // A snapshot that CONTAINS the key confirms it.
+        let old = team("t-old", "Old team");
+        let confirmed = team("t-new", "New team");
+        collection.replace_all(vec![(old.key(), old), (confirmed.key(), confirmed)]);
+        assert!(!collection.is_seeded("t-new"));
+        assert_eq!(collection.len(), 2);
+    }
+
+    #[test]
+    fn remove_and_clear_drop_seeded_rows() {
+        let mut collection: Collection<Team> = Collection::new();
+        let seeded = team("t-new", "New team");
+        collection.seed(seeded.key(), seeded.clone());
+
+        // An authoritative delete for the exact key drops the overlay entry.
+        let revision = collection.revision();
+        collection.remove(&seeded.key());
+        assert!(!collection.is_seeded("t-new"));
+        assert!(collection.is_empty());
+        assert_eq!(collection.revision(), revision + 1);
+
+        // Sign-out clear wipes the overlay with everything else.
+        let seeded = team("t-new", "New team");
+        collection.seed(seeded.key(), seeded);
+        collection.clear();
+        assert!(!collection.is_seeded("t-new"));
+        assert!(collection.is_empty());
     }
 
     #[test]

@@ -58,6 +58,10 @@ pub enum Screen {
     /// EXP-480: a tab-less full-page mode like Settings (no sidebar, no tab
     /// chip), opened from the rail's Actions entry; the rail stays up.
     Actions,
+    /// The Getting-started checklist (EXP-470 — the desktop mirror of the
+    /// web checklist). Tab-less full-page mode exactly like Actions, opened
+    /// from a conditional rail entry.
+    GettingStarted,
 }
 
 impl Screen {
@@ -143,6 +147,7 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
             .map(|issue| gpui::SharedString::from(format!("{} · Diff", issue_tab_title(issue))))
             .unwrap_or_else(|| "Diff".into()),
         Screen::Actions => "Actions".into(),
+        Screen::GettingStarted => "Getting started".into(),
     }
 }
 
@@ -222,6 +227,7 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
         // EXP-238: Account merged into Settings — the dev value keeps working.
         "account" => Some(Screen::Settings),
         "actions" => Some(Screen::Actions),
+        "getting-started" => Some(Screen::GettingStarted),
         _ => spec.strip_prefix("issue:").map(|id| Screen::IssueDetail {
             issue_id: id.to_string(),
         }),

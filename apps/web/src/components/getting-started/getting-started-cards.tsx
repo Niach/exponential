@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { Link } from "@tanstack/react-router"
 import {
   BookOpen,
@@ -27,6 +27,7 @@ import {
   desktopDownloadHref,
 } from "@/lib/desktop-download"
 import { docsUrl } from "@/lib/docs-links"
+import { conceptIcon } from "@/lib/icons.generated"
 import { cn } from "@/lib/utils"
 import { useGettingStartedProgress } from "@/hooks/use-getting-started-progress"
 import {
@@ -34,15 +35,20 @@ import {
   type EntryKey,
   type EntryState,
 } from "@/components/getting-started/getting-started-model"
-import { McpSetupTabs } from "@/components/getting-started/mcp-setup-tabs"
+import {
+  CopySnippetButton,
+  McpSetupTabs,
+} from "@/components/getting-started/mcp-setup-tabs"
+import { buildServerInstallSnippet } from "@/components/my-machines"
 import { WidgetLauncherPreview } from "@/components/widget-launcher-preview"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
 import type { Team } from "@/db/schema"
 
 // The in-app "what to do next" checklist (EXP-88, rebuilt dynamic in
-// EXP-141): six entries with live completion state, lock/prereq hints, and
-// per-client MCP setup tabs. Signals come from useGettingStartedProgress;
-// the pure state rules live in getting-started-model.ts.
+// EXP-141, machines/invite goals in EXP-470): nine entries with live
+// completion state, lock/prereq hints, and per-client MCP setup tabs.
+// Signals come from useGettingStartedProgress; the pure state rules live in
+// getting-started-model.ts.
 
 export interface GettingStartedCardsProps {
   team: Team
@@ -51,27 +57,36 @@ export interface GettingStartedCardsProps {
 }
 
 const ENTRY_ICONS: Record<EntryKey, LucideIcon> = {
+  desktop: conceptIcon(`ui-device`),
   github: Github,
+  invite: conceptIcon(`ui-invite`),
   board: FolderKanban,
   coding: SquareTerminal,
+  server: conceptIcon(`ui-server`),
   widget: MessageSquarePlus,
   helpdesk: LifeBuoy,
   mcp: Plug,
 }
 
 const ENTRY_TITLES: Record<EntryKey, string> = {
+  desktop: `Get the desktop app`,
   github: `Connect a GitHub repo`,
+  invite: `Invite your team`,
   board: `Create a board`,
   coding: `Start coding with an agent`,
+  server: `Set up a server`,
   widget: `Set up the feedback widget`,
   helpdesk: `Enable the helpdesk`,
   mcp: `Connect your tools via MCP`,
 }
 
 const ENTRY_DESCRIPTIONS: Record<EntryKey, string> = {
+  desktop: `The desktop app is a full git IDE and the client that runs coding sessions on your machine. Signing in registers it as one of your machines.`,
   github: `Link a GitHub account to your team so boards can attach repositories. Pull requests and coding sessions flow back into their issues.`,
+  invite: `Teammates share boards, reviews, and the support inbox. Send an invite by email or hand out an invite link.`,
   board: `Boards hold your issues. Connect a repository to code on a board; without one it works as a plain board.`,
-  coding: `The desktop app is a full git IDE and the one client that runs coding sessions: "Start coding" on any issue hands it to your coding agent on your machine. It plans first, implements, then commits, pushes, and opens the pull request linked back to the issue. You just need git and your agent CLI (claude, codex or pi) on your PATH.`,
+  coding: `"Start coding" on any issue hands it to your coding agent on your machine. It plans first, implements, then commits, pushes, and opens the pull request linked back to the issue. You just need git and your agent CLI (claude, codex or pi) on your PATH.`,
+  server: `Run the headless agent daemon on an always-on machine. One command installs it; the server then shows up under My machines and can take remote "Start coding" requests.`,
   widget: `Embed a feedback button on any website. Visitors report bugs with an annotated screenshot, and each lands here as an issue with reporter email and page context.`,
   helpdesk: `Flip the switch in Settings → Feedback widget and every member shares the Support inbox. Support tickets from the widget land there, with replies emailed to the reporter.`,
   mcp: `This instance exposes an MCP server at /api/mcp. Connect Claude, ChatGPT, Cursor, or any MCP client to work with issues, boards, and comments from your tools.`,
@@ -80,6 +95,9 @@ const ENTRY_DESCRIPTIONS: Record<EntryKey, string> = {
 // One-line hints for locked entries, keyed by entry + the step that unlocks
 // it (lockedBy from the model).
 function lockedHint(entry: EntryKey, lockedBy: EntryKey): string {
+  if (entry === `coding` && lockedBy === `desktop`) {
+    return `Connect a machine first — coding sessions run on the desktop app or a registered server.`
+  }
   if (entry === `coding` && lockedBy === `github`) {
     return `Connect a GitHub repo first. Coding sessions need a repo-backed board.`
   }
@@ -154,9 +172,36 @@ export function GettingStartedCards({
   const { entries, done, total } = deriveEntryStates(signals, {
     canManageWidgets: permissions.canManageWidgets,
     isOwner: permissions.isOwner,
+    canManageMembers: permissions.canManageMembers,
   })
 
+  const serverSnippet = useMemo(
+    () =>
+      buildServerInstallSnippet(
+        typeof window === `undefined`
+          ? `https://app.exponential.at`
+          : window.location.origin
+      ),
+    []
+  )
+
   const bodies: Record<EntryKey, React.ReactNode> = {
+    desktop: (
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" asChild>
+          <a href={downloadHref} target="_blank" rel="noreferrer">
+            <Download className="mr-1.5 size-4" />
+            Download the desktop app
+          </a>
+        </Button>
+        <Button size="sm" variant="ghost" asChild>
+          <a href={DESKTOP_RELEASES_URL} target="_blank" rel="noreferrer">
+            All platforms
+          </a>
+        </Button>
+      </div>
+    ),
+
     github: permissions.canManageRepos ? (
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" asChild>
@@ -186,15 +231,34 @@ export function GettingStartedCards({
     coding: (
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" asChild>
-          <a href={downloadHref} target="_blank" rel="noreferrer">
-            <Download className="mr-1.5 size-4" />
-            Download the desktop app
-          </a>
+          <Link to="/t/$teamSlug/agents" params={{ teamSlug }}>
+            <SquareTerminal className="mr-1.5 size-4" />
+            Open Agents
+          </Link>
         </Button>
-        <Button size="sm" variant="ghost" asChild>
-          <a href={DESKTOP_RELEASES_URL} target="_blank" rel="noreferrer">
-            All platforms
-          </a>
+        <p className="text-xs text-muted-foreground">
+          Or open any issue in the desktop app and press Start coding.
+        </p>
+      </div>
+    ),
+
+    server: (
+      <>
+        <pre className="overflow-x-auto rounded-md border bg-muted/30 px-3 py-2 text-xs">
+          {serverSnippet}
+        </pre>
+        <div className="flex flex-wrap items-center gap-2">
+          <CopySnippetButton label="Copy install command" text={serverSnippet} />
+        </div>
+      </>
+    ),
+
+    invite: (
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" asChild>
+          <Link to="/t/$teamSlug/settings/members" params={{ teamSlug }}>
+            Invite in team settings
+          </Link>
         </Button>
       </div>
     ),

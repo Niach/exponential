@@ -1565,7 +1565,7 @@ impl Render for CenterPanel {
         // leaves it via `activate_tool`'s `set_screen(None)`).
         let full_page = matches!(
             resolved_screen(&self.nav, cx),
-            Some(Screen::Settings) | Some(Screen::Actions)
+            Some(Screen::Settings) | Some(Screen::Actions) | Some(Screen::GettingStarted)
         );
         if full_page {
             return div()

@@ -123,6 +123,9 @@ pub(crate) fn build_screen_content(
         Screen::Actions => cx
             .new(|cx| crate::actions_view::ActionsView::new(window, cx))
             .into(),
+        Screen::GettingStarted => cx
+            .new(|cx| crate::getting_started::GettingStartedView::new(window, cx))
+            .into(),
         Screen::Settings => cx.new(|cx| crate::settings::SettingsView::new(window, cx)).into(),
     }
 }
@@ -316,6 +319,9 @@ pub struct ScreensPanel {
     /// The Actions page (EXP-467 — the web agents page: machines + the
     /// action card grid; EXP-480: a tab-less full-page mode like Settings).
     actions: Entity<crate::actions_view::ActionsView>,
+    /// The Getting-started checklist page (EXP-470 — the same tab-less
+    /// full-page mode, behind a conditional rail entry).
+    getting_started: Entity<crate::getting_started::GettingStartedView>,
     /// The window's shared rail state (EXP-288): the active tool drives the
     /// tab-less center default (SC diff / file viewer), and the file
     /// selection re-points the viewer.
@@ -344,6 +350,8 @@ impl ScreensPanel {
             cx.new(|cx| crate::support_thread::SupportThreadView::new(window, cx));
         let pr_diff = cx.new(|cx| crate::pr_diff::PrDiffView::new(window, cx));
         let actions = cx.new(|cx| crate::actions_view::ActionsView::new(window, cx));
+        let getting_started =
+            cx.new(|cx| crate::getting_started::GettingStartedView::new(window, cx));
         let nav = nav_for_window(window, cx);
         let rail = rail_shared_for_window(window, cx);
 
@@ -400,6 +408,7 @@ impl ScreensPanel {
             support_thread,
             pr_diff,
             actions,
+            getting_started,
             rail,
             tabs: Vec::new(),
             tabs_team: None,
@@ -543,7 +552,9 @@ impl ScreensPanel {
                 self.pr_diff
                     .update(cx, |diff, cx| diff.set_issue(issue_id, cx));
             }
-            Screen::Actions | Screen::Settings => unreachable!("filtered by is_detail"),
+            Screen::Actions | Screen::GettingStarted | Screen::Settings => {
+                unreachable!("filtered by is_detail")
+            }
         }
     }
 
@@ -1017,6 +1028,42 @@ impl ScreensPanel {
             }
         }
         let active_team = active_team_id(&self.nav, cx);
+        // EXP-470: a just-created/joined team exists only as an optimistic
+        // seed until the Electric echo confirms it — its real boards (join)
+        // haven't synced yet, so "No boards yet" would be a wrong empty
+        // state. Show a "setting up" surface instead.
+        if let Some(team_id) = active_team.as_deref() {
+            let teams = Store::global(cx).collections().teams.read(cx);
+            if teams.is_seeded(team_id) {
+                let name = teams
+                    .get(team_id)
+                    .map(|team| team.name.clone())
+                    .unwrap_or_else(|| "your team".to_string());
+                return v_flex()
+                    .size_full()
+                    .items_center()
+                    .justify_center()
+                    .gap_2()
+                    .child(
+                        Icon::new(registry::UI_TEAM)
+                            .size_6()
+                            .text_color(cx.theme().muted_foreground),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(FontWeight::MEDIUM)
+                            .child(gpui::SharedString::from(format!("Setting up {name}…"))),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child("Syncing the team's data."),
+                    )
+                    .into_any_element();
+            }
+        }
         let has_boards = active_team
             .as_deref()
             .map(|id| {
@@ -1154,6 +1201,7 @@ impl Render for ScreensPanel {
             }
             Some(Screen::PrDiff { .. }) => self.pr_diff.clone().into_any_element(),
             Some(Screen::Actions) => self.actions.clone().into_any_element(),
+            Some(Screen::GettingStarted) => self.getting_started.clone().into_any_element(),
             // EXP-288: no tab selected — the active TOOL owns the center.
             // Source Control shows its diff (following the History
             // selection), Files the read-only viewer (its Idle phase covers
