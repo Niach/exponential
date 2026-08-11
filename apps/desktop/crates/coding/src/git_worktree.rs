@@ -403,16 +403,24 @@ from it would force-push those away."
 /// missing. The common git dir is shared by every worktree, so one write
 /// covers them all — and unlike `.gitignore` it is never committed.
 ///
-/// This is a TOKEN-LEAK guard, not cosmetics: `.exp-mcp.json` carries the raw
-/// `expu_` personal key, and the spawned `claude` is told to commit + push —
-/// without the exclude, a `git add -A` would ship the key to GitHub.
-/// Best-effort: a missing/at-odds `.git` layout only skips the write (the
-/// launch itself must not fail on it).
+/// Best-effort coverage for the NON-secret seed files the launcher drops
+/// next to the checkout (`.exp-pi-*.ts`, `.exp-agents`, `PROMPT.md`): a
+/// missing/at-odds `.git` layout only skips the write (the launch itself
+/// must not fail on it). The secret-carrying `.exp-mcp.json` is guarded by
+/// [`ensure_ignored`] at its write site instead (EXP-474) — resolved from
+/// the actual cwd, verified, launch-failing.
 pub fn ensure_local_excludes(clone: &Path, entries: &[&str]) -> std::io::Result<()> {
     let git_dir = clone.join(".git");
     if !git_dir.is_dir() {
         return Ok(()); // unexpected layout (bare/worktree) — skip, don't fail
     }
+    append_local_excludes(&git_dir, entries)
+}
+
+/// The shared append half of [`ensure_local_excludes`]/[`ensure_ignored`]:
+/// add the `entries` missing from `<git_dir>/info/exclude` (created if
+/// absent), deduping by trimmed line. Idempotent.
+fn append_local_excludes(git_dir: &Path, entries: &[&str]) -> std::io::Result<()> {
     let info_dir = git_dir.join("info");
     std::fs::create_dir_all(&info_dir)?;
     let exclude = info_dir.join("exclude");
@@ -435,6 +443,82 @@ pub fn ensure_local_excludes(clone: &Path, entries: &[&str]) -> std::io::Result<
     }
     content.push_str(&additions);
     std::fs::write(&exclude, content)
+}
+
+/// EXP-474: guarantee `entries` are git-ignored at `cwd` — the hard guard for
+/// the secret-carrying seed file (`.exp-mcp.json` holds the raw `expu_`
+/// personal key and the spawned agent is told to commit + push, so "probably
+/// excluded" is not enough).
+///
+/// Resolves the governing repo FROM the cwd (`git rev-parse
+/// --show-toplevel`, then `--git-common-dir` from the toplevel), so a clone
+/// root, a linked worktree (whose `.git` is a
+/// FILE — [`ensure_local_excludes`] would silently no-op there), a
+/// subdirectory, and an EXP-369 `cwd_override` outside the clone all route
+/// to the right common `info/exclude`. No governing work tree (repo-less
+/// action scratch dirs, bare/corrupt layouts) ⇒ Ok — `git add` fails there
+/// identically, so there is no staging vector, and git's PRESENCE is
+/// pre-gated by the doctor. After appending, VERIFIES with `git
+/// check-ignore` that every entry is effectively ignored: a committed
+/// `.gitignore` re-include (`!pattern`) outranks `info/exclude`, and a
+/// TRACKED entry is never ignored at all — both fail the launch rather than
+/// leak the key.
+pub fn ensure_ignored(cwd: &Path, entries: &[&str]) -> Result<(), GitError> {
+    let Ok(toplevel) = run_git(
+        Some(cwd),
+        &["rev-parse", "--show-toplevel"],
+        None,
+        "git rev-parse --show-toplevel",
+    ) else {
+        return Ok(()); // not inside a work tree — nothing can stage the file
+    };
+    let toplevel = Path::new(toplevel.trim()).to_path_buf();
+    // `--git-common-dir` prints RELATIVE paths whose base has shifted across
+    // git versions (relative to the cwd on current gits, to the toplevel on
+    // old buggy ones — and `--path-format=absolute` needs git ≥2.31). Asking
+    // FROM the toplevel makes both bases the same directory, so joining a
+    // relative answer onto the toplevel is correct everywhere.
+    let common_raw = run_git(
+        Some(&toplevel),
+        &["rev-parse", "--git-common-dir"],
+        None,
+        "git rev-parse --git-common-dir",
+    )?;
+    let common_raw = common_raw.trim();
+    let common = if Path::new(common_raw).is_absolute() {
+        PathBuf::from(common_raw)
+    } else {
+        toplevel.join(common_raw)
+    };
+    append_local_excludes(&common, entries).map_err(|e| GitError {
+        op: "write .git/info/exclude".to_string(),
+        detail: e.to_string(),
+    })?;
+    for entry in entries {
+        let op = format!("ensure {entry} is git-ignored");
+        let output = git_output(Some(cwd), &["check-ignore", "-q", "--", entry], None, &op)?;
+        if output.status.success() {
+            continue;
+        }
+        // check-ignore exit 1 is the VERDICT "not ignored" (also raised for
+        // an index-tracked path — verified behavior the tests pin); any
+        // other exit is a real git failure.
+        let detail = if output.status.code() == Some(1) {
+            format!(
+                "{entry} would carry your personal Exponential key, but this \
+                 repository does not ignore it: either a committed .gitignore \
+                 re-includes it (a `!` pattern overrides .git/info/exclude) \
+                 or the file is already tracked. Launching would risk the \
+                 agent committing and pushing the key. Remove the negating \
+                 pattern (or `git rm --cached {entry}` and commit), then \
+                 retry."
+            )
+        } else {
+            failure_detail(&output)
+        };
+        return Err(GitError { op, detail });
+    }
+    Ok(())
 }
 
 /// One registered worktree of a clone (`git worktree list --porcelain`).
@@ -571,6 +655,28 @@ pub(crate) fn run_git(
     url: Option<&TokenUrl>,
     op: &str,
 ) -> Result<String, GitError> {
+    let scrub = |text: &str| match url {
+        Some(url) => url.scrub(text),
+        None => text.to_string(),
+    };
+    let output = git_output(cwd, args, url, op)?;
+    if output.status.success() {
+        Ok(scrub(&String::from_utf8_lossy(&output.stdout)))
+    } else {
+        Err(GitError { op: op.to_string(), detail: scrub(&failure_detail(&output)) })
+    }
+}
+
+/// The spawn half of [`run_git`] — same hardening, raw [`std::process::Output`]
+/// back, for callers that must classify exit codes themselves (`git
+/// check-ignore`, where exit 1 is a meaningful verdict, not a failure). `url`
+/// scrubs only the spawn error here; the caller owns output scrubbing.
+fn git_output(
+    cwd: Option<&Path>,
+    args: &[&str],
+    url: Option<&TokenUrl>,
+    op: &str,
+) -> Result<std::process::Output, GitError> {
     // EXP-419: hidden on Windows — a visible conhost would flash per git op.
     let mut command = terminal::process::background_command("git");
     command.args(args);
@@ -582,32 +688,33 @@ pub(crate) fn run_git(
     if let Some(cwd) = cwd {
         command.current_dir(cwd);
     }
-    let scrub = |text: &str| match url {
-        Some(url) => url.scrub(text),
-        None => text.to_string(),
-    };
-    let output = command.output().map_err(|e| GitError {
+    command.output().map_err(|e| GitError {
         op: op.to_string(),
         detail: if e.kind() == std::io::ErrorKind::NotFound {
             "git not found on PATH".to_string()
         } else {
-            scrub(&e.to_string())
+            match url {
+                Some(url) => url.scrub(&e.to_string()),
+                None => e.to_string(),
+            }
         },
-    })?;
-    if output.status.success() {
-        Ok(scrub(&String::from_utf8_lossy(&output.stdout)))
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let mut detail = stderr.trim().to_string();
-        if detail.is_empty() {
-            detail = stdout.trim().to_string();
-        }
-        if detail.is_empty() {
-            detail = format!("exit code {}", output.status.code().unwrap_or(-1));
-        }
-        Err(GitError { op: op.to_string(), detail: scrub(&detail) })
+    })
+}
+
+/// A failed git command's diagnostic: stderr, falling back to stdout, falling
+/// back to the exit code — git's messages land on either stream depending on
+/// the subcommand. UNSCRUBBED — callers with a token in play scrub the result.
+fn failure_detail(output: &std::process::Output) -> String {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut detail = stderr.trim().to_string();
+    if detail.is_empty() {
+        detail = stdout.trim().to_string();
     }
+    if detail.is_empty() {
+        detail = format!("exit code {}", output.status.code().unwrap_or(-1));
+    }
+    detail
 }
 
 #[cfg(test)]
@@ -1024,6 +1131,113 @@ mod tests {
         let listing = String::from_utf8_lossy(&status.stdout).into_owned();
         assert!(!listing.contains(".exp-mcp.json"), "not ignored: {listing}");
         assert!(!listing.contains("PROMPT.md"), "not ignored: {listing}");
+    }
+
+    fn git_status(cwd: &Path) -> String {
+        let status = Command::new("git")
+            .args(["status", "--porcelain"])
+            .current_dir(cwd)
+            .output()
+            .unwrap();
+        assert!(status.status.success());
+        String::from_utf8_lossy(&status.stdout).into_owned()
+    }
+
+    #[test]
+    fn ensure_ignored_covers_linked_worktrees_via_the_common_git_dir() {
+        let dir = temp_dir("ignored-worktree");
+        let origin = seed_origin(&dir.0);
+        let clone = dir.0.join("clone");
+        git(
+            &dir.0,
+            &["clone", "--quiet", origin.to_str().unwrap(), clone.to_str().unwrap()],
+        );
+        let worktree = dir.0.join("wt");
+        git(
+            &clone,
+            &["worktree", "add", "--quiet", "-b", "exp/EXP-1", worktree.to_str().unwrap()],
+        );
+
+        // A linked worktree's `.git` is a FILE — `ensure_local_excludes`
+        // would silently no-op here; the EXP-474 guard must not.
+        ensure_ignored(&worktree, &[".exp-mcp.json"]).unwrap();
+        // Idempotent — no duplicate lines on relaunch.
+        ensure_ignored(&worktree, &[".exp-mcp.json"]).unwrap();
+        let exclude = fs::read_to_string(clone.join(".git/info/exclude")).unwrap();
+        assert_eq!(exclude.matches(".exp-mcp.json").count(), 1);
+
+        fs::write(worktree.join(".exp-mcp.json"), "{\"secret\":true}").unwrap();
+        let listing = git_status(&worktree);
+        assert!(!listing.contains(".exp-mcp.json"), "not ignored: {listing}");
+    }
+
+    #[test]
+    fn ensure_ignored_from_a_subdirectory_targets_that_directory() {
+        let dir = temp_dir("ignored-subdir");
+        let origin = seed_origin(&dir.0);
+        let clone = dir.0.join("clone");
+        git(
+            &dir.0,
+            &["clone", "--quiet", origin.to_str().unwrap(), clone.to_str().unwrap()],
+        );
+        let sub = clone.join("sub");
+        fs::create_dir_all(&sub).unwrap();
+
+        ensure_ignored(&sub, &[".exp-mcp.json"]).unwrap();
+
+        fs::write(sub.join(".exp-mcp.json"), "{\"secret\":true}").unwrap();
+        let listing = git_status(&clone);
+        assert!(!listing.contains(".exp-mcp.json"), "not ignored: {listing}");
+    }
+
+    #[test]
+    fn ensure_ignored_is_a_noop_outside_any_repo() {
+        // The repo-less action-scratch flow: nothing can `git add` there, so
+        // the guard passes without materializing anything.
+        let dir = temp_dir("ignored-norepo");
+        ensure_ignored(&dir.0, &[".exp-mcp.json"]).unwrap();
+        assert!(!dir.0.join(".git").exists());
+        assert!(fs::read_dir(&dir.0).unwrap().next().is_none(), "dir no longer empty");
+    }
+
+    #[test]
+    fn ensure_ignored_fails_when_a_committed_gitignore_reincludes_the_file() {
+        let dir = temp_dir("ignored-reinclude");
+        let origin = seed_origin(&dir.0);
+        // A committed `!` re-include outranks `.git/info/exclude` in git's
+        // precedence — the guard must refuse the launch, not leak the key.
+        fs::write(origin.join(".gitignore"), "!.exp-mcp.json\n").unwrap();
+        git(&origin, &["add", "."]);
+        git(&origin, &["commit", "--quiet", "-m", "reinclude"]);
+        let clone = dir.0.join("clone");
+        git(
+            &dir.0,
+            &["clone", "--quiet", origin.to_str().unwrap(), clone.to_str().unwrap()],
+        );
+
+        let err = ensure_ignored(&clone, &[".exp-mcp.json"]).unwrap_err();
+        assert!(err.detail.contains("re-includes"), "wrong detail: {}", err.detail);
+    }
+
+    #[test]
+    fn ensure_ignored_fails_when_the_file_is_already_tracked() {
+        let dir = temp_dir("ignored-tracked");
+        let origin = seed_origin(&dir.0);
+        // Pins the check-ignore/index interaction: a TRACKED path is never
+        // ignored, whatever the exclude patterns say — so a repo that already
+        // carries `.exp-mcp.json` (a past leak) blocks the launch until
+        // `git rm --cached`.
+        fs::write(origin.join(".exp-mcp.json"), "{\"stale\":true}").unwrap();
+        git(&origin, &["add", "."]);
+        git(&origin, &["commit", "--quiet", "-m", "tracked"]);
+        let clone = dir.0.join("clone");
+        git(
+            &dir.0,
+            &["clone", "--quiet", origin.to_str().unwrap(), clone.to_str().unwrap()],
+        );
+
+        let err = ensure_ignored(&clone, &[".exp-mcp.json"]).unwrap_err();
+        assert!(err.detail.contains("git rm --cached"), "wrong detail: {}", err.detail);
     }
 
     #[test]

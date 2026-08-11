@@ -15,9 +15,11 @@
 //! `<baseUrl>` is the signed-in server origin (the api session's normalized
 //! instance URL). The `expu_` key is the hidden auto-minted personal key
 //! (§7.2) — **this file is the ONLY place the raw key lands on disk in a
-//! coding session** (the worktree lives under the user's own repos root).
-//! It authenticates the spawned `claude` as the real signed-in user against
-//! `/api/mcp`, exposing the `exponential_*` MCP tools.
+//! coding session** (the worktree lives under the user's own repos root),
+//! and it must ALWAYS be git-ignored where it lands (EXP-474 — enforced,
+//! not best-effort, by `crate::git_worktree::ensure_ignored` at the write
+//! site). It authenticates the spawned `claude` as the real signed-in user
+//! against `/api/mcp`, exposing the `exponential_*` MCP tools.
 //!
 //! The file is deliberately NOT named `.mcp.json` (EXP-98): claude's
 //! interactive startup runs an UNCONDITIONAL approval scan of the
@@ -96,6 +98,10 @@ pub fn render_mcp_json(base_url: &str, personal_key: &str) -> String {
 /// launch so a regenerated key (§7.2) is picked up on the next session, and
 /// reclaims a stale pre-EXP-98 `.mcp.json` so reused worktrees stop
 /// re-raising claude's project-approval dialog.
+///
+/// EXP-474: callers must guarantee the file is git-ignored BEFORE writing —
+/// the enforcing caller is the launcher's `wire_agent_mcp`, which hard-fails
+/// the launch via [`crate::git_worktree::ensure_ignored`] first.
 pub fn write_mcp_json(
     worktree: &Path,
     base_url: &str,

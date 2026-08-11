@@ -295,11 +295,12 @@ impl WorktreeProvider for GitWorktrees {
         let _ = fetch_base(&clone, default_branch, url);
         let worktree =
             create_worktree(&clone, branch, &format!("origin/{default_branch}"), url)?;
-        // .exp-mcp.json carries the raw expu_ key and the agent is told to
-        // commit + push — keep it (and the pi MCP-bridge extension) out of
-        // `git add -A` via the shared, never-committed `.git/info/exclude`
-        // (best-effort by design; the PROMPT.md exclude rides
-        // [`crate::prompt::deliver_prompt_file`]).
+        // Best-effort exclude coverage for the launcher's seed files, via
+        // the shared, never-committed `.git/info/exclude` (the PROMPT.md
+        // exclude rides [`crate::prompt::deliver_prompt_file`]). The
+        // secret-carrying `.exp-mcp.json` no longer relies on this list: its
+        // hard, verified guard runs at the write site (EXP-474 —
+        // [`wire_agent_mcp`] via [`crate::git_worktree::ensure_ignored`]).
         let _ = crate::git_worktree::ensure_local_excludes(
             &clone,
             &[
@@ -613,6 +614,9 @@ fn apply_hook_env(
 /// - claude: the cwd `.exp-mcp.json` (any subagents it spawns inherit the
 ///   session's MCP servers; NOT named .mcp.json — EXP-98, see
 ///   [`crate::mcp_json`]) — the ONLY on-disk consumer of the raw key.
+///   EXP-474 invariant: the launch HARD-FAILS unless that file is verifiably
+///   git-ignored at the cwd ([`crate::git_worktree::ensure_ignored`], run
+///   BEFORE the write so an unguardable repo never gets the key on disk).
 /// - codex: `-c mcp_servers.*` argv overrides; the raw key rides ONLY the
 ///   spawn env (EXP_MCP_TOKEN) — never disk, never argv.
 /// - pi: the launcher-written `.exp-pi-mcp.ts` bridge extension (pi has no
@@ -625,6 +629,7 @@ fn wire_agent_mcp(
 ) -> Result<AgentMcp, CodingError> {
     match agent {
         CodingAgent::Claude => {
+            crate::git_worktree::ensure_ignored(cwd, &[crate::mcp_json::MCP_JSON_FILE])?;
             write_mcp_json(cwd, base_url, personal_key)
                 .map_err(|e| CodingError::Io(format!("write .exp-mcp.json: {e}")))?;
             Ok(AgentMcp::ClaudeFile)
@@ -1267,9 +1272,10 @@ fn prepare_action(
             // launch; the action runs on whatever state the trunk is in and
             // the trunk-sync engine keeps surfacing it.
             let _ = crate::clone_manager::auto_sync(&clone, &url);
-            // Same seed-file exclude coverage as a session worktree (the
-            // action's agent may be codex/pi since EXP-257, so the pi bridge
-            // needs excluding too; AGENTS_FILE never exists on a trunk run).
+            // Same best-effort seed-file exclude coverage as a session
+            // worktree (the action's agent may be codex/pi since EXP-257, so
+            // the pi bridge needs excluding too; `.exp-mcp.json` gets its
+            // hard EXP-474 guard in [`wire_agent_mcp`] regardless).
             let _ = crate::git_worktree::ensure_local_excludes(
                 &clone,
                 &[
@@ -1277,6 +1283,7 @@ fn prepare_action(
                     crate::pi_bridge::PI_BRIDGE_FILE,
                     crate::pi_bridge::PI_OBSERVER_FILE,
                     crate::pi_bridge::PI_PLAN_FILE,
+                    crate::worktree_agents::AGENTS_FILE,
                 ],
             );
             let cwd = match &req.kind {
@@ -1524,9 +1531,11 @@ pub struct AgentShellRequest {
     pub full_name: String,
     /// EXP-369: run in THIS directory instead of the trunk clone root (the
     /// settings pane's per-worktree terminal). Must be a path of the same
-    /// clone — the ambient git auth, the shared cargo cache and the
-    /// `.git/info/exclude` entries are all clone-scoped, and a linked
-    /// worktree shares every one of them.
+    /// clone — the ambient git auth and the shared cargo cache are
+    /// clone-scoped, and a linked worktree shares both. A cwd outside the
+    /// clone can no longer leak the MCP key either way: the EXP-474 guard
+    /// ([`crate::git_worktree::ensure_ignored`]) resolves the governing repo
+    /// from the cwd itself.
     pub cwd_override: Option<PathBuf>,
 }
 
@@ -1599,6 +1608,9 @@ pub fn prepare_agent_shell(
     let clone = ensure_clone(&repos_root, url.full_name(), &url)?;
     git_credentials::ensure(&clone, &url, minted.expires_at.as_deref())?;
     let _ = crate::clone_manager::auto_sync(&clone, &url);
+    // Best-effort exclude coverage for the non-secret seed files;
+    // `.exp-mcp.json` gets its hard EXP-474 guard in [`wire_agent_mcp`],
+    // resolved from the actual cwd (which may be an EXP-369 worktree).
     let _ = crate::git_worktree::ensure_local_excludes(
         &clone,
         &[
@@ -1606,6 +1618,7 @@ pub fn prepare_agent_shell(
             crate::pi_bridge::PI_BRIDGE_FILE,
             crate::pi_bridge::PI_OBSERVER_FILE,
             crate::pi_bridge::PI_PLAN_FILE,
+            crate::worktree_agents::AGENTS_FILE,
         ],
     );
 
@@ -1859,6 +1872,50 @@ mod tests {
             },
             resume: false,
         }
+    }
+
+    /// EXP-474: the write-site guard — a repo whose committed `.gitignore`
+    /// re-includes `.exp-mcp.json` (a `!` pattern outranks
+    /// `.git/info/exclude`) must refuse the Claude wiring BEFORE the key
+    /// ever lands on disk.
+    #[test]
+    fn wire_agent_mcp_refuses_claude_when_the_repo_reincludes_the_key_file() {
+        let dir = temp_dir("mcp-reinclude");
+        let repo = dir.0.join("repo");
+        fs::create_dir_all(&repo).unwrap();
+        let git = |args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .args(args)
+                .current_dir(&repo)
+                .env("GIT_AUTHOR_NAME", "t")
+                .env("GIT_AUTHOR_EMAIL", "t@example.com")
+                .env("GIT_COMMITTER_NAME", "t")
+                .env("GIT_COMMITTER_EMAIL", "t@example.com")
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "git {args:?} failed");
+        };
+        git(&["init", "--quiet", "-b", "main"]);
+        fs::write(repo.join(".gitignore"), "!.exp-mcp.json\n").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "--quiet", "-m", "reinclude"]);
+
+        let err = wire_agent_mcp(CodingAgent::Claude, &repo, "http://localhost:1", "expu_x")
+            .unwrap_err();
+        assert!(matches!(err, CodingError::Git(_)), "wrong error: {err:?}");
+        assert!(!repo.join(crate::mcp_json::MCP_JSON_FILE).exists(), "key landed on disk");
+    }
+
+    /// The repo-less action-scratch flow keeps working: no governing work
+    /// tree means nothing can stage the file, so the guard passes and the
+    /// config is written.
+    #[test]
+    fn wire_agent_mcp_writes_the_key_file_in_a_repo_less_scratch_dir() {
+        let dir = temp_dir("mcp-scratch");
+        let wired = wire_agent_mcp(CodingAgent::Claude, &dir.0, "http://localhost:1", "expu_x")
+            .unwrap();
+        assert_eq!(wired, AgentMcp::ClaudeFile);
+        assert!(dir.0.join(crate::mcp_json::MCP_JSON_FILE).exists());
     }
 
     fn batch_options() -> LaunchOptions {
