@@ -1,9 +1,10 @@
 //! The center panel (masterplan-v3 §4.2, reworked twice — EXP-288): a
 //! TAB-BASED editor area whose tabs are DETAIL VIEWS ONLY (issue detail,
-//! PR diff, support thread, the Actions page). High-level surfaces get no
+//! PR diff, support thread). High-level surfaces get no
 //! tabs: Source Control's diff and the file viewer are the center content
 //! their rail tool shows (driven by the sidebar's commit/file selection),
-//! and Settings is a tab-less full-screen mode. Every tab REMEMBERS
+//! and Settings and the Actions page (EXP-480) are tab-less full-screen
+//! modes. Every tab REMEMBERS
 //! the sidebar entry it was opened from ([`TabEntry::origin`]) — clicking a
 //! tab re-selects that entry (and board) so the sidebar always shows the
 //! list the tab came from.
@@ -257,8 +258,6 @@ enum ChipLead {
     /// Resolution is per-issue, so it stays correct on this cross-team strip
     /// — only GROUPING is team-scoped.
     Status(domain::statuses::ResolvedStatus),
-    /// The Actions page tab (EXP-467) — the generic action glyph.
-    Actions,
 }
 
 impl ChipLead {
@@ -266,9 +265,6 @@ impl ChipLead {
         match self {
             ChipLead::None => None,
             ChipLead::Status(status) => Some(crate::icons::resolved_status_icon(status, cx)),
-            ChipLead::Actions => Some(
-                crate::icons::action_icon(None).text_color(cx.theme().muted_foreground),
-            ),
         }
     }
 }
@@ -297,14 +293,6 @@ fn chip_content(screen: &Screen, cx: &App) -> ChipContent {
             };
         }
     }
-    // EXP-467: the Actions page tab carries the generic action glyph.
-    if matches!(screen, Screen::Actions) {
-        return ChipContent {
-            lead: ChipLead::Actions,
-            identifier: None,
-            title: Some(screen_title(screen, cx)),
-        };
-    }
     ChipContent {
         lead: ChipLead::None,
         identifier: None,
@@ -326,7 +314,7 @@ pub struct ScreensPanel {
     /// Reviews rows' target).
     pr_diff: Entity<crate::pr_diff::PrDiffView>,
     /// The Actions page (EXP-467 — the web agents page: machines + the
-    /// action card grid; a singleton tab, nothing to re-point).
+    /// action card grid; EXP-480: a tab-less full-page mode like Settings).
     actions: Entity<crate::actions_view::ActionsView>,
     /// The window's shared rail state (EXP-288): the active tool drives the
     /// tab-less center default (SC diff / file viewer), and the file
@@ -555,10 +543,7 @@ impl ScreensPanel {
                 self.pr_diff
                     .update(cx, |diff, cx| diff.set_issue(issue_id, cx));
             }
-            // A singleton page over live collection reads — nothing to
-            // re-point.
-            Screen::Actions => {}
-            Screen::Settings => unreachable!("filtered by is_detail"),
+            Screen::Actions | Screen::Settings => unreachable!("filtered by is_detail"),
         }
     }
 

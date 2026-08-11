@@ -55,7 +55,8 @@ pub enum Screen {
     PrDiff { issue_id: String },
     /// The Actions page (EXP-467 — the web `t/$teamSlug/agents` page 1:1:
     /// machines + the action card grid; editing lives in the edit dialog).
-    /// A singleton center tab, opened from the rail's Actions entry.
+    /// EXP-480: a tab-less full-page mode like Settings (no sidebar, no tab
+    /// chip), opened from the rail's Actions entry; the rail stays up.
     Actions,
 }
 
@@ -72,14 +73,16 @@ impl Screen {
     /// (leave via the settings nav's back button, or by clicking any open
     /// tab — the rail is slid away while it is up, EXP-456); Source
     /// Control's diff and the file viewer are TOOL-DEFAULT center content
-    /// driven by the sidebar selection, never tabs.
+    /// driven by the sidebar selection, never tabs. EXP-480: Actions is a
+    /// tab-less full-page mode too — the rail stays (its Actions entry
+    /// highlights like a tool window's) but the tool column unmounts, and
+    /// any rail-tool click or tab click leaves it.
     pub(crate) fn is_detail(&self) -> bool {
         matches!(
             self,
             Screen::IssueDetail { .. }
                 | Screen::SupportThread { .. }
                 | Screen::PrDiff { .. }
-                | Screen::Actions
         )
     }
 }

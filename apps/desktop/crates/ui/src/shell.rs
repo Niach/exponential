@@ -1560,9 +1560,14 @@ impl Render for CenterPanel {
         // EXP-456: in settings the nav column lives in the Shell's LEFT
         // column (it replaces the rail), so the whole center is the settings
         // detail — no resizable split (the detail column caps itself), and
-        // the tool column is unmounted.
-        let in_settings = matches!(resolved_screen(&self.nav, cx), Some(Screen::Settings));
-        if in_settings {
+        // the tool column is unmounted. EXP-480: the Actions page is the
+        // same tab-less full-page mode (the rail stays; any rail-tool click
+        // leaves it via `activate_tool`'s `set_screen(None)`).
+        let full_page = matches!(
+            resolved_screen(&self.nav, cx),
+            Some(Screen::Settings) | Some(Screen::Actions)
+        );
+        if full_page {
             return div()
                 .size_full()
                 .child(self.screens.clone())

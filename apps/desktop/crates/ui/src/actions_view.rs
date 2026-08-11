@@ -4,6 +4,11 @@
 //! full-page action detail) is gone: editing happens in
 //! [`crate::action_editor_dialog`] behind each card's owner ⋯ menu, exactly
 //! like the web's edit dialog, and the rail's Actions entry navigates here.
+//! EXP-480: the page is a tab-less FULL-PAGE mode (no tool column, no tab
+//! chip — `CenterPanel` unmounts the sidebar split while it is up), and both
+//! sections lead with the web's `SectionLabel` band ([`section_band`]) —
+//! "My machines" carries the "Add server" button, "Actions" the owner-only
+//! "New action".
 //!
 //! EXP-431 carries over: the create builtin is not a card — creation lives
 //! behind the header's "New action" button
@@ -32,6 +37,45 @@ use crate::queries;
 
 /// The page column's width cap — the web page's `md:max-w-5xl`.
 const PAGE_COLUMN_W: f32 = 1024.;
+
+/// The web `SectionLabel` band (agent-session-row.tsx): a full-width
+/// rounded-top strip — label · count · spacer · optional trailing control.
+/// Shared with [`crate::machines::MachinesSection`] so both page sections
+/// carry the identical header design (EXP-480).
+pub(crate) fn section_band(
+    label: &'static str,
+    count: usize,
+    trailing: Option<gpui::AnyElement>,
+    cx: &App,
+) -> gpui::AnyElement {
+    gpui_component::h_flex()
+        .w_full()
+        .min_w_0()
+        .items_center()
+        .gap_1p5()
+        .px_3()
+        .py_1p5()
+        .rounded_t(px(theme::tokens::radius::SM))
+        .border_b_1()
+        .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+        .bg(theme::tokens::glass::FILL_SECTION.to_hsla())
+        .child(
+            div()
+                .text_sm()
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(cx.theme().foreground)
+                .child(SharedString::from(label)),
+        )
+        .child(
+            div()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .child(SharedString::from(format!("{count}"))),
+        )
+        .child(div().flex_1())
+        .children(trailing)
+        .into_any_element()
+}
 
 pub struct ActionsView {
     nav: Entity<Navigation>,
@@ -317,13 +361,17 @@ impl ActionsView {
     }
 
     /// The web `NoCustomActionsNudge`: a dashed tile that opens the creator
-    /// run, shown while every listed action is a builtin.
+    /// run, shown while every listed action is a builtin. A GRID CELL like
+    /// the web's (same sizing as the cards), not a full-width strip.
     fn render_nudge(&self, team_id: String, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let muted = cx.theme().muted_foreground;
         let hover = cx.theme().list_hover;
         div()
             .id("actions-empty-nudge")
-            .w_full()
+            .flex_basis(px(260.))
+            .flex_grow(1.)
+            .min_w(px(240.))
+            .max_w(px(420.))
             .rounded(px(theme::tokens::radius::SM))
             .border_1()
             .border_dashed()
@@ -394,59 +442,55 @@ impl Render for ActionsView {
             .map(|(index, action)| self.render_card(index, action, is_owner, cx))
             .collect();
 
-        // Section header — web's SectionLabel row: label · count · spacer ·
-        // owner-only "New action" (EXP-367: disabled with the reason when no
-        // agent CLI is installed, never hidden).
+        // Section header — the web `SectionLabel` band: label · count ·
+        // spacer · owner-only "New action" (EXP-367: disabled with the
+        // reason when no agent CLI is installed, never hidden).
         let no_agent = crate::coding_flow::no_agent_reason(cx);
-        let mut header = gpui_component::h_flex()
-            .w_full()
-            .items_center()
-            .gap_2()
-            .child(crate::issue_header::group_label("Actions", cx))
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(SharedString::from(format!("{count}"))),
-            )
-            .child(div().flex_1());
-        if is_owner {
-            if let Some(new_team) = team_id.clone() {
-                header = header.child(
-                    Button::new("actions-new")
-                        .outline()
-                        .xsmall()
-                        .icon(Icon::from(registry::ACTION_CREATE))
-                        .label("New action")
-                        .tooltip(no_agent.clone().unwrap_or_else(|| "New action".into()))
-                        .disabled(no_agent.is_some())
-                        .on_click(move |_, window, cx| {
-                            crate::start_coding_dialog::open_for_create_action(
-                                window,
-                                cx,
-                                new_team.clone(),
-                            );
-                        }),
-                );
-            }
-        }
+        let new_action = is_owner
+            .then(|| team_id.clone())
+            .flatten()
+            .map(|new_team| {
+                Button::new("actions-new")
+                    .outline()
+                    .xsmall()
+                    .icon(Icon::from(registry::ACTION_CREATE))
+                    .label("New action")
+                    .tooltip(no_agent.clone().unwrap_or_else(|| "New action".into()))
+                    .disabled(no_agent.is_some())
+                    .on_click(move |_, window, cx| {
+                        crate::start_coding_dialog::open_for_create_action(
+                            window,
+                            cx,
+                            new_team.clone(),
+                        );
+                    })
+                    .into_any_element()
+            });
+        let header = section_band("Actions", count, new_action, cx);
+
+        // The nudge is a grid CELL (web parity) — appended after the cards.
+        let nudge = (!loading && is_owner && !has_custom)
+            .then(|| team_id.clone())
+            .flatten()
+            .map(|team_id| self.render_nudge(team_id, cx));
 
         // The cards render as soon as rows hydrate; readiness only appends
         // the loading note (the tool-window list's behavior — never blank a
         // list that already has data).
         let mut actions_section = gpui_component::v_flex()
             .w_full()
-            .px_3()
-            .pt_2()
-            .gap_3()
+            .min_w_0()
+            .gap_2()
             .child(header)
             .child(
                 gpui_component::h_flex()
                     .w_full()
+                    .min_w_0()
                     .flex_wrap()
                     .items_stretch()
                     .gap_3()
-                    .children(cards),
+                    .children(cards)
+                    .children(nudge),
             );
         if loading {
             actions_section = actions_section.child(
@@ -455,31 +499,34 @@ impl Render for ActionsView {
                     .text_color(muted)
                     .child("Loading actions…"),
             );
-        } else if is_owner && !has_custom {
-            if let Some(team_id) = team_id.clone() {
-                actions_section = actions_section.child(self.render_nudge(team_id, cx));
-            }
         }
 
         // Web page order: machines first, then the Actions grid — one
         // centered column (block wrapper + `mx_auto`, the EXP-179-safe
-        // centering recipe) inside the one scroll pane.
+        // centering recipe) inside the one scroll pane. `min_w_0` rides
+        // every flex hop so the wrap grid resolves the PAGE width, never its
+        // unwrapped-line max-content (the EXP-436 class — the cards used to
+        // run off the right edge in one uncut line).
         let column = gpui_component::v_flex()
             .w_full()
-            .py_2()
-            .gap_2()
+            .min_w_0()
+            .px_4()
+            .py_4()
+            .gap_4()
             .child(self.machines.clone())
             .child(actions_section);
 
         gpui_component::v_flex()
             .size_full()
             .min_h_0()
+            .min_w_0()
             .child(crate::scroll_pane::v_scroll_pane(
                 "actions-screen-scroll",
                 &self.scroll,
                 div()
                     .w_full()
-                    .child(column.max_w(px(PAGE_COLUMN_W)).mx_auto()),
+                    .min_w_0()
+                    .child(column.w_full().max_w(px(PAGE_COLUMN_W)).mx_auto()),
             ))
     }
 }

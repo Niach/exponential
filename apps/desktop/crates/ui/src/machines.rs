@@ -20,8 +20,8 @@ use std::time::{Duration, Instant};
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, AppContext as _, Entity, InteractiveElement as _, IntoElement, ParentElement, Render,
-    SharedString, StatefulInteractiveElement as _, Styled, Window,
+    div, px, AppContext as _, ClipboardItem, Entity, InteractiveElement as _, IntoElement,
+    ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
@@ -188,6 +188,48 @@ impl MachinesSection {
     }
 
     // -- dialogs -------------------------------------------------------------
+
+    /// The web "Add a server" dialog (EXP-480): the install one-liner for the
+    /// headless `exponential` CLI, with OK = copy to clipboard. The script is
+    /// served by the CLOUD marketing site for every instance (self-hosted
+    /// ships no marketing pages), so the snippet always names the target
+    /// instance explicitly via `EXP_INSTANCE` — the web
+    /// `buildServerInstallSnippet` shape exactly.
+    fn prompt_add_server(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let origin = queries::active_account(cx)
+            .map(|account| account.instance_url.trim_end_matches('/').to_string())
+            .unwrap_or_else(|| "https://app.exponential.at".to_string());
+        let snippet =
+            format!("curl -fsSL https://exponential.at/install.sh | EXP_INSTANCE={origin} sh");
+        let content_snippet = SharedString::from(snippet.clone());
+        let spec = AlertSpec::new(
+            "Add a server",
+            "Run this on any Linux or macOS machine. It installs the \
+             exponential CLI, signs you in with a device code, and registers \
+             the machine here.",
+            "Copy",
+        )
+        // Description + the wrapped two-line snippet box.
+        .height(px(264.))
+        .content(move |_, cx| {
+            div()
+                .mt_2()
+                .p_2()
+                .rounded(px(theme::tokens::radius::SM))
+                .border_1()
+                .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+                .text_xs()
+                .font_family(theme::terminal::FONT_FAMILY)
+                .text_color(cx.theme().foreground)
+                .child(content_snippet.clone())
+                .into_any_element()
+        })
+        .on_ok(move |_, cx| {
+            cx.write_to_clipboard(ClipboardItem::new_string(snippet.clone()));
+            true
+        });
+        native_dialog::open_alert(window, cx, spec);
+    }
 
     /// Rename behind the shared alert window, the typed-input pattern from
     /// the team Danger Zone (the input is a long-lived child so its state
@@ -364,33 +406,41 @@ impl MachinesSection {
                 })
         });
 
-        // Same row shape as the action rows above: flat, full width, `px_3`,
-        // and `min_w_0` the whole way down so only the NAME gives way.
-        gpui_component::v_flex()
+        // ONE line per machine, the web row's shape (EXP-480): icon · name ·
+        // version | spacer | status dot + text · ⋯ — `min_w_0` down the name
+        // side so only the NAME gives way.
+        gpui_component::h_flex()
             .id(SharedString::from(format!("machine-{}", device.device_id)))
             .w_full()
             .min_w_0()
-            .gap_0p5()
+            .items_center()
+            .gap_2()
             .px_3()
-            .py_1p5()
+            .py_2()
+            .border_b_1()
+            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
             .hover(|this| this.bg(theme.list_hover))
             .child(
+                div()
+                    .flex_shrink_0()
+                    .child(Icon::new(kind_icon).xsmall().text_color(muted)),
+            )
+            .child(
                 gpui_component::h_flex()
-                    .w_full()
+                    .flex_1()
                     .min_w_0()
                     .items_center()
-                    .gap_1()
+                    .gap_1p5()
+                    // Web keeps the version ADJACENT to the name, so the name
+                    // is fit-content — a `truncate` here would render at the
+                    // EXP-175 collapsed width (it needs `flex_1` on the
+                    // ellipsis div itself); the cluster clips instead.
+                    .overflow_hidden()
                     .child(
                         div()
                             .flex_shrink_0()
-                            .child(Icon::new(kind_icon).xsmall().text_color(muted)),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
                             .text_sm()
-                            .truncate()
+                            .whitespace_nowrap()
                             .text_color(theme.foreground)
                             .child(label.clone()),
                     )
@@ -417,13 +467,11 @@ impl MachinesSection {
                                 })
                                 .child(SharedString::from(format!("v{version}"))),
                         )
-                    })
-                    .children(menu.map(|menu| div().flex_shrink_0().child(menu))),
+                    }),
             )
             .child(
                 gpui_component::h_flex()
-                    .w_full()
-                    .min_w_0()
+                    .flex_shrink_0()
                     .items_center()
                     .gap_1p5()
                     .text_xs()
@@ -444,21 +492,16 @@ impl MachinesSection {
                                 .bg(dot),
                         )
                     })
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .child(SharedString::from(status_line(device))),
-                    )
+                    .child(SharedString::from(status_line(device)))
                     .when(updating, |this| {
-                        this.child(div().flex_shrink_0().child(if queued {
+                        this.child(div().child(if queued {
                             "Update queued"
                         } else {
                             "Updating…"
                         }))
                     }),
             )
+            .children(menu.map(|menu| div().flex_shrink_0().child(menu)))
             .into_any_element()
     }
 }
@@ -570,24 +613,33 @@ impl Render for MachinesSection {
             .map(|(index, device)| self.render_row(index, device, cx))
             .collect();
 
+        // The web `SectionLabel` band (EXP-480): label · count · spacer ·
+        // "Add server" — the same band design as the Actions section below.
+        let add_server = Button::new("machines-add-server")
+            .outline()
+            .xsmall()
+            .icon(registry::UI_ADD)
+            .label("Add server")
+            .on_click(cx.listener(|this, _: &gpui::ClickEvent, window, cx| {
+                this.prompt_add_server(window, cx);
+            }))
+            .into_any_element();
+        let count = devices.as_ref().map(Vec::len).unwrap_or(0);
+
         gpui_component::v_flex()
             .w_full()
             .min_w_0()
-            // EXP-467: no top hairline — the section now LEADS the Actions
-            // page (web order: machines first), nothing above to separate.
-            .pt_1()
-            .child(
-                div()
-                    .px_3()
-                    .py_1p5()
-                    .child(crate::issue_header::group_label("My machines", cx)),
-            )
+            .child(crate::actions_view::section_band(
+                "My machines",
+                count,
+                Some(add_server),
+                cx,
+            ))
             .when(devices.is_none(), |this| {
                 this.child(
                     div()
                         .px_3()
-                        .py_1()
-                        .pb_2()
+                        .py_2()
                         .text_xs()
                         .text_color(muted)
                         .child("Loading machines…"),
@@ -597,8 +649,7 @@ impl Render for MachinesSection {
                 this.child(
                     div()
                         .px_3()
-                        .py_1()
-                        .pb_2()
+                        .py_2()
                         .text_xs()
                         .text_color(muted)
                         .child(
