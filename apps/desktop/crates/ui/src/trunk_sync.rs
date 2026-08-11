@@ -392,20 +392,37 @@ impl TrunkSync {
         let (repository_id, default_branch) =
             (repo.repository_id.clone(), repo.default_branch.clone());
         // EXP-465: every auto-sync pass carries the full prune policy — the
-        // engine decides what is actually landed and removable.
-        let policy = crate::worktree_prune::prune_policy_for_repo(
-            &repository_id,
-            default_branch,
-            window,
-            cx,
-        );
+        // engine decides what is actually landed and removable — gated on the
+        // same shape readiness as the sibling triggers
+        // ([`Self::check_merge_autopull`], [`Self::check_finished_autoclean`]):
+        // not-yet-ready collections derive EMPTY keep/merged/finished sets,
+        // and git truth alone calls a fresh 0-ahead worktree of an OPEN issue
+        // "landed" debris. A not-ready pass syncs without pruning.
+        let collections = Store::global(cx).collections().clone();
+        let policy = if carry_prune_policy(
+            collections.issues.read(cx).is_ready(),
+            collections.boards.read(cx).is_ready(),
+        ) {
+            Some(crate::worktree_prune::prune_policy_for_repo(
+                &repository_id,
+                default_branch,
+                window,
+                cx,
+            ))
+        } else {
+            None
+        };
         // Consume the triggers only once the pass is actually spawned —
         // `start_sync_with_prune` still no-ops without a resolved tRPC client,
         // and dropping a flag there would park the post-merge pull / prune
-        // until a later edge re-raised it.
-        if self.start_sync_with_prune(SyncMode::AutoSync, Some(policy), cx) {
+        // until a later edge re-raised it. A policy-less (not-ready) pass
+        // keeps the prune trigger alive for the same reason.
+        let carried_prune = policy.is_some();
+        if self.start_sync_with_prune(SyncMode::AutoSync, policy, cx) {
             self.pending_merge_sync = false;
-            self.pending_prune_sync = false;
+            if carried_prune {
+                self.pending_prune_sync = false;
+            }
         }
     }
 
@@ -1109,6 +1126,15 @@ fn finished_set_fires(
     seeded && current.difference(previous).next().is_some()
 }
 
+/// EXP-465: whether an auto-sync pass may carry a prune policy — only once
+/// the issue AND board shapes reached their first `up-to-date`, the same
+/// readiness the sibling triggers gate on. Anything less derives empty
+/// policy sets and the engine would decide every `exp/` worktree by git
+/// truth alone — force-removing fresh worktrees of open issues.
+fn carry_prune_policy(issues_ready: bool, boards_ready: bool) -> bool {
+    issues_ready && boards_ready
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1141,6 +1167,19 @@ mod tests {
         assert!(!finished_set_fires(true, &set(&["a", "b"]), &set(&["a"])));
         // …and only a member NEW versus the shrunk baseline fires again.
         assert!(finished_set_fires(true, &set(&["a"]), &set(&["a", "c"])));
+    }
+
+    /// EXP-465 regression: the auto-sync pass may only carry a prune policy
+    /// once BOTH the issue and board shapes are ready — a still-syncing
+    /// (empty) issues collection derives empty keep sets, and git truth
+    /// alone would force-remove the fresh 0-ahead worktree of an OPEN issue
+    /// as "landed" debris.
+    #[test]
+    fn prune_policy_requires_ready_collections() {
+        assert!(carry_prune_policy(true, true));
+        assert!(!carry_prune_policy(false, true));
+        assert!(!carry_prune_policy(true, false));
+        assert!(!carry_prune_policy(false, false));
     }
 
     #[test]

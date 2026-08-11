@@ -10,8 +10,10 @@
 //! * an issue that is NOT finished and has no merged PR protects its branch
 //!   outright (`keep`) — a crashed session's uncommitted work must survive
 //!   whatever git thinks about the branch;
-//! * `pr_state == merged` is authoritative (`merged` — prune without git
-//!   agreement, the local origin ref may simply be stale);
+//! * `pr_state == merged` lands in `merged` — a prune candidate whatever
+//!   its prefix, though the engine still demands git-confirmed containment
+//!   before deleting (EXP-358: merged sessions stay live, and their
+//!   post-merge follow-up commits must survive);
 //! * finished issues (done/cancelled/duplicate) land in `finished` — pruned
 //!   only when git confirms the work landed;
 //! * live sessions protect: synced rows via their issue mapping

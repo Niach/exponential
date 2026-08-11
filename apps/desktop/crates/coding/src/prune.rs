@@ -10,8 +10,10 @@
 //!
 //! * `keep` — branches that must never be touched (unfinished issues, live
 //!   sessions, busy terminal tabs). Callers err toward keeping.
-//! * `merged` — branches whose issue's PR is merged: landed by definition,
-//!   pruned even when the local `origin/<default>` ref is stale.
+//! * `merged` — branches whose issue's PR is merged: nominated even outside
+//!   every prefix, but still deleted only when git confirms the tip landed —
+//!   merged sessions stay live (EXP-358) and post-merge follow-up commits
+//!   must never dangle on a `branch -D`.
 //! * `finished` — branches whose issue is done/cancelled/duplicate: pruned
 //!   only when git agrees the work landed.
 //! * everything else prefix-matched (`exp/…`, `exp/batch-…`): the tracker has
@@ -61,7 +63,9 @@ pub struct PrunePolicy {
     /// Paths currently in use (running terminal tab cwds): any worktree that
     /// is — or contains — one of these is kept, whatever its branch says.
     pub busy_paths: Vec<std::path::PathBuf>,
-    /// Issue `pr_state == merged` — landed by definition, no git check.
+    /// Issue `pr_state == merged` — a prune candidate regardless of prefix,
+    /// but git must still confirm the tip landed (EXP-358: merged sessions
+    /// stay live and collect post-merge follow-up commits).
     pub merged: HashSet<String>,
     /// Issue finished (done/cancelled/duplicate) — prune iff git agrees.
     pub finished: HashSet<String>,
@@ -78,8 +82,7 @@ pub enum SkipReason {
     NotLanded,
     /// `git worktree remove` failed (locked, permissions, …).
     RemoveFailed(String),
-    /// No default branch could be resolved, so landed checks were impossible
-    /// (`merged` candidates still pruned).
+    /// No default branch could be resolved, so landed checks were impossible.
     NoDefaultBranch,
 }
 
@@ -339,14 +342,16 @@ pub fn prune_landed(clone: &Path, policy: &PrunePolicy) -> PruneReport {
                     .is_some_and(|worktree| path.starts_with(worktree))
         })
     };
-    // `merged` needs no git agreement; `finished` and bare prefix matches do.
     // Returns None when the branch is no candidate at all (silent skip),
-    // Some(Err(reason)) when nominated but not removable.
+    // Some(Err(reason)) when nominated but not removable. `merged` and
+    // `finished` nominate beyond the prefixes, but NOTHING bypasses the git
+    // agreement: a merged issue's session stays live (EXP-358) and its
+    // branch collects post-merge follow-up commits `branch -D` would dangle.
     let landed_verdict = |branch: &str| -> Option<Result<(), SkipReason>> {
-        if policy.merged.contains(branch) {
-            return Some(Ok(()));
-        }
-        if !policy.finished.contains(branch) && !prefix_matched(branch) {
+        if !policy.merged.contains(branch)
+            && !policy.finished.contains(branch)
+            && !prefix_matched(branch)
+        {
             return None;
         }
         let Some(origin_ref) = origin_ref.as_deref() else {
@@ -395,7 +400,7 @@ pub fn prune_landed(clone: &Path, policy: &PrunePolicy) -> PruneReport {
                 {
                     Ok(_) => {
                         report.removed_worktrees.push(branch.clone());
-                        // Landed (or PR-merged) — the branch carries nothing
+                        // Landed per git — the branch carries nothing
                         // unpushed anymore, so it goes too.
                         if run_git(
                             Some(clone),
@@ -441,12 +446,11 @@ pub fn prune_landed(clone: &Path, policy: &PrunePolicy) -> PruneReport {
             {
                 continue;
             }
-            let landed = policy.merged.contains(&branch)
-                || origin_ref
-                    .as_deref()
-                    .is_some_and(|origin_ref| {
-                        branch_landed(clone, &branch, origin_ref, &ancestors)
-                    });
+            // Same rule as the worktree pass: even `merged` branches need
+            // git-confirmed containment before `-D`.
+            let landed = origin_ref
+                .as_deref()
+                .is_some_and(|origin_ref| branch_landed(clone, &branch, origin_ref, &ancestors));
             if !landed {
                 continue; // unlanded stale branches are kept, silently
             }
@@ -655,16 +659,33 @@ mod tests {
     }
 
     #[test]
-    fn merged_set_prunes_without_git_agreement() {
-        // PR merged per the tracker, but the local origin ref is stale (the
-        // squashed commit was never fetched): the merged set is authoritative.
+    fn merged_branch_with_unpushed_commits_survives() {
+        // EXP-358: a merged session stays live and users commit follow-ups
+        // on its branch. The tracker's `merged` fact nominates the branch,
+        // but only git-confirmed containment may delete — an unpushed
+        // post-merge commit keeps branch AND worktree for a later pass.
         let dir = temp_dir("merged");
-        let (_origin, clone) = seed(&dir.0);
+        let (origin, clone) = seed(&dir.0);
         let wt = worktree(&clone, "exp/EXP-6");
-        commit_file(&wt, "landed-elsewhere.txt", "x\n", "work");
+        commit_file(&wt, "follow-up.txt", "x\n", "post-merge follow-up");
 
         let mut merged = policy(&["exp/"]);
         merged.merged.insert("exp/EXP-6".to_string());
+        let report = prune_landed(&clone, &merged);
+        assert!(report.removed_worktrees.is_empty());
+        assert_eq!(
+            report.skipped,
+            vec![("exp/EXP-6".to_string(), SkipReason::NotLanded)]
+        );
+        assert!(wt.exists());
+        assert!(branch_exists(&clone, "exp/EXP-6"));
+
+        // Once the follow-up lands upstream (squashed) and is fetched, git
+        // agrees and the merged branch finally goes.
+        fs::write(origin.join("follow-up.txt"), "x\n").unwrap();
+        git(&origin, &["add", "."]);
+        git(&origin, &["commit", "--quiet", "-m", "EXP-6: squashed"]);
+        git(&clone, &["fetch", "--quiet", "origin"]);
         let report = prune_landed(&clone, &merged);
         assert_eq!(report.removed_worktrees, vec!["exp/EXP-6".to_string()]);
         assert!(!wt.exists());
@@ -686,13 +707,19 @@ mod tests {
 
         let mut sweeping = policy(&["exp/"]);
         sweeping.delete_stale_branches = true;
+        // Tracker-merged but locally unlanded (unpushed follow-up): the
+        // sweep must not `-D` it on the tracker's word alone.
+        sweeping.merged.insert("exp/OLD-2".to_string());
         let report = prune_landed(&clone, &sweeping);
         let mut deleted = report.deleted_branches.clone();
         deleted.sort();
         assert_eq!(deleted, vec!["exp/OLD-1".to_string(), "exp/batch-1b81d4c7".to_string()]);
         assert!(!branch_exists(&clone, "exp/OLD-1"));
         assert!(!branch_exists(&clone, "exp/batch-1b81d4c7"));
-        assert!(branch_exists(&clone, "exp/OLD-2"), "unlanded branch survives");
+        assert!(
+            branch_exists(&clone, "exp/OLD-2"),
+            "unlanded branch survives, even tracker-merged"
+        );
         assert!(branch_exists(&clone, "feature/keep-me"), "non-prefix survives");
         assert!(branch_exists(&clone, "main"), "default branch survives");
 
@@ -730,7 +757,7 @@ mod tests {
     #[test]
     fn no_default_branch_reports_instead_of_guessing() {
         // A repo with NO origin remote at all: nothing verifies, nothing is
-        // fabricated — prefix candidates report, merged still prunes.
+        // fabricated — every candidate reports, nothing is pruned.
         let dir = temp_dir("nodefault");
         let root = dir.0.join("repo");
         fs::create_dir_all(&root).unwrap();
@@ -751,10 +778,16 @@ mod tests {
             vec![("exp/EXP-7".to_string(), SkipReason::NoDefaultBranch)]
         );
 
+        // `merged` no longer bypasses the check: with no default branch
+        // there is no containment proof, so it keeps too (fail-safe).
         let mut merged = policy(&["exp/"]);
         merged.merged.insert("exp/EXP-7".to_string());
         let report = prune_landed(&root, &merged);
-        assert_eq!(report.removed_worktrees, vec!["exp/EXP-7".to_string()]);
+        assert!(report.removed_worktrees.is_empty());
+        assert_eq!(
+            report.skipped,
+            vec![("exp/EXP-7".to_string(), SkipReason::NoDefaultBranch)]
+        );
     }
 
     #[test]
