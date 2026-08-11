@@ -282,6 +282,16 @@ impl LocalSessions {
             .chain(self.by_action.values())
     }
 
+    /// Every branch a live local session holds (issue, batch AND action
+    /// runs) — the prune keep-set feed (EXP-465): synced rows can't name
+    /// batch/action branches, only this process knows them. Trunk/scratch
+    /// runs carry an empty branch and are skipped.
+    pub fn held_branches(&self) -> impl Iterator<Item = &str> {
+        self.all()
+            .map(|session| session.branch.as_str())
+            .filter(|branch| !branch.is_empty())
+    }
+
     /// ONE live local session holding `branch`, arbitrarily chosen when
     /// several do. Only for callers that ask "is this branch held at all"
     /// (the EXP-102 clone sweep/delete guard) — anything that ACTS on the

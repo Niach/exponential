@@ -94,7 +94,7 @@ enum SyncMode {
     /// hold-off, which skips the whole pass).
     FetchOnly,
     /// Background pass: fetch → ff-only when clean & behind-only, else skip
-    /// (+ the EXP-76 worktree-prune nominations).
+    /// (+ the EXP-465 landed-worktree/stale-branch prune policy).
     AutoSync,
     /// The escape hatch: abort any in-progress rebase/merge, fetch,
     /// force-checkout the default branch, `reset --hard origin/<default>`.
@@ -178,6 +178,16 @@ pub struct TrunkSync {
     /// the auto-sync timer); consumed — and the [`clone_manager::FETCH_DEBOUNCE`]
     /// bypassed — by the next [`Self::maybe_auto_sync`] that actually runs.
     pending_merge_sync: bool,
+    /// The finished/PR-merged issue ids of this repo's boards as of the last
+    /// look (EXP-465 auto-clean) — a NEW member means an issue just turned
+    /// done/cancelled/merged and its worktree may be prunable now.
+    finished_ids: std::collections::HashSet<String>,
+    /// Whether `finished_ids` holds this scope's baseline yet — the first
+    /// post-ready read only seeds it.
+    finished_seeded: bool,
+    /// An issue newly finished and the prune-carrying auto-sync has not
+    /// started yet — same stickiness/consumption as `pending_merge_sync`.
+    pending_prune_sync: bool,
     /// The doctor's last-seen git verdict — the EXP-366 recovery edge: when
     /// git flips missing→present ("Check tools" after installing it), the
     /// failed/never-attempted clone retries WITHOUT the user finding the
@@ -248,6 +258,9 @@ impl TrunkSync {
             merge_stamp: None,
             merge_stamp_seeded: false,
             pending_merge_sync: false,
+            finished_ids: Default::default(),
+            finished_seeded: false,
+            pending_prune_sync: false,
             git_ok_seen: None,
             _subscriptions: subscriptions,
         }
@@ -366,6 +379,7 @@ impl TrunkSync {
             return;
         }
         if !self.pending_merge_sync
+            && !self.pending_prune_sync
             && self
                 .last_synced
                 .is_some_and(|last| !clone_manager::should_fetch(last))
@@ -375,13 +389,23 @@ impl TrunkSync {
         if self.repo_tasks_alive(window, cx) {
             return;
         }
-        let prune = self.prunable_worktree_branches(window, cx);
-        // Consume the merge trigger only once the pass is actually spawned —
+        let (repository_id, default_branch) =
+            (repo.repository_id.clone(), repo.default_branch.clone());
+        // EXP-465: every auto-sync pass carries the full prune policy — the
+        // engine decides what is actually landed and removable.
+        let policy = crate::worktree_prune::prune_policy_for_repo(
+            &repository_id,
+            default_branch,
+            window,
+            cx,
+        );
+        // Consume the triggers only once the pass is actually spawned —
         // `start_sync_with_prune` still no-ops without a resolved tRPC client,
-        // and dropping the flag there would park the post-merge pull until a
-        // later merge re-raised it.
-        if self.start_sync_with_prune(SyncMode::AutoSync, prune, cx) {
+        // and dropping a flag there would park the post-merge pull / prune
+        // until a later edge re-raised it.
+        if self.start_sync_with_prune(SyncMode::AutoSync, Some(policy), cx) {
             self.pending_merge_sync = false;
+            self.pending_prune_sync = false;
         }
     }
 
@@ -435,21 +459,14 @@ impl TrunkSync {
             .max()
     }
 
-    /// Branches whose session worktrees are safe to prune (EXP-76 disk
-    /// hygiene, piggybacked on the auto-sync pass): synced issues of THIS
-    /// repo's boards whose PR has merged, minus any issue with a running
-    /// coding session (synced — covers every device) and minus worktrees
-    /// hosting a live terminal tab in this window. The prune itself
-    /// ([`git_worktree::prune_merged_worktrees`]) additionally refuses any
-    /// worktree with modified or untracked files, so a tab in another window
-    /// can at worst block on a clean tree it was merely cd'ed into.
-    fn prunable_worktree_branches(&self, window: &Window, cx: &App) -> Vec<String> {
+    /// The synced issue ids of this repo's boards that are FINISHED
+    /// (done/cancelled/duplicate) or PR-merged — the EXP-465 auto-clean
+    /// trigger's watch set. Ids (not a max-timestamp): edits to an
+    /// already-finished issue must not re-fire the debounce bypass.
+    fn finished_issue_ids(&self, cx: &App) -> std::collections::HashSet<String> {
         let Some(repo) = &self.repo else {
-            return Vec::new();
+            return Default::default();
         };
-        if !repo.clone_exists {
-            return Vec::new();
-        }
         let collections = Store::global(cx).collections().clone();
         let boards = collections.boards.read(cx);
         let repo_boards: Vec<&str> = boards
@@ -459,40 +476,50 @@ impl TrunkSync {
             })
             .map(|board| board.id.as_str())
             .collect();
-        let sessions = collections.coding_sessions.read(cx);
-        // Heartbeat-stale rows count as absent (EXP-153) — a phantom row must
-        // not block cleaning up a merged branch forever.
-        let now = chrono::Utc::now().timestamp();
-        let running_issues: Vec<&str> = sessions
-            .iter()
-            .filter(|session| crate::queries::coding_session_is_live(session, now))
-            .filter_map(|session| session.issue_id.as_deref())
-            .collect();
-        let issues = collections.issues.read(cx);
-        let mut branches: Vec<String> = issues
+        collections
+            .issues
+            .read(cx)
             .iter()
             .filter(|issue| repo_boards.contains(&issue.board_id.as_str()))
-            .filter(|issue| issue.pr_state.as_deref() == Some(domain::contract::PR_STATE_MERGED))
-            .filter(|issue| !running_issues.contains(&issue.id.as_str()))
-            .filter_map(|issue| issue.branch.clone())
-            .collect();
-        if branches.is_empty() {
-            return branches;
+            .filter(|issue| {
+                // The dual-written enum ANCHOR (EXP-314) — this runs per
+                // render, so it must stay a cheap enum test, not a per-issue
+                // team-status resolution.
+                issue.pr_state.as_deref() == Some(domain::contract::PR_STATE_MERGED)
+                    || matches!(
+                        issue.status,
+                        domain::enums::IssueStatus::Done
+                            | domain::enums::IssueStatus::Cancelled
+                            | domain::enums::IssueStatus::Duplicate
+                    )
+            })
+            .map(|issue| issue.id.clone())
+            .collect()
+    }
+
+    /// Finished-reactive auto-clean (EXP-465, the sibling of
+    /// [`Self::check_merge_autopull`]): when an issue of this repo NEWLY
+    /// turns done/cancelled (or its PR merges), run the auto-sync pass — and
+    /// its worktree prune — now instead of waiting out the timer + debounce.
+    /// The first ready read only seeds the baseline; a shrink (reopened
+    /// issue) re-baselines without firing.
+    fn check_finished_autoclean(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if !self.repo.as_ref().is_some_and(|repo| repo.clone_exists) {
+            return;
         }
-        if let Some(manager) = crate::coding_flow::window_terminal_manager(window, cx) {
-            let busy: Vec<PathBuf> = manager
-                .read(cx)
-                .tabs()
-                .iter()
-                .filter(|tab| tab.is_running())
-                .filter_map(|tab| tab.cwd.clone())
-                .collect();
-            branches.retain(|branch| {
-                let worktree = git_worktree::worktree_path(&repo.clone, branch);
-                !busy.iter().any(|cwd| cwd.starts_with(&worktree))
-            });
+        let collections = Store::global(cx).collections().clone();
+        if !collections.issues.read(cx).is_ready() || !collections.boards.read(cx).is_ready() {
+            return;
         }
-        branches
+        let current = self.finished_issue_ids(cx);
+        if finished_set_fires(self.finished_seeded, &self.finished_ids, &current) {
+            self.pending_prune_sync = true;
+        }
+        self.finished_seeded = true;
+        self.finished_ids = current;
+        if self.pending_prune_sync {
+            self.maybe_auto_sync(window, cx);
+        }
     }
 
     /// Whether a live Action tab is working inside this repo's clone (or one
@@ -575,6 +602,9 @@ impl TrunkSync {
             self.merge_stamp = None;
             self.merge_stamp_seeded = false;
             self.pending_merge_sync = false;
+            self.finished_ids = Default::default();
+            self.finished_seeded = false;
+            self.pending_prune_sync = false;
             // Kill the previous scope's timer loop + in-flight job tail.
             self.generation += 1;
         }
@@ -582,6 +612,8 @@ impl TrunkSync {
         // load is pending (the rail re-renders on issue sync, which is what
         // carries a fresh `pr_merged_at` in).
         self.check_merge_autopull(window, cx);
+        // Finished-reactive auto-clean (EXP-465) — same cadence.
+        self.check_finished_autoclean(window, cx);
         if !matches!(self.load, Load::Idle) {
             return;
         }
@@ -701,18 +733,18 @@ impl TrunkSync {
     /// channel drained here. No-op while another op is in flight (one trunk
     /// op at a time) or off a resolved repo.
     fn start_sync(&mut self, mode: SyncMode, cx: &mut gpui::Context<Self>) {
-        self.start_sync_with_prune(mode, Vec::new(), cx);
+        self.start_sync_with_prune(mode, None, cx);
     }
 
-    /// [`Self::start_sync`] with the auto-sync pass's worktree-prune
-    /// nominations (empty for every user-triggered op — pruning rides ONLY
-    /// the background pass, whose trigger has the Window needed for the
+    /// [`Self::start_sync`] with the auto-sync pass's worktree-prune policy
+    /// (`None` for every user-triggered op — pruning rides ONLY the
+    /// background pass, whose trigger has the Window needed for the
     /// live-tab check). Returns whether the op was actually spawned, so a
     /// caller holding a one-shot trigger can keep it across a no-op.
     fn start_sync_with_prune(
         &mut self,
         mode: SyncMode,
-        prune_branches: Vec<String>,
+        prune_policy: Option<coding::PrunePolicy>,
         cx: &mut gpui::Context<Self>,
     ) -> bool {
         if self.syncing {
@@ -765,7 +797,7 @@ impl TrunkSync {
         // Background worker — token + git op + trunk read (argv-only git).
         cx.background_executor()
             .spawn(async move {
-                run_sync_worker(mode, &trpc, &repo, &prune_branches, &tx);
+                run_sync_worker(mode, &trpc, &repo, prune_policy.as_ref(), &tx);
             })
             .detach();
         true
@@ -936,7 +968,7 @@ fn run_sync_worker(
     mode: SyncMode,
     trpc: &api::TrpcClient,
     repo: &RepoInfo,
-    prune_branches: &[String],
+    prune_policy: Option<&coding::PrunePolicy>,
     tx: &flume::Sender<SyncMsg>,
 ) {
     // A pre-transport failure (mint or ambient-auth install), surfaced
@@ -1010,12 +1042,22 @@ fn run_sync_worker(
         SyncMode::AutoSync => {
             let outcome = clone_manager::auto_sync(clone, &url).map_err(|err| err.to_string());
             let _ = tx.send(SyncMsg::AutoSyncDone(outcome));
-            // EXP-76: reclaim merged sessions' worktrees (their ignored build
-            // caches are the disk cost). Nominations were computed on the
-            // foreground; the removal is quiet and best-effort — git itself
-            // refuses any worktree with modified or untracked files.
-            if !prune_branches.is_empty() {
-                let _ = git_worktree::prune_merged_worktrees(clone, prune_branches);
+            // EXP-465: reclaim landed worktrees + stale branches (their
+            // ignored build caches are the disk cost). The policy was
+            // derived on the foreground; the engine adds the git truth.
+            // Best-effort, but no longer silent — regressions were invisible
+            // under the old discarded result.
+            if let Some(policy) = prune_policy {
+                let report = coding::prune::prune_landed(clone, policy);
+                if !report.is_empty() {
+                    log::info!(
+                        "[ui] auto-prune {}: removed worktrees {:?}, deleted branches {:?}, skipped {:?}",
+                        repo.full_name,
+                        report.removed_worktrees,
+                        report.deleted_branches,
+                        report.skipped,
+                    );
+                }
             }
         }
         SyncMode::HardReset => {
@@ -1055,6 +1097,18 @@ fn run_sync_worker(
     let _ = tx.send(SyncMsg::Trunk(trunk));
 }
 
+/// EXP-465: whether the finished-set watch fires the auto-clean — only after
+/// the baseline seeded, and only on a NEW member. A shrink (reopened issue)
+/// re-baselines silently, and edits to already-finished issues change the
+/// set not at all — neither may bypass the fetch debounce.
+fn finished_set_fires(
+    seeded: bool,
+    previous: &std::collections::HashSet<String>,
+    current: &std::collections::HashSet<String>,
+) -> bool {
+    seeded && current.difference(previous).next().is_some()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1070,6 +1124,23 @@ mod tests {
             dirty,
             has_upstream: true,
         }
+    }
+
+    #[test]
+    fn finished_set_fires_only_on_a_new_member_after_seeding() {
+        use std::collections::HashSet;
+        let set = |ids: &[&str]| -> HashSet<String> {
+            ids.iter().map(|id| id.to_string()).collect()
+        };
+        // The seeding read never fires, however many ids it carries.
+        assert!(!finished_set_fires(false, &set(&[]), &set(&["a", "b"])));
+        // No change → no fire; a NEW member fires.
+        assert!(!finished_set_fires(true, &set(&["a"]), &set(&["a"])));
+        assert!(finished_set_fires(true, &set(&["a"]), &set(&["a", "b"])));
+        // A shrink (reopened issue) re-baselines without firing…
+        assert!(!finished_set_fires(true, &set(&["a", "b"]), &set(&["a"])));
+        // …and only a member NEW versus the shrunk baseline fires again.
+        assert!(finished_set_fires(true, &set(&["a"]), &set(&["a", "c"])));
     }
 
     #[test]

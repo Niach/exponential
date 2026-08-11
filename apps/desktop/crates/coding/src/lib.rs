@@ -53,6 +53,7 @@ pub mod launcher;
 pub mod mcp_json;
 pub mod pi_bridge;
 pub mod prompt;
+pub mod prune;
 pub mod reaper;
 pub mod scm;
 pub mod settings;
@@ -108,6 +109,7 @@ pub use mcp_json::{
     remove_stale_legacy_mcp_json, render_mcp_json, write_mcp_json, MCP_JSON_FILE,
 };
 pub use pi_bridge::{write_pi_bridge, write_pi_observer, PI_BRIDGE_FILE, PI_OBSERVER_FILE};
+pub use prune::{prune_landed, PrunePolicy, PruneReport, SkipReason};
 pub use prompt::{
     deliver_prompt, deliver_prompt_file, render_prompt, render_resume_prompt,
     write_rendered_prompt, PromptDelivery, PROMPT_ARGV_MAX_BYTES, PROMPT_FILE, SEED_LINE,
