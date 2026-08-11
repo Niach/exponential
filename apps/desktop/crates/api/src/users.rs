@@ -113,6 +113,15 @@ pub fn revoke_personal_api_key(trpc: &TrpcClient, id: &str) -> Result<(), ApiErr
     Ok(())
 }
 
+/// `users.dismissGettingStarted` — mutation (EXP-470): the one-way per-user
+/// dismissal flag behind the Getting-started rail entry. Callers fire it
+/// best-effort and stamp accounts.json locally (the flag is a session
+/// additionalField, so warm starts never re-read it).
+pub fn dismiss_getting_started(trpc: &TrpcClient) -> Result<(), ApiError> {
+    trpc.mutation_no_input::<serde_json::Value>("users.dismissGettingStarted")
+        .map(|_| ())
+}
+
 /// `users.timezone` — query (GET). `None` = never captured; the digest sweep
 /// falls back to UTC for those accounts.
 pub fn users_timezone(trpc: &TrpcClient) -> Result<Option<String>, ApiError> {
@@ -306,6 +315,14 @@ mod tests {
             .unwrap();
         assert!(request.starts_with("POST /api/trpc/users.mintPersonalApiKey HTTP/1.1"));
         assert!(request.ends_with(r#"{"name":"Device: testbox"}"#));
+    }
+
+    #[test]
+    fn dismiss_getting_started_posts_without_input() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        dismiss_getting_started(&client(&base)).unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/users.dismissGettingStarted HTTP/1.1"));
     }
 
     #[test]

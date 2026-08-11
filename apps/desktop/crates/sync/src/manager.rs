@@ -60,6 +60,11 @@ struct AccountPipeline {
     stop: Arc<AtomicBool>,
     threads: Vec<JoinHandle<()>>,
     store: Arc<ShapeStore>,
+    /// Retained so [`SyncManager::restart_account`] can rebuild the pipeline
+    /// without the caller re-supplying credentials (EXP-470).
+    base_url: String,
+    db_path: PathBuf,
+    token: TokenFn,
 }
 
 impl AccountPipeline {
@@ -194,9 +199,47 @@ impl SyncManager {
                 stop,
                 threads,
                 store,
+                base_url: config.base_url,
+                db_path: config.db_path,
+                token: config.token,
             },
         );
         Ok(true)
+    }
+
+    /// Restart one LIVE account's pipeline in place (EXP-470). After a
+    /// membership change (team create/join) every team-scoped shape's
+    /// identity rotates server-side, but the threads parked in a blocking
+    /// live long-poll only notice at their next poll boundary — up to the
+    /// server's hold time (~60s). A restart makes every shape re-poll
+    /// immediately: the fresh request 409s, refetches, and delivers the new
+    /// team's data within a couple of seconds. Detached stragglers discard
+    /// their in-flight results by design (`stop` is re-checked before
+    /// apply). No-op (`false`) when no live pipeline exists.
+    pub fn restart_account(&self, account_id: &str) -> bool {
+        let config = {
+            let pipelines = self.pipelines.lock().expect("pipelines poisoned");
+            let Some(pipeline) = pipelines.get(account_id) else {
+                return false;
+            };
+            if !pipeline.is_live() {
+                return false;
+            }
+            AccountSyncConfig {
+                account_id: account_id.to_string(),
+                base_url: pipeline.base_url.clone(),
+                db_path: pipeline.db_path.clone(),
+                token: Arc::clone(&pipeline.token),
+            }
+        };
+        self.stop_account(account_id);
+        match self.start_account(config) {
+            Ok(_) => true,
+            Err(err) => {
+                log::warn!("[sync {account_id}] restart failed: {err}");
+                false
+            }
+        }
     }
 
     /// Stop one account's pipeline (§5.10 `sign_out`): flip the shared stop

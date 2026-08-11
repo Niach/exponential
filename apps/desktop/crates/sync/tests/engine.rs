@@ -740,6 +740,50 @@ fn dead_token_surfaces_unauthorized_once_and_tears_down() {
 }
 
 // ---------------------------------------------------------------------------
+// EXP-470: restart_account rebuilds a live pipeline in place (the post-
+// team-create nudge — fresh threads re-poll immediately instead of waiting
+// out a parked live long-poll).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn restart_account_rebuilds_a_live_pipeline() {
+    let server = MockShapeServer::start(live_idle("h-1", "0_0", Duration::from_millis(50)));
+
+    let dir = TempDir::new("restart");
+    let manager = SyncManager::new();
+    let started = manager
+        .start_account(AccountSyncConfig {
+            account_id: "acct-1".into(),
+            base_url: server.base_url.clone(),
+            db_path: dir.db_path(),
+            token: Arc::new(|| Some("token".to_string())),
+        })
+        .unwrap();
+    assert!(started);
+    assert!(wait_until(Duration::from_secs(5), || {
+        !server.requests().is_empty()
+    }));
+
+    // Unknown account → no-op.
+    assert!(!manager.restart_account("acct-unknown"));
+
+    // Live account → stop + fresh start from the retained config, no caller-
+    // supplied credentials.
+    assert!(manager.restart_account("acct-1"));
+    assert!(manager
+        .running_accounts()
+        .contains(&"acct-1".to_string()));
+
+    // The rebuilt threads poll again promptly.
+    let polls_before = server.requests().len();
+    assert!(wait_until(Duration::from_secs(5), || {
+        server.requests().len() > polls_before
+    }));
+
+    assert!(manager.stop_account("acct-1"));
+}
+
+// ---------------------------------------------------------------------------
 // 3a. EXP-229 grace window: consecutive 401s PAST the grace still tear down
 //     (the dead-token path survives the deploy-blip fix)…
 // ---------------------------------------------------------------------------

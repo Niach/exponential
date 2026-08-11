@@ -32,13 +32,14 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, v_flex, ActiveTheme as _, Disableable as _, Sizable as _,
+    h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use sync::Store;
 
 use crate::coding_flow::CodingHub;
 use crate::create_board_dialog::{BoardCreated, CreateBoardDialogView};
 use crate::create_team_dialog::{CreateTeamDialogView, TeamCreated};
+use crate::icons::registry;
 use crate::join_team::{InviteAccepted, JoinTeamView};
 use crate::queries;
 use crate::session::AuthContext;
@@ -97,6 +98,18 @@ pub(crate) fn resolve_step(
     None
 }
 
+/// Which Team sub-page shows (EXP-470, web wizard parity): a choice screen
+/// first, then a dedicated create or join page with a Back button. Purely
+/// click-driven view state — deliberately NOT a [`WizardStep`] variant, so
+/// `resolve_step` stays a pure derivation of account/collection state.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum TeamPage {
+    #[default]
+    Choice,
+    Create,
+    Join,
+}
+
 pub struct OnboardingView {
     /// The account the session latches belong to — reset on account switch.
     account_id: Option<String>,
@@ -105,6 +118,8 @@ pub struct OnboardingView {
     account_steps_done: bool,
     /// Session latch for the tools step (persisted as `tools_setup_seen`).
     tools_step_done: bool,
+    /// The Team step's sub-page (EXP-470).
+    team_page: TeamPage,
     create_team: Option<Entity<CreateTeamDialogView>>,
     join_team: Option<Entity<JoinTeamView>>,
     /// Keyed by team id — a different first team rebuilds the form.
@@ -133,6 +148,7 @@ impl OnboardingView {
             account_id: None,
             account_steps_done: false,
             tools_step_done: false,
+            team_page: TeamPage::default(),
             create_team: None,
             join_team: None,
             create_board: None,
@@ -151,6 +167,7 @@ impl OnboardingView {
             self.account_id = current;
             self.account_steps_done = false;
             self.tools_step_done = false;
+            self.team_page = TeamPage::default();
             self.create_team = None;
             self.join_team = None;
             self.create_board = None;
@@ -252,7 +269,78 @@ impl OnboardingView {
 
     // -- step pages (lazily created; events subscribed once) ----------------
 
-    fn team_page(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+    /// One full-width choice row (web `ChoiceStep` outline-button parity).
+    fn team_choice_row(
+        &mut self,
+        id: &'static str,
+        icon: Icon,
+        title: &'static str,
+        subtitle: &'static str,
+        target: TeamPage,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let muted = cx.theme().muted_foreground;
+        div()
+            .id(id)
+            .w_full()
+            .px_4()
+            .py_3()
+            .rounded(cx.theme().radius)
+            .border_1()
+            .border_color(cx.theme().border)
+            .cursor_pointer()
+            .hover(|style| style.bg(cx.theme().list_hover))
+            .flex()
+            .items_center()
+            .gap_3()
+            .child(icon.size_5().text_color(cx.theme().primary))
+            .child(
+                v_flex()
+                    .min_w_0()
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(FontWeight::MEDIUM)
+                            .child(title),
+                    )
+                    .child(div().text_xs().text_color(muted).child(subtitle)),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.team_page = target;
+                cx.notify();
+            }))
+            .into_any_element()
+    }
+
+    /// EXP-470: the create-or-join choice (web wizard parity — two big
+    /// option rows instead of both forms stacked).
+    fn team_choice_page(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        v_flex()
+            .gap_3()
+            .child(self.team_choice_row(
+                "onboarding-choice-create",
+                Icon::new(registry::UI_ADD),
+                "Create a team",
+                "Start fresh. You'll be the owner.",
+                TeamPage::Create,
+                cx,
+            ))
+            .child(self.team_choice_row(
+                "onboarding-choice-join",
+                Icon::new(registry::EDITOR_LINK),
+                "Join a team",
+                "Use an invite link a teammate sent you.",
+                TeamPage::Join,
+                cx,
+            ))
+            .into_any_element()
+    }
+
+    fn team_create_page(
+        &mut self,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
         if self.create_team.is_none() {
             let view = cx.new(|cx| CreateTeamDialogView::new(true, window, cx));
             self._subscriptions.push(cx.subscribe(
@@ -261,6 +349,17 @@ impl OnboardingView {
             ));
             self.create_team = Some(view);
         }
+        self.create_team
+            .clone()
+            .expect("created above")
+            .into_any_element()
+    }
+
+    fn team_join_page(
+        &mut self,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
         if self.join_team.is_none() {
             let view = cx.new(|cx| JoinTeamView::new(None, true, window, cx));
             self._subscriptions.push(cx.subscribe(
@@ -273,24 +372,9 @@ impl OnboardingView {
             ));
             self.join_team = Some(view);
         }
-        let muted = cx.theme().muted_foreground;
-        v_flex()
-            .gap_4()
-            .child(self.create_team.clone().expect("created above"))
-            .child(
-                h_flex()
-                    .gap_3()
-                    .items_center()
-                    .child(div().flex_1().h(px(1.)).bg(cx.theme().border))
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(muted)
-                            .child("or join an existing team"),
-                    )
-                    .child(div().flex_1().h(px(1.)).bg(cx.theme().border)),
-            )
-            .child(self.join_team.clone().expect("created above"))
+        self.join_team
+            .clone()
+            .expect("created above")
             .into_any_element()
     }
 
@@ -370,11 +454,25 @@ impl Render for OnboardingView {
                 + if self.tools_pending(cx) { 1 } else { 0 };
             match &step {
                 WizardStep::Syncing => ("Welcome to Exponential", "Syncing your account…", None),
-                WizardStep::Team => (
-                    "Welcome to Exponential",
-                    "Create a team to get started, or join one with an invite link.",
-                    Some((1, total)),
-                ),
+                WizardStep::Team => match self.team_page {
+                    TeamPage::Choice => (
+                        "Welcome to Exponential",
+                        "Teams hold your boards and teammates. Create your own, or join \
+                         one you've been invited to.",
+                        Some((1, total)),
+                    ),
+                    TeamPage::Create => (
+                        "Create a team",
+                        "Name your team. You can rename it and invite teammates later.",
+                        Some((1, total)),
+                    ),
+                    TeamPage::Join => (
+                        "Join a team",
+                        "Ask a teammate for an invite link (team settings → Members), \
+                         then paste it below.",
+                        Some((1, total)),
+                    ),
+                },
                 WizardStep::Board { .. } => (
                     "Create your first board",
                     "Boards hold your issues. Connect a GitHub repository to unlock \
@@ -399,7 +497,11 @@ impl Render for OnboardingView {
                 .text_color(muted)
                 .child("Loading your teams…")
                 .into_any_element(),
-            WizardStep::Team => self.team_page(window, cx),
+            WizardStep::Team => match self.team_page {
+                TeamPage::Choice => self.team_choice_page(cx),
+                TeamPage::Create => self.team_create_page(window, cx),
+                TeamPage::Join => self.team_join_page(window, cx),
+            },
             WizardStep::Board { team_id } => {
                 let team_id = team_id.clone();
                 self.board_page(&team_id, window, cx)
@@ -411,20 +513,35 @@ impl Render for OnboardingView {
         // appears once the report is fully green (both dismiss it).
         let footer: Option<gpui::AnyElement> = match &step {
             WizardStep::Syncing => None,
-            WizardStep::Team => Some(
-                h_flex()
-                    .justify_end()
-                    .child(
-                        Button::new("onboarding-skip-team")
-                            .ghost()
-                            .small()
-                            .label("Set up later")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.complete_account_steps(cx);
-                            })),
-                    )
-                    .into_any_element(),
-            ),
+            WizardStep::Team => {
+                let skip = Button::new("onboarding-skip-team")
+                    .ghost()
+                    .small()
+                    .label("Set up later")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.complete_account_steps(cx);
+                    }));
+                Some(match self.team_page {
+                    TeamPage::Choice => h_flex().justify_end().child(skip).into_any_element(),
+                    // Create/Join get a Back to the choice page (EXP-470).
+                    TeamPage::Create | TeamPage::Join => h_flex()
+                        .items_center()
+                        .justify_between()
+                        .child(
+                            Button::new("onboarding-team-back")
+                                .ghost()
+                                .small()
+                                .icon(registry::UI_BACK)
+                                .label("Back")
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.team_page = TeamPage::Choice;
+                                    cx.notify();
+                                })),
+                        )
+                        .child(skip)
+                        .into_any_element(),
+                })
+            }
             WizardStep::Board { .. } => Some(
                 h_flex()
                     .justify_end()
@@ -568,5 +685,11 @@ mod tests {
         assert_eq!(resolve_step(true, true, None, false), Some(WizardStep::Team));
         // …and a boarded team with tools seen means no wizard at all.
         assert_eq!(resolve_step(true, true, team("t1", true), false), None);
+    }
+
+    /// EXP-470: the Team step always re-enters on the choice page.
+    #[test]
+    fn team_page_defaults_to_choice() {
+        assert_eq!(TeamPage::default(), TeamPage::Choice);
     }
 }

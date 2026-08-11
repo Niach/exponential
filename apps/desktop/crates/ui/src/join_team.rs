@@ -256,10 +256,27 @@ impl JoinTeamView {
                 Ok(output) => {
                     let team_id = output.team.as_ref().map(|w| w.id.clone());
                     if let Some(team_id) = team_id {
-                        // §4.1 gated flow: the joined team must be
-                        // visible in the synced collection before we switch.
+                        // Seed the row from the accept response so the
+                        // switch is instant (EXP-470); the pipeline restart
+                        // makes the rotated shapes deliver the joined team's
+                        // boards/issues within seconds instead of waiting
+                        // out their parked long-polls.
+                        let seeded = output.team.as_ref().map(|team| {
+                            domain::rows::Team::seeded(
+                                team.id.clone(),
+                                team.name.clone().unwrap_or_else(|| "New team".to_string()),
+                                team.slug.clone(),
+                            )
+                        });
                         let teams = window
-                            .update(|_, cx| Store::global(cx).collections().teams.clone())
+                            .update(|_, cx| {
+                                let store = Store::global(cx).clone();
+                                if let Some(seeded) = seeded {
+                                    store.collections().seed_team(seeded, cx);
+                                    store.resync_active(cx);
+                                }
+                                store.collections().teams.clone()
+                            })
                             .ok();
                         if let Some(teams) = teams {
                             queries::await_row_visible(&teams, &team_id, window).await;
@@ -352,9 +369,11 @@ impl JoinTeamView {
 
 impl Render for JoinTeamView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        // Embedded (wizard) hosting: the create-team form above owns first
-        // focus — stealing it here would fight it every render pass.
-        if !self.focused_once && !self.embedded {
+        // First render focuses the token field. (Embedded mode used to skip
+        // this while the create-team form rendered above on the same page;
+        // since EXP-470 the wizard shows Join on its own page, so it may
+        // focus too.)
+        if !self.focused_once {
             self.focused_once = true;
             self.token_input
                 .update(cx, |state, cx| state.focus(window, cx));

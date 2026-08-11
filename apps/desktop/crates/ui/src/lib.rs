@@ -41,6 +41,7 @@ mod file_tree;
 mod file_viewer;
 mod filter_bar;
 mod filter_popover;
+mod getting_started;
 mod github_connect;
 mod icons;
 mod image_preview;

@@ -393,12 +393,32 @@ impl CreateBoardDialogView {
 
             match result {
                 Ok(output) => {
-                    // Gate the close on the Electric echo (§4.1) so the
-                    // sidebar shows the board the moment the dialog closes,
-                    // then open its (empty) board.
+                    // Seed the row from the mutation response (EXP-470): a
+                    // board created in an EXISTING team echoes fast, but the
+                    // onboarding wizard creates one in a just-created team
+                    // whose boards shape is still mid-rotation — the seed
+                    // makes the close instant either way.
                     let board_id = output.board.id.clone();
+                    let seeded = output.board.team_id.clone().map(|team_id| {
+                        let mut board = domain::rows::Board::seeded(
+                            board_id.clone(),
+                            team_id,
+                            output.board.name.clone().unwrap_or_else(|| "New board".to_string()),
+                        );
+                        board.slug = output.board.slug.clone();
+                        board.prefix = output.board.prefix.clone();
+                        board.color = output.board.color.clone();
+                        board.repository_id = output.board.repository_id.clone();
+                        board
+                    });
                     let boards = window
-                        .update(|_, cx| Store::global(cx).collections().boards.clone())
+                        .update(|_, cx| {
+                            let store = Store::global(cx).clone();
+                            if let Some(seeded) = seeded {
+                                store.collections().seed_board(seeded, cx);
+                            }
+                            store.collections().boards.clone()
+                        })
                         .ok();
                     if let Some(boards) = boards {
                         queries::await_row_visible(&boards, &board_id, window).await;
