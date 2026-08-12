@@ -408,6 +408,8 @@ fn full_protocol_flow_against_the_real_relay() {
     // ── Control channel: online presence + remote start routing (§8.3) ────
     let started: Arc<Mutex<Vec<steer::RemoteStart>>> = Arc::new(Mutex::new(Vec::new()));
     let started_clone = started.clone();
+    let checked_in = Arc::new(AtomicBool::new(false));
+    let checked_in_clone = checked_in.clone();
     let control = spawn_control_channel(
         &runtime,
         DeviceIdentity {
@@ -422,6 +424,7 @@ fn full_protocol_flow_against_the_real_relay() {
             relay_port: relay.port,
         }),
         Arc::new(move |start| started_clone.lock().unwrap().push(start)),
+        Arc::new(move || checked_in_clone.store(true, Ordering::SeqCst)),
     );
 
     // The device appears in the phone picker's backing endpoint.
@@ -429,6 +432,18 @@ fn full_protocol_flow_against_the_real_relay() {
         http_request(relay.port, "GET", "/devices/user-int", &[("x-relay-secret", SECRET)], None)
             .is_some_and(|body| body.contains("device-int-1") && body.contains("IntTestBox"))
     });
+
+    // EXP-481: the check-in nudge rides the same control socket.
+    let response = http_request(
+        relay.port,
+        "POST",
+        "/devices/user-int/device-int-1/nudge",
+        &[("x-relay-secret", SECRET)],
+        None,
+    )
+    .expect("POST nudge");
+    assert!(response.contains("\"delivered\":true"), "nudge delivered: {response}");
+    wait_for("check_in delivery", || checked_in.load(Ordering::SeqCst));
 
     // Remote "Start on my desktop" → start_session lands on our socket.
     // Option-less body (an old client) → every option arrives None.
