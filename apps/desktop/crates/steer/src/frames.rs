@@ -160,6 +160,18 @@ pub enum ActivityEvent {
     /// Assistant prose (a `text` content block).
     Narration {
         text: String,
+        /// EXP-483: claude withholds the transcript entry that carries an
+        /// `AskUserQuestion`/`ExitPlanMode` tool_use — and any prose in that
+        /// SAME entry — until the picker resolves, so the prose reaches the
+        /// wire AFTER the already-published card. When set, this is the
+        /// claude `tool_use_id` of that ask/plan: clients splice the
+        /// narration immediately BEFORE the first feed question whose
+        /// `askId` or `id` equals it (no match → append as ever).
+        #[serde(
+            rename = "beforeQuestionId",
+            skip_serializing_if = "Option::is_none"
+        )]
+        before_question_id: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         at: Option<i64>,
     },
@@ -293,7 +305,11 @@ pub enum SubagentStatus {
 impl ActivityEvent {
     /// The legacy shorthands — the shapes with no v2 fields at all.
     pub fn narration(text: impl Into<String>) -> Self {
-        ActivityEvent::Narration { text: text.into(), at: None }
+        ActivityEvent::Narration {
+            text: text.into(),
+            before_question_id: None,
+            at: None,
+        }
     }
 
     pub fn diff(diff: impl Into<String>) -> Self {
@@ -998,6 +1014,22 @@ mod tests {
             let json = serde_json::to_string(&event).unwrap();
             assert!(json.contains(r#""at":7"#), "{json}");
         }
+    }
+
+    #[test]
+    fn narration_anchor_serializes_camel_case_and_omits_none() {
+        // EXP-483: the splice anchor rides the wire as `beforeQuestionId`
+        // and stays entirely absent on ordinary narration.
+        let plain = ActivityEvent::narration("hi");
+        assert!(!serde_json::to_string(&plain).unwrap().contains("beforeQuestionId"));
+        let anchored = ActivityEvent::Narration {
+            text: "summary".into(),
+            before_question_id: Some("toolu_01".into()),
+            at: None,
+        };
+        assert!(serde_json::to_string(&anchored)
+            .unwrap()
+            .contains(r#""beforeQuestionId":"toolu_01""#));
     }
 
     #[test]

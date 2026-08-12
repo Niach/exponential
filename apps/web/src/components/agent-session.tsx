@@ -41,6 +41,7 @@ import {
   isAnswerLocked,
   looksLikeMarkdown,
   pushEcho,
+  spliceBeforeQuestion,
   summarizeSubagentRow,
   upsertQuestion,
   visibleSubagentTabs,
@@ -133,7 +134,9 @@ interface QuestionOption {
 }
 
 type ActivityEvent =
-  | { kind: `narration`; text: string; at?: number }
+  // `beforeQuestionId` (EXP-483) anchors late-flushed prose above the
+  // already-published question card it was written before.
+  | { kind: `narration`; text: string; beforeQuestionId?: string; at?: number }
   // `subagentId` (protocol v2) nests the call under its subagent group.
   | { kind: `tool`; name: string; detail?: string; subagentId?: string; at?: number }
   | { kind: `diff`; diff: string; at?: number }
@@ -442,6 +445,22 @@ export function AgentSessionView({
                     },
                   ].slice(-FEED_CAP)
             )
+            return
+          }
+          // EXP-483: prose from the withheld ask/plan entry flushes AFTER
+          // its already-published card — splice it back above the card.
+          const anchor = event.beforeQuestionId
+          if (anchor !== undefined) {
+            setFeed((prev) => {
+              const item: FeedItem = {
+                id: nextIdRef.current++,
+                kind: `narration`,
+                text: event.text,
+              }
+              return (
+                spliceBeforeQuestion(prev, anchor, item) ?? [...prev, item]
+              ).slice(-FEED_CAP)
+            })
             return
           }
           append({ kind: `narration`, text: event.text })

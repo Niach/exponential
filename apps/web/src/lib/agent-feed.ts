@@ -143,6 +143,24 @@ export function upsertQuestion<T extends QuestionLike>(
   return merged
 }
 
+/** Insert `item` immediately BEFORE the first question card matching
+ *  `anchor` (its `askId` or wire `questionId`) — EXP-483: claude withholds
+ *  the transcript entry carrying an ask/plan tool_use, prose included, until
+ *  the picker resolves, so that prose arrives AFTER the already-published
+ *  card and tags itself with `beforeQuestionId` to be spliced back above it.
+ *  Matches resolved cards too (the twin normally flushes post-answer). Null
+ *  when no card matches (evicted, legacy producer) — the caller appends. */
+export function spliceBeforeQuestion<
+  T extends { kind: string; questionId?: string; askId?: string },
+>(feed: readonly T[], anchor: string, item: T): T[] | null {
+  const index = feed.findIndex(
+    (i) =>
+      i.kind === `question` && (i.askId === anchor || i.questionId === anchor)
+  )
+  if (index < 0) return null
+  return [...feed.slice(0, index), item, ...feed.slice(index)]
+}
+
 /** A `question_resolved` event (protocol v2). */
 export interface QuestionResolution {
   id?: string

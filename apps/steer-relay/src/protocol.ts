@@ -120,7 +120,7 @@ export const byeFrame = z.object({
 // worktree diffs, ALREADY REDACTED (known-secret masking + gitleaks-style
 // patterns) — the relay stays a dumb pipe and fans them out to the activity
 // audience, never interpreting a field.
-//   narration:         assistant prose        { kind, text }
+//   narration:         assistant prose        { kind, text, beforeQuestionId? }
 //   tool:              tool-call headline     { kind, name, detail?, subagentId? }
 //   diff:              worktree unified diff  { kind, diff }  (latest replaces prior)
 //   user_message:      a human turn           { kind, text }
@@ -141,6 +141,14 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
   z.object({
     kind: z.literal(`narration`),
     text: z.string().max(16 * 1024),
+    // EXP-483: claude withholds the transcript entry carrying an ask/plan
+    // tool_use — prose included — until the picker resolves, so that prose
+    // reaches the wire AFTER the already-published card. When set, this is
+    // the claude tool_use_id of that ask/plan: clients splice the narration
+    // immediately BEFORE the first question whose askId or id equals it
+    // (no match → append). Must be declared here — the relay re-serializes
+    // the PARSED event, so an undeclared field would be stripped.
+    beforeQuestionId: z.string().max(128).optional(),
     at: z.number().optional(),
   }),
   z.object({

@@ -601,6 +601,51 @@ class AgentFeedTest {
         assertTrue(orphan.feed.single() is AgentFeedItem.Narration)
     }
 
+    // EXP-483: prose from the withheld ask/plan entry flushes AFTER its
+    // already-published card and splices back above it via beforeQuestionId.
+
+    @Test
+    fun `anchored narration splices above the first card of its ask`() {
+        val state = ActivityFeedState()
+            .applying(event("""{"kind":"question","id":"tu_1#0","askId":"tu_1","index":1,"total":2,"text":"Q1","options":[{"label":"Red","key":"1"}]}"""))
+            .applying(event("""{"kind":"question","id":"tu_1#1","askId":"tu_1","index":2,"total":2,"text":"Q2","options":[{"label":"Big","key":"1"}]}"""))
+            .applying(event("""{"kind":"narration","text":"the summary","beforeQuestionId":"tu_1"}"""))
+        assertEquals(3, state.feed.size)
+        assertEquals("the summary", (state.feed[0] as AgentFeedItem.Narration).text)
+        assertEquals("tu_1#0", (state.feed[1] as AgentFeedItem.Question).wireId)
+    }
+
+    @Test
+    fun `anchored narration matches a plan card by wire id, resolved or not`() {
+        val state = ActivityFeedState()
+            .applying(event("""{"kind":"question","id":"tu_plan","planMode":true,"text":"## Plan","options":[{"label":"Approve","key":"1"}]}"""))
+            .applying(event("""{"kind":"question_resolved","id":"tu_plan","answers":["Approve"]}"""))
+            .applying(event("""{"kind":"narration","text":"plan prose","beforeQuestionId":"tu_plan"}"""))
+        assertEquals("plan prose", (state.feed[0] as AgentFeedItem.Narration).text)
+        assertTrue((state.feed[1] as AgentFeedItem.Question).resolved)
+    }
+
+    @Test
+    fun `successive anchored narrations keep their order`() {
+        val state = ActivityFeedState()
+            .applying(event("""{"kind":"question","id":"tu_1#0","askId":"tu_1","text":"Q1","options":[{"label":"Red","key":"1"}]}"""))
+            .applying(event("""{"kind":"narration","text":"first","beforeQuestionId":"tu_1"}"""))
+            .applying(event("""{"kind":"narration","text":"second","beforeQuestionId":"tu_1"}"""))
+        assertEquals(
+            listOf("first", "second"),
+            state.feed.take(2).map { (it as AgentFeedItem.Narration).text },
+        )
+        assertTrue(state.feed[2] is AgentFeedItem.Question)
+    }
+
+    @Test
+    fun `anchored narration with no matching card appends`() {
+        val state = ActivityFeedState()
+            .applying(narration("working"))
+            .applying(event("""{"kind":"narration","text":"late","beforeQuestionId":"tu_gone"}"""))
+        assertEquals("late", (state.feed[1] as AgentFeedItem.Narration).text)
+    }
+
     @Test
     fun `the local echo of a steered message swallows its transcript twin`() {
         val echoed = ActivityFeedState().appendUserMessage("ship it")

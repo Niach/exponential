@@ -403,6 +403,13 @@ pub struct TranscriptState {
     /// EXP-249: ask ids the HOOK already published (identity, not text) —
     /// their post-answer transcript twins are swallowed outright.
     pub hook_published_asks: HashSet<String>,
+    /// EXP-483: `ExitPlanMode` tool_use ids the plan HOOK saw — when the
+    /// withheld twin entry flushes, prose in that same entry anchors above
+    /// the already-published plan card (`beforeQuestionId`). Kept separate
+    /// from [`Self::suppress_plan_questions`], a bare counter that cannot
+    /// tell a hook-published card (id = tool_use id) from the id-less grid
+    /// fallback.
+    pub hook_published_plans: HashSet<String>,
     /// EXP-347: a suppressed plan twin flushed since the last emitter look —
     /// claude only flushes the `ExitPlanMode` entry once the picker is
     /// answered, so this is the "plan resolved" signal that still arrives
@@ -520,10 +527,15 @@ pub fn process_transcript_line(
             let ask_ids = record_pending_asks(&entry, state);
             // EXP-249: the hook published this ask by identity — its twin is
             // swallowed whole, no text matching involved.
-            let hook_published = ask_ids
+            let hook_ask = ask_ids
                 .iter()
-                .any(|id| state.hook_published_asks.contains(id));
-            parse_assistant_entry(&entry, redactor)
+                .find(|id| state.hook_published_asks.contains(*id))
+                .cloned();
+            // EXP-483: a hook-published plan whose withheld twin this entry
+            // carries — consumed here so the set never outlives its flush.
+            let hook_plan =
+                exit_plan_mode_id(&entry).filter(|id| state.hook_published_plans.remove(id));
+            let mut events: Vec<ActivityEvent> = parse_assistant_entry(&entry, redactor)
                 .into_iter()
                 .filter(|event| match event {
                     // The late twin of a plan already published at pending
@@ -543,7 +555,7 @@ pub fn process_transcript_line(
                         text,
                         plan_mode: None,
                         ..
-                    } => !hook_published && !state.consume_grid_question(text),
+                    } => hook_ask.is_none() && !state.consume_grid_question(text),
                     // The hook's subagent card already represents this Task
                     // call (EXP-350).
                     ActivityEvent::Tool {
@@ -553,7 +565,24 @@ pub fn process_transcript_line(
                     } if name == "Task" || name == "Agent" => !state.suppress_task_headlines,
                     _ => true,
                 })
-                .collect()
+                .collect();
+            // EXP-483: claude withholds this whole entry until the picker
+            // resolves, so its prose reaches the wire AFTER the card the
+            // hook already published. Anchor the prose to that card's
+            // identity so clients can splice it back ABOVE the question.
+            // Grid-only twins stay unanchored — their cards are id-less.
+            if let Some(anchor) = hook_ask.as_deref().or(hook_plan.as_deref()) {
+                let anchor = truncate(anchor, ID_MAX);
+                for event in &mut events {
+                    if let ActivityEvent::Narration {
+                        before_question_id, ..
+                    } = event
+                    {
+                        *before_question_id = Some(anchor.clone());
+                    }
+                }
+            }
+            events
         }
         Some("user") => {
             collect_task_events(&entry, state);
@@ -731,6 +760,23 @@ fn tag_value(text: &str, tag: &str) -> Option<String> {
 /// that don't track cross-line ask state).
 pub fn parse_transcript_line(line: &str, redactor: &Redactor) -> Vec<ActivityEvent> {
     process_transcript_line(line, redactor, &mut TranscriptState::default())
+}
+
+/// The tool_use id of an assistant entry's `ExitPlanMode` block, if any —
+/// the anchor a withheld plan entry's prose splices against (EXP-483).
+fn exit_plan_mode_id(entry: &Value) -> Option<String> {
+    let content = entry
+        .get("message")
+        .and_then(|m| m.get("content"))
+        .and_then(Value::as_array)?;
+    content.iter().find_map(|block| {
+        if block.get("type").and_then(Value::as_str) != Some("tool_use")
+            || block.get("name").and_then(Value::as_str) != Some("ExitPlanMode")
+        {
+            return None;
+        }
+        block.get("id").and_then(Value::as_str).map(str::to_string)
+    })
 }
 
 /// Record every `AskUserQuestion` tool_use (id + question texts, in order) so
@@ -2059,6 +2105,15 @@ impl SteerState {
         match event.kind {
             HookEventKind::PlanProposed { tool_use_id, plan } => {
                 self.plan_seq += 1;
+                // EXP-483: a REAL tool_use id will reappear on the withheld
+                // twin entry — remember it so that entry's prose can anchor
+                // above the published card. A synthetic `plan-N` id never
+                // shows up in the transcript, so it would only leak.
+                if let Some(id) = &tool_use_id {
+                    transcript
+                        .hook_published_plans
+                        .insert(truncate(id, ID_MAX));
+                }
                 let id = tool_use_id.unwrap_or_else(|| format!("plan-{}", self.plan_seq));
                 let text = truncate(&redactor.redact(&plan), QUESTION_TEXT_MAX);
                 // claude flushes the ExitPlanMode transcript entry only once
@@ -3041,7 +3096,7 @@ pub fn spawn_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<
         .unwrap_or_else(|err| log::warn!("activity: emitter thread spawn failed: {err}"));
 }
 
-/// The debounced changed-only worktree diff snapshot — step 6 of every
+/// The debounced changed-only worktree diff snapshot — step 8 of every
 /// emitter, extracted verbatim so the codex/pi emitters share it (EXP-383).
 pub(crate) struct DiffSnapshots {
     last: String,
@@ -3178,7 +3233,65 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
     let mut foreign_login_notified = false;
 
     while active.load(Ordering::SeqCst) {
-        // 0) The hooks sidecar (EXP-249): the structured half. Drained before
+        // 0) Resolve / re-resolve the transcript file (a newer session file in
+        //    the same dir supersedes; reset the read offset when it changes).
+        //    Discovery is pinned to the session ids the hooks announced
+        //    (EXP-429) — the project dir is cwd-keyed, so without the pin a
+        //    plain "+" agent-shell tab sharing the trunk cwd would hijack the
+        //    feed of a completed run. (A pin learned from a hook this tick
+        //    takes effect next tick — a 1-tick discovery lag, nothing more.)
+        if let Some(dir) = &transcript_dir {
+            if let Some(newest) = newest_transcript(dir, spawn_time, &steer.pin) {
+                if current.as_deref() != Some(newest.as_path()) {
+                    current = Some(newest);
+                    offset = 0;
+                }
+                transcript_deadline = None;
+            } else {
+                // EXP-429: a pinned emitter never keeps tailing an unpinned
+                // file — a foreign transcript grabbed in the pre-first-hook
+                // window self-heals here.
+                if steer.pin.pinned() && current.take().is_some() {
+                    offset = 0;
+                }
+                if let Some(deadline) = transcript_deadline {
+                    if Instant::now() >= deadline {
+                        log::info!(
+                            "activity: no transcript in {} within {}s — diffs only",
+                            dir.display(),
+                            TRANSCRIPT_WAIT.as_secs()
+                        );
+                        transcript_deadline = None;
+                    }
+                }
+            }
+        }
+
+        // 1) Tail any new complete lines from the current transcript — FIRST,
+        //    before the hooks and the grid publish anything (EXP-483): claude
+        //    writes an assistant entry to the JSONL before the PreToolUse
+        //    hook fires / the picker paints, so tailing first guarantees
+        //    already-flushed prose reaches the wire ahead of a same-tick
+        //    question card. Twin suppression stays safe under this order: a
+        //    hook-armed twin only flushes once a human ANSWERS the picker —
+        //    human-seconds after the hook that armed it drained. The one
+        //    residual hazard is the hookless legacy plan fallback (step 3): a
+        //    picker painted, answered, and flushed inside ONE tick would tail
+        //    its twin before the stale grid paint arms the suppression —
+        //    needs no sidecar plus sub-tick answering; accepted.
+        if let Some(path) = current.clone() {
+            offset = tail_transcript(
+                &path,
+                offset,
+                &mut |line| process_transcript_line(line, &redactor, &mut transcript_state),
+                &mut |event| {
+                    steer.observe_published(&event);
+                    sender.send(event);
+                },
+            );
+        }
+
+        // 2) The hooks sidecar (EXP-249): the structured half. Drained before
         //    the grid so a picker that paints in the same tick is already
         //    known by identity when the watcher confirms it.
         if let Some(hooks) = &config.hooks {
@@ -3189,12 +3302,10 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
         steer.plan_timeout(&sender);
         steer.permission_timeout(&sender);
 
-        // 1) Picker watch on the live grid: the transcript cannot show a
+        // 3) Picker watch on the live grid: the transcript cannot show a
         //    PENDING plan approval or AskUserQuestion (claude flushes their
         //    entries only once the picker is answered — EXP-150/EXP-197), but
-        //    the picker is on screen exactly while it is pending. Runs before
-        //    the transcript tail so a same-tick flush can never race the twin
-        //    suppression state.
+        //    the picker is on screen exactly while it is pending.
         if let Some(term) = &config.term {
             let lines = screen_lines(term);
             let grid_offset = display_offset(term);
@@ -3497,7 +3608,7 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
             }
         }
 
-        // 2) EXP-214: the combined attention flag — the agent is parked and
+        // 4) EXP-214: the combined attention flag — the agent is parked and
         //    waits for a human (a picker on the grid, a picker the hooks know
         //    about, or an unresolved permission/idle notification). Forwarded
         //    only on flips; the watchers already debounce mid-render flicker.
@@ -3522,54 +3633,10 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
             steering.link.set_grid_picker_pending(grid_picker_visible);
         }
 
-        // 3) Resolve / re-resolve the transcript file (a newer session file in
-        //    the same dir supersedes; reset the read offset when it changes).
-        //    Discovery is pinned to the session ids the hooks announced
-        //    (EXP-429) — the project dir is cwd-keyed, so without the pin a
-        //    plain "+" agent-shell tab sharing the trunk cwd would hijack the
-        //    feed of a completed run.
-        if let Some(dir) = &transcript_dir {
-            if let Some(newest) = newest_transcript(dir, spawn_time, &steer.pin) {
-                if current.as_deref() != Some(newest.as_path()) {
-                    current = Some(newest);
-                    offset = 0;
-                }
-                transcript_deadline = None;
-            } else {
-                // EXP-429: a pinned emitter never keeps tailing an unpinned
-                // file — a foreign transcript grabbed in the pre-first-hook
-                // window self-heals here.
-                if steer.pin.pinned() && current.take().is_some() {
-                    offset = 0;
-                }
-                if let Some(deadline) = transcript_deadline {
-                    if Instant::now() >= deadline {
-                        log::info!(
-                            "activity: no transcript in {} within {}s — diffs only",
-                            dir.display(),
-                            TRANSCRIPT_WAIT.as_secs()
-                        );
-                        transcript_deadline = None;
-                    }
-                }
-            }
-        }
-
-        // 4) Tail any new complete lines from the current transcript.
-        if let Some(path) = current.clone() {
-            offset = tail_transcript(
-                &path,
-                offset,
-                &mut |line| process_transcript_line(line, &redactor, &mut transcript_state),
-                &mut |event| {
-                    steer.observe_published(&event);
-                    sender.send(event);
-                },
-            );
-        }
-
-        // 4a) EXP-360: background-subagent lifecycle read off the lines just
-        //     tailed. A launch ack pins the agent→dispatch binding; an end —
+        // 5) EXP-360: background-subagent lifecycle read off the lines tailed
+        //     in step 1 (after the hook drain — the bindings need the
+        //     hook-created dispatch cards). A launch ack pins the
+        //     agent→dispatch binding; an end —
         //     the task-notification that is a background agent's ONLY stop
         //     signal (SubagentStop never fires for them), or a foreground
         //     subagent's tool_result — publishes the completion edge the
@@ -3600,7 +3667,7 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
             }
         }
 
-        // 4a-bis) EXP-404: a turn/session end sweeps every still-open
+        // 5-bis) EXP-404: a turn/session end sweeps every still-open
         //     subagent card — the safety net for stop signals that never
         //     arrive (a dynamic workflow's fan-out can lose them wholesale).
         //     Runs after the transcript drain so a same-tick launch ack has
@@ -3621,13 +3688,13 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
             }
         }
 
-        // 4b) EXP-347: a resolution learned this tick — from the hooks (Stop /
-        //     SessionEnd, step 0), the grid (plan Transition::Resolved, step
-        //     1), or the transcript flush just tailed (a QuestionResolved or
-        //     the suppressed plan twin, both of which claude only writes once
-        //     the picker is ANSWERED) — means no picker owns the keyboard
+        // 6) EXP-347: a resolution learned this tick — from the hooks (Stop /
+        //     SessionEnd, step 2), the grid (plan Transition::Resolved, step
+        //     3), or the transcript flush tailed in step 1 (a QuestionResolved
+        //     or the suppressed plan twin, both of which claude only writes
+        //     once the picker is ANSWERED) — means no picker owns the keyboard
         //     anymore. Clear the sticky grid memory and push the publisher's
-        //     flag NOW rather than at the next step-2 publish: while the
+        //     flag NOW rather than at the next step-4 publish: while the
         //     viewport is scrolled the grid recompute never runs, and a stale
         //     `true` reroutes a remote message's Esc into a live turn,
         //     cancelling it.
@@ -3638,7 +3705,7 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
             }
         }
 
-        // 5) …and from the freshest subagent sidechains, whose tool headlines
+        // 7) …and from the freshest subagent sidechains, whose tool headlines
         //    are attributed to their agent (EXP-249). Discovery walks a tree,
         //    so it runs on its own slower cadence; the tails themselves are
         //    plain seeks and run every tick.
@@ -3712,10 +3779,10 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
             }
         }
 
-        // 6) Debounced worktree diff snapshot (only when changed).
+        // 8) Debounced worktree diff snapshot (only when changed).
         diffs.tick(&config.worktree, &sender, &redactor);
 
-        // 7) Wait out the poll interval — interrupted by a remote answer, so
+        // 9) Wait out the poll interval — interrupted by a remote answer, so
         //    steering never sits a full second behind the steerer's tap.
         //    Transiently refused answers stay parked and are retried each
         //    tick until ANSWER_RETRY_TTL (EXP-334): a tap can beat the picker
@@ -4624,6 +4691,118 @@ mod tests {
             other => panic!("expected two narrations + a resolution, got {other:?}"),
         }
         assert!(state.hook_published_asks.is_empty(), "the ask is over");
+    }
+
+    #[test]
+    fn withheld_entry_prose_anchors_above_the_hook_published_ask() {
+        // EXP-483: claude withholds the [text, AskUserQuestion] entry until
+        // the picker resolves — the prose flushes AFTER the hook-published
+        // card, so it must carry the anchor clients splice on.
+        let redactor = Redactor::new(vec![]);
+        let mut state = TranscriptState::default();
+        state.hook_published_asks.insert("toolu_ask1".to_string());
+        let entry = serde_json::json!({
+            "type": "assistant",
+            "message": { "content": [
+                { "type": "text", "text": "Here is the summary of my findings." },
+                { "type": "tool_use", "id": "toolu_ask1", "name": "AskUserQuestion",
+                  "input": { "questions": [
+                    { "question": "Which size?",
+                      "options": [ { "label": "Small" }, { "label": "Large" } ] },
+                  ] } },
+            ]}
+        })
+        .to_string();
+        assert_eq!(
+            process_transcript_line(&entry, &redactor, &mut state),
+            vec![ActivityEvent::Narration {
+                text: "Here is the summary of my findings.".to_string(),
+                before_question_id: Some("toolu_ask1".to_string()),
+                at: None,
+            }]
+        );
+    }
+
+    #[test]
+    fn withheld_plan_entry_prose_anchors_above_the_hook_published_plan() {
+        let redactor = Redactor::new(vec![]);
+        let mut state = TranscriptState {
+            suppress_plan_questions: 1,
+            ..Default::default()
+        };
+        state.hook_published_plans.insert("toolu_plan1".to_string());
+        let entry = serde_json::json!({
+            "type": "assistant",
+            "message": { "content": [
+                { "type": "text", "text": "The plan is ready — summary first." },
+                { "type": "tool_use", "id": "toolu_plan1", "name": "ExitPlanMode",
+                  "input": { "plan": "## Plan\n1. Do the thing" } },
+            ]}
+        })
+        .to_string();
+        assert_eq!(
+            process_transcript_line(&entry, &redactor, &mut state),
+            vec![ActivityEvent::Narration {
+                text: "The plan is ready — summary first.".to_string(),
+                before_question_id: Some("toolu_plan1".to_string()),
+                at: None,
+            }]
+        );
+        assert_eq!(state.suppress_plan_questions, 0);
+        assert!(state.plan_twin_flushed);
+        assert!(
+            state.hook_published_plans.is_empty(),
+            "the anchor is consumed with the twin"
+        );
+    }
+
+    #[test]
+    fn grid_only_twin_prose_stays_unanchored() {
+        // A grid-published card is id-less — there is nothing to splice
+        // against, so the prose appends exactly as before.
+        let redactor = Redactor::new(vec![]);
+        let mut state = TranscriptState::default();
+        state.remember_grid_question("Which size?");
+        let entry = serde_json::json!({
+            "type": "assistant",
+            "message": { "content": [
+                { "type": "text", "text": "Summary before the ask." },
+                { "type": "tool_use", "id": "toolu_ask1", "name": "AskUserQuestion",
+                  "input": { "questions": [
+                    { "question": "Which size?",
+                      "options": [ { "label": "Small" }, { "label": "Large" } ] },
+                  ] } },
+            ]}
+        })
+        .to_string();
+        assert_eq!(
+            process_transcript_line(&entry, &redactor, &mut state),
+            vec![ActivityEvent::narration("Summary before the ask.")]
+        );
+    }
+
+    #[test]
+    fn grid_fallback_plan_twin_prose_stays_unanchored() {
+        // The counter-only suppression (id-less grid plan card) swallows the
+        // twin but must not anchor the prose — no card id exists to match.
+        let redactor = Redactor::new(vec![]);
+        let mut state = TranscriptState {
+            suppress_plan_questions: 1,
+            ..Default::default()
+        };
+        let entry = serde_json::json!({
+            "type": "assistant",
+            "message": { "content": [
+                { "type": "text", "text": "Plan prose." },
+                { "type": "tool_use", "id": "toolu_plan1", "name": "ExitPlanMode",
+                  "input": { "plan": "## Plan" } },
+            ]}
+        })
+        .to_string();
+        assert_eq!(
+            process_transcript_line(&entry, &redactor, &mut state),
+            vec![ActivityEvent::narration("Plan prose.")]
+        );
     }
 
     #[test]

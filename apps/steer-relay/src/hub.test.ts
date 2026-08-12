@@ -866,6 +866,25 @@ describe(`activity event kinds`, () => {
     expect(member.events()[3]).toEqual(planQuestion as never)
   })
 
+  test(`an anchored narration keeps beforeQuestionId in fan-out AND replay (EXP-483)`, () => {
+    // The relay re-serializes the zod-PARSED event — a field missing from
+    // the schema would be silently stripped here.
+    const anchored = {
+      kind: `narration`,
+      text: `Here is the summary of my findings.`,
+      beforeQuestionId: `toolu_1`,
+    }
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const live = connectMember(hub)
+    activity(hub, pub, question)
+    activity(hub, pub, anchored)
+    expect(live.events()[1]).toEqual(anchored as never)
+
+    const late = connectMember(hub)
+    expect(late.events()[1]).toEqual(anchored as never)
+  })
+
   test(`a re-emitted question with the same id is replayed too (clients replace)`, () => {
     const hub = new Hub()
     const pub = connectPublisher(hub)

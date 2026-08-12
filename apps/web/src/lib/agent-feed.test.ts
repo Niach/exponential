@@ -18,6 +18,7 @@ import {
   looksLikeMarkdown,
   pushEcho,
   summarizeSubagentRow,
+  spliceBeforeQuestion,
   upsertQuestion,
   visibleSubagentTabs,
   ECHO_CAP,
@@ -285,6 +286,54 @@ describe(`upsertQuestion`, () => {
   it(`is null for an unknown id — the caller appends`, () => {
     expect(
       upsertQuestion([card()], `tu_9`, { kind: `question`, questionId: `tu_9` })
+    ).toBeNull()
+  })
+})
+
+describe(`spliceBeforeQuestion (EXP-483)`, () => {
+  const narration = (id: number, text: string): QuestionItem =>
+    ({ id, kind: `narration`, text }) as QuestionItem
+
+  it(`splices before the FIRST card of the anchored ask group`, () => {
+    const feed: QuestionItem[] = [
+      narration(1, `working`),
+      { id: 2, kind: `question`, questionId: `tu_1#0`, askId: `tu_1` },
+      { id: 3, kind: `question`, questionId: `tu_1#1`, askId: `tu_1` },
+    ]
+    const next = spliceBeforeQuestion(feed, `tu_1`, narration(4, `summary`))!
+    expect(next.map((i) => i.id)).toEqual([1, 4, 2, 3])
+  })
+
+  it(`matches a plan card by its wire questionId, resolved or not`, () => {
+    const feed: QuestionItem[] = [
+      {
+        id: 1,
+        kind: `question`,
+        questionId: `tu_plan`,
+        planMode: true,
+        resolved: true,
+      },
+    ]
+    const next = spliceBeforeQuestion(feed, `tu_plan`, narration(2, `plan prose`))!
+    expect(next.map((i) => i.id)).toEqual([2, 1])
+  })
+
+  it(`keeps the order of successive anchored narrations`, () => {
+    const feed: QuestionItem[] = [
+      { id: 1, kind: `question`, questionId: `tu_1#0`, askId: `tu_1` },
+    ]
+    const once = spliceBeforeQuestion(feed, `tu_1`, narration(2, `first`))!
+    const twice = spliceBeforeQuestion(once, `tu_1`, narration(3, `second`))!
+    expect(twice.map((i) => i.id)).toEqual([2, 3, 1])
+  })
+
+  it(`is null when no card matches — the caller appends`, () => {
+    expect(
+      spliceBeforeQuestion(
+        [narration(1, `working`)],
+        `tu_gone`,
+        narration(2, `late`)
+      )
     ).toBeNull()
   })
 })
