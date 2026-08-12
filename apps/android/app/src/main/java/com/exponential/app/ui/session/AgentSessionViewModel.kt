@@ -247,6 +247,25 @@ fun upsertQuestion(feed: List<AgentFeedItem>, item: AgentFeedItem.Question): Lis
     }
 }
 
+/** Insert [item] immediately BEFORE the first question card matching [anchor]
+ *  (its ask id or wire id) — EXP-483: claude withholds the transcript entry
+ *  carrying an ask/plan tool_use, prose included, until the picker resolves,
+ *  so that prose arrives AFTER the already-published card and tags itself
+ *  with `beforeQuestionId` to be spliced back above it. Matches resolved
+ *  cards too (the twin normally flushes post-answer). Null when no card
+ *  matches (evicted, legacy producer) — the caller appends. */
+fun spliceBeforeQuestion(
+    feed: List<AgentFeedItem>,
+    anchor: String,
+    item: AgentFeedItem,
+): List<AgentFeedItem>? {
+    val index = feed.indexOfFirst {
+        it is AgentFeedItem.Question && (it.askId == anchor || it.wireId == anchor)
+    }
+    if (index < 0) return null
+    return feed.toMutableList().apply { add(index, item) }
+}
+
 /** Fold a `question_resolved` event into the feed (EXP-249): retire the card
  *  named by [id], else every card of [askId] — whose [answers] map onto the
  *  ask's steps in step order. Null when nothing matched, so the caller can
@@ -575,7 +594,19 @@ fun ActivityFeedState.applyActivityEvent(
                 if (semanticQuestions) this
                 else dismissPendingQuestions(feed)?.let { withFeed(it) } ?: this
             trimmed == PLAN_RESOLVED_NARRATION && semanticQuestions -> this
-            else -> append(AgentFeedItem.Narration(nextEventId, text))
+            else -> {
+                // EXP-483: prose from the withheld ask/plan entry flushes
+                // AFTER its already-published card — splice it back above.
+                val anchor = event.str("beforeQuestionId")?.takeIf { it.isNotBlank() }
+                val spliced = anchor?.let {
+                    spliceBeforeQuestion(feed, it, AgentFeedItem.Narration(nextEventId, text))
+                }
+                if (spliced != null) {
+                    copy(feed = capFeed(spliced), nextEventId = nextEventId + 1)
+                } else {
+                    append(AgentFeedItem.Narration(nextEventId, text))
+                }
+            }
         }
     }
     "tool" -> {

@@ -489,6 +489,26 @@ public enum AgentFeed {
         return out
     }
 
+    /// Insert `item` immediately BEFORE the first question card matching
+    /// `anchor` (its ask id or wire id) — EXP-483: claude withholds the
+    /// transcript entry carrying an ask/plan tool_use, prose included, until
+    /// the picker resolves, so that prose arrives AFTER the already-published
+    /// card and tags itself with `beforeQuestionId` to be spliced back above
+    /// it. Matches resolved cards too (the twin normally flushes post-answer).
+    /// nil when no card matches (evicted, legacy producer) — the caller
+    /// appends.
+    public static func spliceBeforeQuestion(
+        _ feed: [AgentFeedItem], anchor: String, item: AgentFeedItem
+    ) -> [AgentFeedItem]? {
+        guard let index = feed.firstIndex(where: { entry in
+            guard let question = entry.question else { return false }
+            return question.askId == anchor || question.wireId == anchor
+        }) else { return nil }
+        var out = feed
+        out.insert(item, at: index)
+        return out
+    }
+
     /// Render rows over the flat feed — a projection only, the feed stays the
     /// state (and `activeQuestionIds` keeps operating on it): every card of one
     /// ask collapses into a stepper row, a subagent's markers and calls into

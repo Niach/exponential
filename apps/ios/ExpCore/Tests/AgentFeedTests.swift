@@ -258,6 +258,48 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertEqual(feed.map(\.id), [1, 2, 3])
     }
 
+    // MARK: - spliceBeforeQuestion (EXP-483)
+
+    func testAnchoredNarrationSplicesAboveTheFirstCardOfItsAsk() {
+        let feed: [AgentFeedItem] = [
+            .narration(id: 1, text: "working"),
+            .question(question(2, wireId: "tu_1#0", askId: "tu_1", index: 1, total: 2)),
+            .question(question(3, wireId: "tu_1#1", askId: "tu_1", index: 2, total: 2)),
+        ]
+        let out = AgentFeed.spliceBeforeQuestion(
+            feed, anchor: "tu_1", item: .narration(id: 4, text: "summary")
+        )
+        XCTAssertEqual(out?.map(\.id), [1, 4, 2, 3])
+    }
+
+    func testAnchoredNarrationMatchesAPlanCardByWireIdResolvedOrNot() {
+        var planCard = question(1, wireId: "tu_plan")
+        planCard.resolved = true
+        let out = AgentFeed.spliceBeforeQuestion(
+            [.question(planCard)], anchor: "tu_plan",
+            item: .narration(id: 2, text: "plan prose")
+        )
+        XCTAssertEqual(out?.map(\.id), [2, 1])
+    }
+
+    func testSuccessiveAnchoredNarrationsKeepTheirOrder() {
+        let feed: [AgentFeedItem] = [.question(question(1, wireId: "tu_1#0", askId: "tu_1"))]
+        let once = AgentFeed.spliceBeforeQuestion(
+            feed, anchor: "tu_1", item: .narration(id: 2, text: "first")
+        )!
+        let twice = AgentFeed.spliceBeforeQuestion(
+            once, anchor: "tu_1", item: .narration(id: 3, text: "second")
+        )
+        XCTAssertEqual(twice?.map(\.id), [2, 3, 1])
+    }
+
+    func testSpliceIsNilWhenNoCardMatchesSoTheCallerAppends() {
+        XCTAssertNil(AgentFeed.spliceBeforeQuestion(
+            [.narration(id: 1, text: "working")], anchor: "tu_gone",
+            item: .narration(id: 2, text: "late")
+        ))
+    }
+
     // MARK: - rows
 
     func testCollapsesRunsOfTwoOrMoreConsecutiveTools() {

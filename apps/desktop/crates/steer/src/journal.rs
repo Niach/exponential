@@ -62,17 +62,28 @@ impl ActivityJournal {
             }
             _ => {}
         }
-        // A re-emitted question REPLACES its earlier card (the options grew) —
-        // replaying both would render the stale one first.
-        if let ActivityEvent::Question { id: Some(id), .. } = &event {
-            if let Some(pos) = self
+        // A re-emitted question REPLACES its earlier card IN PLACE (the
+        // options grew) — live clients upsert by id without moving the card
+        // (EXP-483), so a replay must keep the same position too; moving it
+        // to the tail would reorder it behind later narration.
+        let re_emitted = match &event {
+            ActivityEvent::Question { id: Some(id), .. } => self
                 .entries
                 .iter()
-                .position(|entry| entry.pinned_question.as_deref() == Some(id.as_str()))
-            {
-                self.bytes -= self.entries[pos].bytes;
-                self.entries.remove(pos);
-            }
+                .position(|entry| entry.pinned_question.as_deref() == Some(id.as_str())),
+            _ => None,
+        };
+        if let Some(pos) = re_emitted {
+            let bytes = serialized_bytes(&event);
+            self.bytes = self.bytes + bytes - self.entries[pos].bytes;
+            let pinned_question = self.entries[pos].pinned_question.clone();
+            self.entries[pos] = Entry {
+                event,
+                bytes,
+                pinned_question,
+            };
+            self.evict();
+            return;
         }
         let bytes = serialized_bytes(&event);
         let pinned_question = match &event {
@@ -192,9 +203,12 @@ mod tests {
     }
 
     #[test]
-    fn re_emitted_question_replaces_its_earlier_card() {
+    fn re_emitted_question_replaces_its_earlier_card_in_place() {
         let mut journal = ActivityJournal::new();
         journal.push(question("toolu_1#0"));
+        // Narration lands in BETWEEN emit and re-emit — the card must keep
+        // its original position, exactly like the clients' in-place upsert.
+        journal.push(ActivityEvent::narration("between"));
         let augmented = ActivityEvent::Question {
             text: "pick".to_string(),
             options: vec![
@@ -211,7 +225,28 @@ mod tests {
             at: None,
         };
         journal.push(augmented.clone());
-        assert_eq!(journal.replay().collect::<Vec<_>>(), vec![&augmented]);
+        assert_eq!(
+            journal.replay().collect::<Vec<_>>(),
+            vec![&augmented, &ActivityEvent::narration("between")]
+        );
+
+        // The replacement stays pinned: resolving it unpins as usual.
+        journal.push(ActivityEvent::QuestionResolved {
+            id: Some("toolu_1#0".to_string()),
+            ask_id: None,
+            answers: None,
+            dismissed: None,
+            at: None,
+        });
+        for i in 0..JOURNAL_EVENT_CAP + 10 {
+            journal.push(ActivityEvent::narration(format!("flood {i}")));
+        }
+        assert!(
+            !journal
+                .replay()
+                .any(|event| matches!(event, ActivityEvent::Question { .. })),
+            "a resolved re-emitted card must evict normally"
+        );
     }
 
     #[test]

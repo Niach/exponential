@@ -584,6 +584,16 @@ final class AgentSessionModel {
                 // it as the plan card's only retirement signal.
                 return
             }
+            // EXP-483: prose from the withheld ask/plan entry flushes AFTER
+            // its already-published card — splice it back above the card.
+            if let anchor = Self.trimmedField(event["beforeQuestionId"]),
+               let out = AgentFeed.spliceBeforeQuestion(
+                   feed, anchor: anchor, item: .narration(id: takeEventId(), text: text)
+               ) {
+                feed = out
+                trimFeed()
+                return
+            }
             append(.narration(id: takeEventId(), text: text))
         case "tool":
             guard let name = event["name"] as? String else { return }
