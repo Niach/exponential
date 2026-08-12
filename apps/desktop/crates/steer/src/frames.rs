@@ -442,7 +442,18 @@ pub enum ServerFrame {
         plan_mode: Option<bool>,
         #[serde(default)]
         skip_permissions: Option<bool>,
+        /// EXP-481: resume the issue's existing worktree/agent session
+        /// instead of starting fresh. Single-issue frames only (the web
+        /// server rejects it elsewhere); the launcher's marker gate degrades
+        /// a mismatched resume to a fresh seeded session.
+        #[serde(default)]
+        resume: Option<bool>,
     },
+    /// EXP-481: fire-and-forget check-in nudge — the web server persisted
+    /// new work for this device (a queued command, edited launch defaults);
+    /// heartbeat NOW instead of on the next cadence. No reply frame exists;
+    /// the heartbeat pickup is the durable path.
+    CheckIn,
     /// Viewer keystrokes, relay → publisher.
     Input {
         data: String,
@@ -1074,8 +1085,31 @@ mod tests {
                 ultracode: None,
                 plan_mode: None,
                 skip_permissions: None,
+                resume: None,
             }
         );
+    }
+
+    #[test]
+    fn start_session_deserializes_resume_and_check_in() {
+        // EXP-481: `resume: true` rides a single-issue frame; absent = None
+        // (fresh start — the pre-481 wire, byte-identical).
+        match ServerFrame::parse(r#"{"t":"start_session","issueId":"issue-9","resume":true}"#)
+            .unwrap()
+        {
+            ServerFrame::StartSession { issue_id, resume, .. } => {
+                assert_eq!(issue_id.as_deref(), Some("issue-9"));
+                assert_eq!(resume, Some(true));
+            }
+            other => panic!("expected StartSession, got {other:?}"),
+        }
+        // The check-in nudge is a bare tag frame.
+        assert_eq!(
+            ServerFrame::parse(r#"{"t":"check_in"}"#).unwrap(),
+            ServerFrame::CheckIn
+        );
+        // Unknown future frames still drop silently, never kill the socket.
+        assert_eq!(ServerFrame::parse(r#"{"t":"telepathy"}"#), None);
     }
 
     #[test]
@@ -1102,6 +1136,7 @@ mod tests {
                 ultracode: None,
                 plan_mode: None,
                 skip_permissions: None,
+                resume: None,
             }
         );
     }
@@ -1130,6 +1165,7 @@ mod tests {
                 ultracode: Some(true),
                 plan_mode: Some(false),
                 skip_permissions: Some(true),
+                resume: None,
             }
         );
     }
@@ -1161,6 +1197,7 @@ mod tests {
                 ultracode: Some(true),
                 plan_mode: Some(false),
                 skip_permissions: None,
+                resume: None,
             }
         );
     }
@@ -1193,6 +1230,7 @@ mod tests {
                 ultracode: None,
                 plan_mode: None,
                 skip_permissions: None,
+                resume: None,
             }
         );
     }
@@ -1238,6 +1276,7 @@ mod tests {
                 ultracode: None,
                 plan_mode: None,
                 skip_permissions: Some(true),
+                resume: None,
             }
         );
     }
@@ -1270,6 +1309,7 @@ mod tests {
                 ultracode: None,
                 plan_mode: None,
                 skip_permissions: None,
+                resume: None,
             }
         );
     }

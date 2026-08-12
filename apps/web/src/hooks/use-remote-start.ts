@@ -1,23 +1,33 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { trpcErrorMessage } from "@/lib/trpc-error"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import type { CodingSession } from "@/db/schema"
-import { codingSessionCollection } from "@/lib/collections"
+import type { CodingSession, Device, User } from "@/db/schema"
+import {
+  codingSessionCollection,
+  deviceCollection,
+  userCollection,
+} from "@/lib/collections"
+import { useNow } from "@/hooks/use-now"
 import { trpc } from "@/lib/trpc-client"
 import { isBuiltinActionId } from "@/lib/builtin-actions"
 import type { CodingLaunchPrefs } from "@/lib/coding-launch-prefs"
-import type { SteerDevice } from "@/lib/steer-devices"
+import { composeDeviceList, type SteerDevice } from "@/lib/steer-devices"
 import { useAgentDock } from "@/components/agent-dock/agent-dock-provider"
 
-// Remote "Start on my desktop" (EXP-106/EXP-253, merged in EXP-257): fetch
-// the caller's online desktops, then deliver a start command through the
-// relay control socket — a single-issue session (`issueId`), a BATCH session
-// (`issueIds`, 2+), or an action run (`actionId`). After an action send the
-// hook watches the synced coding_sessions rows for the desktop's run and
-// focuses the dock on it once. The watch matches on `actionName` (+ own
-// userId + startedAt window), NEVER actionId — the builtin "Create action"
-// run is inserted with actionId NULL.
+// Remote "Start on my desktop" (EXP-106/EXP-253, merged in EXP-257): the
+// caller's machines, then a start command through the relay control socket —
+// a single-issue session (`issueId`), a BATCH session (`issueIds`, 2+), or an
+// action run (`actionId`). EXP-481: the device list rides the synced
+// `devices` shape (no more 15s polling) — online-ness derives from
+// `last_seen_at` freshness against a 30s ticking clock, and renames/removes/
+// share toggles stream in like any other synced row. Only `latestVersions`
+// (instance config, not a shape column) still comes from `devices.list`,
+// fetched once per mount. After an action send the hook watches the synced
+// coding_sessions rows for the desktop's run and focuses the dock on it
+// once. The watch matches on `actionName` (+ own userId + startedAt window),
+// NEVER actionId — the builtin "Create action" run is inserted with actionId
+// NULL.
 
 /** The resolved launch-dialog choices sent with `steer.startSession` — the
  * same shape the prefs module persists. */
@@ -53,8 +63,8 @@ export interface RemoteStart {
     options: StartCodingOptions,
     inputs?: Record<string, string>
   ) => Promise<void>
-  /** Re-fetch the device list now (after a rename/remove) instead of
-   * waiting for the next poll tick. */
+  /** Re-fetch `latestVersions` now (device rows themselves are synced —
+   * mutations stream in without any refetch). */
   refresh: () => void
   /** Informational CLIENT_LATEST_VERSION_* values — null until loaded or
    * when unset server-side. */
@@ -66,14 +76,14 @@ export function useRemoteStart({
   currentUserId,
   teamId,
 }: {
-  /** Member + relay configured — gates the myDevices presence fetch. */
+  /** Member + relay configured — gates the device list + version fetch. */
   enabled?: boolean
-  /** Keys the action dock watch to the caller's own runs. */
+  /** Keys the action dock watch to the caller's own runs — and, EXP-481,
+   * splits own vs shared rows off the synced devices shape. */
   currentUserId?: string
   /** EXP-432: also list teammates' server devices shared with this team. */
   teamId?: string
 } = {}): RemoteStart {
-  const [devices, setDevices] = useState<SteerDevice[] | null>(null)
   const [latestVersions, setLatestVersions] = useState<{
     desktop: string | null
     cli: string | null
@@ -88,30 +98,46 @@ export function useRemoteStart({
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dock = useAgentDock()
 
-  // Poll the devices registry (EXP-403: durable rows + live relay presence
-  // merged server-side) — an interval, not the old one-shot `steer.myDevices`
-  // mount query, so a daemon coming online appears without a page reload.
+  // EXP-481: device rows off the synced shape (already server-scoped to own
+  // rows + team-shared servers); user rows resolve shared owners' names.
+  const { data: deviceRows } = useLiveQuery(
+    (query) => (enabled ? query.from({ d: deviceCollection }) : undefined),
+    [enabled]
+  )
+  const { data: userRows } = useLiveQuery(
+    (query) => (enabled ? query.from({ u: userCollection }) : undefined),
+    [enabled]
+  )
+  // 30s tick against the 90s online window (the EXP-153 staleness idiom).
+  const now = useNow(30_000)
+  const devices = useMemo<SteerDevice[] | null>(() => {
+    if (!enabled || !currentUserId || deviceRows === undefined) return null
+    const usersById = new Map(
+      ((userRows ?? []) as User[]).map((user) => [user.id, user])
+    )
+    return composeDeviceList(
+      deviceRows as Device[],
+      usersById,
+      now,
+      currentUserId,
+      teamId
+    )
+  }, [enabled, currentUserId, deviceRows, userRows, now, teamId])
+
+  // `latestVersions` is instance config, not a shape column — one fetch per
+  // mount (the returned device rows are ignored; sync owns those now).
   const [refreshTick, setRefreshTick] = useState(0)
   useEffect(() => {
     if (!enabled) return
     let active = true
-    const fetchDevices = () => {
-      trpc.devices.list
-        .query(teamId ? { teamId } : undefined)
-        .then((res) => {
-          if (!active) return
-          setDevices(res.devices)
-          setLatestVersions(res.latestVersions ?? null)
-        })
-        .catch(() => active && setDevices((previous) => previous ?? []))
-    }
-    fetchDevices()
-    const interval = setInterval(fetchDevices, 15_000)
+    trpc.devices.list
+      .query()
+      .then((res) => active && setLatestVersions(res.latestVersions ?? null))
+      .catch(() => {})
     return () => {
       active = false
-      clearInterval(interval)
     }
-  }, [enabled, refreshTick, teamId])
+  }, [enabled, refreshTick])
 
   useEffect(
     () => () => {
@@ -165,12 +191,15 @@ export function useRemoteStart({
     if (issueIds.length === 0) return
     setStarting(true)
     try {
-      const base = { deviceId: device.deviceId, ...options }
+      // EXP-481: `resume` rides SINGLE-issue starts only (a batch has no
+      // per-issue worktree; the server rejects it there).
+      const { resume, ...rest } = options
+      const base = { deviceId: device.deviceId, ...rest }
       await trpc.steer.startSession.mutate(
         // 1 issue → plain single-issue session; 2+ → one batch session on a
         // single pushed branch (the server contract owns the fan-out).
         issueIds.length === 1
-          ? { issueId: issueIds[0], ...base }
+          ? { issueId: issueIds[0], ...base, ...(resume ? { resume } : {}) }
           : { issueIds, ...base },
         { context: { skipErrorToast: true } }
       )
@@ -196,6 +225,8 @@ export function useRemoteStart({
   ) => {
     setStarting(true)
     try {
+      // Action runs never resume an issue worktree (EXP-481).
+      const { resume: _resume, ...rest } = options
       await trpc.steer.startSession.mutate(
         {
           actionId: action.id,
@@ -204,7 +235,7 @@ export function useRemoteStart({
           // row to derive the team from) and forbidden otherwise.
           ...(isBuiltinActionId(action.id) ? { teamId: action.teamId } : {}),
           ...(inputs ? { inputs } : {}),
-          ...options,
+          ...rest,
         },
         { context: { skipErrorToast: true } }
       )

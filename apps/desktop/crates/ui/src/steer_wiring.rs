@@ -366,9 +366,11 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
     // (every doctor refresh), besides the sign-in / account switch / relay
     // reconnect cycles that re-run this whole function.
     let settings = coding_flow::CodingHub::global(cx).read(cx).settings.clone();
+    let settings2 = settings.clone();
     let device_id = steer::persistent_device_id(&auth.data_dir);
     let device_label = api::users::hostname();
     let inbox = cx.global::<RemoteStartGlobal>().0.clone();
+    let check_in = crate::device_sync::check_in_flag(cx);
     let account_id = account.id.clone();
     cx.spawn(async move |cx| {
         let advertisement: coding::AgentAdvertisement = cx
@@ -384,6 +386,9 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
         // its id as a real action and fail the fetch). Remote clients
         // strictly gate action starts on these, so an incapable desktop is
         // never targeted.
+        // EXP-481 adds `resume` (start_session honors the resume flag),
+        // `worktrees` (inventory + remove/prune commands) and
+        // `launch-defaults` (server-authoritative defaults + check_in).
         let caps: Vec<String> = if agents.is_empty() {
             Vec::new()
         } else {
@@ -391,6 +396,9 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
                 "actions".to_string(),
                 "action-inputs".to_string(),
                 "fix-conflicts".to_string(),
+                "resume".to_string(),
+                "worktrees".to_string(),
+                "launch-defaults".to_string(),
             ]
         };
         // EXP-403: record this machine in the per-user devices registry so the
@@ -405,8 +413,14 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
             let device_label = device_label.clone();
             let advertisement = advertisement.clone();
             let caps = caps.clone();
+            let launch_defaults = serde_json::to_value(coding::defaults_wire(&settings2))
+                .expect("defaults serialize cannot fail");
             cx.background_executor()
                 .spawn(async move {
+                    // EXP-481: the local defaults ride as a first-ever SEED
+                    // (server-side no-op once the column is set); the
+                    // device-sync beat reconciles the response copy within
+                    // one interval, so it is deliberately dropped here.
                     let _ = api::devices::register(
                         &trpc,
                         &api::devices::RegisterDevice {
@@ -417,6 +431,7 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
                             agents: &advertisement.agents,
                             unauthed_agents: &advertisement.unauthed_agents,
                             caps: &caps,
+                            launch_defaults: Some(&launch_defaults),
                             version: Some(domain::client_version::current_version()),
                         },
                     );
@@ -462,8 +477,14 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
             let on_start: steer::control_channel::StartSessionFn = Arc::new(move |start| {
                 let _ = inbox.send(start);
             });
+            // Non-blocking by contract: flip the flag — the device-sync
+            // loop's next 1s tick beats immediately.
+            let on_check_in: steer::control_channel::CheckInFn = Arc::new(move || {
+                check_in.store(true, std::sync::atomic::Ordering::SeqCst);
+            });
             let control_api: Arc<dyn ControlApi> = Arc::new(TrpcControlApi(trpc));
-            let handle = spawn_control_channel(&runtime, device, control_api, on_start);
+            let handle =
+                spawn_control_channel(&runtime, device, control_api, on_start, on_check_in);
 
             let channels = ControlChannels::global(cx);
             channels.update(cx, |channels, _| {
@@ -717,8 +738,11 @@ fn remote_issue_start(issue_id: String, start: &steer::RemoteStart, cx: &mut App
         start.plan_mode,
         start.skip_permissions,
     );
-    // Remote resume is deferred (EXP-202) — relay starts are always fresh.
-    let Some((request, deps)) = coding_flow::build_launch(&issue_id, origin, options, false, cx)
+    // EXP-481: honor the remote resume flag — the launcher's marker gate
+    // degrades a missing/foreign worktree to a fresh seeded session, so an
+    // optimistic flag is always safe.
+    let resume = start.resume.unwrap_or(false);
+    let Some((request, deps)) = coding_flow::build_launch(&issue_id, origin, options, resume, cx)
     else {
         log::warn!("steer: remote start for {issue_id} ignored — not signed in / not synced");
         return;

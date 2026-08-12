@@ -27,7 +27,9 @@ import XCTest
 // v14_drop_board_is_protected (EXP-364: protected boards deleted from the
 // product) the thirteenth, and v15_attachment_nullable_uploader (REV-7:
 // attachments.uploader_id is nullable server-side — a table rebuild, the v6
-// precedent, since SQLite can't relax a NOT NULL via ALTER) the fourteenth.
+// precedent, since SQLite can't relax a NOT NULL via ALTER) the fourteenth,
+// and v16_devices_worktrees (EXP-481: the synced devices + device_worktrees
+// tables, shapes 17/18) the fifteenth.
 // These tests pin the fresh-install schema and the
 // exact migration identifiers so a new incremental migration is a conscious
 // decision, not an accident.
@@ -71,7 +73,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v8_coding_session_action_fields", "v9_actions", "v10_action_icon",
              "v11_drop_archived_at", "v12_drop_issue_times",
              "v13_issue_statuses", "v14_drop_board_is_protected",
-             "v15_attachment_nullable_uploader"]
+             "v15_attachment_nullable_uploader", "v16_devices_worktrees"]
         )
     }
 
@@ -89,7 +91,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v8_coding_session_action_fields", "v9_actions", "v10_action_icon",
              "v11_drop_archived_at", "v12_drop_issue_times",
              "v13_issue_statuses", "v14_drop_board_is_protected",
-             "v15_attachment_nullable_uploader"]
+             "v15_attachment_nullable_uploader", "v16_devices_worktrees"]
         )
     }
 
@@ -135,7 +137,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v8_coding_session_action_fields", "v9_actions", "v10_action_icon",
              "v11_drop_archived_at", "v12_drop_issue_times",
              "v13_issue_statuses", "v14_drop_board_is_protected",
-             "v15_attachment_nullable_uploader"]
+             "v15_attachment_nullable_uploader", "v16_devices_worktrees"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -201,7 +203,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v8_coding_session_action_fields", "v9_actions", "v10_action_icon",
              "v11_drop_archived_at", "v12_drop_issue_times",
              "v13_issue_statuses", "v14_drop_board_is_protected",
-             "v15_attachment_nullable_uploader"]
+             "v15_attachment_nullable_uploader", "v16_devices_worktrees"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -588,6 +590,30 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertNotNil(attachmentUploader)
         XCTAssertFalse(attachmentUploader?.isNotNull ?? true)
+    }
+
+    // v16 (EXP-481): the synced devices + device_worktrees tables exist on a
+    // fresh install with the columns the shape allowlists deliver, and `busy`
+    // is a BOOLEAN column so the partial-update wire-bool mapping engages.
+    func testDeviceTablesCreatedWithBooleanBusy() throws {
+        let pool = try makePool("devices")
+        try DatabaseManager.runMigrations(on: pool)
+        let deviceCols = try columnNames(pool, "devices")
+        XCTAssertTrue(deviceCols.isSuperset(of: [
+            "id", "user_id", "device_id", "label", "kind", "platform",
+            "version", "agents", "caps", "unauthed_agents", "launch_defaults",
+            "launch_defaults_updated_at", "active_sessions", "last_seen_at",
+            "shared_team_id", "update_requested_at", "created_at", "updated_at",
+        ]))
+        let worktreeCols = try columnNames(pool, "device_worktrees")
+        XCTAssertTrue(worktreeCols.isSuperset(of: [
+            "id", "device_row_id", "repo_full_name", "branch",
+            "issue_identifier", "agents", "dirty", "busy", "reported_at",
+        ]))
+        let busy = try pool.read { db in
+            try db.columns(in: "device_worktrees").first { $0.name == "busy" }
+        }
+        XCTAssertTrue(busy?.type.uppercased().contains("BOOL") ?? false)
     }
 
     // The `-v5` canonical file name + the legacy-file purge list are the wipe

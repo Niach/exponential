@@ -3,11 +3,13 @@ import ExpCore
 import SwiftUI
 
 /// The Agents tab: "My machines" — the caller's registered devices (EXP-403:
-/// desktops AND headless `exponential` daemon servers, online or not, polled
-/// from `devices.list`) with a per-machine "Start coding" launcher, rename /
-/// remove / self-update row actions — then "Team machines" (EXP-432: teammates'
-/// servers shared with the active team, startable but never manageable here —
-/// the share toggle is web-only) — above the caller's OWN running coding
+/// desktops AND headless `exponential` daemon servers, online or not — since
+/// EXP-481 read from the synced `devices` shape, online-ness derived from
+/// last_seen_at freshness) with a per-machine "Start coding" launcher and an
+/// Edit (device settings sheet: name, sharing, agent defaults, worktrees) /
+/// self-update / remove row menu — then "Team machines" (EXP-432: teammates'
+/// servers shared with the active team, startable but never manageable here)
+/// — above the caller's OWN running coding
 /// sessions in the active account (EXP-312 — teammates' runs are owner-only, so
 /// they are not listed at all). Session rows open the live agent session view
 /// directly when the relay is configured (the same viewer AgentPrCard presents
@@ -21,19 +23,17 @@ struct AgentsView: View {
     @Environment(TeamState.self) private var teamState
     @State private var viewModel: AgentsViewModel?
     @State private var steerEnabled = false
-    @State private var devices: [SteerDevice]?
     /// EXP-420: `devices.list`'s advertised latest versions — gates the
-    /// server rows' Update action on an actually-newer CLI build.
+    /// server rows' Update action on an actually-newer CLI build. The one
+    /// remaining tRPC read here (instance config, not a shape column):
+    /// fetched once per account instead of polled.
     @State private var latestVersions: LatestVersions?
-    /// Re-polls `devices.list` while the tab is visible, so a machine coming
-    /// online (or a daemon finishing its self-update) appears on its own.
-    @State private var devicePollTask: Task<Void, Never>?
     @State private var startSheetDevice: SteerDevice?
-    // Machine row actions (EXP-403): the rename/remove alert targets, the
-    // optimistic "Updating…" ids (the flag itself only lands on the next
-    // poll), and the shared failure caption.
-    @State private var renameTarget: SteerDevice?
-    @State private var renameText = ""
+    // Machine row actions (EXP-403/EXP-481): the settings-sheet target (Edit
+    // — rename/sharing/defaults/worktrees live there now), the remove alert
+    // target, the optimistic "Updating…" ids (the flag itself lands via
+    // sync), and the shared failure caption.
+    @State private var settingsDevice: SteerDevice?
     @State private var removeTarget: SteerDevice?
     @State private var updatingIds: Set<String> = []
     @State private var deviceError: String?
@@ -95,7 +95,7 @@ struct AgentsView: View {
         .task(id: accountId) {
             let config = await SteerConfigCache.load(accountId: accountId, api: deps.steerApi)
             steerEnabled = config.enabled
-            startDevicePolling()
+            await refreshLatestVersions()
         }
         .onAppear {
             if viewModel == nil {
@@ -109,20 +109,14 @@ struct AgentsView: View {
             // Re-arm on every appear: pushing an issue detail stops the
             // observation (onDisappear), popping back must resume it.
             viewModel?.startObserving()
-            // Re-arm the poll on every appear (the .task doesn't re-run on
-            // pop-back). A no-op until steering resolves enabled.
-            startDevicePolling()
         }
         .onChange(of: teamState.activeTeam?.id) { _, teamId in
+            // EXP-432/EXP-481: the shared rows belong to the ACTIVE team —
+            // the VM recomposes on the team switch.
             viewModel?.activeTeamId = teamId
-            // EXP-432: the shared rows belong to the ACTIVE team — re-scope the
-            // poll immediately instead of leaving the old team's machines up
-            // for a tick.
-            startDevicePolling()
         }
         .onDisappear {
             viewModel?.stopObserving()
-            stopDevicePolling()
         }
         .sheet(item: $startSheetDevice) { device in
             // EXP-257: wiring teamId + onRunAction gives the sheet its
@@ -136,6 +130,8 @@ struct AgentsView: View {
                 preselectedIds: [],
                 preferredDeviceId: device.deviceId,
                 teamId: teamState.activeTeam?.id,
+                // EXP-481: the live inventory backs the resume offer.
+                worktrees: viewModel?.worktrees,
                 onStart: { chosenDevice, issueIds, options in
                     start(on: chosenDevice, issueIds: issueIds, options: options)
                 },
@@ -165,6 +161,10 @@ struct AgentsView: View {
     /// offline rows; EXP-432: and teammates' shared servers). The sheet
     /// narrows this further — EXP-409 drops machines whose every installed
     /// agent is signed out.
+    private var devices: [SteerDevice]? {
+        viewModel?.devices
+    }
+
     private var onlineDevices: [SteerDevice] {
         (devices ?? []).filter(\.isOnline)
     }
@@ -174,46 +174,20 @@ struct AgentsView: View {
         devices?.filter(\.isMine)
     }
 
-    /// EXP-432: teammates' servers shared with the active team. The server
-    /// appends them after the own rows, and only when the list was team-scoped.
+    /// EXP-432: teammates' servers shared with the active team — the VM
+    /// composes them after the own rows.
     private var teamDevices: [SteerDevice] {
         devices?.filter { !$0.isMine } ?? []
     }
 
-    /// Poll `devices.list` while the tab is visible — restartable, so the
-    /// appear/disappear cycle owns exactly one loop. The first pass runs
-    /// immediately; the relay-off case keeps the section absent (web parity:
-    /// nothing listed here could be started).
-    private func startDevicePolling() {
-        stopDevicePolling()
-        guard steerEnabled else {
-            devices = nil
-            return
-        }
-        devicePollTask = Task {
-            while !Task.isCancelled {
-                await refreshDevices()
-                try? await Task.sleep(for: .seconds(15))
-            }
-        }
-    }
-
-    private func stopDevicePolling() {
-        devicePollTask?.cancel()
-        devicePollTask = nil
-    }
-
-    private func refreshDevices() async {
-        guard steerEnabled else {
-            devices = nil
-            return
-        }
-        // Team-scoped (EXP-432): the response then also carries teammates'
-        // shared servers. Without an active team it degrades to own machines.
+    /// EXP-481: the machines themselves stream off the devices shape — the
+    /// only network read left is the latest-version hint (instance config),
+    /// once per account.
+    private func refreshLatestVersions() async {
+        guard steerEnabled else { return }
         let result = try? await deps.devicesApi.list(
             accountId: accountId, teamId: teamState.activeTeam?.id
         )
-        devices = result?.devices ?? devices ?? []
         latestVersions = result?.latestVersions ?? latestVersions
     }
 
@@ -288,22 +262,18 @@ struct AgentsView: View {
         }
         // Clearance for the floating tab bar (EXP-36).
         .tabBarBottomInset()
-        // The machine alerts hang off THIS view, not the body's ZStack: that
-        // one already owns the merge-and-close alert, and stacking three
-        // `.alert`s on one node is where SwiftUI starts dropping presentations.
-        .alert(
-            "Rename machine",
-            isPresented: Binding(
-                get: { renameTarget != nil },
-                set: { if !$0 { renameTarget = nil } }
+        // EXP-481: Edit opens the device settings sheet (name, sharing, agent
+        // defaults, worktrees) — the row menu's rename alert retired into it.
+        .sheet(item: $settingsDevice) { device in
+            DeviceSettingsSheet(
+                device: device,
+                worktrees: viewModel?.worktrees ?? [],
+                teams: teamState.teams
             )
-        ) {
-            TextField("Name", text: $renameText)
-            Button("Cancel", role: .cancel) { renameTarget = nil }
-            Button("Save") { rename() }
-        } message: {
-            Text("The name shows on every client, whether the machine is online or not.")
         }
+        // The machine alert hangs off THIS view, not the body's ZStack: that
+        // one already owns the merge-and-close alert, and stacking several
+        // `.alert`s on one node is where SwiftUI starts dropping presentations.
         .alert(
             "Remove machine?",
             isPresented: Binding(
@@ -452,16 +422,16 @@ struct AgentsView: View {
         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
     }
 
-    /// Row actions for a registered machine. Self-update is a daemon-server
-    /// affordance only (the desktop app updates itself), and it needs the
-    /// machine online to pick the request up.
+    /// Row actions for a registered machine (EXP-481: Edit opens the device
+    /// settings sheet — name, sharing, agent defaults, worktrees). Self-update
+    /// is a daemon-server affordance only (the desktop app updates itself),
+    /// and it needs the machine online to pick the request up.
     @ViewBuilder
     private func deviceMenu(_ device: SteerDevice) -> some View {
         Button {
-            renameText = device.deviceLabel
-            renameTarget = device
+            settingsDevice = device
         } label: {
-            Label("Rename", appIcon: AppIcons.uiEdit)
+            Label("Edit", appIcon: AppIcons.uiEdit)
         }
         // EXP-420: offered only when a newer CLI version really exists.
         if device.isServer, device.isOnline, !isUpdating(device),
@@ -547,27 +517,8 @@ struct AgentsView: View {
 
     // MARK: - Machine actions
 
-    /// Rename through the registry (the label is authoritative there, so it
-    /// shows on every client at once). Refreshes immediately instead of
-    /// waiting out the poll tick.
-    private func rename() {
-        guard let device = renameTarget else { return }
-        renameTarget = nil
-        let label = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !label.isEmpty, label != device.deviceLabel else { return }
-        deviceError = nil
-        Task {
-            do {
-                try await deps.devicesApi.rename(
-                    accountId: accountId, deviceId: device.deviceId, label: label
-                )
-            } catch {
-                deviceError = error.localizedDescription
-            }
-            await refreshDevices()
-        }
-    }
-
+    /// EXP-481: outcomes land via sync (the devices shape), so the handlers
+    /// only report failures — no poll refresh to force.
     private func remove(_ device: SteerDevice) {
         removeTarget = nil
         deviceError = nil
@@ -577,13 +528,12 @@ struct AgentsView: View {
             } catch {
                 deviceError = error.localizedDescription
             }
-            await refreshDevices()
         }
     }
 
-    /// Ask a daemon server to self-update. The row keeps its "Updating…" state
-    /// until the daemon re-registers (which clears the flag server-side),
-    /// which the poll picks up.
+    /// Ask a daemon server to self-update. The row keeps its "Updating…"
+    /// state until the daemon re-registers (which clears the flag
+    /// server-side), which sync delivers.
     private func requestUpdate(_ device: SteerDevice) {
         deviceError = nil
         updatingIds.insert(device.deviceId)
@@ -595,7 +545,6 @@ struct AgentsView: View {
             } catch {
                 deviceError = error.localizedDescription
             }
-            await refreshDevices()
             updatingIds.remove(device.deviceId)
         }
     }

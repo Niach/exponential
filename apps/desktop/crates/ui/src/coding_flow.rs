@@ -159,14 +159,34 @@ impl CodingHub {
         settings: Settings,
         cx: &mut App,
     ) -> Result<(), String> {
-        let result = hub.update(cx, |this, cx| {
+        let (result, settings_path) = hub.update(cx, |this, cx| {
             let result = settings
                 .save(&this.settings_path)
                 .map_err(|err| format!("Could not save settings: {err}"));
-            this.settings = settings;
+            this.settings = settings.clone();
             cx.notify();
-            result
+            (result, this.settings_path.clone())
         });
+        // EXP-481: launch defaults are server-authoritative — a local edit
+        // pushes up (fingerprint-gated inside; offline queues the dirty
+        // marker for the beat's retry). Best-effort on the background
+        // executor; paths/prefs-only saves no-op.
+        if result.is_ok() {
+            if let Some(trpc) = crate::queries::trpc_client(cx) {
+                let device_id =
+                    steer::persistent_device_id(&crate::session::AuthContext::global(cx).data_dir);
+                cx.background_executor()
+                    .spawn(async move {
+                        crate::device_sync::push_local_defaults_if_changed(
+                            trpc,
+                            settings_path,
+                            device_id,
+                            settings,
+                        );
+                    })
+                    .detach();
+            }
+        }
         Self::refresh_doctor(hub, cx);
         result
     }
@@ -357,6 +377,8 @@ impl LocalSessions {
             cx.notify();
             entry
         });
+        // EXP-481: a session ending changes the inventory's busy flags.
+        crate::device_sync::report_soon(cx);
         if let Some(entry) = removed {
             TokenRefreshers::release(&entry.clone, cx);
             // EXP-229: the session's end path is running (or already ran) —
@@ -460,6 +482,8 @@ impl LocalSessions {
                 }));
             }
         }
+        // EXP-481: a session registering changes the inventory's busy flags.
+        crate::device_sync::report_soon(cx);
         sessions.update(cx, |this, cx| {
             if !watchers.is_empty() {
                 this.watchers.insert(session_key, watchers);

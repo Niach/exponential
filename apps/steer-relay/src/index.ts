@@ -238,11 +238,24 @@ app.post(`/start`, async (c) => {
     ultracode: asBoolean(body?.ultracode),
     planMode: asBoolean(body?.planMode),
     skipPermissions: asBoolean(body?.skipPermissions),
+    resume: asBoolean(body?.resume),
   }
   const result = hub.startSession(userId, deviceId, subject, options)
   if (!result.ok) return c.json({ error: result.reason }, 404)
   return c.json({ ok: true })
 })
+
+// EXP-481: fire-and-forget check-in nudge — the web server persisted new
+// work for the device (a queued command, edited launch defaults); an online
+// device heartbeats immediately instead of waiting its cadence. Secret-gated
+// by the middleware above like every relay endpoint; not rate-limited (single
+// trusted web-server egress, same stance as /start).
+app.post(`/devices/:userId/:deviceId/nudge`, (c) =>
+  c.json({
+    ok: true,
+    delivered: hub.nudge(c.req.param(`userId`), c.req.param(`deviceId`)),
+  })
+)
 
 function asString(value: unknown): string | undefined {
   return typeof value === `string` ? value : undefined

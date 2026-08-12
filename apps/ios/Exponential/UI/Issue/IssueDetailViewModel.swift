@@ -482,9 +482,10 @@ final class IssueDetailViewModel {
         // Scoped to the issue's team (EXP-432): teammates' shared servers are
         // start targets too. `devices.list` also returns OFFLINE machines,
         // which the circle must never offer — `onlineStartTargets` drops them.
-        steerDevices = (try? await devicesApi.onlineStartTargets(
-            accountId: accountId, teamId: board?.teamId
-        )) ?? []
+        steerDevices = await DeviceQueries.onlineStartTargets(
+            db: db, accountId: accountId,
+            teamId: board?.teamId, userId: auth.userId
+        )
     }
 
     /// Remote-start on the chosen desktop (ported from AgentPrCard.start):

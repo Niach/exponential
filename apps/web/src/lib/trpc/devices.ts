@@ -1,24 +1,48 @@
 // EXP-403 registered devices: desktops and headless `exponential` daemon
-// servers register themselves per user, heartbeat `last_seen_at`, and the
-// agents UI polls `list` (tRPC — deliberately NOT an Electric shape; per-user
-// machine state, not team product data). `list` merges the registry with live
-// steer-relay presence so a row carries both durable identity (label, kind,
-// last seen) and the live advertisement (online, agents, caps).
+// servers register themselves per user and heartbeat `last_seen_at`.
+// Since EXP-481 the registry is SERVER-AUTHORITATIVE device state and an
+// Electric shape (devices + device_worktrees; see routes/api/shapes/):
+// `launch_defaults` is the canonical copy of a machine's agent defaults (its
+// local settings.json converges), `device_worktrees` mirrors its worktree
+// inventory, and `device_commands` queues owner→device work (worktree
+// remove/prune) delivered on the heartbeat plus a best-effort relay
+// `check_in` nudge. `list` (tRPC + live relay presence merge) is retained
+// for OLD clients only — new clients read the shapes and derive online-ness
+// from last_seen_at freshness.
 // EXP-432 bends the per-user rule exactly once: a server device may be SHARED
 // with one team (`shared_team_id`, owner-toggled via `setShared`), and a
 // team-scoped `list({teamId})` additionally returns teammates' shared rows so
 // members can remote-start on them.
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, desc, eq, ne, inArray } from "drizzle-orm"
-import { router, authedProcedure } from "@/lib/trpc"
-import { devices, teamMembers, users } from "@/db/schema"
+import { and, asc, desc, eq, ne, inArray, sql } from "drizzle-orm"
+import { contract } from "@exp/domain-contract"
+import { router, authedProcedure, generateTxId } from "@/lib/trpc"
+import {
+  deviceCommands,
+  deviceLaunchDefaultsSchema,
+  devices,
+  deviceWorktrees,
+  teamMembers,
+  users,
+  type DeviceAgentLaunchDefaults,
+  type DeviceLaunchDefaults,
+} from "@/db/schema"
 import { assertTeamMember } from "@/lib/team-membership"
 import { versionPayload } from "@/lib/client-version"
 import { endForeignHostedSessions } from "@/lib/coding-session-kill"
 import {
+  agentAllowsBlankModel,
+  agentEffortValues,
+  agentModelValues,
+  agentSupportsPlanMode,
+  agentSupportsSkipPermissions,
+  agentSupportsUltracode,
+} from "@/lib/coding-launch-prefs"
+import {
   getSteerRelayConfig,
   relayGetDevices,
+  relayPostNudge,
   type SteerDevice,
   type SteerLaunchDefaults,
 } from "@/lib/steer"
@@ -28,6 +52,82 @@ import {
 const agentsInput = z.array(z.string().min(1).max(32)).max(16)
 const capsInput = z.array(z.string().min(1).max(32)).max(16)
 const deviceIdInput = z.string().min(1).max(128)
+
+// Heartbeats deliver at most this many pending commands per cycle — rows stay
+// `pending` until completeCommand, so a missed cycle redelivers for free.
+const COMMANDS_PER_HEARTBEAT = 32
+
+// EXP-481: field-wise vocabulary clamp for launch defaults. ALWAYS clamps
+// (never rejects) so version skew — a device or client with a newer/older
+// model vocabulary — degrades a single field instead of failing the whole
+// write; UI clients pre-clamp via agentSeed anyway. Unknown agents, invalid
+// models/efforts, and capability-masked toggles are dropped.
+function clampLaunchDefaults(
+  input: z.infer<typeof deviceLaunchDefaultsSchema>
+): DeviceLaunchDefaults {
+  const agentIds = contract.codingAgent.values as readonly string[]
+  const out: DeviceLaunchDefaults = {}
+  if (input.defaultAgent && agentIds.includes(input.defaultAgent)) {
+    out.defaultAgent = input.defaultAgent
+  }
+  if (input.agents) {
+    const agents: Record<string, DeviceAgentLaunchDefaults> = {}
+    for (const [agent, d] of Object.entries(input.agents)) {
+      if (!agentIds.includes(agent) || !d) continue
+      const entry: DeviceAgentLaunchDefaults = {}
+      if (
+        typeof d.model === `string` &&
+        (agentModelValues(agent).includes(d.model) ||
+          (d.model === `` && agentAllowsBlankModel(agent)))
+      ) {
+        entry.model = d.model
+      }
+      if (
+        typeof d.effort === `string` &&
+        (d.effort === `` || agentEffortValues(agent).includes(d.effort))
+      ) {
+        entry.effort = d.effort
+      }
+      if (d.ultracode !== undefined && agentSupportsUltracode(agent)) {
+        entry.ultracode = d.ultracode
+      }
+      if (d.planMode !== undefined && agentSupportsPlanMode(agent)) {
+        entry.planMode = d.planMode
+      }
+      if (
+        d.skipPermissions !== undefined &&
+        agentSupportsSkipPermissions(agent)
+      ) {
+        entry.skipPermissions = d.skipPermissions
+      }
+      if (Object.keys(entry).length > 0) agents[agent] = entry
+    }
+    if (Object.keys(agents).length > 0) out.agents = agents
+  }
+  return out
+}
+
+// Old desktop builds may drop the whole control connection on an unknown
+// ServerFrame — only nudge devices whose registered caps prove a
+// check_in-aware build (any EXP-481 cap).
+function deviceUnderstandsCheckIn(caps: string[]): boolean {
+  return caps.includes(`worktrees`) || caps.includes(`launch-defaults`)
+}
+
+// Best-effort, fire-and-forget: persisted state is the durable path, the
+// nudge only kills heartbeat-pickup latency for online devices.
+function nudgeDevice(ownerId: string, deviceId: string, caps: string[]): void {
+  if (!deviceUnderstandsCheckIn(caps)) return
+  const config = getSteerRelayConfig()
+  if (!config) return
+  void relayPostNudge(config, ownerId, deviceId).catch(() => {})
+}
+
+// ISO-or-null of a nullable timestamp — the CAS stamp wire form (equality
+// compare on the echoed string; never `>`, no clock-skew semantics).
+function stampOf(value: Date | null): string | null {
+  return value ? value.toISOString() : null
+}
 
 export type DeviceListEntry = {
   deviceId: string
@@ -83,12 +183,19 @@ export const devicesRouter = router({
         platform: z.string().min(1).max(64).optional(),
         agents: agentsInput.optional(),
         caps: capsInput.optional(),
+        // EXP-481: persisted since the shapes landed (the Rust clients sent
+        // it all along; the old zod silently stripped it).
+        unauthedAgents: agentsInput.optional(),
+        // EXP-481: the device's local defaults, applied ONLY as a first-ever
+        // seed (row column NULL) — after that the server copy is
+        // authoritative and the setLaunchDefaults CAS decides.
+        launchDefaults: deviceLaunchDefaultsSchema.optional(),
         version: z.string().min(1).max(32).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const now = new Date()
-      await ctx.db
+      const [row] = await ctx.db
         .insert(devices)
         .values({
           userId: ctx.session.user.id,
@@ -98,6 +205,11 @@ export const devicesRouter = router({
           platform: input.platform ?? null,
           agents: input.agents ?? [],
           caps: input.caps ?? [],
+          unauthedAgents: input.unauthedAgents ?? [],
+          launchDefaults: input.launchDefaults
+            ? clampLaunchDefaults(input.launchDefaults)
+            : null,
+          launchDefaultsUpdatedAt: input.launchDefaults ? now : null,
           version: input.version ?? null,
           lastSeenAt: now,
         })
@@ -108,6 +220,15 @@ export const devicesRouter = router({
             platform: input.platform ?? null,
             agents: input.agents ?? [],
             caps: input.caps ?? [],
+            unauthedAgents: input.unauthedAgents ?? [],
+            // Seed-only-when-NULL: a re-register must never stomp
+            // server-side edits (the device converges via heartbeat instead).
+            ...(input.launchDefaults
+              ? {
+                  launchDefaults: sql`COALESCE(${devices.launchDefaults}, ${JSON.stringify(clampLaunchDefaults(input.launchDefaults))}::jsonb)`,
+                  launchDefaultsUpdatedAt: sql`COALESCE(${devices.launchDefaultsUpdatedAt}, ${now.toISOString()}::timestamptz)`,
+                }
+              : {}),
             version: input.version ?? null,
             // Registering CONSUMES a pending Update click: the daemon
             // re-registers after acting on the request (whether or not a
@@ -119,7 +240,17 @@ export const devicesRouter = router({
             updatedAt: now,
           },
         })
-      return { ok: true }
+        .returning({
+          launchDefaults: devices.launchDefaults,
+          launchDefaultsUpdatedAt: devices.launchDefaultsUpdatedAt,
+        })
+      // Return the (post-seed) server copy so the device converges
+      // immediately instead of waiting a heartbeat.
+      return {
+        ok: true,
+        launchDefaults: row?.launchDefaults ?? null,
+        launchDefaultsUpdatedAt: stampOf(row?.launchDefaultsUpdatedAt ?? null),
+      }
     }),
 
   // Liveness bump. `ok: false` means the row is gone (removed from the UI
@@ -131,11 +262,19 @@ export const devicesRouter = router({
   // (`activeSessions`, EXP-411) so `list` can say "queued" instead of
   // letting the spinner run forever; pre-EXP-411 daemons omit the field and
   // the stored count stays untouched.
+  // EXP-481: the heartbeat is also the device's WORK PULL — one round trip
+  // carries pending commands and (when the device's converged stamp differs)
+  // the authoritative launch defaults. A relay `check_in` nudge just means
+  // "heartbeat now". Old daemons omit `defaultsSyncedAt` and ignore the extra
+  // response fields — fully backward compatible.
   heartbeat: authedProcedure
     .input(
       z.object({
         deviceId: deviceIdInput,
         activeSessions: z.number().int().min(0).max(1000).optional(),
+        // The launch-defaults stamp the device last converged to (null =
+        // never). Absent = pre-EXP-481 daemon — no defaults in the response.
+        defaultsSyncedAt: z.string().datetime().nullable().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -158,10 +297,42 @@ export const devicesRouter = router({
         .returning({
           id: devices.id,
           updateRequestedAt: devices.updateRequestedAt,
+          launchDefaults: devices.launchDefaults,
+          launchDefaultsUpdatedAt: devices.launchDefaultsUpdatedAt,
         })
+      const row = updated[0]
+      if (!row) return { ok: false, updateRequested: false }
+
+      const pending = await ctx.db
+        .select({
+          id: deviceCommands.id,
+          kind: deviceCommands.kind,
+          payload: deviceCommands.payload,
+        })
+        .from(deviceCommands)
+        .where(
+          and(
+            eq(deviceCommands.deviceRowId, row.id),
+            eq(deviceCommands.status, `pending`)
+          )
+        )
+        .orderBy(asc(deviceCommands.createdAt))
+        .limit(COMMANDS_PER_HEARTBEAT)
+
+      const serverStamp = stampOf(row.launchDefaultsUpdatedAt)
+      const wantsDefaults =
+        input.defaultsSyncedAt !== undefined &&
+        (input.defaultsSyncedAt ?? null) !== serverStamp
       return {
-        ok: updated.length > 0,
-        updateRequested: Boolean(updated[0]?.updateRequestedAt),
+        ok: true,
+        updateRequested: Boolean(row.updateRequestedAt),
+        commands: pending,
+        ...(wantsDefaults
+          ? {
+              launchDefaults: row.launchDefaults,
+              launchDefaultsUpdatedAt: serverStamp,
+            }
+          : {}),
       }
     }),
 
@@ -182,6 +353,376 @@ export const devicesRouter = router({
         )
         .returning({ id: devices.id })
       return { ok: updated.length > 0 }
+    }),
+
+  // EXP-481: edit a device's server-authoritative launch defaults. Owner-only
+  // by construction (own-row where clause). Two caller classes:
+  //  - UI edits (web/mobile/IDE settings) OMIT `expectedUpdatedAt` —
+  //    unconditional last-write-wins between humans, offline device included
+  //    (it converges on its next heartbeat).
+  //  - DEVICE pushes (local settings.json edits) ALWAYS send
+  //    `expectedUpdatedAt` (the stamp they last converged to; null = "server
+  //    has none") — a stale stamp gets `conflict: true` plus the current
+  //    server copy to adopt. Server wins offline-concurrent races,
+  //    deterministically.
+  setLaunchDefaults: authedProcedure
+    .input(
+      z.object({
+        deviceId: deviceIdInput,
+        launchDefaults: deviceLaunchDefaultsSchema,
+        expectedUpdatedAt: z.string().datetime().nullable().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [row] = await ctx.db
+        .select({
+          id: devices.id,
+          caps: devices.caps,
+          launchDefaults: devices.launchDefaults,
+          launchDefaultsUpdatedAt: devices.launchDefaultsUpdatedAt,
+        })
+        .from(devices)
+        .where(
+          and(
+            eq(devices.userId, ctx.session.user.id),
+            eq(devices.deviceId, input.deviceId)
+          )
+        )
+        .limit(1)
+      if (!row) {
+        throw new TRPCError({ code: `NOT_FOUND`, message: `Device not found` })
+      }
+      const serverStamp = stampOf(row.launchDefaultsUpdatedAt)
+      if (
+        input.expectedUpdatedAt !== undefined &&
+        (input.expectedUpdatedAt ?? null) !== serverStamp
+      ) {
+        return {
+          ok: false as const,
+          conflict: true as const,
+          launchDefaults: row.launchDefaults,
+          launchDefaultsUpdatedAt: serverStamp,
+          txid: null,
+        }
+      }
+      const clamped = clampLaunchDefaults(input.launchDefaults)
+      const now = new Date()
+      const txid = await ctx.db.transaction(async (tx) => {
+        const id = await generateTxId(tx)
+        await tx
+          .update(devices)
+          .set({
+            launchDefaults: clamped,
+            launchDefaultsUpdatedAt: now,
+            updatedAt: now,
+          })
+          .where(eq(devices.id, row.id))
+        return id
+      })
+      nudgeDevice(ctx.session.user.id, input.deviceId, row.caps)
+      return {
+        ok: true as const,
+        launchDefaults: clamped,
+        launchDefaultsUpdatedAt: now.toISOString(),
+        txid,
+      }
+    }),
+
+  // EXP-481: the device reports its FULL current worktree inventory;
+  // diff-upserted so unchanged rows produce NO Electric op (a device may
+  // re-report every heartbeat and stay sync-quiet at steady state).
+  reportWorktrees: authedProcedure
+    .input(
+      z.object({
+        deviceId: deviceIdInput,
+        worktrees: z
+          .array(
+            z.object({
+              repoFullName: z.string().min(1).max(255),
+              branch: z.string().min(1).max(255),
+              issueIdentifier: z.string().min(1).max(64).optional(),
+              agents: agentsInput.optional(),
+              // Unknown future vocabulary degrades to `unknown`, never a
+              // failed report.
+              dirty: z
+                .enum([`clean`, `untracked`, `tracked`, `unknown`])
+                .catch(`unknown`),
+              busy: z.boolean(),
+            })
+          )
+          .max(256),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [row] = await ctx.db
+        .select({ id: devices.id })
+        .from(devices)
+        .where(
+          and(
+            eq(devices.userId, ctx.session.user.id),
+            eq(devices.deviceId, input.deviceId)
+          )
+        )
+        .limit(1)
+      if (!row) {
+        throw new TRPCError({ code: `NOT_FOUND`, message: `Device not found` })
+      }
+
+      // Dedupe by (repo, branch) then sort — deterministic upsert/lock order.
+      const byKey = new Map<string, (typeof input.worktrees)[number]>()
+      for (const wt of input.worktrees) {
+        byKey.set(`${wt.repoFullName} ${wt.branch}`, wt)
+      }
+      const reported = [...byKey.entries()]
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([, wt]) => wt)
+
+      const now = new Date()
+      await ctx.db.transaction(async (tx) => {
+        for (const wt of reported) {
+          const agents = wt.agents ?? null
+          await tx
+            .insert(deviceWorktrees)
+            .values({
+              deviceRowId: row.id,
+              // user_id/shared_team_id are trigger-populated; the schema
+              // marks user_id NOT NULL so satisfy the type with the caller
+              // (the BEFORE INSERT trigger overwrites from the devices row).
+              userId: ctx.session.user.id,
+              repoFullName: wt.repoFullName,
+              branch: wt.branch,
+              issueIdentifier: wt.issueIdentifier ?? null,
+              agents,
+              dirty: wt.dirty,
+              busy: wt.busy,
+              reportedAt: now,
+            })
+            .onConflictDoUpdate({
+              target: [
+                deviceWorktrees.deviceRowId,
+                deviceWorktrees.repoFullName,
+                deviceWorktrees.branch,
+              ],
+              set: {
+                issueIdentifier: wt.issueIdentifier ?? null,
+                agents,
+                dirty: wt.dirty,
+                busy: wt.busy,
+                reportedAt: now,
+              },
+              // The change guard: an identical re-report must not touch the
+              // row (no Electric op, no reported_at churn).
+              setWhere: sql`${deviceWorktrees.issueIdentifier} IS DISTINCT FROM ${wt.issueIdentifier ?? null} OR ${deviceWorktrees.agents} IS DISTINCT FROM ${agents === null ? null : JSON.stringify(agents)}::jsonb OR ${deviceWorktrees.dirty} IS DISTINCT FROM ${wt.dirty} OR ${deviceWorktrees.busy} IS DISTINCT FROM ${wt.busy}`,
+            })
+        }
+        if (reported.length === 0) {
+          await tx
+            .delete(deviceWorktrees)
+            .where(eq(deviceWorktrees.deviceRowId, row.id))
+        } else {
+          await tx
+            .delete(deviceWorktrees)
+            .where(
+              and(
+                eq(deviceWorktrees.deviceRowId, row.id),
+                sql`(${deviceWorktrees.repoFullName}, ${deviceWorktrees.branch}) NOT IN (${sql.join(
+                  reported.map((wt) => sql`(${wt.repoFullName}, ${wt.branch})`),
+                  sql`, `
+                )})`
+              )
+            )
+        }
+      })
+      return { ok: true }
+    }),
+
+  // EXP-481: queue owner→device work. The device picks it up on its next
+  // heartbeat (nudged immediately when online); an offline device runs it on
+  // return — deliberately durable.
+  createCommand: authedProcedure
+    .input(
+      z.object({
+        deviceId: deviceIdInput,
+        kind: z.enum([`worktree_remove`, `worktree_prune`]),
+        repoFullName: z.string().min(1).max(255).optional(),
+        branch: z.string().min(1).max(255).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [row] = await ctx.db
+        .select({ id: devices.id, caps: devices.caps })
+        .from(devices)
+        .where(
+          and(
+            eq(devices.userId, ctx.session.user.id),
+            eq(devices.deviceId, input.deviceId)
+          )
+        )
+        .limit(1)
+      if (!row) {
+        throw new TRPCError({ code: `NOT_FOUND`, message: `Device not found` })
+      }
+
+      let payload: Record<string, string> = {}
+      if (input.kind === `worktree_remove`) {
+        if (!input.repoFullName || !input.branch) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `worktree_remove needs repoFullName and branch`,
+          })
+        }
+        // Prevent garbage payloads: the target must be a currently-reported
+        // worktree (the shape the issuing UI rendered from).
+        const [wt] = await ctx.db
+          .select({ id: deviceWorktrees.id })
+          .from(deviceWorktrees)
+          .where(
+            and(
+              eq(deviceWorktrees.deviceRowId, row.id),
+              eq(deviceWorktrees.repoFullName, input.repoFullName),
+              eq(deviceWorktrees.branch, input.branch)
+            )
+          )
+          .limit(1)
+        if (!wt) {
+          throw new TRPCError({
+            code: `NOT_FOUND`,
+            message: `That worktree is no longer reported by the device`,
+          })
+        }
+        payload = { repoFullName: input.repoFullName, branch: input.branch }
+      }
+
+      // One pending command per (device, kind, payload) — a double-click must
+      // not queue the same prune twice.
+      const [dup] = await ctx.db
+        .select({ id: deviceCommands.id })
+        .from(deviceCommands)
+        .where(
+          and(
+            eq(deviceCommands.deviceRowId, row.id),
+            eq(deviceCommands.kind, input.kind),
+            eq(deviceCommands.status, `pending`),
+            sql`${deviceCommands.payload} = ${JSON.stringify(payload)}::jsonb`
+          )
+        )
+        .limit(1)
+      if (dup) {
+        throw new TRPCError({
+          code: `CONFLICT`,
+          message: `That command is already queued`,
+        })
+      }
+
+      const [command] = await ctx.db
+        .insert(deviceCommands)
+        .values({
+          deviceRowId: row.id,
+          userId: ctx.session.user.id,
+          kind: input.kind,
+          payload,
+        })
+        .returning({ id: deviceCommands.id })
+      nudgeDevice(ctx.session.user.id, input.deviceId, row.caps)
+      return { id: command.id }
+    }),
+
+  // EXP-481: the device reports a command's outcome. Only pending rows
+  // transition; a duplicate complete (heartbeat redelivery races the first
+  // completion) is tolerated with ok:false rather than an error.
+  completeCommand: authedProcedure
+    .input(
+      z.object({
+        commandId: z.string().uuid(),
+        ok: z.boolean(),
+        message: z.string().max(2000).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const updated = await ctx.db
+        .update(deviceCommands)
+        .set({
+          status: input.ok ? `done` : `failed`,
+          result: input.message ?? null,
+          completedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(deviceCommands.id, input.commandId),
+            eq(deviceCommands.userId, ctx.session.user.id),
+            eq(deviceCommands.status, `pending`)
+          )
+        )
+        .returning({ id: deviceCommands.id })
+      return { ok: updated.length > 0 }
+    }),
+
+  // EXP-481: the issuing UI's poll target while a command is in flight (the
+  // material outcome additionally arrives via the device_worktrees shape when
+  // the device re-reports).
+  getCommand: authedProcedure
+    .input(z.object({ commandId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const [command] = await ctx.db
+        .select({
+          id: deviceCommands.id,
+          kind: deviceCommands.kind,
+          payload: deviceCommands.payload,
+          status: deviceCommands.status,
+          result: deviceCommands.result,
+          completedAt: deviceCommands.completedAt,
+          createdAt: deviceCommands.createdAt,
+        })
+        .from(deviceCommands)
+        .where(
+          and(
+            eq(deviceCommands.id, input.commandId),
+            eq(deviceCommands.userId, ctx.session.user.id)
+          )
+        )
+        .limit(1)
+      if (!command) {
+        throw new TRPCError({ code: `NOT_FOUND`, message: `Command not found` })
+      }
+      return command
+    }),
+
+  // EXP-481: recent command history for the device-settings view — keeps the
+  // UI honest about failed prunes.
+  listCommands: authedProcedure
+    .input(
+      z.object({
+        deviceId: deviceIdInput,
+        limit: z.number().int().min(1).max(50).default(20),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const [row] = await ctx.db
+        .select({ id: devices.id })
+        .from(devices)
+        .where(
+          and(
+            eq(devices.userId, ctx.session.user.id),
+            eq(devices.deviceId, input.deviceId)
+          )
+        )
+        .limit(1)
+      if (!row) return { commands: [] }
+      const commands = await ctx.db
+        .select({
+          id: deviceCommands.id,
+          kind: deviceCommands.kind,
+          payload: deviceCommands.payload,
+          status: deviceCommands.status,
+          result: deviceCommands.result,
+          completedAt: deviceCommands.completedAt,
+          createdAt: deviceCommands.createdAt,
+        })
+        .from(deviceCommands)
+        .where(eq(deviceCommands.deviceRowId, row.id))
+        .orderBy(desc(deviceCommands.createdAt))
+        .limit(input.limit)
+      return { commands }
     }),
 
   // Optional `teamId` (EXP-432): additionally return teammates' server
@@ -267,11 +808,17 @@ export const devicesRouter = router({
 
     // Relay-connected rows are demonstrably alive RIGHT NOW — advance their
     // last_seen_at so a later disconnect shows "last seen" near the actual
-    // disconnect, not the process start. (The desktop registers once per
-    // control-channel start and never heartbeats; this write-on-observe
-    // keeps its timestamp honest while anyone is watching.)
+    // disconnect, not the process start. (Pre-EXP-481 desktops register once
+    // per control-channel start and never heartbeat; this write-on-observe
+    // keeps their timestamp honest while anyone is watching.) Throttled to
+    // rows staler than 60s since the shapes landed: devices is synced now,
+    // and an unthrottled bump per 15s poll would fan a no-op Electric update
+    // to every client of every member.
+    const observeCutoff = new Date(Date.now() - 60_000)
     const observedOnline = rows
-      .filter((row) => liveById.has(row.deviceId))
+      .filter(
+        (row) => liveById.has(row.deviceId) && row.lastSeenAt < observeCutoff
+      )
       .map((row) => row.id)
     if (observedOnline.length > 0) {
       const now = new Date()
@@ -296,11 +843,16 @@ export const devicesRouter = router({
         kind: row.kind === `server` ? `server` : `desktop`,
         platform: row.platform,
         // The live advertisement is fresher than the registered snapshot —
-        // startSession gates on exactly what the relay holds.
+        // startSession gates on exactly what the relay holds. Offline rows
+        // fall back to the persisted copies (EXP-481) so old clients also
+        // stop blanking a machine's story the moment it disconnects.
         agents: online?.agents ?? row.agents,
-        unauthedAgents: online?.unauthedAgents ?? [],
+        unauthedAgents: online?.unauthedAgents ?? row.unauthedAgents,
         caps: online?.caps ?? row.caps,
-        launchDefaults: online?.launchDefaults,
+        launchDefaults:
+          online?.launchDefaults ??
+          (row.launchDefaults as SteerLaunchDefaults | null) ??
+          undefined,
         online: Boolean(online),
         lastSeenAt: row.lastSeenAt.toISOString(),
         registered: true,
@@ -323,9 +875,12 @@ export const devicesRouter = router({
         kind: `server`,
         platform: row.platform,
         agents: online?.agents ?? row.agents,
-        unauthedAgents: online?.unauthedAgents ?? [],
+        unauthedAgents: online?.unauthedAgents ?? row.unauthedAgents,
         caps: online?.caps ?? row.caps,
-        launchDefaults: online?.launchDefaults,
+        launchDefaults:
+          online?.launchDefaults ??
+          (row.launchDefaults as SteerLaunchDefaults | null) ??
+          undefined,
         online: Boolean(online),
         lastSeenAt: row.lastSeenAt.toISOString(),
         registered: true,
@@ -411,10 +966,14 @@ export const devicesRouter = router({
       if (input.teamId) {
         await assertTeamMember(ctx.session.user.id, input.teamId)
       }
-      await ctx.db
-        .update(devices)
-        .set({ sharedTeamId: input.teamId, updatedAt: new Date() })
-        .where(eq(devices.id, row.id))
+      const txid = await ctx.db.transaction(async (tx) => {
+        const id = await generateTxId(tx)
+        await tx
+          .update(devices)
+          .set({ sharedTeamId: input.teamId, updatedAt: new Date() })
+          .where(eq(devices.id, row.id))
+        return id
+      })
       // EXP-445: withdrawing the share must end the runs it was the consent
       // for — otherwise a teammate's agent keeps working on this machine with
       // no client able to reach it. Ordered AFTER the column write on purpose:
@@ -424,7 +983,7 @@ export const devicesRouter = router({
       if (row.sharedTeamId !== null && row.sharedTeamId !== input.teamId) {
         await endForeignHostedSessions(ctx.session.user.id, row.sharedTeamId)
       }
-      return { ok: true }
+      return { ok: true, txid }
     }),
 
   rename: authedProcedure
@@ -432,31 +991,40 @@ export const devicesRouter = router({
       z.object({ deviceId: deviceIdInput, label: z.string().min(1).max(255) })
     )
     .mutation(async ({ ctx, input }) => {
-      await ctx.db
-        .update(devices)
-        .set({ label: input.label, updatedAt: new Date() })
-        .where(
-          and(
-            eq(devices.userId, ctx.session.user.id),
-            eq(devices.deviceId, input.deviceId)
+      const txid = await ctx.db.transaction(async (tx) => {
+        const id = await generateTxId(tx)
+        await tx
+          .update(devices)
+          .set({ label: input.label, updatedAt: new Date() })
+          .where(
+            and(
+              eq(devices.userId, ctx.session.user.id),
+              eq(devices.deviceId, input.deviceId)
+            )
           )
-        )
-      return { ok: true }
+        return id
+      })
+      return { ok: true, txid }
     }),
 
   // Drops the registry row only — a still-running daemon re-registers on its
-  // next heartbeat miss, and a live relay connection is untouched.
+  // next heartbeat miss, and a live relay connection is untouched. Worktrees
+  // + queued commands go with it (FK cascade).
   remove: authedProcedure
     .input(z.object({ deviceId: deviceIdInput }))
     .mutation(async ({ ctx, input }) => {
-      await ctx.db
-        .delete(devices)
-        .where(
-          and(
-            eq(devices.userId, ctx.session.user.id),
-            eq(devices.deviceId, input.deviceId)
+      const txid = await ctx.db.transaction(async (tx) => {
+        const id = await generateTxId(tx)
+        await tx
+          .delete(devices)
+          .where(
+            and(
+              eq(devices.userId, ctx.session.user.id),
+              eq(devices.deviceId, input.deviceId)
+            )
           )
-        )
-      return { ok: true }
+        return id
+      })
+      return { ok: true, txid }
     }),
 })

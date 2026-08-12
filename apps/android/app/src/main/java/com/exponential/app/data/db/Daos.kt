@@ -349,6 +349,39 @@ interface IssueEventDao {
 }
 
 @Dao
+interface DeviceDao {
+    @Query("SELECT * FROM devices ORDER BY last_seen_at DESC")
+    fun observeAll(): Flow<List<DeviceEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: DeviceEntity)
+
+    @Query("DELETE FROM devices WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM devices")
+    suspend fun clear()
+}
+
+@Dao
+interface DeviceWorktreeDao {
+    @Query("SELECT * FROM device_worktrees ORDER BY repo_full_name, branch")
+    fun observeAll(): Flow<List<DeviceWorktreeEntity>>
+
+    @Query("SELECT * FROM device_worktrees WHERE device_row_id = :deviceRowId ORDER BY repo_full_name, branch")
+    fun observeByDevice(deviceRowId: String): Flow<List<DeviceWorktreeEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: DeviceWorktreeEntity)
+
+    @Query("DELETE FROM device_worktrees WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM device_worktrees")
+    suspend fun clear()
+}
+
+@Dao
 interface ElectricOffsetDao {
     @Query("SELECT * FROM electric_offsets WHERE shape = :shape LIMIT 1")
     suspend fun get(shape: String): ElectricOffsetEntity?

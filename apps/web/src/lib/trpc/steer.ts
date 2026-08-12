@@ -236,6 +236,10 @@ export const steerRouter = router({
           ultracode: z.boolean().optional(),
           planMode: z.boolean().optional(),
           skipPermissions: z.boolean().optional(),
+          // EXP-481: resume the issue's existing worktree/agent session.
+          // Single-issue starts only; gated below on the device's persisted
+          // `resume` cap.
+          resume: z.boolean().optional(),
         })
         .refine(
           (value) =>
@@ -268,6 +272,17 @@ export const steerRouter = router({
               code: z.ZodIssueCode.custom,
               path: [`inputs`],
               message: `inputs ride action starts only`,
+            })
+          }
+          // EXP-481: a batch has no per-issue worktree to resume, and action
+          // runs don't use issue worktrees at all. (A batch that collapses to
+          // one id below still counts as the issueIds form — resume requires
+          // the literal issueId field.)
+          if (value.resume && !value.issueId) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: [`resume`],
+              message: `resume applies to single-issue starts only`,
             })
           }
           // Per-agent vocabulary (EXP-201): model/effort must come from the
@@ -724,6 +739,33 @@ export const steerRouter = router({
         })
       }
 
+      // EXP-481: resume is gated STRICTLY on the PERSISTED row's `resume` cap
+      // (like `actions`, unlike the lenient agents fallback) — an old build
+      // would silently drop the flag and start fresh, which reads as data
+      // loss to someone expecting their session back. Persisted caps are as
+      // accurate as live ones here: caps are immutable per build and
+      // registered at startup; an unregistered legacy desktop therefore
+      // refuses, correctly.
+      if (input.resume) {
+        const { db } = await import(`@/db/connection`)
+        const [target] = await db
+          .select({ caps: devicesTable.caps })
+          .from(devicesTable)
+          .where(
+            and(
+              eq(devicesTable.userId, ownerId),
+              eq(devicesTable.deviceId, input.deviceId)
+            )
+          )
+          .limit(1)
+        if (!target?.caps.includes(`resume`)) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `That device can't resume sessions yet. Update it.`,
+          })
+        }
+      }
+
       const options = {
         agent: input.agent,
         model: input.model,
@@ -731,6 +773,7 @@ export const steerRouter = router({
         ultracode: input.ultracode,
         planMode: input.planMode,
         skipPermissions: input.skipPermissions,
+        resume: input.resume,
       }
       const result =
         ids.length === 1

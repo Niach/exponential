@@ -506,10 +506,196 @@ pub struct IssueStatusRow {
     pub updated_at: Option<String>,
 }
 
+/// `devices` shape row (EXP-481) — the per-user machine registry, own rows
+/// plus team-shared server rows. SERVER-AUTHORITATIVE: `launch_defaults` is
+/// the canonical copy this machine's settings.json converges to; online-ness
+/// derives from `last_seen_at` freshness against
+/// `contract::DEVICE_ONLINE_WINDOW_MS` — never relay presence.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct DeviceRow {
+    pub id: String,
+    #[serde(default)]
+    pub user_id: Option<String>,
+    /// The steer device id (the remote-start target), NOT this row's PK.
+    #[serde(default)]
+    pub device_id: Option<String>,
+    #[serde(default)]
+    pub label: Option<String>,
+    /// `desktop` | `server` — unknown renders as desktop.
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub platform: Option<String>,
+    #[serde(default)]
+    pub version: Option<String>,
+    /// jsonb string[] — TEXT-stored (§5.5), re-parsed at hydrate.
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub agents: Option<serde_json::Value>,
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub caps: Option<serde_json::Value>,
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub unauthed_agents: Option<serde_json::Value>,
+    /// jsonb `{defaultAgent?, agents?: {..}}` — camelCase inner keys.
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub launch_defaults: Option<serde_json::Value>,
+    #[serde(default)]
+    pub launch_defaults_updated_at: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_i64")]
+    pub active_sessions: Option<i64>,
+    #[serde(default)]
+    pub last_seen_at: Option<String>,
+    #[serde(default)]
+    pub shared_team_id: Option<String>,
+    #[serde(default)]
+    pub update_requested_at: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+impl DeviceRow {
+    /// String-array view of a jsonb column (`agents`/`caps`/…).
+    fn string_list(value: &Option<serde_json::Value>) -> Vec<String> {
+        value
+            .as_ref()
+            .and_then(|v| v.as_array())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn agent_ids(&self) -> Vec<String> {
+        Self::string_list(&self.agents)
+    }
+
+    pub fn unauthed_agent_ids(&self) -> Vec<String> {
+        Self::string_list(&self.unauthed_agents)
+    }
+
+    pub fn cap_ids(&self) -> Vec<String> {
+        Self::string_list(&self.caps)
+    }
+
+    pub fn is_server(&self) -> bool {
+        self.kind.as_deref() == Some("server")
+    }
+}
+
+/// `device_worktrees` shape row (EXP-481) — one reported session worktree.
+/// The scoping mirrors (`user_id`/`shared_team_id`) are proxy-excluded and
+/// deliberately NOT modeled (issue_subscribers-email stance).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct DeviceWorktreeRow {
+    pub id: String,
+    /// FK to the DEVICES row's `id` (uuid) — not the steer device-id string.
+    #[serde(default)]
+    pub device_row_id: Option<String>,
+    #[serde(default)]
+    pub repo_full_name: Option<String>,
+    #[serde(default)]
+    pub branch: Option<String>,
+    /// `exp/<ID>` linkage as the device parsed it; `None` on batch branches.
+    #[serde(default)]
+    pub issue_identifier: Option<String>,
+    /// jsonb string[] `.exp-agents` marker; `None` = any agent may resume.
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub agents: Option<serde_json::Value>,
+    /// `clean` | `untracked` | `tracked` | `unknown` — raw wire string.
+    #[serde(default)]
+    pub dirty: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_bool")]
+    pub busy: Option<bool>,
+    #[serde(default)]
+    pub reported_at: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+impl DeviceWorktreeRow {
+    /// The marker's agent ids; `None` = pre-marker worktree (any agent).
+    pub fn agent_ids(&self) -> Option<Vec<String>> {
+        self.agents.as_ref().and_then(|v| v.as_array()).map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(str::to_string))
+                .collect()
+        })
+    }
+
+    /// Whether `agent` may resume in this worktree (marker absent = any).
+    pub fn offers_agent(&self, agent: &str) -> bool {
+        match self.agent_ids() {
+            None => true,
+            Some(ids) => ids.iter().any(|id| id == agent),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn device_row_hydrates_tolerantly_and_lists_agents() {
+        // jsonb columns arrive TEXT-stored (§5.5) — string forms must
+        // re-parse; wire ints may be quoted.
+        let row: DeviceRow = serde_json::from_value(json!({
+            "id": "row-1",
+            "user_id": "u-1",
+            "device_id": "dev-1",
+            "label": "buildbox",
+            "kind": "server",
+            "agents": "[\"claude\",\"codex\"]",
+            "caps": ["actions", "resume"],
+            "launch_defaults": "{\"defaultAgent\":\"codex\"}",
+            "active_sessions": "2",
+            "last_seen_at": "2026-08-11T10:00:00.000Z",
+        }))
+        .unwrap();
+        assert!(row.is_server());
+        assert_eq!(row.agent_ids(), vec!["claude", "codex"]);
+        assert_eq!(row.cap_ids(), vec!["actions", "resume"]);
+        assert_eq!(
+            row.launch_defaults.as_ref().unwrap()["defaultAgent"],
+            "codex"
+        );
+        assert_eq!(row.active_sessions, Some(2));
+        // A minimal row (older server) still hydrates.
+        let narrow: DeviceRow = serde_json::from_value(json!({"id": "row-2"})).unwrap();
+        assert!(!narrow.is_server());
+        assert!(narrow.agent_ids().is_empty());
+    }
+
+    #[test]
+    fn device_worktree_row_offers_agents_via_the_marker() {
+        let row: DeviceWorktreeRow = serde_json::from_value(json!({
+            "id": "wt-1",
+            "device_row_id": "row-1",
+            "repo_full_name": "acme/web",
+            "branch": "exp/EXP-7",
+            "issue_identifier": "EXP-7",
+            "agents": "[\"codex\"]",
+            "dirty": "clean",
+            "busy": "t",
+        }))
+        .unwrap();
+        assert!(row.offers_agent("codex"));
+        assert!(!row.offers_agent("claude"));
+        assert_eq!(row.busy, Some(true));
+        // No marker = any agent may resume (pre-marker worktree).
+        let unmarked: DeviceWorktreeRow =
+            serde_json::from_value(json!({"id": "wt-2"})).unwrap();
+        assert!(unmarked.offers_agent("claude"));
+        assert_eq!(unmarked.agent_ids(), None);
+    }
 
     #[test]
     fn issue_status_row_hydrates_tolerantly() {

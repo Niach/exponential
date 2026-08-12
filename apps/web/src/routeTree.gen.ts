@@ -9,100 +9,106 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
-import { Route as AboutRouteImport } from './routes/about'
-import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as SupportTokenRouteImport } from './routes/support/$token'
-import { Route as InviteTokenRouteImport } from './routes/invite/$token'
-import { Route as AuthResetPasswordRouteImport } from './routes/auth/reset-password'
-import { Route as AuthRegisterRouteImport } from './routes/auth/register'
-import { Route as AuthLoginRouteImport } from './routes/auth/login'
-import { Route as AuthForgotPasswordRouteImport } from './routes/auth/forgot-password'
-import { Route as AuthDeviceRouteImport } from './routes/auth/device'
-import { Route as AuthConsentRouteImport } from './routes/auth/consent'
-import { Route as ApiVersionRouteImport } from './routes/api/version'
-import { Route as ApiMobileOauthStartRouteImport } from './routes/api/mobile-oauth-start'
-import { Route as ApiMobileOauthReturnRouteImport } from './routes/api/mobile-oauth-return'
-import { Route as ApiMobileOauthExchangeRouteImport } from './routes/api/mobile-oauth-exchange'
-import { Route as ApiMcpRouteImport } from './routes/api/mcp'
-import { Route as ApiHealthRouteImport } from './routes/api/health'
-import { Route as ApiContactRouteImport } from './routes/api/contact'
-import { Route as ApiAuthConfigRouteImport } from './routes/api/auth-config'
-import { Route as AuthenticatedOnboardingRouteImport } from './routes/_authenticated/onboarding'
-import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } from './routes/[.well-known]/oauth-protected-resource'
-import { Route as Char91DotwellKnownChar93OauthAuthorizationServerRouteImport } from './routes/[.well-known]/oauth-authorization-server'
-import { Route as Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRouteImport } from './routes/[.well-known]/assetlinks[.]json'
+import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
+import { Route as AboutRouteImport } from './routes/about'
+import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
 import { Route as Char91DotwellKnownChar93AppleAppSiteAssociationRouteImport } from './routes/[.well-known]/apple-app-site-association'
-import { Route as TTeamSlugRouteRouteImport } from './routes/t/$teamSlug/route'
+import { Route as Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRouteImport } from './routes/[.well-known]/assetlinks[.]json'
+import { Route as Char91DotwellKnownChar93OauthAuthorizationServerRouteImport } from './routes/[.well-known]/oauth-authorization-server'
+import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } from './routes/[.well-known]/oauth-protected-resource'
 import { Route as AuthenticatedAdminRouteRouteImport } from './routes/_authenticated/admin/route'
-import { Route as TTeamSlugIndexRouteImport } from './routes/t/$teamSlug/index'
-import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin/index'
-import { Route as ApiWidgetSubmitRouteImport } from './routes/api/widget/submit'
-import { Route as ApiWidgetConfigRouteImport } from './routes/api/widget/config'
-import { Route as ApiWebhooksSesRouteImport } from './routes/api/webhooks/ses'
-import { Route as ApiWebhooksGithubRouteImport } from './routes/api/webhooks/github'
-import { Route as ApiTrpcSplatRouteImport } from './routes/api/trpc/$'
-import { Route as ApiSupportThreadRouteImport } from './routes/api/support/thread'
-import { Route as ApiSupportReplyRouteImport } from './routes/api/support/reply'
-import { Route as ApiSupportPollRouteImport } from './routes/api/support/poll'
-import { Route as ApiShapesUsersRouteImport } from './routes/api/shapes/users'
-import { Route as ApiShapesTeamsRouteImport } from './routes/api/shapes/teams'
-import { Route as ApiShapesTeamMembersRouteImport } from './routes/api/shapes/team-members'
-import { Route as ApiShapesTeamInvitesRouteImport } from './routes/api/shapes/team-invites'
-import { Route as ApiShapesNotificationsRouteImport } from './routes/api/shapes/notifications'
-import { Route as ApiShapesLabelsRouteImport } from './routes/api/shapes/labels'
-import { Route as ApiShapesIssuesRouteImport } from './routes/api/shapes/issues'
-import { Route as ApiShapesIssueSubscribersRouteImport } from './routes/api/shapes/issue-subscribers'
-import { Route as ApiShapesIssueStatusesRouteImport } from './routes/api/shapes/issue-statuses'
-import { Route as ApiShapesIssueLabelsRouteImport } from './routes/api/shapes/issue-labels'
-import { Route as ApiShapesIssueEventsRouteImport } from './routes/api/shapes/issue-events'
-import { Route as ApiShapesCommentsRouteImport } from './routes/api/shapes/comments'
-import { Route as ApiShapesCodingSessionsRouteImport } from './routes/api/shapes/coding-sessions'
-import { Route as ApiShapesBoardsRouteImport } from './routes/api/shapes/boards'
-import { Route as ApiShapesAttachmentsRouteImport } from './routes/api/shapes/attachments'
-import { Route as ApiShapesActionsRouteImport } from './routes/api/shapes/actions'
-import { Route as ApiEmailUnsubscribeRouteImport } from './routes/api/email/unsubscribe'
-import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
-import { Route as ApiAttachmentsAttachmentIdRouteImport } from './routes/api/attachments/$attachmentId'
-import { Route as AuthenticatedAdminUsersRouteImport } from './routes/_authenticated/admin/users'
-import { Route as AuthenticatedAdminTeamsRouteImport } from './routes/_authenticated/admin/teams'
-import { Route as AuthenticatedAdminEmailRouteImport } from './routes/_authenticated/admin/email'
-import { Route as AuthenticatedAdminConversionsRouteImport } from './routes/_authenticated/admin/conversions'
+import { Route as AuthenticatedOnboardingRouteImport } from './routes/_authenticated/onboarding'
+import { Route as ApiAuthConfigRouteImport } from './routes/api/auth-config'
+import { Route as ApiContactRouteImport } from './routes/api/contact'
+import { Route as ApiHealthRouteImport } from './routes/api/health'
+import { Route as ApiMcpRouteImport } from './routes/api/mcp'
+import { Route as ApiMobileOauthExchangeRouteImport } from './routes/api/mobile-oauth-exchange'
+import { Route as ApiMobileOauthReturnRouteImport } from './routes/api/mobile-oauth-return'
+import { Route as ApiMobileOauthStartRouteImport } from './routes/api/mobile-oauth-start'
+import { Route as ApiVersionRouteImport } from './routes/api/version'
+import { Route as AuthConsentRouteImport } from './routes/auth/consent'
+import { Route as AuthDeviceRouteImport } from './routes/auth/device'
+import { Route as AuthForgotPasswordRouteImport } from './routes/auth/forgot-password'
+import { Route as AuthLoginRouteImport } from './routes/auth/login'
+import { Route as AuthRegisterRouteImport } from './routes/auth/register'
+import { Route as AuthResetPasswordRouteImport } from './routes/auth/reset-password'
+import { Route as InviteTokenRouteImport } from './routes/invite/$token'
+import { Route as SupportTokenRouteImport } from './routes/support/$token'
+import { Route as TTeamSlugRouteRouteImport } from './routes/t/$teamSlug/route'
 import { Route as AuthenticatedAccountNotificationsRouteImport } from './routes/_authenticated/account/notifications'
+import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin/index'
+import { Route as AuthenticatedAdminConversionsRouteImport } from './routes/_authenticated/admin/conversions'
+import { Route as AuthenticatedAdminEmailRouteImport } from './routes/_authenticated/admin/email'
+import { Route as AuthenticatedAdminTeamsRouteImport } from './routes/_authenticated/admin/teams'
+import { Route as AuthenticatedAdminUsersRouteImport } from './routes/_authenticated/admin/users'
+import { Route as ApiAttachmentsAttachmentIdRouteImport } from './routes/api/attachments/$attachmentId'
+import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as ApiEmailUnsubscribeRouteImport } from './routes/api/email/unsubscribe'
+import { Route as ApiShapesActionsRouteImport } from './routes/api/shapes/actions'
+import { Route as ApiShapesAttachmentsRouteImport } from './routes/api/shapes/attachments'
+import { Route as ApiShapesBoardsRouteImport } from './routes/api/shapes/boards'
+import { Route as ApiShapesCodingSessionsRouteImport } from './routes/api/shapes/coding-sessions'
+import { Route as ApiShapesCommentsRouteImport } from './routes/api/shapes/comments'
+import { Route as ApiShapesDeviceWorktreesRouteImport } from './routes/api/shapes/device-worktrees'
+import { Route as ApiShapesDevicesRouteImport } from './routes/api/shapes/devices'
+import { Route as ApiShapesIssueEventsRouteImport } from './routes/api/shapes/issue-events'
+import { Route as ApiShapesIssueLabelsRouteImport } from './routes/api/shapes/issue-labels'
+import { Route as ApiShapesIssueStatusesRouteImport } from './routes/api/shapes/issue-statuses'
+import { Route as ApiShapesIssueSubscribersRouteImport } from './routes/api/shapes/issue-subscribers'
+import { Route as ApiShapesIssuesRouteImport } from './routes/api/shapes/issues'
+import { Route as ApiShapesLabelsRouteImport } from './routes/api/shapes/labels'
+import { Route as ApiShapesNotificationsRouteImport } from './routes/api/shapes/notifications'
+import { Route as ApiShapesTeamInvitesRouteImport } from './routes/api/shapes/team-invites'
+import { Route as ApiShapesTeamMembersRouteImport } from './routes/api/shapes/team-members'
+import { Route as ApiShapesTeamsRouteImport } from './routes/api/shapes/teams'
+import { Route as ApiShapesUsersRouteImport } from './routes/api/shapes/users'
+import { Route as ApiSupportPollRouteImport } from './routes/api/support/poll'
+import { Route as ApiSupportReplyRouteImport } from './routes/api/support/reply'
+import { Route as ApiSupportThreadRouteImport } from './routes/api/support/thread'
+import { Route as ApiTrpcSplatRouteImport } from './routes/api/trpc/$'
+import { Route as ApiWebhooksGithubRouteImport } from './routes/api/webhooks/github'
+import { Route as ApiWebhooksSesRouteImport } from './routes/api/webhooks/ses'
+import { Route as ApiWidgetConfigRouteImport } from './routes/api/widget/config'
+import { Route as ApiWidgetSubmitRouteImport } from './routes/api/widget/submit'
+import { Route as TTeamSlugIndexRouteImport } from './routes/t/$teamSlug/index'
 import { Route as TTeamSlugSettingsRouteRouteImport } from './routes/t/$teamSlug/settings/route'
-import { Route as TTeamSlugSupportIndexRouteImport } from './routes/t/$teamSlug/support/index'
-import { Route as TTeamSlugSettingsIndexRouteImport } from './routes/t/$teamSlug/settings/index'
-import { Route as TTeamSlugReviewsIndexRouteImport } from './routes/t/$teamSlug/reviews/index'
-import { Route as TTeamSlugInboxIndexRouteImport } from './routes/t/$teamSlug/inbox/index'
-import { Route as TTeamSlugAgentsIndexRouteImport } from './routes/t/$teamSlug/agents/index'
-import { Route as TTeamSlugSettingsWidgetRouteImport } from './routes/t/$teamSlug/settings/widget'
-import { Route as TTeamSlugSettingsStorageRouteImport } from './routes/t/$teamSlug/settings/storage'
-import { Route as TTeamSlugSettingsStatusesRouteImport } from './routes/t/$teamSlug/settings/statuses'
-import { Route as TTeamSlugSettingsRepositoriesRouteImport } from './routes/t/$teamSlug/settings/repositories'
-import { Route as TTeamSlugSettingsNotificationsRouteImport } from './routes/t/$teamSlug/settings/notifications'
-import { Route as TTeamSlugSettingsMembersRouteImport } from './routes/t/$teamSlug/settings/members'
-import { Route as TTeamSlugSettingsLabelsRouteImport } from './routes/t/$teamSlug/settings/labels'
-import { Route as TTeamSlugSettingsGeneralRouteImport } from './routes/t/$teamSlug/settings/general'
-import { Route as TTeamSlugSettingsBoardsRouteImport } from './routes/t/$teamSlug/settings/boards'
-import { Route as TTeamSlugSettingsBillingRouteImport } from './routes/t/$teamSlug/settings/billing'
-import { Route as TTeamSlugSettingsApiKeysRouteImport } from './routes/t/$teamSlug/settings/api-keys'
-import { Route as TTeamSlugSettingsAccountRouteImport } from './routes/t/$teamSlug/settings/account'
-import { Route as TTeamSlugReviewsIssueIdentifierRouteImport } from './routes/t/$teamSlug/reviews/$issueIdentifier'
-import { Route as ApiIssuesIssueIdImagesRouteImport } from './routes/api/issues/$issueId/images'
-import { Route as ApiIssuesIssueIdFilesRouteImport } from './routes/api/issues/$issueId/files'
-import { Route as ApiIntegrationsGithubSetupRouteImport } from './routes/api/integrations/github/setup'
-import { Route as ApiIntegrationsGithubCallbackRouteImport } from './routes/api/integrations/github/callback'
-import { Route as AuthenticatedIntegrationsGithubInstalledRouteImport } from './routes/_authenticated/integrations/github/installed'
-import { Route as AuthenticatedIntegrationsGithubClaimRouteImport } from './routes/_authenticated/integrations/github/claim'
-import { Route as AuthenticatedAdminUsersUserIdRouteImport } from './routes/_authenticated/admin/users_.$userId'
 import { Route as AuthenticatedAdminTeamsTeamIdRouteImport } from './routes/_authenticated/admin/teams_.$teamId'
+import { Route as AuthenticatedAdminUsersUserIdRouteImport } from './routes/_authenticated/admin/users_.$userId'
+import { Route as AuthenticatedIntegrationsGithubClaimRouteImport } from './routes/_authenticated/integrations/github/claim'
+import { Route as AuthenticatedIntegrationsGithubInstalledRouteImport } from './routes/_authenticated/integrations/github/installed'
+import { Route as ApiIntegrationsGithubCallbackRouteImport } from './routes/api/integrations/github/callback'
+import { Route as ApiIntegrationsGithubSetupRouteImport } from './routes/api/integrations/github/setup'
+import { Route as ApiIssuesIssueIdFilesRouteImport } from './routes/api/issues/$issueId/files'
+import { Route as ApiIssuesIssueIdImagesRouteImport } from './routes/api/issues/$issueId/images'
+import { Route as TTeamSlugAgentsIndexRouteImport } from './routes/t/$teamSlug/agents/index'
+import { Route as TTeamSlugInboxIndexRouteImport } from './routes/t/$teamSlug/inbox/index'
+import { Route as TTeamSlugReviewsIndexRouteImport } from './routes/t/$teamSlug/reviews/index'
+import { Route as TTeamSlugReviewsIssueIdentifierRouteImport } from './routes/t/$teamSlug/reviews/$issueIdentifier'
+import { Route as TTeamSlugSettingsIndexRouteImport } from './routes/t/$teamSlug/settings/index'
+import { Route as TTeamSlugSettingsAccountRouteImport } from './routes/t/$teamSlug/settings/account'
+import { Route as TTeamSlugSettingsApiKeysRouteImport } from './routes/t/$teamSlug/settings/api-keys'
+import { Route as TTeamSlugSettingsBillingRouteImport } from './routes/t/$teamSlug/settings/billing'
+import { Route as TTeamSlugSettingsBoardsRouteImport } from './routes/t/$teamSlug/settings/boards'
+import { Route as TTeamSlugSettingsGeneralRouteImport } from './routes/t/$teamSlug/settings/general'
+import { Route as TTeamSlugSettingsLabelsRouteImport } from './routes/t/$teamSlug/settings/labels'
+import { Route as TTeamSlugSettingsMembersRouteImport } from './routes/t/$teamSlug/settings/members'
+import { Route as TTeamSlugSettingsNotificationsRouteImport } from './routes/t/$teamSlug/settings/notifications'
+import { Route as TTeamSlugSettingsRepositoriesRouteImport } from './routes/t/$teamSlug/settings/repositories'
+import { Route as TTeamSlugSettingsStatusesRouteImport } from './routes/t/$teamSlug/settings/statuses'
+import { Route as TTeamSlugSettingsStorageRouteImport } from './routes/t/$teamSlug/settings/storage'
+import { Route as TTeamSlugSettingsWidgetRouteImport } from './routes/t/$teamSlug/settings/widget'
+import { Route as TTeamSlugSupportIndexRouteImport } from './routes/t/$teamSlug/support/index'
 import { Route as TTeamSlugBoardsBoardSlugIndexRouteImport } from './routes/t/$teamSlug/boards/$boardSlug/index'
 import { Route as TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRouteImport } from './routes/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier'
 
-const RobotsDottxtRoute = RobotsDottxtRouteImport.update({
-  id: '/robots.txt',
-  path: '/robots.txt',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedRoute = AuthenticatedRouteImport.update({
+  id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AboutRoute = AboutRouteImport.update({
@@ -110,110 +116,15 @@ const AboutRoute = AboutRouteImport.update({
   path: '/about',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedRoute = AuthenticatedRouteImport.update({
-  id: '/_authenticated',
+const RobotsDottxtRoute = RobotsDottxtRouteImport.update({
+  id: '/robots.txt',
+  path: '/robots.txt',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SupportTokenRoute = SupportTokenRouteImport.update({
-  id: '/support/$token',
-  path: '/support/$token',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const InviteTokenRoute = InviteTokenRouteImport.update({
-  id: '/invite/$token',
-  path: '/invite/$token',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthResetPasswordRoute = AuthResetPasswordRouteImport.update({
-  id: '/auth/reset-password',
-  path: '/auth/reset-password',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthRegisterRoute = AuthRegisterRouteImport.update({
-  id: '/auth/register',
-  path: '/auth/register',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthLoginRoute = AuthLoginRouteImport.update({
-  id: '/auth/login',
-  path: '/auth/login',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthForgotPasswordRoute = AuthForgotPasswordRouteImport.update({
-  id: '/auth/forgot-password',
-  path: '/auth/forgot-password',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthDeviceRoute = AuthDeviceRouteImport.update({
-  id: '/auth/device',
-  path: '/auth/device',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthConsentRoute = AuthConsentRouteImport.update({
-  id: '/auth/consent',
-  path: '/auth/consent',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiVersionRoute = ApiVersionRouteImport.update({
-  id: '/api/version',
-  path: '/api/version',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiMobileOauthStartRoute = ApiMobileOauthStartRouteImport.update({
-  id: '/api/mobile-oauth-start',
-  path: '/api/mobile-oauth-start',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiMobileOauthReturnRoute = ApiMobileOauthReturnRouteImport.update({
-  id: '/api/mobile-oauth-return',
-  path: '/api/mobile-oauth-return',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiMobileOauthExchangeRoute = ApiMobileOauthExchangeRouteImport.update({
-  id: '/api/mobile-oauth-exchange',
-  path: '/api/mobile-oauth-exchange',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiMcpRoute = ApiMcpRouteImport.update({
-  id: '/api/mcp',
-  path: '/api/mcp',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiHealthRoute = ApiHealthRouteImport.update({
-  id: '/api/health',
-  path: '/api/health',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiContactRoute = ApiContactRouteImport.update({
-  id: '/api/contact',
-  path: '/api/contact',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiAuthConfigRoute = ApiAuthConfigRouteImport.update({
-  id: '/api/auth-config',
-  path: '/api/auth-config',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthenticatedOnboardingRoute = AuthenticatedOnboardingRouteImport.update({
-  id: '/onboarding',
-  path: '/onboarding',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
-const Char91DotwellKnownChar93OauthProtectedResourceRoute =
-  Char91DotwellKnownChar93OauthProtectedResourceRouteImport.update({
-    id: '/.well-known/oauth-protected-resource',
-    path: '/.well-known/oauth-protected-resource',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const Char91DotwellKnownChar93OauthAuthorizationServerRoute =
-  Char91DotwellKnownChar93OauthAuthorizationServerRouteImport.update({
-    id: '/.well-known/oauth-authorization-server',
-    path: '/.well-known/oauth-authorization-server',
+const Char91DotwellKnownChar93AppleAppSiteAssociationRoute =
+  Char91DotwellKnownChar93AppleAppSiteAssociationRouteImport.update({
+    id: '/.well-known/apple-app-site-association',
+    path: '/.well-known/apple-app-site-association',
     getParentRoute: () => rootRouteImport,
   } as any)
 const Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRoute =
@@ -222,182 +133,122 @@ const Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRoute =
     path: '/.well-known/assetlinks.json',
     getParentRoute: () => rootRouteImport,
   } as any)
-const Char91DotwellKnownChar93AppleAppSiteAssociationRoute =
-  Char91DotwellKnownChar93AppleAppSiteAssociationRouteImport.update({
-    id: '/.well-known/apple-app-site-association',
-    path: '/.well-known/apple-app-site-association',
+const Char91DotwellKnownChar93OauthAuthorizationServerRoute =
+  Char91DotwellKnownChar93OauthAuthorizationServerRouteImport.update({
+    id: '/.well-known/oauth-authorization-server',
+    path: '/.well-known/oauth-authorization-server',
     getParentRoute: () => rootRouteImport,
   } as any)
-const TTeamSlugRouteRoute = TTeamSlugRouteRouteImport.update({
-  id: '/t/$teamSlug',
-  path: '/t/$teamSlug',
-  getParentRoute: () => rootRouteImport,
-} as any)
+const Char91DotwellKnownChar93OauthProtectedResourceRoute =
+  Char91DotwellKnownChar93OauthProtectedResourceRouteImport.update({
+    id: '/.well-known/oauth-protected-resource',
+    path: '/.well-known/oauth-protected-resource',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const AuthenticatedAdminRouteRoute = AuthenticatedAdminRouteRouteImport.update({
   id: '/admin',
   path: '/admin',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
-const TTeamSlugIndexRoute = TTeamSlugIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => TTeamSlugRouteRoute,
+const AuthenticatedOnboardingRoute = AuthenticatedOnboardingRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
+  getParentRoute: () => AuthenticatedRoute,
 } as any)
+const ApiAuthConfigRoute = ApiAuthConfigRouteImport.update({
+  id: '/api/auth-config',
+  path: '/api/auth-config',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiContactRoute = ApiContactRouteImport.update({
+  id: '/api/contact',
+  path: '/api/contact',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiHealthRoute = ApiHealthRouteImport.update({
+  id: '/api/health',
+  path: '/api/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMcpRoute = ApiMcpRouteImport.update({
+  id: '/api/mcp',
+  path: '/api/mcp',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMobileOauthExchangeRoute = ApiMobileOauthExchangeRouteImport.update({
+  id: '/api/mobile-oauth-exchange',
+  path: '/api/mobile-oauth-exchange',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMobileOauthReturnRoute = ApiMobileOauthReturnRouteImport.update({
+  id: '/api/mobile-oauth-return',
+  path: '/api/mobile-oauth-return',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMobileOauthStartRoute = ApiMobileOauthStartRouteImport.update({
+  id: '/api/mobile-oauth-start',
+  path: '/api/mobile-oauth-start',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiVersionRoute = ApiVersionRouteImport.update({
+  id: '/api/version',
+  path: '/api/version',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthConsentRoute = AuthConsentRouteImport.update({
+  id: '/auth/consent',
+  path: '/auth/consent',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthDeviceRoute = AuthDeviceRouteImport.update({
+  id: '/auth/device',
+  path: '/auth/device',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthForgotPasswordRoute = AuthForgotPasswordRouteImport.update({
+  id: '/auth/forgot-password',
+  path: '/auth/forgot-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthLoginRoute = AuthLoginRouteImport.update({
+  id: '/auth/login',
+  path: '/auth/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthRegisterRoute = AuthRegisterRouteImport.update({
+  id: '/auth/register',
+  path: '/auth/register',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthResetPasswordRoute = AuthResetPasswordRouteImport.update({
+  id: '/auth/reset-password',
+  path: '/auth/reset-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const InviteTokenRoute = InviteTokenRouteImport.update({
+  id: '/invite/$token',
+  path: '/invite/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SupportTokenRoute = SupportTokenRouteImport.update({
+  id: '/support/$token',
+  path: '/support/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TTeamSlugRouteRoute = TTeamSlugRouteRouteImport.update({
+  id: '/t/$teamSlug',
+  path: '/t/$teamSlug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedAccountNotificationsRoute =
+  AuthenticatedAccountNotificationsRouteImport.update({
+    id: '/account/notifications',
+    path: '/account/notifications',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedAdminIndexRoute = AuthenticatedAdminIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => AuthenticatedAdminRouteRoute,
-} as any)
-const ApiWidgetSubmitRoute = ApiWidgetSubmitRouteImport.update({
-  id: '/api/widget/submit',
-  path: '/api/widget/submit',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiWidgetConfigRoute = ApiWidgetConfigRouteImport.update({
-  id: '/api/widget/config',
-  path: '/api/widget/config',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiWebhooksSesRoute = ApiWebhooksSesRouteImport.update({
-  id: '/api/webhooks/ses',
-  path: '/api/webhooks/ses',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiWebhooksGithubRoute = ApiWebhooksGithubRouteImport.update({
-  id: '/api/webhooks/github',
-  path: '/api/webhooks/github',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiTrpcSplatRoute = ApiTrpcSplatRouteImport.update({
-  id: '/api/trpc/$',
-  path: '/api/trpc/$',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiSupportThreadRoute = ApiSupportThreadRouteImport.update({
-  id: '/api/support/thread',
-  path: '/api/support/thread',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiSupportReplyRoute = ApiSupportReplyRouteImport.update({
-  id: '/api/support/reply',
-  path: '/api/support/reply',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiSupportPollRoute = ApiSupportPollRouteImport.update({
-  id: '/api/support/poll',
-  path: '/api/support/poll',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiShapesUsersRoute = ApiShapesUsersRouteImport.update({
-  id: '/api/shapes/users',
-  path: '/api/shapes/users',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiShapesTeamsRoute = ApiShapesTeamsRouteImport.update({
-  id: '/api/shapes/teams',
-  path: '/api/shapes/teams',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiShapesTeamMembersRoute = ApiShapesTeamMembersRouteImport.update({
-  id: '/api/shapes/team-members',
-  path: '/api/shapes/team-members',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiShapesTeamInvitesRoute = ApiShapesTeamInvitesRouteImport.update({
-  id: '/api/shapes/team-invites',
-  path: '/api/shapes/team-invites',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiShapesNotificationsRoute = ApiShapesNotificationsRouteImport.update({
-  id: '/api/shapes/notifications',
-  path: '/api/shapes/notifications',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiShapesLabelsRoute = ApiShapesLabelsRouteImport.update({
-  id: '/api/shapes/labels',
-  path: '/api/shapes/labels',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiShapesIssuesRoute = ApiShapesIssuesRouteImport.update({
-  id: '/api/shapes/issues',
-  path: '/api/shapes/issues',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiShapesIssueSubscribersRoute =
-  ApiShapesIssueSubscribersRouteImport.update({
-    id: '/api/shapes/issue-subscribers',
-    path: '/api/shapes/issue-subscribers',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const ApiShapesIssueStatusesRoute = ApiShapesIssueStatusesRouteImport.update({
-  id: '/api/shapes/issue-statuses',
-  path: '/api/shapes/issue-statuses',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiShapesIssueLabelsRoute = ApiShapesIssueLabelsRouteImport.update({
-  id: '/api/shapes/issue-labels',
-  path: '/api/shapes/issue-labels',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiShapesIssueEventsRoute = ApiShapesIssueEventsRouteImport.update({
-  id: '/api/shapes/issue-events',
-  path: '/api/shapes/issue-events',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiShapesCommentsRoute = ApiShapesCommentsRouteImport.update({
-  id: '/api/shapes/comments',
-  path: '/api/shapes/comments',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiShapesCodingSessionsRoute = ApiShapesCodingSessionsRouteImport.update({
-  id: '/api/shapes/coding-sessions',
-  path: '/api/shapes/coding-sessions',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiShapesBoardsRoute = ApiShapesBoardsRouteImport.update({
-  id: '/api/shapes/boards',
-  path: '/api/shapes/boards',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiShapesAttachmentsRoute = ApiShapesAttachmentsRouteImport.update({
-  id: '/api/shapes/attachments',
-  path: '/api/shapes/attachments',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiShapesActionsRoute = ApiShapesActionsRouteImport.update({
-  id: '/api/shapes/actions',
-  path: '/api/shapes/actions',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiEmailUnsubscribeRoute = ApiEmailUnsubscribeRouteImport.update({
-  id: '/api/email/unsubscribe',
-  path: '/api/email/unsubscribe',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
-  id: '/api/auth/$',
-  path: '/api/auth/$',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiAttachmentsAttachmentIdRoute =
-  ApiAttachmentsAttachmentIdRouteImport.update({
-    id: '/api/attachments/$attachmentId',
-    path: '/api/attachments/$attachmentId',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const AuthenticatedAdminUsersRoute = AuthenticatedAdminUsersRouteImport.update({
-  id: '/users',
-  path: '/users',
-  getParentRoute: () => AuthenticatedAdminRouteRoute,
-} as any)
-const AuthenticatedAdminTeamsRoute = AuthenticatedAdminTeamsRouteImport.update({
-  id: '/teams',
-  path: '/teams',
-  getParentRoute: () => AuthenticatedAdminRouteRoute,
-} as any)
-const AuthenticatedAdminEmailRoute = AuthenticatedAdminEmailRouteImport.update({
-  id: '/email',
-  path: '/email',
   getParentRoute: () => AuthenticatedAdminRouteRoute,
 } as any)
 const AuthenticatedAdminConversionsRoute =
@@ -406,30 +257,228 @@ const AuthenticatedAdminConversionsRoute =
     path: '/conversions',
     getParentRoute: () => AuthenticatedAdminRouteRoute,
   } as any)
-const AuthenticatedAccountNotificationsRoute =
-  AuthenticatedAccountNotificationsRouteImport.update({
-    id: '/account/notifications',
-    path: '/account/notifications',
-    getParentRoute: () => AuthenticatedRoute,
+const AuthenticatedAdminEmailRoute = AuthenticatedAdminEmailRouteImport.update({
+  id: '/email',
+  path: '/email',
+  getParentRoute: () => AuthenticatedAdminRouteRoute,
+} as any)
+const AuthenticatedAdminTeamsRoute = AuthenticatedAdminTeamsRouteImport.update({
+  id: '/teams',
+  path: '/teams',
+  getParentRoute: () => AuthenticatedAdminRouteRoute,
+} as any)
+const AuthenticatedAdminUsersRoute = AuthenticatedAdminUsersRouteImport.update({
+  id: '/users',
+  path: '/users',
+  getParentRoute: () => AuthenticatedAdminRouteRoute,
+} as any)
+const ApiAttachmentsAttachmentIdRoute =
+  ApiAttachmentsAttachmentIdRouteImport.update({
+    id: '/api/attachments/$attachmentId',
+    path: '/api/attachments/$attachmentId',
+    getParentRoute: () => rootRouteImport,
   } as any)
+const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
+  id: '/api/auth/$',
+  path: '/api/auth/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiEmailUnsubscribeRoute = ApiEmailUnsubscribeRouteImport.update({
+  id: '/api/email/unsubscribe',
+  path: '/api/email/unsubscribe',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesActionsRoute = ApiShapesActionsRouteImport.update({
+  id: '/api/shapes/actions',
+  path: '/api/shapes/actions',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesAttachmentsRoute = ApiShapesAttachmentsRouteImport.update({
+  id: '/api/shapes/attachments',
+  path: '/api/shapes/attachments',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesBoardsRoute = ApiShapesBoardsRouteImport.update({
+  id: '/api/shapes/boards',
+  path: '/api/shapes/boards',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesCodingSessionsRoute = ApiShapesCodingSessionsRouteImport.update({
+  id: '/api/shapes/coding-sessions',
+  path: '/api/shapes/coding-sessions',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesCommentsRoute = ApiShapesCommentsRouteImport.update({
+  id: '/api/shapes/comments',
+  path: '/api/shapes/comments',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesDeviceWorktreesRoute =
+  ApiShapesDeviceWorktreesRouteImport.update({
+    id: '/api/shapes/device-worktrees',
+    path: '/api/shapes/device-worktrees',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiShapesDevicesRoute = ApiShapesDevicesRouteImport.update({
+  id: '/api/shapes/devices',
+  path: '/api/shapes/devices',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesIssueEventsRoute = ApiShapesIssueEventsRouteImport.update({
+  id: '/api/shapes/issue-events',
+  path: '/api/shapes/issue-events',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesIssueLabelsRoute = ApiShapesIssueLabelsRouteImport.update({
+  id: '/api/shapes/issue-labels',
+  path: '/api/shapes/issue-labels',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesIssueStatusesRoute = ApiShapesIssueStatusesRouteImport.update({
+  id: '/api/shapes/issue-statuses',
+  path: '/api/shapes/issue-statuses',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesIssueSubscribersRoute =
+  ApiShapesIssueSubscribersRouteImport.update({
+    id: '/api/shapes/issue-subscribers',
+    path: '/api/shapes/issue-subscribers',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiShapesIssuesRoute = ApiShapesIssuesRouteImport.update({
+  id: '/api/shapes/issues',
+  path: '/api/shapes/issues',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesLabelsRoute = ApiShapesLabelsRouteImport.update({
+  id: '/api/shapes/labels',
+  path: '/api/shapes/labels',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesNotificationsRoute = ApiShapesNotificationsRouteImport.update({
+  id: '/api/shapes/notifications',
+  path: '/api/shapes/notifications',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesTeamInvitesRoute = ApiShapesTeamInvitesRouteImport.update({
+  id: '/api/shapes/team-invites',
+  path: '/api/shapes/team-invites',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesTeamMembersRoute = ApiShapesTeamMembersRouteImport.update({
+  id: '/api/shapes/team-members',
+  path: '/api/shapes/team-members',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesTeamsRoute = ApiShapesTeamsRouteImport.update({
+  id: '/api/shapes/teams',
+  path: '/api/shapes/teams',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesUsersRoute = ApiShapesUsersRouteImport.update({
+  id: '/api/shapes/users',
+  path: '/api/shapes/users',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSupportPollRoute = ApiSupportPollRouteImport.update({
+  id: '/api/support/poll',
+  path: '/api/support/poll',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSupportReplyRoute = ApiSupportReplyRouteImport.update({
+  id: '/api/support/reply',
+  path: '/api/support/reply',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSupportThreadRoute = ApiSupportThreadRouteImport.update({
+  id: '/api/support/thread',
+  path: '/api/support/thread',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiTrpcSplatRoute = ApiTrpcSplatRouteImport.update({
+  id: '/api/trpc/$',
+  path: '/api/trpc/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiWebhooksGithubRoute = ApiWebhooksGithubRouteImport.update({
+  id: '/api/webhooks/github',
+  path: '/api/webhooks/github',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiWebhooksSesRoute = ApiWebhooksSesRouteImport.update({
+  id: '/api/webhooks/ses',
+  path: '/api/webhooks/ses',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiWidgetConfigRoute = ApiWidgetConfigRouteImport.update({
+  id: '/api/widget/config',
+  path: '/api/widget/config',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiWidgetSubmitRoute = ApiWidgetSubmitRouteImport.update({
+  id: '/api/widget/submit',
+  path: '/api/widget/submit',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TTeamSlugIndexRoute = TTeamSlugIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => TTeamSlugRouteRoute,
+} as any)
 const TTeamSlugSettingsRouteRoute = TTeamSlugSettingsRouteRouteImport.update({
   id: '/settings',
   path: '/settings',
   getParentRoute: () => TTeamSlugRouteRoute,
 } as any)
-const TTeamSlugSupportIndexRoute = TTeamSlugSupportIndexRouteImport.update({
-  id: '/support/',
-  path: '/support/',
-  getParentRoute: () => TTeamSlugRouteRoute,
+const AuthenticatedAdminTeamsTeamIdRoute =
+  AuthenticatedAdminTeamsTeamIdRouteImport.update({
+    id: '/teams_/$teamId',
+    path: '/teams/$teamId',
+    getParentRoute: () => AuthenticatedAdminRouteRoute,
+  } as any)
+const AuthenticatedAdminUsersUserIdRoute =
+  AuthenticatedAdminUsersUserIdRouteImport.update({
+    id: '/users_/$userId',
+    path: '/users/$userId',
+    getParentRoute: () => AuthenticatedAdminRouteRoute,
+  } as any)
+const AuthenticatedIntegrationsGithubClaimRoute =
+  AuthenticatedIntegrationsGithubClaimRouteImport.update({
+    id: '/integrations/github/claim',
+    path: '/integrations/github/claim',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedIntegrationsGithubInstalledRoute =
+  AuthenticatedIntegrationsGithubInstalledRouteImport.update({
+    id: '/integrations/github/installed',
+    path: '/integrations/github/installed',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const ApiIntegrationsGithubCallbackRoute =
+  ApiIntegrationsGithubCallbackRouteImport.update({
+    id: '/api/integrations/github/callback',
+    path: '/api/integrations/github/callback',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiIntegrationsGithubSetupRoute =
+  ApiIntegrationsGithubSetupRouteImport.update({
+    id: '/api/integrations/github/setup',
+    path: '/api/integrations/github/setup',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiIssuesIssueIdFilesRoute = ApiIssuesIssueIdFilesRouteImport.update({
+  id: '/api/issues/$issueId/files',
+  path: '/api/issues/$issueId/files',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const TTeamSlugSettingsIndexRoute = TTeamSlugSettingsIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => TTeamSlugSettingsRouteRoute,
+const ApiIssuesIssueIdImagesRoute = ApiIssuesIssueIdImagesRouteImport.update({
+  id: '/api/issues/$issueId/images',
+  path: '/api/issues/$issueId/images',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const TTeamSlugReviewsIndexRoute = TTeamSlugReviewsIndexRouteImport.update({
-  id: '/reviews/',
-  path: '/reviews/',
+const TTeamSlugAgentsIndexRoute = TTeamSlugAgentsIndexRouteImport.update({
+  id: '/agents/',
+  path: '/agents/',
   getParentRoute: () => TTeamSlugRouteRoute,
 } as any)
 const TTeamSlugInboxIndexRoute = TTeamSlugInboxIndexRouteImport.update({
@@ -437,66 +486,26 @@ const TTeamSlugInboxIndexRoute = TTeamSlugInboxIndexRouteImport.update({
   path: '/inbox/',
   getParentRoute: () => TTeamSlugRouteRoute,
 } as any)
-const TTeamSlugAgentsIndexRoute = TTeamSlugAgentsIndexRouteImport.update({
-  id: '/agents/',
-  path: '/agents/',
+const TTeamSlugReviewsIndexRoute = TTeamSlugReviewsIndexRouteImport.update({
+  id: '/reviews/',
+  path: '/reviews/',
   getParentRoute: () => TTeamSlugRouteRoute,
 } as any)
-const TTeamSlugSettingsWidgetRoute = TTeamSlugSettingsWidgetRouteImport.update({
-  id: '/widget',
-  path: '/widget',
+const TTeamSlugReviewsIssueIdentifierRoute =
+  TTeamSlugReviewsIssueIdentifierRouteImport.update({
+    id: '/reviews/$issueIdentifier',
+    path: '/reviews/$issueIdentifier',
+    getParentRoute: () => TTeamSlugRouteRoute,
+  } as any)
+const TTeamSlugSettingsIndexRoute = TTeamSlugSettingsIndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => TTeamSlugSettingsRouteRoute,
 } as any)
-const TTeamSlugSettingsStorageRoute =
-  TTeamSlugSettingsStorageRouteImport.update({
-    id: '/storage',
-    path: '/storage',
-    getParentRoute: () => TTeamSlugSettingsRouteRoute,
-  } as any)
-const TTeamSlugSettingsStatusesRoute =
-  TTeamSlugSettingsStatusesRouteImport.update({
-    id: '/statuses',
-    path: '/statuses',
-    getParentRoute: () => TTeamSlugSettingsRouteRoute,
-  } as any)
-const TTeamSlugSettingsRepositoriesRoute =
-  TTeamSlugSettingsRepositoriesRouteImport.update({
-    id: '/repositories',
-    path: '/repositories',
-    getParentRoute: () => TTeamSlugSettingsRouteRoute,
-  } as any)
-const TTeamSlugSettingsNotificationsRoute =
-  TTeamSlugSettingsNotificationsRouteImport.update({
-    id: '/notifications',
-    path: '/notifications',
-    getParentRoute: () => TTeamSlugSettingsRouteRoute,
-  } as any)
-const TTeamSlugSettingsMembersRoute =
-  TTeamSlugSettingsMembersRouteImport.update({
-    id: '/members',
-    path: '/members',
-    getParentRoute: () => TTeamSlugSettingsRouteRoute,
-  } as any)
-const TTeamSlugSettingsLabelsRoute = TTeamSlugSettingsLabelsRouteImport.update({
-  id: '/labels',
-  path: '/labels',
-  getParentRoute: () => TTeamSlugSettingsRouteRoute,
-} as any)
-const TTeamSlugSettingsGeneralRoute =
-  TTeamSlugSettingsGeneralRouteImport.update({
-    id: '/general',
-    path: '/general',
-    getParentRoute: () => TTeamSlugSettingsRouteRoute,
-  } as any)
-const TTeamSlugSettingsBoardsRoute = TTeamSlugSettingsBoardsRouteImport.update({
-  id: '/boards',
-  path: '/boards',
-  getParentRoute: () => TTeamSlugSettingsRouteRoute,
-} as any)
-const TTeamSlugSettingsBillingRoute =
-  TTeamSlugSettingsBillingRouteImport.update({
-    id: '/billing',
-    path: '/billing',
+const TTeamSlugSettingsAccountRoute =
+  TTeamSlugSettingsAccountRouteImport.update({
+    id: '/account',
+    path: '/account',
     getParentRoute: () => TTeamSlugSettingsRouteRoute,
   } as any)
 const TTeamSlugSettingsApiKeysRoute =
@@ -505,64 +514,68 @@ const TTeamSlugSettingsApiKeysRoute =
     path: '/api-keys',
     getParentRoute: () => TTeamSlugSettingsRouteRoute,
   } as any)
-const TTeamSlugSettingsAccountRoute =
-  TTeamSlugSettingsAccountRouteImport.update({
-    id: '/account',
-    path: '/account',
+const TTeamSlugSettingsBillingRoute =
+  TTeamSlugSettingsBillingRouteImport.update({
+    id: '/billing',
+    path: '/billing',
     getParentRoute: () => TTeamSlugSettingsRouteRoute,
   } as any)
-const TTeamSlugReviewsIssueIdentifierRoute =
-  TTeamSlugReviewsIssueIdentifierRouteImport.update({
-    id: '/reviews/$issueIdentifier',
-    path: '/reviews/$issueIdentifier',
-    getParentRoute: () => TTeamSlugRouteRoute,
-  } as any)
-const ApiIssuesIssueIdImagesRoute = ApiIssuesIssueIdImagesRouteImport.update({
-  id: '/api/issues/$issueId/images',
-  path: '/api/issues/$issueId/images',
-  getParentRoute: () => rootRouteImport,
+const TTeamSlugSettingsBoardsRoute = TTeamSlugSettingsBoardsRouteImport.update({
+  id: '/boards',
+  path: '/boards',
+  getParentRoute: () => TTeamSlugSettingsRouteRoute,
 } as any)
-const ApiIssuesIssueIdFilesRoute = ApiIssuesIssueIdFilesRouteImport.update({
-  id: '/api/issues/$issueId/files',
-  path: '/api/issues/$issueId/files',
-  getParentRoute: () => rootRouteImport,
+const TTeamSlugSettingsGeneralRoute =
+  TTeamSlugSettingsGeneralRouteImport.update({
+    id: '/general',
+    path: '/general',
+    getParentRoute: () => TTeamSlugSettingsRouteRoute,
+  } as any)
+const TTeamSlugSettingsLabelsRoute = TTeamSlugSettingsLabelsRouteImport.update({
+  id: '/labels',
+  path: '/labels',
+  getParentRoute: () => TTeamSlugSettingsRouteRoute,
 } as any)
-const ApiIntegrationsGithubSetupRoute =
-  ApiIntegrationsGithubSetupRouteImport.update({
-    id: '/api/integrations/github/setup',
-    path: '/api/integrations/github/setup',
-    getParentRoute: () => rootRouteImport,
+const TTeamSlugSettingsMembersRoute =
+  TTeamSlugSettingsMembersRouteImport.update({
+    id: '/members',
+    path: '/members',
+    getParentRoute: () => TTeamSlugSettingsRouteRoute,
   } as any)
-const ApiIntegrationsGithubCallbackRoute =
-  ApiIntegrationsGithubCallbackRouteImport.update({
-    id: '/api/integrations/github/callback',
-    path: '/api/integrations/github/callback',
-    getParentRoute: () => rootRouteImport,
+const TTeamSlugSettingsNotificationsRoute =
+  TTeamSlugSettingsNotificationsRouteImport.update({
+    id: '/notifications',
+    path: '/notifications',
+    getParentRoute: () => TTeamSlugSettingsRouteRoute,
   } as any)
-const AuthenticatedIntegrationsGithubInstalledRoute =
-  AuthenticatedIntegrationsGithubInstalledRouteImport.update({
-    id: '/integrations/github/installed',
-    path: '/integrations/github/installed',
-    getParentRoute: () => AuthenticatedRoute,
+const TTeamSlugSettingsRepositoriesRoute =
+  TTeamSlugSettingsRepositoriesRouteImport.update({
+    id: '/repositories',
+    path: '/repositories',
+    getParentRoute: () => TTeamSlugSettingsRouteRoute,
   } as any)
-const AuthenticatedIntegrationsGithubClaimRoute =
-  AuthenticatedIntegrationsGithubClaimRouteImport.update({
-    id: '/integrations/github/claim',
-    path: '/integrations/github/claim',
-    getParentRoute: () => AuthenticatedRoute,
+const TTeamSlugSettingsStatusesRoute =
+  TTeamSlugSettingsStatusesRouteImport.update({
+    id: '/statuses',
+    path: '/statuses',
+    getParentRoute: () => TTeamSlugSettingsRouteRoute,
   } as any)
-const AuthenticatedAdminUsersUserIdRoute =
-  AuthenticatedAdminUsersUserIdRouteImport.update({
-    id: '/users_/$userId',
-    path: '/users/$userId',
-    getParentRoute: () => AuthenticatedAdminRouteRoute,
+const TTeamSlugSettingsStorageRoute =
+  TTeamSlugSettingsStorageRouteImport.update({
+    id: '/storage',
+    path: '/storage',
+    getParentRoute: () => TTeamSlugSettingsRouteRoute,
   } as any)
-const AuthenticatedAdminTeamsTeamIdRoute =
-  AuthenticatedAdminTeamsTeamIdRouteImport.update({
-    id: '/teams_/$teamId',
-    path: '/teams/$teamId',
-    getParentRoute: () => AuthenticatedAdminRouteRoute,
-  } as any)
+const TTeamSlugSettingsWidgetRoute = TTeamSlugSettingsWidgetRouteImport.update({
+  id: '/widget',
+  path: '/widget',
+  getParentRoute: () => TTeamSlugSettingsRouteRoute,
+} as any)
+const TTeamSlugSupportIndexRoute = TTeamSlugSupportIndexRouteImport.update({
+  id: '/support/',
+  path: '/support/',
+  getParentRoute: () => TTeamSlugRouteRoute,
+} as any)
 const TTeamSlugBoardsBoardSlugIndexRoute =
   TTeamSlugBoardsBoardSlugIndexRouteImport.update({
     id: '/boards/$boardSlug/',
@@ -617,6 +630,8 @@ export interface FileRoutesByFullPath {
   '/api/shapes/boards': typeof ApiShapesBoardsRoute
   '/api/shapes/coding-sessions': typeof ApiShapesCodingSessionsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
+  '/api/shapes/device-worktrees': typeof ApiShapesDeviceWorktreesRoute
+  '/api/shapes/devices': typeof ApiShapesDevicesRoute
   '/api/shapes/issue-events': typeof ApiShapesIssueEventsRoute
   '/api/shapes/issue-labels': typeof ApiShapesIssueLabelsRoute
   '/api/shapes/issue-statuses': typeof ApiShapesIssueStatusesRoute
@@ -705,6 +720,8 @@ export interface FileRoutesByTo {
   '/api/shapes/boards': typeof ApiShapesBoardsRoute
   '/api/shapes/coding-sessions': typeof ApiShapesCodingSessionsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
+  '/api/shapes/device-worktrees': typeof ApiShapesDeviceWorktreesRoute
+  '/api/shapes/devices': typeof ApiShapesDevicesRoute
   '/api/shapes/issue-events': typeof ApiShapesIssueEventsRoute
   '/api/shapes/issue-labels': typeof ApiShapesIssueLabelsRoute
   '/api/shapes/issue-statuses': typeof ApiShapesIssueStatusesRoute
@@ -798,6 +815,8 @@ export interface FileRoutesById {
   '/api/shapes/boards': typeof ApiShapesBoardsRoute
   '/api/shapes/coding-sessions': typeof ApiShapesCodingSessionsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
+  '/api/shapes/device-worktrees': typeof ApiShapesDeviceWorktreesRoute
+  '/api/shapes/devices': typeof ApiShapesDevicesRoute
   '/api/shapes/issue-events': typeof ApiShapesIssueEventsRoute
   '/api/shapes/issue-labels': typeof ApiShapesIssueLabelsRoute
   '/api/shapes/issue-statuses': typeof ApiShapesIssueStatusesRoute
@@ -891,6 +910,8 @@ export interface FileRouteTypes {
     | '/api/shapes/boards'
     | '/api/shapes/coding-sessions'
     | '/api/shapes/comments'
+    | '/api/shapes/device-worktrees'
+    | '/api/shapes/devices'
     | '/api/shapes/issue-events'
     | '/api/shapes/issue-labels'
     | '/api/shapes/issue-statuses'
@@ -979,6 +1000,8 @@ export interface FileRouteTypes {
     | '/api/shapes/boards'
     | '/api/shapes/coding-sessions'
     | '/api/shapes/comments'
+    | '/api/shapes/device-worktrees'
+    | '/api/shapes/devices'
     | '/api/shapes/issue-events'
     | '/api/shapes/issue-labels'
     | '/api/shapes/issue-statuses'
@@ -1071,6 +1094,8 @@ export interface FileRouteTypes {
     | '/api/shapes/boards'
     | '/api/shapes/coding-sessions'
     | '/api/shapes/comments'
+    | '/api/shapes/device-worktrees'
+    | '/api/shapes/devices'
     | '/api/shapes/issue-events'
     | '/api/shapes/issue-labels'
     | '/api/shapes/issue-statuses'
@@ -1156,6 +1181,8 @@ export interface RootRouteChildren {
   ApiShapesBoardsRoute: typeof ApiShapesBoardsRoute
   ApiShapesCodingSessionsRoute: typeof ApiShapesCodingSessionsRoute
   ApiShapesCommentsRoute: typeof ApiShapesCommentsRoute
+  ApiShapesDeviceWorktreesRoute: typeof ApiShapesDeviceWorktreesRoute
+  ApiShapesDevicesRoute: typeof ApiShapesDevicesRoute
   ApiShapesIssueEventsRoute: typeof ApiShapesIssueEventsRoute
   ApiShapesIssueLabelsRoute: typeof ApiShapesIssueLabelsRoute
   ApiShapesIssueStatusesRoute: typeof ApiShapesIssueStatusesRoute
@@ -1183,18 +1210,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/robots.txt': {
-      id: '/robots.txt'
-      path: '/robots.txt'
-      fullPath: '/robots.txt'
-      preLoaderRoute: typeof RobotsDottxtRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/about': {
-      id: '/about'
-      path: '/about'
-      fullPath: '/about'
-      preLoaderRoute: typeof AboutRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated': {
@@ -1204,151 +1224,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/about': {
+      id: '/about'
+      path: '/about'
+      fullPath: '/about'
+      preLoaderRoute: typeof AboutRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/support/$token': {
-      id: '/support/$token'
-      path: '/support/$token'
-      fullPath: '/support/$token'
-      preLoaderRoute: typeof SupportTokenRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/invite/$token': {
-      id: '/invite/$token'
-      path: '/invite/$token'
-      fullPath: '/invite/$token'
-      preLoaderRoute: typeof InviteTokenRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/auth/reset-password': {
-      id: '/auth/reset-password'
-      path: '/auth/reset-password'
-      fullPath: '/auth/reset-password'
-      preLoaderRoute: typeof AuthResetPasswordRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/auth/register': {
-      id: '/auth/register'
-      path: '/auth/register'
-      fullPath: '/auth/register'
-      preLoaderRoute: typeof AuthRegisterRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/auth/login': {
-      id: '/auth/login'
-      path: '/auth/login'
-      fullPath: '/auth/login'
-      preLoaderRoute: typeof AuthLoginRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/auth/forgot-password': {
-      id: '/auth/forgot-password'
-      path: '/auth/forgot-password'
-      fullPath: '/auth/forgot-password'
-      preLoaderRoute: typeof AuthForgotPasswordRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/auth/device': {
-      id: '/auth/device'
-      path: '/auth/device'
-      fullPath: '/auth/device'
-      preLoaderRoute: typeof AuthDeviceRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/auth/consent': {
-      id: '/auth/consent'
-      path: '/auth/consent'
-      fullPath: '/auth/consent'
-      preLoaderRoute: typeof AuthConsentRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/version': {
-      id: '/api/version'
-      path: '/api/version'
-      fullPath: '/api/version'
-      preLoaderRoute: typeof ApiVersionRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/mobile-oauth-start': {
-      id: '/api/mobile-oauth-start'
-      path: '/api/mobile-oauth-start'
-      fullPath: '/api/mobile-oauth-start'
-      preLoaderRoute: typeof ApiMobileOauthStartRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/mobile-oauth-return': {
-      id: '/api/mobile-oauth-return'
-      path: '/api/mobile-oauth-return'
-      fullPath: '/api/mobile-oauth-return'
-      preLoaderRoute: typeof ApiMobileOauthReturnRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/mobile-oauth-exchange': {
-      id: '/api/mobile-oauth-exchange'
-      path: '/api/mobile-oauth-exchange'
-      fullPath: '/api/mobile-oauth-exchange'
-      preLoaderRoute: typeof ApiMobileOauthExchangeRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/mcp': {
-      id: '/api/mcp'
-      path: '/api/mcp'
-      fullPath: '/api/mcp'
-      preLoaderRoute: typeof ApiMcpRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/health': {
-      id: '/api/health'
-      path: '/api/health'
-      fullPath: '/api/health'
-      preLoaderRoute: typeof ApiHealthRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/contact': {
-      id: '/api/contact'
-      path: '/api/contact'
-      fullPath: '/api/contact'
-      preLoaderRoute: typeof ApiContactRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/auth-config': {
-      id: '/api/auth-config'
-      path: '/api/auth-config'
-      fullPath: '/api/auth-config'
-      preLoaderRoute: typeof ApiAuthConfigRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_authenticated/onboarding': {
-      id: '/_authenticated/onboarding'
-      path: '/onboarding'
-      fullPath: '/onboarding'
-      preLoaderRoute: typeof AuthenticatedOnboardingRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/.well-known/oauth-protected-resource': {
-      id: '/.well-known/oauth-protected-resource'
-      path: '/.well-known/oauth-protected-resource'
-      fullPath: '/.well-known/oauth-protected-resource'
-      preLoaderRoute: typeof Char91DotwellKnownChar93OauthProtectedResourceRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/.well-known/oauth-authorization-server': {
-      id: '/.well-known/oauth-authorization-server'
-      path: '/.well-known/oauth-authorization-server'
-      fullPath: '/.well-known/oauth-authorization-server'
-      preLoaderRoute: typeof Char91DotwellKnownChar93OauthAuthorizationServerRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/.well-known/assetlinks.json': {
-      id: '/.well-known/assetlinks.json'
-      path: '/.well-known/assetlinks.json'
-      fullPath: '/.well-known/assetlinks.json'
-      preLoaderRoute: typeof Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRouteImport
+    '/robots.txt': {
+      id: '/robots.txt'
+      path: '/robots.txt'
+      fullPath: '/robots.txt'
+      preLoaderRoute: typeof RobotsDottxtRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/.well-known/apple-app-site-association': {
@@ -1358,11 +1245,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof Char91DotwellKnownChar93AppleAppSiteAssociationRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/t/$teamSlug': {
-      id: '/t/$teamSlug'
-      path: '/t/$teamSlug'
-      fullPath: '/t/$teamSlug'
-      preLoaderRoute: typeof TTeamSlugRouteRouteImport
+    '/.well-known/assetlinks.json': {
+      id: '/.well-known/assetlinks.json'
+      path: '/.well-known/assetlinks.json'
+      fullPath: '/.well-known/assetlinks.json'
+      preLoaderRoute: typeof Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/.well-known/oauth-authorization-server': {
+      id: '/.well-known/oauth-authorization-server'
+      path: '/.well-known/oauth-authorization-server'
+      fullPath: '/.well-known/oauth-authorization-server'
+      preLoaderRoute: typeof Char91DotwellKnownChar93OauthAuthorizationServerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/.well-known/oauth-protected-resource': {
+      id: '/.well-known/oauth-protected-resource'
+      path: '/.well-known/oauth-protected-resource'
+      fullPath: '/.well-known/oauth-protected-resource'
+      preLoaderRoute: typeof Char91DotwellKnownChar93OauthProtectedResourceRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated/admin': {
@@ -1372,228 +1273,144 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminRouteRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/t/$teamSlug/': {
-      id: '/t/$teamSlug/'
-      path: '/'
-      fullPath: '/t/$teamSlug/'
-      preLoaderRoute: typeof TTeamSlugIndexRouteImport
-      parentRoute: typeof TTeamSlugRouteRoute
+    '/_authenticated/onboarding': {
+      id: '/_authenticated/onboarding'
+      path: '/onboarding'
+      fullPath: '/onboarding'
+      preLoaderRoute: typeof AuthenticatedOnboardingRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/api/auth-config': {
+      id: '/api/auth-config'
+      path: '/api/auth-config'
+      fullPath: '/api/auth-config'
+      preLoaderRoute: typeof ApiAuthConfigRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/contact': {
+      id: '/api/contact'
+      path: '/api/contact'
+      fullPath: '/api/contact'
+      preLoaderRoute: typeof ApiContactRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/health': {
+      id: '/api/health'
+      path: '/api/health'
+      fullPath: '/api/health'
+      preLoaderRoute: typeof ApiHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mcp': {
+      id: '/api/mcp'
+      path: '/api/mcp'
+      fullPath: '/api/mcp'
+      preLoaderRoute: typeof ApiMcpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mobile-oauth-exchange': {
+      id: '/api/mobile-oauth-exchange'
+      path: '/api/mobile-oauth-exchange'
+      fullPath: '/api/mobile-oauth-exchange'
+      preLoaderRoute: typeof ApiMobileOauthExchangeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mobile-oauth-return': {
+      id: '/api/mobile-oauth-return'
+      path: '/api/mobile-oauth-return'
+      fullPath: '/api/mobile-oauth-return'
+      preLoaderRoute: typeof ApiMobileOauthReturnRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mobile-oauth-start': {
+      id: '/api/mobile-oauth-start'
+      path: '/api/mobile-oauth-start'
+      fullPath: '/api/mobile-oauth-start'
+      preLoaderRoute: typeof ApiMobileOauthStartRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/version': {
+      id: '/api/version'
+      path: '/api/version'
+      fullPath: '/api/version'
+      preLoaderRoute: typeof ApiVersionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth/consent': {
+      id: '/auth/consent'
+      path: '/auth/consent'
+      fullPath: '/auth/consent'
+      preLoaderRoute: typeof AuthConsentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth/device': {
+      id: '/auth/device'
+      path: '/auth/device'
+      fullPath: '/auth/device'
+      preLoaderRoute: typeof AuthDeviceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth/forgot-password': {
+      id: '/auth/forgot-password'
+      path: '/auth/forgot-password'
+      fullPath: '/auth/forgot-password'
+      preLoaderRoute: typeof AuthForgotPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth/login': {
+      id: '/auth/login'
+      path: '/auth/login'
+      fullPath: '/auth/login'
+      preLoaderRoute: typeof AuthLoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth/register': {
+      id: '/auth/register'
+      path: '/auth/register'
+      fullPath: '/auth/register'
+      preLoaderRoute: typeof AuthRegisterRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth/reset-password': {
+      id: '/auth/reset-password'
+      path: '/auth/reset-password'
+      fullPath: '/auth/reset-password'
+      preLoaderRoute: typeof AuthResetPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/invite/$token': {
+      id: '/invite/$token'
+      path: '/invite/$token'
+      fullPath: '/invite/$token'
+      preLoaderRoute: typeof InviteTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/support/$token': {
+      id: '/support/$token'
+      path: '/support/$token'
+      fullPath: '/support/$token'
+      preLoaderRoute: typeof SupportTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/t/$teamSlug': {
+      id: '/t/$teamSlug'
+      path: '/t/$teamSlug'
+      fullPath: '/t/$teamSlug'
+      preLoaderRoute: typeof TTeamSlugRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/account/notifications': {
+      id: '/_authenticated/account/notifications'
+      path: '/account/notifications'
+      fullPath: '/account/notifications'
+      preLoaderRoute: typeof AuthenticatedAccountNotificationsRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/admin/': {
       id: '/_authenticated/admin/'
       path: '/'
       fullPath: '/admin/'
       preLoaderRoute: typeof AuthenticatedAdminIndexRouteImport
-      parentRoute: typeof AuthenticatedAdminRouteRoute
-    }
-    '/api/widget/submit': {
-      id: '/api/widget/submit'
-      path: '/api/widget/submit'
-      fullPath: '/api/widget/submit'
-      preLoaderRoute: typeof ApiWidgetSubmitRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/widget/config': {
-      id: '/api/widget/config'
-      path: '/api/widget/config'
-      fullPath: '/api/widget/config'
-      preLoaderRoute: typeof ApiWidgetConfigRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/webhooks/ses': {
-      id: '/api/webhooks/ses'
-      path: '/api/webhooks/ses'
-      fullPath: '/api/webhooks/ses'
-      preLoaderRoute: typeof ApiWebhooksSesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/webhooks/github': {
-      id: '/api/webhooks/github'
-      path: '/api/webhooks/github'
-      fullPath: '/api/webhooks/github'
-      preLoaderRoute: typeof ApiWebhooksGithubRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/trpc/$': {
-      id: '/api/trpc/$'
-      path: '/api/trpc/$'
-      fullPath: '/api/trpc/$'
-      preLoaderRoute: typeof ApiTrpcSplatRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/support/thread': {
-      id: '/api/support/thread'
-      path: '/api/support/thread'
-      fullPath: '/api/support/thread'
-      preLoaderRoute: typeof ApiSupportThreadRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/support/reply': {
-      id: '/api/support/reply'
-      path: '/api/support/reply'
-      fullPath: '/api/support/reply'
-      preLoaderRoute: typeof ApiSupportReplyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/support/poll': {
-      id: '/api/support/poll'
-      path: '/api/support/poll'
-      fullPath: '/api/support/poll'
-      preLoaderRoute: typeof ApiSupportPollRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/shapes/users': {
-      id: '/api/shapes/users'
-      path: '/api/shapes/users'
-      fullPath: '/api/shapes/users'
-      preLoaderRoute: typeof ApiShapesUsersRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/shapes/teams': {
-      id: '/api/shapes/teams'
-      path: '/api/shapes/teams'
-      fullPath: '/api/shapes/teams'
-      preLoaderRoute: typeof ApiShapesTeamsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/shapes/team-members': {
-      id: '/api/shapes/team-members'
-      path: '/api/shapes/team-members'
-      fullPath: '/api/shapes/team-members'
-      preLoaderRoute: typeof ApiShapesTeamMembersRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/shapes/team-invites': {
-      id: '/api/shapes/team-invites'
-      path: '/api/shapes/team-invites'
-      fullPath: '/api/shapes/team-invites'
-      preLoaderRoute: typeof ApiShapesTeamInvitesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/shapes/notifications': {
-      id: '/api/shapes/notifications'
-      path: '/api/shapes/notifications'
-      fullPath: '/api/shapes/notifications'
-      preLoaderRoute: typeof ApiShapesNotificationsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/shapes/labels': {
-      id: '/api/shapes/labels'
-      path: '/api/shapes/labels'
-      fullPath: '/api/shapes/labels'
-      preLoaderRoute: typeof ApiShapesLabelsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/shapes/issues': {
-      id: '/api/shapes/issues'
-      path: '/api/shapes/issues'
-      fullPath: '/api/shapes/issues'
-      preLoaderRoute: typeof ApiShapesIssuesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/shapes/issue-subscribers': {
-      id: '/api/shapes/issue-subscribers'
-      path: '/api/shapes/issue-subscribers'
-      fullPath: '/api/shapes/issue-subscribers'
-      preLoaderRoute: typeof ApiShapesIssueSubscribersRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/shapes/issue-statuses': {
-      id: '/api/shapes/issue-statuses'
-      path: '/api/shapes/issue-statuses'
-      fullPath: '/api/shapes/issue-statuses'
-      preLoaderRoute: typeof ApiShapesIssueStatusesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/shapes/issue-labels': {
-      id: '/api/shapes/issue-labels'
-      path: '/api/shapes/issue-labels'
-      fullPath: '/api/shapes/issue-labels'
-      preLoaderRoute: typeof ApiShapesIssueLabelsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/shapes/issue-events': {
-      id: '/api/shapes/issue-events'
-      path: '/api/shapes/issue-events'
-      fullPath: '/api/shapes/issue-events'
-      preLoaderRoute: typeof ApiShapesIssueEventsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/shapes/comments': {
-      id: '/api/shapes/comments'
-      path: '/api/shapes/comments'
-      fullPath: '/api/shapes/comments'
-      preLoaderRoute: typeof ApiShapesCommentsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/shapes/coding-sessions': {
-      id: '/api/shapes/coding-sessions'
-      path: '/api/shapes/coding-sessions'
-      fullPath: '/api/shapes/coding-sessions'
-      preLoaderRoute: typeof ApiShapesCodingSessionsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/shapes/boards': {
-      id: '/api/shapes/boards'
-      path: '/api/shapes/boards'
-      fullPath: '/api/shapes/boards'
-      preLoaderRoute: typeof ApiShapesBoardsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/shapes/attachments': {
-      id: '/api/shapes/attachments'
-      path: '/api/shapes/attachments'
-      fullPath: '/api/shapes/attachments'
-      preLoaderRoute: typeof ApiShapesAttachmentsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/shapes/actions': {
-      id: '/api/shapes/actions'
-      path: '/api/shapes/actions'
-      fullPath: '/api/shapes/actions'
-      preLoaderRoute: typeof ApiShapesActionsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/email/unsubscribe': {
-      id: '/api/email/unsubscribe'
-      path: '/api/email/unsubscribe'
-      fullPath: '/api/email/unsubscribe'
-      preLoaderRoute: typeof ApiEmailUnsubscribeRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/auth/$': {
-      id: '/api/auth/$'
-      path: '/api/auth/$'
-      fullPath: '/api/auth/$'
-      preLoaderRoute: typeof ApiAuthSplatRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/attachments/$attachmentId': {
-      id: '/api/attachments/$attachmentId'
-      path: '/api/attachments/$attachmentId'
-      fullPath: '/api/attachments/$attachmentId'
-      preLoaderRoute: typeof ApiAttachmentsAttachmentIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_authenticated/admin/users': {
-      id: '/_authenticated/admin/users'
-      path: '/users'
-      fullPath: '/admin/users'
-      preLoaderRoute: typeof AuthenticatedAdminUsersRouteImport
-      parentRoute: typeof AuthenticatedAdminRouteRoute
-    }
-    '/_authenticated/admin/teams': {
-      id: '/_authenticated/admin/teams'
-      path: '/teams'
-      fullPath: '/admin/teams'
-      preLoaderRoute: typeof AuthenticatedAdminTeamsRouteImport
-      parentRoute: typeof AuthenticatedAdminRouteRoute
-    }
-    '/_authenticated/admin/email': {
-      id: '/_authenticated/admin/email'
-      path: '/email'
-      fullPath: '/admin/email'
-      preLoaderRoute: typeof AuthenticatedAdminEmailRouteImport
       parentRoute: typeof AuthenticatedAdminRouteRoute
     }
     '/_authenticated/admin/conversions': {
@@ -1603,12 +1420,236 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminConversionsRouteImport
       parentRoute: typeof AuthenticatedAdminRouteRoute
     }
-    '/_authenticated/account/notifications': {
-      id: '/_authenticated/account/notifications'
-      path: '/account/notifications'
-      fullPath: '/account/notifications'
-      preLoaderRoute: typeof AuthenticatedAccountNotificationsRouteImport
-      parentRoute: typeof AuthenticatedRoute
+    '/_authenticated/admin/email': {
+      id: '/_authenticated/admin/email'
+      path: '/email'
+      fullPath: '/admin/email'
+      preLoaderRoute: typeof AuthenticatedAdminEmailRouteImport
+      parentRoute: typeof AuthenticatedAdminRouteRoute
+    }
+    '/_authenticated/admin/teams': {
+      id: '/_authenticated/admin/teams'
+      path: '/teams'
+      fullPath: '/admin/teams'
+      preLoaderRoute: typeof AuthenticatedAdminTeamsRouteImport
+      parentRoute: typeof AuthenticatedAdminRouteRoute
+    }
+    '/_authenticated/admin/users': {
+      id: '/_authenticated/admin/users'
+      path: '/users'
+      fullPath: '/admin/users'
+      preLoaderRoute: typeof AuthenticatedAdminUsersRouteImport
+      parentRoute: typeof AuthenticatedAdminRouteRoute
+    }
+    '/api/attachments/$attachmentId': {
+      id: '/api/attachments/$attachmentId'
+      path: '/api/attachments/$attachmentId'
+      fullPath: '/api/attachments/$attachmentId'
+      preLoaderRoute: typeof ApiAttachmentsAttachmentIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/$': {
+      id: '/api/auth/$'
+      path: '/api/auth/$'
+      fullPath: '/api/auth/$'
+      preLoaderRoute: typeof ApiAuthSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/email/unsubscribe': {
+      id: '/api/email/unsubscribe'
+      path: '/api/email/unsubscribe'
+      fullPath: '/api/email/unsubscribe'
+      preLoaderRoute: typeof ApiEmailUnsubscribeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/actions': {
+      id: '/api/shapes/actions'
+      path: '/api/shapes/actions'
+      fullPath: '/api/shapes/actions'
+      preLoaderRoute: typeof ApiShapesActionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/attachments': {
+      id: '/api/shapes/attachments'
+      path: '/api/shapes/attachments'
+      fullPath: '/api/shapes/attachments'
+      preLoaderRoute: typeof ApiShapesAttachmentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/boards': {
+      id: '/api/shapes/boards'
+      path: '/api/shapes/boards'
+      fullPath: '/api/shapes/boards'
+      preLoaderRoute: typeof ApiShapesBoardsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/coding-sessions': {
+      id: '/api/shapes/coding-sessions'
+      path: '/api/shapes/coding-sessions'
+      fullPath: '/api/shapes/coding-sessions'
+      preLoaderRoute: typeof ApiShapesCodingSessionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/comments': {
+      id: '/api/shapes/comments'
+      path: '/api/shapes/comments'
+      fullPath: '/api/shapes/comments'
+      preLoaderRoute: typeof ApiShapesCommentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/device-worktrees': {
+      id: '/api/shapes/device-worktrees'
+      path: '/api/shapes/device-worktrees'
+      fullPath: '/api/shapes/device-worktrees'
+      preLoaderRoute: typeof ApiShapesDeviceWorktreesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/devices': {
+      id: '/api/shapes/devices'
+      path: '/api/shapes/devices'
+      fullPath: '/api/shapes/devices'
+      preLoaderRoute: typeof ApiShapesDevicesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/issue-events': {
+      id: '/api/shapes/issue-events'
+      path: '/api/shapes/issue-events'
+      fullPath: '/api/shapes/issue-events'
+      preLoaderRoute: typeof ApiShapesIssueEventsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/issue-labels': {
+      id: '/api/shapes/issue-labels'
+      path: '/api/shapes/issue-labels'
+      fullPath: '/api/shapes/issue-labels'
+      preLoaderRoute: typeof ApiShapesIssueLabelsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/issue-statuses': {
+      id: '/api/shapes/issue-statuses'
+      path: '/api/shapes/issue-statuses'
+      fullPath: '/api/shapes/issue-statuses'
+      preLoaderRoute: typeof ApiShapesIssueStatusesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/issue-subscribers': {
+      id: '/api/shapes/issue-subscribers'
+      path: '/api/shapes/issue-subscribers'
+      fullPath: '/api/shapes/issue-subscribers'
+      preLoaderRoute: typeof ApiShapesIssueSubscribersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/issues': {
+      id: '/api/shapes/issues'
+      path: '/api/shapes/issues'
+      fullPath: '/api/shapes/issues'
+      preLoaderRoute: typeof ApiShapesIssuesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/labels': {
+      id: '/api/shapes/labels'
+      path: '/api/shapes/labels'
+      fullPath: '/api/shapes/labels'
+      preLoaderRoute: typeof ApiShapesLabelsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/notifications': {
+      id: '/api/shapes/notifications'
+      path: '/api/shapes/notifications'
+      fullPath: '/api/shapes/notifications'
+      preLoaderRoute: typeof ApiShapesNotificationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/team-invites': {
+      id: '/api/shapes/team-invites'
+      path: '/api/shapes/team-invites'
+      fullPath: '/api/shapes/team-invites'
+      preLoaderRoute: typeof ApiShapesTeamInvitesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/team-members': {
+      id: '/api/shapes/team-members'
+      path: '/api/shapes/team-members'
+      fullPath: '/api/shapes/team-members'
+      preLoaderRoute: typeof ApiShapesTeamMembersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/teams': {
+      id: '/api/shapes/teams'
+      path: '/api/shapes/teams'
+      fullPath: '/api/shapes/teams'
+      preLoaderRoute: typeof ApiShapesTeamsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/users': {
+      id: '/api/shapes/users'
+      path: '/api/shapes/users'
+      fullPath: '/api/shapes/users'
+      preLoaderRoute: typeof ApiShapesUsersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/support/poll': {
+      id: '/api/support/poll'
+      path: '/api/support/poll'
+      fullPath: '/api/support/poll'
+      preLoaderRoute: typeof ApiSupportPollRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/support/reply': {
+      id: '/api/support/reply'
+      path: '/api/support/reply'
+      fullPath: '/api/support/reply'
+      preLoaderRoute: typeof ApiSupportReplyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/support/thread': {
+      id: '/api/support/thread'
+      path: '/api/support/thread'
+      fullPath: '/api/support/thread'
+      preLoaderRoute: typeof ApiSupportThreadRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/trpc/$': {
+      id: '/api/trpc/$'
+      path: '/api/trpc/$'
+      fullPath: '/api/trpc/$'
+      preLoaderRoute: typeof ApiTrpcSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/webhooks/github': {
+      id: '/api/webhooks/github'
+      path: '/api/webhooks/github'
+      fullPath: '/api/webhooks/github'
+      preLoaderRoute: typeof ApiWebhooksGithubRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/webhooks/ses': {
+      id: '/api/webhooks/ses'
+      path: '/api/webhooks/ses'
+      fullPath: '/api/webhooks/ses'
+      preLoaderRoute: typeof ApiWebhooksSesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/widget/config': {
+      id: '/api/widget/config'
+      path: '/api/widget/config'
+      fullPath: '/api/widget/config'
+      preLoaderRoute: typeof ApiWidgetConfigRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/widget/submit': {
+      id: '/api/widget/submit'
+      path: '/api/widget/submit'
+      fullPath: '/api/widget/submit'
+      preLoaderRoute: typeof ApiWidgetSubmitRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/t/$teamSlug/': {
+      id: '/t/$teamSlug/'
+      path: '/'
+      fullPath: '/t/$teamSlug/'
+      preLoaderRoute: typeof TTeamSlugIndexRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
     }
     '/t/$teamSlug/settings': {
       id: '/t/$teamSlug/settings'
@@ -1617,144 +1658,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TTeamSlugSettingsRouteRouteImport
       parentRoute: typeof TTeamSlugRouteRoute
     }
-    '/t/$teamSlug/support/': {
-      id: '/t/$teamSlug/support/'
-      path: '/support'
-      fullPath: '/t/$teamSlug/support/'
-      preLoaderRoute: typeof TTeamSlugSupportIndexRouteImport
-      parentRoute: typeof TTeamSlugRouteRoute
+    '/_authenticated/admin/teams_/$teamId': {
+      id: '/_authenticated/admin/teams_/$teamId'
+      path: '/teams/$teamId'
+      fullPath: '/admin/teams/$teamId'
+      preLoaderRoute: typeof AuthenticatedAdminTeamsTeamIdRouteImport
+      parentRoute: typeof AuthenticatedAdminRouteRoute
     }
-    '/t/$teamSlug/settings/': {
-      id: '/t/$teamSlug/settings/'
-      path: '/'
-      fullPath: '/t/$teamSlug/settings/'
-      preLoaderRoute: typeof TTeamSlugSettingsIndexRouteImport
-      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    '/_authenticated/admin/users_/$userId': {
+      id: '/_authenticated/admin/users_/$userId'
+      path: '/users/$userId'
+      fullPath: '/admin/users/$userId'
+      preLoaderRoute: typeof AuthenticatedAdminUsersUserIdRouteImport
+      parentRoute: typeof AuthenticatedAdminRouteRoute
     }
-    '/t/$teamSlug/reviews/': {
-      id: '/t/$teamSlug/reviews/'
-      path: '/reviews'
-      fullPath: '/t/$teamSlug/reviews/'
-      preLoaderRoute: typeof TTeamSlugReviewsIndexRouteImport
-      parentRoute: typeof TTeamSlugRouteRoute
+    '/_authenticated/integrations/github/claim': {
+      id: '/_authenticated/integrations/github/claim'
+      path: '/integrations/github/claim'
+      fullPath: '/integrations/github/claim'
+      preLoaderRoute: typeof AuthenticatedIntegrationsGithubClaimRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/t/$teamSlug/inbox/': {
-      id: '/t/$teamSlug/inbox/'
-      path: '/inbox'
-      fullPath: '/t/$teamSlug/inbox/'
-      preLoaderRoute: typeof TTeamSlugInboxIndexRouteImport
-      parentRoute: typeof TTeamSlugRouteRoute
+    '/_authenticated/integrations/github/installed': {
+      id: '/_authenticated/integrations/github/installed'
+      path: '/integrations/github/installed'
+      fullPath: '/integrations/github/installed'
+      preLoaderRoute: typeof AuthenticatedIntegrationsGithubInstalledRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/t/$teamSlug/agents/': {
-      id: '/t/$teamSlug/agents/'
-      path: '/agents'
-      fullPath: '/t/$teamSlug/agents/'
-      preLoaderRoute: typeof TTeamSlugAgentsIndexRouteImport
-      parentRoute: typeof TTeamSlugRouteRoute
-    }
-    '/t/$teamSlug/settings/widget': {
-      id: '/t/$teamSlug/settings/widget'
-      path: '/widget'
-      fullPath: '/t/$teamSlug/settings/widget'
-      preLoaderRoute: typeof TTeamSlugSettingsWidgetRouteImport
-      parentRoute: typeof TTeamSlugSettingsRouteRoute
-    }
-    '/t/$teamSlug/settings/storage': {
-      id: '/t/$teamSlug/settings/storage'
-      path: '/storage'
-      fullPath: '/t/$teamSlug/settings/storage'
-      preLoaderRoute: typeof TTeamSlugSettingsStorageRouteImport
-      parentRoute: typeof TTeamSlugSettingsRouteRoute
-    }
-    '/t/$teamSlug/settings/statuses': {
-      id: '/t/$teamSlug/settings/statuses'
-      path: '/statuses'
-      fullPath: '/t/$teamSlug/settings/statuses'
-      preLoaderRoute: typeof TTeamSlugSettingsStatusesRouteImport
-      parentRoute: typeof TTeamSlugSettingsRouteRoute
-    }
-    '/t/$teamSlug/settings/repositories': {
-      id: '/t/$teamSlug/settings/repositories'
-      path: '/repositories'
-      fullPath: '/t/$teamSlug/settings/repositories'
-      preLoaderRoute: typeof TTeamSlugSettingsRepositoriesRouteImport
-      parentRoute: typeof TTeamSlugSettingsRouteRoute
-    }
-    '/t/$teamSlug/settings/notifications': {
-      id: '/t/$teamSlug/settings/notifications'
-      path: '/notifications'
-      fullPath: '/t/$teamSlug/settings/notifications'
-      preLoaderRoute: typeof TTeamSlugSettingsNotificationsRouteImport
-      parentRoute: typeof TTeamSlugSettingsRouteRoute
-    }
-    '/t/$teamSlug/settings/members': {
-      id: '/t/$teamSlug/settings/members'
-      path: '/members'
-      fullPath: '/t/$teamSlug/settings/members'
-      preLoaderRoute: typeof TTeamSlugSettingsMembersRouteImport
-      parentRoute: typeof TTeamSlugSettingsRouteRoute
-    }
-    '/t/$teamSlug/settings/labels': {
-      id: '/t/$teamSlug/settings/labels'
-      path: '/labels'
-      fullPath: '/t/$teamSlug/settings/labels'
-      preLoaderRoute: typeof TTeamSlugSettingsLabelsRouteImport
-      parentRoute: typeof TTeamSlugSettingsRouteRoute
-    }
-    '/t/$teamSlug/settings/general': {
-      id: '/t/$teamSlug/settings/general'
-      path: '/general'
-      fullPath: '/t/$teamSlug/settings/general'
-      preLoaderRoute: typeof TTeamSlugSettingsGeneralRouteImport
-      parentRoute: typeof TTeamSlugSettingsRouteRoute
-    }
-    '/t/$teamSlug/settings/boards': {
-      id: '/t/$teamSlug/settings/boards'
-      path: '/boards'
-      fullPath: '/t/$teamSlug/settings/boards'
-      preLoaderRoute: typeof TTeamSlugSettingsBoardsRouteImport
-      parentRoute: typeof TTeamSlugSettingsRouteRoute
-    }
-    '/t/$teamSlug/settings/billing': {
-      id: '/t/$teamSlug/settings/billing'
-      path: '/billing'
-      fullPath: '/t/$teamSlug/settings/billing'
-      preLoaderRoute: typeof TTeamSlugSettingsBillingRouteImport
-      parentRoute: typeof TTeamSlugSettingsRouteRoute
-    }
-    '/t/$teamSlug/settings/api-keys': {
-      id: '/t/$teamSlug/settings/api-keys'
-      path: '/api-keys'
-      fullPath: '/t/$teamSlug/settings/api-keys'
-      preLoaderRoute: typeof TTeamSlugSettingsApiKeysRouteImport
-      parentRoute: typeof TTeamSlugSettingsRouteRoute
-    }
-    '/t/$teamSlug/settings/account': {
-      id: '/t/$teamSlug/settings/account'
-      path: '/account'
-      fullPath: '/t/$teamSlug/settings/account'
-      preLoaderRoute: typeof TTeamSlugSettingsAccountRouteImport
-      parentRoute: typeof TTeamSlugSettingsRouteRoute
-    }
-    '/t/$teamSlug/reviews/$issueIdentifier': {
-      id: '/t/$teamSlug/reviews/$issueIdentifier'
-      path: '/reviews/$issueIdentifier'
-      fullPath: '/t/$teamSlug/reviews/$issueIdentifier'
-      preLoaderRoute: typeof TTeamSlugReviewsIssueIdentifierRouteImport
-      parentRoute: typeof TTeamSlugRouteRoute
-    }
-    '/api/issues/$issueId/images': {
-      id: '/api/issues/$issueId/images'
-      path: '/api/issues/$issueId/images'
-      fullPath: '/api/issues/$issueId/images'
-      preLoaderRoute: typeof ApiIssuesIssueIdImagesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/issues/$issueId/files': {
-      id: '/api/issues/$issueId/files'
-      path: '/api/issues/$issueId/files'
-      fullPath: '/api/issues/$issueId/files'
-      preLoaderRoute: typeof ApiIssuesIssueIdFilesRouteImport
+    '/api/integrations/github/callback': {
+      id: '/api/integrations/github/callback'
+      path: '/api/integrations/github/callback'
+      fullPath: '/api/integrations/github/callback'
+      preLoaderRoute: typeof ApiIntegrationsGithubCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/integrations/github/setup': {
@@ -1764,40 +1700,145 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiIntegrationsGithubSetupRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/integrations/github/callback': {
-      id: '/api/integrations/github/callback'
-      path: '/api/integrations/github/callback'
-      fullPath: '/api/integrations/github/callback'
-      preLoaderRoute: typeof ApiIntegrationsGithubCallbackRouteImport
+    '/api/issues/$issueId/files': {
+      id: '/api/issues/$issueId/files'
+      path: '/api/issues/$issueId/files'
+      fullPath: '/api/issues/$issueId/files'
+      preLoaderRoute: typeof ApiIssuesIssueIdFilesRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_authenticated/integrations/github/installed': {
-      id: '/_authenticated/integrations/github/installed'
-      path: '/integrations/github/installed'
-      fullPath: '/integrations/github/installed'
-      preLoaderRoute: typeof AuthenticatedIntegrationsGithubInstalledRouteImport
-      parentRoute: typeof AuthenticatedRoute
+    '/api/issues/$issueId/images': {
+      id: '/api/issues/$issueId/images'
+      path: '/api/issues/$issueId/images'
+      fullPath: '/api/issues/$issueId/images'
+      preLoaderRoute: typeof ApiIssuesIssueIdImagesRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/_authenticated/integrations/github/claim': {
-      id: '/_authenticated/integrations/github/claim'
-      path: '/integrations/github/claim'
-      fullPath: '/integrations/github/claim'
-      preLoaderRoute: typeof AuthenticatedIntegrationsGithubClaimRouteImport
-      parentRoute: typeof AuthenticatedRoute
+    '/t/$teamSlug/agents/': {
+      id: '/t/$teamSlug/agents/'
+      path: '/agents'
+      fullPath: '/t/$teamSlug/agents/'
+      preLoaderRoute: typeof TTeamSlugAgentsIndexRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
     }
-    '/_authenticated/admin/users_/$userId': {
-      id: '/_authenticated/admin/users_/$userId'
-      path: '/users/$userId'
-      fullPath: '/admin/users/$userId'
-      preLoaderRoute: typeof AuthenticatedAdminUsersUserIdRouteImport
-      parentRoute: typeof AuthenticatedAdminRouteRoute
+    '/t/$teamSlug/inbox/': {
+      id: '/t/$teamSlug/inbox/'
+      path: '/inbox'
+      fullPath: '/t/$teamSlug/inbox/'
+      preLoaderRoute: typeof TTeamSlugInboxIndexRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
     }
-    '/_authenticated/admin/teams_/$teamId': {
-      id: '/_authenticated/admin/teams_/$teamId'
-      path: '/teams/$teamId'
-      fullPath: '/admin/teams/$teamId'
-      preLoaderRoute: typeof AuthenticatedAdminTeamsTeamIdRouteImport
-      parentRoute: typeof AuthenticatedAdminRouteRoute
+    '/t/$teamSlug/reviews/': {
+      id: '/t/$teamSlug/reviews/'
+      path: '/reviews'
+      fullPath: '/t/$teamSlug/reviews/'
+      preLoaderRoute: typeof TTeamSlugReviewsIndexRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
+    }
+    '/t/$teamSlug/reviews/$issueIdentifier': {
+      id: '/t/$teamSlug/reviews/$issueIdentifier'
+      path: '/reviews/$issueIdentifier'
+      fullPath: '/t/$teamSlug/reviews/$issueIdentifier'
+      preLoaderRoute: typeof TTeamSlugReviewsIssueIdentifierRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
+    }
+    '/t/$teamSlug/settings/': {
+      id: '/t/$teamSlug/settings/'
+      path: '/'
+      fullPath: '/t/$teamSlug/settings/'
+      preLoaderRoute: typeof TTeamSlugSettingsIndexRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    }
+    '/t/$teamSlug/settings/account': {
+      id: '/t/$teamSlug/settings/account'
+      path: '/account'
+      fullPath: '/t/$teamSlug/settings/account'
+      preLoaderRoute: typeof TTeamSlugSettingsAccountRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    }
+    '/t/$teamSlug/settings/api-keys': {
+      id: '/t/$teamSlug/settings/api-keys'
+      path: '/api-keys'
+      fullPath: '/t/$teamSlug/settings/api-keys'
+      preLoaderRoute: typeof TTeamSlugSettingsApiKeysRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    }
+    '/t/$teamSlug/settings/billing': {
+      id: '/t/$teamSlug/settings/billing'
+      path: '/billing'
+      fullPath: '/t/$teamSlug/settings/billing'
+      preLoaderRoute: typeof TTeamSlugSettingsBillingRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    }
+    '/t/$teamSlug/settings/boards': {
+      id: '/t/$teamSlug/settings/boards'
+      path: '/boards'
+      fullPath: '/t/$teamSlug/settings/boards'
+      preLoaderRoute: typeof TTeamSlugSettingsBoardsRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    }
+    '/t/$teamSlug/settings/general': {
+      id: '/t/$teamSlug/settings/general'
+      path: '/general'
+      fullPath: '/t/$teamSlug/settings/general'
+      preLoaderRoute: typeof TTeamSlugSettingsGeneralRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    }
+    '/t/$teamSlug/settings/labels': {
+      id: '/t/$teamSlug/settings/labels'
+      path: '/labels'
+      fullPath: '/t/$teamSlug/settings/labels'
+      preLoaderRoute: typeof TTeamSlugSettingsLabelsRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    }
+    '/t/$teamSlug/settings/members': {
+      id: '/t/$teamSlug/settings/members'
+      path: '/members'
+      fullPath: '/t/$teamSlug/settings/members'
+      preLoaderRoute: typeof TTeamSlugSettingsMembersRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    }
+    '/t/$teamSlug/settings/notifications': {
+      id: '/t/$teamSlug/settings/notifications'
+      path: '/notifications'
+      fullPath: '/t/$teamSlug/settings/notifications'
+      preLoaderRoute: typeof TTeamSlugSettingsNotificationsRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    }
+    '/t/$teamSlug/settings/repositories': {
+      id: '/t/$teamSlug/settings/repositories'
+      path: '/repositories'
+      fullPath: '/t/$teamSlug/settings/repositories'
+      preLoaderRoute: typeof TTeamSlugSettingsRepositoriesRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    }
+    '/t/$teamSlug/settings/statuses': {
+      id: '/t/$teamSlug/settings/statuses'
+      path: '/statuses'
+      fullPath: '/t/$teamSlug/settings/statuses'
+      preLoaderRoute: typeof TTeamSlugSettingsStatusesRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    }
+    '/t/$teamSlug/settings/storage': {
+      id: '/t/$teamSlug/settings/storage'
+      path: '/storage'
+      fullPath: '/t/$teamSlug/settings/storage'
+      preLoaderRoute: typeof TTeamSlugSettingsStorageRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    }
+    '/t/$teamSlug/settings/widget': {
+      id: '/t/$teamSlug/settings/widget'
+      path: '/widget'
+      fullPath: '/t/$teamSlug/settings/widget'
+      preLoaderRoute: typeof TTeamSlugSettingsWidgetRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    }
+    '/t/$teamSlug/support/': {
+      id: '/t/$teamSlug/support/'
+      path: '/support'
+      fullPath: '/t/$teamSlug/support/'
+      preLoaderRoute: typeof TTeamSlugSupportIndexRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
     }
     '/t/$teamSlug/boards/$boardSlug/': {
       id: '/t/$teamSlug/boards/$boardSlug/'
@@ -1970,6 +2011,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesBoardsRoute: ApiShapesBoardsRoute,
   ApiShapesCodingSessionsRoute: ApiShapesCodingSessionsRoute,
   ApiShapesCommentsRoute: ApiShapesCommentsRoute,
+  ApiShapesDeviceWorktreesRoute: ApiShapesDeviceWorktreesRoute,
+  ApiShapesDevicesRoute: ApiShapesDevicesRoute,
   ApiShapesIssueEventsRoute: ApiShapesIssueEventsRoute,
   ApiShapesIssueLabelsRoute: ApiShapesIssueLabelsRoute,
   ApiShapesIssueStatusesRoute: ApiShapesIssueStatusesRoute,

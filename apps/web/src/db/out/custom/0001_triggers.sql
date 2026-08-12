@@ -57,6 +57,15 @@ CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON github_installation
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON github_installation_repo_grants FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON mcp_grants FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON issue_number_counters FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+-- device_worktrees guards like the board_deleted_at mirrors: the share
+-- fan-out (propagate_device_shared_team, #13) only flips shared_team_id, and
+-- bumping updated_at there would stamp every worktree as freshly reported on
+-- share/unshare. `devices` itself deliberately has NO trigger — the devices
+-- router stamps updatedAt explicitly (heartbeat writes both timestamps).
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON device_worktrees FOR EACH ROW
+  WHEN (NEW.shared_team_id IS NOT DISTINCT FROM OLD.shared_team_id)
+  EXECUTE FUNCTION update_updated_at();
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON device_commands FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 -- creem_subscriptions is written from BOTH sides (REV2-70): the app's own seat/
 -- plan/team-binding updates and the Better Auth Creem plugin's webhook
 -- persistence. The plugin's model declares no updatedAt field, so better-auth's
@@ -412,3 +421,59 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE TRIGGER populate_issue_status_id
   BEFORE INSERT OR UPDATE ON issues
   FOR EACH ROW EXECUTE FUNCTION populate_issue_status_id();
+
+-- 12. (EXP-481) Mirror owner + share onto device_worktrees so the shape's
+--     where clause stays single-table and its identity only rotates on
+--     team-membership changes (REV2-5 stance — no device-id lists in where
+--     clauses). The CASE guard is belt-and-braces: setShared is
+--     router-enforced server-kind-only, but a non-server share must never
+--     scope a shape.
+CREATE OR REPLACE FUNCTION populate_device_worktree_owner()
+RETURNS TRIGGER AS $$
+BEGIN
+  SELECT d.user_id,
+         CASE WHEN d.kind = 'server' THEN d.shared_team_id END
+    INTO NEW.user_id, NEW.shared_team_id
+  FROM devices d WHERE d.id = NEW.device_row_id;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER populate_device_worktree_owner
+  BEFORE INSERT ON device_worktrees
+  FOR EACH ROW EXECUTE FUNCTION populate_device_worktree_owner();
+
+-- 13. (EXP-481) Fan a devices.shared_team_id change out to the worktree
+--     mirrors (the board-trash fan-out pattern): share/unshare becomes
+--     incremental move-in/move-out shape deltas, never a where-clause
+--     rewrite. Also fires when the kind flips (a device re-registering as
+--     desktop must not keep team-scoped mirrors).
+CREATE OR REPLACE FUNCTION propagate_device_shared_team()
+RETURNS TRIGGER AS $$
+BEGIN
+  UPDATE device_worktrees
+    SET shared_team_id = (CASE WHEN NEW.kind = 'server' THEN NEW.shared_team_id END)
+    WHERE device_row_id = NEW.id
+      AND shared_team_id IS DISTINCT FROM
+          (CASE WHEN NEW.kind = 'server' THEN NEW.shared_team_id END);
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER propagate_device_shared_team
+  AFTER UPDATE ON devices
+  FOR EACH ROW
+  WHEN (OLD.shared_team_id IS DISTINCT FROM NEW.shared_team_id
+     OR OLD.kind IS DISTINCT FROM NEW.kind)
+  EXECUTE FUNCTION propagate_device_shared_team();
+
+-- Heal pass (idempotent, every boot): worktree mirrors for rows written in
+-- the migrate→boot gap or under a pre-trigger binary.
+UPDATE device_worktrees w
+  SET user_id = d.user_id,
+      shared_team_id = CASE WHEN d.kind = 'server' THEN d.shared_team_id END
+  FROM devices d
+  WHERE d.id = w.device_row_id
+    AND (w.user_id IS DISTINCT FROM d.user_id
+      OR w.shared_team_id IS DISTINCT FROM
+         CASE WHEN d.kind = 'server' THEN d.shared_team_id END);

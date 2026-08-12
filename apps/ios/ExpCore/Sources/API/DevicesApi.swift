@@ -29,6 +29,112 @@ private struct RenameDeviceInput: Encodable {
     let label: String
 }
 
+/// EXP-481: `devices.setShared` — the server input is `teamId: string | null`
+/// where the key must ALWAYS be present (null clears the share). Synthesized
+/// Encodable drops nil via encodeIfPresent, so this encodes by hand.
+private struct SetSharedInput: Encodable {
+    let deviceId: String
+    let teamId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case deviceId, teamId
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(deviceId, forKey: .deviceId)
+        // Explicit null, never an absent key.
+        try c.encode(teamId, forKey: .teamId)
+    }
+}
+
+/// EXP-481: one agent's launch defaults in `devices.setLaunchDefaults` wire
+/// form. Only set fields ride (synthesized encodeIfPresent) — the server
+/// clamps vocabulary field-wise either way.
+public struct AgentLaunchDefaultsInput: Encodable, Sendable {
+    public let model: String?
+    public let effort: String?
+    public let ultracode: Bool?
+    public let planMode: Bool?
+    public let skipPermissions: Bool?
+
+    public init(
+        model: String? = nil,
+        effort: String? = nil,
+        ultracode: Bool? = nil,
+        planMode: Bool? = nil,
+        skipPermissions: Bool? = nil
+    ) {
+        self.model = model
+        self.effort = effort
+        self.ultracode = ultracode
+        self.planMode = planMode
+        self.skipPermissions = skipPermissions
+    }
+}
+
+/// EXP-481: the whole-object `launchDefaults` payload — the device settings
+/// sheet sends the full edited struct (UI edits omit `expectedUpdatedAt`
+/// server-side: unconditional last-write-wins between humans).
+public struct DeviceLaunchDefaultsInput: Encodable, Sendable {
+    public let defaultAgent: String?
+    public let agents: [String: AgentLaunchDefaultsInput]?
+
+    public init(defaultAgent: String? = nil, agents: [String: AgentLaunchDefaultsInput]? = nil) {
+        self.defaultAgent = defaultAgent
+        self.agents = agents
+    }
+}
+
+private struct SetLaunchDefaultsInput: Encodable {
+    let deviceId: String
+    let launchDefaults: DeviceLaunchDefaultsInput
+}
+
+private struct CreateCommandInput: Encodable {
+    let deviceId: String
+    /// `worktree_remove` (repoFullName + branch required) | `worktree_prune`.
+    let kind: String
+    let repoFullName: String?
+    let branch: String?
+}
+
+/// EXP-481: `devices.createCommand`'s result — the id the issuing UI polls.
+public struct CreatedDeviceCommand: Decodable, Sendable {
+    public let id: String
+
+    public init(id: String) {
+        self.id = id
+    }
+}
+
+private struct GetCommandInput: Encodable {
+    let commandId: String
+}
+
+/// EXP-481: one queued owner→device command (`devices.getCommand`). The
+/// issuing sheet polls `status` (`pending` → `done` | `failed`) and renders
+/// `result` — the device-reported message — on failure (and as the prune
+/// summary on success).
+public struct DeviceCommand: Decodable, Sendable {
+    public let id: String
+    public let kind: String
+    public let status: String
+    public let result: String?
+    public let completedAt: String?
+
+    public init(id: String, kind: String, status: String, result: String?, completedAt: String?) {
+        self.id = id
+        self.kind = kind
+        self.status = status
+        self.result = result
+        self.completedAt = completedAt
+    }
+
+    public var isPending: Bool { status == "pending" }
+    public var isFailed: Bool { status == "failed" }
+}
+
 public final class DevicesApi: Sendable {
     private let trpc: TrpcClient
 
@@ -105,6 +211,63 @@ public final class DevicesApi: Sendable {
             accountId: accountId,
             path: "devices.requestUpdate",
             input: DeviceIdInput(deviceId: deviceId)
+        )
+    }
+
+    /// EXP-481: share / unshare one of the caller's SERVER machines with a
+    /// team (nil clears — encoded as an explicit JSON null, the key is
+    /// required). Sharing is the consent that lets teammates remote-start on
+    /// the box; moving/clearing it ends their hosted runs server-side.
+    public func setShared(accountId: String, deviceId: String, teamId: String?) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "devices.setShared",
+            input: SetSharedInput(deviceId: deviceId, teamId: teamId)
+        )
+    }
+
+    /// EXP-481: edit a machine's SERVER-AUTHORITATIVE launch defaults —
+    /// applies immediately server-side (an offline machine converges on its
+    /// next heartbeat, so this needs no online gate).
+    public func setLaunchDefaults(
+        accountId: String,
+        deviceId: String,
+        launchDefaults: DeviceLaunchDefaultsInput
+    ) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "devices.setLaunchDefaults",
+            input: SetLaunchDefaultsInput(deviceId: deviceId, launchDefaults: launchDefaults)
+        )
+    }
+
+    /// EXP-481: queue a worktree command for the device (owner-only). Runs on
+    /// its next heartbeat — immediately when online (relay nudge), on return
+    /// when offline. `worktree_remove` needs repoFullName + branch.
+    public func createCommand(
+        accountId: String,
+        deviceId: String,
+        kind: String,
+        repoFullName: String? = nil,
+        branch: String? = nil
+    ) async throws -> CreatedDeviceCommand {
+        try await trpc.mutation(
+            accountId: accountId,
+            path: "devices.createCommand",
+            input: CreateCommandInput(
+                deviceId: deviceId, kind: kind, repoFullName: repoFullName, branch: branch
+            )
+        )
+    }
+
+    /// EXP-481: the issuing UI's poll target while a command is in flight
+    /// (the material outcome also lands via the device_worktrees shape when
+    /// the device re-reports).
+    public func getCommand(accountId: String, commandId: String) async throws -> DeviceCommand {
+        try await trpc.query(
+            accountId: accountId,
+            path: "devices.getCommand",
+            input: GetCommandInput(commandId: commandId)
         )
     }
 }

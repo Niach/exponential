@@ -125,6 +125,58 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertEqual(teamId, "ws1")
     }
 
+    // EXP-481: a devices partial touching the jsonb launch_defaults column
+    // (delivered as a raw JSON string on the partial wire) plus an unknown
+    // future column must apply the known subset and advance — the shapes 17/18
+    // decoders ride the same tolerant path as everything else.
+    func testDevicePartialAppliesJsonbAndDropsUnknown() async throws {
+        try await pool.write { db in
+            try DeviceEntity(
+                id: "row-1", userId: "u1", deviceId: "dev-1", label: "box",
+                kind: "server", lastSeenAt: "2026-08-11T10:00:00Z"
+            ).save(db)
+        }
+        let message = ShapeMessage<DeviceEntity>.partialUpdate(
+            key: #""public"."devices"/"row-1""#,
+            columns: columns([
+                "id": "row-1",
+                "launch_defaults": #"{"defaultAgent":"codex"}"#,
+                "last_seen_at": "2026-08-11T10:05:00Z",
+                "some_future_column": "x",
+            ])
+        )
+        try await applyBatch(messages: [message], name: "devices", table: "devices", pool: pool)
+        let row = try await pool.read { db in
+            try DeviceEntity.fetchOne(db, key: "row-1")
+        }
+        XCTAssertEqual(row?.lastSeenAt, "2026-08-11T10:05:00Z")
+        XCTAssertEqual(row?.launchDefaults, #"{"defaultAgent":"codex"}"#)
+        XCTAssertEqual(row?.label, "box")
+    }
+
+    // EXP-481: the worktree `busy` BOOLEAN column takes the wire-bool mapping
+    // on partials ("t" → real bool), like coding_sessions.needs_input.
+    func testWorktreePartialCoercesBusyBool() async throws {
+        try await pool.write { db in
+            try DeviceWorktreeEntity(
+                id: "wt-1", deviceRowId: "row-1", repoFullName: "acme/api",
+                branch: "exp/EXP-1", busy: false
+            ).save(db)
+        }
+        let message = ShapeMessage<DeviceWorktreeEntity>.partialUpdate(
+            key: #""public"."device_worktrees"/"wt-1""#,
+            columns: columns(["id": "wt-1", "busy": "t", "dirty": "tracked"])
+        )
+        try await applyBatch(
+            messages: [message], name: "device-worktrees", table: "device_worktrees", pool: pool
+        )
+        let row = try await pool.read { db in
+            try DeviceWorktreeEntity.fetchOne(db, key: "wt-1")
+        }
+        XCTAssertEqual(row?.busy, true)
+        XCTAssertEqual(row?.dirty, "tracked")
+    }
+
     func testBoardInsertPersistsRepositoryAndIcon() async throws {
         // The boards shape carries the repo ride-along + the curated icon; an
         // inserted row must persist both (EXP-364 removed `is_protected` —

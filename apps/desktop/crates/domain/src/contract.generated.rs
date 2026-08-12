@@ -32,6 +32,7 @@ pub const ACTION_INPUT_TYPE_VALUES: &[&str] = &["text", "repo", "board", "pr", "
 
 pub const ISSUE_STATUS_STARTED_MAX: usize = 4;
 pub const CODING_SESSION_STALE_MS: i64 = 7200000;
+pub const DEVICE_ONLINE_WINDOW_MS: i64 = 90000;
 pub const BUILTIN_CREATE_ACTION_ID: &str = "builtin:create-action";
 pub const BUILTIN_FIX_CONFLICTS_ID: &str = "builtin:fix-conflicts";
 pub const ACTION_INPUTS_MAX: usize = 10;

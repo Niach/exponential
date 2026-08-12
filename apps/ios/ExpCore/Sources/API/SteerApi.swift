@@ -155,6 +155,10 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// desktop (and on a machine with nothing runnable) — read it through
     /// `defaultLaunchAgent` / `agentDefaults(for:)`, never raw.
     public let launchDefaults: DeviceLaunchDefaults?
+    /// EXP-481: the synced devices ROW id — joins `device_worktrees` for the
+    /// resume probe. Set only when the value came off the devices shape
+    /// (DeviceRows mapping); nil on tRPC/relay rows, which never resume.
+    public let rowId: String?
 
     public var id: String { deviceId }
 
@@ -175,7 +179,8 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
         updateBlocked: Bool? = nil,
         sharedTeamId: String? = nil,
         owner: DeviceOwner? = nil,
-        launchDefaults: DeviceLaunchDefaults? = nil
+        launchDefaults: DeviceLaunchDefaults? = nil,
+        rowId: String? = nil
     ) {
         self.deviceId = deviceId
         self.deviceLabel = deviceLabel
@@ -194,6 +199,7 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
         self.sharedTeamId = sharedTeamId
         self.owner = owner
         self.launchDefaults = launchDefaults
+        self.rowId = rowId
     }
 
     /// EXP-432: whether this is one of the caller's OWN machines. A teammate's
@@ -261,6 +267,11 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// additionally gated on this (the server enforces it too); a plain
     /// `actions`-capable desktop still runs input-less actions.
     public var canRunActionInputs: Bool { caps?.contains("action-inputs") == true }
+
+    /// EXP-481: whether this machine honors `resume` on a remote start —
+    /// strictly cap-gated like actions (the server refuses without it; an old
+    /// build would silently start fresh, which reads as losing the session).
+    public var canResume: Bool { caps?.contains("resume") == true }
 
     /// Whether this desktop can run the builtin "Fix merge conflicts" action
     /// (EXP-259). The server rejects that builtin without the cap, so pickers
@@ -341,6 +352,10 @@ public struct SteerStartOptions: Sendable {
     public let ultracode: Bool?
     public let planMode: Bool?
     public let skipPermissions: Bool?
+    /// EXP-481: resume the issue's existing worktree/agent session instead of
+    /// starting fresh. SINGLE-ISSUE starts only — the batch/action inputs
+    /// never carry it (the server rejects it there).
+    public let resume: Bool?
 
     public init(
         agent: String? = nil,
@@ -348,7 +363,8 @@ public struct SteerStartOptions: Sendable {
         effort: String? = nil,
         ultracode: Bool? = nil,
         planMode: Bool? = nil,
-        skipPermissions: Bool? = nil
+        skipPermissions: Bool? = nil,
+        resume: Bool? = nil
     ) {
         self.agent = agent
         self.model = model
@@ -356,6 +372,7 @@ public struct SteerStartOptions: Sendable {
         self.ultracode = ultracode
         self.planMode = planMode
         self.skipPermissions = skipPermissions
+        self.resume = resume
     }
 }
 
@@ -368,6 +385,9 @@ private struct StartSessionInput: Encodable {
     let ultracode: Bool?
     let planMode: Bool?
     let skipPermissions: Bool?
+    // EXP-481: single-issue only — the batch/action inputs deliberately have
+    // no such field.
+    let resume: Bool?
 }
 
 /// Batch remote-start (EXP-156): 2+ issues → ONE Claude session on one pushed
@@ -479,7 +499,8 @@ public final class SteerApi: Sendable {
                     effort: options.effort,
                     ultracode: options.ultracode,
                     planMode: options.planMode,
-                    skipPermissions: options.skipPermissions
+                    skipPermissions: options.skipPermissions,
+                    resume: options.resume
                 )
             )
         } catch let TrpcError.httpError(status, body) {

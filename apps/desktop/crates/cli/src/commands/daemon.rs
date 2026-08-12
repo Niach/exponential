@@ -26,14 +26,28 @@ use crate::registry;
 use crate::session_host::{self, LaunchEnv, RunningSession};
 use crate::sidecars::Sidecars;
 
-const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(60);
+/// EXP-481: 30s (down from 60) — online-ness now derives from
+/// `last_seen_at` freshness against the contract's 90s window, so one
+/// missed beat must not flap the badge.
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 const DOCTOR_RECHECK: Duration = Duration::from_secs(5 * 60);
 /// EXP-414: a changed agent advertisement is only ACTED on once a second
 /// probe agrees ([`advert_transition`]) — this is the shortened recheck that
 /// confirms (or clears) a pending change, so a real change still converges
 /// in ~DOCTOR_RECHECK + this instead of two full periods.
 const ADVERT_CONFIRM_RECHECK: Duration = Duration::from_secs(30);
-pub const DEVICE_CAPS: [&str; 3] = ["actions", "action-inputs", "fix-conflicts"];
+/// EXP-481 adds `resume` (start_session honors the resume flag),
+/// `worktrees` (inventory reporting + remove/prune commands) and
+/// `launch-defaults` (server-authoritative defaults convergence + the
+/// `check_in` nudge frame).
+pub const DEVICE_CAPS: [&str; 6] = [
+    "actions",
+    "action-inputs",
+    "fix-conflicts",
+    "resume",
+    "worktrees",
+    "launch-defaults",
+];
 
 // ---------------------------------------------------------------------------
 // Signal handling — shared with `code`'s detached wait.
@@ -169,12 +183,19 @@ fn run_daemon(args: &[String]) -> CommandResult {
     };
     let personal_key = context::ensure_personal_key(&ctx).ok();
     let sessions: Sessions = Arc::new(Mutex::new(Vec::new()));
+    // EXP-481: the serialized device-state worker (defaults convergence,
+    // worktree commands, inventory reports) + the relay check_in flag that
+    // forces an immediate heartbeat (the beat IS the work pull).
+    let device_worker = spawn_device_worker(Arc::clone(&ctx), Arc::clone(&sessions), device_id.clone());
+    let check_in = Arc::new(AtomicBool::new(false));
 
     let mut advertised = probe_agents(&ctx);
     // EXP-414: a failed register (network not up yet at boot) is retried on
     // the heartbeat cadence — otherwise the registry row goes stale (old
     // version/agents, a never-cleared update request) until the next restart.
-    let mut registered_ok = register_device(&ctx, &device_id, &device_label, &advertised);
+    let mut registered_ok =
+        register_device(&ctx, &device_id, &device_label, &advertised, &device_worker);
+    device_worker.send(DeviceWork::ReportWorktrees).ok();
     // `register` only SEEDS the label (it never stomps a rename); an
     // explicit --label is an intentional write and goes through `rename`.
     if let Some(label) = &explicit_label {
@@ -185,7 +206,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
 
     let (inbox_tx, inbox_rx) = flume::unbounded::<RemoteStart>();
     let mut control = runtime.as_ref().and_then(|runtime| {
-        dial_control(runtime, &ctx, &device_id, &device_label, &advertised, &inbox_tx)
+        dial_control(runtime, &ctx, &device_id, &device_label, &advertised, &inbox_tx, &check_in)
     });
     if advertised.nothing_installed() {
         log::info!("no agent CLI installed — registered offline; install claude/codex/pi to accept remote starts");
@@ -243,18 +264,31 @@ fn run_daemon(args: &[String]) -> CommandResult {
         lock_sessions(&sessions).retain(|live| !live.session.is_done());
 
         let live_now = lock_sessions(&sessions).len();
-        if last_heartbeat.elapsed() >= HEARTBEAT_INTERVAL || reported_sessions != Some(live_now) {
+        let session_change = reported_sessions != Some(live_now);
+        // EXP-481: a relay check_in nudge means "the server persisted new
+        // work" — beat NOW instead of on the cadence (the beat is the pull).
+        let nudged = check_in.swap(false, Ordering::SeqCst);
+        if last_heartbeat.elapsed() >= HEARTBEAT_INTERVAL || session_change || nudged {
             last_heartbeat = Instant::now();
             // Optimistic: a failed beat just waits for the next scheduled
             // tick instead of retrying at 1Hz while the network is down.
             reported_sessions = Some(live_now);
-            match api::devices::heartbeat(&ctx.trpc, &device_id, live_now as u32) {
+            let synced_at =
+                coding::read_marker(&coding::Settings::default_path(&ctx.data_dir), &device_id)
+                    .synced_at;
+            match api::devices::heartbeat(
+                &ctx.trpc,
+                &device_id,
+                live_now as u32,
+                synced_at.as_deref(),
+            ) {
                 Ok(result) => {
                     // Row removed in the UI while we run, or an earlier
                     // register never landed (EXP-414) — re-register.
                     if !result.ok || !registered_ok {
-                        registered_ok =
-                            register_device(&ctx, &device_id, &device_label, &advertised);
+                        registered_ok = register_device(
+                            &ctx, &device_id, &device_label, &advertised, &device_worker,
+                        );
                     }
                     if result.update_requested && pending_update.is_none() {
                         if live_now > 0 {
@@ -266,9 +300,28 @@ fn run_daemon(args: &[String]) -> CommandResult {
                         }
                         pending_update = Some(UpdateTrigger::Requested);
                     }
+                    // EXP-481: the beat's work pull — commands + (on stamp
+                    // mismatch) the authoritative launch defaults.
+                    if !result.commands.is_empty() {
+                        device_worker.send(DeviceWork::Commands(result.commands)).ok();
+                    }
+                    if result.launch_defaults.is_some()
+                        || result.launch_defaults_updated_at.is_some()
+                    {
+                        device_worker
+                            .send(DeviceWork::ServerDefaults {
+                                defaults: result.launch_defaults,
+                                stamp: result.launch_defaults_updated_at,
+                            })
+                            .ok();
+                    }
                 }
                 Err(err) => log::debug!("devices.heartbeat failed: {err}"),
             }
+        }
+        // Session start/end changes the inventory's busy flags.
+        if session_change {
+            device_worker.send(DeviceWork::ReportWorktrees).ok();
         }
 
         // Scheduled auto-update check (settings-gated + persisted throttle).
@@ -301,15 +354,17 @@ fn run_daemon(args: &[String]) -> CommandResult {
                         if matches!(trigger, UpdateTrigger::Requested) {
                             // Consume the web request even when there was
                             // nothing to install.
-                            registered_ok =
-                                register_device(&ctx, &device_id, &device_label, &advertised);
+                            registered_ok = register_device(
+                                &ctx, &device_id, &device_label, &advertised, &device_worker,
+                            );
                         }
                     }
                     Err(err) => {
                         log::warn!("update failed: {err:#}");
                         if matches!(trigger, UpdateTrigger::Requested) {
-                            registered_ok =
-                                register_device(&ctx, &device_id, &device_label, &advertised);
+                            registered_ok = register_device(
+                                &ctx, &device_id, &device_label, &advertised, &device_worker,
+                            );
                         }
                     }
                 }
@@ -331,6 +386,10 @@ fn run_daemon(args: &[String]) -> CommandResult {
         };
         if last_doctor.elapsed() >= doctor_due {
             last_doctor = Instant::now();
+            // EXP-481: the slow cadence also picks up hand-edited
+            // settings.json defaults and re-checks the inventory.
+            device_worker.send(DeviceWork::ReconcileLocal).ok();
+            device_worker.send(DeviceWork::ReportWorktrees).ok();
             let agents = probe_agents(&ctx);
             match advert_transition(&advertised, &agents, &mut pending_advert) {
                 AdvertStep::Keep => {}
@@ -344,9 +403,14 @@ fn run_daemon(args: &[String]) -> CommandResult {
                         handle.stop();
                     }
                     control = runtime.as_ref().and_then(|runtime| {
-                        dial_control(runtime, &ctx, &device_id, &device_label, &advertised, &inbox_tx)
+                        dial_control(
+                            runtime, &ctx, &device_id, &device_label, &advertised, &inbox_tx,
+                            &check_in,
+                        )
                     });
-                    registered_ok = register_device(&ctx, &device_id, &device_label, &advertised);
+                    registered_ok = register_device(
+                        &ctx, &device_id, &device_label, &advertised, &device_worker,
+                    );
                 }
             }
         }
@@ -451,6 +515,7 @@ fn register_device(
     device_id: &str,
     device_label: &str,
     advertised: &coding::AgentAdvertisement,
+    device_worker: &flume::Sender<DeviceWork>,
 ) -> bool {
     // Caps follow the RUNNABLE set (EXP-409): a machine whose only agents
     // are signed out cannot run actions either.
@@ -459,6 +524,12 @@ fn register_device(
     } else {
         DEVICE_CAPS.iter().map(|cap| cap.to_string()).collect()
     };
+    // EXP-481: the local defaults ride the register as a FIRST-EVER seed
+    // (the server applies them only while its column is NULL); the response
+    // carries the authoritative copy either way, reconciled off-loop.
+    let settings = coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir));
+    let launch_defaults = serde_json::to_value(coding::defaults_wire(&settings))
+        .expect("defaults serialize cannot fail");
     let result = api::devices::register(
         &ctx.trpc,
         &api::devices::RegisterDevice {
@@ -469,11 +540,22 @@ fn register_device(
             agents: &advertised.agents,
             unauthed_agents: &advertised.unauthed_agents,
             caps: &caps,
+            launch_defaults: Some(&launch_defaults),
             version: Some(crate::cli_version()),
         },
     );
     match result {
-        Ok(()) => true,
+        Ok(result) => {
+            if result.launch_defaults.is_some() || result.launch_defaults_updated_at.is_some() {
+                device_worker
+                    .send(DeviceWork::ServerDefaults {
+                        defaults: result.launch_defaults,
+                        stamp: result.launch_defaults_updated_at,
+                    })
+                    .ok();
+            }
+            true
+        }
         Err(err) => {
             log::warn!("devices.register failed (older server?): {err}");
             false
@@ -492,6 +574,7 @@ fn dial_control(
     device_label: &str,
     advertised: &coding::AgentAdvertisement,
     inbox: &flume::Sender<RemoteStart>,
+    check_in: &Arc<AtomicBool>,
 ) -> Option<steer::ControlChannelHandle> {
     if advertised.nothing_installed() {
         return None;
@@ -513,8 +596,19 @@ fn dial_control(
     let on_start: StartSessionFn = Arc::new(move |start| {
         let _ = inbox.send(start);
     });
+    // Non-blocking by contract: just flip the flag — the 1s loop beats.
+    let check_in = Arc::clone(check_in);
+    let on_check_in: steer::control_channel::CheckInFn = Arc::new(move || {
+        check_in.store(true, Ordering::SeqCst);
+    });
     let control_api: Arc<dyn ControlApi> = Arc::new(TrpcControlApi(Arc::clone(&ctx.trpc)));
-    Some(steer::spawn_control_channel(runtime, device, control_api, on_start))
+    Some(steer::spawn_control_channel(
+        runtime,
+        device,
+        control_api,
+        on_start,
+        on_check_in,
+    ))
 }
 
 fn reconcile_stale_sessions(ctx: &Ctx) {
@@ -570,9 +664,12 @@ fn handle_remote_start(
     // observes success purely via the synced `coding_sessions` row
     // appearing (desktop parity).
     let outcome = match start.subject.clone() {
-        RemoteStartSubject::Issue(issue_id) => {
-            remote_issue_start(ctx, sidecars, runtime, sessions, personal_key, options, origin, issue_id)
-        }
+        RemoteStartSubject::Issue(issue_id) => remote_issue_start(
+            ctx, sidecars, runtime, sessions, personal_key, options, origin, issue_id,
+            // EXP-481: honor the remote resume flag — the launcher's marker
+            // gate degrades a missing/foreign worktree to a fresh session.
+            start.resume.unwrap_or(false),
+        ),
         RemoteStartSubject::Batch { issue_ids, team_id, repo } => remote_batch_start(
             ctx, sidecars, runtime, sessions, personal_key, options, origin, issue_ids, team_id, repo,
         ),
@@ -595,6 +692,7 @@ fn remote_issue_start(
     options: LaunchOptions,
     origin: coding::LaunchOrigin,
     issue_id: String,
+    start_resume: bool,
 ) -> anyhow::Result<()> {
     if issue_is_coding_here(sessions, &issue_id) {
         log::info!("remote start for {issue_id} ignored — already coding this issue");
@@ -612,7 +710,8 @@ fn remote_issue_start(
     }
     let fetched = api::issues::issues_get(&ctx.trpc, &issue_id).context("resolve the issue")?;
     let issue = fetched.issue;
-    let request = launch::issue_launch_request(&issue, options, origin);
+    let request =
+        launch::issue_launch_request(&issue, options, origin, start_resume);
     let mut seeds = HashMap::new();
     seeds.insert(issue.id.clone(), launch::issue_seed(&issue));
     let deps = launch::coding_deps(ctx, seeds);
@@ -827,6 +926,308 @@ fn spawn_prepared(
         session: Arc::new(session),
     });
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// EXP-481: the device-state worker — one background thread that converges
+// the server-authoritative launch defaults, executes pulled worktree
+// commands, and reports the worktree inventory. Serialized by design (one
+// prune at a time); the 1s daemon loop only ever SENDS to it.
+// ---------------------------------------------------------------------------
+
+/// Work the daemon loop hands the device worker.
+enum DeviceWork {
+    /// The server copy of the launch defaults was observed (register
+    /// response / heartbeat stamp mismatch) — reconcile against it.
+    ServerDefaults {
+        defaults: Option<serde_json::Value>,
+        stamp: Option<String>,
+    },
+    /// No fresh server copy this cycle — still detect + push local edits
+    /// (hand-edited settings.json, marker left dirty by an offline push).
+    ReconcileLocal,
+    /// Pending commands pulled off a heartbeat. Redelivery until completed
+    /// is the server's idempotency model — repeats are expected and safe.
+    Commands(Vec<api::devices::PendingCommand>),
+    /// Re-scan the worktrees and report when the fingerprint moved.
+    ReportWorktrees,
+}
+
+fn spawn_device_worker(
+    ctx: Arc<Ctx>,
+    sessions: Sessions,
+    device_id: String,
+) -> flume::Sender<DeviceWork> {
+    let (tx, rx) = flume::unbounded::<DeviceWork>();
+    std::thread::spawn(move || {
+        let mut last_inventory_fp: Option<u64> = None;
+        while let Ok(work) = rx.recv() {
+            match work {
+                DeviceWork::ServerDefaults { defaults, stamp } => {
+                    reconcile_defaults(&ctx, &device_id, defaults.as_ref(), stamp.as_deref());
+                }
+                DeviceWork::ReconcileLocal => {
+                    let settings_path = coding::Settings::default_path(&ctx.data_dir);
+                    let marker = coding::read_marker(&settings_path, &device_id);
+                    // Without a fresh server observation, pretend the server
+                    // is unchanged — reconcile() then pushes only for local
+                    // edits (dirty marker / fingerprint drift) or the
+                    // first-ever seed.
+                    reconcile_defaults_with(
+                        &ctx,
+                        &device_id,
+                        None,
+                        marker.synced_at.clone().as_deref(),
+                        marker.synced_at.is_some(),
+                    );
+                }
+                DeviceWork::Commands(commands) => {
+                    for command in commands {
+                        run_device_command(&ctx, &sessions, &command);
+                    }
+                    report_worktrees(&ctx, &sessions, &device_id, &mut last_inventory_fp);
+                }
+                DeviceWork::ReportWorktrees => {
+                    report_worktrees(&ctx, &sessions, &device_id, &mut last_inventory_fp);
+                }
+            }
+        }
+    });
+    tx
+}
+
+/// Reconcile against an OBSERVED server copy.
+fn reconcile_defaults(
+    ctx: &Ctx,
+    device_id: &str,
+    server_defaults: Option<&serde_json::Value>,
+    server_stamp: Option<&str>,
+) {
+    reconcile_defaults_with(
+        ctx,
+        device_id,
+        server_defaults,
+        server_stamp,
+        server_defaults.is_some(),
+    );
+}
+
+fn reconcile_defaults_with(
+    ctx: &Ctx,
+    device_id: &str,
+    server_defaults: Option<&serde_json::Value>,
+    server_stamp: Option<&str>,
+    server_has_defaults: bool,
+) {
+    let settings_path = coding::Settings::default_path(&ctx.data_dir);
+    let settings = coding::Settings::load(&settings_path);
+    let fingerprint = coding::defaults_fingerprint(&settings);
+    let marker = coding::read_marker(&settings_path, device_id);
+    match coding::reconcile(&marker, &fingerprint, server_stamp, server_has_defaults) {
+        coding::ReconcileAction::Noop => {}
+        coding::ReconcileAction::ApplyServer => match server_defaults {
+            Some(value) => apply_server_defaults(ctx, device_id, value, server_stamp),
+            // The stamp moved but no copy rode along (row recreated with a
+            // NULL column) — seed it back with a CAS-guarded push.
+            None => push_local_defaults(ctx, device_id, &settings, &marker),
+        },
+        coding::ReconcileAction::PushLocal => {
+            push_local_defaults(ctx, device_id, &settings, &marker)
+        }
+    }
+}
+
+fn apply_server_defaults(
+    ctx: &Ctx,
+    device_id: &str,
+    value: &serde_json::Value,
+    stamp: Option<&str>,
+) {
+    let settings_path = coding::Settings::default_path(&ctx.data_dir);
+    let patch: coding::DefaultsPatch = match serde_json::from_value(value.clone()) {
+        Ok(patch) => patch,
+        Err(err) => {
+            log::warn!("launch defaults: unparsable server copy ignored: {err}");
+            return;
+        }
+    };
+    let mut settings = coding::Settings::load(&settings_path);
+    let changed = coding::apply_defaults_patch(&mut settings, &patch);
+    if changed {
+        if let Err(err) = settings.save(&settings_path) {
+            log::warn!("launch defaults: save failed: {err}");
+            return;
+        }
+        log::info!("launch defaults: applied the server copy");
+    }
+    // Clamped/invalid fields are deliberately NOT pushed back (ping-pong);
+    // recording the stamp stops a re-apply loop either way.
+    let marker = coding::SyncMarker {
+        synced_at: stamp.map(str::to_string),
+        dirty: false,
+        hash: Some(coding::defaults_fingerprint(&settings)),
+    };
+    if let Err(err) = coding::write_marker(&settings_path, device_id, &marker) {
+        log::debug!("launch defaults: marker write failed: {err}");
+    }
+}
+
+fn push_local_defaults(
+    ctx: &Ctx,
+    device_id: &str,
+    settings: &coding::Settings,
+    marker: &coding::SyncMarker,
+) {
+    let settings_path = coding::Settings::default_path(&ctx.data_dir);
+    let wire = serde_json::to_value(coding::defaults_wire(settings))
+        .expect("defaults serialize cannot fail");
+    let expected = api::devices::ExpectedStamp::Expect(marker.synced_at.as_deref());
+    match api::devices::set_launch_defaults(&ctx.trpc, device_id, &wire, expected) {
+        Ok(result) if result.conflict => {
+            // Server wins the offline-concurrent race — adopt its copy.
+            log::info!("launch defaults: push conflicted — adopting the server copy");
+            if let Some(value) = result.launch_defaults.as_ref() {
+                apply_server_defaults(
+                    ctx,
+                    device_id,
+                    value,
+                    result.launch_defaults_updated_at.as_deref(),
+                );
+            }
+        }
+        Ok(result) => {
+            let marker = coding::SyncMarker {
+                synced_at: result.launch_defaults_updated_at,
+                dirty: false,
+                hash: Some(coding::defaults_fingerprint(settings)),
+            };
+            if let Err(err) = coding::write_marker(&settings_path, device_id, &marker) {
+                log::debug!("launch defaults: marker write failed: {err}");
+            }
+        }
+        Err(err) => {
+            // Offline / older server: queue the retry (next heartbeat's
+            // ReconcileLocal picks the dirty flag up).
+            log::debug!("launch defaults: push failed ({err}) — queued");
+            let marker = coding::SyncMarker {
+                dirty: true,
+                hash: marker.hash.clone(),
+                synced_at: marker.synced_at.clone(),
+            };
+            let _ = coding::write_marker(&settings_path, device_id, &marker);
+        }
+    }
+}
+
+/// Execute one pulled command and report its outcome. `ok: false` from
+/// completeCommand means a redelivered duplicate raced us — fine.
+fn run_device_command(ctx: &Ctx, sessions: &Sessions, command: &api::devices::PendingCommand) {
+    let settings = coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir));
+    let repos_root = settings.repos_root_path();
+    let held: std::collections::HashSet<String> = lock_sessions(sessions)
+        .iter()
+        .filter(|live| !live.session.is_done())
+        .map(|live| live.branch.clone())
+        .collect();
+    let (ok, message) = match command.kind.as_str() {
+        "worktree_remove" => {
+            let repo = command.payload["repoFullName"].as_str().unwrap_or_default();
+            let branch = command.payload["branch"].as_str().unwrap_or_default();
+            if repo.is_empty() || branch.is_empty() {
+                (false, "Malformed command payload.".to_string())
+            } else {
+                let clone = coding::clone_path(&repos_root, repo);
+                match coding::remove_worktree_remote(&clone, branch, &held) {
+                    Ok(()) => (true, format!("Removed the {branch} worktree.")),
+                    Err(err) => (false, err.message()),
+                }
+            }
+        }
+        "worktree_prune" => run_prune(&settings, &repos_root, held),
+        other => {
+            log::info!("device command {other:?} unsupported — reported back");
+            (false, "This machine's app doesn't support that command yet.".to_string())
+        }
+    };
+    if let Err(err) = api::devices::complete_command(&ctx.trpc, &command.id, ok, Some(&message)) {
+        log::debug!("completeCommand failed (redelivery will retry): {err}");
+    }
+}
+
+/// The prune command body: the conservative (git-truth-only) policy over
+/// every clone; aggregate one human-readable summary.
+fn run_prune(
+    settings: &coding::Settings,
+    repos_root: &std::path::Path,
+    held: std::collections::HashSet<String>,
+) -> (bool, String) {
+    let policy =
+        coding::conservative_prune_policy(&settings.branch_prefix, held, Vec::new());
+    let mut removed = 0usize;
+    let mut skipped = 0usize;
+    let mut blocked = false;
+    for clone in coding::scan_clones(repos_root) {
+        let report = coding::prune_landed(&clone.path, &policy);
+        removed += report.removed_worktrees.len();
+        skipped += report.skipped.len();
+        blocked |= report.blocked_by_launch;
+    }
+    let mut message = format!("Pruned {removed} worktree{}", if removed == 1 { "" } else { "s" });
+    if skipped > 0 {
+        message.push_str(&format!(", kept {skipped} (unmerged or busy)"));
+    }
+    if blocked {
+        message.push_str("; one repo was busy launching — try again");
+    }
+    message.push('.');
+    (true, message)
+}
+
+/// Scan + report the worktree inventory when its fingerprint moved.
+fn report_worktrees(
+    ctx: &Ctx,
+    sessions: &Sessions,
+    device_id: &str,
+    last_fp: &mut Option<u64>,
+) {
+    let settings = coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir));
+    let inventory = coding::scan_inventory(&settings.repos_root_path());
+    let busy: std::collections::HashSet<String> = lock_sessions(sessions)
+        .iter()
+        .filter(|live| !live.session.is_done())
+        .map(|live| live.branch.clone())
+        .collect();
+    let fp = coding::inventory_fingerprint(&inventory, &busy);
+    if *last_fp == Some(fp) {
+        return;
+    }
+    let agent_ids: Vec<Vec<String>> = inventory
+        .iter()
+        .map(|entry| {
+            entry
+                .agents
+                .as_ref()
+                .map(|agents| agents.iter().map(|agent| agent.id().to_string()).collect())
+                .unwrap_or_default()
+        })
+        .collect();
+    let rows: Vec<api::devices::WorktreeReportEntry> = inventory
+        .iter()
+        .zip(agent_ids.iter())
+        .map(|(entry, ids)| api::devices::WorktreeReportEntry {
+            repo_full_name: &entry.repo,
+            branch: &entry.branch,
+            issue_identifier: entry.issue_identifier(),
+            agents: entry.agents.as_ref().map(|_| ids.as_slice()),
+            dirty: entry.dirty_wire(),
+            busy: busy.contains(&entry.branch),
+        })
+        .collect();
+    match api::devices::report_worktrees(&ctx.trpc, device_id, &rows) {
+        Ok(()) => *last_fp = Some(fp),
+        // Older server / offline: retried on the next trigger (fp unchanged).
+        Err(err) => log::debug!("reportWorktrees failed: {err}"),
+    }
 }
 
 // ---------------------------------------------------------------------------

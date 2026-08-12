@@ -529,10 +529,12 @@ struct ChangesView: View {
             devices = nil
             return
         }
-        // EXP-432: team-scoped, so a teammate's shared server can host the run.
-        devices = (try? await deps.devicesApi.onlineStartTargets(
-            accountId: accountId, teamId: viewModel?.teamId
-        )) ?? []
+        // EXP-432: team-scoped, so a teammate's shared server can host the
+        // run. EXP-481: read off the synced devices shape, not the network.
+        devices = await DeviceQueries.onlineStartTargets(
+            db: deps.db, accountId: accountId,
+            teamId: viewModel?.teamId, userId: deps.auth.userId
+        )
         startCandidates = await StartCodingSheet.IssueOption.loadCandidates(
             db: deps.db,
             accountId: accountId,

@@ -34,6 +34,7 @@ object DomainContract {
 
     const val issueStatusStartedMax: Int = 4
     const val codingSessionStaleMs: Long = 7200000L
+    const val deviceOnlineWindowMs: Long = 90000L
     const val builtinCreateActionId: String = "builtin:create-action"
     const val builtinFixConflictsId: String = "builtin:fix-conflicts"
     const val actionInputsMax: Int = 10

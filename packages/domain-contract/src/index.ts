@@ -52,6 +52,11 @@ export interface DomainContract {
    * sweep's threshold) — parity locked by apps/web's domain-contract test.
    */
   codingSession: { staleHours: number }
+  /**
+   * EXP-481: how fresh a devices row's last_seen_at must be to render
+   * "online" (devices heartbeat ~30s; the window is three missed beats).
+   */
+  device: { onlineWindowSeconds: number }
   subscriberSource: { values: readonly string[] }
   issueEventType: { values: readonly string[] }
   /** Coding agent CLIs a desktop device may run (EXP-201; first = default). */

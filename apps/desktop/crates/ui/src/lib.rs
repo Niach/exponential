@@ -53,6 +53,8 @@ mod issue_list;
 mod join_team;
 pub mod licenses;
 mod login;
+mod device_settings;
+mod device_sync;
 mod machines;
 #[cfg(target_os = "macos")]
 pub mod macos_blur;

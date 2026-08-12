@@ -480,6 +480,17 @@ export class Hub {
     return { ok: true }
   }
 
+  /** EXP-481: fire-and-forget `check_in` nudge to a device's control socket —
+   * "the server persisted new work for you, heartbeat now". Returns whether a
+   * live socket received it; the heartbeat pickup is the durable path either
+   * way. */
+  nudge(userId: string, deviceId: string): boolean {
+    const entry = this.devices.get(userId)?.get(deviceId)
+    if (!entry) return false
+    entry.conn.sock.send(frame({ t: `check_in` }))
+    return true
+  }
+
   /** Server-side kill (steer.killSession fallback path). */
   killSession(sessionId: string): boolean {
     const room = this.rooms.get(sessionId)

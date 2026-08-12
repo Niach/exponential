@@ -60,4 +60,22 @@ public extension KeyedDecodingContainer {
         }
         return def
     }
+
+    /// A jsonb column as its stored TEXT form: a pre-stringified JSON string
+    /// passes through, an object/array re-encodes type-FAITHFULLY through
+    /// JSONWireValue (bools/numbers survive the store-as-string round trip),
+    /// and absent/null/undecodable → nil. Non-throwing — a malformed jsonb
+    /// value degrades one column, never the row (EXP-481: devices
+    /// launch_defaults / worktree agents).
+    func decodeWireJsonString(forKey key: Key) -> String? {
+        guard contains(key) else { return nil }
+        if let stringValue = try? decode(String.self, forKey: key) {
+            return stringValue
+        }
+        if (try? decodeNil(forKey: key)) == true { return nil }
+        guard let rawJSON = try? decode(JSONWireValue.self, forKey: key),
+              let data = try? JSONEncoder().encode(rawJSON)
+        else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
 }

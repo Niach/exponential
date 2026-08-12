@@ -6,6 +6,8 @@ import {
   selectAttachmentSchema,
   selectCodingSessionSchema,
   selectCommentSchema,
+  selectDeviceSchema,
+  selectSyncedDeviceWorktreeSchema,
   selectIssueEventSchema,
   selectIssueLabelSchema,
   selectIssueSchema,
@@ -252,6 +254,38 @@ export const codingSessionCollection = createCollection(
       columnMapper,
     },
     schema: selectCodingSessionSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+// EXP-481: the per-user device registry (own rows + team-shared server rows).
+// Online-ness derives client-side from last_seen_at freshness — no relay
+// presence in the sync path.
+export const deviceCollection = createCollection(
+  electricCollectionOptions({
+    id: `devices`,
+    shapeOptions: {
+      url: getShapeUrl(`/api/shapes/devices`),
+      parser: shapeParser,
+      columnMapper,
+    },
+    schema: selectDeviceSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+// EXP-481: per-device worktree inventory — resume offers + the
+// device-settings worktree list, from persisted data even while the device
+// is offline.
+export const deviceWorktreeCollection = createCollection(
+  electricCollectionOptions({
+    id: `device_worktrees`,
+    shapeOptions: {
+      url: getShapeUrl(`/api/shapes/device-worktrees`),
+      parser: shapeParser,
+      columnMapper,
+    },
+    schema: selectSyncedDeviceWorktreeSchema,
     getKey: (item) => item.id,
   })
 )

@@ -826,6 +826,55 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v16 (EXP-481 device management): `devices` + `device_worktrees`
+        // became the 17th/18th Electric shapes (server-authoritative device
+        // state — launch defaults, worktree inventory; online-ness derives
+        // from last_seen_at freshness client-side). Additive new tables for
+        // stores created before they existed; ifNotExists keeps re-runs
+        // converging. Never bump the `-v5` file suffix for an additive table
+        // (that would wipe every local snapshot). Brand-new shapes have no
+        // offset rows and snapshot from scratch. `busy` is declared .boolean
+        // so the partial-update wire-bool mapping engages (the
+        // coding_sessions `needs_input` precedent); jsonb columns store
+        // stringified JSON.
+        migrator.registerMigration("v16_devices_worktrees") { db in
+            try db.create(table: "devices", ifNotExists: true) { t in
+                t.primaryKey("id", .text)
+                t.column("user_id", .text).notNull().indexed()
+                // The steer deviceId (start target) — not the row id.
+                t.column("device_id", .text).notNull()
+                t.column("label", .text).notNull().defaults(to: "")
+                t.column("kind", .text)
+                t.column("platform", .text)
+                t.column("version", .text)
+                t.column("agents", .text)
+                t.column("caps", .text)
+                t.column("unauthed_agents", .text)
+                t.column("launch_defaults", .text)
+                t.column("launch_defaults_updated_at", .text)
+                t.column("active_sessions", .integer).notNull().defaults(to: 0)
+                t.column("last_seen_at", .text)
+                t.column("shared_team_id", .text)
+                t.column("update_requested_at", .text)
+                t.column("created_at", .text)
+                t.column("updated_at", .text)
+            }
+            try db.create(table: "device_worktrees", ifNotExists: true) { t in
+                t.primaryKey("id", .text)
+                // The devices ROW id (uuid), never the steer device-id string.
+                t.column("device_row_id", .text).notNull().indexed()
+                t.column("repo_full_name", .text).notNull()
+                t.column("branch", .text).notNull()
+                t.column("issue_identifier", .text)
+                t.column("agents", .text)
+                t.column("dirty", .text)
+                t.column("busy", .boolean).notNull().defaults(to: false)
+                t.column("reported_at", .text)
+                t.column("created_at", .text)
+                t.column("updated_at", .text)
+            }
+        }
+
         return migrator
     }
 
@@ -833,6 +882,9 @@ public final class DatabaseManager: @unchecked Sendable {
         guard let pool = lock.withLock({ pools[accountId] }) else { return }
         try pool.write { db in
             try db.execute(sql: "DELETE FROM electric_offsets")
+            // EXP-481: child before parent, like the issue tables below.
+            try db.execute(sql: "DELETE FROM device_worktrees")
+            try db.execute(sql: "DELETE FROM devices")
             try db.execute(sql: "DELETE FROM actions")
             try db.execute(sql: "DELETE FROM coding_sessions")
             try db.execute(sql: "DELETE FROM notifications")

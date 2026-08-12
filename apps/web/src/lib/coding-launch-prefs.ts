@@ -20,6 +20,9 @@ export interface CodingLaunchPrefs {
   planMode: boolean
   /** Full permission bypass instead of the agent's guarded auto mode. */
   skipPermissions: boolean
+  /** EXP-481: resume the issue's existing worktree/agent session — SINGLE
+   * issue starts only (the batch arm strips it before the mutation). */
+  resume?: boolean
 }
 
 /** EXP-437: one agent's launch defaults as a device advertises them. Blank
