@@ -1,4 +1,4 @@
-//! The 16 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
+//! The 18 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
 //! iterates and the store builds its schema from. gpui-free.
 //!
 //! Each [`ShapeSpec`] carries the SQLite table name, the kebab-case proxy URL
@@ -80,10 +80,11 @@ impl ShapeSpec {
     }
 }
 
-/// The 16 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
+/// The 18 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
 /// (minus the §5.4 exclusions: no `email` on `issue_subscribers`, web-only
-/// billing fields dropped from `users`, and no `body` on `actions`).
-pub const SHAPES: [ShapeSpec; 16] = [
+/// billing fields dropped from `users`, no `body` on `actions`, and no
+/// scoping mirrors on `device_worktrees`).
+pub const SHAPES: [ShapeSpec; 18] = [
     ShapeSpec {
         name: "teams",
         path: "/api/shapes/teams",
@@ -404,6 +405,59 @@ pub const SHAPES: [ShapeSpec; 16] = [
         ],
         pk: PkKind::Id,
     },
+    ShapeSpec {
+        name: "devices",
+        path: "/api/shapes/devices",
+        // EXP-481: the per-user device registry (own rows + team-shared
+        // server rows), server-authoritative launch defaults included.
+        // `user_id` IS synced — the mine-vs-shared split and owner-name
+        // resolution key on it (a sharing owner is always a co-member, so
+        // the users shape covers the lookup). Byte-matches the proxy's
+        // allowlist (apps/web routes/api/shapes/devices.ts).
+        columns: &[
+            "id",
+            "user_id",
+            "device_id",
+            "label",
+            "kind",
+            "platform",
+            "version",
+            "agents",
+            "caps",
+            "unauthed_agents",
+            "launch_defaults",
+            "launch_defaults_updated_at",
+            "active_sessions",
+            "last_seen_at",
+            "shared_team_id",
+            "update_requested_at",
+            "created_at",
+            "updated_at",
+        ],
+        pk: PkKind::Id,
+    },
+    ShapeSpec {
+        name: "device_worktrees",
+        path: "/api/shapes/device-worktrees",
+        // EXP-481: per-device worktree inventory (resume offers + the
+        // device-settings worktree list). The trigger-maintained scoping
+        // mirrors (`user_id`/`shared_team_id`) are proxy-excluded and MUST
+        // NOT be modeled locally (the issue_subscribers email stance).
+        columns: &[
+            "id",
+            "device_row_id",
+            "repo_full_name",
+            "branch",
+            "issue_identifier",
+            "agents",
+            "dirty",
+            "busy",
+            "reported_at",
+            "created_at",
+            "updated_at",
+        ],
+        pk: PkKind::Id,
+    },
 ];
 
 /// Look a shape up by its table name.
@@ -416,8 +470,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_has_16_shapes_with_kebab_paths() {
-        assert_eq!(SHAPES.len(), 16);
+    fn registry_has_18_shapes_with_kebab_paths() {
+        assert_eq!(SHAPES.len(), 18);
         for spec in &SHAPES {
             assert!(spec.path.starts_with("/api/shapes/"), "{}", spec.name);
             assert!(!spec.path.contains('_'), "paths are kebab-case: {}", spec.path);
@@ -502,6 +556,29 @@ mod tests {
         assert!(spec.columns.contains(&"pr_opened_automation"));
         assert!(spec.columns.contains(&"pr_merged_status_id"));
         assert!(spec.columns.contains(&"pr_merged_automation"));
+    }
+
+    #[test]
+    fn device_worktrees_never_model_the_scoping_mirrors() {
+        // EXP-481: `user_id`/`shared_team_id` are server-side scoping
+        // mirrors, proxy-excluded like issue_subscribers.email.
+        let spec = shape_by_name("device_worktrees").unwrap();
+        assert!(!spec.columns.contains(&"user_id"));
+        assert!(!spec.columns.contains(&"shared_team_id"));
+        assert!(spec.columns.contains(&"issue_identifier"));
+        assert!(spec.columns.contains(&"busy"));
+    }
+
+    #[test]
+    fn devices_sync_the_authoritative_launch_defaults() {
+        // EXP-481: dropping either silently blanks the device-settings
+        // dialog's defaults editor and the launch dialog's seeding.
+        let spec = shape_by_name("devices").unwrap();
+        assert!(spec.columns.contains(&"launch_defaults"));
+        assert!(spec.columns.contains(&"launch_defaults_updated_at"));
+        assert!(spec.columns.contains(&"last_seen_at"));
+        assert!(spec.columns.contains(&"user_id"));
+        assert!(spec.columns.contains(&"caps"));
     }
 
     #[test]

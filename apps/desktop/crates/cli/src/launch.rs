@@ -90,10 +90,15 @@ pub fn issue_seed(issue: &FetchedIssue) -> IssueSeed {
     }
 }
 
+/// `resume` (EXP-481): honor a remote start's resume flag — the launcher's
+/// `.exp-agents` marker gate degrades a mismatched/missing worktree to a
+/// fresh session seeded with the resume prompt, so an optimistic flag is
+/// always safe. Local `code` starts stay fresh (no `--resume` flag yet).
 pub fn issue_launch_request(
     issue: &FetchedIssue,
     options: LaunchOptions,
     origin: LaunchOrigin,
+    resume: bool,
 ) -> LaunchRequest {
     LaunchRequest {
         issue_id: issue.id.clone(),
@@ -102,7 +107,7 @@ pub fn issue_launch_request(
         device_label: coding::default_device_label(),
         origin,
         options,
-        resume: false,
+        resume,
     }
 }
 

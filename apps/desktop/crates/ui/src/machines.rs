@@ -3,11 +3,11 @@
 //! section under the Actions tool window's list, so all four clients surface
 //! the same device registry.
 //!
-//! The data is tRPC (`devices.list`), NOT an Electric shape: machine state is
-//! per-USER, not team product data, and it merges live relay presence that no
-//! table holds. There is therefore no echo to observe — the section polls
-//! every [`POLL_INTERVAL`] while it is on screen and refetches right after
-//! every mutation.
+//! Since EXP-481 the rows come from the SYNCED `devices` shape when it is
+//! ready (online-ness = `last_seen_at` freshness against the contract
+//! window — no relay presence involved); the tRPC `devices.list` poll
+//! survives only as the Waiting-state fallback and the
+//! `latestVersions` (update-nudge) source, on a slow cadence.
 //!
 //! Visibility is inferred from rendering: this view is only in the element
 //! tree while the Actions tool window is open, so a poll tick that finds the
@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, AppContext as _, ClipboardItem, Entity, InteractiveElement as _, IntoElement,
+    div, px, App, AppContext as _, ClipboardItem, Entity, InteractiveElement as _, IntoElement,
     ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled, Window,
 };
 use gpui_component::{
@@ -34,13 +34,12 @@ use crate::icons::registry;
 use crate::native_dialog::{self, AlertSpec};
 use crate::queries;
 
-/// Matches the sidebar's Support poll cadence class: often enough that an
-/// online/offline flip lands while the user is looking, cheap enough for a
-/// per-user query.
-const POLL_INTERVAL: Duration = Duration::from_secs(15);
+/// EXP-481: the rows stream over sync now — this poll only feeds
+/// `latestVersions` (and the Waiting-state fallback rows), so it runs slow.
+const POLL_INTERVAL: Duration = Duration::from_secs(60);
 /// A poll tick with no render this recent means the tool window was closed.
 /// Two intervals plus slack — a single slow fetch must not retire the loop.
-const VISIBLE_GRACE: Duration = Duration::from_secs(40);
+const VISIBLE_GRACE: Duration = Duration::from_secs(130);
 
 pub(crate) struct MachinesSection {
     /// `None` until the first answer lands (renders the loading note).
@@ -53,11 +52,16 @@ pub(crate) struct MachinesSection {
     /// refetch carries the server's own `updateRequested` flag.
     updating: Option<String>,
     rename_input: Entity<InputState>,
+    _subscriptions: Vec<gpui::Subscription>,
 }
 
 impl MachinesSection {
     pub(crate) fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let rename_input = cx.new(|cx| InputState::new(window, cx).placeholder("Machine name"));
+        // EXP-481: the rows stream over the devices shape — re-render on
+        // every delta (the poll only feeds latestVersions + the fallback).
+        let devices_collection = sync::Store::global(cx).collections().devices.clone();
+        let subscriptions = vec![cx.observe(&devices_collection, |_, _, cx| cx.notify())];
         Self {
             devices: None,
             latest: api::devices::LatestVersions::default(),
@@ -66,6 +70,7 @@ impl MachinesSection {
             last_render: Instant::now(),
             updating: None,
             rename_input,
+            _subscriptions: subscriptions,
         }
     }
 
@@ -189,6 +194,30 @@ impl MachinesSection {
 
     // -- dialogs -------------------------------------------------------------
 
+    /// EXP-481: Edit… — the Device settings dialog, keyed by the SYNCED
+    /// devices row. While the shape is still Waiting (cold start, old
+    /// server) the row id can't resolve; fall back to the plain rename
+    /// dialog so Edit never dead-ends.
+    fn open_settings(
+        &mut self,
+        device_id: String,
+        label: String,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let row_id = sync::Store::global(cx)
+            .collections()
+            .devices
+            .read(cx)
+            .iter()
+            .find(|row| row.device_id.as_deref() == Some(device_id.as_str()))
+            .map(|row| row.id.clone());
+        match row_id {
+            Some(row_id) => crate::device_settings::open(window, cx, row_id),
+            None => self.prompt_rename(device_id, label, window, cx),
+        }
+    }
+
     /// Rename behind the shared alert window, the typed-input pattern from
     /// the team Danger Zone (the input is a long-lived child so its state
     /// survives the dialog window).
@@ -258,6 +287,69 @@ impl MachinesSection {
         native_dialog::open_alert(window, cx, spec);
     }
 
+    /// EXP-481: the rows from the SYNCED devices shape, mapped into the
+    /// legacy `DeviceEntry` shape `render_row` consumes — own rows first
+    /// (last-seen desc), teammates' shared rows appended with their owner.
+    /// `None` while the shape is Waiting (cold start / old server) — the
+    /// caller falls back to the tRPC list rows.
+    fn synced_entries(&self, cx: &App) -> Option<Vec<api::devices::DeviceEntry>> {
+        let collections = sync::Store::global(cx).collections();
+        let devices = collections.devices.read(cx);
+        if !devices.is_ready() {
+            return None;
+        }
+        let me = crate::queries::active_account(cx)?.id;
+        let users = collections.users.read(cx);
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let mut mine = Vec::new();
+        let mut shared = Vec::new();
+        for row in devices.iter() {
+            let owned = row.user_id.as_deref() == Some(me.as_str());
+            let owner = (!owned).then(|| api::devices::DeviceOwner {
+                id: row.user_id.clone().unwrap_or_default(),
+                name: row
+                    .user_id
+                    .as_deref()
+                    .and_then(|user_id| users.get(user_id))
+                    .and_then(|user| user.name.clone())
+                    .unwrap_or_default(),
+            });
+            let update_requested = row.update_requested_at.is_some();
+            let entry = api::devices::DeviceEntry {
+                device_id: row.device_id.clone().unwrap_or_default(),
+                device_label: row.label.clone().unwrap_or_default(),
+                kind: row.kind.clone().unwrap_or_default(),
+                platform: row.platform.clone(),
+                agents: row.agent_ids(),
+                unauthed_agents: row.unauthed_agent_ids(),
+                caps: row.cap_ids(),
+                online: crate::device_settings::row_is_online(
+                    row.last_seen_at.as_deref(),
+                    now_ms,
+                ),
+                last_seen_at: row.last_seen_at.clone(),
+                registered: true,
+                version: row.version.clone(),
+                update_requested,
+                update_blocked: update_requested
+                    && row.active_sessions.unwrap_or(0) > 0,
+                launch_defaults: row.launch_defaults.clone(),
+                shared_team_id: row.shared_team_id.clone(),
+                owner,
+            };
+            if owned {
+                mine.push(entry);
+            } else {
+                shared.push(entry);
+            }
+        }
+        // ISO timestamps order lexicographically — desc = most recent first.
+        mine.sort_by(|a, b| b.last_seen_at.cmp(&a.last_seen_at));
+        shared.sort_by(|a, b| b.last_seen_at.cmp(&a.last_seen_at));
+        mine.extend(shared);
+        Some(mine)
+    }
+
     // -- render --------------------------------------------------------------
 
     fn render_row(
@@ -268,10 +360,17 @@ impl MachinesSection {
     ) -> gpui::AnyElement {
         let theme = cx.theme();
         let muted = theme.muted_foreground;
-        let label: SharedString = if device.device_label.trim().is_empty() {
-            device.device_id.clone().into()
+        let base_label = if device.device_label.trim().is_empty() {
+            device.device_id.clone()
         } else {
-            device.device_label.clone().into()
+            device.device_label.clone()
+        };
+        // Teammates' shared rows carry their owner (EXP-432) for attribution.
+        let label: SharedString = match device.owner.as_ref() {
+            Some(owner) if !owner.name.is_empty() => {
+                format!("{base_label} · {}", owner.name).into()
+            }
+            _ => base_label.into(),
         };
         let server = device.is_server();
         let kind_icon = if server {
@@ -292,7 +391,7 @@ impl MachinesSection {
         let queued = device.update_requested && device.update_blocked;
         // A relay-only row (a build predating the registry) has nothing to
         // rename, remove or update — it carries no registry row.
-        let menu = device.registered.then(|| {
+        let menu = (device.registered && device.owner.is_none()).then(|| {
             let section = cx.entity().downgrade();
             let device_id = device.device_id.clone();
             let menu_label = label.clone();
@@ -304,25 +403,28 @@ impl MachinesSection {
                 .xsmall()
                 .icon(registry::UI_MORE)
                 .dropdown_menu(move |menu, _window, _cx| {
-                    let rename_section = section.clone();
-                    let rename_id = device_id.clone();
-                    let rename_label = menu_label.clone();
+                    let edit_section = section.clone();
+                    let edit_id = device_id.clone();
+                    let edit_label = menu_label.clone();
                     let remove_section = section.clone();
                     let remove_id = device_id.clone();
                     let remove_label = menu_label.clone();
                     let update_section = section.clone();
                     let update_id = device_id.clone();
+                    // EXP-481: Rename + Sharing live INSIDE the Device
+                    // settings dialog now (with the defaults editor and the
+                    // worktree list) — the menu is Edit/Update/Remove.
                     menu.item(
-                        PopupMenuItem::new("Rename…")
+                        PopupMenuItem::new("Edit…")
                             .icon(Icon::new(registry::UI_EDIT))
                             .on_click(move |_, window, cx| {
-                                let Some(section) = rename_section.upgrade() else {
+                                let Some(section) = edit_section.upgrade() else {
                                     return;
                                 };
-                                let id = rename_id.clone();
-                                let label = rename_label.to_string();
+                                let id = edit_id.clone();
+                                let label = edit_label.to_string();
                                 section.update(cx, |this, cx| {
-                                    this.prompt_rename(id, label, window, cx);
+                                    this.open_settings(id, label, window, cx);
                                 });
                             }),
                     )
@@ -606,7 +708,9 @@ impl Render for MachinesSection {
         self.ensure_polling(cx);
 
         let muted = cx.theme().muted_foreground;
-        let devices = self.devices.clone();
+        // EXP-481: synced rows when the shape is ready; the tRPC list rows
+        // only while Waiting (cold start / old server).
+        let devices = self.synced_entries(cx).or_else(|| self.devices.clone());
         let rows: Vec<gpui::AnyElement> = devices
             .iter()
             .flatten()

@@ -3,7 +3,7 @@
 //!
 //! Design (§5.8, mirrored from §3.5's threading model):
 //!
-//! * **One `gpui::Entity<Collection<T>>` per shape** (16 entities), all held
+//! * **One `gpui::Entity<Collection<T>>` per shape** (18 entities), all held
 //!   by the global [`Store`]. Separate entities give fine-grained
 //!   `cx.notify()` — an issue update wakes only the issue-list views, not the
 //!   label chips.
@@ -37,8 +37,9 @@ use crate::shapes::{shape_by_name, ShapeSpec};
 use crate::store::{ShapeStore, StoreError};
 
 use domain::rows::{
-    ActionRow, Attachment, Board, CodingSession, Comment, Issue, IssueEvent, IssueLabel,
-    IssueStatusRow, IssueSubscriber, Label, Notification, Team, TeamInvite, TeamMember, User,
+    ActionRow, Attachment, Board, CodingSession, Comment, DeviceRow, DeviceWorktreeRow, Issue,
+    IssueEvent, IssueLabel, IssueStatusRow, IssueSubscriber, Label, Notification, Team,
+    TeamInvite, TeamMember, User,
 };
 
 // ---------------------------------------------------------------------------
@@ -116,7 +117,7 @@ impl ShapeSyncPhase {
     }
 }
 
-/// A typed row hydratable from the store's snake_case JSON objects. The 16
+/// A typed row hydratable from the store's snake_case JSON objects. The 18
 /// impls below bind each `domain::rows` struct to its [`ShapeSpec`].
 pub trait ShapeRow: serde::de::DeserializeOwned + Send + 'static {
     fn spec() -> &'static ShapeSpec;
@@ -152,6 +153,8 @@ id_shape_row!(IssueSubscriber, "issue_subscribers");
 id_shape_row!(CodingSession, "coding_sessions");
 id_shape_row!(ActionRow, "actions");
 id_shape_row!(IssueStatusRow, "issue_statuses");
+id_shape_row!(DeviceRow, "devices");
+id_shape_row!(DeviceWorktreeRow, "device_worktrees");
 
 impl ShapeRow for IssueLabel {
     fn spec() -> &'static ShapeSpec {
@@ -310,7 +313,7 @@ pub struct ShapeStatus {
     pub rows: usize,
 }
 
-/// The 16 collection entities (§5.8). Cloning is cheap — `Entity` handles.
+/// The 18 collection entities (§5.8). Cloning is cheap — `Entity` handles.
 #[derive(Clone)]
 pub struct Collections {
     pub teams: Entity<Collection<Team>>,
@@ -330,6 +333,10 @@ pub struct Collections {
     pub actions: Entity<Collection<ActionRow>>,
     /// EXP-314 per-team custom issue statuses (the 16th shape).
     pub issue_statuses: Entity<Collection<IssueStatusRow>>,
+    /// EXP-481 per-user device registry (the 17th shape).
+    pub devices: Entity<Collection<DeviceRow>>,
+    /// EXP-481 per-device worktree inventory (the 18th shape).
+    pub device_worktrees: Entity<Collection<DeviceWorktreeRow>>,
 }
 
 /// Run `$body` once per shape with `$entity` bound to that shape's collection
@@ -369,6 +376,10 @@ macro_rules! for_each_collection {
         $body;
         let $entity = &$collections.issue_statuses;
         $body;
+        let $entity = &$collections.devices;
+        $body;
+        let $entity = &$collections.device_worktrees;
+        $body;
     }};
 }
 
@@ -391,6 +402,8 @@ impl Collections {
             coding_sessions: cx.new(|_| Collection::new()),
             actions: cx.new(|_| Collection::new()),
             issue_statuses: cx.new(|_| Collection::new()),
+            devices: cx.new(|_| Collection::new()),
+            device_worktrees: cx.new(|_| Collection::new()),
         }
     }
 
@@ -425,11 +438,15 @@ impl Collections {
             "issue_statuses" => {
                 apply_to(&self.issue_statuses, keys, full_replace, sqlite, cx)
             }
+            "devices" => apply_to(&self.devices, keys, full_replace, sqlite, cx),
+            "device_worktrees" => {
+                apply_to(&self.device_worktrees, keys, full_replace, sqlite, cx)
+            }
             other => log::warn!("[sync] delta for unknown shape {other}"),
         }
     }
 
-    /// Full hydrate of all 16 collections from SQLite (§5.8 "hydrate typed
+    /// Full hydrate of all 18 collections from SQLite (§5.8 "hydrate typed
     /// in-memory collections from SQLite at startup"). Runs synchronously on
     /// the foreground — deliberately: every batch committed to SQLite has a
     /// matching [`ShapeDelta`] queued behind this call, so a snapshot read
@@ -448,13 +465,13 @@ impl Collections {
     }
 
     fn statuses(&self, cx: &App) -> Vec<ShapeStatus> {
-        let mut out = Vec::with_capacity(16);
+        let mut out = Vec::with_capacity(18);
         for_each_collection!(self, entity => out.push(status_of(entity, cx)));
         out
     }
 
     fn observe_all<V: 'static>(&self, cx: &mut gpui::Context<V>) -> Vec<Subscription> {
-        let mut out = Vec::with_capacity(16);
+        let mut out = Vec::with_capacity(18);
         for_each_collection!(self, entity => {
             out.push(cx.observe(entity, |_, _, cx| cx.notify()))
         });
@@ -891,7 +908,7 @@ mod tests {
 
     #[test]
     fn every_shape_has_a_typed_row_binding() {
-        // The 16 ShapeRow impls cover the registry exactly (a 17th shape
+        // The 18 ShapeRow impls cover the registry exactly (a 19th shape
         // without a typed row would silently never reach the UI).
         let bound = [
             Team::spec().name,
@@ -910,6 +927,8 @@ mod tests {
             CodingSession::spec().name,
             ActionRow::spec().name,
             IssueStatusRow::spec().name,
+            DeviceRow::spec().name,
+            DeviceWorktreeRow::spec().name,
         ];
         let registry: Vec<&str> = crate::shapes::SHAPES.iter().map(|s| s.name).collect();
         assert_eq!(bound.len(), registry.len());

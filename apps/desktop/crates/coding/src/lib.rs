@@ -49,12 +49,15 @@ pub mod codex_trust;
 pub mod doctor;
 pub mod git_credentials;
 pub mod git_worktree;
+pub mod inventory;
+pub mod launch_defaults_sync;
 pub mod launch_gate;
 pub mod launcher;
 pub mod mcp_json;
 pub mod pi_bridge;
 pub mod prompt;
 pub mod prune;
+pub mod remote_admin;
 pub mod reaper;
 pub mod scm;
 pub mod settings;
@@ -112,6 +115,17 @@ pub use mcp_json::{
 };
 pub use pi_bridge::{write_pi_bridge, write_pi_observer, PI_BRIDGE_FILE, PI_OBSERVER_FILE};
 pub use prune::{prune_landed, PrunePolicy, PruneReport, SkipReason};
+pub use inventory::{
+    inventory_fingerprint, scan_clones, scan_inventory, CloneRef, WorktreeInventoryEntry,
+    MAX_REPORTED_WORKTREES,
+};
+pub use launch_defaults_sync::{
+    defaults_fingerprint, read_marker, reconcile, write_marker, ReconcileAction, SyncMarker,
+};
+pub use remote_admin::{
+    apply_defaults_patch, conservative_prune_policy, defaults_wire, remove_worktree_remote,
+    AgentDefaultsPatch, DefaultsPatch, RemoveWorktreeError,
+};
 pub use prompt::{
     deliver_prompt, deliver_prompt_file, render_prompt, render_resume_prompt,
     write_rendered_prompt, PromptDelivery, PROMPT_ARGV_MAX_BYTES, PROMPT_FILE, SEED_LINE,

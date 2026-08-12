@@ -159,6 +159,10 @@ pub struct RemoteStart {
     pub ultracode: Option<bool>,
     pub plan_mode: Option<bool>,
     pub skip_permissions: Option<bool>,
+    /// EXP-481: resume the issue's existing worktree/agent session. Only
+    /// meaningful on the Issue subject (the server rejects it elsewhere);
+    /// absent = fresh start (the pre-481 wire).
+    pub resume: Option<bool>,
 }
 
 /// Build a [`RemoteStart`] from the raw `start_session` frame fields, enforcing
@@ -183,6 +187,7 @@ pub(crate) fn remote_start_from_frame(
     ultracode: Option<bool>,
     plan_mode: Option<bool>,
     skip_permissions: Option<bool>,
+    resume: Option<bool>,
 ) -> Option<RemoteStart> {
     let subject = match (issue_id, issue_ids, action_id) {
         (Some(issue_id), None, None) => RemoteStartSubject::Issue(issue_id),
@@ -211,6 +216,7 @@ pub(crate) fn remote_start_from_frame(
         ultracode,
         plan_mode,
         skip_permissions,
+        resume,
     })
 }
 
@@ -218,6 +224,12 @@ pub(crate) fn remote_start_from_frame(
 /// Runs on the steer runtime — implementations marshal to the gpui
 /// foreground themselves (e.g. via a flume channel the app drains).
 pub type StartSessionFn = Arc<dyn Fn(RemoteStart) + Send + Sync>;
+
+/// EXP-481: an inbound `check_in` nudge — "the server persisted new work,
+/// heartbeat now". MUST NOT block (it runs on the socket task; a stalled
+/// select starves the keepalive) — implementations just flip a flag / send
+/// on a channel and return.
+pub type CheckInFn = Arc<dyn Fn() + Send + Sync>;
 
 /// Stop handle for the channel task. Dropping it does NOT stop the task —
 /// call [`ControlChannelHandle::stop`] (sign-out / account switch).
@@ -244,6 +256,7 @@ pub fn spawn_control_channel(
     device: DeviceIdentity,
     control_api: Arc<dyn ControlApi>,
     on_start_session: StartSessionFn,
+    on_check_in: CheckInFn,
 ) -> ControlChannelHandle {
     let stopped = Arc::new(AtomicBool::new(false));
     let (stop_tx, stop_rx) = flume::bounded::<()>(1);
@@ -255,6 +268,7 @@ pub fn spawn_control_channel(
         device,
         control_api,
         on_start_session,
+        on_check_in,
         stopped,
         stop_rx,
     ));
@@ -314,6 +328,7 @@ async fn run_control_loop(
     device: DeviceIdentity,
     control_api: Arc<dyn ControlApi>,
     on_start_session: StartSessionFn,
+    on_check_in: CheckInFn,
     stopped: Arc<AtomicBool>,
     stop_rx: flume::Receiver<()>,
 ) {
@@ -396,7 +411,8 @@ async fn run_control_loop(
             }
         };
 
-        let event = match connect_and_listen(&url, &device, &on_start_session, &stop_rx).await
+        let event =
+            match connect_and_listen(&url, &device, &on_start_session, &on_check_in, &stop_rx).await
         {
             ConnectionOutcome::Stopped => return,
             ConnectionOutcome::ConnectFailed(reason) => {
@@ -425,6 +441,7 @@ async fn connect_and_listen(
     url: &str,
     device: &DeviceIdentity,
     on_start_session: &StartSessionFn,
+    on_check_in: &CheckInFn,
     stop_rx: &flume::Receiver<()>,
 ) -> ConnectionOutcome {
     let mut ws = match dial(url).await {
@@ -511,10 +528,11 @@ async fn connect_and_listen(
                             ultracode,
                             plan_mode,
                             skip_permissions,
+                            resume,
                         }) => match remote_start_from_frame(
                             issue_id, issue_ids, action_id, action_name, team_id, repo, inputs,
                             started_by, agent, model, effort, ultracode, plan_mode,
-                            skip_permissions,
+                            skip_permissions, resume,
                         ) {
                             Some(start) => {
                                 log::info!("steer control: remote start_session ({:?})", start.subject);
@@ -526,6 +544,9 @@ async fn connect_and_listen(
                                  actionName+teamId — ignored"
                             ),
                         },
+                        // EXP-481: the server persisted new work — pull now.
+                        // Non-blocking by contract (see [`CheckInFn`]).
+                        Some(ServerFrame::CheckIn) => on_check_in(),
                         Some(other) => {
                             // bye/error/kill here: logged; kill is not
                             // session-scoped on the control socket → no-op.
@@ -597,6 +618,7 @@ mod tests {
                 Some(true),
                 None,
                 Some(true),
+                None,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Issue("issue-9".into()),
@@ -607,6 +629,7 @@ mod tests {
                 ultracode: Some(true),
                 plan_mode: None,
                 skip_permissions: Some(true),
+                resume: None,
             })
         );
 
@@ -627,6 +650,7 @@ mod tests {
                 None,
                 Some(false),
                 None,
+                None,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Batch {
@@ -641,6 +665,7 @@ mod tests {
                 ultracode: None,
                 plan_mode: Some(false),
                 skip_permissions: None,
+                resume: None,
             })
         );
     }
@@ -664,6 +689,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Issue("issue-9".into()),
@@ -674,6 +700,7 @@ mod tests {
                 ultracode: None,
                 plan_mode: None,
                 skip_permissions: None,
+                resume: None,
             })
         );
     }
@@ -697,6 +724,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             ),
             None
         );
@@ -704,7 +732,7 @@ mod tests {
         assert_eq!(
             remote_start_from_frame(
                 None, None, None, None, None, None, None, None, None, None, None, None, None,
-                None,
+                None, None,
             ),
             None
         );
@@ -717,6 +745,7 @@ mod tests {
                 None,
                 Some("ws-7".into()),
                 Some(repo()),
+                None,
                 None,
                 None,
                 None,
@@ -745,6 +774,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             ),
             None
         );
@@ -757,6 +787,7 @@ mod tests {
                 None,
                 None,
                 Some(repo()),
+                None,
                 None,
                 None,
                 None,
@@ -789,6 +820,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Action {
@@ -805,6 +837,7 @@ mod tests {
                 ultracode: None,
                 plan_mode: None,
                 skip_permissions: None,
+                resume: None,
             })
         );
         // Repo-less action: repo simply absent.
@@ -815,6 +848,7 @@ mod tests {
                 Some("act-2".into()),
                 Some("Groom".into()),
                 Some("ws-7".into()),
+                None,
                 None,
                 None,
                 None,
@@ -872,6 +906,7 @@ mod tests {
                 None,
                 None,
                 Some(true),
+                None,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Action {
@@ -888,6 +923,7 @@ mod tests {
                 ultracode: None,
                 plan_mode: None,
                 skip_permissions: Some(true),
+                resume: None,
             })
         );
     }
@@ -902,6 +938,7 @@ mod tests {
                 Some("act-1".into()),
                 Some("Code review".into()),
                 Some("ws-7".into()),
+                None,
                 None,
                 None,
                 None,
@@ -931,6 +968,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             ),
             None
         );
@@ -941,6 +979,7 @@ mod tests {
                 None,
                 Some("act-1".into()),
                 Some("Code review".into()),
+                None,
                 None,
                 None,
                 None,

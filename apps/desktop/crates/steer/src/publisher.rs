@@ -681,8 +681,8 @@ async fn pump_connection(
                         log::debug!("steer publisher: relay error {code} ({message:?})");
                         return LoopEnd::Dropped;
                     }
-                    Some(ServerFrame::StartSession { .. }) => {
-                        // Control-socket frame; never valid here. Ignore.
+                    Some(ServerFrame::StartSession { .. }) | Some(ServerFrame::CheckIn) => {
+                        // Control-socket frames; never valid here. Ignore.
                     }
                     None => log::debug!("steer publisher: unparseable frame ignored"),
                 },
