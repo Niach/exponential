@@ -47,11 +47,23 @@ struct AgentsView: View {
     @State private var mergeTarget: MergeAndCloseTarget?
     @State private var merging: Set<String> = []
     @State private var mergeErrors: [String: String] = [:]
+    // "Fix conflicts" (EXP-486, Reviews parity EXP-323): a refused merge is
+    // usually a conflict, so the failing row's caption offers the builtin
+    // recovery run on any reachable machine.
+    @State private var fixTarget: FixConflictsTarget?
 
     /// The row a "Merge and close" confirm is pending for. Only the ids are
     /// captured — the alert copy is fixed, and the row itself may re-sync
     /// underneath the alert.
     private struct MergeAndCloseTarget: Identifiable {
+        let rowId: String
+        let issueId: String
+        var id: String { rowId }
+    }
+
+    /// The row a "Fix conflicts" launch is pending for — the sheet preselects
+    /// the builtin action with this row's PR already picked.
+    private struct FixConflictsTarget: Identifiable {
         let rowId: String
         let issueId: String
         var id: String { rowId }
@@ -259,6 +271,27 @@ struct AgentsView: View {
                 }
             }
             .padding()
+            // Its own node, NOT the ScrollView (that one owns the settings
+            // sheet + remove alert) and NOT the body ZStack (the start sheet
+            // + merge alert) — same one-presentation-per-node rule as below.
+            .sheet(item: $fixTarget) { target in
+                StartCodingSheet(
+                    devices: onlineDevices,
+                    issues: viewModel?.startCandidates(teamId: teamState.activeTeam?.id) ?? [],
+                    preselectedIds: [],
+                    teamId: teamState.activeTeam?.id,
+                    initialTab: .actions,
+                    preselectedActionId: DomainContract.builtinFixConflictsId,
+                    preselectedPrIssueId: target.issueId,
+                    worktrees: viewModel?.worktrees,
+                    onStart: { chosenDevice, issueIds, options in
+                        start(on: chosenDevice, issueIds: issueIds, options: options)
+                    },
+                    onRunAction: { chosenDevice, action, options, inputs in
+                        runAction(on: chosenDevice, action: action, options: options, inputs: inputs)
+                    }
+                )
+            }
         }
         // Clearance for the floating tab bar (EXP-36).
         .tabBarBottomInset()
@@ -573,11 +606,7 @@ struct AgentsView: View {
         VStack(alignment: .leading, spacing: 6) {
             sessionRowBody(row)
             if let message = mergeErrors[row.id] {
-                Text(message)
-                    .font(.caption)
-                    .foregroundStyle(DesignTokens.Semantic.red)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                mergeErrorCaption(row, message: message)
             }
         }
         .padding(.horizontal, 12)
@@ -645,6 +674,46 @@ struct AgentsView: View {
                 .accessibilityLabel("Open issue")
             }
         }
+    }
+
+    /// A refused merge (conflicts, branch protection, GitHub App errors)
+    /// captions THIS row — and a conflict is the common case, so the builtin
+    /// recovery run sits right next to the reason (EXP-486, the same shape as
+    /// the Reviews rows, EXP-323).
+    @ViewBuilder
+    private func mergeErrorCaption(_ row: AgentsViewModel.Row, message: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(DesignTokens.Semantic.red)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let issue = row.issue, canFixConflicts(issue) {
+                Button {
+                    fixTarget = FixConflictsTarget(rowId: row.id, issueId: issue.id)
+                } label: {
+                    HStack(spacing: 4) {
+                        AppIcon(AppIcons.uiBranch, size: 11)
+                        Text("Fix conflicts")
+                            .font(.caption.weight(.medium))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(.white.opacity(0.08), in: Capsule())
+                    .overlay(Capsule().stroke(.white.opacity(0.12), lineWidth: 0.5))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The recovery run rebases the PR's branch, so it needs one recorded —
+    /// the same gate the Reviews rows apply. The caption already implies a
+    /// failed merge, so only steer + branch remain to check.
+    private func canFixConflicts(_ issue: IssueEntity) -> Bool {
+        steerEnabled && !(issue.branch ?? "").isEmpty
     }
 
     /// Merge the row's PR AND end its session (EXP-358). No local list surgery:
