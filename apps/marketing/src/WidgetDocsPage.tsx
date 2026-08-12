@@ -239,12 +239,14 @@ await ExponentialWidget.submit({
               you see.
             </p>
             <p>
-              On desktop browsers a second <strong>Capture screen</strong>{` `}
-              option uses the browser&apos;s native screen sharing to grab a
-              single frame — the escape hatch for content the page snapshot
-              can&apos;t render (canvas/WebGL, video, cross-origin iframes).
-              The visitor picks the surface in the browser&apos;s own dialog,
-              one frame is taken, and sharing stops immediately.
+              On desktop browsers <strong>Take screenshot</strong> uses the
+              browser&apos;s native screen sharing to grab a single frame —
+              it captures content a page snapshot can&apos;t render
+              (canvas/WebGL, video, cross-origin iframes). The visitor picks
+              the surface in the browser&apos;s own dialog, one frame is
+              taken, and sharing stops immediately. On mobile (and if the
+              visitor dismisses that dialog) the widget falls back to a local
+              page snapshot automatically.
             </p>
             <p>
               Before submitting, the visitor can <strong>annotate</strong> the

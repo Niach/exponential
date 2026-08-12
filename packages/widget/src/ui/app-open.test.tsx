@@ -8,10 +8,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { render } from "preact"
 import type { WidgetRuntimeState } from "../types"
 
-const captureScreenshot = vi.fn<() => Promise<Blob | null>>()
+const captureScreenshot = vi.fn<(engine: unknown) => Promise<Blob | null>>()
 
 vi.mock(`../capture/engine`, () => ({
-  captureScreenshot: () => captureScreenshot(),
+  captureScreenshot: (engine: unknown) => captureScreenshot(engine),
 }))
 vi.mock(`../capture/snapdom-engine`, () => ({ snapdomEngine: {} }))
 
@@ -27,6 +27,10 @@ vi.mock(`./Annotator`, () => ({
 }))
 
 import { App } from "./App"
+// The mocked snapDOM engine ({}) and the REAL display-media engine — App picks
+// between them by identity, so these are the exact tokens it passes along.
+import { snapdomEngine } from "../capture/snapdom-engine"
+import { displayMediaEngine } from "../capture/display-media-engine"
 
 const makeState = (): WidgetRuntimeState => ({
   protocol: 1,
@@ -149,5 +153,58 @@ describe(`panel open → on-demand screenshot flow`, () => {
     expect(container.querySelector(`[data-testid="annotator"]`)).toBeNull()
     expect(container.querySelector(`.exp-panel`)).toBeTruthy()
     expect(container.textContent).toContain(`Screenshot couldn't be captured.`)
+  })
+
+  // One button (EXP-488): getDisplayMedia support decides the engine, a
+  // failed/cancelled display capture falls back to the DOM raster.
+  const stubDisplayCapture = () => {
+    Object.defineProperty(navigator, `mediaDevices`, {
+      configurable: true,
+      value: { getDisplayMedia: () => Promise.reject(new Error(`unused`)) },
+    })
+    return () => {
+      delete (navigator as { mediaDevices?: unknown }).mediaDevices
+    }
+  }
+
+  it(`captures with snapDOM where display capture is unsupported`, async () => {
+    captureScreenshot.mockResolvedValue(new Blob([`x`], { type: `image/png` }))
+    await openPanel()
+    await clickTakeScreenshot()
+    expect(captureScreenshot).toHaveBeenCalledTimes(1)
+    expect(captureScreenshot).toHaveBeenCalledWith(snapdomEngine)
+  })
+
+  it(`prefers native display capture where the browser has it`, async () => {
+    const restore = stubDisplayCapture()
+    try {
+      captureScreenshot.mockResolvedValue(
+        new Blob([`x`], { type: `image/png` })
+      )
+      await openPanel()
+      await clickTakeScreenshot()
+      expect(captureScreenshot).toHaveBeenCalledTimes(1)
+      expect(captureScreenshot).toHaveBeenCalledWith(displayMediaEngine)
+      expect(container.querySelector(`[data-testid="annotator"]`)).toBeTruthy()
+    } finally {
+      restore()
+    }
+  })
+
+  it(`falls back to snapDOM when display capture yields nothing`, async () => {
+    const restore = stubDisplayCapture()
+    try {
+      captureScreenshot
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(new Blob([`x`], { type: `image/png` }))
+      await openPanel()
+      await clickTakeScreenshot()
+      expect(captureScreenshot).toHaveBeenCalledTimes(2)
+      expect(captureScreenshot).toHaveBeenNthCalledWith(1, displayMediaEngine)
+      expect(captureScreenshot).toHaveBeenNthCalledWith(2, snapdomEngine)
+      expect(container.querySelector(`[data-testid="annotator"]`)).toBeTruthy()
+    } finally {
+      restore()
+    }
   })
 })

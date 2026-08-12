@@ -80,11 +80,9 @@ export function Panel(props: {
   labels: WidgetRemoteLabel[]
   onClose(): void
   // Capture from scratch (empty state) — lands in the annotator on success.
+  // The engine (native display capture vs snapDOM raster) is the caller's
+  // concern (EXP-488); the panel shows one chip either way.
   onCapture(): void
-  // Native display capture (EXP-435): true only where getDisplayMedia
-  // exists (desktop browsers); renders the "Capture screen" chip.
-  displayCaptureSupported: boolean
-  onCaptureDisplay(): void
   onRetake(): void
   onAnnotate(): void
   onRemoveScreenshot(): void
@@ -554,16 +552,6 @@ export function Panel(props: {
                   >
                     {props.captureFailed ? `Try again` : `Take screenshot`}
                   </button>
-                  {props.displayCaptureSupported && (
-                    <button
-                      type="button"
-                      className="exp-chip"
-                      title="Uses your browser's screen sharing to capture content a page snapshot can miss"
-                      onClick={props.onCaptureDisplay}
-                    >
-                      Capture screen
-                    </button>
-                  )}
                 </div>
               </div>
             )}

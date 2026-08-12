@@ -120,9 +120,6 @@ export function WidgetPanelPreview({
                 <button type="button" className="exp-chip">
                   Take screenshot
                 </button>
-                <button type="button" className="exp-chip">
-                  Capture screen
-                </button>
               </div>
             </div>
           </div>
