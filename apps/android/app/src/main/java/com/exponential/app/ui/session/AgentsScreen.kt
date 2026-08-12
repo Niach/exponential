@@ -63,6 +63,7 @@ import com.exponential.app.ui.issue.SteerStartState
 import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
+import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.theme.glassRow
 import com.exponential.app.ui.theme.glassSection
 
@@ -101,6 +102,11 @@ fun AgentsScreen(
 
     // The row whose "Merge and close" is awaiting confirmation (EXP-358).
     var mergeTarget by remember { mutableStateOf<AgentRow?>(null) }
+
+    // The issue whose "Fix conflicts" sheet is open (EXP-486, Reviews parity
+    // EXP-323): a refused merge is usually a conflict, so the failing row's
+    // caption offers the builtin recovery run.
+    var fixTargetIssueId by remember { mutableStateOf<String?>(null) }
 
     val steerOn = state.steerEnabled == true
 
@@ -226,6 +232,12 @@ fun AgentsScreen(
                                 },
                                 onInfo = { row.session.issueId?.let(onOpenIssue) },
                                 onMergeAndClose = { mergeTarget = row },
+                                // The recovery run rebases the PR's branch, so
+                                // it needs one recorded — the same gate as the
+                                // Reviews rows (EXP-323), plus a reachable
+                                // machine to run on.
+                                canFixConflicts = steerOn && !row.issue?.branch.isNullOrBlank(),
+                                onFixConflicts = { fixTargetIssueId = row.issue?.id },
                             )
                         }
                     }
@@ -244,6 +256,21 @@ fun AgentsScreen(
             onStart = viewModel::startCoding,
             onRunAction = viewModel::runAction,
             onDismiss = { sheetDevice = null },
+        )
+    }
+
+    // "Fix conflicts" (EXP-486, Reviews parity EXP-323): the unified sheet
+    // opened on the builtin action with THIS row's pull request already picked.
+    fixTargetIssueId?.let { issueId ->
+        StartCodingSheet(
+            devices = devices ?: emptyList(),
+            issues = startCandidates,
+            preselectedIds = emptySet(),
+            preselectedActionId = DomainContract.builtinFixConflictsId,
+            preselectedPrIssueId = issueId,
+            onStart = viewModel::startCoding,
+            onRunAction = viewModel::runAction,
+            onDismiss = { fixTargetIssueId = null },
         )
     }
 
@@ -611,6 +638,8 @@ private fun AgentSessionRow(
     onClick: () -> Unit,
     onInfo: () -> Unit,
     onMergeAndClose: () -> Unit,
+    canFixConflicts: Boolean,
+    onFixConflicts: () -> Unit,
 ) {
     val state = codingSessionDisplayState(session, issue?.prState)
     // EXP-358: "Merge and close" only shows while the linked PR is still open —
@@ -718,18 +747,47 @@ private fun AgentSessionRow(
 
         // A refused merge (conflicts, branch protection, GitHub App errors)
         // captions THIS row (EXP-323 pattern) — inside the list, which already
-        // clears the floating nav pill, so the reason is always readable.
+        // clears the floating nav pill, so the reason is always readable. A
+        // conflict is the common case, so the recovery run sits right next to
+        // it (EXP-486, same shape as the Reviews rows).
         if (errorMessage != null) {
-            Text(
-                errorMessage,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.error,
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 3.dp)
                     .glassSection()
                     .padding(horizontal = 12.dp, vertical = 8.dp),
-            )
+            ) {
+                Text(
+                    errorMessage,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                if (canFixConflicts) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier
+                            .glassButton()
+                            .clickable(onClick = onFixConflicts)
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            ExpIcons.uiBranch,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            "Fix conflicts",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
         }
     }
 }
