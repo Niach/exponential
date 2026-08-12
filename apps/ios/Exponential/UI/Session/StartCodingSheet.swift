@@ -35,6 +35,15 @@ import SwiftUI
 // machine reporting an explicitly EMPTY list can run nothing and drops out of
 // the device pool exactly like an offline one.
 //
+// EXP-481: single-issue starts offer "Resume previous session" when the
+// selected machine advertises the `resume` cap AND its synced worktree
+// inventory (shape 18) carries a row for the checked issue whose .exp-agents
+// marker allows the chosen agent. Default ON; while active the plan-mode
+// toggle hides (a resume never re-enters plan mode — the machine clamps it
+// too) and `resume: true` rides the single-issue start only. The machine's
+// launcher degrades a stale offer to a fresh session seeded with a resume
+// prompt, so a worktree row that just went away is never an error.
+//
 // EXP-437: the sheet remembers NOTHING locally. The run lands on the selected
 // MACHINE, so that machine's advertised per-agent defaults (`launchDefaults`
 // on the presence row — default agent, model, effort, toggles) are the only
@@ -131,6 +140,10 @@ struct StartCodingSheet: View {
     /// conflict-recovery entry points hand over the issue their surface acts
     /// on; ANY issue linked to the PR resolves).
     let preselectedPrIssueId: String?
+    /// EXP-481: the synced worktree inventory backing the resume offer. nil =
+    /// the sheet loads a one-shot snapshot itself (hosts with a live
+    /// observation pass theirs for immediacy).
+    let worktrees: [DeviceWorktreeEntity]?
     let onStart: (SteerDevice, [String], SteerStartOptions) -> Void
     /// Actions-mode launch: device, action, options, resolved input values
     /// (key → text or picked repo/board uuid; blank optionals dropped).
@@ -178,6 +191,11 @@ struct StartCodingSheet: View {
     @State private var planMode = false
     @State private var skipPermissions = false
     @State private var seeded = false
+    // EXP-481: resume offer state. `resume` defaults ON and only the user
+    // flips it (eligibility recomputes live, the choice latches); the loaded
+    // snapshot backs hosts that pass no live inventory.
+    @State private var resume = true
+    @State private var loadedWorktrees: [DeviceWorktreeEntity] = []
     /// The machine the options currently reflect (EXP-437). Picking a DIFFERENT
     /// one reseeds from its defaults; anything that re-resolves to the same
     /// machine (a device re-poll, a reselect) must leave the user's edits alone.
@@ -196,9 +214,11 @@ struct StartCodingSheet: View {
         preselectedActionId: String? = nil,
         createActionMode: Bool = false,
         preselectedPrIssueId: String? = nil,
+        worktrees: [DeviceWorktreeEntity]? = nil,
         onStart: @escaping (SteerDevice, [String], SteerStartOptions) -> Void,
         onRunAction: ((SteerDevice, ActionDto, SteerStartOptions, [String: String]) -> Void)? = nil
     ) {
+        self.worktrees = worktrees
         self.devices = devices
         self.issues = issues
         self.preselectedIds = preselectedIds
@@ -330,14 +350,23 @@ struct StartCodingSheet: View {
                 // like the IDE). Ultracode is claude-only, plan mode is
                 // claude+pi (EXP-441), skip permissions doesn't exist for pi.
                 Section {
+                    if resumeCandidate != nil {
+                        Toggle("Resume previous session", isOn: $resume)
+                    }
                     if agent == "claude" {
                         Toggle("Ultracode", isOn: ultracodeBinding)
                     }
-                    if Self.supportsPlanMode(agent) {
+                    // A resume never re-enters plan mode (the machine clamps
+                    // it too) — hide the toggle while one is active.
+                    if Self.supportsPlanMode(agent), !resumeActive {
                         Toggle("Plan mode", isOn: planModeBinding)
                     }
                     if agent != "pi" {
                         Toggle("Skip permissions", isOn: skipPermissionsBinding)
+                    }
+                } footer: {
+                    if resumeActive, let candidate = resumeCandidate {
+                        Text("A worktree for \(candidate.issueIdentifier ?? "this issue") already exists (\(candidate.branch)).")
                     }
                 }
             }
@@ -370,6 +399,13 @@ struct StartCodingSheet: View {
         .accessibilityIdentifier("start-coding-sheet")
         .onAppear { seed() }
         .task { await loadActionsData() }
+        .task {
+            // EXP-481: hosts without a live worktrees observation get a
+            // one-shot snapshot — enough for an offer that degrades
+            // gracefully on staleness anyway.
+            guard worktrees == nil else { return }
+            loadedWorktrees = await DeviceQueries.worktrees(db: deps.db, accountId: accountId)
+        }
         // Crossing into/out of batch flips the mode defaults — unless the user
         // has already touched the option controls, and only for the agents
         // whose toggles the crossing changes (claude's ultracode/plan, pi's
@@ -1227,8 +1263,41 @@ struct StartCodingSheet: View {
         return value
     }
 
+    // MARK: - Resume (EXP-481)
+
+    /// The worktree inventory backing the resume offer — the host's live rows
+    /// when passed, else the sheet's own one-shot snapshot.
+    private var worktreePool: [DeviceWorktreeEntity] {
+        worktrees ?? loadedWorktrees
+    }
+
+    /// The synced worktree that makes "Resume previous session" offerable:
+    /// Issues tab, exactly ONE checked issue, a resume-capable machine picked
+    /// off the devices SHAPE (rowId — tRPC/relay rows never resume), and a
+    /// row whose identifier + .exp-agents marker match. Recomputed live;
+    /// nil hides the toggle.
+    private var resumeCandidate: DeviceWorktreeEntity? {
+        guard subjectTab == .issues,
+              effectiveChecked.count == 1,
+              let device, device.canResume,
+              let issueId = effectiveChecked.first,
+              let identifier = issues.first(where: { $0.id == issueId })?.identifier
+        else { return nil }
+        return WorktreeResume.match(
+            worktrees: worktreePool,
+            deviceRowId: device.rowId,
+            issueIdentifier: identifier,
+            agent: agent
+        )
+    }
+
+    private var resumeActive: Bool {
+        resume && resumeCandidate != nil
+    }
+
     /// The chosen options in wire form — shared by both launch subjects.
-    private func buildOptions() -> SteerStartOptions {
+    /// `resume` is set by `submit()` alone: single-issue starts only.
+    private func buildOptions(resume: Bool? = nil) -> SteerStartOptions {
         let isClaude = agent == "claude"
         return SteerStartOptions(
             agent: agent,
@@ -1237,8 +1306,10 @@ struct StartCodingSheet: View {
             // The toggles only exist for the agents that support them — never
             // send a stale value the launcher would reject or misread.
             ultracode: isClaude ? ultracode : nil,
-            planMode: Self.supportsPlanMode(agent) ? planMode : nil,
-            skipPermissions: agent == "pi" ? nil : skipPermissions
+            // A resume never re-enters plan mode (mirrors the desktop clamp).
+            planMode: Self.supportsPlanMode(agent) ? (resume == true ? false : planMode) : nil,
+            skipPermissions: agent == "pi" ? nil : skipPermissions,
+            resume: resume
         )
     }
 
@@ -1247,7 +1318,10 @@ struct StartCodingSheet: View {
         // Snapshot before dismissing — the payload must not depend on what the
         // teardown does to the sheet's state.
         let ids = orderedCheckedIds
-        let options = buildOptions()
+        // Single-issue only — a batch has no per-issue worktree to resume.
+        let options = buildOptions(
+            resume: ids.count == 1 && resumeActive ? true : nil
+        )
         dismiss()
         onStart(device, ids, options)
     }

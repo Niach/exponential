@@ -18,6 +18,16 @@ final class AgentsViewModel {
 
     var rows: [Row] = []
 
+    /// EXP-481: the machines list, composed from the synced `devices` shape
+    /// (own rows + the active team's shared servers; online-ness derives from
+    /// last_seen_at freshness) — the sync-fed replacement for the old 15s
+    /// `devices.list` poll. nil until the first observation emission, so the
+    /// view can tell "loading" from "no machines".
+    var devices: [SteerDevice]?
+    /// EXP-481: the synced worktree inventory (shape 18) — the Start-coding
+    /// sheet's resume probe and the device-settings worktree list.
+    var worktrees: [DeviceWorktreeEntity] = []
+
     /// The team the surrounding view currently shows — kept current by
     /// `AgentsView` (the sessions observation is account-wide, the list is
     /// team-scoped). nil until the team state resolves: no rows.
@@ -25,6 +35,7 @@ final class AgentsViewModel {
         didSet {
             guard oldValue != activeTeamId else { return }
             rebuild()
+            rebuildDevices()
         }
     }
 
@@ -38,12 +49,19 @@ final class AgentsViewModel {
     private var issueTask: Task<Void, Never>?
     private var boardTask: Task<Void, Never>?
     private var livenessTask: Task<Void, Never>?
+    private var deviceTask: Task<Void, Never>?
+    private var worktreeTask: Task<Void, Never>?
+    private var userTask: Task<Void, Never>?
 
     private var sessions: [CodingSessionEntity] = []
     private var issues: [IssueEntity] = []
     // Observed so the Start-coding picker can resolve repo-backed boards
     // (EXP-156) — not used by the running-session list itself.
     private var boards: [BoardEntity] = []
+    // EXP-481: raw synced rows behind `devices` (users resolve shared-row
+    // owner names — a sharing owner is always inside the users shape).
+    private var deviceEntities: [DeviceEntity]?
+    private var users: [UserEntity] = []
 
     init(accountId: String, userId: String?, db: DatabaseManager) {
         self.accountId = accountId
@@ -101,14 +119,51 @@ final class AgentsViewModel {
             } catch {}
         }
 
-        // GRDB only re-fires on writes — this minute clock re-applies the
-        // staleness filter so a phantom row's entry clears once its liveness
-        // window elapses without any sync delta (EXP-153).
+        // EXP-481: the machines list — devices + worktrees + users off sync.
+        let deviceObservation = ValueObservation.tracking { db in
+            try DeviceEntity.fetchAll(db)
+        }
+        deviceTask = Task { [weak self] in
+            do {
+                for try await rows in deviceObservation.values(in: pool) {
+                    self?.deviceEntities = rows
+                    self?.rebuildDevices()
+                }
+            } catch {}
+        }
+        let worktreeObservation = ValueObservation.tracking { db in
+            try DeviceWorktreeEntity.fetchAll(db)
+        }
+        worktreeTask = Task { [weak self] in
+            do {
+                for try await rows in worktreeObservation.values(in: pool) {
+                    self?.worktrees = rows
+                }
+            } catch {}
+        }
+        let userObservation = ValueObservation.tracking { db in
+            try UserEntity.fetchAll(db)
+        }
+        userTask = Task { [weak self] in
+            do {
+                for try await rows in userObservation.values(in: pool) {
+                    self?.users = rows
+                    self?.rebuildDevices()
+                }
+            } catch {}
+        }
+
+        // GRDB only re-fires on writes — this clock re-applies the staleness
+        // filters so a phantom session clears once its liveness window
+        // elapses (EXP-153) and a silent machine drops to "last seen" once
+        // its heartbeat window does (EXP-481: 30s against the 90s contract
+        // window, so the badge flips within one tick of the boundary).
         livenessTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(60))
+                try? await Task.sleep(for: .seconds(30))
                 guard let self, !Task.isCancelled else { return }
                 self.rebuild()
+                self.rebuildDevices()
             }
         }
     }
@@ -122,6 +177,25 @@ final class AgentsViewModel {
         boardTask = nil
         livenessTask?.cancel()
         livenessTask = nil
+        deviceTask?.cancel()
+        deviceTask = nil
+        worktreeTask?.cancel()
+        worktreeTask = nil
+        userTask?.cancel()
+        userTask = nil
+    }
+
+    /// EXP-481: recompose the machines list from the observed rows — own
+    /// machines first (most recently seen), then the active team's shared
+    /// servers, exactly the `devices.list` ordering the view already renders.
+    private func rebuildDevices() {
+        guard let deviceEntities else { return }
+        devices = DeviceQueries.compose(
+            rows: deviceEntities,
+            users: users,
+            teamId: activeTeamId,
+            userId: userId
+        )
     }
 
     /// Candidate issues for the Agents-tab Start-coding sheet (EXP-156): every

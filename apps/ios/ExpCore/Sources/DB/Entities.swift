@@ -1204,6 +1204,217 @@ extension IssueEventEntity: Codable {
     }
 }
 
+// MARK: - Device (EXP-481)
+
+// The per-user machine registry — the 17th Electric shape (own rows plus
+// teammates' team-shared SERVER rows; scope is server-side). Rows are
+// SERVER-AUTHORITATIVE device state: `launch_defaults` is the canonical copy
+// of the machine's agent defaults (its local settings.json converges), and
+// online-ness derives CLIENT-side from `last_seen_at` freshness
+// (`DeviceLiveness`) — no relay presence in the sync path. Every non-PK field
+// is optional/defaulted: a required field absent on the wire silently drops
+// rows forever (the attachments `uploader_id` lesson).
+public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
+    public static let databaseTableName = "devices"
+
+    public let id: String
+    public let userId: String
+    /// The steer deviceId (the start-target identifier every devices.* tRPC
+    /// mutation takes) — NOT the row id.
+    public let deviceId: String
+    public let label: String
+    /// `desktop` | `server` — documented varchar, no contract enum.
+    public let kind: String?
+    public let platform: String?
+    public let version: String?
+    /// jsonb string[] columns, stored as stringified JSON (decoded lazily by
+    /// the SteerDevice mapping in DeviceRows.swift).
+    public let agents: String?
+    public let caps: String?
+    public let unauthedAgents: String?
+    /// jsonb object (defaultAgent + per-agent model/effort/toggles), stored as
+    /// stringified JSON. Inner keys are camelCase verbatim on the wire.
+    public let launchDefaults: String?
+    public let launchDefaultsUpdatedAt: String?
+    public let activeSessions: Int
+    public let lastSeenAt: String?
+    public let sharedTeamId: String?
+    public let updateRequestedAt: String?
+    public let createdAt: String?
+    public let updatedAt: String?
+
+    public init(
+        id: String,
+        userId: String,
+        deviceId: String,
+        label: String,
+        kind: String? = nil,
+        platform: String? = nil,
+        version: String? = nil,
+        agents: String? = nil,
+        caps: String? = nil,
+        unauthedAgents: String? = nil,
+        launchDefaults: String? = nil,
+        launchDefaultsUpdatedAt: String? = nil,
+        activeSessions: Int = 0,
+        lastSeenAt: String? = nil,
+        sharedTeamId: String? = nil,
+        updateRequestedAt: String? = nil,
+        createdAt: String? = nil,
+        updatedAt: String? = nil
+    ) {
+        self.id = id
+        self.userId = userId
+        self.deviceId = deviceId
+        self.label = label
+        self.kind = kind
+        self.platform = platform
+        self.version = version
+        self.agents = agents
+        self.caps = caps
+        self.unauthedAgents = unauthedAgents
+        self.launchDefaults = launchDefaults
+        self.launchDefaultsUpdatedAt = launchDefaultsUpdatedAt
+        self.activeSessions = activeSessions
+        self.lastSeenAt = lastSeenAt
+        self.sharedTeamId = sharedTeamId
+        self.updateRequestedAt = updateRequestedAt
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, label, kind, platform, version, agents, caps
+        case userId = "user_id"
+        case deviceId = "device_id"
+        case unauthedAgents = "unauthed_agents"
+        case launchDefaults = "launch_defaults"
+        case launchDefaultsUpdatedAt = "launch_defaults_updated_at"
+        case activeSessions = "active_sessions"
+        case lastSeenAt = "last_seen_at"
+        case sharedTeamId = "shared_team_id"
+        case updateRequestedAt = "update_requested_at"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+// Custom decode: the jsonb columns arrive as objects/arrays off the Electric
+// wire (stored as stringified JSON via the type-FAITHFUL JSONWireValue — the
+// stored string is parsed back into TYPED data, launchDefaults booleans
+// included) or as pre-stringified JSON from fixtures; `active_sessions` is
+// Postgres int-as-text on the wire, and everything else decodes permissively
+// with schema defaults.
+extension DeviceEntity: Codable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        userId = try c.decode(String.self, forKey: .userId)
+        deviceId = try c.decode(String.self, forKey: .deviceId)
+        label = (try? c.decode(String.self, forKey: .label)) ?? ""
+        kind = try c.decodeIfPresent(String.self, forKey: .kind)
+        platform = try c.decodeIfPresent(String.self, forKey: .platform)
+        version = try c.decodeIfPresent(String.self, forKey: .version)
+        agents = c.decodeWireJsonString(forKey: .agents)
+        caps = c.decodeWireJsonString(forKey: .caps)
+        unauthedAgents = c.decodeWireJsonString(forKey: .unauthedAgents)
+        launchDefaults = c.decodeWireJsonString(forKey: .launchDefaults)
+        launchDefaultsUpdatedAt = try c.decodeIfPresent(String.self, forKey: .launchDefaultsUpdatedAt)
+        // SE-0230 flattens the try?-of-optional; unparseable text degrades to
+        // 0 rather than dropping the row (activeSessions only gates a badge).
+        activeSessions = (try? c.decodeWireInt(forKey: .activeSessions)) ?? 0
+        lastSeenAt = try c.decodeIfPresent(String.self, forKey: .lastSeenAt)
+        sharedTeamId = try c.decodeIfPresent(String.self, forKey: .sharedTeamId)
+        updateRequestedAt = try c.decodeIfPresent(String.self, forKey: .updateRequestedAt)
+        createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt)
+        updatedAt = try c.decodeIfPresent(String.self, forKey: .updatedAt)
+    }
+}
+
+// MARK: - DeviceWorktree (EXP-481)
+
+// Per-device worktree inventory — the 18th Electric shape, reported by the
+// device itself (powers resume offers + the device-settings worktree list,
+// from persisted data even while the machine is offline). `device_row_id`
+// references the devices ROW id (uuid), never the steer device-id string.
+// The server-side scoping mirrors (user_id/shared_team_id) stay out of the
+// allowlist and never reach this decoder.
+public struct DeviceWorktreeEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
+    public static let databaseTableName = "device_worktrees"
+
+    public let id: String
+    public let deviceRowId: String
+    public let repoFullName: String
+    public let branch: String
+    /// `exp/<IDENTIFIER>` linkage as the device parsed it; nil for batch or
+    /// foreign-prefix branches.
+    public let issueIdentifier: String?
+    /// jsonb string[] of the agents recorded in the worktree's .exp-agents
+    /// resume marker, stored as stringified JSON; nil = pre-marker worktree
+    /// (any agent may resume).
+    public let agents: String?
+    /// `clean` | `untracked` | `tracked` | `unknown` — documented varchar.
+    public let dirty: String?
+    /// A live session on the device currently holds this worktree's branch.
+    public let busy: Bool
+    public let reportedAt: String?
+    public let createdAt: String?
+    public let updatedAt: String?
+
+    public init(
+        id: String,
+        deviceRowId: String,
+        repoFullName: String,
+        branch: String,
+        issueIdentifier: String? = nil,
+        agents: String? = nil,
+        dirty: String? = nil,
+        busy: Bool = false,
+        reportedAt: String? = nil,
+        createdAt: String? = nil,
+        updatedAt: String? = nil
+    ) {
+        self.id = id
+        self.deviceRowId = deviceRowId
+        self.repoFullName = repoFullName
+        self.branch = branch
+        self.issueIdentifier = issueIdentifier
+        self.agents = agents
+        self.dirty = dirty
+        self.busy = busy
+        self.reportedAt = reportedAt
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, branch, agents, dirty, busy
+        case deviceRowId = "device_row_id"
+        case repoFullName = "repo_full_name"
+        case issueIdentifier = "issue_identifier"
+        case reportedAt = "reported_at"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+extension DeviceWorktreeEntity: Codable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        deviceRowId = try c.decode(String.self, forKey: .deviceRowId)
+        repoFullName = try c.decode(String.self, forKey: .repoFullName)
+        branch = try c.decode(String.self, forKey: .branch)
+        issueIdentifier = try c.decodeIfPresent(String.self, forKey: .issueIdentifier)
+        agents = c.decodeWireJsonString(forKey: .agents)
+        dirty = try c.decodeIfPresent(String.self, forKey: .dirty)
+        busy = c.decodeWireBool(forKey: .busy, default: false)
+        reportedAt = try c.decodeIfPresent(String.self, forKey: .reportedAt)
+        createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt)
+        updatedAt = try c.decodeIfPresent(String.self, forKey: .updatedAt)
+    }
+}
+
 // `issues.description` / `comments.body` are plain GFM markdown text — return
 // them verbatim (mirrors the web helper in packages/db-schema/src/domain.ts;
 // never parse: a body that happens to be a bare JSON object is legit content).
