@@ -158,6 +158,50 @@ describe(`device presence + remote start`, () => {
     expect(hub.devicesFor(`owner`)).toEqual([])
   })
 
+  test(`startSession passes resume through to the frame (EXP-481)`, () => {
+    const hub = new Hub()
+    const desktop = new FakeSocket()
+    hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
+    hub.onMessage(desktop, JSON.stringify({ t: `online`, deviceId: `dev-1` }))
+
+    hub.startSession(
+      `owner`,
+      `dev-1`,
+      { issueId: `issue-9` },
+      { resume: true }
+    )
+    expect(desktop.lastFrame(`start_session`)).toEqual({
+      t: `start_session`,
+      issueId: `issue-9`,
+      resume: true,
+    })
+
+    // Absent resume: the frame stays byte-identical to the legacy wire.
+    hub.startSession(`owner`, `dev-1`, { issueId: `issue-10` })
+    expect(desktop.lastFrame(`start_session`)).toEqual({
+      t: `start_session`,
+      issueId: `issue-10`,
+    })
+  })
+
+  test(`nudge delivers a check_in frame to the control socket (EXP-481)`, () => {
+    const hub = new Hub()
+    const desktop = new FakeSocket()
+    hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
+    hub.onMessage(desktop, JSON.stringify({ t: `online`, deviceId: `dev-1` }))
+
+    expect(hub.nudge(`owner`, `dev-1`)).toBe(true)
+    expect(desktop.lastFrame(`check_in`)).toEqual({ t: `check_in` })
+
+    // Offline device / wrong owner: not delivered, nothing sent anywhere.
+    expect(hub.nudge(`owner`, `dev-404`)).toBe(false)
+    expect(hub.nudge(`someone-else`, `dev-1`)).toBe(false)
+    expect(desktop.framesOf(`check_in`)).toHaveLength(1)
+
+    hub.onClose(desktop)
+    expect(hub.nudge(`owner`, `dev-1`)).toBe(false)
+  })
+
   test(`startSession passes startedBy through to the frame (EXP-432)`, () => {
     const hub = new Hub()
     const desktop = new FakeSocket()

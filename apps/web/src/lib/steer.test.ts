@@ -6,6 +6,7 @@ import {
   mintSteerTicket,
   relayGetDevices,
   relayPostKill,
+  relayPostNudge,
   relayPostStart,
   steerHttpBase,
   steerTicketUrl,
@@ -416,5 +417,38 @@ describe(`relay admin HTTP`, () => {
     expect(signal).toBeInstanceOf(AbortSignal)
     expect(signal?.aborted).toBe(false)
     await expect(call).resolves.toEqual({ delivered: false })
+  })
+
+  // EXP-481: the check-in nudge — same best-effort/never-throws contract as
+  // kill, aimed at a device instead of a session.
+  it(`nudge posts the device path, reports delivery and never throws`, async () => {
+    const okFetch = vi
+      .fn<RelayFetch>()
+      .mockResolvedValue(fakeResponse(200, { ok: true, delivered: true }))
+    await expect(
+      relayPostNudge(CONFIG, `owner 1`, `dev/1`, okFetch)
+    ).resolves.toEqual({ delivered: true })
+    expect(okFetch).toHaveBeenCalledWith(
+      `https://steer.example.com/devices/owner%201/dev%2F1/nudge`,
+      {
+        method: `POST`,
+        headers: { "x-relay-secret": `test-secret` },
+        signal: expect.any(AbortSignal),
+      }
+    )
+
+    const offlineFetch = vi
+      .fn<RelayFetch>()
+      .mockResolvedValue(fakeResponse(200, { ok: true, delivered: false }))
+    await expect(
+      relayPostNudge(CONFIG, `owner`, `dev-1`, offlineFetch)
+    ).resolves.toEqual({ delivered: false })
+
+    const downFetch = vi
+      .fn<RelayFetch>()
+      .mockRejectedValue(new Error(`ECONNREFUSED`))
+    await expect(
+      relayPostNudge(CONFIG, `owner`, `dev-1`, downFetch)
+    ).resolves.toEqual({ delivered: false })
   })
 })

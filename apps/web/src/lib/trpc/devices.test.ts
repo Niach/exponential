@@ -10,6 +10,9 @@ const h = vi.hoisted(() => {
     selectQueue: [] as unknown[][],
     inserted: [] as unknown[],
     upserts: [] as unknown[],
+    // EXP-481: rows returned by insert(...).returning() /
+    // onConflictDoUpdate(...).returning() — queue like updateReturning.
+    insertReturning: [] as unknown[][],
     updates: [] as { set: unknown; returningRows: unknown[] }[],
     updateReturning: [[{ id: `row-1` }]] as unknown[][],
     deletes: 0,
@@ -17,8 +20,29 @@ const h = vi.hoisted(() => {
   const nextSelect = () =>
     state.selectQueue.length > 0 ? state.selectQueue.shift() : state.selectRows
   const selectBuilder = () => {
+    // Lazily consuming thenable so `.orderBy(...)` can BOTH terminate a
+    // chain (await) and continue into `.limit(...)` without double-spending
+    // the select queue (EXP-481: the heartbeat command pickup chains both).
+    const lazy = () => {
+      let cached: unknown
+      let resolved = false
+      const get = () => {
+        if (!resolved) {
+          resolved = true
+          cached = nextSelect()
+        }
+        return cached
+      }
+      return {
+        then: (
+          onFulfilled?: (value: unknown) => unknown,
+          onRejected?: (reason: unknown) => unknown
+        ) => Promise.resolve(get()).then(onFulfilled, onRejected),
+        limit: () => Promise.resolve(get()),
+      }
+    }
     const terminal = {
-      orderBy: () => Promise.resolve(nextSelect()),
+      orderBy: () => lazy(),
       limit: () => Promise.resolve(nextSelect()),
     }
     const b = {
@@ -28,6 +52,12 @@ const h = vi.hoisted(() => {
     }
     return b
   }
+  const insertResult = () =>
+    Promise.resolve(
+      state.insertReturning.shift() ?? [
+        { id: `row-1`, launchDefaults: null, launchDefaultsUpdatedAt: null },
+      ]
+    )
   const db = {
     select: () => selectBuilder(),
     insert: () => ({
@@ -36,8 +66,11 @@ const h = vi.hoisted(() => {
         return {
           onConflictDoUpdate: (upsert: unknown) => {
             state.upserts.push(upsert)
-            return Promise.resolve()
+            return Object.assign(Promise.resolve(), {
+              returning: insertResult,
+            })
           },
+          returning: insertResult,
         }
       },
     }),
@@ -58,12 +91,21 @@ const h = vi.hoisted(() => {
         return Promise.resolve()
       },
     }),
+    // EXP-481: txid-wrapped mutations run their body against the same mock;
+    // generateTxId calls tx.execute for pg_current_xact_id.
+    transaction: async (fn: (tx: unknown) => Promise<unknown>) =>
+      fn(
+        Object.assign(Object.create(db), {
+          execute: async () => ({ rows: [{ txid: `42` }] }),
+        })
+      ),
   }
   return {
     state,
     db,
     getSteerRelayConfig: vi.fn(),
     relayGetDevices: vi.fn(),
+    relayPostNudge: vi.fn(async () => ({ delivered: true })),
     assertTeamMember: vi.fn(),
     endForeignHostedSessions: vi.fn(async () => [] as string[]),
   }
@@ -74,6 +116,7 @@ vi.mock(`@/lib/auth`, () => ({ auth: {} }))
 vi.mock(`@/lib/steer`, () => ({
   getSteerRelayConfig: h.getSteerRelayConfig,
   relayGetDevices: h.relayGetDevices,
+  relayPostNudge: h.relayPostNudge,
 }))
 vi.mock(`@/lib/team-membership`, () => ({
   assertTeamMember: h.assertTeamMember,
@@ -112,6 +155,9 @@ const registryRow = (over: Record<string, unknown> = {}) => ({
   activeSessions: 0,
   lastSeenAt: new Date(`2026-08-01T10:00:00Z`),
   sharedTeamId: null,
+  unauthedAgents: [],
+  launchDefaults: null,
+  launchDefaultsUpdatedAt: null,
   createdAt: new Date(`2026-07-01T10:00:00Z`),
   updatedAt: new Date(`2026-08-01T10:00:00Z`),
   ...over,
@@ -128,6 +174,7 @@ beforeEach(() => {
   h.state.selectQueue = []
   h.state.inserted = []
   h.state.upserts = []
+  h.state.insertReturning = []
   h.state.updates = []
   h.state.updateReturning = [[{ id: `row-1` }]]
   h.state.deletes = 0
@@ -150,7 +197,7 @@ describe(`devices.register`, () => {
       agents: [`claude`, `codex`],
       caps: [`actions`],
     })
-    expect(result).toEqual({ ok: true })
+    expect(result).toMatchObject({ ok: true })
     expect(h.state.inserted).toHaveLength(1)
     expect(h.state.inserted[0]).toMatchObject({
       userId: `actor`,
@@ -195,7 +242,7 @@ describe(`devices.requestUpdate + heartbeat`, () => {
     expect(await caller.requestUpdate({ deviceId: `dev-1` })).toEqual({
       ok: true,
     })
-    expect(await caller.heartbeat({ deviceId: `dev-1` })).toEqual({
+    expect(await caller.heartbeat({ deviceId: `dev-1` })).toMatchObject({
       ok: true,
       updateRequested: true,
     })
@@ -211,7 +258,7 @@ describe(`devices.heartbeat`, () => {
 
   it(`bumps last_seen_at for a live row`, async () => {
     const result = await caller.heartbeat({ deviceId: `dev-1` })
-    expect(result).toEqual({ ok: true, updateRequested: false })
+    expect(result).toMatchObject({ ok: true, updateRequested: false })
     expect(h.state.updates[0]?.set).toMatchObject({
       lastSeenAt: expect.any(Date),
     })
@@ -402,7 +449,7 @@ describe(`devices.list`, () => {
 describe(`devices.remove`, () => {
   it(`deletes the row`, async () => {
     const result = await caller.remove({ deviceId: `dev-1` })
-    expect(result).toEqual({ ok: true })
+    expect(result).toMatchObject({ ok: true })
     expect(h.state.deletes).toBe(1)
   })
 })
@@ -415,7 +462,7 @@ describe(`devices.setShared`, () => {
       deviceId: `dev-1`,
       teamId: `11111111-1111-4111-8111-111111111111`,
     })
-    expect(result).toEqual({ ok: true })
+    expect(result).toMatchObject({ ok: true })
     expect(h.assertTeamMember).toHaveBeenCalledWith(
       `actor`,
       `11111111-1111-4111-8111-111111111111`
@@ -428,7 +475,7 @@ describe(`devices.setShared`, () => {
   it(`clears the share with teamId: null without a membership check`, async () => {
     h.state.selectQueue = sharedProbe(null)
     const result = await caller.setShared({ deviceId: `dev-1`, teamId: null })
-    expect(result).toEqual({ ok: true })
+    expect(result).toMatchObject({ ok: true })
     expect(h.assertTeamMember).not.toHaveBeenCalled()
     expect(h.state.updates[0]?.set).toMatchObject({ sharedTeamId: null })
   })
@@ -599,5 +646,314 @@ describe(`devices.list({teamId})`, () => {
     expect(devices).toHaveLength(1)
     // Exactly one relay fetch — never a per-owner sweep without teamId.
     expect(h.relayGetDevices).toHaveBeenCalledTimes(1)
+  })
+})
+
+// EXP-481: server-authoritative launch defaults.
+describe(`devices.setLaunchDefaults`, () => {
+  const deviceRow = (over: Record<string, unknown> = {}) => [
+    [
+      {
+        id: `row-1`,
+        caps: [`actions`, `worktrees`, `launch-defaults`, `resume`],
+        launchDefaults: null,
+        launchDefaultsUpdatedAt: null,
+        ...over,
+      },
+    ],
+  ]
+
+  it(`404s an unknown device`, async () => {
+    h.state.selectQueue = [[]]
+    await expect(
+      caller.setLaunchDefaults({
+        deviceId: `dev-x`,
+        launchDefaults: { defaultAgent: `claude` },
+      })
+    ).rejects.toMatchObject({ code: `NOT_FOUND` })
+  })
+
+  it(`UI edit (no expectedUpdatedAt) writes unconditionally, clamps vocab, nudges`, async () => {
+    h.state.selectQueue = deviceRow()
+    const result = await caller.setLaunchDefaults({
+      deviceId: `dev-1`,
+      launchDefaults: {
+        defaultAgent: `codex`,
+        agents: {
+          claude: { model: `fable`, ultracode: true },
+          // Invalid model + unsupported toggle are dropped FIELD-wise, and
+          // codex keeps its valid skipPermissions.
+          codex: { model: `not-a-model`, ultracode: true, skipPermissions: true },
+        },
+      },
+    })
+    expect(result.ok).toBe(true)
+    expect(result.conflict).toBeUndefined()
+    expect(result.launchDefaults).toEqual({
+      defaultAgent: `codex`,
+      agents: {
+        claude: { model: `fable`, ultracode: true },
+        codex: { skipPermissions: true },
+      },
+    })
+    expect(result.launchDefaultsUpdatedAt).toEqual(expect.any(String))
+    expect(result.txid).toBe(42)
+    expect(h.state.updates[0]?.set).toMatchObject({
+      launchDefaults: result.launchDefaults,
+    })
+    expect(h.relayPostNudge).toHaveBeenCalledWith(
+      expect.anything(),
+      `actor`,
+      `dev-1`
+    )
+  })
+
+  it(`device push with a stale stamp gets conflict + the server copy`, async () => {
+    const serverCopy = { defaultAgent: `claude` }
+    h.state.selectQueue = deviceRow({
+      launchDefaults: serverCopy,
+      launchDefaultsUpdatedAt: new Date(`2026-08-10T10:00:00Z`),
+    })
+    const result = await caller.setLaunchDefaults({
+      deviceId: `dev-1`,
+      launchDefaults: { defaultAgent: `pi` },
+      expectedUpdatedAt: null,
+    })
+    expect(result).toMatchObject({
+      ok: false,
+      conflict: true,
+      launchDefaults: serverCopy,
+      launchDefaultsUpdatedAt: `2026-08-10T10:00:00.000Z`,
+    })
+    expect(h.state.updates).toHaveLength(0)
+    expect(h.relayPostNudge).not.toHaveBeenCalled()
+  })
+
+  it(`device push with the matching stamp wins`, async () => {
+    h.state.selectQueue = deviceRow({
+      launchDefaults: { defaultAgent: `claude` },
+      launchDefaultsUpdatedAt: new Date(`2026-08-10T10:00:00Z`),
+    })
+    const result = await caller.setLaunchDefaults({
+      deviceId: `dev-1`,
+      launchDefaults: { defaultAgent: `pi` },
+      expectedUpdatedAt: `2026-08-10T10:00:00.000Z`,
+    })
+    expect(result.ok).toBe(true)
+    expect(result.launchDefaults).toEqual({ defaultAgent: `pi` })
+  })
+
+  it(`skips the nudge for devices without any EXP-481 cap (old frame parsers)`, async () => {
+    h.state.selectQueue = deviceRow({ caps: [`actions`] })
+    const result = await caller.setLaunchDefaults({
+      deviceId: `dev-1`,
+      launchDefaults: { defaultAgent: `claude` },
+    })
+    expect(result.ok).toBe(true)
+    expect(h.relayPostNudge).not.toHaveBeenCalled()
+  })
+})
+
+// EXP-481: worktree inventory reporting.
+describe(`devices.reportWorktrees`, () => {
+  const wt = (branch: string, over: Record<string, unknown> = {}) => ({
+    repoFullName: `acme/api`,
+    branch,
+    dirty: `clean` as const,
+    busy: false,
+    ...over,
+  })
+
+  it(`404s an unregistered device`, async () => {
+    h.state.selectQueue = [[]]
+    await expect(
+      caller.reportWorktrees({ deviceId: `dev-x`, worktrees: [] })
+    ).rejects.toMatchObject({ code: `NOT_FOUND` })
+  })
+
+  it(`dedupes, upserts sorted, and deletes rows missing from the report`, async () => {
+    h.state.selectQueue = [[{ id: `row-1` }]]
+    const result = await caller.reportWorktrees({
+      deviceId: `dev-1`,
+      worktrees: [
+        wt(`exp/EXP-2`, { issueIdentifier: `EXP-2`, agents: [`claude`] }),
+        wt(`exp/EXP-1`),
+        // Duplicate key — last one wins, single upsert.
+        wt(`exp/EXP-2`, { dirty: `tracked`, busy: true }),
+      ],
+    })
+    expect(result).toEqual({ ok: true })
+    expect(h.state.inserted).toHaveLength(2)
+    // Sorted by (repo, branch): EXP-1 before EXP-2.
+    expect(h.state.inserted[0]).toMatchObject({ branch: `exp/EXP-1` })
+    expect(h.state.inserted[1]).toMatchObject({
+      branch: `exp/EXP-2`,
+      dirty: `tracked`,
+      busy: true,
+    })
+    // The not-in-report delete ran.
+    expect(h.state.deletes).toBe(1)
+  })
+
+  it(`an empty report clears the device's rows`, async () => {
+    h.state.selectQueue = [[{ id: `row-1` }]]
+    await caller.reportWorktrees({ deviceId: `dev-1`, worktrees: [] })
+    expect(h.state.inserted).toHaveLength(0)
+    expect(h.state.deletes).toBe(1)
+  })
+
+  it(`bounds the report at 256 rows`, async () => {
+    const rows = Array.from({ length: 257 }, (_, i) => wt(`exp/EXP-${i}`))
+    await expect(
+      caller.reportWorktrees({ deviceId: `dev-1`, worktrees: rows })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+  })
+})
+
+// EXP-481: the owner→device command queue.
+describe(`devices.createCommand / completeCommand / getCommand`, () => {
+  const deviceProbe = () => [
+    [{ id: `row-1`, caps: [`worktrees`, `launch-defaults`, `resume`] }],
+  ]
+
+  it(`queues a prune, nudges, and returns the id`, async () => {
+    h.state.selectQueue = [...deviceProbe(), []]
+    h.state.insertReturning = [[{ id: `cmd-9` }]]
+    const result = await caller.createCommand({
+      deviceId: `dev-1`,
+      kind: `worktree_prune`,
+    })
+    expect(result).toEqual({ id: `cmd-9` })
+    expect(h.state.inserted[0]).toMatchObject({
+      deviceRowId: `row-1`,
+      userId: `actor`,
+      kind: `worktree_prune`,
+      payload: {},
+    })
+    expect(h.relayPostNudge).toHaveBeenCalled()
+  })
+
+  it(`worktree_remove requires repo + branch`, async () => {
+    h.state.selectQueue = deviceProbe()
+    await expect(
+      caller.createCommand({ deviceId: `dev-1`, kind: `worktree_remove` })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+  })
+
+  it(`worktree_remove 404s when the target is no longer reported`, async () => {
+    h.state.selectQueue = [...deviceProbe(), []]
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `worktree_remove`,
+        repoFullName: `acme/api`,
+        branch: `exp/EXP-1`,
+      })
+    ).rejects.toMatchObject({ code: `NOT_FOUND` })
+  })
+
+  it(`refuses a duplicate pending command`, async () => {
+    h.state.selectQueue = [...deviceProbe(), [{ id: `dup-1` }]]
+    await expect(
+      caller.createCommand({ deviceId: `dev-1`, kind: `worktree_prune` })
+    ).rejects.toMatchObject({ code: `CONFLICT` })
+    expect(h.state.inserted).toHaveLength(0)
+  })
+
+  it(`completeCommand transitions pending → done once; duplicates are tolerated`, async () => {
+    h.state.updateReturning = [[{ id: `cmd-9` }], []]
+    const first = await caller.completeCommand({
+      commandId: `33333333-3333-4333-8333-333333333333`,
+      ok: true,
+      message: `Removed exp/EXP-1`,
+    })
+    expect(first).toEqual({ ok: true })
+    expect(h.state.updates[0]?.set).toMatchObject({
+      status: `done`,
+      result: `Removed exp/EXP-1`,
+    })
+    // Redelivery races the first completion — second write finds no pending
+    // row and reports ok:false instead of erroring.
+    const second = await caller.completeCommand({
+      commandId: `33333333-3333-4333-8333-333333333333`,
+      ok: false,
+    })
+    expect(second).toEqual({ ok: false })
+  })
+
+  it(`getCommand is an owner-scoped point read`, async () => {
+    h.state.selectQueue = [
+      [
+        {
+          id: `cmd-9`,
+          kind: `worktree_prune`,
+          payload: {},
+          status: `done`,
+          result: `Pruned 2 worktrees`,
+          completedAt: new Date(`2026-08-11T10:00:00Z`),
+          createdAt: new Date(`2026-08-11T09:59:00Z`),
+        },
+      ],
+    ]
+    const command = await caller.getCommand({
+      commandId: `33333333-3333-4333-8333-333333333333`,
+    })
+    expect(command).toMatchObject({ id: `cmd-9`, status: `done` })
+
+    h.state.selectQueue = [[]]
+    await expect(
+      caller.getCommand({ commandId: `33333333-3333-4333-8333-333333333333` })
+    ).rejects.toMatchObject({ code: `NOT_FOUND` })
+  })
+})
+
+// EXP-481: the heartbeat is the device's work pull.
+describe(`devices.heartbeat — work pull (EXP-481)`, () => {
+  const heartbeatRow = (over: Record<string, unknown> = {}) => [
+    [
+      {
+        id: `row-1`,
+        updateRequestedAt: null,
+        launchDefaults: { defaultAgent: `codex` },
+        launchDefaultsUpdatedAt: new Date(`2026-08-10T10:00:00Z`),
+        ...over,
+      },
+    ],
+  ]
+
+  it(`delivers pending commands with every beat`, async () => {
+    h.state.updateReturning = heartbeatRow()
+    h.state.selectRows = [
+      { id: `cmd-1`, kind: `worktree_prune`, payload: {} },
+    ]
+    const result = await caller.heartbeat({ deviceId: `dev-1` })
+    expect(result.ok).toBe(true)
+    expect(result.commands).toEqual([
+      { id: `cmd-1`, kind: `worktree_prune`, payload: {} },
+    ])
+  })
+
+  it(`includes launch defaults ONLY when the device's stamp differs`, async () => {
+    // Old daemon: no defaultsSyncedAt — no defaults in the response.
+    h.state.updateReturning = heartbeatRow()
+    const legacy = await caller.heartbeat({ deviceId: `dev-1` })
+    expect(legacy).not.toHaveProperty(`launchDefaults`)
+
+    // Stale device stamp (null = never converged) → defaults included.
+    h.state.updateReturning = heartbeatRow()
+    const stale = await caller.heartbeat({
+      deviceId: `dev-1`,
+      defaultsSyncedAt: null,
+    })
+    expect(stale.launchDefaults).toEqual({ defaultAgent: `codex` })
+    expect(stale.launchDefaultsUpdatedAt).toBe(`2026-08-10T10:00:00.000Z`)
+
+    // Converged stamp → steady-state response stays tiny.
+    h.state.updateReturning = heartbeatRow()
+    const converged = await caller.heartbeat({
+      deviceId: `dev-1`,
+      defaultsSyncedAt: `2026-08-10T10:00:00.000Z`,
+    })
+    expect(converged).not.toHaveProperty(`launchDefaults`)
   })
 })

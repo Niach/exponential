@@ -40,6 +40,7 @@ interface Contract {
   prState: Section
   codingSessionStatus: Section
   codingSession: { staleHours: number }
+  device: { onlineWindowSeconds: number }
   subscriberSource: Section
   issueEventType: Section
   codingAgent: Section
@@ -61,6 +62,10 @@ const contract: Contract = JSON.parse(
 // Client-side liveness window for `running` coding_sessions rows, in ms —
 // emitted pre-multiplied so no client does per-language time arithmetic.
 const codingSessionStaleMs = contract.codingSession.staleHours * 60 * 60 * 1000
+
+// EXP-481: how fresh a devices row's last_seen_at must be to render "online"
+// (devices heartbeat ~30s; 90s = three missed beats). Pre-multiplied to ms.
+const deviceOnlineWindowMs = contract.device.onlineWindowSeconds * 1000
 
 // The 7 locked builtin issue statuses (EXP-314) — emitted as parallel arrays
 // (keys/categories/names/colors/sortOrders) so every client can construct its
@@ -185,6 +190,7 @@ ${swiftStringArray("actionInputTypeValues", contract.actionInputType.values)}
 
     public static let issueStatusStartedMax: Int = ${contract.issueStatusCategory.startedMax}
     public static let codingSessionStaleMs: Int = ${codingSessionStaleMs}
+    public static let deviceOnlineWindowMs: Int = ${deviceOnlineWindowMs}
     public static let builtinCreateActionId: String = "${contract.builtinAction.createActionId}"
     public static let builtinFixConflictsId: String = "${contract.builtinAction.fixConflictsId}"
     public static let actionInputsMax: Int = ${contract.actionInputs.max}
@@ -236,6 +242,7 @@ ${kotlinStringArray("actionInputTypeValues", contract.actionInputType.values)}
 
     const val issueStatusStartedMax: Int = ${contract.issueStatusCategory.startedMax}
     const val codingSessionStaleMs: Long = ${codingSessionStaleMs}L
+    const val deviceOnlineWindowMs: Long = ${deviceOnlineWindowMs}L
     const val builtinCreateActionId: String = "${contract.builtinAction.createActionId}"
     const val builtinFixConflictsId: String = "${contract.builtinAction.fixConflictsId}"
     const val actionInputsMax: Int = ${contract.actionInputs.max}
@@ -289,6 +296,7 @@ ${rustStrSlice("actionInputTypeValues", contract.actionInputType.values)}
 
 pub const ISSUE_STATUS_STARTED_MAX: usize = ${contract.issueStatusCategory.startedMax};
 pub const CODING_SESSION_STALE_MS: i64 = ${codingSessionStaleMs};
+pub const DEVICE_ONLINE_WINDOW_MS: i64 = ${deviceOnlineWindowMs};
 pub const BUILTIN_CREATE_ACTION_ID: &str = "${contract.builtinAction.createActionId}";
 pub const BUILTIN_FIX_CONFLICTS_ID: &str = "${contract.builtinAction.fixConflictsId}";
 pub const ACTION_INPUTS_MAX: usize = ${contract.actionInputs.max};

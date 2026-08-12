@@ -1109,3 +1109,71 @@ describe(`steer.killSession — owner OR host (EXP-432)`, () => {
     expect(h.relayPostKill).not.toHaveBeenCalled()
   })
 })
+
+// EXP-481: remote resume — single-issue only, strictly gated on the
+// persisted row's `resume` cap.
+describe(`steer.startSession — resume (EXP-481)`, () => {
+  const resumeRow = (caps: string[]) => [
+    { userId: `actor`, deviceId: `dev-1`, caps },
+  ]
+
+  it(`rejects resume on a batch start at the input layer`, async () => {
+    const error = await rejectionOf(
+      caller.startSession({
+        issueIds: [ISSUE_A, ISSUE_B],
+        deviceId: `dev-1`,
+        resume: true,
+      })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`rejects resume on an action start at the input layer`, async () => {
+    const error = await rejectionOf(
+      caller.startSession({
+        actionId: `33333333-3333-4333-8333-333333333333`,
+        deviceId: `dev-1`,
+        resume: true,
+      })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`refuses when the persisted row lacks the resume cap`, async () => {
+    h.dbQueue.push(resumeRow([`actions`]))
+    const error = await rejectionOf(
+      caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, resume: true })
+    )
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toContain(`can't resume`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`refuses when the device never registered (legacy desktop)`, async () => {
+    h.dbQueue.push([])
+    const error = await rejectionOf(
+      caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, resume: true })
+    )
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+  })
+
+  it(`rides the relay body when the cap is present`, async () => {
+    h.dbQueue.push(resumeRow([`actions`, `resume`, `worktrees`]))
+    const result = await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      resume: true,
+    })
+    expect(result).toEqual({ ok: true })
+    expect(lastStartBody()).toMatchObject({ issueId: ISSUE_A, resume: true })
+  })
+
+  it(`stays off the wire when not requested`, async () => {
+    await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
+    // Undefined option fields are dropped by JSON.stringify in relayPostStart
+    // — same stance as model/effort.
+    expect(lastStartBody().resume).toBeUndefined()
+  })
+})

@@ -693,11 +693,47 @@ export const fcmTokens = pgTable(
   ]
 )
 
-// EXP-403 registered devices (server-only, tRPC-polled — deliberately NOT an
-// Electric shape: per-user machine state, not team product data). One row per
-// (user, deviceId): desktops and headless `exponential` daemon servers
-// register on control-channel start and heartbeat `last_seen_at`; the devices
-// router merges rows with live relay presence for online/offline display.
+// EXP-481: a device's SERVER-AUTHORITATIVE per-agent launch defaults. The
+// devices row is the source of truth; the device's local settings.json is a
+// converging cache (it applies server changes on heartbeat/nudge and pushes
+// local edits up via devices.setLaunchDefaults with a compare-and-set on
+// launch_defaults_updated_at). Inner keys are camelCase verbatim on every
+// client — column mappers only rename top-level columns. Vocabulary
+// validation (agent ids, model/effort sets) lives in the web app; this schema
+// is structural bounds only, byte-parity with the relay online-frame shape.
+export interface DeviceAgentLaunchDefaults {
+  model?: string
+  effort?: string
+  ultracode?: boolean
+  planMode?: boolean
+  skipPermissions?: boolean
+}
+export interface DeviceLaunchDefaults {
+  defaultAgent?: string
+  agents?: Record<string, DeviceAgentLaunchDefaults>
+}
+export const deviceLaunchDefaultsSchema = z.object({
+  defaultAgent: z.string().min(1).max(32).optional(),
+  agents: z
+    .record(
+      z.string().min(1).max(32),
+      z.object({
+        model: z.string().max(64).optional(),
+        effort: z.string().max(64).optional(),
+        ultracode: z.boolean().optional(),
+        planMode: z.boolean().optional(),
+        skipPermissions: z.boolean().optional(),
+      })
+    )
+    .refine((agents) => Object.keys(agents).length <= 16)
+    .optional(),
+})
+
+// EXP-403 registered devices — since EXP-481 an Electric shape (own rows plus
+// team-shared server rows; devices router `list` retained for old clients).
+// One row per (user, deviceId): desktops and headless `exponential` daemon
+// servers register on control-channel/daemon start and heartbeat
+// `last_seen_at` (~30s; online = freshness within the contract window).
 // `kind` is a documented varchar (`desktop` | `server`), no contract enum.
 export const devices = pgTable(
   `devices`,
@@ -742,6 +778,24 @@ export const devices = pgTable(
     sharedTeamId: uuid(`shared_team_id`).references(() => teams.id, {
       onDelete: `set null`,
     }),
+    // EXP-481: agents installed but signed out — persisted mirror of the
+    // EXP-409 live advertisement, refreshed on register, so offline rows can
+    // still explain themselves.
+    unauthedAgents: jsonb(`unauthed_agents`)
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    // EXP-481: server-authoritative launch defaults (see the doc block on
+    // DeviceLaunchDefaults above). NULL = the device never reported and no
+    // client ever edited — clients seed static contract defaults.
+    launchDefaults: jsonb(`launch_defaults`).$type<DeviceLaunchDefaults>(),
+    // The compare-and-set stamp for device pushes: a device echoes the stamp
+    // it last converged to and the server refuses stale writes (server wins
+    // offline-concurrent races). Equality compare, never `>` — no clock-skew
+    // semantics.
+    launchDefaultsUpdatedAt: timestamp(`launch_defaults_updated_at`, {
+      withTimezone: true,
+    }),
     ...timestamps,
   },
   (table) => [
@@ -751,6 +805,97 @@ export const devices = pgTable(
     index(`idx_devices_shared_team`)
       .on(table.sharedTeamId)
       .where(sql`shared_team_id IS NOT NULL`),
+  ]
+)
+
+// EXP-481: per-device worktree inventory, reported by the device
+// (devices.reportWorktrees, full current set diff-upserted server-side) —
+// powers resume offers, listing and prune even while the device is offline.
+// Synced shape #18. `user_id` + `shared_team_id` are trigger-maintained
+// mirrors of the owning devices row (populate_device_worktree_owner +
+// propagate_device_shared_team) so the shape's where clause stays
+// single-table and its identity rotates ONLY on team-membership changes
+// (REV2-5 stance); both stay OUT of the shape's column allowlist.
+export const deviceWorktrees = pgTable(
+  `device_worktrees`,
+  {
+    id: uuidPk(),
+    deviceRowId: uuid(`device_row_id`)
+      .notNull()
+      .references(() => devices.id, { onDelete: `cascade` }),
+    // Trigger-derived mirrors — never client input.
+    userId: text(`user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    sharedTeamId: uuid(`shared_team_id`).references(() => teams.id, {
+      onDelete: `set null`,
+    }),
+    repoFullName: varchar(`repo_full_name`, { length: 255 }).notNull(),
+    branch: varchar({ length: 255 }).notNull(),
+    // `exp/<IDENTIFIER>` linkage as the DEVICE parsed it (the branch prefix
+    // is a device-local setting); clients join against their own synced
+    // issues — no server enrichment.
+    issueIdentifier: varchar(`issue_identifier`, { length: 64 }),
+    // Agents recorded in the worktree's .exp-agents resume marker; NULL =
+    // pre-marker worktree (any agent may resume).
+    agents: jsonb().$type<string[]>(),
+    // Documented varchar (`clean` | `untracked` | `tracked` | `unknown`), no
+    // contract enum — a future device vocabulary must not break old servers.
+    dirty: varchar({ length: 32 }).notNull().default(`unknown`),
+    // A live local session currently holds this worktree's branch.
+    busy: boolean().notNull().default(false),
+    reportedAt: timestamp(`reported_at`, { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    ...timestamps,
+  },
+  (table) => [
+    unique().on(table.deviceRowId, table.repoFullName, table.branch),
+    index(`idx_device_worktrees_user`).on(table.userId),
+    // Partial — most devices are private.
+    index(`idx_device_worktrees_shared_team`)
+      .on(table.sharedTeamId)
+      .where(sql`shared_team_id IS NOT NULL`),
+  ]
+)
+
+// EXP-481: owner→device work queue (SERVER-ONLY, never synced — a bilateral
+// concern, not team product data). Created by the owner via
+// devices.createCommand, delivered on the device's heartbeat (plus a relay
+// check_in nudge for immediacy), completed via devices.completeCommand.
+// Rows stay `pending` until completed — redelivery on a missed cycle is free
+// idempotency. `kind` is a documented varchar: `worktree_remove` (payload
+// {repoFullName, branch}) | `worktree_prune` (payload {}).
+export const deviceCommands = pgTable(
+  `device_commands`,
+  {
+    id: uuidPk(),
+    deviceRowId: uuid(`device_row_id`)
+      .notNull()
+      .references(() => devices.id, { onDelete: `cascade` }),
+    // The device OWNER (the only allowed creator) — denormalized so
+    // completeCommand/getCommand authorize on one indexed predicate.
+    userId: text(`user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    kind: varchar({ length: 32 }).notNull(),
+    payload: jsonb()
+      .$type<Record<string, string>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    // pending → done | failed.
+    status: varchar({ length: 16 }).notNull().default(`pending`),
+    // Device-reported result message (aggregated prune summary, refusal
+    // reason, ...).
+    result: text(),
+    completedAt: timestamp(`completed_at`, { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [
+    // Serves the heartbeat pickup; partial — terminal rows are history.
+    index(`idx_device_commands_pending`)
+      .on(table.deviceRowId)
+      .where(sql`status = 'pending'`),
   ]
 )
 
@@ -1560,6 +1705,27 @@ export const selectWidgetSubmissionSchema = createSelectSchema(
   }
 )
 
+export const selectDeviceSchema = createSelectSchema(devices, {
+  agents: z.array(z.string()),
+  caps: z.array(z.string()),
+  unauthedAgents: z.array(z.string()),
+  launchDefaults: deviceLaunchDefaultsSchema.nullable(),
+})
+
+export const selectDeviceWorktreeSchema = createSelectSchema(deviceWorktrees, {
+  agents: z.array(z.string()).nullable(),
+})
+
+// The shape-synced projection: the device-worktrees shape pins a columns
+// allowlist that EXCLUDES the trigger-maintained scoping mirrors (the where
+// clause filters on them server-side).
+export const selectSyncedDeviceWorktreeSchema = selectDeviceWorktreeSchema.omit(
+  {
+    userId: true,
+    sharedTeamId: true,
+  }
+)
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -1594,3 +1760,9 @@ export type SupportThread = InferSelectModel<typeof supportThreads>
 export type SupportMessage = InferSelectModel<typeof supportMessages>
 export type McpGrant = InferSelectModel<typeof mcpGrants>
 export type Device = InferSelectModel<typeof devices>
+export type DeviceWorktree = InferSelectModel<typeof deviceWorktrees>
+export type SyncedDeviceWorktree = Omit<
+  DeviceWorktree,
+  `userId` | `sharedTeamId`
+>
+export type DeviceCommand = InferSelectModel<typeof deviceCommands>

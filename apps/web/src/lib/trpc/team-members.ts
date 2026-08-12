@@ -1,11 +1,12 @@
 import { z } from "zod"
 import { router, authedProcedure } from "@/lib/trpc"
-import { issues, issueSubscribers, teamMembers } from "@/db/schema"
+import { devices, issues, issueSubscribers, teamMembers } from "@/db/schema"
 import { and, eq } from "drizzle-orm"
 import { TRPCError } from "@trpc/server"
 import { assertTeamMember } from "@/lib/team-membership"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { isUserAdmin } from "@/lib/admin"
+import { endForeignHostedSessions } from "@/lib/coding-session-kill"
 
 // v7: the self-service `join` procedure is gone with public teams —
 // membership is invite-only everywhere; the only anonymous write path is
@@ -126,6 +127,7 @@ export const teamMembersRouter = router({
       // state the write side refuses to create (assertAssigneeInTeam). No
       // assignee_changed events: this is bulk offboarding hygiene, not an
       // editorial change by the remover.
+      let clearedDeviceShare = false
       await ctx.db.transaction(async (tx) => {
         await tx.delete(teamMembers).where(eq(teamMembers.id, input.memberId))
         await tx
@@ -145,10 +147,34 @@ export const teamMembersRouter = router({
               eq(issues.assigneeId, target.userId)
             )
           )
+        // Membership end = share end (EXP-481). The devices/device_worktrees
+        // shapes scope on shared_team_id single-table — an Electric where
+        // clause cannot re-check membership the way devices.list's join does,
+        // so an ex-member's shared box would keep streaming to the team.
+        // Clearing here (trigger #13 heals the worktree mirrors) makes the
+        // membership boundary hold; list/resolveTargetDevice keep their joins
+        // as belt-and-braces for pre-existing rows.
+        const cleared = await tx
+          .update(devices)
+          .set({ sharedTeamId: null, updatedAt: new Date() })
+          .where(
+            and(
+              eq(devices.userId, target.userId),
+              eq(devices.sharedTeamId, target.teamId)
+            )
+          )
+          .returning({ id: devices.id })
+        clearedDeviceShare = cleared.length > 0
       })
       // Post-commit (never inside the tx — a concurrent shape renewal would
       // repopulate the cache with pre-commit membership).
       invalidateMembershipCaches()
+      // The share was the consent that let teammates run sessions on the
+      // ex-member's box — end any still-live foreign-hosted runs (EXP-445
+      // semantics, same post-write ordering as devices.setShared).
+      if (clearedDeviceShare) {
+        await endForeignHostedSessions(target.userId, target.teamId)
+      }
 
       return { ok: true }
     }),

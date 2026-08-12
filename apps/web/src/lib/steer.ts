@@ -245,6 +245,11 @@ export interface SteerStartOptions {
   /** EXP-201: full permission bypass instead of the agent's guarded auto
    * mode. Absent = desktop settings default. */
   skipPermissions?: boolean
+  /** EXP-481: resume the issue's existing worktree/agent session instead of
+   * starting fresh. Single-issue starts only; the web server gates it on the
+   * device's `resume` cap, and the device-side launcher degrades a missing/
+   * foreign worktree to a fresh session seeded with a resume prompt. */
+  resume?: boolean
 }
 
 /**
@@ -333,6 +338,40 @@ export async function relayPostKill(
         method: `POST`,
         headers: { "x-relay-secret": config.secret },
         signal: AbortSignal.timeout(RELAY_KILL_TIMEOUT_MS),
+      }
+    )
+    if (!res.ok) return { delivered: false }
+    const json = (await res.json().catch(() => null)) as {
+      delivered?: boolean
+    } | null
+    return { delivered: json?.delivered === true }
+  } catch {
+    return { delivered: false }
+  }
+}
+
+const RELAY_NUDGE_TIMEOUT_MS = 3_000
+
+/**
+ * POST /devices/:userId/:deviceId/nudge — fire-and-forget `check_in` frame
+ * (EXP-481): the server persisted new work for the device (a queued command,
+ * edited launch defaults) and an online device should heartbeat NOW instead
+ * of on its next cadence. Never throws; never load-bearing — the heartbeat
+ * pickup is the durable path, the nudge only kills its latency.
+ */
+export async function relayPostNudge(
+  config: SteerRelayConfig,
+  userId: string,
+  deviceId: string,
+  fetchImpl: RelayFetch = globalThis.fetch
+): Promise<{ delivered: boolean }> {
+  try {
+    const res = await fetchImpl(
+      `${steerHttpBase(config.url)}/devices/${encodeURIComponent(userId)}/${encodeURIComponent(deviceId)}/nudge`,
+      {
+        method: `POST`,
+        headers: { "x-relay-secret": config.secret },
+        signal: AbortSignal.timeout(RELAY_NUDGE_TIMEOUT_MS),
       }
     )
     if (!res.ok) return { delivered: false }

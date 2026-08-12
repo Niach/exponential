@@ -429,6 +429,45 @@ describe(`steer relay end-to-end`, () => {
     })
     expect(offline.status).toBe(404)
 
+    // EXP-481: resume rides the start frame untouched.
+    const resumeStart = await fetch(`${base}/start`, {
+      method: `POST`,
+      headers: {
+        "x-relay-secret": `integration-secret`,
+        "content-type": `application/json`,
+      },
+      body: JSON.stringify({
+        userId: `owner-1`,
+        deviceId: `dev-9`,
+        issueId: `issue-46`,
+        resume: true,
+      }),
+    })
+    expect(resumeStart.ok).toBe(true)
+    expect(await desktopIn.nextJson()).toEqual({
+      t: `start_session`,
+      issueId: `issue-46`,
+      resume: true,
+    })
+
+    // EXP-481: the check-in nudge — secret-gated, delivered iff the control
+    // socket is live.
+    const noAuthNudge = await fetch(`${base}/devices/owner-1/dev-9/nudge`, {
+      method: `POST`,
+    })
+    expect(noAuthNudge.status).toBe(401)
+    const nudge = await fetch(`${base}/devices/owner-1/dev-9/nudge`, {
+      method: `POST`,
+      headers: { "x-relay-secret": `integration-secret` },
+    })
+    expect(await nudge.json()).toEqual({ ok: true, delivered: true })
+    expect(await desktopIn.nextJson()).toEqual({ t: `check_in` })
+    const nudgeOffline = await fetch(`${base}/devices/owner-1/gone/nudge`, {
+      method: `POST`,
+      headers: { "x-relay-secret": `integration-secret` },
+    })
+    expect(await nudgeOffline.json()).toEqual({ ok: true, delivered: false })
+
     desktop.close()
   })
 

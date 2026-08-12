@@ -24,6 +24,9 @@ function selectChain(): Promise<unknown[]> & Record<string, () => unknown> {
 
 const deletes: { table: unknown }[] = []
 const updates: { table: unknown; values: Record<string, unknown> }[] = []
+// EXP-481: rows handed back by update(...).returning() — FIFO like
+// selectQueue (empty = no rows, the common case).
+const updateReturningQueue: unknown[][] = []
 
 type ThenableChain = Promise<unknown[]> & Record<string, () => unknown>
 
@@ -51,7 +54,7 @@ const fakeDb: FakeDb = {
       where: () => {
         updates.push({ table, values })
         const p = Promise.resolve([] as unknown[]) as ThenableChain
-        p.returning = () => p
+        p.returning = () => Promise.resolve(updateReturningQueue.shift() ?? [])
         return p
       },
     }),
@@ -80,9 +83,16 @@ vi.mock(`@/lib/auth/membership-cache`, () => ({
   invalidateMembershipCaches: vi.fn(),
 }))
 
+// EXP-481: membership end clears device shares; a cleared share ends the
+// foreign-hosted sessions it was the consent for.
+vi.mock(`@/lib/coding-session-kill`, () => ({
+  endForeignHostedSessions: vi.fn(async () => [] as string[]),
+}))
+
 import { teamMembersRouter } from "@/lib/trpc/team-members"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
-import { issues, issueSubscribers, teamMembers } from "@/db/schema"
+import { endForeignHostedSessions } from "@/lib/coding-session-kill"
+import { devices, issues, issueSubscribers, teamMembers } from "@/db/schema"
 
 const MEMBER_ID = `22222222-2222-4222-8222-222222222222`
 const WS = `11111111-1111-4111-8111-111111111111`
@@ -98,8 +108,10 @@ beforeEach(() => {
   selectQueue.length = 0
   deletes.length = 0
   updates.length = 0
+  updateReturningQueue.length = 0
   assertTeamMember.mockClear()
   vi.mocked(invalidateMembershipCaches).mockClear()
+  vi.mocked(endForeignHostedSessions).mockClear()
 })
 
 describe(`teamMembers.remove — offboarding cleanup (REV-8)`, () => {
@@ -115,9 +127,32 @@ describe(`teamMembers.remove — offboarding cleanup (REV-8)`, () => {
     expect(deletes[0]!.table).toBe(teamMembers)
     expect(deletes[1]!.table).toBe(issueSubscribers)
     // REV2-28: their assignments in that team are cleared too.
-    expect(updates).toEqual([{ table: issues, values: { assigneeId: null } }])
+    // EXP-481: and their device shares with this team — the synced devices
+    // shape scopes on shared_team_id single-table and cannot re-check
+    // membership the way devices.list's join does.
+    expect(updates).toEqual([
+      { table: issues, values: { assigneeId: null } },
+      {
+        table: devices,
+        values: { sharedTeamId: null, updatedAt: expect.any(Date) },
+      },
+    ])
+    // No share was actually cleared (returning was empty) — no kill fan-out.
+    expect(endForeignHostedSessions).not.toHaveBeenCalled()
     // REV2-7: membership caches cleared post-commit.
     expect(invalidateMembershipCaches).toHaveBeenCalledTimes(1)
+  })
+
+  it(`ends the ex-member's foreign-hosted sessions when a share was cleared (EXP-481)`, async () => {
+    selectQueue.push([
+      { id: MEMBER_ID, userId: `user-b`, teamId: WS, role: `member` },
+    ])
+    // The devices share-clear update reports one cleared row.
+    updateReturningQueue.push([{ id: `device-row-1` }])
+
+    await callerFor(`user-a`).remove({ memberId: MEMBER_ID })
+
+    expect(endForeignHostedSessions).toHaveBeenCalledWith(`user-b`, WS)
   })
 
   it(`self-leave: same cleanup, without requiring owner rights`, async () => {
@@ -131,7 +166,13 @@ describe(`teamMembers.remove — offboarding cleanup (REV-8)`, () => {
     expect(deletes).toHaveLength(2)
     expect(deletes[0]!.table).toBe(teamMembers)
     expect(deletes[1]!.table).toBe(issueSubscribers)
-    expect(updates).toEqual([{ table: issues, values: { assigneeId: null } }])
+    expect(updates).toEqual([
+      { table: issues, values: { assigneeId: null } },
+      {
+        table: devices,
+        values: { sharedTeamId: null, updatedAt: expect.any(Date) },
+      },
+    ])
   })
 
   it(`still refuses to remove the last owner (guard survives the transaction refactor)`, async () => {

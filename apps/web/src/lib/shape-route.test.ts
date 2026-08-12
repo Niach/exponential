@@ -13,6 +13,8 @@ import { Route as codingSessionsRoute } from "@/routes/api/shapes/coding-session
 import { Route as notificationsRoute } from "@/routes/api/shapes/notifications"
 import { Route as actionsRoute } from "@/routes/api/shapes/actions"
 import { Route as issueStatusesRoute } from "@/routes/api/shapes/issue-statuses"
+import { Route as devicesRoute } from "@/routes/api/shapes/devices"
+import { Route as deviceWorktreesRoute } from "@/routes/api/shapes/device-worktrees"
 
 const {
   resolveSession,
@@ -615,5 +617,96 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
     expect(columns).not.toContain(`board_id`)
     expect(columns).not.toContain(`board_deleted_at`)
     expect(columns).not.toContain(`emailed_at`)
+  })
+
+  // EXP-481: the devices shape — own rows + team-shared SERVER rows.
+  it(`devices: own rows plus sorted shared-team server arm; anonymous is 401`, async () => {
+    const originUrl = new URL(`https://electric.example/v1/shape`)
+    resolveSession.mockResolvedValue({ user: { id: `user-1` } })
+    prepareElectricUrl.mockReturnValue(originUrl)
+    membership.getUserTeamIds.mockResolvedValue([`w-2`, `w-1`])
+
+    await shapeHandler(devicesRoute)({
+      request: new Request(`https://example.com/api/shapes/devices`, {
+        headers: { authorization: `Bearer t` },
+      }),
+    })
+
+    // Sorted team ids + the static kind literal: identity rotates ONLY on
+    // membership changes; individual share toggles move rows via the column.
+    expect(originUrl.searchParams.get(`where`)).toBe(
+      `("user_id" = 'user-1') OR (("shared_team_id" IN ('w-1','w-2')) AND ("kind" = 'server'))`
+    )
+    const columns = originUrl.searchParams.get(`columns`)?.split(`,`) ?? []
+    // user_id IS synced (mine-vs-shared split + owner name resolution).
+    expect(columns).toContain(`user_id`)
+    expect(columns).toContain(`launch_defaults`)
+    expect(columns).toContain(`launch_defaults_updated_at`)
+    expect(columns).toContain(`unauthed_agents`)
+    expect(columns).toContain(`last_seen_at`)
+    expect(columns).toContain(`caps`)
+
+    // Anonymous: requireAuth — explicit 401, never a sentinel shape.
+    resolveSession.mockResolvedValue(null)
+    const anon = await shapeHandler(devicesRoute)({
+      request: new Request(`https://example.com/api/shapes/devices`),
+    })
+    expect(anon.status).toBe(401)
+  })
+
+  it(`devices: zero teams keeps the impossible-match sentinel in the shared arm`, async () => {
+    const originUrl = new URL(`https://electric.example/v1/shape`)
+    resolveSession.mockResolvedValue({ user: { id: `user-1` } })
+    prepareElectricUrl.mockReturnValue(originUrl)
+    membership.getUserTeamIds.mockResolvedValue([])
+
+    await shapeHandler(devicesRoute)({
+      request: new Request(`https://example.com/api/shapes/devices`, {
+        headers: { authorization: `Bearer t` },
+      }),
+    })
+
+    expect(originUrl.searchParams.get(`where`)).toBe(
+      `("user_id" = 'user-1') OR (("shared_team_id" = '00000000-0000-0000-0000-000000000000') AND ("kind" = 'server'))`
+    )
+  })
+
+  // EXP-481: the device-worktrees shape — scoped by the trigger-maintained
+  // mirrors, which stay OUT of the allowlist.
+  it(`device-worktrees: mirror-scoped where, mirrors excluded from columns`, async () => {
+    const originUrl = new URL(`https://electric.example/v1/shape`)
+    resolveSession.mockResolvedValue({ user: { id: `user-1` } })
+    prepareElectricUrl.mockReturnValue(originUrl)
+    membership.getUserTeamIds.mockResolvedValue([`w-1`])
+
+    await shapeHandler(deviceWorktreesRoute)({
+      request: new Request(`https://example.com/api/shapes/device-worktrees`, {
+        headers: { authorization: `Bearer t` },
+      }),
+    })
+
+    expect(originUrl.searchParams.get(`where`)).toBe(
+      `("user_id" = 'user-1') OR ("shared_team_id" IN ('w-1'))`
+    )
+    const columns = originUrl.searchParams.get(`columns`)?.split(`,`) ?? []
+    expect(columns).toEqual([
+      `id`,
+      `device_row_id`,
+      `repo_full_name`,
+      `branch`,
+      `issue_identifier`,
+      `agents`,
+      `dirty`,
+      `busy`,
+      `reported_at`,
+      `created_at`,
+      `updated_at`,
+    ])
+
+    resolveSession.mockResolvedValue(null)
+    const anon = await shapeHandler(deviceWorktreesRoute)({
+      request: new Request(`https://example.com/api/shapes/device-worktrees`),
+    })
+    expect(anon.status).toBe(401)
   })
 })

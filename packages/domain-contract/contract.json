@@ -177,6 +177,9 @@
   "codingSession": {
     "staleHours": 2
   },
+  "device": {
+    "onlineWindowSeconds": 90
+  },
   "subscriberSource": {
     "values": [
       "creator",

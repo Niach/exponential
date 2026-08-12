@@ -265,6 +265,10 @@ export interface StartSessionOptions {
   ultracode?: boolean
   planMode?: boolean
   skipPermissions?: boolean
+  /** EXP-481: resume the issue's existing worktree/agent session instead of
+   * starting fresh. Single-issue starts only; the web server gates it on the
+   * device's `resume` cap — the relay passes it through untouched. */
+  resume?: boolean
 }
 
 /** Server-resolved repo group for a BATCH or ACTION remote start — the
@@ -313,6 +317,13 @@ export type ServerFrame =
   | { t: `input`; data: string } // viewer keystrokes, relay → publisher
   | { t: `answer`; questionId: string; askId?: string; keys: string[] } // relay → publisher
   | { t: `kill` }
+  // EXP-481: fire-and-forget check-in nudge to a device's control socket —
+  // the web server persisted new work (a queued command, edited launch
+  // defaults) and an online device should heartbeat NOW instead of on its
+  // next cadence. No reply frame exists; the heartbeat pickup is the durable
+  // path. Only sent to devices whose registered caps prove a
+  // check_in-aware build (the web server guards; old desktops never see it).
+  | { t: `check_in` }
   | { t: `bye`; outcome?: string }
   | { t: `error`; code: string; message?: string }
   | { t: `activity`; event: ActivityEvent } // relay → activity audience (authenticated members only)

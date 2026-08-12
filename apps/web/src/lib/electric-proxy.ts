@@ -47,13 +47,14 @@ export function prepareElectricUrl(requestUrl: string): URL {
  * Live long-polls (offset != -1) are never gated: their bodies are tiny and
  * they'd hold slots for the whole poll window.
  *
- * Sized at 18 = one full client's shape count (16) plus headroom (EXP-264):
- * at 8, a SINGLE cold-starting client queued its own second half behind its
- * first, so the shapes that arrived last were the ones the app opened onto —
- * stale-looking state on launch. It is still a herd bound: a multi-client
- * storm queues, it just never makes one client wait on itself.
+ * Sized at 20 = one full client's shape count (18 since EXP-481) plus
+ * headroom (EXP-264): at 8, a SINGLE cold-starting client queued its own
+ * second half behind its first, so the shapes that arrived last were the ones
+ * the app opened onto — stale-looking state on launch. It is still a herd
+ * bound: a multi-client storm queues, it just never makes one client wait on
+ * itself.
  */
-const SNAPSHOT_PROXY_CONCURRENCY = 18
+const SNAPSHOT_PROXY_CONCURRENCY = 20
 
 let activeSnapshotProxies = 0
 const snapshotWaiters: Array<() => void> = []
