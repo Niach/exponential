@@ -206,7 +206,13 @@ export function App({ state }: { state: WidgetRuntimeState }) {
   const capture = useCallback(
     async (engine: CaptureEngine): Promise<boolean> => {
       lastEngineRef.current = engine
-      const blob = await captureScreenshot(engine)
+      let blob = await captureScreenshot(engine)
+      if (!blob && engine === displayMediaEngine) {
+        // A denied/cancelled share picker must not strand the reporter — the
+        // DOM raster needs no user activation, so it can still run here.
+        lastEngineRef.current = snapdomEngine
+        blob = await captureScreenshot(snapdomEngine)
+      }
       if (blob) {
         replaceBase({ blob, objectUrl: URL.createObjectURL(blob) })
         setCaptureFailed(false)
@@ -358,14 +364,14 @@ export function App({ state }: { state: WidgetRuntimeState }) {
     [capture]
   )
 
+  // One button, engine picked by capability (EXP-488): native display capture
+  // where the browser has it (desktop), the snapDOM raster otherwise (mobile).
+  // Support is checked at click time so tests can stub navigator per case.
   const takeScreenshot = useCallback(
-    () => takeScreenshotWith(snapdomEngine),
-    [takeScreenshotWith]
-  )
-
-  // Native display capture (EXP-435) — offered only where supported.
-  const takeDisplayCapture = useCallback(
-    () => takeScreenshotWith(displayMediaEngine),
+    () =>
+      takeScreenshotWith(
+        isDisplayCaptureSupported() ? displayMediaEngine : snapdomEngine
+      ),
     [takeScreenshotWith]
   )
 
@@ -772,8 +778,6 @@ export function App({ state }: { state: WidgetRuntimeState }) {
           labels={labels}
           onClose={close}
           onCapture={takeScreenshot}
-          displayCaptureSupported={isDisplayCaptureSupported()}
-          onCaptureDisplay={takeDisplayCapture}
           onRetake={retake}
           onAnnotate={openAnnotator}
           onRemoveScreenshot={() => replaceBase(null)}
