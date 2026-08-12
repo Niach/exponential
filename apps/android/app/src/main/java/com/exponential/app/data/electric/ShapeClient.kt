@@ -360,7 +360,7 @@ class ShapeClient<T : Any>(
                 // is a JVM typealias for java.net's, so it is already covered
                 // here — only ConnectTimeoutException is a distinct class, and
                 // it is the one the field reports showed ("Connect timeout has
-                // expired" on all 16 shapes at once).
+                // expired" on all 18 shapes at once).
                 is java.net.SocketTimeoutException,
                 is io.ktor.client.network.sockets.ConnectTimeoutException,
                 -> true

@@ -121,12 +121,18 @@ data class SteerDevice(
     // ── Team sharing (EXP-432) ───────────────────────────────────────────────
     /**
      * The team this machine is shared with, null when private. Carried on the
-     * caller's OWN rows too — sharing is managed on the web only, so this app
-     * just reports it.
+     * caller's OWN rows too. Since EXP-481 the share toggle lives in the
+     * device-settings sheet here as well as on the web.
      */
     @SerialName("sharedTeamId") val sharedTeamId: String? = null,
     /** Set only on a TEAMMATE's shared machine — never on the caller's own. */
     @SerialName("owner") val owner: DeviceOwner? = null,
+    /**
+     * EXP-481: the synced `devices` ROW id — joins `device_worktrees` rows.
+     * Null on rows decoded from `devices.list` / relay payloads (which never
+     * carry it); only the DeviceEntity → SteerDevice mapping stamps it.
+     */
+    @SerialName("rowId") val rowId: String? = null,
 ) {
     /** A headless `exponential` daemon rather than the desktop IDE. */
     val isServer: Boolean get() = kind == KIND_SERVER
@@ -180,6 +186,13 @@ data class SteerDevice(
      */
     val canFixConflicts: Boolean get() = caps?.contains("fix-conflicts") == true
 
+    /**
+     * Whether this machine honors `resume` on a remote start (EXP-481).
+     * Strictly cap-gated like actions — an old build would silently drop the
+     * flag and start fresh, which reads as losing the session.
+     */
+    val canResume: Boolean get() = caps?.contains("resume") == true
+
     companion object {
         const val KIND_DESKTOP = "desktop"
         const val KIND_SERVER = "server"
@@ -229,10 +242,17 @@ data class SteerStartOptions(
     val planMode: Boolean? = null,
     val agent: String? = null,
     val skipPermissions: Boolean? = null,
+    /**
+     * EXP-481: resume the issue's existing worktree/agent session instead of
+     * starting fresh. Single-issue starts only (the server rejects it on
+     * batch/action forms), gated on [SteerDevice.canResume]; the batch and
+     * action inputs simply never carry it.
+     */
+    val resume: Boolean? = null,
 )
 
 @Serializable
-private data class StartSessionInput(
+internal data class StartSessionInput(
     @SerialName("issueId") val issueId: String,
     @SerialName("deviceId") val deviceId: String,
     @SerialName("model") val model: String? = null,
@@ -241,6 +261,7 @@ private data class StartSessionInput(
     @SerialName("planMode") val planMode: Boolean? = null,
     @SerialName("agent") val agent: String? = null,
     @SerialName("skipPermissions") val skipPermissions: Boolean? = null,
+    @SerialName("resume") val resume: Boolean? = null,
 )
 
 // The batch form of steer.startSession (EXP-156): exactly one of
@@ -340,6 +361,7 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
                 planMode = options.planMode,
                 agent = options.agent,
                 skipPermissions = options.skipPermissions,
+                resume = options.resume,
             ),
             inputSerializer = StartSessionInput.serializer(),
         )

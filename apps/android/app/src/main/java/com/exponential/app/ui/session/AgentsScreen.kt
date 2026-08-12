@@ -21,12 +21,10 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,10 +38,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.repeatOnLifecycle
 import com.exponential.app.data.api.DeviceLatestVersions
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.deviceUpdateAvailable
@@ -70,14 +65,6 @@ import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
 import com.exponential.app.ui.theme.glassSection
-import kotlinx.coroutines.delay
-
-// How often the visible tab re-reads the machine registry — the web "My
-// machines" list polls on the same cadence.
-private const val DEVICE_POLL_INTERVAL_MS = 15_000L
-
-/** `devices.rename` caps the label at 255 chars server-side. */
-private const val MAX_DEVICE_LABEL = 255
 
 /**
  * The Agents tab: "My machines" — the caller's registered devices (EXP-403:
@@ -108,25 +95,12 @@ fun AgentsScreen(
     // The device the launcher sheet was opened from (non-null = sheet open).
     var sheetDevice by remember { mutableStateOf<SteerDevice?>(null) }
 
-    // The machine rows whose Rename / Remove dialog is open (EXP-403).
-    var renameTarget by remember { mutableStateOf<SteerDevice?>(null) }
+    // The machine row whose settings sheet (EXP-481) / Remove dialog is open.
+    var settingsTargetId by remember { mutableStateOf<String?>(null) }
     var removeTarget by remember { mutableStateOf<SteerDevice?>(null) }
 
     // The row whose "Merge and close" is awaiting confirmation (EXP-358).
     var mergeTarget by remember { mutableStateOf<AgentRow?>(null) }
-
-    // Poll the machine registry while the tab is on screen: a desktop
-    // connecting, a daemon going offline or an update finishing must land
-    // without a navigation, and the loop dies with the foreground.
-    val lifecycleOwner = LocalLifecycleOwner.current
-    LaunchedEffect(lifecycleOwner) {
-        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            while (true) {
-                viewModel.refreshDevices()
-                delay(DEVICE_POLL_INTERVAL_MS)
-            }
-        }
-    }
 
     val steerOn = state.steerEnabled == true
 
@@ -187,7 +161,7 @@ fun AgentsScreen(
                                     latestVersions = latestVersions,
                                     busy = device.deviceId in deviceBusy,
                                     onStart = { sheetDevice = device },
-                                    onRename = { renameTarget = device },
+                                    onEdit = { settingsTargetId = device.deviceId },
                                     onRemove = { removeTarget = device },
                                     onUpdate = { viewModel.requestDeviceUpdate(device.deviceId) },
                                 )
@@ -204,7 +178,7 @@ fun AgentsScreen(
                                     latestVersions = latestVersions,
                                     busy = false,
                                     onStart = { sheetDevice = device },
-                                    onRename = {},
+                                    onEdit = {},
                                     onRemove = {},
                                     onUpdate = {},
                                 )
@@ -273,15 +247,19 @@ fun AgentsScreen(
         )
     }
 
-    renameTarget?.let { device ->
-        RenameMachineDialog(
-            device = device,
-            onRename = { label ->
-                viewModel.renameDevice(device.deviceId, label)
-                renameTarget = null
-            },
-            onDismiss = { renameTarget = null },
-        )
+    // EXP-481: the device-settings sheet, re-resolving the LIVE row on every
+    // sync delta so saved edits reflect without reopening. Owner-only — the
+    // menu only exists on "mine" rows.
+    settingsTargetId?.let { targetId ->
+        // The row can vanish mid-edit (device removed elsewhere) — the sheet
+        // simply stops rendering; the stale id is harmless and replaced on
+        // the next Edit tap.
+        devices?.firstOrNull { it.deviceId == targetId && it.isMine }?.let { target ->
+            DeviceSettingsSheet(
+                device = target,
+                onDismiss = { settingsTargetId = null },
+            )
+        }
     }
 
     // Removing drops the registry row only — say so, or an owner who removes a
@@ -373,7 +351,7 @@ private fun MachineRow(
     latestVersions: DeviceLatestVersions,
     busy: Boolean,
     onStart: () -> Unit,
-    onRename: () -> Unit,
+    onEdit: () -> Unit,
     onRemove: () -> Unit,
     onUpdate: () -> Unit,
 ) {
@@ -531,13 +509,15 @@ private fun MachineRow(
                     )
                 }
                 GlassDropdownMenu(expanded = rowMenu, onDismissRequest = { rowMenu = false }) {
+                    // EXP-481: Rename and the share toggle moved INTO the
+                    // device-settings sheet — the menu carries one Edit entry.
                     GlassMenuItem(
-                        text = { Text("Rename") },
+                        text = { Text("Edit") },
                         leadingIcon = { Icon(ExpIcons.uiEdit, contentDescription = null) },
                         enabled = !busy,
                         onClick = {
                             rowMenu = false
-                            onRename()
+                            onEdit()
                         },
                     )
                     // Self-update is a server-daemon capability: the desktop
@@ -570,34 +550,6 @@ private fun MachineRow(
             }
         }
     }
-}
-
-@Composable
-private fun RenameMachineDialog(
-    device: SteerDevice,
-    onRename: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var label by remember { mutableStateOf(device.deviceLabel) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Rename machine") },
-        text = {
-            OutlinedTextField(
-                value = label,
-                onValueChange = { label = it.take(MAX_DEVICE_LABEL) },
-                singleLine = true,
-                label = { Text("Name") },
-                modifier = Modifier.fillMaxWidth(),
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = { onRename(label) }, enabled = label.isNotBlank()) {
-                Text("Save")
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
 }
 
 @Composable

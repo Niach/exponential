@@ -14,11 +14,15 @@ import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
+import com.exponential.app.data.db.DeviceEntity
 import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.CodingSessionLiveness
+import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.toSteerDevice
 import com.exponential.app.ui.issue.StartIssueOption
 import com.exponential.app.ui.issue.SteerStartState
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -39,13 +43,12 @@ import kotlinx.coroutines.launch
 // session runner — this tab lists live sessions and kicks off new (single or
 // batch) runs on a picked machine.
 //
-// The machine list is the EXP-403 registry (`devices.list`, polled while the
-// tab is visible), not the relay's presence map: it carries offline machines,
-// their kind (desktop IDE vs headless `exponential` server), their version and
-// the rename/remove/update affordances. Since EXP-432 the fetch is TEAM-scoped
-// (`devices.list({teamId})`), so it also returns teammates' server machines
-// shared with the selected team — startable like the caller's own, but
-// read-only (the share toggle lives on the web).
+// The machine list is the SYNCED devices shape (EXP-481 — the EXP-403
+// registry became server-authoritative synced state): own rows plus (EXP-432)
+// teammates' server machines shared with the selected team, with online-ness
+// derived client-side from last_seen_at freshness on a 30s ticker. The 15s
+// devices.list polling died with the shape; the tRPC list survives only as
+// the latestVersions source (one fetch per account).
 
 data class AgentRow(
     val session: CodingSessionEntity,
@@ -75,9 +78,23 @@ class AgentsViewModel @Inject constructor(
 
     private val _steerEnabled = MutableStateFlow<Boolean?>(null)
 
-    // The caller's registered machines, online AND offline. null = not loaded yet.
-    private val _devices = MutableStateFlow<List<SteerDevice>?>(null)
-    val devices: StateFlow<List<SteerDevice>?> = _devices
+    // The caller's registered machines, online AND offline, from the synced
+    // devices shape — plus the selected team's shared servers. null until the
+    // shape's initial snapshot has landed (offset is_live), so the section
+    // shows nothing rather than a flash of "No machines yet".
+    val devices: StateFlow<List<SteerDevice>?> = combine(
+        dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() },
+        dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeAll() },
+        dbFlow.scopedQuery(null as Boolean?) { it.electricOffsetDao().observeIsLive("devices") },
+        combine(selection.selectedId, auth.userId) { teamId, userId -> teamId to userId },
+        DeviceLiveness.ticker(),
+    ) { rows, users, snapshotLive, (teamId, userId), now ->
+        if (snapshotLive != true && rows.isEmpty()) {
+            null
+        } else {
+            composeDeviceList(rows, users, teamId, userId, now)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     // Informational CLIENT_LATEST_VERSION_* values behind the "update
     // available" hint on a machine row; both null until the first list lands.
@@ -165,16 +182,12 @@ class AgentsViewModel @Inject constructor(
         // team switch — the shared machines the list carries belong to the
         // SELECTED team.
         viewModelScope.launch {
-            combine(auth.activeAccountId, selection.selectedId) { accountId, teamId ->
-                accountId to teamId
-            }.collectLatest { (accountId, teamId) ->
-                _devices.value = null
+            auth.activeAccountId.collectLatest { accountId ->
                 _latestVersions.value = DeviceLatestVersions()
                 _startState.value = SteerStartState.Idle
                 if (accountId == null) {
                     configuredAccountId = null
                     _steerEnabled.value = false
-                    _devices.value = emptyList()
                     return@collectLatest
                 }
                 if (configuredAccountId != accountId) {
@@ -183,36 +196,14 @@ class AgentsViewModel @Inject constructor(
                         .getOrDefault(false)
                     configuredAccountId = accountId
                 }
+                // The rows come from sync now — devices.list survives ONLY as
+                // the latestVersions source (informational, one fetch per
+                // account; a failure just hides the update hint).
                 if (_steerEnabled.value == true) {
-                    loadDevices(accountId, teamId)
-                } else {
-                    _devices.value = emptyList()
+                    runCatching { devicesApi.list(accountId) }
+                        .onSuccess { _latestVersions.value = it.latestVersions }
                 }
             }
-        }
-    }
-
-    private suspend fun loadDevices(accountId: String, teamId: String?) {
-        runCatching { devicesApi.list(accountId, teamId) }
-            .onSuccess {
-                _devices.value = it.devices
-                _latestVersions.value = it.latestVersions
-            }
-            // A failed poll must not blank a list the user is reading; only the
-            // very first failure resolves the loading state (to empty).
-            .onFailure { _devices.value = _devices.value ?: emptyList() }
-    }
-
-    /**
-     * Re-read the machine registry — the tab polls this while visible, and
-     * every row mutation calls it straight after. No-op until steer resolves
-     * on (the machines section is hidden without a relay, exactly like web).
-     */
-    fun refreshDevices() {
-        if (_steerEnabled.value != true) return
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            loadDevices(accountId, selection.selectedId.value)
         }
     }
 
@@ -231,14 +222,14 @@ class AgentsViewModel @Inject constructor(
     fun requestDeviceUpdate(deviceId: String) =
         mutateDevice(deviceId) { accountId -> devicesApi.requestUpdate(accountId, deviceId) }
 
-    // Every row mutation follows the same shape: mark the row busy, run, then
-    // refetch so the list reflects the change without waiting for the poll.
+    // Every row mutation follows the same shape: mark the row busy, run, and
+    // let sync land the change (the mutations return txids the web awaits;
+    // here the shape delta arrives within the long-poll).
     private fun mutateDevice(deviceId: String, block: suspend (String) -> Unit) {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             _deviceBusy.value = _deviceBusy.value + deviceId
             runCatching { block(accountId) }
-            loadDevices(accountId, selection.selectedId.value)
             _deviceBusy.value = _deviceBusy.value - deviceId
         }
     }
@@ -382,6 +373,38 @@ fun agentRows(
         // issueId is null for batch multi-issue sessions — those rows render
         // without an issue link.
         .map { AgentRow(session = it, issue = it.issueId?.let(issuesById::get)) }
+}
+
+/**
+ * The synced devices rows → the tab's SteerDevice list (EXP-481): the
+ * caller's own machines first (last-seen desc — the server list's order),
+ * then the SELECTED team's shared servers with their owner resolved from the
+ * synced users (a sharing owner is always a member of the sharing team, hence
+ * inside the users shape). Signed out (null [currentUserId]) lists nothing.
+ */
+fun composeDeviceList(
+    rows: List<DeviceEntity>,
+    users: List<UserEntity>,
+    teamId: String?,
+    currentUserId: String?,
+    nowMs: Long,
+): List<SteerDevice> {
+    if (currentUserId == null) return emptyList()
+    val usersById = users.associateBy { it.id }
+    val own = rows
+        .filter { it.userId == currentUserId }
+        .sortedByDescending { it.lastSeenAt ?: "" }
+        .map { it.toSteerDevice(nowMs, currentUserId) }
+    val shared = rows
+        .filter {
+            it.userId != currentUserId &&
+                teamId != null &&
+                it.sharedTeamId == teamId &&
+                it.kind == SteerDevice.KIND_SERVER
+        }
+        .sortedByDescending { it.lastSeenAt ?: "" }
+        .map { it.toSteerDevice(nowMs, currentUserId, usersById[it.userId]?.name) }
+    return own + shared
 }
 
 // Terminal issue statuses ineligible to start a new coding run.

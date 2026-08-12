@@ -10,6 +10,8 @@ import com.exponential.app.data.api.builtinActions
 import com.exponential.app.data.api.toActionDto
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
+import com.exponential.app.data.db.DeviceEntity
+import com.exponential.app.data.db.DeviceWorktreeEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
@@ -110,6 +112,24 @@ class StartCodingSheetViewModel @Inject constructor(
             }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SheetActionsState())
+
+    /**
+     * The synced worktree inventory (EXP-481) behind the sheet's "Resume
+     * previous session" offer. Owned here — like the actions/board/PR lookup
+     * sources — so every host gets the toggle without new plumbing.
+     */
+    val deviceWorktrees: StateFlow<List<DeviceWorktreeEntity>> =
+        dbFlow.scopedQuery(emptyList<DeviceWorktreeEntity>()) { it.deviceWorktreeDao().observeAll() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * The synced device rows (EXP-481) — resolves a picked machine's ROW id
+     * for the worktree join when the host handed the sheet poll-derived
+     * SteerDevice rows (devices.list carries no rowId).
+     */
+    val deviceRows: StateFlow<List<DeviceEntity>> =
+        dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The team repo registry — options for `repo`-typed inputs (failure = empty). */
     val repos: StateFlow<List<TeamRepo>> = scope.flatMapLatest { (accountId, teamId) ->

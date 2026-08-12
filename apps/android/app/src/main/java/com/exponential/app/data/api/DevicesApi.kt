@@ -4,19 +4,21 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 // Mirrors apps/web/src/lib/trpc/devices.ts. The EXP-403 registry is the
 // caller's OWN machines — the desktop IDE and headless `exponential` daemon
-// servers — kept per user over tRPC, deliberately NOT an Electric shape.
-// `list` merges the durable rows (label, kind, last seen, version) with live
-// relay presence, so a row carries both identity and startability; this app
-// only reads and curates that list — registering is the machines' own job.
-// EXP-432 widens `list` with an optional teamId: teammates' SERVER machines
-// shared with that team come back too (read-only here — the share toggle is
-// web-only), and a start on one runs there but is attributed to the caller.
+// servers. Since EXP-481 the registry is server-authoritative synced state
+// (the `devices` + `device_worktrees` shapes — see DeviceEntity); this API
+// carries the curation mutations (rename/remove/update/share), the
+// server-authoritative launch-defaults edit, and the owner→device worktree
+// command queue (remove/prune — durable rows the machine picks up on its
+// heartbeat, online or not). `list` survives ONLY as the latestVersions
+// source; the rows themselves come from sync.
 
 /**
  * Informational `CLIENT_LATEST_VERSION_*` values (null when unset
@@ -42,6 +44,41 @@ private data class DeviceIdInput(@SerialName("deviceId") val deviceId: String)
 private data class RenameDeviceInput(
     @SerialName("deviceId") val deviceId: String,
     @SerialName("label") val label: String,
+)
+
+/** `devices.createCommand`'s answer — the queued row's id, for [DevicesApi.getCommand] polling. */
+@Serializable
+data class CreatedCommand(@SerialName("id") val id: String)
+
+/**
+ * One queued owner→device command (EXP-481): `worktree_remove` /
+ * `worktree_prune`, pending until the machine completes it. [result] carries
+ * the device-reported message — the prune summary, or the refusal reason on a
+ * `failed` row.
+ */
+@Serializable
+data class DeviceCommandDto(
+    @SerialName("id") val id: String,
+    @SerialName("kind") val kind: String = "",
+    @SerialName("status") val status: String = STATUS_PENDING,
+    @SerialName("result") val result: String? = null,
+) {
+    val isTerminal: Boolean get() = status == STATUS_DONE || status == STATUS_FAILED
+
+    companion object {
+        const val STATUS_PENDING = "pending"
+        const val STATUS_DONE = "done"
+        const val STATUS_FAILED = "failed"
+    }
+}
+
+@Serializable
+private data class CommandIdInput(@SerialName("commandId") val commandId: String)
+
+@Serializable
+private data class SetLaunchDefaultsInput(
+    @SerialName("deviceId") val deviceId: String,
+    @SerialName("launchDefaults") val launchDefaults: DeviceLaunchDefaults,
 )
 
 @Singleton
@@ -101,6 +138,97 @@ class DevicesApi @Inject constructor(private val trpc: TrpcClient) {
             inputSerializer = DeviceIdInput.serializer(),
         )
     }
+
+    /**
+     * `devices.setShared` (EXP-481 — the toggle was web-only before): share
+     * one of the caller's SERVER machines with [teamId], or clear the share
+     * with null. The server requires the `teamId` KEY to be present even for
+     * clearing, and the shared Json drops nulls (explicitNulls = false) — so
+     * the input is built by hand with an explicit [JsonNull].
+     */
+    suspend fun setShared(accountId: String, deviceId: String, teamId: String?) {
+        trpc.mutationUnit(
+            accountId,
+            path = "devices.setShared",
+            input = setSharedInput(deviceId, teamId),
+            inputSerializer = JsonObject.serializer(),
+        )
+    }
+
+    /**
+     * `devices.setLaunchDefaults` (EXP-481) — edit a machine's
+     * server-authoritative per-agent coding defaults. Works with the machine
+     * OFFLINE: the row is the truth and the machine's settings.json converges
+     * on its next heartbeat (a relay nudge makes an online one immediate).
+     * UI edits deliberately omit the device-push CAS stamp — unconditional
+     * last-write-wins between humans.
+     */
+    suspend fun setLaunchDefaults(
+        accountId: String,
+        deviceId: String,
+        defaults: DeviceLaunchDefaults,
+    ) {
+        trpc.mutationUnit(
+            accountId,
+            path = "devices.setLaunchDefaults",
+            input = SetLaunchDefaultsInput(deviceId = deviceId, launchDefaults = defaults),
+            inputSerializer = SetLaunchDefaultsInput.serializer(),
+        )
+    }
+
+    /**
+     * `devices.createCommand` (EXP-481) — queue a worktree command for the
+     * machine. Durable: an OFFLINE machine runs it when it returns (the sheet
+     * says so instead of blocking). Build the payload with
+     * [worktreeRemoveCommand] / [worktreePruneCommand].
+     */
+    suspend fun createCommand(
+        accountId: String,
+        command: JsonObject,
+    ): CreatedCommand =
+        trpc.mutation(
+            accountId,
+            path = "devices.createCommand",
+            input = command,
+            inputSerializer = JsonObject.serializer(),
+            outputSerializer = CreatedCommand.serializer(),
+        )
+
+    /** `devices.getCommand` — the issuing UI's poll target while a command runs. */
+    suspend fun getCommand(accountId: String, commandId: String): DeviceCommandDto =
+        trpc.query(
+            accountId,
+            path = "devices.getCommand",
+            input = CommandIdInput(commandId = commandId),
+            inputSerializer = CommandIdInput.serializer(),
+            outputSerializer = DeviceCommandDto.serializer(),
+        )
+}
+
+/**
+ * `devices.setShared`'s input. Built by hand: the server requires the
+ * `teamId` KEY even when clearing, and the shared Json drops nulls
+ * (explicitNulls = false) — a synthesized Encodable would silently turn
+ * "stop sharing" into a no-op BAD_REQUEST.
+ */
+internal fun setSharedInput(deviceId: String, teamId: String?): JsonObject = buildJsonObject {
+    put("deviceId", deviceId)
+    put("teamId", teamId?.let(::JsonPrimitive) ?: JsonNull)
+}
+
+/** The `worktree_remove` input for [DevicesApi.createCommand]. */
+fun worktreeRemoveCommand(deviceId: String, repoFullName: String, branch: String): JsonObject =
+    buildJsonObject {
+        put("deviceId", deviceId)
+        put("kind", "worktree_remove")
+        put("repoFullName", repoFullName)
+        put("branch", branch)
+    }
+
+/** The `worktree_prune` input for [DevicesApi.createCommand]. */
+fun worktreePruneCommand(deviceId: String): JsonObject = buildJsonObject {
+    put("deviceId", deviceId)
+    put("kind", "worktree_prune")
 }
 
 /**

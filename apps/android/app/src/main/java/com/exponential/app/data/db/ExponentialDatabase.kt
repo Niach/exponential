@@ -21,6 +21,8 @@ import androidx.room.RoomDatabase
         IssueEventEntity::class,
         CodingSessionEntity::class,
         ActionEntity::class,
+        DeviceEntity::class,
+        DeviceWorktreeEntity::class,
         ElectricOffsetEntity::class,
     ],
     // v2: added attachments.width / attachments.height (parity with iOS).
@@ -149,9 +151,15 @@ import androidx.room.RoomDatabase
     //      batch before the offset advanced and stalling the shape forever.
     //      Relaxing a constraint needs the destructive fallback's wipe + resync
     //      (Room can't ALTER it away), which also re-delivers the dropped rows.
+    // v35 (EXP-481): devices + device_worktrees — the 17th/18th Electric
+    //      shapes. The per-user machine registry became server-authoritative
+    //      synced state (launch_defaults, worktree inventory, last_seen_at
+    //      freshness = online), replacing the 15s `devices.list` polling on
+    //      the Agents tab and powering the device-settings sheet + the remote
+    //      resume offer. Destructive fallback wipes + resyncs all 18 shapes.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so an additive shape column just wipes and re-syncs from Electric.
-    version = 34,
+    version = 35,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {
@@ -171,5 +179,7 @@ abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun issueEventDao(): IssueEventDao
     abstract fun codingSessionDao(): CodingSessionDao
     abstract fun actionDao(): ActionDao
+    abstract fun deviceDao(): DeviceDao
+    abstract fun deviceWorktreeDao(): DeviceWorktreeDao
     abstract fun electricOffsetDao(): ElectricOffsetDao
 }

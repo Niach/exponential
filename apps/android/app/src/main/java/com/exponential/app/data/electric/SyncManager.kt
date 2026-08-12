@@ -15,6 +15,8 @@ import com.exponential.app.data.db.AttachmentEntity
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.CommentEntity
 import com.exponential.app.data.db.DatabaseHolder
+import com.exponential.app.data.db.DeviceEntity
+import com.exponential.app.data.db.DeviceWorktreeEntity
 import com.exponential.app.data.db.ExponentialDatabase
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueEventEntity
@@ -52,7 +54,7 @@ import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 
-/// Multi-account sync orchestrator. Maintains one set of 16 shape jobs per
+/// Multi-account sync orchestrator. Maintains one set of 18 shape jobs per
 /// signed-in account; each pipeline writes to that account's per-account Room
 /// instance (`exponential-<accountId>-v2.db`). Sign-out on one account cancels
 /// just that pipeline; other accounts keep syncing.
@@ -69,7 +71,7 @@ class SyncManager @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Any()
 
-    /** One account's 16 shape loops, plus the clients a [kick] has to reach. */
+    /** One account's 18 shape loops, plus the clients a [kick] has to reach. */
     private class Pipeline(val jobs: List<Job>, val clients: List<ShapeClient<*>>)
 
     private val pipelines = mutableMapOf<String, Pipeline>()
@@ -79,7 +81,7 @@ class SyncManager @Inject constructor(
     private val _lastKickAt = MutableStateFlow(0L)
     val lastKickAt: StateFlow<Long> = _lastKickAt.asStateFlow()
 
-    // App-lifecycle gate (REV2-38), threaded into every ShapeClient: 16 shape
+    // App-lifecycle gate (REV2-38), threaded into every ShapeClient: 18 shape
     // loops PER signed-in account must not keep long-polling for a process the
     // user can't see (Android caches backgrounded processes and only freezes
     // them ~10min later on 12+, OEM-configurable, never below it). Starts
@@ -95,7 +97,7 @@ class SyncManager @Inject constructor(
     private var parkJob: Job? = null
 
     // Debounce gate for unforced kicks: foreground + network-available +
-    // several pushes can land within the same second, and 16 shapes each
+    // several pushes can land within the same second, and 18 shapes each
     // dropping a live connection per trigger is a real cost.
     private val lastKickGate = AtomicLong(0L)
 
@@ -330,7 +332,7 @@ class SyncManager @Inject constructor(
             for (accountId in signedIn - running) {
                 val db = databaseHolder.database(forAccountId = accountId)
                 pipelines[accountId] = launchPipeline(accountId, db)
-                android.util.Log.i("SyncManager", "Launched shape pipeline (16 shapes) for $accountId")
+                android.util.Log.i("SyncManager", "Launched shape pipeline (18 shapes) for $accountId")
             }
         }
     }
@@ -396,6 +398,8 @@ class SyncManager @Inject constructor(
         val issueEventDao = db.issueEventDao()
         val codingSessionDao = db.codingSessionDao()
         val actionDao = db.actionDao()
+        val deviceDao = db.deviceDao()
+        val deviceWorktreeDao = db.deviceWorktreeDao()
 
         val shapes = listOf(
             launchShape(
@@ -557,6 +561,26 @@ class SyncManager @Inject constructor(
                 onUpdate = { actionDao.upsert(it) },
                 onDelete = { actionDao.deleteById(it.id) },
                 onRefetch = { actionDao.clear() },
+            ),
+            launchShape(
+                shape = "devices", path = "/api/shapes/devices", tableName = "devices",
+                serializer = DeviceEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("devices"),
+                onInsert = { deviceDao.upsert(it) },
+                onUpdate = { deviceDao.upsert(it) },
+                onDelete = { deviceDao.deleteById(it.id) },
+                onRefetch = { deviceDao.clear() },
+            ),
+            launchShape(
+                shape = "device_worktrees", path = "/api/shapes/device-worktrees", tableName = "device_worktrees",
+                serializer = DeviceWorktreeEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("device_worktrees"),
+                onInsert = { deviceWorktreeDao.upsert(it) },
+                onUpdate = { deviceWorktreeDao.upsert(it) },
+                onDelete = { deviceWorktreeDao.deleteById(it.id) },
+                onRefetch = { deviceWorktreeDao.clear() },
             ),
         )
         return Pipeline(jobs = shapes.map { it.first }, clients = shapes.map { it.second })

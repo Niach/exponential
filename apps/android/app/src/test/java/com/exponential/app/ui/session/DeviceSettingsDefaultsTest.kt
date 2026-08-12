@@ -1,0 +1,100 @@
+package com.exponential.app.ui.session
+
+import com.exponential.app.data.api.AgentLaunchDefaults
+import com.exponential.app.data.api.DeviceLaunchDefaults
+import com.exponential.app.data.api.SteerDevice
+import com.exponential.app.domain.DomainContract
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/** EXP-481: the settings sheet's pure defaults-editor helpers. */
+class DeviceSettingsDefaultsTest {
+
+    private fun device(
+        agents: List<String>? = listOf("claude", "codex"),
+        unauthed: List<String> = listOf("pi"),
+        defaults: DeviceLaunchDefaults? = null,
+    ) = SteerDevice(
+        deviceId = "dev-1",
+        agents = agents,
+        unauthedAgents = unauthed,
+        launchDefaults = defaults,
+    )
+
+    @Test
+    fun `editable agents cover runnable + signed-out + stored, contract order`() {
+        assertEquals(
+            listOf("claude", "codex", "pi"),
+            editableAgents(device()),
+        )
+        // A machine the row knows nothing about stays fully editable.
+        assertEquals(
+            DomainContract.codingAgentValues,
+            editableAgents(device(agents = null, unauthed = emptyList())),
+        )
+    }
+
+    @Test
+    fun `stored default agent wins when editable, else claude, else first`() {
+        assertEquals(
+            "codex",
+            seededDefaultAgent(
+                device(defaults = DeviceLaunchDefaults(defaultAgent = "codex")),
+                listOf("claude", "codex"),
+            ),
+        )
+        assertEquals(
+            "claude",
+            seededDefaultAgent(device(), listOf("claude", "codex")),
+        )
+        assertEquals(
+            "codex",
+            seededDefaultAgent(device(), listOf("codex")),
+        )
+    }
+
+    @Test
+    fun `drafts clamp stored vocabulary and capabilities`() {
+        val stored = DeviceLaunchDefaults(
+            agents = mapOf(
+                "codex" to AgentLaunchDefaults(
+                    model = "not-a-model",
+                    effort = "high",
+                    ultracode = true,
+                ),
+            ),
+        )
+        val draft = agentDraft(device(defaults = stored), "codex")
+        // Invalid model falls back to codex's CLI default; ultracode never
+        // survives off claude.
+        assertEquals("", draft.model)
+        assertEquals("high", draft.effort)
+        assertFalse(draft.ultracode)
+    }
+
+    @Test
+    fun `buildDefaults masks capabilities per agent and carries the default`() {
+        val built = buildDefaults(
+            defaultAgent = "claude",
+            agents = listOf("claude", "codex", "pi"),
+            drafts = mapOf(
+                "claude" to AgentDraft("fable", "", ultracode = true, planMode = true, skipPermissions = true),
+                "codex" to AgentDraft("", "high", ultracode = true, planMode = true, skipPermissions = true),
+                "pi" to AgentDraft("", "", ultracode = false, planMode = true, skipPermissions = true),
+            ),
+        )
+        assertEquals("claude", built.defaultAgent)
+        assertTrue(built.agents.getValue("claude").ultracode)
+        // codex: no ultracode, no plan mode; keeps skip-permissions.
+        val codex = built.agents.getValue("codex")
+        assertFalse(codex.ultracode)
+        assertFalse(codex.planMode)
+        assertTrue(codex.skipPermissions)
+        // pi: plan mode only.
+        val pi = built.agents.getValue("pi")
+        assertTrue(pi.planMode)
+        assertFalse(pi.skipPermissions)
+    }
+}

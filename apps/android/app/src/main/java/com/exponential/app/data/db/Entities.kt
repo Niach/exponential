@@ -374,6 +374,91 @@ data class IssueEventEntity(
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
 )
 
+// A registered machine (EXP-481, the 17th Electric shape): the caller's own
+// devices plus SERVER machines teammates share with a common team. Rows are
+// SERVER-AUTHORITATIVE device state — `launch_defaults` is the canonical copy
+// of the machine's per-agent coding defaults (its local settings.json
+// converges), and online-ness derives CLIENT-side from `last_seen_at`
+// freshness (DeviceLiveness — devices heartbeat ~30s; no relay presence in
+// the sync path). Every field that can be absent is defaulted: a required
+// field missing on the wire silently drops the row forever (the
+// attachments.uploader_id lesson).
+@Entity(
+    tableName = "devices",
+    indices = [Index("user_id")],
+)
+@Serializable
+data class DeviceEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "user_id") @SerialName("user_id") @JsonNames("userId") val userId: String,
+    // The steer deviceId (start target) — NOT the row id.
+    @ColumnInfo(name = "device_id") @SerialName("device_id") @JsonNames("deviceId") val deviceId: String,
+    val label: String = "",
+    /** `desktop` (the IDE) or `server` (a headless `exponential` daemon). */
+    val kind: String = "desktop",
+    val platform: String? = null,
+    val version: String? = null,
+    // jsonb string arrays, kept as raw JSON text and parsed at the consumer
+    // (DeviceRows) — the ActionEntity.inputs idiom.
+    @Serializable(with = JsonAsStringSerializer::class) val agents: String? = null,
+    @Serializable(with = JsonAsStringSerializer::class) val caps: String? = null,
+    @ColumnInfo(name = "unauthed_agents") @SerialName("unauthed_agents") @JsonNames("unauthedAgents")
+    @Serializable(with = JsonAsStringSerializer::class) val unauthedAgents: String? = null,
+    // The server-authoritative per-agent launch defaults (EXP-481) — a jsonb
+    // object stored as its raw JSON text; NULL = never set, clients seed
+    // static contract defaults.
+    @ColumnInfo(name = "launch_defaults") @SerialName("launch_defaults") @JsonNames("launchDefaults")
+    @Serializable(with = JsonAsStringSerializer::class) val launchDefaults: String? = null,
+    @ColumnInfo(name = "launch_defaults_updated_at") @SerialName("launch_defaults_updated_at") @JsonNames("launchDefaultsUpdatedAt")
+    val launchDefaultsUpdatedAt: String? = null,
+    @ColumnInfo(name = "active_sessions") @SerialName("active_sessions") @JsonNames("activeSessions")
+    val activeSessions: Int = 0,
+    @ColumnInfo(name = "last_seen_at") @SerialName("last_seen_at") @JsonNames("lastSeenAt")
+    val lastSeenAt: String? = null,
+    // EXP-432: the ONE team this (server) machine is shared with; null = private.
+    @ColumnInfo(name = "shared_team_id") @SerialName("shared_team_id") @JsonNames("sharedTeamId")
+    val sharedTeamId: String? = null,
+    // Web "Update" click pending on the daemon (cleared by its next register).
+    @ColumnInfo(name = "update_requested_at") @SerialName("update_requested_at") @JsonNames("updateRequestedAt")
+    val updateRequestedAt: String? = null,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
+)
+
+// One worktree a device reported (EXP-481, the 18th Electric shape) — powers
+// the remote resume offer and the device-settings worktree list, from
+// persisted data even while the machine is offline. `device_row_id` is the
+// devices ROW id (uuid), never the steer device-id string.
+@Entity(
+    tableName = "device_worktrees",
+    indices = [Index("device_row_id")],
+)
+@Serializable
+data class DeviceWorktreeEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "device_row_id") @SerialName("device_row_id") @JsonNames("deviceRowId")
+    val deviceRowId: String,
+    @ColumnInfo(name = "repo_full_name") @SerialName("repo_full_name") @JsonNames("repoFullName")
+    val repoFullName: String = "",
+    val branch: String = "",
+    // `exp/<IDENTIFIER>` linkage as the DEVICE parsed it; null on foreign
+    // branches. Clients join against their own synced issues.
+    @ColumnInfo(name = "issue_identifier") @SerialName("issue_identifier") @JsonNames("issueIdentifier")
+    val issueIdentifier: String? = null,
+    // Agents recorded in the worktree's .exp-agents resume marker (jsonb
+    // string array as raw JSON text); NULL = pre-marker worktree, any agent
+    // may resume.
+    @Serializable(with = JsonAsStringSerializer::class) val agents: String? = null,
+    // Documented varchar: clean | untracked | tracked | unknown.
+    val dirty: String = "unknown",
+    // A live local session currently holds this worktree's branch.
+    val busy: PgBool = false,
+    @ColumnInfo(name = "reported_at") @SerialName("reported_at") @JsonNames("reportedAt")
+    val reportedAt: String? = null,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
+)
+
 @Entity(tableName = "electric_offsets")
 data class ElectricOffsetEntity(
     @PrimaryKey @ColumnInfo(name = "shape") val shape: String,
