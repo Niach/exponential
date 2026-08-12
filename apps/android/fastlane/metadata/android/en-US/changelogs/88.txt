@@ -1,0 +1,1 @@
+Manage every machine's settings and worktrees remotely, resume sessions from your phone, and fix PR merge conflicts from the Agents view.
