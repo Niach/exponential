@@ -1,15 +1,20 @@
 import { contract } from "@exp/domain-contract"
 
+import type { Device, SyncedDeviceWorktree, User } from "@/db/schema"
 import { parseVersionTuple } from "./client-version"
 import type { AgentLaunchDefaults } from "./coding-launch-prefs"
 
-// The caller's machines as `devices.list` returns them (EXP-403: the durable
-// registry merged with live relay presence) — the launch dialog, hooks, and
-// the Agents page share one shape + capability vocabulary. Rows straight off
-// the relay (`steer.myDevices`) still fit: the registry fields are optional
-// and absent-`online` reads as online.
+// The caller's machines (EXP-403). Since EXP-481 the primary source is the
+// synced `devices` shape (`steerDeviceFromRow`/`composeDeviceList` below —
+// online-ness derives from `last_seen_at` freshness client-side); the legacy
+// `devices.list` merge shape still fits, so every existing consumer keeps
+// compiling. Rows straight off the relay (`steer.myDevices`) also fit: the
+// registry fields are optional and absent-`online` reads as online.
 
 export interface SteerDevice {
+  /** EXP-481: the synced devices row id — joins `device_worktrees` rows.
+   * Absent on legacy `devices.list` / relay-presence rows. */
+  rowId?: string
   deviceId: string
   deviceLabel: string
   /** Relay presence timestamp — absent on registry-only (offline) rows. */
@@ -128,6 +133,117 @@ export function deviceCanRunActionInputs(device: SteerDevice): boolean {
  * out of the picker instead of failing after submit (EXP-323). */
 export function deviceCanFixConflicts(device: SteerDevice): boolean {
   return (device.caps ?? []).includes(`fix-conflicts`)
+}
+
+/** EXP-481: remote resume needs this capability — an older build would
+ * silently drop the flag and start fresh (`steer.startSession` gates on the
+ * persisted row's caps server-side). */
+export function deviceCanResume(device: SteerDevice): boolean {
+  return (device.caps ?? []).includes(`resume`)
+}
+
+/** EXP-481: whether a devices row reads "online" — `last_seen_at` within the
+ * contract window of `now` (devices heartbeat ~30s; the window is three
+ * missed beats). A negative age (server stamp ahead of the client clock)
+ * clamps to online — skew must never mark a beating machine offline. */
+export function deviceRowIsOnline(
+  lastSeenAt: Date | string,
+  now: Date
+): boolean {
+  const seen =
+    typeof lastSeenAt === `string` ? new Date(lastSeenAt) : lastSeenAt
+  const age = now.getTime() - seen.getTime()
+  if (Number.isNaN(age)) return false
+  return age <= contract.device.onlineWindowSeconds * 1000
+}
+
+/** EXP-481: a synced devices row → the shared `SteerDevice` shape every
+ * picker/list consumer already speaks. `online` is stamped from
+ * `last_seen_at` freshness; `owner` is set iff the row belongs to someone
+ * else (a teammate's shared server). */
+export function steerDeviceFromRow(
+  row: Device,
+  opts: { now: Date; currentUserId: string; ownerName?: string }
+): SteerDevice {
+  const updateRequested = row.updateRequestedAt !== null
+  return {
+    rowId: row.id,
+    deviceId: row.deviceId,
+    deviceLabel: row.label,
+    kind: row.kind === `server` ? `server` : `desktop`,
+    agents: row.agents,
+    unauthedAgents: row.unauthedAgents,
+    caps: row.caps,
+    launchDefaults: row.launchDefaults ?? undefined,
+    online: deviceRowIsOnline(row.lastSeenAt, opts.now),
+    lastSeenAt: new Date(row.lastSeenAt).toISOString(),
+    registered: true,
+    version: row.version,
+    updateRequested,
+    updateBlocked: updateRequested && row.activeSessions > 0,
+    sharedTeamId: row.sharedTeamId,
+    ...(row.userId === opts.currentUserId
+      ? {}
+      : { owner: { id: row.userId, name: opts.ownerName ?? `` } }),
+  }
+}
+
+/** EXP-481: compose the device list from synced rows — own rows first
+ * (last-seen desc), then servers shared with `teamId` (mirrors the legacy
+ * `devices.list` ordering, so the UI grouping is unchanged). */
+export function composeDeviceList(
+  rows: Device[],
+  usersById: Map<string, Pick<User, `id` | `name`>>,
+  now: Date,
+  currentUserId: string,
+  teamId?: string
+): SteerDevice[] {
+  const byLastSeen = (a: Device, b: Device) =>
+    new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime()
+  const own = rows
+    .filter((row) => row.userId === currentUserId)
+    .sort(byLastSeen)
+  const shared = teamId
+    ? rows
+        .filter(
+          (row) =>
+            row.userId !== currentUserId &&
+            row.sharedTeamId === teamId &&
+            row.kind === `server`
+        )
+        .sort(byLastSeen)
+    : []
+  return [...own, ...shared].map((row) =>
+    steerDeviceFromRow(row, {
+      now,
+      currentUserId,
+      ownerName: usersById.get(row.userId)?.name,
+    })
+  )
+}
+
+/** EXP-481: the synced worktree row that makes "Resume previous session"
+ * offerable for (device, issue, agent) — same device row, matching issue
+ * identifier (case-insensitive), and either no recorded agents (pre-marker
+ * worktree: any agent may resume) or the chosen agent among them. */
+export function resumeWorktree(
+  worktrees: SyncedDeviceWorktree[],
+  deviceRowId: string | undefined,
+  issueIdentifier: string,
+  agent: string
+): SyncedDeviceWorktree | null {
+  if (!deviceRowId) return null
+  const wanted = issueIdentifier.toLowerCase()
+  return (
+    worktrees.find(
+      (worktree) =>
+        worktree.deviceRowId === deviceRowId &&
+        worktree.issueIdentifier?.toLowerCase() === wanted &&
+        (worktree.agents === null ||
+          worktree.agents.length === 0 ||
+          worktree.agents.includes(agent))
+    ) ?? null
+  )
 }
 
 /** The device's reported version compares below the platform's

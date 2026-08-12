@@ -920,13 +920,19 @@ describe(`devices.heartbeat — work pull (EXP-481)`, () => {
       },
     ],
   ]
+  // The live-row response arm (the gone-row arm carries neither commands nor
+  // defaults) — narrows the union for direct property assertions.
+  type WorkPull = Extract<
+    Awaited<ReturnType<typeof caller.heartbeat>>,
+    { commands: unknown }
+  >
 
   it(`delivers pending commands with every beat`, async () => {
     h.state.updateReturning = heartbeatRow()
     h.state.selectRows = [
       { id: `cmd-1`, kind: `worktree_prune`, payload: {} },
     ]
-    const result = await caller.heartbeat({ deviceId: `dev-1` })
+    const result = (await caller.heartbeat({ deviceId: `dev-1` })) as WorkPull
     expect(result.ok).toBe(true)
     expect(result.commands).toEqual([
       { id: `cmd-1`, kind: `worktree_prune`, payload: {} },
@@ -941,10 +947,10 @@ describe(`devices.heartbeat — work pull (EXP-481)`, () => {
 
     // Stale device stamp (null = never converged) → defaults included.
     h.state.updateReturning = heartbeatRow()
-    const stale = await caller.heartbeat({
+    const stale = (await caller.heartbeat({
       deviceId: `dev-1`,
       defaultsSyncedAt: null,
-    })
+    })) as WorkPull
     expect(stale.launchDefaults).toEqual({ defaultAgent: `codex` })
     expect(stale.launchDefaultsUpdatedAt).toBe(`2026-08-10T10:00:00.000Z`)
 

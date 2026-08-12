@@ -1,9 +1,10 @@
 // "My machines" (EXP-403): the caller's registered devices — desktops and
 // headless `exponential` daemon servers — with live online state, last-seen
-// fallback, rename/remove, and the "Add server" install one-liner. Fed by
-// `devices.list` via useRemoteStart's poll. EXP-432 adds the one team-shaped
-// exception: own SERVER rows can be shared with the current team (⋯ menu),
-// and teammates' shared servers render read-only under "Team machines".
+// fallback, and the "Add server" install one-liner. Since EXP-481 the rows
+// ride the synced devices shape (useRemoteStart composes them) and the ⋯
+// menu collapses to Edit + Remove — rename, team sharing (EXP-432), agent
+// defaults and worktree management all live in the Device settings dialog.
+// Teammates' shared servers render read-only under "Team machines".
 import { useMemo, useState } from "react"
 import { LoaderCircle, MonitorUp } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
@@ -20,6 +21,7 @@ import {
 } from "@/lib/steer-devices"
 import { CopySnippetButton } from "@/components/getting-started/mcp-setup-tabs"
 import { SectionLabel } from "@/components/agent-session-row"
+import { DeviceSettingsDialog } from "@/components/device-settings-dialog"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -35,7 +37,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Input } from "@/components/ui/input"
 
 // This is a MULTI-CLIENT surface (iOS/Android/desktop render the same list)
 // — concepts, never raw lucide glyphs (CLAUDE.md icon rule). MonitorUp and
@@ -45,10 +46,9 @@ const ServerIcon = conceptIcon(`ui-server`)
 const OfflineIcon = conceptIcon(`ui-device-offline`)
 const AddIcon = conceptIcon(`ui-add`)
 const UpdateIcon = conceptIcon(`ui-update`)
-const RenameIcon = conceptIcon(`ui-edit`)
+const EditIcon = conceptIcon(`ui-edit`)
 const RemoveIcon = conceptIcon(`ui-delete`)
 const MoreIcon = conceptIcon(`ui-more`)
-const ShareIcon = conceptIcon(`ui-share`)
 
 // The install script is served by the CLOUD marketing site for every
 // instance — self-hosted deployments ship only the web app (no marketing
@@ -77,28 +77,16 @@ export function MyMachines({
   teamId?: string
 }) {
   const [addServerOpen, setAddServerOpen] = useState(false)
-  const [renameTarget, setRenameTarget] = useState<SteerDevice | null>(null)
-  const [renameValue, setRenameValue] = useState(``)
+  const [settingsTargetId, setSettingsTargetId] = useState<string | null>(null)
   const [removeTarget, setRemoveTarget] = useState<SteerDevice | null>(null)
   const [busy, setBusy] = useState(false)
   const [updatingId, setUpdatingId] = useState<string | null>(null)
 
   const mine = devices?.filter(deviceIsMine) ?? null
   const teamShared = devices?.filter((device) => !deviceIsMine(device)) ?? []
-
-  const setShared = async (device: SteerDevice, shareTeamId: string | null) => {
-    if (busy) return
-    setBusy(true)
-    try {
-      await trpc.devices.setShared.mutate({
-        deviceId: device.deviceId,
-        teamId: shareTeamId,
-      })
-      onChanged()
-    } finally {
-      setBusy(false)
-    }
-  }
+  // Re-resolved each render so the dialog always edits the LIVE synced row.
+  const settingsTarget =
+    mine?.find((device) => device.deviceId === settingsTargetId) ?? null
 
   const requestUpdate = async (device: SteerDevice) => {
     if (updatingId) return
@@ -120,21 +108,6 @@ export function MyMachines({
       ),
     []
   )
-
-  const rename = async () => {
-    if (!renameTarget || !renameValue.trim() || busy) return
-    setBusy(true)
-    try {
-      await trpc.devices.rename.mutate({
-        deviceId: renameTarget.deviceId,
-        label: renameValue.trim(),
-      })
-      setRenameTarget(null)
-      onChanged()
-    } finally {
-      setBusy(false)
-    }
-  }
 
   const remove = async () => {
     if (!removeTarget || busy) return
@@ -317,38 +290,14 @@ export function MyMachines({
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
+                      {/* EXP-481: rename, sharing, agent defaults and
+                          worktrees all live in the settings dialog. */}
                       <DropdownMenuItem
-                        onSelect={() => {
-                          setRenameValue(device.deviceLabel || ``)
-                          setRenameTarget(device)
-                        }}
+                        onSelect={() => setSettingsTargetId(device.deviceId)}
                       >
-                        <RenameIcon />
-                        Rename
+                        <EditIcon />
+                        Edit
                       </DropdownMenuItem>
-                      {/* EXP-432: server devices only — teammates of the
-                          current team may then start sessions on this box
-                          (they run under this account's daemon). */}
-                      {device.kind === `server` &&
-                        teamId &&
-                        device.sharedTeamId !== teamId && (
-                          <DropdownMenuItem
-                            onSelect={() => void setShared(device, teamId)}
-                          >
-                            <ShareIcon />
-                            {device.sharedTeamId
-                              ? `Share with this team instead`
-                              : `Share with team`}
-                          </DropdownMenuItem>
-                        )}
-                      {device.kind === `server` && device.sharedTeamId && (
-                        <DropdownMenuItem
-                          onSelect={() => void setShared(device, null)}
-                        >
-                          <ShareIcon />
-                          Stop sharing
-                        </DropdownMenuItem>
-                      )}
                       <DropdownMenuItem
                         variant="destructive"
                         onSelect={() => setRemoveTarget(device)}
@@ -454,36 +403,13 @@ export function MyMachines({
         </DialogContent>
       </Dialog>
 
-      <Dialog
-        open={renameTarget !== null}
+      <DeviceSettingsDialog
+        device={settingsTarget}
+        open={settingsTarget !== null}
         onOpenChange={(open) => {
-          if (!open && !busy) setRenameTarget(null)
+          if (!open) setSettingsTargetId(null)
         }}
-      >
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Rename machine</DialogTitle>
-          </DialogHeader>
-          <Input
-            value={renameValue}
-            onChange={(event) => setRenameValue(event.target.value)}
-            maxLength={255}
-            autoFocus
-            onKeyDown={(event) => {
-              if (event.key === `Enter`) void rename()
-            }}
-          />
-          <DialogFooter>
-            <Button variant="ghost" disabled={busy} onClick={() => setRenameTarget(null)}>
-              Cancel
-            </Button>
-            <Button disabled={busy || !renameValue.trim()} onClick={() => void rename()}>
-              {busy && <LoaderCircle className="animate-spin" />}
-              Save
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      />
 
       <Dialog
         open={removeTarget !== null}

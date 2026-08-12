@@ -2,12 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import { LoaderCircle, MonitorUp } from "lucide-react"
 import { contract } from "@exp/domain-contract"
-import type { CodingSession, Issue } from "@/db/schema"
+import type { CodingSession, Issue, SyncedDeviceWorktree } from "@/db/schema"
 import { isCodingSessionStale } from "@exp/db-schema/domain"
 import { useNow } from "@/hooks/use-now"
 import {
   actionCollection,
   codingSessionCollection,
+  deviceWorktreeCollection,
   issueCollection,
 } from "@/lib/collections"
 import {
@@ -29,11 +30,13 @@ import {
   deviceAgentIds,
   deviceAgentLaunchDefaults,
   deviceCanFixConflicts,
+  deviceCanResume,
   deviceCanRunActionInputs,
   deviceCanRunActions,
   deviceDefaultAgent,
   deviceHasRunnableAgent,
   deviceIsOnline,
+  resumeWorktree,
   type SteerDevice,
 } from "@/lib/steer-devices"
 import type { RemoteStartAction } from "@/hooks/use-remote-start"
@@ -167,6 +170,10 @@ export function LaunchDialog({
   const [deviceId, setDeviceId] = useState<string | null>(null)
   const [search, setSearch] = useState(``)
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  // EXP-481: "Resume previous session" — default ON whenever it first becomes
+  // eligible (reset on open); a manual toggle simply sticks, since nothing
+  // ever re-sets it after open.
+  const [resume, setResume] = useState(true)
   // Set once the user overrides any Switch / Select — freezes the per-mode
   // defaults so a later selection-count crossing won't stomp their choice.
   const touchedRef = useRef(false)
@@ -353,6 +360,7 @@ export function LaunchDialog({
     setInputValues({})
     seededRepoActionId.current = null
     setDeviceId(initialDeviceId ?? null)
+    setResume(true)
     touchedRef.current = false
     // Static contract defaults until a device settles — the device-seed
     // effect below overlays the selected machine's advertised defaults
@@ -538,6 +546,31 @@ export function LaunchDialog({
   const spansRepos = checkedRepoIds.size > 1
   const blocked = overCap || spansRepos
 
+  // EXP-481: the selected device's synced worktree inventory — offers
+  // "Resume previous session" when exactly one issue is checked and that
+  // machine reports a worktree for it (matching the chosen agent's resume
+  // marker). Persisted data, so the offer works even from a stale report —
+  // the device-side launcher degrades a missing worktree gracefully.
+  const { data: worktreeRows } = useLiveQuery(
+    (query) =>
+      open ? query.from({ w: deviceWorktreeCollection }) : undefined,
+    [open]
+  )
+  const soleIssue =
+    tab === `issues` && count === 1
+      ? allById.get([...selected][0]!)
+      : undefined
+  const resumeCandidate =
+    soleIssue && device && deviceCanResume(device)
+      ? resumeWorktree(
+          (worktreeRows ?? []) as SyncedDeviceWorktree[],
+          device.rowId,
+          soleIssue.identifier,
+          agent
+        )
+      : null
+  const resumeActive = resume && resumeCandidate !== null
+
   const missingInputs =
     tab === `actions` ? missingRequiredInputs(inputDefs, inputValues) : []
   const submitBlocked =
@@ -552,8 +585,11 @@ export function LaunchDialog({
       model,
       effort: effortValue === CLI_DEFAULT_EFFORT ? `` : effortValue,
       ultracode: ultracode && agentSupportsUltracode(agent),
-      planMode: planMode && agentSupportsPlanMode(agent),
+      // A resumed session never re-enters plan mode (EXP-481, mirrors the
+      // desktop launcher's clamp).
+      planMode: planMode && agentSupportsPlanMode(agent) && !resumeActive,
       skipPermissions: skipPermissions && agentSupportsSkipPermissions(agent),
+      ...(resumeActive ? { resume: true } : {}),
     }
     if (tab === `issues`) {
       onStartIssues(device, options, [...selected])
@@ -683,11 +719,22 @@ export function LaunchDialog({
               markTouched()
               setPlanMode(value)
             }}
+            planModeHidden={resumeActive}
             skipPermissions={skipPermissions}
             onSkipPermissionsChange={(value) => {
               markTouched()
               setSkipPermissions(value)
             }}
+            resumeRow={
+              resumeCandidate
+                ? {
+                    checked: resume,
+                    onChange: setResume,
+                    identifier: soleIssue!.identifier,
+                    branch: resumeCandidate.branch,
+                  }
+                : null
+            }
           />
         </div>
         <DialogFooter>

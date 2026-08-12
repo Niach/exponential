@@ -192,3 +192,210 @@ describe(`deviceIsMine`, () => {
     ).toBe(false)
   })
 })
+
+// EXP-481: synced-row mapping — online-ness from last_seen_at freshness.
+import {
+  composeDeviceList,
+  deviceCanResume,
+  deviceRowIsOnline,
+  resumeWorktree,
+  steerDeviceFromRow,
+} from "./steer-devices"
+import type { Device, SyncedDeviceWorktree } from "@/db/schema"
+
+const NOW = new Date(`2026-08-11T12:00:00Z`)
+
+function deviceRow(overrides: Partial<Device> = {}): Device {
+  return {
+    id: `row-1`,
+    userId: `me`,
+    deviceId: `dev-1`,
+    label: `buildbox`,
+    kind: `server`,
+    platform: `linux`,
+    version: `0.14.1`,
+    updateRequestedAt: null,
+    activeSessions: 0,
+    agents: [`claude`],
+    caps: [`actions`, `resume`, `worktrees`, `launch-defaults`],
+    unauthedAgents: [],
+    launchDefaults: null,
+    launchDefaultsUpdatedAt: null,
+    lastSeenAt: NOW,
+    sharedTeamId: null,
+    createdAt: NOW,
+    updatedAt: NOW,
+    ...overrides,
+  } as Device
+}
+
+describe(`deviceRowIsOnline`, () => {
+  it(`is online within the 90s window inclusive, offline beyond`, () => {
+    expect(deviceRowIsOnline(new Date(NOW.getTime() - 89_000), NOW)).toBe(true)
+    expect(deviceRowIsOnline(new Date(NOW.getTime() - 90_000), NOW)).toBe(true)
+    expect(deviceRowIsOnline(new Date(NOW.getTime() - 91_000), NOW)).toBe(
+      false
+    )
+  })
+
+  it(`clamps a negative age (server clock ahead) to online`, () => {
+    expect(deviceRowIsOnline(new Date(NOW.getTime() + 30_000), NOW)).toBe(true)
+  })
+
+  it(`fails closed on an unparseable stamp`, () => {
+    expect(deviceRowIsOnline(`not-a-date`, NOW)).toBe(false)
+  })
+})
+
+describe(`steerDeviceFromRow`, () => {
+  it(`stamps online, registered and the update fields`, () => {
+    const mapped = steerDeviceFromRow(
+      deviceRow({
+        updateRequestedAt: NOW,
+        activeSessions: 2,
+      }),
+      { now: NOW, currentUserId: `me` }
+    )
+    expect(mapped).toMatchObject({
+      rowId: `row-1`,
+      deviceId: `dev-1`,
+      deviceLabel: `buildbox`,
+      kind: `server`,
+      online: true,
+      registered: true,
+      updateRequested: true,
+      updateBlocked: true,
+    })
+    expect(mapped.owner).toBeUndefined()
+    expect(deviceCanResume(mapped)).toBe(true)
+  })
+
+  it(`marks a stale row offline and never blocks without an update request`, () => {
+    const mapped = steerDeviceFromRow(
+      deviceRow({
+        lastSeenAt: new Date(NOW.getTime() - 10 * 60_000),
+        activeSessions: 3,
+      }),
+      { now: NOW, currentUserId: `me` }
+    )
+    expect(mapped.online).toBe(false)
+    expect(mapped.updateBlocked).toBe(false)
+  })
+
+  it(`stamps owner on someone else's row (shared server)`, () => {
+    const mapped = steerDeviceFromRow(deviceRow({ userId: `them` }), {
+      now: NOW,
+      currentUserId: `me`,
+      ownerName: `Tessa`,
+    })
+    expect(mapped.owner).toEqual({ id: `them`, name: `Tessa` })
+  })
+})
+
+describe(`composeDeviceList`, () => {
+  const users = new Map([
+    [`me`, { id: `me`, name: `Me` }],
+    [`them`, { id: `them`, name: `Tessa` }],
+  ])
+
+  it(`orders own rows by last seen desc, then this team's shared servers`, () => {
+    const rows = [
+      deviceRow({
+        id: `r-old`,
+        deviceId: `d-old`,
+        lastSeenAt: new Date(NOW.getTime() - 60 * 60_000),
+      }),
+      deviceRow({
+        id: `r-shared`,
+        deviceId: `d-shared`,
+        userId: `them`,
+        sharedTeamId: `team-1`,
+      }),
+      deviceRow({ id: `r-new`, deviceId: `d-new` }),
+    ]
+    const list = composeDeviceList(rows, users, NOW, `me`, `team-1`)
+    expect(list.map((d) => d.deviceId)).toEqual([`d-new`, `d-old`, `d-shared`])
+    expect(list[2]?.owner).toEqual({ id: `them`, name: `Tessa` })
+  })
+
+  it(`drops other teams' shares, desktop shares, and everything shared without a teamId`, () => {
+    const rows = [
+      deviceRow({
+        id: `r-other`,
+        deviceId: `d-other`,
+        userId: `them`,
+        sharedTeamId: `team-2`,
+      }),
+      deviceRow({
+        id: `r-desktop`,
+        deviceId: `d-desktop`,
+        userId: `them`,
+        kind: `desktop`,
+        sharedTeamId: `team-1`,
+      }),
+    ]
+    expect(composeDeviceList(rows, users, NOW, `me`, `team-1`)).toEqual([])
+    expect(
+      composeDeviceList(
+        [
+          deviceRow({
+            id: `r-shared`,
+            deviceId: `d-shared`,
+            userId: `them`,
+            sharedTeamId: `team-1`,
+          }),
+        ],
+        users,
+        NOW,
+        `me`
+      )
+    ).toEqual([])
+  })
+})
+
+describe(`resumeWorktree`, () => {
+  const worktree = (
+    overrides: Partial<SyncedDeviceWorktree> = {}
+  ): SyncedDeviceWorktree =>
+    ({
+      id: `wt-1`,
+      deviceRowId: `row-1`,
+      repoFullName: `acme/api`,
+      branch: `exp/EXP-42`,
+      issueIdentifier: `EXP-42`,
+      agents: [`claude`],
+      dirty: `clean`,
+      busy: false,
+      reportedAt: NOW,
+      createdAt: NOW,
+      updatedAt: NOW,
+      ...overrides,
+    }) as SyncedDeviceWorktree
+
+  it(`matches on device row + identifier (case-insensitive) + agent marker`, () => {
+    const rows = [worktree()]
+    expect(resumeWorktree(rows, `row-1`, `EXP-42`, `claude`)).not.toBeNull()
+    expect(resumeWorktree(rows, `row-1`, `exp-42`, `claude`)).not.toBeNull()
+    expect(resumeWorktree(rows, `row-1`, `EXP-42`, `codex`)).toBeNull()
+    expect(resumeWorktree(rows, `row-2`, `EXP-42`, `claude`)).toBeNull()
+    expect(resumeWorktree(rows, undefined, `EXP-42`, `claude`)).toBeNull()
+    expect(resumeWorktree(rows, `row-1`, `EXP-43`, `claude`)).toBeNull()
+  })
+
+  it(`treats a missing agents marker as any-agent (pre-marker worktree)`, () => {
+    const rows = [worktree({ agents: null })]
+    expect(resumeWorktree(rows, `row-1`, `EXP-42`, `codex`)).not.toBeNull()
+  })
+
+  it(`never matches identifier-less rows (batch/foreign branches)`, () => {
+    const rows = [worktree({ issueIdentifier: null })]
+    expect(resumeWorktree(rows, `row-1`, `EXP-42`, `claude`)).toBeNull()
+  })
+})
+
+describe(`deviceCanResume`, () => {
+  it(`is strict on the cap`, () => {
+    expect(deviceCanResume(server())).toBe(false)
+    expect(deviceCanResume(server({ caps: [`resume`] }))).toBe(true)
+  })
+})

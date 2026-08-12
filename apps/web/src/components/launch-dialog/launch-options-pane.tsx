@@ -1,4 +1,5 @@
 import { MonitorOff } from "lucide-react"
+import { conceptIcon } from "@/lib/icons.generated"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import {
@@ -24,6 +25,9 @@ import type { SteerDevice } from "@/lib/steer-devices"
 // presentational extraction of the Start-coding dialog's right half: device
 // select, agent tab strip, model/effort selects, and the three capability
 // toggles. All state and the touched/clamp logic stay in the dialog shell.
+// EXP-481 splits the agent strip + model/effort/toggles cluster into
+// `AgentOptionsFields` so the device-settings dialog's defaults editor
+// renders the identical controls without duplicating them.
 
 export const AGENT_LABELS: Record<string, string> = {
   claude: `Claude Code`,
@@ -41,6 +45,8 @@ const AGENT_ICONS: Record<
   codex: CodexIcon,
   pi: PiIcon,
 }
+
+const ResumeBranchIcon = conceptIcon(`ui-branch`)
 
 // Radix Select forbids an empty-string item value; the blank "CLI default"
 // model/effort rides this sentinel inside the dialog only.
@@ -65,6 +71,198 @@ function effortLabel(value: string): string {
   return value === `xhigh` ? `XHigh` : modelLabel(value)
 }
 
+/** EXP-481: the "Resume previous session" row's inputs — rendered only when
+ * the shell computed an eligible worktree for (device, issue, agent). */
+export interface ResumeRowProps {
+  checked: boolean
+  onChange: (value: boolean) => void
+  identifier: string
+  branch: string
+}
+
+/** The agent strip + model/effort selects + capability toggles — shared
+ * verbatim by the launch dialog and the device-settings defaults editor.
+ * `idPrefix` keeps element ids unique when both render at once. */
+export function AgentOptionsFields({
+  idPrefix,
+  agent,
+  availableAgents,
+  onAgentChange,
+  model,
+  onModelChange,
+  effortValue,
+  onEffortChange,
+  ultracode,
+  onUltracodeChange,
+  planMode,
+  onPlanModeChange,
+  planModeHidden = false,
+  skipPermissions,
+  onSkipPermissionsChange,
+  resumeRow,
+}: {
+  idPrefix: string
+  agent: string
+  availableAgents: string[]
+  onAgentChange: (agent: string) => void
+  model: string
+  onModelChange: (model: string) => void
+  effortValue: string
+  onEffortChange: (effort: string) => void
+  ultracode: boolean
+  onUltracodeChange: (value: boolean) => void
+  planMode: boolean
+  onPlanModeChange: (value: boolean) => void
+  /** EXP-481: hidden entirely while a resume is armed — a resumed session
+   * never re-enters plan mode (mirrors the desktop dialog). */
+  planModeHidden?: boolean
+  skipPermissions: boolean
+  onSkipPermissionsChange: (value: boolean) => void
+  resumeRow?: ResumeRowProps | null
+}) {
+  return (
+    <>
+      {availableAgents.length > 1 && (
+        <div className="space-y-2">
+          <Label>Agent</Label>
+          <Tabs value={agent} onValueChange={onAgentChange}>
+            <TabsList className="w-full">
+              {availableAgents.map((value) => {
+                const AgentIcon = AGENT_ICONS[value]
+                return (
+                  <TabsTrigger key={value} value={value} className="flex-1">
+                    {AgentIcon && <AgentIcon className="size-3.5" />}
+                    {AGENT_LABELS[value] ?? value}
+                  </TabsTrigger>
+                )
+              })}
+            </TabsList>
+          </Tabs>
+        </div>
+      )}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-2">
+          <Label htmlFor={`${idPrefix}-model`}>Model</Label>
+          <Select
+            value={model === `` ? CLI_DEFAULT_MODEL : model}
+            onValueChange={(value) =>
+              onModelChange(value === CLI_DEFAULT_MODEL ? `` : value)
+            }
+          >
+            <SelectTrigger id={`${idPrefix}-model`} className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {agentAllowsBlankModel(agent) && (
+                <SelectItem value={CLI_DEFAULT_MODEL}>CLI default</SelectItem>
+              )}
+              {agentModelValues(agent).map((value) => (
+                <SelectItem key={value} value={value}>
+                  {modelLabel(value)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor={`${idPrefix}-effort`}>
+            {agent === `pi`
+              ? `Thinking`
+              : agent === `codex`
+                ? `Reasoning`
+                : `Effort`}
+          </Label>
+          <Select
+            value={effortValue}
+            onValueChange={onEffortChange}
+            disabled={ultracode && agentSupportsUltracode(agent)}
+          >
+            <SelectTrigger id={`${idPrefix}-effort`} className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={CLI_DEFAULT_EFFORT}>CLI default</SelectItem>
+              {agentEffortValues(agent).map((value) => (
+                <SelectItem key={value} value={value}>
+                  {effortLabel(value)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      {(resumeRow ||
+        agentSupportsUltracode(agent) ||
+        (agentSupportsPlanMode(agent) && !planModeHidden) ||
+        agentSupportsSkipPermissions(agent)) && (
+        <div className="space-y-2">
+          {resumeRow && (
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id={`${idPrefix}-resume`}
+                  checked={resumeRow.checked}
+                  onCheckedChange={(value) =>
+                    resumeRow.onChange(value === true)
+                  }
+                />
+                <Label htmlFor={`${idPrefix}-resume`} className="font-normal">
+                  Resume previous session
+                </Label>
+              </div>
+              <p className="flex items-center gap-1 pl-6 text-xs text-muted-foreground">
+                <ResumeBranchIcon className="size-3 shrink-0" />A worktree for{` `}
+                {resumeRow.identifier} already exists ({resumeRow.branch}).
+              </p>
+            </div>
+          )}
+          {agentSupportsUltracode(agent) && (
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id={`${idPrefix}-ultracode`}
+                checked={ultracode}
+                onCheckedChange={(value) => onUltracodeChange(value === true)}
+              />
+              <Label htmlFor={`${idPrefix}-ultracode`} className="font-normal">
+                Dynamic workflows (ultracode)
+              </Label>
+            </div>
+          )}
+          {agentSupportsPlanMode(agent) && !planModeHidden && (
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id={`${idPrefix}-plan-mode`}
+                checked={planMode}
+                onCheckedChange={(value) => onPlanModeChange(value === true)}
+              />
+              <Label htmlFor={`${idPrefix}-plan-mode`} className="font-normal">
+                Plan mode
+              </Label>
+            </div>
+          )}
+          {agentSupportsSkipPermissions(agent) && (
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id={`${idPrefix}-skip-permissions`}
+                checked={skipPermissions}
+                onCheckedChange={(value) =>
+                  onSkipPermissionsChange(value === true)
+                }
+              />
+              <Label
+                htmlFor={`${idPrefix}-skip-permissions`}
+                className="font-normal"
+              >
+                Skip permissions
+              </Label>
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  )
+}
+
 export function LaunchOptionsPane({
   devices,
   device,
@@ -81,8 +279,10 @@ export function LaunchOptionsPane({
   onUltracodeChange,
   planMode,
   onPlanModeChange,
+  planModeHidden,
   skipPermissions,
   onSkipPermissionsChange,
+  resumeRow,
 }: {
   /** The tab's CANDIDATE devices (capability-filtered by the shell). */
   devices: SteerDevice[]
@@ -102,8 +302,11 @@ export function LaunchOptionsPane({
   onUltracodeChange: (value: boolean) => void
   planMode: boolean
   onPlanModeChange: (value: boolean) => void
+  planModeHidden?: boolean
   skipPermissions: boolean
   onSkipPermissionsChange: (value: boolean) => void
+  /** EXP-481: rendered when the shell computed a resumable worktree. */
+  resumeRow?: ResumeRowProps | null
 }) {
   if (devices.length === 0) {
     return (
@@ -137,122 +340,24 @@ export function LaunchOptionsPane({
           </Select>
         </div>
       )}
-      {availableAgents.length > 1 && (
-        <div className="space-y-2">
-          <Label>Agent</Label>
-          <Tabs value={agent} onValueChange={onAgentChange}>
-            <TabsList className="w-full">
-              {availableAgents.map((value) => {
-                const AgentIcon = AGENT_ICONS[value]
-                return (
-                  <TabsTrigger key={value} value={value} className="flex-1">
-                    {AgentIcon && <AgentIcon className="size-3.5" />}
-                    {AGENT_LABELS[value] ?? value}
-                  </TabsTrigger>
-                )
-              })}
-            </TabsList>
-          </Tabs>
-        </div>
-      )}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-2">
-          <Label htmlFor="start-coding-model">Model</Label>
-          <Select
-            value={model === `` ? CLI_DEFAULT_MODEL : model}
-            onValueChange={(value) =>
-              onModelChange(value === CLI_DEFAULT_MODEL ? `` : value)
-            }
-          >
-            <SelectTrigger id="start-coding-model" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {agentAllowsBlankModel(agent) && (
-                <SelectItem value={CLI_DEFAULT_MODEL}>CLI default</SelectItem>
-              )}
-              {agentModelValues(agent).map((value) => (
-                <SelectItem key={value} value={value}>
-                  {modelLabel(value)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="start-coding-effort">
-            {agent === `pi`
-              ? `Thinking`
-              : agent === `codex`
-                ? `Reasoning`
-                : `Effort`}
-          </Label>
-          <Select
-            value={effortValue}
-            onValueChange={onEffortChange}
-            disabled={ultracode && agentSupportsUltracode(agent)}
-          >
-            <SelectTrigger id="start-coding-effort" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={CLI_DEFAULT_EFFORT}>CLI default</SelectItem>
-              {agentEffortValues(agent).map((value) => (
-                <SelectItem key={value} value={value}>
-                  {effortLabel(value)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-      {(agentSupportsUltracode(agent) ||
-        agentSupportsPlanMode(agent) ||
-        agentSupportsSkipPermissions(agent)) && (
-        <div className="space-y-2">
-          {agentSupportsUltracode(agent) && (
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="start-coding-ultracode"
-                checked={ultracode}
-                onCheckedChange={(value) => onUltracodeChange(value === true)}
-              />
-              <Label htmlFor="start-coding-ultracode" className="font-normal">
-                Dynamic workflows (ultracode)
-              </Label>
-            </div>
-          )}
-          {agentSupportsPlanMode(agent) && (
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="start-coding-plan-mode"
-                checked={planMode}
-                onCheckedChange={(value) => onPlanModeChange(value === true)}
-              />
-              <Label htmlFor="start-coding-plan-mode" className="font-normal">
-                Plan mode
-              </Label>
-            </div>
-          )}
-          {agentSupportsSkipPermissions(agent) && (
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="start-coding-skip-permissions"
-                checked={skipPermissions}
-                onCheckedChange={(value) =>
-                  onSkipPermissionsChange(value === true)
-                }
-              />
-              <Label
-                htmlFor="start-coding-skip-permissions"
-                className="font-normal"
-              >
-                Skip permissions
-              </Label>
-            </div>
-          )}
-        </div>
-      )}
+      <AgentOptionsFields
+        idPrefix="start-coding"
+        agent={agent}
+        availableAgents={availableAgents}
+        onAgentChange={onAgentChange}
+        model={model}
+        onModelChange={onModelChange}
+        effortValue={effortValue}
+        onEffortChange={onEffortChange}
+        ultracode={ultracode}
+        onUltracodeChange={onUltracodeChange}
+        planMode={planMode}
+        onPlanModeChange={onPlanModeChange}
+        planModeHidden={planModeHidden}
+        skipPermissions={skipPermissions}
+        onSkipPermissionsChange={onSkipPermissionsChange}
+        resumeRow={resumeRow}
+      />
     </div>
   )
 }

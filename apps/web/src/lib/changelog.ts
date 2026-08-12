@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-device-settings-everywhere`,
+    date: `2026-08-12`,
+    title: `Device settings, remote worktrees, and resume from anywhere`,
+    summary: `Every machine gets a proper settings view on all four apps: rename, share, edit its agent defaults even while it is offline, manage its worktrees remotely, and resume sessions from web and mobile.`,
+    body: `- **Device settings view**: the Edit entry on a machine opens a full settings dialog (bottom sheet on mobile) with its name, team sharing, agent defaults, and worktrees in one place.
+- **Defaults editable from anywhere**: a machine's per-agent model, effort, and permission defaults now live on the server; edit them from web or your phone even while the machine is offline and it converges when it comes back.
+- **Remote worktree cleanup**: see every worktree a machine holds, remove one, or prune everything already merged; commands queued against an offline machine run on its return.
+- **Resume from web and mobile**: starting coding on an issue that already has a worktree offers "Resume previous session" outside the desktop app too.
+- **Live machine list**: machines now sync in realtime instead of polling, with online status derived from their heartbeats.`,
+  },
+  {
     id: `2026-08-worktree-autoclean`,
     date: `2026-08-11`,
     title: `Tidy worktrees and a reworked Actions view`,
