@@ -18,12 +18,6 @@ export const LINKS = {
     repo: REPO,
     releases: `${REPO}/releases`,
   },
-  // Windows code signing (FEED-4) — the SignPath Foundation OSS program
-  // requires the download page to credit both.
-  signpath: {
-    io: `https://signpath.io`,
-    foundation: `https://signpath.org`,
-  },
   downloads: {
     // GitHub Releases `latest` assets — published by build-desktop.yml on
     // desktop-v* tags. Asset names are fixed by the release pipeline and
