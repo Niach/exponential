@@ -201,7 +201,17 @@ fun DeviceSettingsSheet(
                                 .weight(1f)
                                 .onFocusChanged {
                                     nameFocused = it.isFocused
-                                    if (!it.isFocused) viewModel.flushPending()
+                                    if (!it.isFocused) {
+                                        // A rename that arrived while focused
+                                        // was deliberately skipped — catch up
+                                        // unless an edit is owed.
+                                        val hadPending = viewModel.hasPendingRename()
+                                        viewModel.flushPending()
+                                        if (!hadPending) {
+                                            label = device.deviceLabel
+                                                .ifBlank { device.deviceId }
+                                        }
+                                    }
                                 },
                             colors = TextFieldDefaults.colors(
                                 focusedContainerColor = Color.Transparent,

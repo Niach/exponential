@@ -234,7 +234,14 @@ struct DeviceSettingsSheet: View {
                 scheduleNameAutosave(device)
             }
             .onChange(of: nameFocused) { _, focused in
-                if !focused { flushName() }
+                guard !focused else { return }
+                let hadPending = namePending
+                flushName()
+                // A rename that arrived while the field was focused was
+                // deliberately skipped — catch up now that no edit is owed.
+                if !hadPending, !savingName {
+                    name = device.deviceLabel
+                }
             }
         }
     }

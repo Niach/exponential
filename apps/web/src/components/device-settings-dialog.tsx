@@ -566,7 +566,11 @@ export function DeviceSettingsDialog({
               }}
               onBlur={() => {
                 nameFocusedRef.current = false
+                // A rename that arrived while the field was focused was
+                // deliberately skipped — catch up unless an edit is owed.
+                const hadPending = latest.current.namePending
                 flushName()
+                if (!hadPending && row) setNameDraft(row.label)
               }}
               onKeyDown={(event) => {
                 if (event.key === `Enter`) flushName()
