@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-pr-notification-attribution`,
+    date: `2026-08-13`,
+    title: `Better PR notifications`,
+    summary: `PR notifications now credit the person who started the work, plus fixes across desktop and mobile.`,
+    body: `- **PR notifications attributed**: when an agent opens or merges a PR, the notification now names the person who asked for it, skips notifying them about their own action, and no longer double-fires.
+- **IDE**: deleting an issue now closes its open tabs cleanly instead of leaving a dead "not found" tab.
+- **Mobile**: the assignee picker and @-mentions only offer current team members.
+- **Device settings**: machine settings edited from web or mobile now reach the machine in about a second instead of on the next heartbeat.`,
+  },
+  {
     id: `2026-08-device-settings-everywhere`,
     date: `2026-08-12`,
     title: `Device settings, remote worktrees, and resume from anywhere`,

@@ -1,0 +1,1 @@
+The assignee picker now only offers current team members, and PR notifications credit the right person.

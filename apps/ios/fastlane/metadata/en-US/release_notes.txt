@@ -1,4 +1,3 @@
-- Issue lists group statuses in the same order as your settings
-- Remote Start coding pre-fills the picked machine's saved agent defaults
-- Digest emails now follow your device timezone
+- Assignee picker only offers current team members
+- PR notifications credit the person who started the work
 - Smaller fixes and polish
