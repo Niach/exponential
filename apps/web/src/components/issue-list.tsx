@@ -23,6 +23,7 @@ import {
   SearchX,
 } from "lucide-react"
 import { formatDate } from "@/lib/utils"
+import { useIsMobile } from "@/hooks/use-mobile"
 import { formatDateForMutation, type IssueStatus } from "@/lib/domain"
 import { dueDateToneClass } from "@/lib/issue-due-date"
 import { ICON_COMPONENTS } from "@/lib/icons.generated"
@@ -154,6 +155,12 @@ export function IssueList({
   const today = useMemo(() => formatDateForMutation(new Date())!, [])
   const visibleGroups = groups.filter((g) => g.issues.length > 0)
   const bulkEnabled = Boolean(bulkTeamId) && canModerate
+  const isMobile = useIsMobile()
+  // Mobile has no checkbox column: selection starts from the row context
+  // menu's Select item, and while any selection exists a row TAP toggles it
+  // instead of navigating (deselecting the last row exits — the native
+  // EXP-405 contract). Desktop click-to-open is untouched.
+  const mobileSelectionActive = isMobile && bulkEnabled && selectedIds.size > 0
 
   // Team boards feed the context menu's move-to-board submenu
   // (EXP-57). Trashed boards never reach the client (the boards shape
@@ -447,15 +454,31 @@ export function IssueList({
                     userMap={userMap}
                     boards={teamBoards}
                     onOpenIssue={() => onIssueClick(issue)}
+                    onToggleSelect={
+                      bulkEnabled
+                        ? () => toggleSelect(issue.id, false)
+                        : undefined
+                    }
+                    isSelected={selectedIds.has(issue.id)}
                   >
                     <div
-                      className={`grid ${rowGridClass} items-center h-12 md:h-10 px-3 md:px-6 hover:bg-glass-row border-b border-border/30 group/row cursor-pointer`}
-                      onClick={() => onIssueClick(issue)}
+                      className={`grid ${rowGridClass} items-center h-12 md:h-10 px-3 md:px-6 hover:bg-glass-row border-b border-border/30 group/row cursor-pointer ${selectedIds.has(issue.id) ? `max-md:bg-glass-active` : ``}`}
+                      onClick={() => {
+                        if (mobileSelectionActive) {
+                          toggleSelect(issue.id, false)
+                          return
+                        }
+                        onIssueClick(issue)
+                      }}
                       data-testid={`issue-row-${issue.identifier}`}
                     >
                       {bulkEnabled && (
                         <div
-                          className="hidden md:flex items-center"
+                          // self-stretch + the padding bleed grow the toggle
+                          // hitbox to the full row height and the row's left
+                          // padding — a click slightly beside the checkbox
+                          // must select, never open the issue (FEED-12).
+                          className="hidden md:flex items-center self-stretch -ml-6 pl-6"
                           // Suppress the browser's shift-click text selection
                           // so range-select doesn't highlight row text.
                           onMouseDown={(e) => {

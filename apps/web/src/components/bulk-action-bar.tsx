@@ -171,11 +171,16 @@ export function BulkActionBar({
 
   return (
     <div
-      className="glass-panel flex items-center gap-1 rounded-lg px-2 py-1.5"
+      // On md+ the bar sits in-flow inside the fixed-height filter row; below
+      // md it floats centered above the mobile tab bar (z-[35]) like the
+      // native selection pill (EXP-405/FEED-12). Bottom offset = the tab
+      // bar's own bottom padding + its 3.25rem pill height + a 0.5rem gap.
+      className="glass-panel flex items-center gap-1 rounded-lg px-2 py-1.5 max-md:fixed max-md:bottom-[calc(max(1rem,env(safe-area-inset-bottom))+3.75rem)] max-md:left-1/2 max-md:z-40 max-md:max-w-[calc(100vw-2rem)] max-md:-translate-x-1/2 max-md:shadow-lg max-md:shadow-black/40"
       data-testid="bulk-action-bar"
     >
       <span className="px-1.5 text-xs font-medium whitespace-nowrap">
-        {issues.length} selected
+        {issues.length}
+        <span className="hidden lg:inline"> selected</span>
       </span>
       <Button
         variant="ghost"
@@ -199,7 +204,7 @@ export function BulkActionBar({
             aria-label="Set status"
           >
             <ListTodo className="size-4" />
-            <span className="hidden md:inline">Status</span>
+            <span className="hidden lg:inline">Status</span>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
@@ -240,7 +245,7 @@ export function BulkActionBar({
             aria-label="Set priority"
           >
             <Flag className="size-4" />
-            <span className="hidden md:inline">Priority</span>
+            <span className="hidden lg:inline">Priority</span>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
@@ -277,7 +282,7 @@ export function BulkActionBar({
               aria-label="Set assignee"
             >
               <CircleUser className="size-4" />
-              <span className="hidden md:inline">Assignee</span>
+              <span className="hidden lg:inline">Assignee</span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
@@ -321,7 +326,7 @@ export function BulkActionBar({
             aria-label="Set labels"
           >
             <Tag className="size-4" />
-            <span className="hidden md:inline">Labels</span>
+            <span className="hidden lg:inline">Labels</span>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
@@ -376,7 +381,7 @@ export function BulkActionBar({
             aria-label="Delete selected"
           >
             <Trash2 className="size-4" />
-            <span className="hidden md:inline">Delete</span>
+            <span className="hidden lg:inline">Delete</span>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent

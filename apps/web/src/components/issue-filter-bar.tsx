@@ -22,7 +22,9 @@ export function IssueFilterBar({
 }: IssueFilterBarProps) {
   return (
     <div className="px-4 md:px-6">
-      <div className="flex items-center justify-between py-3">
+      {/* Fixed height (= the old py-3 + h-8 rendering) so hosting the bulk
+          action bar in this row never reflows the list below (FEED-12). */}
+      <div className="flex h-14 items-center justify-between">
         <div className="flex items-center gap-1 ml-auto">
           {actions}
           <IssueFilterPopover
