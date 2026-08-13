@@ -87,6 +87,14 @@ func humanTeamMemberIds(teamId: String, db: Database) throws -> [String] {
     return members.map(\.userId)
 }
 
+/// The team's member users — the assignee-picker / @-mention vocabulary.
+/// The users store is account-wide (cross-team author display), so scoping
+/// happens here via the synced team_members rows (EXP-487).
+func teamMemberUsers(teamId: String, db: Database) throws -> [UserEntity] {
+    let memberIds = try humanTeamMemberIds(teamId: teamId, db: db)
+    return try UserEntity.filter(memberIds.contains(Column("id"))).fetchAll(db)
+}
+
 // Assignable members.
 func assigneeOptions(users: [UserEntity]) -> [AssigneeOption] {
     var options: [AssigneeOption] = [.unassigned]

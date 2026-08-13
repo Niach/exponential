@@ -165,7 +165,9 @@ fun CreateIssueScreen(
     // exactly like draft images — the picks are held here and uploaded right
     // after the create.
     val pendingFiles = remember { mutableStateListOf<Uri>() }
-    val users = state.users
+    // EXP-487: assignee picker + @-mention candidates are the target team's
+    // members only — state.users is the account-wide display lookup.
+    val users = state.teamUsers
     // In a solo team the picker is hidden, so seed (and keep) the assignee
     // pinned to the lone member — including after a share-mode board switch
     // re-scopes to another solo team.

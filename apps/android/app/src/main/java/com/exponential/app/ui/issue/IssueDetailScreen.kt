@@ -133,6 +133,9 @@ fun IssueDetailScreen(
     val isModerator = permissions.isModerator
     // EXP-50: solo teams (one human member) hide the assignee chip/row.
     val soloMemberId by viewModel.soloMemberId.collectAsStateWithLifecycle()
+    // EXP-487: the issue team's members — the assignee-picker + @-mention
+    // vocabulary. state.users stays account-wide for display lookups.
+    val teamUsers by viewModel.teamUsers.collectAsStateWithLifecycle()
     // EXP-57: same-team boards the issue can move to.
     val moveTargets by viewModel.moveTargets.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -268,8 +271,8 @@ fun IssueDetailScreen(
     // @-autocomplete offers, so a written mention renders as the member's name
     // in every read view below (description + comment thread) instead of a raw
     // address. Display-only — the stored markdown keeps the `@email` token.
-    val mentionMembers = remember(state.users) {
-        state.users.map { MentionMember(it.name ?: it.email, it.email) }
+    val mentionMembers = remember(teamUsers) {
+        teamUsers.map { MentionMember(it.name ?: it.email, it.email) }
     }
     val mentionResolver = remember(mentionMembers) { MentionResolver(mentionMembers) }
 
@@ -806,7 +809,7 @@ fun IssueDetailScreen(
 
     if (activeSheet == IssueSheet.Assignee && issue != null && isModerator) {
         AssigneePickerSheet(
-            users = state.users,
+            users = teamUsers,
             selectedUserId = issue.assigneeId,
             onSelect = { viewModel.updateAssignee(it) },
             onDismiss = { activeSheet = null },

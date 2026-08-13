@@ -303,11 +303,6 @@ struct CreateIssueSheet: View {
                 configureEditor()
                 Task {
                     guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
-                    if let loaded = try? await pool.read({ db in
-                        try UserEntity.fetchAll(db)
-                    }) {
-                        users = loaded
-                    }
                     let team: TeamEntity? = (try? await pool.read({ db -> TeamEntity? in
                         guard let board = try BoardEntity.fetchOne(db, key: boardId) else {
                             return nil
@@ -315,6 +310,15 @@ struct CreateIssueSheet: View {
                         return try TeamEntity.fetchOne(db, key: board.teamId)
                     })) ?? nil
                     teamId = team?.id
+                    // Assignee/mention candidates are the TEAM's members, not
+                    // the account-wide users store (EXP-487) — the pool can
+                    // hold several teams' people.
+                    if let wsId = team?.id,
+                       let loaded = try? await pool.read({ db in
+                           try teamMemberUsers(teamId: wsId, db: db)
+                       }) {
+                        users = loaded
+                    }
                     // Solo-team assignee shortcut (EXP-50): when this
                     // team has exactly one human member, hide the picker
                     // and pre-assign the creator. Scoped to the selected

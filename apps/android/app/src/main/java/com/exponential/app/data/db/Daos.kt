@@ -170,6 +170,15 @@ interface UserDao {
     @Query("SELECT * FROM users ORDER BY name, email")
     fun observeAll(): Flow<List<UserEntity>>
 
+    // EXP-487: the team's member users — assignee pickers + @-mention
+    // vocabulary. The users table is account-wide (cross-team author
+    // display), so scoping happens here via the team_members join.
+    @Query(
+        "SELECT u.* FROM users u JOIN team_members m ON m.user_id = u.id " +
+            "WHERE m.team_id = :teamId ORDER BY u.name, u.email"
+    )
+    fun observeByTeam(teamId: String): Flow<List<UserEntity>>
+
     @Query("SELECT * FROM users WHERE id = :id LIMIT 1")
     fun observeById(id: String): Flow<UserEntity?>
 
