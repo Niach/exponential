@@ -379,8 +379,16 @@ impl ScreensPanel {
                 cx.notify();
             },
         ));
-        // Tab titles join issue identifiers live.
-        subscriptions.push(cx.observe(&collections.issues, |_, _, cx| cx.notify()));
+        // Tab titles join issue identifiers live; a deleted issue's tabs
+        // close instead of lingering as "not found" (EXP-493).
+        subscriptions.push(cx.observe_in(
+            &collections.issues,
+            window,
+            |this, _, window, cx| {
+                this.prune_missing_issue_tabs(window, cx);
+                cx.notify();
+            },
+        ));
         subscriptions.push(cx.observe(&collections.boards, |_, _, cx| cx.notify()));
         subscriptions.push(cx.observe_in(
             &Store::global(cx).state(),
@@ -555,6 +563,45 @@ impl ScreensPanel {
             Screen::Actions | Screen::GettingStarted | Screen::Settings => {
                 unreachable!("filtered by is_detail")
             }
+        }
+        // A back-navigation can re-open a tab for an issue deleted while its
+        // screen sat on the stack — prune it right away (EXP-493).
+        self.prune_missing_issue_tabs(window, cx);
+    }
+
+    /// EXP-493: close the tabs of issues that no longer exist — the user
+    /// deleting the open issue, a teammate deleting it mid-view, a board
+    /// trashing, or a lost membership all remove the row from the synced
+    /// collection, and the tab would otherwise linger as a generic "Issue"
+    /// chip over "Issue not found in this team". Only a READY collection may
+    /// close anything (§4.1 — absence in an unsynced snapshot is "still
+    /// syncing", never "deleted"); this mirrors the detail view's own
+    /// not-found condition. Covers issue detail AND PR diff tabs.
+    fn prune_missing_issue_tabs(
+        &mut self,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let missing: Vec<usize> = {
+            let issues = Store::global(cx).collections().issues.read(cx);
+            if !issues.is_ready() {
+                return;
+            }
+            self.tabs
+                .iter()
+                .enumerate()
+                .filter_map(|(ix, tab)| match &tab.screen {
+                    Screen::IssueDetail { issue_id } | Screen::PrDiff { issue_id } => {
+                        issues.get(issue_id).is_none().then_some(ix)
+                    }
+                    _ => None,
+                })
+                .collect()
+        };
+        // Highest index first — `close_tab` removes by index, and closing an
+        // active tab re-activates a neighbor safely mid-loop.
+        for ix in missing.into_iter().rev() {
+            self.close_tab(ix, window, cx);
         }
     }
 
