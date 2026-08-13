@@ -1416,9 +1416,15 @@ impl IssueDetailView {
             .flex_shrink_0()
             .border_b_1()
             .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+            // EXP-491: the top strip is FULL-BLEED (web parity — the
+            // breadcrumb bar sits outside the `max-w-3xl` column): the
+            // switcher hugs the panel's left edge and the copy/subscribe/
+            // delete cluster its right edge. Only the reading content below
+            // centers to `DETAIL_COLUMN_W`; inside the centered column the
+            // strip floated mid-panel at wide sizes.
+            .child(top_row)
             .child(centered_column(
                 v_flex()
-                    .child(top_row)
                     .child(self.render_title(cx))
                     .child(chip_row)
                     .children(agent_row)
