@@ -70,21 +70,31 @@ export function MyIssuesView({
         filters={filters}
         onFiltersChange={onFiltersChange}
         labels={labelList}
+        // The bulk bar lives INSIDE the fixed-height control row (md+) so
+        // starting a selection never reflows the list (FEED-12); below md
+        // the bar floats itself above the tab bar.
+        actions={
+          selectedIssues.length > 0 ? (
+            <BulkActionBar
+              issues={selectedIssues}
+              issueLabelMap={issueLabelMap}
+              labels={labelList}
+              users={users}
+              onClear={() => setSelectedIds(new Set())}
+            />
+          ) : undefined
+        }
       />
 
-      {selectedIssues.length > 0 && (
-        <div className="flex px-4 md:px-6 pb-2">
-          <BulkActionBar
-            issues={selectedIssues}
-            issueLabelMap={issueLabelMap}
-            labels={labelList}
-            users={users}
-            onClear={() => setSelectedIds(new Set())}
-          />
-        </div>
-      )}
-
-      <div className={`flex-1 overflow-auto ${TAB_BAR_CLEARANCE}`}>
+      <div
+        className={`flex-1 overflow-auto ${
+          selectedIssues.length > 0
+            ? // Taller mobile clearance while the selection pill floats above
+              // the tab bar: TAB_BAR_CLEARANCE + pill height + gap.
+              `max-md:pb-[calc(9.25rem+env(safe-area-inset-bottom))]`
+            : TAB_BAR_CLEARANCE
+        }`}
+      >
         {issuesReady && totalIssueCount === 0 ? (
           <EmptyState
             icon={CircleUser}

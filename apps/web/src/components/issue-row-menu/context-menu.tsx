@@ -20,6 +20,7 @@ import {
   CheckCheck,
   Copy,
   ListTodo,
+  SquareCheckBig,
   SquarePen,
   Trash2,
   Undo2,
@@ -45,6 +46,13 @@ interface IssueRowContextMenuProps {
   boards?: Board[]
   userMap: Map<string, User>
   users: User[]
+  // Mobile multi-select entry (FEED-12): Radix already owns the touch
+  // long-press gesture for this menu, so selection mode starts from a menu
+  // item instead of a competing recognizer. Undefined hides the item
+  // (bulk select off for the caller); the item is md:hidden — desktop
+  // selects via the row checkboxes.
+  onToggleSelect?: () => void
+  isSelected?: boolean
 }
 
 const TOP_LEVEL_VALUE_CLASS = `w-[5.75rem] shrink-0 text-right normal-case tracking-normal truncate`
@@ -58,6 +66,8 @@ export function IssueRowContextMenu({
   boards,
   userMap,
   users,
+  onToggleSelect,
+  isSelected,
 }: IssueRowContextMenuProps) {
   const selectedAssignee = issue.assigneeId
     ? (userMap.get(issue.assigneeId) ?? null)
@@ -199,6 +209,16 @@ export function IssueRowContextMenu({
             <Copy className="size-4" />
             Copy issue ID
           </ContextMenuItem>
+
+          {onToggleSelect && (
+            <ContextMenuItem
+              className="md:hidden"
+              onSelect={onToggleSelect}
+            >
+              <SquareCheckBig className="size-4" />
+              {isSelected ? `Deselect` : `Select`}
+            </ContextMenuItem>
+          )}
 
           {issue.duplicateOfId && (
             <ContextMenuItem
