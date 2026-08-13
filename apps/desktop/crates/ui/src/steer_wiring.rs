@@ -389,18 +389,23 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
         // EXP-481 adds `resume` (start_session honors the resume flag),
         // `worktrees` (inventory + remove/prune commands) and
         // `launch-defaults` (server-authoritative defaults + check_in).
-        let caps: Vec<String> = if agents.is_empty() {
-            Vec::new()
-        } else {
-            vec![
+        // EXP-490: those three are BUILD capabilities, not agent
+        // capabilities — they must ride even with zero runnable agents, or
+        // the server skips the check_in nudge (`deviceUnderstandsCheckIn`)
+        // and every remote command/defaults edit waits out the 30s
+        // heartbeat (~15s average spinner).
+        let mut caps: Vec<String> = vec![
+            "resume".to_string(),
+            "worktrees".to_string(),
+            "launch-defaults".to_string(),
+        ];
+        if !agents.is_empty() {
+            caps.extend([
                 "actions".to_string(),
                 "action-inputs".to_string(),
                 "fix-conflicts".to_string(),
-                "resume".to_string(),
-                "worktrees".to_string(),
-                "launch-defaults".to_string(),
-            ]
-        };
+            ]);
+        }
         // EXP-403: record this machine in the per-user devices registry so the
         // agents UI can show it with an offline "last seen" state (relay
         // presence alone empties on every relay restart). Best-effort — an

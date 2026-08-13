@@ -3,26 +3,31 @@ import ExpCore
 import SwiftUI
 
 // The device settings sheet (EXP-481) — Edit on a machines row opens it, the
-// iOS twin of the web/IDE device-settings dialog. Four sections, per-section
-// commits:
-//   Name     — devices.rename (registry-authoritative, works offline).
+// iOS twin of the web/IDE device-settings dialog. Four sections, no Save
+// buttons (EXP-490):
+//   Name     — devices.rename (registry-authoritative, works offline),
+//              debounced while typing and flushed on blur/submit/close.
 //   Sharing  — devices.setShared, SERVER machines only (nil clears).
 //   Defaults — the machine's SERVER-AUTHORITATIVE launch defaults
-//              (devices.setLaunchDefaults). Editable while the machine is
-//              OFFLINE too: the row is the truth and the machine's
-//              settings.json converges on its next heartbeat, so the only
-//              offline concession is a footer saying so.
+//              (devices.setLaunchDefaults), debounced per edit. Editable while
+//              the machine is OFFLINE too: the row is the truth and the
+//              machine's settings.json converges on its next heartbeat, so the
+//              only offline concession is a footer saying so.
 //   Worktrees — the synced inventory (shape 18) with per-row Remove and a
 //              Prune button, queued as devices.createCommand rows the device
 //              runs on its next heartbeat (immediately when online). Progress
 //              polls devices.getCommand ~2s; the material outcome (a row
 //              disappearing) arrives via sync when the device re-reports.
-// Drafts are latched at open (the seeding runs once) — live shape updates
-// must never stomp in-flight edits. Owner-only: the machines list offers Edit
-// on `isMine` rows exclusively.
+// EXP-490: the sheet renders the LIVE devices-shape row (looked up by id
+// through the view model) rather than a value latched at open, so a rename or
+// a defaults edit made on another client lands here while it is open. Every
+// field auto-saves; the live row is echoed back into the drafts only while
+// nothing is pending, in flight, or focused — a remote update must never stomp
+// an edit in progress. Owner-only: the machines list offers Edit on `isMine`
+// rows exclusively, and the sheet closes itself if the row goes away.
 struct DeviceSettingsSheet: View {
-    let device: SteerDevice
-    let worktrees: [DeviceWorktreeEntity]
+    let viewModel: AgentsViewModel
+    let deviceId: String
     let teams: [TeamEntity]
 
     @Environment(AppDependencies.self) private var deps
@@ -34,6 +39,9 @@ struct DeviceSettingsSheet: View {
     private static let cliDefault = "cli-default"
     /// Sentinel tag for "Not shared" in the team picker.
     private static let notShared = "not-shared"
+    /// Typing/tapping settles before a save goes out — the issue-detail
+    /// autosave window.
+    private static let autosaveDelay = Duration.seconds(1.2)
 
     /// One agent's editable defaults (the launchDefaults wire shape with the
     /// picker sentinels resolved).
@@ -48,13 +56,20 @@ struct DeviceSettingsSheet: View {
     @State private var seeded = false
     @State private var name = ""
     @State private var savingName = false
+    @FocusState private var nameFocused: Bool
+    /// The DEBOUNCE timer only — never the request itself (see `saveNameNow`).
+    @State private var nameSaveTask: Task<Void, Never>?
+    /// An edit the server has not accepted yet: blocks the live echo and keeps
+    /// the flush-on-close honest.
+    @State private var namePending = false
     @State private var sharedTeamTag = DeviceSettingsSheet.notShared
     @State private var savingShare = false
     @State private var defaultAgent = "claude"
     @State private var selectedAgent = "claude"
     @State private var drafts: [String: AgentDraft] = [:]
     @State private var savingDefaults = false
-    @State private var defaultsSaved = false
+    @State private var defaultsSaveTask: Task<Void, Never>?
+    @State private var defaultsPending = false
     @State private var errorMessage: String?
     /// In-flight command per target key (a worktree row id, or "prune") — the
     /// poll loop clears it on a terminal status.
@@ -66,15 +81,31 @@ struct DeviceSettingsSheet: View {
     /// The device-reported prune summary ("Pruned 2 worktrees"), shown once.
     @State private var commandSummary: String?
 
+    /// The live row off the devices shape. Own machines only — the sheet is an
+    /// owner surface, so a row that stops being ours reads as gone.
+    private var liveDevice: SteerDevice? {
+        viewModel.devices?.first { $0.deviceId == deviceId && $0.isMine }
+    }
+
     var body: some View {
+        if let device = liveDevice {
+            content(device)
+        } else {
+            // Removed here or elsewhere (or un-shared out of reach): there is
+            // nothing left to edit, so the sheet closes itself.
+            Color.clear.onAppear { dismiss() }
+        }
+    }
+
+    private func content(_ device: SteerDevice) -> some View {
         NavigationStack {
             Form {
-                nameSection
+                nameSection(device)
                 if device.isServer {
-                    sharingSection
+                    sharingSection(device)
                 }
-                defaultsSection
-                worktreesSection
+                defaultsSection(device)
+                worktreesSection(device)
                 if let errorMessage {
                     Section {
                         Text(errorMessage)
@@ -88,14 +119,35 @@ struct DeviceSettingsSheet: View {
             .listSectionSpacing(12)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
+                    Button("Done") {
+                        flushAll()
+                        dismiss()
+                    }
                 }
             }
         }
         .presentationDetents([.large])
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("device-settings-sheet")
-        .onAppear { seed() }
+        .onAppear { seed(device) }
+        // Live echo: a rename/share/defaults change from another client (or
+        // this one's own accepted save) lands in the drafts — but only while
+        // the field is idle, so it can never stomp an edit in progress.
+        .onChange(of: device.deviceLabel) { _, newValue in
+            guard !nameFocused, !namePending, !savingName else { return }
+            name = newValue
+        }
+        .onChange(of: device.sharedTeamId) { _, newValue in
+            guard !savingShare else { return }
+            sharedTeamTag = newValue ?? Self.notShared
+        }
+        .onChange(of: device.launchDefaults) { _, _ in
+            guard seeded, !defaultsPending, !savingDefaults else { return }
+            applyDefaults(device, keepTab: true)
+        }
+        // Closing (Done, swipe-down, or the row vanishing) must not drop a
+        // debounced edit.
+        .onDisappear { flushAll() }
         .alert(
             "Remove worktree?",
             isPresented: Binding(
@@ -113,20 +165,30 @@ struct DeviceSettingsSheet: View {
 
     // MARK: - Seeding
 
-    /// Latch the drafts once per presentation: the sheet's item identity is
-    /// the device, so a re-present reseeds, while live shape updates during
-    /// an edit never stomp it.
-    private func seed() {
+    /// Fill the drafts once per presentation; from there on the live echo above
+    /// keeps them current whenever nothing is pending.
+    private func seed(_ device: SteerDevice) {
         guard !seeded else { return }
         seeded = true
         name = device.deviceLabel
         sharedTeamTag = device.sharedTeamId ?? Self.notShared
+        applyDefaults(device, keepTab: false)
+    }
+
+    /// (Re)build the defaults drafts from the row. Callers own the guards —
+    /// seeding runs once at open, the live echo only while nothing is pending.
+    /// `keepTab` holds the agent tab the user is looking at (a re-seed must not
+    /// yank it), as long as the row still offers that agent.
+    private func applyDefaults(_ device: SteerDevice, keepTab: Bool) {
+        let agents = editableAgents(device)
         let advertisedDefault = device.launchDefaults?.defaultAgent
-        defaultAgent = editableAgents.contains(advertisedDefault ?? "") ? advertisedDefault! : (editableAgents.first ?? "claude")
-        selectedAgent = defaultAgent
-        for agent in editableAgents {
-            drafts[agent] = Self.draft(from: device.agentDefaults(for: agent), agent: agent)
+        defaultAgent = agents.contains(advertisedDefault ?? "") ? advertisedDefault! : (agents.first ?? "claude")
+        selectedAgent = keepTab && agents.contains(selectedAgent) ? selectedAgent : defaultAgent
+        var next: [String: AgentDraft] = [:]
+        for agent in agents {
+            next[agent] = Self.draft(from: device.agentDefaults(for: agent), agent: agent)
         }
+        drafts = next
     }
 
     /// The advertised per-agent defaults as a draft, contract-validated with
@@ -158,19 +220,22 @@ struct DeviceSettingsSheet: View {
 
     // MARK: - Name
 
-    private var nameSection: some View {
+    private func nameSection(_ device: SteerDevice) -> some View {
         Section("Name") {
-            TextField("Name", text: $name)
-            Button {
-                saveName()
-            } label: {
+            HStack(spacing: 8) {
+                TextField("Name", text: $name)
+                    .focused($nameFocused)
+                    .onSubmit { flushName() }
                 if savingName {
                     ProgressView().controlSize(.small)
-                } else {
-                    Text("Save name")
                 }
             }
-            .disabled(savingName || trimmedName.isEmpty || trimmedName == device.deviceLabel)
+            .onChange(of: name) { _, _ in
+                scheduleNameAutosave(device)
+            }
+            .onChange(of: nameFocused) { _, focused in
+                if !focused { flushName() }
+            }
         }
     }
 
@@ -178,16 +243,51 @@ struct DeviceSettingsSheet: View {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func saveName() {
+    private func scheduleNameAutosave(_ device: SteerDevice) {
+        guard seeded else { return }
+        namePending = trimmedName != device.deviceLabel
+        nameSaveTask?.cancel()
+        guard namePending else {
+            nameSaveTask = nil
+            return
+        }
+        nameSaveTask = Task {
+            try? await Task.sleep(for: Self.autosaveDelay)
+            guard !Task.isCancelled else { return }
+            saveNameNow()
+        }
+    }
+
+    /// Blur/submit: don't wait out the debounce window.
+    private func flushName() {
+        nameSaveTask?.cancel()
+        nameSaveTask = nil
+        guard namePending, !savingName else { return }
+        saveNameNow()
+    }
+
+    private func saveNameNow() {
+        nameSaveTask?.cancel()
+        nameSaveTask = nil
         let label = trimmedName
-        guard !label.isEmpty else { return }
+        guard let live = liveDevice, !label.isEmpty, label != live.deviceLabel else {
+            namePending = false
+            return
+        }
         savingName = true
         errorMessage = nil
+        let api = deps.devicesApi
+        let account = accountId
+        let id = deviceId
+        // INDEPENDENT of `nameSaveTask`: the next keystroke cancels the
+        // debounce timer, and the sheet may close outright — neither may abort
+        // a rename already on the wire, so nothing here is tied to either.
         Task {
             do {
-                try await deps.devicesApi.rename(
-                    accountId: accountId, deviceId: device.deviceId, label: label
-                )
+                try await api.rename(accountId: account, deviceId: id, label: label)
+                // A later keystroke already superseded this save — its own
+                // debounce owns the pending flag.
+                if trimmedName == label { namePending = false }
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -197,7 +297,7 @@ struct DeviceSettingsSheet: View {
 
     // MARK: - Sharing (server machines only)
 
-    private var sharingSection: some View {
+    private func sharingSection(_ device: SteerDevice) -> some View {
         Section {
             Picker("Shared with", selection: $sharedTeamTag) {
                 Text("Not shared").tag(Self.notShared)
@@ -208,6 +308,9 @@ struct DeviceSettingsSheet: View {
             .disabled(savingShare)
             .onChange(of: sharedTeamTag) { oldValue, newValue in
                 guard seeded, oldValue != newValue else { return }
+                // The live echo writes this too — a re-seed to what the row
+                // already says is not an edit.
+                guard newValue != (device.sharedTeamId ?? Self.notShared) else { return }
                 saveShare(teamId: newValue == Self.notShared ? nil : newValue)
             }
         } header: {
@@ -223,12 +326,12 @@ struct DeviceSettingsSheet: View {
         Task {
             do {
                 try await deps.devicesApi.setShared(
-                    accountId: accountId, deviceId: device.deviceId, teamId: teamId
+                    accountId: accountId, deviceId: deviceId, teamId: teamId
                 )
             } catch {
                 errorMessage = error.localizedDescription
-                // Roll the picker back to what the row says.
-                sharedTeamTag = device.sharedTeamId ?? Self.notShared
+                // Roll the picker back to what the live row says.
+                sharedTeamTag = liveDevice?.sharedTeamId ?? Self.notShared
             }
             savingShare = false
         }
@@ -239,7 +342,7 @@ struct DeviceSettingsSheet: View {
     /// Every agent worth a tab: runnable ∪ signed-out installs ∪ agents the
     /// stored defaults already carry — an OFFLINE machine's defaults stay
     /// editable even though nothing is advertised as runnable right now.
-    private var editableAgents: [String] {
+    private func editableAgents(_ device: SteerDevice) -> [String] {
         var set = Set(device.agentIds)
         set.formUnion(device.unauthedAgentIds)
         if let stored = device.launchDefaults?.agents?.keys {
@@ -249,16 +352,19 @@ struct DeviceSettingsSheet: View {
         return DomainContract.codingAgentValues.filter { set.contains($0) }
     }
 
-    private var defaultsSection: some View {
-        Section {
-            if editableAgents.count > 1 {
-                Picker("Default agent", selection: $defaultAgent) {
-                    ForEach(editableAgents, id: \.self) { value in
+    private func defaultsSection(_ device: SteerDevice) -> some View {
+        let agents = editableAgents(device)
+        return Section {
+            if agents.count > 1 {
+                Picker("Default agent", selection: defaultAgentBinding) {
+                    ForEach(agents, id: \.self) { value in
                         Text(Self.agentLabel(value)).tag(value)
                     }
                 }
+                // Which agent's options are on screen — a view choice, never
+                // an edit, so it deliberately bypasses the autosave.
                 Picker("Agent", selection: $selectedAgent) {
-                    ForEach(editableAgents, id: \.self) { value in
+                    ForEach(agents, id: \.self) { value in
                         Text(Self.agentLabel(value)).tag(value)
                     }
                 }
@@ -287,23 +393,26 @@ struct DeviceSettingsSheet: View {
                     Toggle("Skip permissions", isOn: draftBinding(\.skipPermissions))
                 }
             }
-            Button {
-                saveDefaults()
-            } label: {
-                if savingDefaults {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Text(defaultsSaved ? "Saved" : "Save defaults")
-                }
-            }
-            .disabled(savingDefaults)
-        } header: {
-            Text("Agent defaults")
         } footer: {
             if !device.isOnline {
                 Text("Applies when the device comes online.")
             }
         }
+    }
+
+    /// Like `draftBinding`, a choke point that only a USER pick runs through —
+    /// a picker never writes its binding for a programmatic re-seed, which is
+    /// exactly why the live echo can't trigger a save loop.
+    private var defaultAgentBinding: Binding<String> {
+        Binding(
+            get: { defaultAgent },
+            set: { newValue in
+                guard newValue != defaultAgent else { return }
+                defaultAgent = newValue
+                defaultsPending = true
+                scheduleDefaultsAutosave()
+            }
+        )
     }
 
     private func draftBinding<Value>(_ keyPath: WritableKeyPath<AgentDraft, Value>) -> Binding<Value> {
@@ -315,17 +424,31 @@ struct DeviceSettingsSheet: View {
                 var draft = drafts[selectedAgent] ?? Self.draft(from: nil, agent: selectedAgent)
                 draft[keyPath: keyPath] = newValue
                 drafts[selectedAgent] = draft
-                defaultsSaved = false
+                defaultsPending = true
+                scheduleDefaultsAutosave()
             }
         )
+    }
+
+    private func scheduleDefaultsAutosave() {
+        defaultsSaveTask?.cancel()
+        defaultsSaveTask = Task {
+            try? await Task.sleep(for: Self.autosaveDelay)
+            guard !Task.isCancelled else { return }
+            saveDefaultsNow()
+        }
     }
 
     /// Whole-object replace: every drafted agent rides, sentinels resolved to
     /// the wire's blank-string "CLI default" form. The server clamps
     /// vocabulary field-wise, so version skew degrades a field, never the save.
-    private func saveDefaults() {
-        savingDefaults = true
-        errorMessage = nil
+    private func saveDefaultsNow() {
+        defaultsSaveTask?.cancel()
+        defaultsSaveTask = nil
+        guard liveDevice != nil else {
+            defaultsPending = false
+            return
+        }
         var agents: [String: AgentLaunchDefaultsInput] = [:]
         for (agent, draft) in drafts {
             agents[agent] = AgentLaunchDefaultsInput(
@@ -336,37 +459,63 @@ struct DeviceSettingsSheet: View {
                 skipPermissions: agent == "pi" ? nil : draft.skipPermissions
             )
         }
+        // Built synchronously: the payload is what the drafts say NOW, and a
+        // later edit re-arms the debounce on its own.
         let payload = DeviceLaunchDefaultsInput(defaultAgent: defaultAgent, agents: agents)
+        defaultsPending = false
+        savingDefaults = true
+        errorMessage = nil
+        let api = deps.devicesApi
+        let account = accountId
+        let id = deviceId
+        // INDEPENDENT of the debounce task (see `saveNameNow`).
         Task {
             do {
-                try await deps.devicesApi.setLaunchDefaults(
-                    accountId: accountId, deviceId: device.deviceId, launchDefaults: payload
+                try await api.setLaunchDefaults(
+                    accountId: account, deviceId: id, launchDefaults: payload
                 )
-                defaultsSaved = true
             } catch {
                 errorMessage = error.localizedDescription
+                defaultsPending = true
             }
             savingDefaults = false
         }
     }
 
+    /// Closing the sheet commits whatever the debounce still owes. Idempotent:
+    /// the in-flight flags make a second call (Done → onDisappear) a no-op.
+    private func flushAll() {
+        nameSaveTask?.cancel()
+        nameSaveTask = nil
+        defaultsSaveTask?.cancel()
+        defaultsSaveTask = nil
+        guard liveDevice != nil else {
+            namePending = false
+            defaultsPending = false
+            return
+        }
+        if namePending, !savingName { saveNameNow() }
+        if defaultsPending, !savingDefaults { saveDefaultsNow() }
+    }
+
     // MARK: - Worktrees
 
-    private var deviceWorktrees: [DeviceWorktreeEntity] {
+    private func deviceWorktrees(_ device: SteerDevice) -> [DeviceWorktreeEntity] {
         guard let rowId = device.rowId else { return [] }
-        return worktrees
+        return viewModel.worktrees
             .filter { $0.deviceRowId == rowId }
             .sorted { ($0.repoFullName, $0.branch) < ($1.repoFullName, $1.branch) }
     }
 
-    private var worktreesSection: some View {
-        Section {
-            if deviceWorktrees.isEmpty {
+    private func worktreesSection(_ device: SteerDevice) -> some View {
+        let worktrees = deviceWorktrees(device)
+        return Section {
+            if worktrees.isEmpty {
                 Text("No worktrees reported.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(deviceWorktrees) { worktree in
+                ForEach(worktrees) { worktree in
                     worktreeRow(worktree)
                 }
                 Button {
@@ -396,7 +545,7 @@ struct DeviceSettingsSheet: View {
         } header: {
             Text("Worktrees")
         } footer: {
-            if !device.isOnline, !deviceWorktrees.isEmpty {
+            if !device.isOnline, !worktrees.isEmpty {
                 Text("Runs when the device comes online.")
             }
         }
@@ -489,7 +638,7 @@ struct DeviceSettingsSheet: View {
             do {
                 let created = try await deps.devicesApi.createCommand(
                     accountId: accountId,
-                    deviceId: device.deviceId,
+                    deviceId: deviceId,
                     kind: kind,
                     repoFullName: repoFullName,
                     branch: branch

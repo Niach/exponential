@@ -10,7 +10,10 @@
 //!   `last_seen_at` freshness (`contract::DEVICE_ONLINE_WINDOW_MS`), and the
 //!   beat doubles as the WORK PULL (pending commands + the authoritative
 //!   launch defaults on a stamp mismatch);
-//! * reacts to the relay `check_in` nudge with an immediate beat;
+//! * reacts to the relay `check_in` nudge with an immediate beat, and
+//!   (EXP-490) raises the same nudge itself when the synced `devices` shape
+//!   moves the own row's launch-defaults stamp — a mobile/web edit converges
+//!   within ~a tick instead of a full heartbeat interval;
 //! * reports the worktree inventory (fingerprint-damped) on session
 //!   start/end, after command execution, and on a slow cadence;
 //! * converges launch defaults both ways — server edits apply to
@@ -44,6 +47,8 @@ const INVENTORY_BEATS: u32 = 10;
 struct DeviceSyncState {
     /// Stop flag per account (sign-out flips it; the loop retires itself).
     by_account: HashMap<String, Arc<AtomicBool>>,
+    /// EXP-490: the devices-shape watch per account (dropped on sign-out).
+    watch_by_account: HashMap<String, gpui::Subscription>,
     /// The relay `check_in` flag — a nudge beats immediately.
     check_in: Arc<AtomicBool>,
     /// An out-of-cadence inventory report request (session start/end,
@@ -98,6 +103,19 @@ pub fn start_device_sync(account: &api::Account, cx: &mut App) {
     });
     // First-connect state: report the inventory once sessions settle.
     report_soon.store(true, Ordering::SeqCst);
+
+    // EXP-490: realtime convergence — watch the synced devices shape and
+    // raise the check_in nudge when the own row's launch-defaults stamp
+    // moves, so a mobile/web edit beats on the next tick.
+    let watch = watch_devices_shape(stop.clone(), check_in.clone(), cx);
+    state_entity.update(cx, |state, _| match watch {
+        Some(watch) => {
+            state.watch_by_account.insert(account_id.clone(), watch);
+        }
+        None => {
+            state.watch_by_account.remove(&account_id);
+        }
+    });
 
     cx.spawn(async move |cx| {
         let mut ticks_since_beat = u32::MAX / 2; // beat immediately
@@ -157,7 +175,62 @@ pub fn stop_device_sync(account_id: &str, cx: &mut App) {
         if let Some(stop) = state.by_account.remove(account_id) {
             stop.store(true, Ordering::SeqCst);
         }
+        // Dropping the subscription detaches the shape watch; the stop flag
+        // covers a same-tick notification already in flight.
+        state.watch_by_account.remove(account_id);
     });
+}
+
+/// EXP-490: the shape-watch latch. Records `observed`; nudges only when a
+/// PREVIOUSLY observed stamp changed. The first observation never nudges
+/// (the loop's immediate first beat covers startup), and unchanged deltas —
+/// `last_seen_at`/`active_sessions` noise from every device's beats,
+/// including the Electric echo of our own — MUST stay silent, or the echo
+/// would re-nudge the loop forever.
+fn stamp_moved(last: &mut Option<Option<String>>, observed: Option<String>) -> bool {
+    match last {
+        Some(previous) if *previous == observed => false,
+        Some(_) => {
+            *last = Some(observed);
+            true
+        }
+        None => {
+            *last = Some(observed);
+            false
+        }
+    }
+}
+
+/// Observe the synced `devices` collection and flip `check_in` when the OWN
+/// row's `launch_defaults_updated_at` moves. Keys on the GUI's
+/// [`steer::persistent_device_id`] — never the CLI daemon's sibling row.
+/// `None` when the sync store is absent (headless tests); the heartbeat
+/// cadence remains the fallback either way.
+fn watch_devices_shape(
+    stop: Arc<AtomicBool>,
+    check_in: Arc<AtomicBool>,
+    cx: &mut App,
+) -> Option<gpui::Subscription> {
+    let devices = sync::Store::try_global(cx)?.collections().devices.clone();
+    let device_id =
+        steer::persistent_device_id(&crate::session::AuthContext::global(cx).data_dir);
+    let mut last_stamp: Option<Option<String>> = None;
+    Some(cx.observe(&devices, move |devices, cx| {
+        if stop.load(Ordering::SeqCst) {
+            return;
+        }
+        let Some(observed) = devices
+            .read(cx)
+            .iter()
+            .find(|row| row.device_id.as_deref() == Some(device_id.as_str()))
+            .map(|row| row.launch_defaults_updated_at.clone())
+        else {
+            return; // own row not synced (yet) — nothing to converge from
+        };
+        if stamp_moved(&mut last_stamp, observed) {
+            check_in.store(true, Ordering::SeqCst);
+        }
+    }))
 }
 
 // ---------------------------------------------------------------------------
@@ -234,6 +307,11 @@ fn beat(
                     result.launch_defaults.as_ref(),
                     result.launch_defaults_updated_at.as_deref(),
                 );
+            } else if result.ok {
+                // No payload = the server judged the stamps EQUAL. Queued
+                // dirty pushes, hand-edit drift and the first-ever seed must
+                // still act (EXP-490 — the retry the module doc promises).
+                defaults_changed = reconcile_local_defaults(snapshot);
             }
             if !result.commands.is_empty() {
                 // One batch at a time — a long prune must not pile up.
@@ -283,15 +361,27 @@ fn reconcile_server_defaults(
         coding::ReconcileAction::Noop => false,
         coding::ReconcileAction::ApplyServer => match server_defaults {
             Some(value) => apply_server_defaults(snapshot, value, server_stamp),
-            None => {
-                push_defaults(snapshot, &settings, &marker);
-                false
-            }
+            None => push_defaults(snapshot, &settings, &marker),
         },
-        coding::ReconcileAction::PushLocal => {
-            push_defaults(snapshot, &settings, &marker);
-            false
-        }
+        coding::ReconcileAction::PushLocal => push_defaults(snapshot, &settings, &marker),
+    }
+}
+
+/// No fresh server copy this beat — the stamps matched, so reconcile purely
+/// against local state (dirty retry, hand-edit drift, first-ever seed).
+/// `ApplyServer` is unreachable: the observed stamp IS the marker's.
+fn reconcile_local_defaults(snapshot: &BeatSnapshot) -> bool {
+    let settings = coding::Settings::load(&snapshot.settings_path);
+    let fingerprint = coding::defaults_fingerprint(&settings);
+    let marker = coding::read_marker(&snapshot.settings_path, &snapshot.device_id);
+    match coding::reconcile(
+        &marker,
+        &fingerprint,
+        marker.synced_at.as_deref(),
+        marker.synced_at.is_some(),
+    ) {
+        coding::ReconcileAction::PushLocal => push_defaults(snapshot, &settings, &marker),
+        _ => false,
     }
 }
 
@@ -327,23 +417,26 @@ fn apply_server_defaults(
     changed
 }
 
+/// Returns whether settings.json changed (only the conflict arm can — an
+/// adopted server copy must reload the hub like any other apply).
 fn push_defaults(
     snapshot: &BeatSnapshot,
     settings: &coding::Settings,
     marker: &coding::SyncMarker,
-) {
+) -> bool {
     let wire = serde_json::to_value(coding::defaults_wire(settings))
         .expect("defaults serialize cannot fail");
     let expected = api::devices::ExpectedStamp::Expect(marker.synced_at.as_deref());
     match api::devices::set_launch_defaults(&snapshot.trpc, &snapshot.device_id, &wire, expected) {
         Ok(result) if result.conflict => {
             log::info!("[device-sync] defaults push conflicted — adopting the server copy");
-            if let Some(value) = result.launch_defaults.as_ref() {
-                apply_server_defaults(
+            match result.launch_defaults.as_ref() {
+                Some(value) => apply_server_defaults(
                     snapshot,
                     value,
                     result.launch_defaults_updated_at.as_deref(),
-                );
+                ),
+                None => false,
             }
         }
         Ok(result) => {
@@ -353,6 +446,7 @@ fn push_defaults(
                 hash: Some(coding::defaults_fingerprint(settings)),
             };
             let _ = coding::write_marker(&snapshot.settings_path, &snapshot.device_id, &marker);
+            false
         }
         Err(err) => {
             log::debug!("[device-sync] defaults push failed ({err}) — queued");
@@ -362,6 +456,7 @@ fn push_defaults(
                 hash: marker.hash.clone(),
             };
             let _ = coding::write_marker(&snapshot.settings_path, &snapshot.device_id, &queued);
+            false
         }
     }
 }
@@ -503,4 +598,37 @@ fn reload_hub_settings(cx: &mut App) {
     // Doctor refresh re-derives the advertisement → the relay re-dials with
     // the new defaults (the EXP-437 path).
     CodingHub::refresh_doctor(&hub, cx);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::stamp_moved;
+
+    /// EXP-490: the anti-feedback-loop lock — heartbeats mutate the devices
+    /// row (`last_seen_at`/`active_sessions`) every ~30s per device, and the
+    /// Electric echo of our own beat must never re-nudge the loop.
+    #[test]
+    fn stamp_latch_truth_table() {
+        let stamp = |s: &str| Some(s.to_string());
+
+        // First observation records without nudging (the loop's immediate
+        // first beat covers startup).
+        let mut last = None;
+        assert!(!stamp_moved(&mut last, stamp("a")));
+        // Unchanged stamp (last_seen_at noise) never nudges.
+        assert!(!stamp_moved(&mut last, stamp("a")));
+        // A moved stamp nudges once, then latches.
+        assert!(stamp_moved(&mut last, stamp("b")));
+        assert!(!stamp_moved(&mut last, stamp("b")));
+        // Some -> None (defaults cleared server-side) is a move.
+        assert!(stamp_moved(&mut last, None));
+        assert!(!stamp_moved(&mut last, None));
+        // None -> Some after the first observation is a move too.
+        assert!(stamp_moved(&mut last, stamp("c")));
+
+        // First observation of a None stamp also just records.
+        let mut last = None;
+        assert!(!stamp_moved(&mut last, None));
+        assert!(stamp_moved(&mut last, stamp("a")));
+    }
 }

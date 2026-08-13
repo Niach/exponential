@@ -339,7 +339,6 @@ impl AgentsPane {
 
     fn labeled_input(
         label: &'static str,
-        hint: &'static str,
         input: &Entity<InputState>,
         cx: &App,
     ) -> impl IntoElement {
@@ -347,36 +346,19 @@ impl AgentsPane {
             .gap_1()
             .child(div().text_xs().text_color(cx.theme().muted_foreground).child(label))
             .child(Input::new(input).small())
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground.opacity(0.7))
-                    .child(hint),
-            )
     }
 
     /// A labeled [`ChoiceSelect`] row (the select analog of `labeled_input`).
-    /// A blank `hint` drops the paragraph entirely — an empty text node still
-    /// occupies a line box.
+    /// No hint paragraph — EXP-490 dropped the per-option subtitle notes.
     fn labeled_select(
         label: &'static str,
-        hint: &'static str,
         select: &ChoiceSelect,
         cx: &App,
     ) -> impl IntoElement {
-        let mut column = v_flex()
+        v_flex()
             .gap_1()
             .child(div().text_xs().text_color(cx.theme().muted_foreground).child(label))
-            .child(Select::new(select).small());
-        if !hint.is_empty() {
-            column = column.child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground.opacity(0.7))
-                    .child(hint),
-            );
-        }
-        column
+            .child(Select::new(select).small())
     }
 
     /// One toggle row: a single-line label with the `Switch` on the right —
@@ -440,33 +422,13 @@ impl AgentsPane {
 
         let mut body = section(cx)
             .child(card_title("Agents"))
-            .child(Self::labeled_select(
-                "Default agent",
-                "",
-                &self.agent_select,
-                cx,
-            ))
+            .child(Self::labeled_select("Default agent", &self.agent_select, cx))
             .child(tabs);
         body = match self.agent_tab {
             CodingAgent::Claude => body
-                .child(Self::labeled_input(
-                    "CLI path",
-                    "Command name or absolute path.",
-                    &self.claude_input,
-                    cx,
-                ))
-                .child(Self::labeled_select(
-                    "Model",
-                    "Passed as --model on every claude session. Default: Fable.",
-                    &self.model_select,
-                    cx,
-                ))
-                .child(Self::labeled_select(
-                    "Effort",
-                    "Passed as --effort on every claude session. CLI default leaves it unset.",
-                    &self.effort_select,
-                    cx,
-                ))
+                .child(Self::labeled_input("CLI path", &self.claude_input, cx))
+                .child(Self::labeled_select("Model", &self.model_select, cx))
+                .child(Self::labeled_select("Effort", &self.effort_select, cx))
                 .child(Self::toggle_row(
                     "claude-plan-mode",
                     "Plan mode",
@@ -489,22 +451,10 @@ impl AgentsPane {
                     cx,
                 )),
             CodingAgent::Codex => body
-                .child(Self::labeled_input(
-                    "CLI path",
-                    "Command name or absolute path.",
-                    &self.codex_input,
-                    cx,
-                ))
-                .child(Self::labeled_select(
-                    "Model",
-                    "Passed as -m on every codex session. Default: CLI default.",
-                    &self.codex_model_select,
-                    cx,
-                ))
+                .child(Self::labeled_input("CLI path", &self.codex_input, cx))
+                .child(Self::labeled_select("Model", &self.codex_model_select, cx))
                 .child(Self::labeled_select(
                     "Reasoning effort",
-                    "Passed as -c model_reasoning_effort on every codex session. CLI default \
-                     leaves it unset.",
                     &self.codex_effort_select,
                     cx,
                 ))
@@ -516,21 +466,10 @@ impl AgentsPane {
                     cx,
                 )),
             CodingAgent::Pi => body
-                .child(Self::labeled_input(
-                    "CLI path",
-                    "Command name or absolute path.",
-                    &self.pi_input,
-                    cx,
-                ))
-                .child(Self::labeled_select(
-                    "Model",
-                    "Passed as --model on every pi session. Default: CLI default.",
-                    &self.pi_model_select,
-                    cx,
-                ))
+                .child(Self::labeled_input("CLI path", &self.pi_input, cx))
+                .child(Self::labeled_select("Model", &self.pi_model_select, cx))
                 .child(Self::labeled_select(
                     "Thinking level",
-                    "Passed as --thinking on every pi session. CLI default leaves it unset.",
                     &self.pi_thinking_select,
                     cx,
                 ))

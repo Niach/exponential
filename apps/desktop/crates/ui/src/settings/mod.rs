@@ -8,7 +8,7 @@
 //! the EXP-297 owner-only attachment manager), **Boards**
 //! (one entry PER board + New board + Repositories — EXP-288 flattened the
 //! old flat Boards list into per-board detail pages), the desktop-only
-//! **This device** group (Tools, Agents, Local repositories), and
+//! **This device** group (Tools, Agents, Worktrees), and
 //! **Personal** (Account, Notifications, API keys, About — EXP-238); the
 //! detail column shows ONE selected pane with the web's `isOwner &&` gating;
 //! each pane mirrors its web card field-for-field.
@@ -188,7 +188,7 @@ const NAV_GROUPS: &[NavGroup] = &[
                 section: SettingsSection::Agents,
             },
             NavItem {
-                label: "Local repositories",
+                label: "Worktrees",
                 section: SettingsSection::LocalRepos,
             },
         ],
@@ -332,7 +332,7 @@ pub struct SettingsView {
     tools: Entity<ToolsPane>,
     /// Per-agent launcher settings + doctor (EXP-288: split out of Tools).
     agents: Entity<AgentsPane>,
-    /// §4.7 desktop-only Local repositories section (clone disk usage +
+    /// §4.7 desktop-only Worktrees section (clone disk usage +
     /// prune/remove) — local per-install state, un-gated.
     local_repos: Entity<LocalReposPane>,
     /// EXP-238: identity + timezone (the old Account screen, folded in).

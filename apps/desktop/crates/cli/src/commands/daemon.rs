@@ -39,15 +39,27 @@ const ADVERT_CONFIRM_RECHECK: Duration = Duration::from_secs(30);
 /// EXP-481 adds `resume` (start_session honors the resume flag),
 /// `worktrees` (inventory reporting + remove/prune commands) and
 /// `launch-defaults` (server-authoritative defaults convergence + the
-/// `check_in` nudge frame).
-pub const DEVICE_CAPS: [&str; 6] = [
-    "actions",
-    "action-inputs",
-    "fix-conflicts",
-    "resume",
-    "worktrees",
-    "launch-defaults",
-];
+/// `check_in` nudge frame). EXP-490 split them off [`ACTION_CAPS`]: these
+/// three are BUILD capabilities and ride even with zero runnable agents —
+/// dropping them made the server skip the `check_in` nudge
+/// (`deviceUnderstandsCheckIn`), so every remote command/defaults edit
+/// waited out the 30s heartbeat.
+pub const DEVICE_CAPS: [&str; 3] = ["resume", "worktrees", "launch-defaults"];
+
+/// The action-run capabilities — advertised only while at least one agent is
+/// RUNNABLE (EXP-409: a machine whose only agents are signed out cannot run
+/// actions either).
+pub const ACTION_CAPS: [&str; 3] = ["actions", "action-inputs", "fix-conflicts"];
+
+/// The caps to advertise for a doctor snapshot: the build caps, plus the
+/// action caps while anything is runnable.
+fn device_caps(advertised: &coding::AgentAdvertisement) -> Vec<String> {
+    let mut caps: Vec<String> = DEVICE_CAPS.iter().map(|cap| cap.to_string()).collect();
+    if !advertised.agents.is_empty() {
+        caps.extend(ACTION_CAPS.iter().map(|cap| cap.to_string()));
+    }
+    caps
+}
 
 // ---------------------------------------------------------------------------
 // Signal handling — shared with `code`'s detached wait.
@@ -314,6 +326,11 @@ fn run_daemon(args: &[String]) -> CommandResult {
                                 stamp: result.launch_defaults_updated_at,
                             })
                             .ok();
+                    } else if result.ok {
+                        // EXP-490: no payload = the stamps matched — a queued
+                        // dirty push (offline save) must still retry at beat
+                        // cadence, not just the slow doctor tick.
+                        device_worker.send(DeviceWork::ReconcileLocal).ok();
                     }
                 }
                 Err(err) => log::debug!("devices.heartbeat failed: {err}"),
@@ -517,13 +534,7 @@ fn register_device(
     advertised: &coding::AgentAdvertisement,
     device_worker: &flume::Sender<DeviceWork>,
 ) -> bool {
-    // Caps follow the RUNNABLE set (EXP-409): a machine whose only agents
-    // are signed out cannot run actions either.
-    let caps: Vec<String> = if advertised.agents.is_empty() {
-        Vec::new()
-    } else {
-        DEVICE_CAPS.iter().map(|cap| cap.to_string()).collect()
-    };
+    let caps = device_caps(advertised);
     // EXP-481: the local defaults ride the register as a FIRST-EVER seed
     // (the server applies them only while its column is NULL); the response
     // carries the authoritative copy either way, reconciled off-loop.
@@ -579,11 +590,7 @@ fn dial_control(
     if advertised.nothing_installed() {
         return None;
     }
-    let caps: Vec<String> = if advertised.agents.is_empty() {
-        Vec::new()
-    } else {
-        DEVICE_CAPS.iter().map(|cap| cap.to_string()).collect()
-    };
+    let caps = device_caps(advertised);
     let device = DeviceIdentity {
         device_id: device_id.to_string(),
         device_label: device_label.to_string(),

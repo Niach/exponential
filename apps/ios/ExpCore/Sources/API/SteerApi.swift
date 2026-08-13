@@ -65,7 +65,9 @@ public struct DeviceOwner: Decodable, Sendable {
 /// default / omit the flag", which is a real choice, not an absence — while
 /// the booleans are serialized only when true (absent = false). Everything is
 /// optional here anyway: the sender is a desktop of unknown vintage.
-public struct AgentLaunchDefaults: Decodable, Sendable {
+/// Equatable so a settings surface can diff the live row against its drafts
+/// (EXP-490: the iOS device-settings sheet re-seeds off `onChange`).
+public struct AgentLaunchDefaults: Decodable, Equatable, Sendable {
     public let model: String?
     public let effort: String?
     public let ultracode: Bool?
@@ -92,7 +94,7 @@ public struct AgentLaunchDefaults: Decodable, Sendable {
 /// sent. `agents` covers the RUNNABLE agents only (contract `codingAgent`
 /// ids). Absent entirely on an older desktop — every reader falls back to the
 /// static contract defaults.
-public struct DeviceLaunchDefaults: Decodable, Sendable {
+public struct DeviceLaunchDefaults: Decodable, Equatable, Sendable {
     /// The machine's configured default agent. Clamped to what it actually
     /// runs by the reader — a signed-out default must not preselect.
     public let defaultAgent: String?

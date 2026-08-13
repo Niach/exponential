@@ -197,7 +197,6 @@ impl ToolsPane {
 
     fn labeled_input(
         label: &'static str,
-        hint: &'static str,
         input: &Entity<InputState>,
         cx: &App,
     ) -> impl IntoElement {
@@ -205,12 +204,6 @@ impl ToolsPane {
             .gap_1()
             .child(div().text_xs().text_color(cx.theme().muted_foreground).child(label))
             .child(Input::new(input).small())
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground.opacity(0.7))
-                    .child(hint),
-            )
     }
 }
 
@@ -226,22 +219,11 @@ impl Render for ToolsPane {
             ))
             .child(Self::labeled_input(
                 "Repos & worktrees root",
-                "Where repositories are cloned and per-issue worktrees are created.",
                 &self.repos_input,
                 cx,
             ))
-            .child(Self::labeled_input(
-                "Branch prefix",
-                "Prepended to the issue identifier for the coding branch (exp/EXP-42).",
-                &self.prefix_input,
-                cx,
-            ))
-            .child(Self::labeled_input(
-                "Terminal shell",
-                "Program for new terminal tabs. Leave empty to use your system default.",
-                &self.shell_input,
-                cx,
-            ));
+            .child(Self::labeled_input("Branch prefix", &self.prefix_input, cx))
+            .child(Self::labeled_input("Terminal shell", &self.shell_input, cx));
 
         let mut save_area = v_flex().gap_2();
         if let Some(error) = &self.save_error {

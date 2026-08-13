@@ -1,13 +1,28 @@
-//! Settings → Local repositories (masterplan v4 §4.7).
+//! Settings → Worktrees (masterplan v4 §4.7; nav label renamed in EXP-490).
 //!
 //! A **desktop-local** section (like the §7.7 Coding pane — per install, never
 //! synced, not owner-gated): every trunk clone under the coding `repos_root`
 //! with its on-disk size, its worktrees, and two maintenance actions.
 //!
-//! - **Disk usage** is a `du`-style recursive scan run on the background
-//!   executor (never the gpui foreground) and cached in [`Scan::Ready`] until a
-//!   refresh — a clone tree can be large, so the pane paints immediately and
-//!   fills the sizes in when the walk finishes.
+//! - **Two-phase scan** (EXP-490): the walk is split so the rows never wait on
+//!   the disk-usage numbers. Phase 1 enumerates the clones (`read_dir` two
+//!   levels) and lists each one's worktrees (`git worktree list`) — tens of
+//!   milliseconds — and lands as [`Scan::Ready`] straight away. Phase 2 is a
+//!   follow-up background walk that measures each clone (`du`-style, clone +
+//!   `.worktrees`, seconds per tree) and merges the sizes in as they arrive;
+//!   a row shows a small skeleton until its number lands. Both phases run on
+//!   the background executor (never the gpui foreground) under ONE
+//!   `generation` guard, so a stale phase can never clobber a newer scan.
+//!   Measured sizes are cached by clone path and carried across re-scans (a
+//!   [`SIZE_TTL`] keeps them from re-walking on every auto-invalidation); the
+//!   Refresh button and the destructive actions drop the cache instead.
+//! - **Auto-rescan** (EXP-490): the pane invalidates itself when the synced
+//!   `device_worktrees` collection changes (remote removes, the 120s
+//!   auto-prune, launcher creates — this machine reports its own rows) and
+//!   when the process-global `LocalSessions` registry changes (a session
+//!   start/end creates or frees a worktree locally). Phase 1 is cheap enough
+//!   that liberal invalidation is free. Refresh stays as the manual escape
+//!   hatch.
 //! - **Worktrees** (EXP-369): the scan carries each clone's linked worktrees,
 //!   and the row expands into them. Per worktree: a confirmed force-remove
 //!   and a terminal button whose dropdown mirrors the terminal dock's "+"
@@ -32,6 +47,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{Duration, Instant};
 
 use gpui::{
     div, prelude::FluentBuilder as _, App, Entity, FontWeight, IntoElement, ParentElement, Render,
@@ -69,7 +85,10 @@ use crate::icons::registry;
 struct RepoEntry {
     full_name: String,
     clone_path: PathBuf,
-    size_bytes: u64,
+    /// `None` while phase 2 is still measuring this clone (the row shows a
+    /// skeleton); a carried-forward cache entry fills it in immediately on a
+    /// re-scan.
+    size_bytes: Option<u64>,
     worktrees: Vec<WorktreeRow>,
 }
 
@@ -98,9 +117,12 @@ impl WorktreeRow {
 }
 
 enum Scan {
-    /// Not scanning and no result — the next render kicks the walk.
+    /// Nothing to show yet (first paint, or the root just changed) — the next
+    /// render kicks phase 1 and the list paints as skeletons meanwhile.
     Idle,
-    Scanning,
+    /// The last phase-1 result. A re-scan KEEPS it on screen (the rows are
+    /// what the user is reading; a 30ms phase 1 must not blink them away) —
+    /// `stale`/`scanning` carry the "a walk is pending/running" state instead.
     Ready(Vec<RepoEntry>),
 }
 
@@ -118,12 +140,29 @@ struct ActionState {
 // Pane
 // ---------------------------------------------------------------------------
 
+/// How long a measured clone size stays good enough to skip a re-walk. The
+/// walk is seconds of `lstat` per clone while the auto-invalidations can
+/// arrive on every synced `device_worktrees` echo, so phase 2 re-measures only
+/// what is unknown or stale. The paths that DO change a size on purpose
+/// (refresh, prune, remove) drop the cache entry instead of waiting this out.
+const SIZE_TTL: Duration = Duration::from_secs(60);
+
 pub struct LocalReposPane {
     scan: Scan,
     /// The `repos_root` the current `scan` belongs to; a settings change
     /// (Coding pane) re-scans.
     scanned_root: Option<PathBuf>,
-    /// Monotonic guard: a stale in-flight scan must not clobber a newer one.
+    /// Measured disk usage by clone path, `(bytes, when measured)` — survives
+    /// re-scans so an auto-invalidation refills the rows instead of flashing
+    /// skeletons, and feeds the [`SIZE_TTL`] freshness check.
+    sizes: HashMap<PathBuf, (u64, Instant)>,
+    /// The scan no longer describes the disk (an action, a Refresh click, or
+    /// one of the EXP-490 auto-invalidations) — the next render re-walks.
+    stale: bool,
+    /// Phase 1 is in flight (the Refresh button's spinner).
+    scanning: bool,
+    /// Monotonic guard: a stale in-flight scan (either phase) must not clobber
+    /// a newer one.
     generation: u64,
     actions: HashMap<String, ActionState>,
     /// Clones (by `full_name`) whose worktree list is unfolded (EXP-369).
@@ -145,13 +184,35 @@ impl LocalReposPane {
         // running-session gate reads the synced coding_sessions collection.
         let hub = CodingHub::global(cx);
         let collections = Store::global(cx).collections().clone();
+        let local_sessions = LocalSessions::global(cx);
         let subscriptions = vec![
+            // Repos-root edits only re-render; `ensure_scanned` re-scans off
+            // the changed `scanned_root` by itself.
             cx.observe(&hub, |_, _, cx| cx.notify()),
+            // The busy gates read the synced rows (incl. OTHER devices'
+            // sessions, which never move a local worktree) — notify only.
             cx.observe(&collections.coding_sessions, |_, _, cx| cx.notify()),
+            // EXP-490: worktrees this pane doesn't own appear and vanish —
+            // launcher creates, the 120s auto-prune, remote device commands.
+            // Every one of them lands in the synced inventory this machine
+            // reports, so its deltas are the pane's invalidation feed.
+            cx.observe(&collections.device_worktrees, |this, _, cx| {
+                this.stale = true;
+                cx.notify();
+            }),
+            // Local session start/end creates or frees a worktree NOW; the
+            // synced echo above is up to a heartbeat behind.
+            cx.observe(&local_sessions, |this, _, cx| {
+                this.stale = true;
+                cx.notify();
+            }),
         ];
         Self {
             scan: Scan::Idle,
             scanned_root: None,
+            sizes: HashMap::new(),
+            stale: false,
+            scanning: false,
             generation: 0,
             actions: HashMap::new(),
             expanded: HashSet::new(),
@@ -190,15 +251,25 @@ impl LocalReposPane {
             .unwrap_or_default()
     }
 
-    /// Kick the background walk when the root changed or the scan was
-    /// invalidated (refresh / post-action). Runs at render time so a hidden
-    /// pane never scans.
+    /// Kick phase 1 of the background walk when the root changed or the scan
+    /// was invalidated (refresh / post-action / auto). Runs at render time so a
+    /// hidden pane never scans.
+    ///
+    /// Phase 1 only enumerates clones and lists their worktrees (~tens of ms),
+    /// so the rows paint immediately; [`Self::measure_sizes`] fills the disk
+    /// usage in afterwards under the same `generation`.
     fn ensure_scanned(&mut self, root: PathBuf, cx: &mut gpui::Context<Self>) {
         let same_root = self.scanned_root.as_ref() == Some(&root);
-        if same_root && !matches!(self.scan, Scan::Idle) {
+        let have_result = matches!(self.scan, Scan::Ready(_));
+        if same_root && !self.stale && (self.scanning || have_result) {
             return;
         }
-        self.scan = Scan::Scanning;
+        if !same_root {
+            // Another root's rows are not this root's — drop them.
+            self.scan = Scan::Idle;
+        }
+        self.stale = false;
+        self.scanning = true;
         self.scanned_root = Some(root.clone());
         self.generation += 1;
         let generation = self.generation;
@@ -209,17 +280,95 @@ impl LocalReposPane {
                 .await;
             let _ = this.update(cx, |this, cx| {
                 if this.generation != generation {
-                    return; // superseded by a newer scan
+                    return; // superseded by a newer scan (which owns `scanning`)
                 }
+                this.scanning = false;
+                // Clones that went away stop holding a cached size.
+                let present: HashSet<PathBuf> =
+                    entries.iter().map(|entry| entry.clone_path.clone()).collect();
+                this.sizes.retain(|path, _| present.contains(path));
+
+                let now = Instant::now();
+                let mut unmeasured = Vec::new();
+                let entries: Vec<RepoEntry> = entries
+                    .into_iter()
+                    .map(|mut entry| {
+                        match this.sizes.get(&entry.clone_path) {
+                            Some((bytes, measured_at)) => {
+                                // Carry the last number forward as the
+                                // placeholder — an auto-invalidation must not
+                                // flash a skeleton over a size that is still
+                                // essentially right.
+                                entry.size_bytes = Some(*bytes);
+                                if now.duration_since(*measured_at) >= SIZE_TTL {
+                                    unmeasured.push(entry.clone_path.clone());
+                                }
+                            }
+                            None => unmeasured.push(entry.clone_path.clone()),
+                        }
+                        entry
+                    })
+                    .collect();
                 this.scan = Scan::Ready(entries);
                 cx.notify();
+                this.measure_sizes(unmeasured, generation, cx);
             });
         })
         .detach();
     }
 
+    /// Phase 2: walk each clone's disk usage (clone + `.worktrees`) on the
+    /// background executor and merge the numbers into [`Scan::Ready`] one
+    /// clone at a time, so the rows fill in progressively instead of waiting
+    /// on the slowest tree. Guarded by the SAME `generation` as phase 1: a
+    /// superseded pass drops its result and stops walking.
+    fn measure_sizes(
+        &mut self,
+        clones: Vec<PathBuf>,
+        generation: u64,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        if clones.is_empty() {
+            return;
+        }
+        cx.spawn(async move |this, cx| {
+            for clone in clones {
+                let measured = {
+                    let clone = clone.clone();
+                    cx.background_executor()
+                        .spawn(async move { repo_disk_size(&clone) })
+                        .await
+                };
+                let current = this
+                    .update(cx, |this, cx| {
+                        if this.generation != generation {
+                            return false; // superseded by a newer scan
+                        }
+                        this.sizes.insert(clone.clone(), (measured, Instant::now()));
+                        if let Scan::Ready(entries) = &mut this.scan {
+                            if let Some(entry) =
+                                entries.iter_mut().find(|entry| entry.clone_path == clone)
+                            {
+                                entry.size_bytes = Some(measured);
+                            }
+                        }
+                        cx.notify();
+                        true
+                    })
+                    .unwrap_or(false);
+                if !current {
+                    return;
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// The manual escape hatch: a full re-scan INCLUDING the size walk (the
+    /// auto-invalidations lean on the size cache, this one distrusts it).
     fn refresh(&mut self, cx: &mut gpui::Context<Self>) {
-        self.scan = Scan::Idle;
+        self.sizes.clear();
+        self.stale = true;
         cx.notify();
     }
 
@@ -264,6 +413,7 @@ impl LocalReposPane {
         cx.notify();
 
         cx.spawn(async move |this, cx| {
+            let measured = clone.clone();
             let report = cx
                 .background_executor()
                 .spawn(async move { coding::prune::prune_landed(&clone, &policy) })
@@ -272,8 +422,10 @@ impl LocalReposPane {
                 let entry = this.action_mut(&full_name);
                 entry.busy = false;
                 entry.message = Some((false, format_prune_result(&report)));
-                // Counts and size moved — re-scan.
-                this.scan = Scan::Idle;
+                // Counts and size moved — re-scan, and re-measure THIS clone
+                // instead of carrying the pre-prune number forward.
+                this.sizes.remove(&measured);
+                this.stale = true;
                 cx.notify();
             });
         })
@@ -298,7 +450,7 @@ impl LocalReposPane {
                 match result {
                     Ok(()) => {
                         this.actions.remove(&full_name);
-                        this.scan = Scan::Idle;
+                        this.stale = true;
                     }
                     Err(message) => {
                         let entry = this.action_mut(&full_name);
@@ -329,6 +481,7 @@ impl LocalReposPane {
         cx.notify();
 
         cx.spawn(async move |this, cx| {
+            let measured = clone.clone();
             let result = cx
                 .background_executor()
                 .spawn(async move { remove_worktree(&clone, &worktree) })
@@ -340,7 +493,10 @@ impl LocalReposPane {
                     Ok(()) => Some((false, "Removed 1 worktree.".into())),
                     Err(detail) => Some((true, detail.into())),
                 };
-                this.scan = Scan::Idle;
+                // A worktree's bytes just went away — don't carry the stale
+                // number forward across the re-scan.
+                this.sizes.remove(&measured);
+                this.stale = true;
                 cx.notify();
             });
         })
@@ -458,7 +614,14 @@ impl LocalReposPane {
                     .gap_1()
                     .items_center()
                     .child(Icon::new(registry::SETTINGS_STORAGE).xsmall())
-                    .child(SharedString::from(format_size(repo.size_bytes))),
+                    // Phase 2 still walking this clone (first scan only — a
+                    // re-scan carries the previous number forward).
+                    .child(match repo.size_bytes {
+                        Some(bytes) => div()
+                            .child(SharedString::from(format_size(bytes)))
+                            .into_any_element(),
+                        None => Skeleton::new().h_3().w_12().into_any_element(),
+                    }),
             )
             .child(div().child("·"))
             .map(|meta| {
@@ -741,12 +904,8 @@ impl Render for LocalReposPane {
             .map(|report| report.installed_agents())
             .unwrap_or_default();
 
-        let count = match &self.scan {
-            Scan::Ready(repos) => repos.len(),
-            _ => 0,
-        };
-
-        let mut body = section(cx).child(card_title(format!("Local repositories · {count}")));
+        // The count would be a REPO count — misleading under this title.
+        let mut body = section(cx).child(card_title("Worktrees"));
 
         body = body.child(
             div()
@@ -760,7 +919,9 @@ impl Render for LocalReposPane {
         );
 
         match &self.scan {
-            Scan::Idle | Scan::Scanning => {
+            // Only before the FIRST result (or right after a root change) —
+            // a re-scan keeps the rows it already has.
+            Scan::Idle => {
                 body = body.child(
                     v_flex()
                         .gap_2()
@@ -829,7 +990,7 @@ impl Render for LocalReposPane {
                     .ghost()
                     .xsmall()
                     .label("Refresh")
-                    .loading(matches!(self.scan, Scan::Scanning))
+                    .loading(self.scanning)
                     .on_click(cx.listener(|this, _, _, cx| this.refresh(cx))),
             ),
         );
@@ -905,8 +1066,11 @@ fn worktree_in_use(clone: &Path, worktree: &WorktreeRow, live: &HashSet<String>)
 // Background helpers (filesystem + argv git — no gpui, unit-testable)
 // ---------------------------------------------------------------------------
 
-/// Walk `<repos_root>/<owner>/<name>` two levels deep for trunk clones (a dir
-/// with a `.git`, not the `.worktrees` sibling), sized and worktree-counted.
+/// Phase 1: walk `<repos_root>/<owner>/<name>` two levels deep for trunk clones
+/// (a dir with a `.git`, not the `.worktrees` sibling) and list each one's
+/// worktrees. Deliberately does NOT size anything — that is
+/// [`repo_disk_size`], run per clone by phase 2, so the row list lands in
+/// milliseconds instead of waiting on a multi-second `du` walk (EXP-490).
 /// Blocking; the caller runs it on the background executor.
 fn scan_repos(root: &Path) -> Vec<RepoEntry> {
     let mut out = Vec::new();
@@ -933,11 +1097,9 @@ fn scan_repos(root: &Path) -> Vec<RepoEntry> {
             if !path.join(".git").exists() {
                 continue;
             }
-            let worktrees = worktrees_dir(&path);
-            let size = dir_size(&path) + dir_size(&worktrees);
             out.push(RepoEntry {
                 worktrees: list_repo_worktrees(&path),
-                size_bytes: size,
+                size_bytes: None, // phase 2
                 full_name: format!("{owner_name}/{dir_name}"),
                 clone_path: path,
             });
@@ -945,6 +1107,12 @@ fn scan_repos(root: &Path) -> Vec<RepoEntry> {
     }
     out.sort_by(|a, b| a.full_name.cmp(&b.full_name));
     out
+}
+
+/// Phase 2's per-clone measurement: the clone tree plus its `.worktrees`
+/// sibling. Seconds of `lstat` on a large repo — background executor only.
+fn repo_disk_size(clone: &Path) -> u64 {
+    dir_size(clone) + dir_size(&worktrees_dir(clone))
 }
 
 /// Recursive on-disk size of `path` (regular files only). Iterative (an
@@ -1271,7 +1439,10 @@ mod tests {
         let entries = scan_repos(&root);
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].full_name, "acme/web");
-        assert!(entries[0].size_bytes > 0);
+        // EXP-490: phase 1 never sizes anything — the rows must not wait on
+        // the `du` walk. Phase 2 measures the same tree separately.
+        assert!(entries[0].size_bytes.is_none());
+        assert!(repo_disk_size(&entries[0].clone_path) > 0);
         // EXP-369: the scan carries the worktrees themselves (branch + path),
         // not just how many there are — the row expands into them.
         let branches: Vec<Option<String>> = entries[0]
@@ -1288,6 +1459,15 @@ mod tests {
         );
         assert!(entries[0].worktrees.iter().all(|w| w.path.exists()));
         assert_eq!(entries[0].worktrees[0].label(), "exp/EXP-1");
+    }
+
+    /// Phase 2 measures the clone AND its `.worktrees` sibling — the pane's
+    /// number is what "Remove local copy" would reclaim, not just the trunk.
+    #[test]
+    fn repo_disk_size_counts_the_worktrees_sibling() {
+        let dir = temp_dir("size");
+        let (_root, clone) = seed_clone(&dir.0);
+        assert!(repo_disk_size(&clone) > dir_size(&clone));
     }
 
     /// A branch-less (detached / git-missing fallback) row falls back to its
