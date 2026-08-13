@@ -15,8 +15,12 @@
 //! Data comes from the SYNCED `devices` + `device_worktrees` collections
 //! (never relay presence): defaults stay editable while the machine is
 //! offline ("Applies when the device comes online."), and the worktree rows
-//! reflect the machine's last report. Drafts seed ONCE at open and latch
-//! against live updates (the web `seededDeviceRef` pattern). Queued commands
+//! reflect the machine's last report. EXP-490: the dialog mirrors the LIVE
+//! baseline while open — the defaults controls follow remote edits the way
+//! the AgentsPane follows the hub (server wins on screen; a local unsaved
+//! draft is rewritten too), while the name input and the share select
+//! re-seed only when the user hasn't diverged from the previous baseline, so
+//! typing is never stomped. Queued commands
 //! are polled (`devices.getCommand`) until terminal — a failure renders its
 //! device-reported message inline; success shows up as the row vanishing
 //! when the machine re-reports.
@@ -137,10 +141,15 @@ pub struct DeviceSettingsView {
     codex_skip_permissions: bool,
     agent_tab: CodingAgent,
     editor_agents: Vec<CodingAgent>,
-    /// The seed baseline as a Settings value (drafts overlay it) — the
-    /// clamped launch_defaults column at open.
+    /// The current baseline as a Settings value (drafts overlay it): the
+    /// clamped launch_defaults column, kept LIVE by [`Self::resync`]. The
+    /// Save button derives its dirty state from drafted != seeded — no
+    /// sticky flag, so a programmatic control rewrite can't strand it.
     seeded: coding::Settings,
-    defaults_dirty: bool,
+    /// The row label/share value at the last (re)seed — the "has the user
+    /// diverged?" reference for the two non-defaults inputs.
+    seeded_label: String,
+    seeded_share: String,
     // -- section state --
     busy_section: Option<&'static str>,
     section_errors: HashMap<String, SharedString>,
@@ -181,35 +190,7 @@ impl DeviceSettingsView {
         let own = device_id
             == steer::persistent_device_id(&crate::session::AuthContext::global(cx).data_dir);
 
-        // Seed = the server-authoritative launch_defaults clamped onto a
-        // default Settings (remote_admin's apply — the same clamp the device
-        // itself runs). Own devices seed from the LIVE hub settings instead:
-        // the file is right here and fresher than the row.
-        let mut seeded = if own {
-            CodingHub::global(cx).read(cx).settings.clone()
-        } else {
-            let mut seeded = coding::Settings::default();
-            if let Some(value) = row.launch_defaults.as_ref() {
-                if let Ok(patch) =
-                    serde_json::from_value::<coding::DefaultsPatch>(value.clone())
-                {
-                    coding::apply_defaults_patch(&mut seeded, &patch);
-                }
-            }
-            seeded
-        };
-        let configured: Vec<String> = row
-            .launch_defaults
-            .as_ref()
-            .and_then(|value| value.get("agents"))
-            .and_then(|agents| agents.as_object())
-            .map(|agents| agents.keys().cloned().collect())
-            .unwrap_or_default();
-        let editor_agents =
-            editor_agents(&row.agent_ids(), &row.unauthed_agent_ids(), &configured);
-        if !editor_agents.contains(&seeded.default_agent) {
-            seeded.default_agent = editor_agents[0];
-        }
+        let (seeded, editor_agents) = Self::baseline_for(&row, own, cx);
 
         let name_input = cx.new(|cx| {
             let mut state = InputState::new(window, cx).placeholder("Machine name");
@@ -281,11 +262,28 @@ impl DeviceSettingsView {
         );
 
         let mut subscriptions = vec![
-            // Worktree rows + online-ness re-render live; drafts stay
-            // latched (they only read `seeded` + control state).
-            cx.observe(&collections.devices, |_, _, cx| cx.notify()),
+            // EXP-490: a devices delta re-renders AND mirrors the new
+            // baseline into the controls while the dialog is open.
+            cx.observe_in(&collections.devices, window, |this: &mut Self, _, window, cx| {
+                this.resync(window, cx);
+                cx.notify();
+            }),
             cx.observe(&collections.device_worktrees, |_, _, cx| cx.notify()),
         ];
+        if own {
+            // The own device's baseline is the hub settings (fresher than the
+            // row) — and device_sync now converges those in ~a tick, so this
+            // is the live-update feed for the own-device dialog.
+            let hub = CodingHub::global(cx);
+            subscriptions.push(cx.observe_in(
+                &hub,
+                window,
+                |this: &mut Self, _, window, cx| {
+                    this.resync(window, cx);
+                    cx.notify();
+                },
+            ));
+        }
         for select in [
             &agent_select,
             &model_select,
@@ -295,10 +293,8 @@ impl DeviceSettingsView {
             &pi_model_select,
             &pi_thinking_select,
         ] {
-            subscriptions.push(cx.observe(select, |this: &mut Self, _, cx| {
-                this.defaults_dirty = true;
-                cx.notify();
-            }));
+            // Dirty derives from drafted != seeded — just re-render.
+            subscriptions.push(cx.observe(select, |_: &mut Self, _, cx| cx.notify()));
         }
 
         Self {
@@ -322,8 +318,12 @@ impl DeviceSettingsView {
             codex_skip_permissions: seeded.codex_skip_permissions,
             agent_tab: seeded.default_agent,
             editor_agents,
+            seeded_label: row.label.clone().unwrap_or_default(),
+            seeded_share: row
+                .shared_team_id
+                .clone()
+                .unwrap_or_else(|| NOT_SHARED.to_string()),
             seeded,
-            defaults_dirty: false,
             busy_section: None,
             section_errors: HashMap::new(),
             tracked: Vec::new(),
@@ -368,6 +368,117 @@ impl DeviceSettingsView {
                 )
             })
             .unwrap_or(false)
+    }
+
+    /// The dialog's defaults baseline for a row: the server-authoritative
+    /// launch_defaults clamped onto a default Settings (remote_admin's apply,
+    /// the same clamp the device itself runs). Own devices read the LIVE hub
+    /// settings instead: the file is right here and fresher than the row.
+    fn baseline_for(
+        row: &domain::rows::DeviceRow,
+        own: bool,
+        cx: &mut App,
+    ) -> (coding::Settings, Vec<CodingAgent>) {
+        let mut seeded = if own {
+            CodingHub::global(cx).read(cx).settings.clone()
+        } else {
+            let mut seeded = coding::Settings::default();
+            if let Some(value) = row.launch_defaults.as_ref() {
+                if let Ok(patch) =
+                    serde_json::from_value::<coding::DefaultsPatch>(value.clone())
+                {
+                    coding::apply_defaults_patch(&mut seeded, &patch);
+                }
+            }
+            seeded
+        };
+        let configured: Vec<String> = row
+            .launch_defaults
+            .as_ref()
+            .and_then(|value| value.get("agents"))
+            .and_then(|agents| agents.as_object())
+            .map(|agents| agents.keys().cloned().collect())
+            .unwrap_or_default();
+        let editor_agents =
+            editor_agents(&row.agent_ids(), &row.unauthed_agent_ids(), &configured);
+        if !editor_agents.contains(&seeded.default_agent) {
+            seeded.default_agent = editor_agents[0];
+        }
+        (seeded, editor_agents)
+    }
+
+    /// EXP-490: mirror the live baseline into the open dialog. Defaults
+    /// controls are rewritten whenever the baseline moved (the AgentsPane
+    /// rule — the server-authoritative copy wins on screen, even over an
+    /// unsaved draft); the name input and the share select re-seed only
+    /// while the user hasn't diverged from the previous baseline.
+    fn resync(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let Some(row) = self.row(cx) else {
+            return; // row deleted — nothing to mirror
+        };
+
+        let label = row.label.clone().unwrap_or_default();
+        if label != self.seeded_label {
+            if self.name_input.read(cx).value().trim() == self.seeded_label.trim() {
+                self.name_input
+                    .update(cx, |input, cx| input.set_value(label.clone(), window, cx));
+            }
+            self.seeded_label = label;
+        }
+
+        let share = row
+            .shared_team_id
+            .clone()
+            .unwrap_or_else(|| NOT_SHARED.to_string());
+        if share != self.seeded_share {
+            if selected(&self.share_select, cx) == self.seeded_share {
+                self.share_select.update(cx, |select, cx| {
+                    select.set_selected_value(&SharedString::from(share.clone()), window, cx)
+                });
+            }
+            self.seeded_share = share;
+        }
+
+        let (baseline, editor_agents) = Self::baseline_for(&row, self.own, cx);
+        if baseline == self.seeded && editor_agents == self.editor_agents {
+            return;
+        }
+        self.agent_select.update(cx, |select, cx| {
+            select.set_selected_value(
+                &SharedString::from(baseline.default_agent.id()),
+                window,
+                cx,
+            )
+        });
+        for (select, value) in [
+            (&self.model_select, baseline.claude_model.clone()),
+            (&self.effort_select, baseline.claude_effort.clone()),
+            (&self.codex_model_select, baseline.codex_model.clone()),
+            (&self.codex_effort_select, baseline.codex_effort.clone()),
+            (&self.pi_model_select, baseline.pi_model.clone()),
+            (&self.pi_thinking_select, baseline.pi_thinking.clone()),
+        ] {
+            select.update(cx, |select, cx| {
+                select.set_selected_value(&SharedString::from(value), window, cx)
+            });
+        }
+        self.claude_ultracode = baseline.claude_ultracode;
+        self.claude_plan_mode = baseline.claude_plan_mode;
+        self.pi_plan_mode = baseline.pi_plan_mode;
+        self.claude_skip_permissions = baseline.claude_skip_permissions;
+        self.codex_skip_permissions = baseline.codex_skip_permissions;
+        if !editor_agents.contains(&self.agent_tab) {
+            self.agent_tab = baseline.default_agent;
+        }
+        self.editor_agents = editor_agents;
+        self.seeded = baseline;
+        cx.notify();
+    }
+
+    /// Whether the controls have moved off the baseline (the Save button's
+    /// enable state) — derived, never stored.
+    fn defaults_dirty(&self, cx: &App) -> bool {
+        self.drafted(cx) != self.seeded
     }
 
     /// The drafted launch defaults: the seed baseline with the control
@@ -463,7 +574,9 @@ impl DeviceSettingsView {
 
     fn save_defaults(&mut self, cx: &mut gpui::Context<Self>) {
         let drafted = self.drafted(cx);
-        self.defaults_dirty = false;
+        // Adopt the draft as the baseline right away (Save disables): the
+        // hub observer (own) / the row's Electric echo (remote) confirms it.
+        self.seeded = drafted.clone();
         if self.own {
             // Own device: the file is right here — save through the hub
             // (which re-runs the doctor, re-advertises, and pushes the
@@ -699,7 +812,6 @@ impl DeviceSettingsView {
                     .checked(checked)
                     .on_click(cx.listener(move |this, checked: &bool, _, cx| {
                         on_click(this, checked, cx);
-                        this.defaults_dirty = true;
                         cx.notify();
                     })),
             )
@@ -828,7 +940,7 @@ impl DeviceSettingsView {
                     .primary()
                     .small()
                     .label(if busy { "Saving…" } else { "Save defaults" })
-                    .disabled(!self.defaults_dirty || busy)
+                    .disabled(!self.defaults_dirty(cx) || busy)
                     .on_click(cx.listener(|this, _, _, cx| this.save_defaults(cx))),
             ),
         );

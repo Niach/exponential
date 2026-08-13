@@ -33,7 +33,7 @@ struct AgentsView: View {
     // — rename/sharing/defaults/worktrees live there now), the remove alert
     // target, the optimistic "Updating…" ids (the flag itself lands via
     // sync), and the shared failure caption.
-    @State private var settingsDevice: SteerDevice?
+    @State private var settingsTarget: DeviceSettingsTarget?
     @State private var removeTarget: SteerDevice?
     @State private var updatingIds: Set<String> = []
     @State private var deviceError: String?
@@ -67,6 +67,13 @@ struct AgentsView: View {
         let rowId: String
         let issueId: String
         var id: String { rowId }
+    }
+
+    /// The machine a settings sheet is open for. EXP-490: the ID only — the
+    /// sheet reads the LIVE devices-shape row itself, so a value captured here
+    /// would only go stale under it.
+    private struct DeviceSettingsTarget: Identifiable {
+        let id: String
     }
 
     var body: some View {
@@ -297,12 +304,16 @@ struct AgentsView: View {
         .tabBarBottomInset()
         // EXP-481: Edit opens the device settings sheet (name, sharing, agent
         // defaults, worktrees) — the row menu's rename alert retired into it.
-        .sheet(item: $settingsDevice) { device in
-            DeviceSettingsSheet(
-                device: device,
-                worktrees: viewModel?.worktrees ?? [],
-                teams: teamState.teams
-            )
+        // EXP-490: it takes the view model and the device id, not a snapshot —
+        // the sheet renders the live row and auto-saves.
+        .sheet(item: $settingsTarget) { target in
+            if let viewModel {
+                DeviceSettingsSheet(
+                    viewModel: viewModel,
+                    deviceId: target.id,
+                    teams: teamState.teams
+                )
+            }
         }
         // The machine alert hangs off THIS view, not the body's ZStack: that
         // one already owns the merge-and-close alert, and stacking several
@@ -462,7 +473,7 @@ struct AgentsView: View {
     @ViewBuilder
     private func deviceMenu(_ device: SteerDevice) -> some View {
         Button {
-            settingsDevice = device
+            settingsTarget = DeviceSettingsTarget(id: device.deviceId)
         } label: {
             Label("Edit", appIcon: AppIcons.uiEdit)
         }

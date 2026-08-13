@@ -65,6 +65,12 @@ const OfflineIcon = conceptIcon(`ui-device-offline`)
 // Radix Select forbids empty item values — "Not shared" rides a sentinel.
 const NOT_SHARED = `not-shared`
 
+// EXP-490 autosave cadence. Defaults debounce longer than the name: every
+// setLaunchDefaults call nudges the device over the relay, so coalescing a
+// burst of toggles into ONE write matters more than instant persistence.
+const NAME_DEBOUNCE_MS = 800
+const DEFAULTS_DEBOUNCE_MS = 1_000
+
 interface AgentDraft {
   model: string
   effort: string
@@ -141,7 +147,10 @@ export function DeviceSettingsDialog({
   const kind = row?.kind ?? device?.kind
   const label = row?.label ?? device?.deviceLabel ?? ``
 
-  // ── Drafts, latched once per open (EXP-437's seededDeviceRef pattern) ────
+  // ── Drafts, seeded from the live row (EXP-437's seededDeviceRef pattern) ─
+  // Since EXP-490 they also RESEED whenever the server-authoritative row
+  // changes underneath us — but never on top of an unsaved edit, an in-flight
+  // save, or (for the name) a focused input.
   const seededRef = useRef<string | null>(null)
   const [nameDraft, setNameDraft] = useState(``)
   const [agentTab, setAgentTab] = useState<string>(
@@ -151,7 +160,13 @@ export function DeviceSettingsDialog({
     contract.codingAgent.values[0]
   )
   const [drafts, setDrafts] = useState<Record<string, AgentDraft>>({})
-  const [defaultsDirty, setDefaultsDirty] = useState(false)
+
+  // ── Autosave state (EXP-490 — no Save buttons) ───────────────────────────
+  // `*Pending` = edited but not yet written; `saving*` = a write is in flight.
+  const [namePending, setNamePending] = useState(false)
+  const [defaultsPending, setDefaultsPending] = useState(false)
+  const [savingName, setSavingName] = useState(false)
+  const [savingDefaults, setSavingDefaults] = useState(false)
 
   // The defaults editor covers every agent the machine knows about — runnable
   // ∪ signed-out ∪ already-configured; an offline/quiet machine falls back to
@@ -166,27 +181,40 @@ export function DeviceSettingsDialog({
     return unique.length > 0 ? unique : [...contract.codingAgent.values]
   }, [row?.agents, row?.unauthedAgents, row?.launchDefaults])
 
+  // The value we last wrote, so our OWN write doesn't reseed the drafts back
+  // to the pre-write row in the window before it syncs home.
+  const sentNameRef = useRef<string | null>(null)
+  const sentDefaultsStampRef = useRef(0)
+
+  /** Applies a row's launch defaults to the drafts; returns the default agent. */
+  const seedDefaultsFrom = (source: Device, agents: string[]) => {
+    const seeded: Record<string, AgentDraft> = {}
+    for (const agent of agents) {
+      seeded[agent] = agentSeed(
+        agent,
+        source.launchDefaults?.agents?.[agent] ?? null
+      )
+    }
+    setDrafts(seeded)
+    const configuredDefault = source.launchDefaults?.defaultAgent
+    const defaultAgent =
+      configuredDefault && agents.includes(configuredDefault)
+        ? configuredDefault
+        : (agents[0] ?? contract.codingAgent.values[0])
+    setDefaultAgentDraft(defaultAgent)
+    return defaultAgent
+  }
+
   useEffect(() => {
     if (!open || !row) return
     if (seededRef.current === row.id) return
     seededRef.current = row.id
     setNameDraft(row.label)
-    const seeded: Record<string, AgentDraft> = {}
-    for (const agent of editorAgents) {
-      seeded[agent] = agentSeed(
-        agent,
-        row.launchDefaults?.agents?.[agent] ?? null
-      )
-    }
-    setDrafts(seeded)
-    const configuredDefault = row.launchDefaults?.defaultAgent
-    const defaultAgent =
-      configuredDefault && editorAgents.includes(configuredDefault)
-        ? configuredDefault
-        : (editorAgents[0] ?? contract.codingAgent.values[0])
-    setDefaultAgentDraft(defaultAgent)
-    setAgentTab(defaultAgent)
-    setDefaultsDirty(false)
+    setAgentTab(seedDefaultsFrom(row, editorAgents))
+    setNamePending(false)
+    setDefaultsPending(false)
+    sentNameRef.current = null
+    sentDefaultsStampRef.current = 0
     setSectionErrors({})
     setTracked([])
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -195,14 +223,43 @@ export function DeviceSettingsDialog({
     if (!open) seededRef.current = null
   }, [open])
 
+  // ── Reseed from the live row (EXP-490) ───────────────────────────────────
+  // The devices row is server-authoritative: defaults edited on the machine
+  // itself or in another client stream in and must win — unless the user has
+  // an unsaved edit here, in which case theirs is the newer write.
+  const defaultsVersion = useMemo(
+    () =>
+      `${row?.launchDefaultsUpdatedAt?.getTime() ?? 0}:${JSON.stringify(
+        row?.launchDefaults ?? null
+      )}`,
+    [row?.launchDefaultsUpdatedAt, row?.launchDefaults]
+  )
+  useEffect(() => {
+    if (!open || !row || seededRef.current !== row.id) return
+    if (defaultsPending || savingDefaults) return
+    // Our own write hasn't come back through Electric yet — keep the drafts.
+    if (
+      (row.launchDefaultsUpdatedAt?.getTime() ?? 0) < sentDefaultsStampRef.current
+    ) {
+      return
+    }
+    seedDefaultsFrom(row, editorAgents)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, row?.id, defaultsVersion, defaultsPending, savingDefaults])
+
+  const nameFocusedRef = useRef(false)
+  useEffect(() => {
+    if (!open || !row || seededRef.current !== row.id) return
+    if (namePending || savingName || nameFocusedRef.current) return
+    if (sentNameRef.current !== null) {
+      if (row.label !== sentNameRef.current) return
+      sentNameRef.current = null
+    }
+    setNameDraft(row.label)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, row?.id, row?.label, namePending, savingName])
+
   const draft = drafts[agentTab] ?? agentSeed(agentTab, null)
-  const patchDraft = (patch: Partial<AgentDraft>) => {
-    setDefaultsDirty(true)
-    setDrafts((current) => ({
-      ...current,
-      [agentTab]: { ...(current[agentTab] ?? agentSeed(agentTab, null)), ...patch },
-    }))
-  }
 
   // ── Section busy/error state ─────────────────────────────────────────────
   const [busySection, setBusySection] = useState<string | null>(null)
@@ -225,53 +282,165 @@ export function DeviceSettingsDialog({
     }
   }
 
-  const saveName = () =>
-    runSection(`name`, async () => {
-      if (!deviceId || !nameDraft.trim()) return
-      await trpc.devices.rename.mutate({
-        deviceId,
-        label: nameDraft.trim(),
-      })
-    })
-
   const setShared = (teamId: string | null) =>
     runSection(`sharing`, async () => {
       if (!deviceId) return
       await trpc.devices.setShared.mutate({ deviceId, teamId })
     })
 
-  const saveDefaults = () =>
-    runSection(`defaults`, async () => {
-      if (!deviceId) return
-      const agents: Record<
-        string,
-        {
-          model?: string
-          effort?: string
-          ultracode?: boolean
-          planMode?: boolean
-          skipPermissions?: boolean
-        }
-      > = {}
-      for (const [agent, value] of Object.entries(drafts)) {
-        agents[agent] = {
-          model: value.model,
-          effort: value.effort,
-          ...(agentSupportsUltracode(agent)
-            ? { ultracode: value.ultracode }
-            : {}),
-          ...(agentSupportsPlanMode(agent) ? { planMode: value.planMode } : {}),
-          ...(agentSupportsSkipPermissions(agent)
-            ? { skipPermissions: value.skipPermissions }
-            : {}),
-        }
-      }
-      await trpc.devices.setLaunchDefaults.mutate({
-        deviceId,
-        launchDefaults: { defaultAgent: defaultAgentDraft, agents },
+  // ── Autosave (EXP-490) ───────────────────────────────────────────────────
+  // Edits schedule a debounced write; blur and dialog close flush it. Timers
+  // fire outside render, so the payload is built from this mirror of the
+  // newest drafts rather than a stale closure. Pending clears BEFORE the
+  // request goes out and comes back only on failure — last write wins, so an
+  // edit made mid-flight is never mistaken for saved.
+  const latest = useRef({
+    deviceId,
+    label,
+    nameDraft,
+    drafts,
+    defaultAgentDraft,
+    namePending,
+    defaultsPending,
+  })
+  latest.current = {
+    deviceId,
+    label,
+    nameDraft,
+    drafts,
+    defaultAgentDraft,
+    namePending,
+    defaultsPending,
+  }
+
+  const nameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const defaultsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const flushName = () => {
+    if (nameTimerRef.current) {
+      clearTimeout(nameTimerRef.current)
+      nameTimerRef.current = null
+    }
+    const snapshot = latest.current
+    if (!snapshot.namePending) return
+    const nextLabel = snapshot.nameDraft.trim()
+    latest.current.namePending = false
+    setNamePending(false)
+    // Blank or unchanged never writes — the reseed effect restores the row's
+    // name once the field loses focus.
+    if (!snapshot.deviceId || !nextLabel || nextLabel === snapshot.label) return
+    sentNameRef.current = nextLabel
+    setSavingName(true)
+    setSectionErrors((current) => ({ ...current, name: `` }))
+    void trpc.devices.rename
+      .mutate({ deviceId: snapshot.deviceId, label: nextLabel })
+      .catch((error) => {
+        sentNameRef.current = null
+        latest.current.namePending = true
+        setNamePending(true)
+        setSectionErrors((current) => ({
+          ...current,
+          name: trpcErrorMessage(error, `That didn't go through. Try again.`),
+        }))
       })
-      setDefaultsDirty(false)
-    })
+      .finally(() => setSavingName(false))
+  }
+
+  const flushDefaults = () => {
+    if (defaultsTimerRef.current) {
+      clearTimeout(defaultsTimerRef.current)
+      defaultsTimerRef.current = null
+    }
+    const snapshot = latest.current
+    if (!snapshot.defaultsPending) return
+    latest.current.defaultsPending = false
+    setDefaultsPending(false)
+    if (!snapshot.deviceId) return
+    const agents: Record<
+      string,
+      {
+        model?: string
+        effort?: string
+        ultracode?: boolean
+        planMode?: boolean
+        skipPermissions?: boolean
+      }
+    > = {}
+    for (const [agent, value] of Object.entries(snapshot.drafts)) {
+      agents[agent] = {
+        model: value.model,
+        effort: value.effort,
+        ...(agentSupportsUltracode(agent) ? { ultracode: value.ultracode } : {}),
+        ...(agentSupportsPlanMode(agent) ? { planMode: value.planMode } : {}),
+        ...(agentSupportsSkipPermissions(agent)
+          ? { skipPermissions: value.skipPermissions }
+          : {}),
+      }
+    }
+    setSavingDefaults(true)
+    setSectionErrors((current) => ({ ...current, defaults: `` }))
+    void trpc.devices.setLaunchDefaults
+      .mutate({
+        deviceId: snapshot.deviceId,
+        launchDefaults: { defaultAgent: snapshot.defaultAgentDraft, agents },
+      })
+      .then((result) => {
+        const stamp = result.launchDefaultsUpdatedAt
+        const parsed = stamp ? Date.parse(stamp) : Number.NaN
+        if (!Number.isNaN(parsed)) sentDefaultsStampRef.current = parsed
+      })
+      .catch((error) => {
+        latest.current.defaultsPending = true
+        setDefaultsPending(true)
+        setSectionErrors((current) => ({
+          ...current,
+          defaults: trpcErrorMessage(
+            error,
+            `That didn't go through. Try again.`
+          ),
+        }))
+      })
+      .finally(() => setSavingDefaults(false))
+  }
+
+  const scheduleName = () => {
+    latest.current.namePending = true
+    setNamePending(true)
+    if (nameTimerRef.current) clearTimeout(nameTimerRef.current)
+    nameTimerRef.current = setTimeout(() => flushName(), NAME_DEBOUNCE_MS)
+  }
+
+  const scheduleDefaults = () => {
+    latest.current.defaultsPending = true
+    setDefaultsPending(true)
+    if (defaultsTimerRef.current) clearTimeout(defaultsTimerRef.current)
+    defaultsTimerRef.current = setTimeout(
+      () => flushDefaults(),
+      DEFAULTS_DEBOUNCE_MS
+    )
+  }
+
+  const patchDraft = (patch: Partial<AgentDraft>) => {
+    setDrafts((current) => ({
+      ...current,
+      [agentTab]: {
+        ...(current[agentTab] ?? agentSeed(agentTab, null)),
+        ...patch,
+      },
+    }))
+    scheduleDefaults()
+  }
+
+  // Closing (or unmounting) writes whatever is still pending — the tRPC
+  // promise outlives the component, so fire-and-forget is enough.
+  useEffect(() => {
+    if (!open) return
+    return () => {
+      flushName()
+      flushDefaults()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
 
   // ── Worktree commands (durable queue + poll while open) ──────────────────
   const [tracked, setTracked] = useState<TrackedCommand[]>([])
@@ -329,12 +498,30 @@ export function DeviceSettingsDialog({
         }
       }
     }
+    // Leading tick (EXP-490): with the relay nudge an online machine finishes
+    // a remove in ~1-2s — a trailing-only interval added a guaranteed 2s.
+    void tick()
     const interval = setInterval(() => void tick(), online ? 2_000 : 8_000)
     return () => {
       cancelled = true
       clearInterval(interval)
     }
   }, [open, tracked, online])
+
+  // A tracked remove whose row vanished from the synced inventory is done —
+  // the Electric delta usually beats the next getCommand poll, so the spinner
+  // clears on the earliest signal. Prune stays poll-only: its outcome is a
+  // summary, not a specific row.
+  useEffect(() => {
+    if (tracked.length === 0) return
+    const present = new Set(worktrees.map((worktree) => commandKey(worktree)))
+    setTracked((current) =>
+      current.filter(
+        (command) => command.key === `prune` || present.has(command.key)
+      )
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [worktrees])
 
   const pendingKey = (key: string) =>
     tracked.some((command) => command.key === key)
@@ -360,32 +547,35 @@ export function DeviceSettingsDialog({
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
           {/* ── Name ─────────────────────────────────────────────────── */}
           <div className="space-y-2">
-            <Label htmlFor="device-settings-name">Name</Label>
-            <div className="flex gap-2">
-              <Input
-                id="device-settings-name"
-                value={nameDraft}
-                maxLength={255}
-                onChange={(event) => setNameDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === `Enter`) void saveName()
-                }}
-              />
-              <Button
-                variant="outline"
-                disabled={
-                  busySection !== null ||
-                  !nameDraft.trim() ||
-                  nameDraft.trim() === label
-                }
-                onClick={() => void saveName()}
-              >
-                {busySection === `name` && (
-                  <LoaderCircle className="animate-spin" />
-                )}
-                Save
-              </Button>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="device-settings-name">Name</Label>
+              {savingName && (
+                <LoaderCircle className="size-3 animate-spin text-muted-foreground" />
+              )}
             </div>
+            <Input
+              id="device-settings-name"
+              value={nameDraft}
+              maxLength={255}
+              onChange={(event) => {
+                setNameDraft(event.target.value)
+                scheduleName()
+              }}
+              onFocus={() => {
+                nameFocusedRef.current = true
+              }}
+              onBlur={() => {
+                nameFocusedRef.current = false
+                // A rename that arrived while the field was focused was
+                // deliberately skipped — catch up unless an edit is owed.
+                const hadPending = latest.current.namePending
+                flushName()
+                if (!hadPending && row) setNameDraft(row.label)
+              }}
+              onKeyDown={(event) => {
+                if (event.key === `Enter`) flushName()
+              }}
+            />
             {sectionErrors.name && (
               <p className="text-xs text-destructive">{sectionErrors.name}</p>
             )}
@@ -430,15 +620,21 @@ export function DeviceSettingsDialog({
 
           {/* ── Agent defaults (server-authoritative, EXP-481) ────────── */}
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <Label>Agent defaults</Label>
-              {!online && (
-                <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <OfflineIcon className="size-3" />
-                  Applies when the device comes online.
-                </span>
-              )}
-            </div>
+            {(!online || savingDefaults) && (
+              <div className="flex items-center justify-between">
+                {!online ? (
+                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <OfflineIcon className="size-3" />
+                    Applies when the device comes online.
+                  </span>
+                ) : (
+                  <span />
+                )}
+                {savingDefaults && (
+                  <LoaderCircle className="size-3 animate-spin text-muted-foreground" />
+                )}
+              </div>
+            )}
             <div className="space-y-2">
               <Label
                 htmlFor="device-settings-default-agent"
@@ -450,7 +646,7 @@ export function DeviceSettingsDialog({
                 value={defaultAgentDraft}
                 onValueChange={(value) => {
                   setDefaultAgentDraft(value)
-                  setDefaultsDirty(true)
+                  scheduleDefaults()
                 }}
               >
                 <SelectTrigger
@@ -492,24 +688,11 @@ export function DeviceSettingsDialog({
                 patchDraft({ skipPermissions: value })
               }
             />
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={busySection !== null || !defaultsDirty}
-                onClick={() => void saveDefaults()}
-              >
-                {busySection === `defaults` && (
-                  <LoaderCircle className="animate-spin" />
-                )}
-                Save defaults
-              </Button>
-              {sectionErrors.defaults && (
-                <p className="text-xs text-destructive">
-                  {sectionErrors.defaults}
-                </p>
-              )}
-            </div>
+            {sectionErrors.defaults && (
+              <p className="text-xs text-destructive">
+                {sectionErrors.defaults}
+              </p>
+            )}
           </div>
 
           <Separator />

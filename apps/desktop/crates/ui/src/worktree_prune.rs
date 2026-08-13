@@ -1,6 +1,6 @@
 //! The ONE issue-state → [`coding::prune::PrunePolicy`] derivation (EXP-465).
 //!
-//! Both prune surfaces — the Settings → Local repositories button and the
+//! Both prune surfaces — the Settings → Worktrees button and the
 //! trunk-sync auto-clean pass — used to derive their candidate sets
 //! separately and differently (one composed `<prefix><IDENTIFIER>`, one
 //! didn't; one scoped to the repo's boards, one didn't; neither gated the

@@ -1,5 +1,6 @@
 package com.exponential.app.ui.session
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -25,6 +26,7 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -32,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -65,12 +68,18 @@ import com.exponential.app.ui.theme.TextEmphasis
 
 // The device-settings sheet (EXP-481) — the mobile twin of the web dialog,
 // styled like the Start-coding sheet (EXP-208/EXP-211 chrome: full height,
-// status-bar inset, Cancel top-left, no drag handle). Replaces the Rename
-// menu entry: name, team sharing (server machines only — the toggle was
-// web-only before), the machine's per-agent launch defaults (SERVER-
-// authoritative: editable while the machine is OFFLINE, it converges on
-// return), and the synced worktree inventory with remove/prune commands
-// (durable queue — an offline machine runs them when it comes back).
+// status-bar inset, no drag handle). Replaces the Rename menu entry: name,
+// team sharing (server machines only — the toggle was web-only before), the
+// machine's per-agent launch defaults (SERVER-authoritative: editable while
+// the machine is OFFLINE, it converges on return), and the synced worktree
+// inventory with remove/prune commands (durable queue — an offline machine
+// runs them when it comes back).
+//
+// EXP-490: settings sheet, not a form — there is no Cancel and no Save. Edits
+// AUTO-SAVE (debounced in the ViewModel, flushed on blur and on dismiss), and
+// the fields track the LIVE synced row: every delta reseeds them, EXCEPT while
+// an edit of that section is pending (a save in flight, or the name field
+// focused), which would stomp what the user is doing.
 
 /** `devices.rename` caps the label at 255 chars server-side. */
 private const val MAX_DEVICE_LABEL = 255
@@ -94,28 +103,46 @@ fun DeviceSettingsSheet(
     val nameError by viewModel.nameError.collectAsStateWithLifecycle()
     val shareBusy by viewModel.shareBusy.collectAsStateWithLifecycle()
     val shareError by viewModel.shareError.collectAsStateWithLifecycle()
-    val defaultsBusy by viewModel.defaultsBusy.collectAsStateWithLifecycle()
     val defaultsError by viewModel.defaultsError.collectAsStateWithLifecycle()
-    val defaultsSaved by viewModel.defaultsSaved.collectAsStateWithLifecycle()
     val commandStates by viewModel.commandStates.collectAsStateWithLifecycle()
 
-    // Drafts latch ONCE per open (the launch-dialog idiom): live sync deltas
-    // keep flowing into the read-only parts, but must never stomp in-flight
-    // edits.
     var label by remember { mutableStateOf(device.deviceLabel.ifBlank { device.deviceId }) }
-    val editableAgents = remember { editableAgents(device) }
+    var nameFocused by remember { mutableStateOf(false) }
+    var editableAgents by remember { mutableStateOf(editableAgents(device)) }
     var defaultAgent by remember { mutableStateOf(seededDefaultAgent(device, editableAgents)) }
-    var agentTab by remember { mutableStateOf(seededDefaultAgent(device, editableAgents)) }
+    var agentTab by remember { mutableStateOf(defaultAgent) }
     var drafts by remember {
         mutableStateOf(editableAgents.associateWith { agentDraft(device, it) })
     }
-    var defaultsDirty by remember { mutableStateOf(false) }
     var removeTarget by remember { mutableStateOf<DeviceWorktreeEntity?>(null) }
 
+    // Live reseeds. The name only re-seeds while the field is idle, the
+    // defaults only while nothing of theirs is queued or in flight — otherwise
+    // the echo of the user's own save would land back on top of a newer edit.
+    LaunchedEffect(device.deviceLabel) {
+        if (!nameFocused && !viewModel.hasPendingRename()) {
+            label = device.deviceLabel.ifBlank { device.deviceId }
+        }
+    }
+    LaunchedEffect(device.launchDefaults, device.agents, device.unauthedAgents) {
+        if (!viewModel.hasPendingDefaults()) {
+            editableAgents = editableAgents(device)
+            defaultAgent = seededDefaultAgent(device, editableAgents)
+            drafts = editableAgents.associateWith { agentDraft(device, it) }
+            if (agentTab !in editableAgents) agentTab = editableAgents.first()
+        }
+    }
+
+    // Last chance for a debounce that hasn't elapsed (the ViewModel flushes on
+    // a scope that survives this composable).
+    DisposableEffect(Unit) {
+        onDispose { viewModel.flushPending() }
+    }
+
     fun editDraft(agent: String, edit: (AgentDraft) -> AgentDraft) {
-        drafts = drafts + (agent to edit(drafts[agent] ?: agentDraft(device, agent)))
-        defaultsDirty = true
-        viewModel.clearDefaultsSaved()
+        val next = drafts + (agent to edit(drafts[agent] ?: agentDraft(device, agent)))
+        drafts = next
+        viewModel.queueDefaults(device.deviceId, buildDefaults(defaultAgent, editableAgents, next))
     }
 
     ModalBottomSheet(
@@ -125,22 +152,25 @@ fun DeviceSettingsSheet(
         modifier = Modifier.statusBarsPadding().testTag("device-settings-sheet"),
     ) {
         Column(modifier = Modifier.fillMaxWidth().fillMaxHeight()) {
-            Row(
+            // Done is the only chrome button now (edits save themselves), so
+            // the title centers on the sheet rather than between two buttons.
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                contentAlignment = Alignment.Center,
             ) {
-                TextButton(onClick = onDismiss) { Text("Cancel") }
-                Spacer(Modifier.weight(1f))
                 Text(
                     device.deviceLabel.ifBlank { device.deviceId },
                     style = MaterialTheme.typography.titleSmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 72.dp),
                 )
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = onDismiss) { Text("Done") }
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.align(Alignment.CenterEnd),
+                ) { Text("Done") }
             }
 
             Column(
@@ -158,9 +188,31 @@ fun DeviceSettingsSheet(
                     ) {
                         TextField(
                             value = label,
-                            onValueChange = { label = it.take(MAX_DEVICE_LABEL) },
+                            onValueChange = { next ->
+                                label = next.take(MAX_DEVICE_LABEL)
+                                viewModel.queueRename(
+                                    device.deviceId,
+                                    label.trim()
+                                        .takeIf { it.isNotEmpty() && it != device.deviceLabel },
+                                )
+                            },
                             singleLine = true,
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .onFocusChanged {
+                                    nameFocused = it.isFocused
+                                    if (!it.isFocused) {
+                                        // A rename that arrived while focused
+                                        // was deliberately skipped — catch up
+                                        // unless an edit is owed.
+                                        val hadPending = viewModel.hasPendingRename()
+                                        viewModel.flushPending()
+                                        if (!hadPending) {
+                                            label = device.deviceLabel
+                                                .ifBlank { device.deviceId }
+                                        }
+                                    }
+                                },
                             colors = TextFieldDefaults.colors(
                                 focusedContainerColor = Color.Transparent,
                                 unfocusedContainerColor = Color.Transparent,
@@ -177,12 +229,6 @@ fun DeviceSettingsSheet(
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
                             Spacer(Modifier.width(12.dp))
-                        } else {
-                            TextButton(
-                                onClick = { viewModel.rename(device.deviceId, label) },
-                                enabled = label.isNotBlank() &&
-                                    label.trim() != device.deviceLabel,
-                            ) { Text("Save") }
                         }
                     }
                 }
@@ -227,7 +273,6 @@ fun DeviceSettingsSheet(
                 }
 
                 // ── Agent defaults (server-authoritative, EXP-481) ───────────
-                SectionLabel("Agent defaults")
                 if (!device.online) {
                     Text(
                         "This machine is offline — changes apply when it comes online.",
@@ -245,8 +290,10 @@ fun DeviceSettingsSheet(
                         optionLabel = ::agentLabel,
                         onSelect = {
                             defaultAgent = it
-                            defaultsDirty = true
-                            viewModel.clearDefaultsSaved()
+                            viewModel.queueDefaults(
+                                device.deviceId,
+                                buildDefaults(it, editableAgents, drafts),
+                            )
                         },
                     )
                 }
@@ -326,36 +373,6 @@ fun DeviceSettingsSheet(
                             onCheckedChange = { next ->
                                 editDraft(agentTab) { it.copy(skipPermissions = next) }
                             },
-                        )
-                    }
-                }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(horizontal = 24.dp),
-                ) {
-                    TextButton(
-                        onClick = {
-                            viewModel.saveDefaults(
-                                device.deviceId,
-                                buildDefaults(defaultAgent, editableAgents, drafts),
-                            )
-                            defaultsDirty = false
-                        },
-                        enabled = defaultsDirty && !defaultsBusy,
-                    ) { Text("Save defaults") }
-                    if (defaultsBusy) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(14.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                    } else if (defaultsSaved) {
-                        Text(
-                            "Saved",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(
-                                alpha = TextEmphasis.Secondary,
-                            ),
                         )
                     }
                 }

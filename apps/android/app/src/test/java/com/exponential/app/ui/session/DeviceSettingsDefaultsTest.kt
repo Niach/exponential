@@ -97,4 +97,40 @@ class DeviceSettingsDefaultsTest {
         assertTrue(pi.planMode)
         assertFalse(pi.skipPermissions)
     }
+
+    /**
+     * EXP-490: the sheet auto-saves and re-seeds itself from the synced row, so
+     * what a save writes must read back as the very drafts it was built from —
+     * otherwise the server's echo would visibly rewrite the user's picks.
+     */
+    @Test
+    fun `saved defaults re-seed to the drafts they were built from`() {
+        val agents = listOf("claude", "codex", "pi")
+        val edited = mapOf(
+            "claude" to AgentDraft(
+                model = DomainContract.codingModelValues.last(),
+                effort = DomainContract.codingEffortValues.first(),
+                ultracode = true,
+                planMode = true,
+                skipPermissions = true,
+            ),
+            "codex" to AgentDraft(
+                model = DomainContract.codexModelValues.first(),
+                effort = DomainContract.codexEffortValues.last(),
+                ultracode = false,
+                planMode = false,
+                skipPermissions = true,
+            ),
+            // CLI defaults ("") must survive the round trip as themselves.
+            "pi" to AgentDraft("", "", ultracode = false, planMode = true, skipPermissions = false),
+        )
+        val echoed = device(
+            agents = agents,
+            unauthed = emptyList(),
+            defaults = buildDefaults(defaultAgent = "codex", agents = agents, drafts = edited),
+        )
+        assertEquals(agents, editableAgents(echoed))
+        assertEquals("codex", seededDefaultAgent(echoed, agents))
+        assertEquals(edited, agents.associateWith { agentDraft(echoed, it) })
+    }
 }

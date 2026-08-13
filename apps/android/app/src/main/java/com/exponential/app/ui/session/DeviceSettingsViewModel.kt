@@ -17,11 +17,17 @@ import com.exponential.app.data.db.scopedQuery
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
@@ -33,6 +39,11 @@ import kotlinx.coroutines.launch
 // and the worktree command queue (remove / prune), whose progress is polled
 // off `devices.getCommand` while the material outcome arrives through the
 // synced device_worktrees shape.
+//
+// EXP-490: name and defaults AUTO-SAVE. Every edit queues its value and the
+// mutation fires once the user pauses — each `devices.*` write nudges the
+// machine over the relay, so a call per keystroke or per picker tap is not an
+// option — with a flush on field blur and on sheet dismiss.
 
 /** One issued worktree command's UI state, keyed by [DeviceSettingsViewModel.commandStates]. */
 sealed interface DeviceCommandUiState {
@@ -63,6 +74,10 @@ class DeviceSettingsViewModel @Inject constructor(
     private val boundRowId = MutableStateFlow<String?>(null)
 
     fun bind(deviceRowId: String?) {
+        // The ViewModel outlives one sheet open — a pending edit must land on
+        // the machine it was typed for, not on the next one bound here.
+        val previous = boundRowId.value
+        if (previous != null && previous != deviceRowId) flushPending()
         boundRowId.value = deviceRowId
     }
 
@@ -100,9 +115,6 @@ class DeviceSettingsViewModel @Inject constructor(
     val defaultsBusy: StateFlow<Boolean> = _defaultsBusy
     private val _defaultsError = MutableStateFlow<String?>(null)
     val defaultsError: StateFlow<String?> = _defaultsError
-    /** Flips true after a successful save; cleared by the next edit. */
-    private val _defaultsSaved = MutableStateFlow(false)
-    val defaultsSaved: StateFlow<Boolean> = _defaultsSaved
 
     // Worktree command progress, keyed by "<repo> <branch>" (or
     // [PRUNE_COMMAND_KEY]); a terminal state stays until the next command on
@@ -110,22 +122,92 @@ class DeviceSettingsViewModel @Inject constructor(
     private val _commandStates = MutableStateFlow<Map<String, DeviceCommandUiState>>(emptyMap())
     val commandStates: StateFlow<Map<String, DeviceCommandUiState>> = _commandStates
 
-    fun clearDefaultsSaved() {
-        _defaultsSaved.value = false
+    // The pending auto-saves: deviceId to the value the user last left behind.
+    // Nulled only by a successful save (reference-identity compareAndSet, so a
+    // newer edit made mid-flight survives) — a FAILED save keeps its input so
+    // the blur/dismiss flush retries it instead of dropping the edit.
+    private val renameInput = MutableStateFlow<Pair<String, String>?>(null)
+    private val defaultsInput = MutableStateFlow<Pair<String, DeviceLaunchDefaults>?>(null)
+
+    // What [flushPending] already wrote. Clearing the input does not cancel a
+    // debounce window that is still counting down, so without this the timer
+    // fires afterwards and repeats the call (and its relay nudge).
+    private var flushedRename: Pair<String, String>? = null
+    private var flushedDefaults: Pair<String, DeviceLaunchDefaults>? = null
+
+    @OptIn(FlowPreview::class)
+    private fun collectAutoSaves() {
+        viewModelScope.launch {
+            renameInput.filterNotNull().debounce(AUTOSAVE_DEBOUNCE_MS)
+                .collect { if (it !== flushedRename) saveRenameNow(it) }
+        }
+        viewModelScope.launch {
+            defaultsInput.filterNotNull().debounce(AUTOSAVE_DEBOUNCE_MS)
+                .collect { if (it !== flushedDefaults) saveDefaultsNow(it) }
+        }
     }
 
-    fun rename(deviceId: String, label: String) {
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            _nameBusy.value = true
-            _nameError.value = null
-            runCatching { devicesApi.rename(accountId, deviceId, label.trim()) }
-                .onFailure { t ->
+    init {
+        collectAutoSaves()
+    }
+
+    /** Queue a rename; null (blank or unchanged input) drops the pending one. */
+    fun queueRename(deviceId: String, label: String?) {
+        renameInput.value = label?.let { deviceId to it }
+    }
+
+    fun queueDefaults(deviceId: String, defaults: DeviceLaunchDefaults) {
+        defaultsInput.value = deviceId to defaults
+    }
+
+    fun hasPendingRename(): Boolean = renameInput.value != null || nameBusy.value
+
+    fun hasPendingDefaults(): Boolean = defaultsInput.value != null || defaultsBusy.value
+
+    /**
+     * Save what is queued right now, on a process-lifetime scope: this fires
+     * from the sheet's dispose, and a dismiss-then-navigate-away must not
+     * cancel the final write mid-request.
+     */
+    fun flushPending() {
+        val rename = renameInput.value
+        val defaults = defaultsInput.value
+        flushedRename = rename
+        flushedDefaults = defaults
+        renameInput.value = null
+        defaultsInput.value = null
+        if (rename != null) deviceSettingsFlushScope.launch { saveRenameNow(rename) }
+        if (defaults != null) deviceSettingsFlushScope.launch { saveDefaultsNow(defaults) }
+    }
+
+    private suspend fun saveRenameNow(pending: Pair<String, String>) {
+        val accountId = auth.activeAccountId.value ?: return
+        _nameBusy.value = true
+        _nameError.value = null
+        runCatching { devicesApi.rename(accountId, pending.first, pending.second) }
+            .fold(
+                onSuccess = { renameInput.compareAndSet(pending, null) },
+                onFailure = { t ->
                     if (t is CancellationException) throw t
                     _nameError.value = trpcErrorMessage(t, "The machine could not be renamed")
-                }
-            _nameBusy.value = false
-        }
+                },
+            )
+        _nameBusy.value = false
+    }
+
+    private suspend fun saveDefaultsNow(pending: Pair<String, DeviceLaunchDefaults>) {
+        val accountId = auth.activeAccountId.value ?: return
+        _defaultsBusy.value = true
+        _defaultsError.value = null
+        runCatching { devicesApi.setLaunchDefaults(accountId, pending.first, pending.second) }
+            .fold(
+                onSuccess = { defaultsInput.compareAndSet(pending, null) },
+                onFailure = { t ->
+                    if (t is CancellationException) throw t
+                    _defaultsError.value = trpcErrorMessage(t, "The defaults could not be saved")
+                },
+            )
+        _defaultsBusy.value = false
     }
 
     fun setShared(deviceId: String, teamId: String?) {
@@ -139,25 +221,6 @@ class DeviceSettingsViewModel @Inject constructor(
                     _shareError.value = trpcErrorMessage(t, "The share could not be changed")
                 }
             _shareBusy.value = false
-        }
-    }
-
-    fun saveDefaults(deviceId: String, defaults: DeviceLaunchDefaults) {
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            _defaultsBusy.value = true
-            _defaultsError.value = null
-            _defaultsSaved.value = false
-            runCatching { devicesApi.setLaunchDefaults(accountId, deviceId, defaults) }
-                .fold(
-                    onSuccess = { _defaultsSaved.value = true },
-                    onFailure = { t ->
-                        if (t is CancellationException) throw t
-                        _defaultsError.value =
-                            trpcErrorMessage(t, "The defaults could not be saved")
-                    },
-                )
-            _defaultsBusy.value = false
         }
     }
 
@@ -225,6 +288,14 @@ class DeviceSettingsViewModel @Inject constructor(
         }
     }
 }
+
+// Auto-saves fired while the sheet is closing must outlive the ViewModel:
+// viewModelScope is cancelled when navigation clears it, which could abort the
+// final flush mid-request. Process-lifetime, mirroring descriptionFlushScope.
+private val deviceSettingsFlushScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+/** How long an edit rests before it is written (one relay nudge per write). */
+private const val AUTOSAVE_DEBOUNCE_MS = 800L
 
 private const val COMMAND_POLL_INTERVAL_MS = 2_000L
 private const val COMMAND_POLL_DEADLINE_MS = 90_000L
