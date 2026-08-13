@@ -15,6 +15,10 @@ import {
   applyPrReopenedState,
   findIssueIdByBranch,
 } from "@/lib/integrations/pr-sync"
+import {
+  takePrMergeClaim,
+  takePrOpenClaim,
+} from "@/lib/integrations/pr-actor-claims"
 import { invalidateRepoCacheForInstallation } from "@/lib/trpc/integrations"
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -280,12 +284,23 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         repoFullName,
         headRef,
       })
+      // EXP-494: a merge initiated in-app (issues.mergePr /
+      // repositories.mergePull) claimed its actor right before the GitHub
+      // call — resolve it ONCE per delivery (one claim covers every issue of
+      // a batch PR) so this leg fires attributed and the initiator is
+      // excluded even when no coding_sessions row survived to fall back on.
+      const claim =
+        repoFullName && pr.number
+          ? takePrMergeClaim(repoFullName, pr.number)
+          : null
       for (const issueId of issueIds) {
         await applyPrMergeState({
           issueId,
           prUrl: htmlUrl,
           mergedAt,
-          actorUserId: null,
+          ...(claim
+            ? { actorUserId: claim.userId, actorViaAgent: claim.viaAgent }
+            : { actorUserId: null }),
         })
       }
       return jsonResponse(200, { ok: true })
@@ -325,13 +340,20 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         repoFullName,
         headRef,
       })
+      // EXP-494: the MCP open_pr tool claimed its actor (keyed on the head
+      // branch — the PR number doesn't exist before creation) so this leg
+      // fires attributed with a title byte-identical to the tool's own
+      // fan-out; deliver()'s dedupe window collapses the racing pair.
+      const claim = takePrOpenClaim(repoFullName, headRef)
       for (const issueId of issueIds) {
         await applyPrOpenedState({
           issueId,
           prUrl: htmlUrl,
           prNumber: pr.number,
           branch: headRef,
-          actorUserId: null,
+          ...(claim
+            ? { actorUserId: claim.userId, actorViaAgent: claim.viaAgent }
+            : { actorUserId: null }),
         })
       }
       return jsonResponse(200, { ok: true })

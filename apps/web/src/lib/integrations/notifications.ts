@@ -456,18 +456,26 @@ export function fireAndForgetStatusChangeNotify(args: {
 // deliberately loose: overlapping batch runs in one team attribute to the
 // most recent one's owner. Non-batch branches never take this path, so a
 // genuinely out-of-band PR with no session stays anonymous.
-async function sessionOwnerFallback(issue: IssueMeta): Promise<string | null> {
+async function latestSessionForIssue(
+  issue: IssueMeta
+): Promise<{ userId: string; hostUserId: string | null } | null> {
   const [session] = await db
-    .select({ userId: codingSessions.userId })
+    .select({
+      userId: codingSessions.userId,
+      hostUserId: codingSessions.hostUserId,
+    })
     .from(codingSessions)
     .where(eq(codingSessions.issueId, issue.id))
     .orderBy(desc(codingSessions.startedAt))
     .limit(1)
-  if (session) return session.userId
+  if (session) return session
 
   if (!issue.branch?.startsWith(`exp/batch-`)) return null
   const [batch] = await db
-    .select({ userId: codingSessions.userId })
+    .select({
+      userId: codingSessions.userId,
+      hostUserId: codingSessions.hostUserId,
+    })
     .from(codingSessions)
     .where(
       and(
@@ -478,7 +486,11 @@ async function sessionOwnerFallback(issue: IssueMeta): Promise<string | null> {
     )
     .orderBy(desc(codingSessions.startedAt))
     .limit(1)
-  return batch?.userId ?? null
+  return batch ?? null
+}
+
+async function sessionOwnerFallback(issue: IssueMeta): Promise<string | null> {
+  return (await latestSessionForIssue(issue))?.userId ?? null
 }
 
 /**
@@ -486,14 +498,26 @@ async function sessionOwnerFallback(issue: IssueMeta): Promise<string | null> {
  * out-of-band linking; pr_merged from applyPrMergeState's idempotent guard).
  * Targets the assignee + active subscribers, minus the actor — the away/phone
  * flow's "PR opened" / "it's merged" on all three channels. actorUserId is
- * null for webhook/cron-driven events with no mapped app user; those fall
- * back to the issue's coding-session owner (sessionOwnerFallback above), and
- * only a genuinely out-of-band PR with no session stays anonymous.
+ * null for webhook/cron-driven events with no mapped app user AND no actor
+ * claim (EXP-494, pr-actor-claims.ts); those fall back to the issue's
+ * coding-session owner (sessionOwnerFallback above), and only a genuinely
+ * out-of-band PR with no session stays anonymous.
+ *
+ * actorViaAgent marks an actor resolved from an agent's MCP credential
+ * (EXP-494): on a shared CLI server (EXP-432) the daemon acts with its
+ * OWNER's key while the session row is requester-owned, so the key owner is
+ * only a proxy identity — when the issue's latest session names the actor as
+ * its HOST, attribution swaps to the session's requester (userId), matching
+ * what sessionOwnerFallback resolves on the webhook leg (exclusion + title
+ * agree, dedupe collapses the pair). Deliberately NOT applied to human
+ * (web/mobile) actions: a host merging a requester's PR from the web UI is a
+ * genuine action by the host, and the requester must be notified about it.
  */
 export function fireAndForgetPrNotify(args: {
   issueId: string
   type: `pr_opened` | `pr_merged`
   actorUserId?: string | null
+  actorViaAgent?: boolean
 }): void {
   const { issueId, type } = args
 
@@ -502,8 +526,17 @@ export function fireAndForgetPrNotify(args: {
       const issue = await loadIssueMeta(issueId)
       if (!issue) return
 
-      const actorUserId =
+      let actorUserId =
         args.actorUserId ?? (await sessionOwnerFallback(issue))
+      if (args.actorUserId && args.actorViaAgent) {
+        const session = await latestSessionForIssue(issue)
+        if (
+          session?.hostUserId != null &&
+          session.hostUserId === args.actorUserId
+        ) {
+          actorUserId = session.userId
+        }
+      }
 
       const recipients = new Set(
         await subscriberRecipients(issueId, actorUserId)

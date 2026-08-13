@@ -66,6 +66,10 @@ import { isInstallationLinkedToTeam } from "@/lib/trpc/integrations"
 import { recordIssueEvent } from "@/lib/integrations/activity"
 import { applyPrLifecycleStatusInTx } from "@/lib/integrations/pr-sync"
 import { fireAndForgetPrNotify } from "@/lib/integrations/notifications"
+import {
+  claimPrOpen,
+  releasePrOpenClaim,
+} from "@/lib/integrations/pr-actor-claims"
 import { escapeLikePattern } from "@/lib/like-pattern"
 import { err, ok } from "./helpers"
 import type { McpUser } from "./server"
@@ -85,6 +89,7 @@ function buildCtx(user: McpUser, request: Request): Context {
   return {
     db,
     request,
+    viaMcp: true,
     session: {
       user: {
         id: user.id,
@@ -1096,14 +1101,31 @@ export function registerExponentialTools(
         }
         const token = resolved.token
 
-        const created = await createPullRequest({
-          repo: repo.fullName,
-          head: headBranch,
-          base: baseBranch,
-          title,
-          body: body ?? ``,
-          token,
+        // EXP-494: record the initiator BEFORE creating the PR — GitHub's
+        // `opened` webhook reliably beats this handler's own DB write, and
+        // without the claim it fans out anonymously (self-notifying the very
+        // user whose agent opened the PR) whenever no coding_sessions row
+        // survived to attribute to.
+        claimPrOpen(repo.fullName, headBranch, {
+          userId: user.id,
+          viaAgent: true,
         })
+        let created: Awaited<ReturnType<typeof createPullRequest>>
+        try {
+          created = await createPullRequest({
+            repo: repo.fullName,
+            head: headBranch,
+            base: baseBranch,
+            title,
+            body: body ?? ``,
+            token,
+          })
+        } catch (e) {
+          // A failed create must not leave a claim that could misattribute a
+          // later out-of-band PR on the same branch.
+          releasePrOpenClaim(repo.fullName, headBranch)
+          throw e
+        }
 
         await db.transaction(async (tx) => {
           for (const id of ids) {
@@ -1183,6 +1205,7 @@ export function registerExponentialTools(
             issueId: id,
             type: `pr_opened`,
             actorUserId: user.id,
+            actorViaAgent: true,
           })
         }
 
