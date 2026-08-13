@@ -289,7 +289,18 @@ pub(crate) fn composer_row(
         .mt_2()
         .gap_2()
         .items_end()
-        .child(div().flex_1().min_w_0().child(input.clone()))
+        // EXP-491/492: flex column, not block — see the MentionInput root
+        // comment; the percent-through-block hop collapsed the composer to
+        // fit-content with a comment row in the column.
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .items_stretch()
+                .child(input.clone()),
+        )
         .child(
             Button::new("comment-submit")
                 .primary()

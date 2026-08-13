@@ -335,6 +335,14 @@ pub struct ScreensPanel {
     /// long-lived, so a transition INTO one is the only "opened" signal a
     /// pane that fetches server-only data gets.
     active_screen: Option<Screen>,
+    /// EXP-492: the panel's painted slot width, recorded each prepaint (the
+    /// editor's EXP-421/436 recipe). The center content gets this as a
+    /// DEFINITE pixel width, because between real layout frames gpui runs
+    /// passes that resolve the panel subtree at fit-content — percent chains
+    /// collapse, text measures latch word-per-line, and the editor's
+    /// recorded-width loop ratchets. One frame stale during a live resize;
+    /// 0.0 before the first paint falls back to stretch.
+    slot_width: std::rc::Rc<std::cell::Cell<f32>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -413,6 +421,7 @@ impl ScreensPanel {
             tabs: Vec::new(),
             tabs_team: None,
             active_screen: None,
+            slot_width: std::rc::Rc::new(std::cell::Cell::new(0.0)),
             _subscriptions: subscriptions,
         };
         this.sync_tabs(window, cx);
@@ -1236,12 +1245,37 @@ impl Render for ScreensPanel {
                 .child(self.render_tab_strip(available, window, cx))
         });
 
-        div().size_full().bg(cx.theme().colors.list).child(
-            v_flex()
-                .size_full()
-                .children(fallback_strip)
-                .child(div().flex_1().min_h_0().child(content)),
-        )
+        // EXP-492: record the panel's real width each prepaint and hand the
+        // center content that DEFINITE pixel width. Between real layout
+        // frames, gpui resolves this subtree under fit-content constraints
+        // (visible in the EXP-492 diagnostics as whole-column collapses to
+        // ~173px plus the editor's 2px/frame ratchet); a definite width makes
+        // those passes resolve every percent chain below correctly. One
+        // frame stale during a live resize, like the editor's own
+        // EXP-421/436 slot recording; before the first paint (0.0) the
+        // content stretches as before.
+        let recorded = self.slot_width.get();
+        let slot_width = self.slot_width.clone();
+        div()
+            .size_full()
+            .bg(cx.theme().colors.list)
+            .on_children_prepainted(move |bounds, _, _| {
+                if let Some(first) = bounds.first() {
+                    slot_width.set(f32::from(first.size.width));
+                }
+            })
+            .child(
+                v_flex()
+                    .size_full()
+                    .children(fallback_strip)
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_h_0()
+                            .when(recorded > 1.0, |this| this.w(px(recorded)))
+                            .child(content),
+                    ),
+            )
     }
 }
 

@@ -295,6 +295,15 @@ impl Render for MentionInput {
             .key_context("MentionInput")
             .relative()
             .w_full()
+            // EXP-491/492: a FLEX column, not gpui's default block — the
+            // pinned-taffy quirk the editor documents (EXP-436): a
+            // percent-width child under a display-BLOCK parent resolves
+            // fit-content on some passes, collapsing the composer to a
+            // ~20px pill once a comment row shares the column. Flex
+            // cross-axis stretch sizes the Input definitively.
+            .flex()
+            .flex_col()
+            .items_stretch()
             .capture_action(cx.listener(Self::on_move_up))
             .capture_action(cx.listener(Self::on_move_down))
             .capture_action(cx.listener(Self::on_escape))

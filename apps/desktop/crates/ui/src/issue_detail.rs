@@ -1850,6 +1850,170 @@ mod tests {
         fn focus(&self, _window: &mut Window, _cx: &mut App) {}
     }
 
+    /// EXP-491/EXP-492 regression: the reading column must be exactly
+    /// `min(DETAIL_COLUMN_W, panel)` at EVERY panel width. The old
+    /// `w_full + max_w + mx_auto`-under-block scheme collapsed the column to
+    /// fit-content in recurring ~5px width bands — but ONLY with real TEXT
+    /// in the tree: text leaves register taffy measure functions, and the
+    /// pinned taffy's block layout resolves a percent-width child against
+    /// the measure-function results on some intrinsic passes. A sweep over
+    /// every width is the only honest gate; fixed-size div probes never
+    /// reproduce it.
+    #[gpui::test]
+    async fn centered_column_spans_min_of_cap_and_panel_at_every_width(cx: &mut TestAppContext) {
+        use gpui::{point, px, size, InteractiveElement as _, SharedString};
+        use gpui_component::{h_flex, v_flex};
+
+        struct Probe;
+        impl Render for Probe {
+            fn render(
+                &mut self,
+                _window: &mut Window,
+                _cx: &mut gpui::Context<Self>,
+            ) -> impl IntoElement {
+                // The real header shape: top strip, then the centered column
+                // holding a TITLE (large text), a WRAPPING chip row (short
+                // text labels), and a paragraph — all real text so taffy's
+                // measure functions run, like production.
+                let title = div()
+                    .px_4()
+                    .text_2xl()
+                    .child(SharedString::from("narrow issue x"));
+                let chip_row = h_flex()
+                    .w_full()
+                    .flex_wrap()
+                    .gap_1()
+                    .items_center()
+                    .px_4()
+                    .children(
+                        ["Backlog", "No priority", "Labels", "Due date", "Main"]
+                            .map(|label| div().child(SharedString::from(label))),
+                    );
+                let paragraph = div().px_4().text_sm().child(SharedString::from(
+                    "since they are now electric shapes, please lets have it \
+                     realtime updated. on mobile please make the view a bit cleaner:",
+                ));
+                let header = v_flex()
+                    .w_full()
+                    .flex_shrink_0()
+                    .debug_selector(|| "probe-header".into())
+                    .child(centered_column(
+                        v_flex()
+                            .debug_selector(|| "probe-column".into())
+                            .child(title)
+                            .child(chip_row)
+                            .child(paragraph),
+                    ));
+                div()
+                    .flex()
+                    .flex_col()
+                    .size_full()
+                    .debug_selector(|| "probe-root".into())
+                    .child(header)
+            }
+        }
+
+        // The production nesting (shell.rs): an `h_resizable` split whose
+        // right panel holds the detail chain. The resizable panels are flex
+        // items with `flex_basis` fed BACK from prepaint bounds via
+        // `ResizableState` — at widths where the bases mismatch the
+        // container, taffy's flex resolution measures the panel CONTENT
+        // under fit-content constraints, and every text measure below keeps
+        // that run's narrow lines (the banded collapse).
+        struct Split {
+            probe: gpui::Entity<Probe>,
+            state: gpui::Entity<gpui_component::resizable::ResizableState>,
+        }
+        impl Render for Split {
+            fn render(
+                &mut self,
+                _window: &mut Window,
+                _cx: &mut gpui::Context<Self>,
+            ) -> impl IntoElement {
+                use gpui_component::resizable::{h_resizable, resizable_panel};
+                div().size_full().child(
+                    h_resizable("center-split")
+                        .with_state(&self.state)
+                        .child(
+                            resizable_panel()
+                                .size(px(crate::sidebar::DEFAULT_DOCK_WIDTH))
+                                .size_range(px(320.)..px(880.))
+                                .child(div().size_full()),
+                        )
+                        .child(
+                            resizable_panel().child(
+                                // The candidate fix under test (mirrors
+                                // shell.rs): panel content rides an ABSOLUTE
+                                // inset layer so the resizable's flex
+                                // resolution can never measure it — its
+                                // intrinsic contribution is zero, and its
+                                // percent size resolves against the panel's
+                                // definite bounds.
+                                div()
+                                    .relative()
+                                    .size_full()
+                                    .debug_selector(|| "probe-slot".into())
+                                    .child(
+                                        div()
+                                            .absolute()
+                                            .inset_0()
+                                            .debug_selector(|| "probe-abs".into())
+                                            .child(self.probe.clone()),
+                                    ),
+                            ),
+                        ),
+                )
+            }
+        }
+
+        let cx = cx.add_empty_window();
+        // The resizable components read the gpui-component Theme global.
+        cx.update(|_, cx| gpui_component::init(cx));
+        let split = cx.update(|_, cx| {
+            let probe = cx.new(|_| Probe);
+            let state = cx.new(|_| gpui_component::resizable::ResizableState::default());
+            cx.new(|_| Split { probe, state })
+        });
+        let mut failures: Vec<(f32, f32, f32)> = Vec::new();
+        // Every integer window width across the interesting range — the
+        // bands are a few px wide, so a coarse step would miss them. Each
+        // width draws TWICE: the resizable state records panel bounds at
+        // prepaint and feeds them into the next frame's flex_basis, so the
+        // second frame is the settled one users actually see.
+        for width in (700..=1500).map(|w| w as f32) {
+            for _ in 0..2 {
+                cx.draw(point(px(0.), px(0.)), size(px(width), px(600.)), |_, _| {
+                    div().size_full().child(split.clone())
+                });
+            }
+            let column = cx
+                .debug_bounds("probe-column")
+                .unwrap_or_else(|| panic!("column bounds missing at width {width}"));
+            // The dock panels SHARE surplus width (both carry flex_grow once
+            // their recorded sizes exist), so the honest expectation is
+            // against the panel's ACTUAL width, not a window-width formula.
+            let panel = cx
+                .debug_bounds("probe-slot")
+                .unwrap_or_else(|| panic!("slot bounds missing at width {width}"));
+            let panel_width = f32::from(panel.size.width);
+            assert!(
+                panel_width > 100.0,
+                "panel itself collapsed at width {width}: {panel_width}"
+            );
+            let expected = panel_width.min(DETAIL_COLUMN_W);
+            let actual = f32::from(column.size.width);
+            if (actual - expected).abs() > 1.5 {
+                failures.push((width, actual, expected));
+            }
+        }
+        assert!(
+            failures.is_empty(),
+            "column width != min(768, panel) at {} widths (width, actual, expected): {:?}",
+            failures.len(),
+            &failures[..failures.len().min(20)]
+        );
+    }
+
     // EXP-261 regression (BUG 1): `flush_description` persists
     // `markdown_for_save`, never raw `markdown()`. The trait's shared default
     // derivation strips a mid-upload draft (inline AND standalone) for every
