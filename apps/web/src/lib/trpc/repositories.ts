@@ -6,6 +6,10 @@ import { router, authedProcedure } from "@/lib/trpc"
 import { issues, boards, repositories } from "@/db/schema"
 import { assertTeamMember, getIssueTeamContext } from "@/lib/team-membership"
 import {
+  claimPrMerge,
+  releasePrMergeClaim,
+} from "@/lib/integrations/pr-actor-claims"
+import {
   fetchBranchDiff,
   githubAppConfigured,
   listRepoBranches,
@@ -500,6 +504,14 @@ export const repositoriesRouter = router({
         })
       }
 
+      // EXP-494: even an "unlinked" PR's `closed` webhook can resolve an
+      // issue via the branch parse — claim the initiator so that fan-out is
+      // attributed to (and excludes) the merging member instead of going out
+      // anonymously. Web-UI only, so never agent-mediated.
+      claimPrMerge(repo.fullName, input.prNumber, {
+        userId: ctx.session.user.id,
+        viaAgent: false,
+      })
       try {
         await mergePullRequest({
           repo: repo.fullName,
@@ -507,6 +519,7 @@ export const repositoriesRouter = router({
           token,
         })
       } catch (err) {
+        releasePrMergeClaim(repo.fullName, input.prNumber)
         if (err instanceof GitHubMergeError) {
           if (err.status === 405) {
             // "Not mergeable" is misleading on a stacked PR whose base is

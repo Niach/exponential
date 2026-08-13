@@ -73,6 +73,10 @@ import {
   fireAndForgetReporterResolution,
   fireAndForgetStatusChangeNotify,
 } from "@/lib/integrations/notifications"
+import {
+  claimPrMerge,
+  releasePrMergeClaim,
+} from "@/lib/integrations/pr-actor-claims"
 import { resolveMentions } from "@/lib/integrations/mentions"
 import { ensureSubscribed } from "@/lib/integrations/subscriptions"
 import { recordIssueEvent } from "@/lib/integrations/activity"
@@ -1248,6 +1252,17 @@ export const issuesRouter = router({
         })
       }
 
+      // EXP-494: record the initiator BEFORE the GitHub merge call — the
+      // `closed` webhook reliably beats the applyPrMergeState writes below,
+      // and without the claim its fan-out degrades to the session-owner
+      // fallback (or a fully anonymous broadcast that self-notifies the
+      // merger) whenever no coding_sessions row survived. viaAgent marks an
+      // MCP-driven merge (the shared-server daemon acts with its owner's
+      // key) so attribution can swap to the session's requester.
+      claimPrMerge(repoFullName, row.prNumber, {
+        userId: ctx.session.user.id,
+        viaAgent: ctx.viaMcp === true,
+      })
       try {
         await mergePullRequest({
           repo: repoFullName,
@@ -1256,6 +1271,9 @@ export const issuesRouter = router({
           commitTitle: `${row.identifier}: ${row.title} (#${row.prNumber})`,
         })
       } catch (err) {
+        // The merge did not happen — drop the claim so it can't misattribute
+        // a later out-of-band merge of the same PR.
+        releasePrMergeClaim(repoFullName, row.prNumber)
         if (err instanceof GitHubMergeError) {
           // 405 covers "not mergeable" and "squash merges not allowed" —
           // GitHub's message is shown verbatim, EXCEPT for "not mergeable",
@@ -1320,6 +1338,7 @@ export const issuesRouter = router({
           prUrl: row.prUrl,
           mergedAt: new Date(),
           actorUserId: ctx.session.user.id,
+          actorViaAgent: ctx.viaMcp === true,
         })
       }
       // "Merge and close" (EXP-358): end every linked live session — same

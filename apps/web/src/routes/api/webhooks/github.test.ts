@@ -93,6 +93,13 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
 import * as prSync from "@/lib/integrations/pr-sync"
 import * as integrations from "@/lib/trpc/integrations"
 import { githubInstallations, repositories } from "@/db/schema"
+// Deliberately the REAL module (in-memory, no I/O): these tests exercise the
+// claim → webhook handoff end to end.
+import {
+  _clearPrActorClaims,
+  claimPrMerge,
+  claimPrOpen,
+} from "@/lib/integrations/pr-actor-claims"
 import { Route } from "./github"
 
 const prSyncMock = vi.mocked(prSync)
@@ -158,6 +165,7 @@ beforeEach(() => {
   h.inserts.length = 0
   h.updates.length = 0
   h.deletes.length = 0
+  _clearPrActorClaims()
   vi.clearAllMocks()
 })
 
@@ -288,6 +296,103 @@ describe(`github webhook — batch PR fan-out (multi-issue pr_url resolution)`, 
 
     expect(res.status).toBe(200)
     expect(prSyncMock.applyPrOpenedState).toHaveBeenCalledTimes(2)
+    expect(prSyncMock.applyPrOpenedState).toHaveBeenCalledWith({
+      issueId: ISSUE_A,
+      prUrl: HTML_URL,
+      prNumber: 7,
+      branch: `exp/batch-a1b2c3d4`,
+      actorUserId: null,
+    })
+  })
+
+  // EXP-494: an in-app merge/open claims its initiator right before the
+  // GitHub call; the webhook resolves the claim ONCE per delivery and passes
+  // the actor into every per-issue apply, so the fan-out is attributed (and
+  // the initiator excluded) even when no coding_sessions row survived.
+  it(`closed+merged consumes the merge claim and attributes EVERY issue of a batch PR`, async () => {
+    claimPrMerge(`org/repo`, 7, { userId: `u-merger`, viaAgent: true })
+    h.selectQueue.push([{ id: ISSUE_A }, { id: ISSUE_B }])
+
+    const res = await postHandler({
+      request: webhookRequest(
+        `pull_request`,
+        pullRequestPayload({
+          action: `closed`,
+          merged: true,
+          merged_at: MERGED_AT_ISO,
+        })
+      ),
+    })
+
+    expect(res.status).toBe(200)
+    expect(prSyncMock.applyPrMergeState).toHaveBeenCalledTimes(2)
+    for (const issueId of [ISSUE_A, ISSUE_B]) {
+      expect(prSyncMock.applyPrMergeState).toHaveBeenCalledWith({
+        issueId,
+        prUrl: HTML_URL,
+        mergedAt: new Date(MERGED_AT_ISO),
+        actorUserId: `u-merger`,
+        actorViaAgent: true,
+      })
+    }
+
+    // Take = consume: a redelivery falls back to the anonymous shape.
+    h.selectQueue.push([{ id: ISSUE_A }])
+    prSyncMock.applyPrMergeState.mockClear()
+    await postHandler({
+      request: webhookRequest(
+        `pull_request`,
+        pullRequestPayload({
+          action: `closed`,
+          merged: true,
+          merged_at: MERGED_AT_ISO,
+        })
+      ),
+    })
+    expect(prSyncMock.applyPrMergeState).toHaveBeenCalledWith({
+      issueId: ISSUE_A,
+      prUrl: HTML_URL,
+      mergedAt: new Date(MERGED_AT_ISO),
+      actorUserId: null,
+    })
+  })
+
+  it(`opened consumes the open claim (keyed on the head branch) and attributes the link`, async () => {
+    claimPrOpen(`org/repo`, `exp/batch-a1b2c3d4`, {
+      userId: `u-opener`,
+      viaAgent: true,
+    })
+    h.selectQueue.push([{ id: ISSUE_A }])
+
+    const res = await postHandler({
+      request: webhookRequest(
+        `pull_request`,
+        pullRequestPayload({ action: `opened` })
+      ),
+    })
+
+    expect(res.status).toBe(200)
+    expect(prSyncMock.applyPrOpenedState).toHaveBeenCalledWith({
+      issueId: ISSUE_A,
+      prUrl: HTML_URL,
+      prNumber: 7,
+      branch: `exp/batch-a1b2c3d4`,
+      actorUserId: `u-opener`,
+      actorViaAgent: true,
+    })
+  })
+
+  it(`a merge claim never leaks into the opened path`, async () => {
+    claimPrMerge(`org/repo`, 7, { userId: `u-merger`, viaAgent: false })
+    h.selectQueue.push([{ id: ISSUE_A }])
+
+    await postHandler({
+      request: webhookRequest(
+        `pull_request`,
+        pullRequestPayload({ action: `opened` })
+      ),
+    })
+
     expect(prSyncMock.applyPrOpenedState).toHaveBeenCalledWith({
       issueId: ISSUE_A,
       prUrl: HTML_URL,

@@ -213,6 +213,180 @@ describe(`fireAndForgetPrNotify actor attribution (EXP-463)`, () => {
     )
   })
 
+  // EXP-494: an actor resolved from an agent's MCP credential may be only a
+  // proxy identity — on a shared CLI server the daemon holds its OWNER's key
+  // while the session row is requester-owned (EXP-432). With actorViaAgent
+  // the fan-out swaps host→requester so exclusion and title match what the
+  // webhook leg's fallback resolves; without it (a real human acting from
+  // web/mobile) the actor is taken at face value and NO session lookup runs.
+  it(`swaps a viaAgent actor to the session requester when the actor is its host`, async () => {
+    h.selectQueue.push(
+      // loadIssueMeta
+      [issueMeta],
+      // latestSessionForIssue: requester-owned row hosted by the actor
+      [{ userId: `u-req`, hostUserId: `u-host` }],
+      // subscriberRecipients: the requester is the auto-subscribed creator
+      [{ userId: `u-req` }, { userId: `u2` }],
+      // actorName (resolved for the REQUESTER)
+      [{ name: `Riley`, email: `riley@acme.test` }],
+      // deliverableRecipients (deliver)
+      [{ id: `u2` }]
+    )
+    h.executeRows.push({ id: `n8`, user_id: `u2` })
+
+    fireAndForgetPrNotify({
+      issueId: issueMeta.id,
+      type: `pr_opened`,
+      actorUserId: `u-host`,
+      actorViaAgent: true,
+    })
+
+    await vi.waitFor(() => expect(h.sendToUsers).toHaveBeenCalledTimes(1))
+    expect(h.sendToUsers).toHaveBeenCalledWith(
+      [{ userId: `u2`, data: { notificationId: `n8` } }],
+      expect.objectContaining({
+        title: `Riley opened a pull request for EXP-9`,
+      })
+    )
+  })
+
+  it(`keeps a viaAgent actor when no session exists (the claim-attributed webhook leg)`, async () => {
+    h.selectQueue.push(
+      // loadIssueMeta
+      [issueMeta],
+      // latestSessionForIssue: nothing (sessionless CLI run / swept row)
+      [],
+      // subscriberRecipients: the actor is the auto-subscribed creator
+      [{ userId: `u-actor` }, { userId: `u2` }],
+      // actorName
+      [{ name: `Ada`, email: `ada@acme.test` }],
+      // deliverableRecipients (deliver)
+      [{ id: `u2` }]
+    )
+    h.executeRows.push({ id: `n9`, user_id: `u2` })
+
+    fireAndForgetPrNotify({
+      issueId: issueMeta.id,
+      type: `pr_opened`,
+      actorUserId: `u-actor`,
+      actorViaAgent: true,
+    })
+
+    await vi.waitFor(() => expect(h.sendToUsers).toHaveBeenCalledTimes(1))
+    // The actor stays excluded and named — the reported EXP-494 bug was this
+    // exact leg firing anonymously when the session row was gone.
+    expect(h.sendToUsers).toHaveBeenCalledWith(
+      [{ userId: `u2`, data: { notificationId: `n9` } }],
+      expect.objectContaining({
+        title: `Ada opened a pull request for EXP-9`,
+      })
+    )
+  })
+
+  it(`keeps a viaAgent actor when the session is not hosted by them`, async () => {
+    h.selectQueue.push(
+      // loadIssueMeta
+      [issueMeta],
+      // latestSessionForIssue: a self-started row (hostUserId null)
+      [{ userId: `u-owner`, hostUserId: null }],
+      // subscriberRecipients
+      [{ userId: `u-actor` }, { userId: `u2` }],
+      // actorName (still the actor — no swap)
+      [{ name: `Ada`, email: `ada@acme.test` }],
+      // deliverableRecipients (deliver)
+      [{ id: `u2` }]
+    )
+    h.executeRows.push({ id: `n10`, user_id: `u2` })
+
+    fireAndForgetPrNotify({
+      issueId: issueMeta.id,
+      type: `pr_merged`,
+      actorUserId: `u-actor`,
+      actorViaAgent: true,
+    })
+
+    await vi.waitFor(() => expect(h.sendToUsers).toHaveBeenCalledTimes(1))
+    expect(h.sendToUsers).toHaveBeenCalledWith(
+      [{ userId: `u2`, data: { notificationId: `n10` } }],
+      expect.objectContaining({
+        title: `Ada merged the pull request for EXP-9`,
+      })
+    )
+  })
+
+  it(`never swaps (or even looks up sessions) for a human actor`, async () => {
+    h.selectQueue.push(
+      // loadIssueMeta — NO session select follows: a host merging a
+      // requester's PR from the web UI is a genuine human action and the
+      // requester must be notified about it.
+      [issueMeta],
+      // subscriberRecipients: the requester is subscribed
+      [{ userId: `u-req` }, { userId: `u2` }],
+      // actorName (the host, unswapped)
+      [{ name: `Harper`, email: `harper@acme.test` }],
+      // deliverableRecipients (deliver)
+      [{ id: `u-req` }, { id: `u2` }]
+    )
+    h.executeRows.push(
+      { id: `n11`, user_id: `u-req` },
+      { id: `n12`, user_id: `u2` }
+    )
+
+    fireAndForgetPrNotify({
+      issueId: issueMeta.id,
+      type: `pr_merged`,
+      actorUserId: `u-host`,
+    })
+
+    await vi.waitFor(() => expect(h.sendToUsers).toHaveBeenCalledTimes(1))
+    // Exactly the four selects above plus pushRecipients' prefs lookup — no
+    // latestSessionForIssue call (a viaAgent run would add a fifth queue
+    // select before actorName).
+    expect(mockedDb.select).toHaveBeenCalledTimes(5)
+    expect(h.sendToUsers).toHaveBeenCalledWith(
+      [
+        { userId: `u-req`, data: { notificationId: `n11` } },
+        { userId: `u2`, data: { notificationId: `n12` } },
+      ],
+      expect.objectContaining({
+        title: `Harper merged the pull request for EXP-9`,
+      })
+    )
+  })
+
+  it(`swaps a viaAgent actor through the batch-session fallback (EXP-479 shape)`, async () => {
+    h.selectQueue.push(
+      // loadIssueMeta: batch PR branch
+      [{ ...issueMeta, branch: `exp/batch-1b81d4c7` }],
+      // latestSessionForIssue: no issue-scoped row (batch rows are issue-less)…
+      [],
+      // …the team-scoped batch row is requester-owned, hosted by the actor
+      [{ userId: `u-req`, hostUserId: `u-host` }],
+      // subscriberRecipients
+      [{ userId: `u-req` }, { userId: `u2` }],
+      // actorName (the requester)
+      [{ name: `Riley`, email: `riley@acme.test` }],
+      // deliverableRecipients (deliver)
+      [{ id: `u2` }]
+    )
+    h.executeRows.push({ id: `n13`, user_id: `u2` })
+
+    fireAndForgetPrNotify({
+      issueId: issueMeta.id,
+      type: `pr_merged`,
+      actorUserId: `u-host`,
+      actorViaAgent: true,
+    })
+
+    await vi.waitFor(() => expect(h.sendToUsers).toHaveBeenCalledTimes(1))
+    expect(h.sendToUsers).toHaveBeenCalledWith(
+      [{ userId: `u2`, data: { notificationId: `n13` } }],
+      expect.objectContaining({
+        title: `Riley merged the pull request for EXP-9`,
+      })
+    )
+  })
+
   it(`keeps a sessionless batch PR anonymous`, async () => {
     h.selectQueue.push(
       // loadIssueMeta

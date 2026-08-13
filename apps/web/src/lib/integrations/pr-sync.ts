@@ -371,6 +371,10 @@ export async function applyPrOpenedState(opts: {
   prNumber: number
   branch: string
   actorUserId?: string | null
+  // EXP-494: the actor came from an agent's MCP credential (claim/tool) —
+  // forwarded to the notify so shared-server host attribution can swap to
+  // the session's requester.
+  actorViaAgent?: boolean
 }): Promise<void> {
   const applied = await db.transaction(async (tx) => {
     const txId = await generateTxId(tx)
@@ -433,6 +437,7 @@ export async function applyPrOpenedState(opts: {
       issueId: opts.issueId,
       type: `pr_opened`,
       actorUserId: opts.actorUserId ?? null,
+      actorViaAgent: opts.actorViaAgent,
     })
   }
 }
@@ -449,6 +454,8 @@ export async function applyPrMergeState(opts: {
   prUrl?: string
   mergedAt?: Date | null
   actorUserId?: string | null
+  // EXP-494: see applyPrOpenedState.
+  actorViaAgent?: boolean
 }): Promise<void> {
   const result = await db.transaction(
     async (
@@ -546,6 +553,7 @@ export async function applyPrMergeState(opts: {
       issueId: opts.issueId,
       type: `pr_merged`,
       actorUserId: opts.actorUserId ?? null,
+      actorViaAgent: opts.actorViaAgent,
     })
     // EXP-324: heal the stack — retarget open child PRs that were based on
     // the just-merged head branch. GitHub only does this itself when the

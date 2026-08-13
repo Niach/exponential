@@ -8,6 +8,13 @@ export type Context = {
   session: Awaited<ReturnType<typeof auth.api.getSession>>
   db: typeof db
   request: Request
+  // Set only by the MCP server's synthetic context (EXP-494): the mutation
+  // was driven by an agent over an MCP credential, whose key owner may be a
+  // proxy identity (a shared CLI server daemon acts with its OWNER's key
+  // while the session belongs to the requester, EXP-432). PR notification
+  // attribution gates its host→requester swap on this; HTTP contexts leave
+  // it undefined.
+  viaMcp?: true
 }
 
 const t = initTRPC.context<Context>().create()
