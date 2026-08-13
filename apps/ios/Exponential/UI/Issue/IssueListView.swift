@@ -825,7 +825,7 @@ struct IssueListView: View {
             }
         case .assignee:
             AssigneeSheet(
-                users: vm.users,
+                users: vm.teamUsers,
                 selectedId: sharedAssigneeId(vm),
                 onSelect: { userId in bulkSetAssignee(vm, userId) }
             )

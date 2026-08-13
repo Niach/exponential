@@ -483,7 +483,7 @@ struct IssueDetailView: View {
             }
         case .assignee:
             AssigneeSheet(
-                users: vm.users,
+                users: vm.teamUsers,
                 selectedId: issue.assigneeId,
                 onSelect: { userId in
                     Task { await vm.setAssignee(userId) }

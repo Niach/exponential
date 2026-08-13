@@ -83,6 +83,7 @@ private data class GroupedIssueState(
     val filters: IssueFilters = IssueFilters(),
     val labels: List<LabelEntity> = emptyList(),
     val users: List<UserEntity> = emptyList(),
+    val teamUsers: List<UserEntity> = emptyList(),
     val teamStatuses: List<ResolvedIssueStatus> = emptyList(),
 )
 
@@ -92,6 +93,9 @@ data class IssueListState(
     val filters: IssueFilters = IssueFilters(),
     val labels: List<LabelEntity> = emptyList(),
     val users: List<UserEntity> = emptyList(),
+    // The board team's member users — the assignee-picker + @-mention
+    // vocabulary (EXP-487). `users` stays account-wide for avatar display.
+    val teamUsers: List<UserEntity> = emptyList(),
     // The board team's statuses in canonical order — the picker/filter
     // vocabulary. Falls back to the constructed builtins until the
     // issue_statuses shape has synced.
@@ -182,6 +186,14 @@ class IssueListViewModel @Inject constructor(
         .flatMapLatest { (db, board) ->
             if (db == null || board == null) flowOf(emptyList())
             else db.teamMemberDao().observeByTeam(board.teamId)
+        }
+    // EXP-487: the team's member users — the assignee-picker + @-mention
+    // vocabulary. The unscoped `users` list stays for row-avatar display
+    // (an ex-member assignee must still render).
+    private val usersForTeam = combine(dbFlow, _board) { db, board -> db to board }
+        .flatMapLatest { (db, board) ->
+            if (db == null || board == null) flowOf(emptyList())
+            else db.userDao().observeByTeam(board.teamId)
         }
 
     // EXP-50: the target team's lone member when it has exactly one — else
@@ -287,6 +299,7 @@ class IssueListViewModel @Inject constructor(
             _filters,
             dbFlow.scopedQuery(emptyList()) { it.userDao().observeAll() },
             statusesForTeam,
+            usersForTeam,
         )
     ) { values ->
         @Suppress("UNCHECKED_CAST")
@@ -302,6 +315,8 @@ class IssueListViewModel @Inject constructor(
         val users = values[5] as List<UserEntity>
         @Suppress("UNCHECKED_CAST")
         val teamStatuses = values[6] as List<ResolvedIssueStatus>
+        @Suppress("UNCHECKED_CAST")
+        val teamUsers = values[7] as List<UserEntity>
 
         val joinsByIssue = joins.groupBy { it.issueId }
         val labelsById = labels.associateBy { it.id }
@@ -354,6 +369,7 @@ class IssueListViewModel @Inject constructor(
             filters = filters,
             labels = labels,
             users = users,
+            teamUsers = teamUsers,
             teamStatuses = teamStatuses,
         )
     }
@@ -370,6 +386,7 @@ class IssueListViewModel @Inject constructor(
             filters = grouped.filters,
             labels = grouped.labels,
             users = grouped.users,
+            teamUsers = grouped.teamUsers,
             teamStatuses = grouped.teamStatuses,
             isCreating = busy,
             isRefreshing = refreshing,

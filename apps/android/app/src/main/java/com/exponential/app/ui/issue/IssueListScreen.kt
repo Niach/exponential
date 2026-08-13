@@ -462,7 +462,7 @@ fun IssueListScreen(
             onDismiss = { bulkSheet = null },
         )
         BulkSheet.Assignee -> AssigneePickerSheet(
-            users = state.users,
+            users = state.teamUsers,
             selectedUserId = sharedAssigneeId,
             onSelect = {
                 viewModel.bulkUpdateAssignee(selectedIds, it)

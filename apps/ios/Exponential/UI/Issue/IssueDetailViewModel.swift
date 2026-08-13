@@ -30,6 +30,9 @@ final class IssueDetailViewModel {
     var statusRows: [IssueStatusEntity] = []
     var issueLabels: [IssueLabelEntity] = []
     var users: [UserEntity] = []
+    /// Every synced `team_members` row; scoped to this issue's team by
+    /// `teamUsers` (EXP-487).
+    var teamMembers: [TeamMemberEntity] = []
     /// Live coding sessions for this issue (synced coding_sessions shape) —
     /// drives the "Coding now" badge + Watch/Steer entry (masterplan §5c).
     var runningSessions: [CodingSessionEntity] = []
@@ -58,9 +61,10 @@ final class IssueDetailViewModel {
     /// inert until sync removes it.
     var deletingAttachmentIds: Set<String> = []
 
-    // Non-agent members offered by the editor's @-mention autocomplete.
+    // Members offered by the editor's @-mention autocomplete — the issue's
+    // team only (EXP-487).
     var mentionMembers: [MentionMember] {
-        users.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) }
+        teamUsers.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) }
     }
     /// True once the bounded load clock ran out with no issue row — the view
     /// swaps its spinner for a real explanation plus a retry (EXP-264: a push
@@ -337,13 +341,16 @@ final class IssueDetailViewModel {
             // until the view is remounted. Tracks the two regions the
             // computation reads: the team_members table and the
             // "team-members" offset row (isLive).
-            let membersObs = ValueObservation.tracking { db -> (Int, Bool) in
-                let count = try TeamMemberEntity.fetchCount(db)
+            let membersObs = ValueObservation.tracking { db -> ([TeamMemberEntity], Bool) in
+                let rows = try TeamMemberEntity.fetchAll(db)
                 let live = try ElectricOffset.fetchOne(db, key: "team-members")?.isLive ?? false
-                return (count, live)
+                return (rows, live)
             }
             Task {
-                for try await _ in membersObs.values(in: pool) {
+                for try await (rows, _) in membersObs.values(in: pool) {
+                    // The rows also scope the assignee picker / @-mention
+                    // vocabulary to this issue's team (EXP-487, `teamUsers`).
+                    self.teamMembers = rows
                     if let issue = self.issue {
                         self.refreshPermissions(for: issue)
                     }
@@ -464,6 +471,15 @@ final class IssueDetailViewModel {
     var assignedLabels: [LabelEntity] {
         let assigned = assignedLabelIds
         return teamLabels.filter { assigned.contains($0.id) }
+    }
+
+    /// The issue's team's member users — the assignee picker / @-mention
+    /// vocabulary. `users` stays account-wide so an ex-member assignee or
+    /// session owner still displays (EXP-487).
+    var teamUsers: [UserEntity] {
+        guard let teamId = board?.teamId else { return [] }
+        let memberIds = Set(teamMembers.filter { $0.teamId == teamId }.map(\.userId))
+        return users.filter { memberIds.contains($0.id) }
     }
 
     func assignee() -> UserEntity? {

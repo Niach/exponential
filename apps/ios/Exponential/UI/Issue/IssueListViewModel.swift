@@ -9,6 +9,9 @@ final class IssueListViewModel {
     var labels: [LabelEntity] = []
     var issueLabels: [IssueLabelEntity] = []
     var users: [UserEntity] = []
+    /// Every synced `team_members` row; scoped to this board's team by
+    /// `teamUsers` (EXP-487).
+    var teamMembers: [TeamMemberEntity] = []
     var board: BoardEntity?
     var filters = IssueFilters()
     /// EXP-314: the team's `issue_statuses` rows (every synced team's rows land
@@ -135,14 +138,17 @@ final class IssueListViewModel {
             // read-only until the view is remounted. Tracks the two regions the
             // computation reads: the team_members table and the
             // "team-members" offset row (isLive).
-            let permsObservation = ValueObservation.tracking { db -> (Int, Bool) in
-                let count = try TeamMemberEntity.fetchCount(db)
+            let permsObservation = ValueObservation.tracking { db -> ([TeamMemberEntity], Bool) in
+                let rows = try TeamMemberEntity.fetchAll(db)
                 let live = try ElectricOffset.fetchOne(db, key: "team-members")?.isLive ?? false
-                return (count, live)
+                return (rows, live)
             }
             let permsTask = Task {
                 do {
-                    for try await _ in permsObservation.values(in: pool) {
+                    for try await (rows, _) in permsObservation.values(in: pool) {
+                        // The rows also scope the bulk-assign picker to this
+                        // board's team (EXP-487, `teamUsers`).
+                        self.teamMembers = rows
                         self.refreshPermissions(for: self.board)
                     }
                 } catch {}
@@ -232,6 +238,15 @@ final class IssueListViewModel {
     var teamLabels: [LabelEntity] {
         guard let teamId = board?.teamId else { return [] }
         return labels.filter { $0.teamId == teamId }
+    }
+
+    /// The board's team's member users — the bulk-assign picker vocabulary.
+    /// `users` stays account-wide so `userFor(id:)` still resolves an
+    /// ex-member assignee's row avatar (EXP-487).
+    var teamUsers: [UserEntity] {
+        guard let teamId = board?.teamId else { return [] }
+        let memberIds = Set(teamMembers.filter { $0.teamId == teamId }.map(\.userId))
+        return users.filter { memberIds.contains($0.id) }
     }
 
     /// EXP-314: toggling goes through the resolved status so a stale

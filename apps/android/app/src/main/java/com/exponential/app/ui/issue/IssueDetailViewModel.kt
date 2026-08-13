@@ -153,6 +153,17 @@ class IssueDetailViewModel @Inject constructor(
             else db.teamMemberDao().observeByTeam(board.teamId)
         }
 
+    // EXP-487: the issue team's users — the assignee picker + @-mention
+    // vocabulary. state.users stays account-wide so an ex-member assignee /
+    // session owner still displays.
+    val teamUsers: StateFlow<List<UserEntity>> =
+        combine(dbFlow, _board) { db, board -> db to board }
+            .flatMapLatest { (db, board) ->
+                if (db == null || board == null) flowOf(emptyList())
+                else db.userDao().observeByTeam(board.teamId)
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     // EXP-312: live sessions are owner-only — the screen gates tap-to-watch
     // on the session row's userId matching this.
     val currentUserId: StateFlow<String?> = auth.userId
