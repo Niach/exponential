@@ -231,6 +231,62 @@ describe(`devices.register`, () => {
     expect(upsert.set.version).toBe(`0.9.0`)
     expect(upsert.set.updateRequestedAt).toBeNull()
   })
+
+  it(`accepts 0.14.10's explicit-null launch-default toggles and strips them (EXP-495)`, async () => {
+    // The exact defaults_wire shape 0.14.10 clients sent: capability-masked
+    // toggles as explicit null instead of absent. This used to 400 the whole
+    // register, leaving the machine invisible with no self-heal path.
+    const result = await caller.register({
+      deviceId: `dev-1`,
+      label: `unraid-runner`,
+      kind: `server`,
+      launchDefaults: {
+        defaultAgent: `claude`,
+        agents: {
+          claude: {
+            model: `fable`,
+            effort: ``,
+            ultracode: false,
+            planMode: true,
+            skipPermissions: false,
+          },
+          codex: {
+            model: ``,
+            effort: ``,
+            ultracode: null,
+            planMode: null,
+            skipPermissions: false,
+          },
+          pi: {
+            model: ``,
+            effort: ``,
+            ultracode: null,
+            planMode: true,
+            skipPermissions: null,
+          },
+        },
+      },
+    })
+    expect(result).toMatchObject({ ok: true })
+    const seeded = (h.state.inserted[0] as { launchDefaults: unknown })
+      .launchDefaults
+    // Stored jsonb stays null-free — native clients parse it off the shape.
+    expect(JSON.stringify(seeded)).not.toContain(`null`)
+    expect(seeded).toEqual({
+      defaultAgent: `claude`,
+      agents: {
+        claude: {
+          model: `fable`,
+          effort: ``,
+          ultracode: false,
+          planMode: true,
+          skipPermissions: false,
+        },
+        codex: { model: ``, effort: ``, skipPermissions: false },
+        pi: { model: ``, effort: ``, planMode: true },
+      },
+    })
+  })
 })
 
 describe(`devices.requestUpdate + heartbeat`, () => {
@@ -741,6 +797,26 @@ describe(`devices.setLaunchDefaults`, () => {
     })
     expect(result.ok).toBe(true)
     expect(result.launchDefaults).toEqual({ defaultAgent: `pi` })
+  })
+
+  it(`tolerates 0.14.10's explicit-null toggles on a device push (EXP-495)`, async () => {
+    h.state.selectQueue = deviceRow()
+    const result = await caller.setLaunchDefaults({
+      deviceId: `dev-1`,
+      launchDefaults: {
+        defaultAgent: `pi`,
+        agents: {
+          pi: { model: ``, effort: ``, ultracode: null, planMode: false, skipPermissions: null },
+        },
+      },
+      expectedUpdatedAt: null,
+    })
+    expect(result.ok).toBe(true)
+    expect(JSON.stringify(result.launchDefaults)).not.toContain(`null`)
+    expect(result.launchDefaults).toEqual({
+      defaultAgent: `pi`,
+      agents: { pi: { model: ``, effort: ``, planMode: false } },
+    })
   })
 
   it(`skips the nudge for devices without any EXP-481 cap (old frame parsers)`, async () => {

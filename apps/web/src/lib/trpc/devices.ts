@@ -88,14 +88,17 @@ function clampLaunchDefaults(
       ) {
         entry.effort = d.effort
       }
-      if (d.ultracode !== undefined && agentSupportsUltracode(agent)) {
+      // `typeof === boolean`, not `!== undefined`: the nullish schema lets
+      // 0.14.10's explicit-null toggles through (EXP-495) and stored jsonb
+      // must stay null-free (native clients parse it off the devices shape).
+      if (typeof d.ultracode === `boolean` && agentSupportsUltracode(agent)) {
         entry.ultracode = d.ultracode
       }
-      if (d.planMode !== undefined && agentSupportsPlanMode(agent)) {
+      if (typeof d.planMode === `boolean` && agentSupportsPlanMode(agent)) {
         entry.planMode = d.planMode
       }
       if (
-        d.skipPermissions !== undefined &&
+        typeof d.skipPermissions === `boolean` &&
         agentSupportsSkipPermissions(agent)
       ) {
         entry.skipPermissions = d.skipPermissions

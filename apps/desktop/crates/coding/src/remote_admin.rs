@@ -22,13 +22,23 @@ use crate::settings::Settings;
 // ---------------------------------------------------------------------------
 
 /// One agent's entry in a defaults patch. Only PRESENT fields apply.
+///
+/// Every `None` is OMITTED on the wire, never an explicit `null` — the
+/// server's zod schema rejected nulls with a 400 that silently killed
+/// `devices.register` on 0.14.10 daemons (EXP-495). Deserialization still
+/// accepts both absent and null.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AgentDefaultsPatch {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ultracode: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub plan_mode: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub skip_permissions: Option<bool>,
 }
 
@@ -39,6 +49,7 @@ pub struct AgentDefaultsPatch {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct DefaultsPatch {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub default_agent: Option<String>,
     pub agents: BTreeMap<String, AgentDefaultsPatch>,
 }
@@ -364,6 +375,24 @@ mod tests {
         let wire = defaults_wire(&settings);
         assert!(!apply_defaults_patch(&mut settings, &wire));
         assert_eq!(settings, Settings::default());
+    }
+
+    #[test]
+    fn defaults_wire_never_serializes_null() {
+        // EXP-495: capability-masked toggles must be OMITTED, not null —
+        // the server's zod schema 400'd explicit nulls, silently failing
+        // `devices.register` on every 0.14.10 daemon.
+        let wire = serde_json::to_value(defaults_wire(&Settings::default())).unwrap();
+        let rendered = serde_json::to_string(&wire).unwrap();
+        assert!(!rendered.contains("null"), "no nulls on the wire: {rendered}");
+        let codex = &wire["agents"]["codex"];
+        assert!(codex.get("ultracode").is_none(), "ultracode is claude-only");
+        assert!(codex.get("planMode").is_none(), "plan mode is claude+pi");
+        assert!(codex.get("skipPermissions").is_some());
+        let pi = &wire["agents"]["pi"];
+        assert!(pi.get("ultracode").is_none());
+        assert!(pi.get("skipPermissions").is_none(), "skip-permissions is claude+codex");
+        assert!(pi.get("planMode").is_some());
     }
 
     #[test]
