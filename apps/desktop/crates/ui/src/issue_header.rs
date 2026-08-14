@@ -522,17 +522,22 @@ impl IssueHeader {
     /// origin off `issues.source`). Widget rows carry a null creator, so this
     /// is the only author/origin signal; renders NOTHING for `user`/None.
     fn origin_chip(&self, issue: &Issue, cx: &App) -> Option<impl IntoElement> {
-        if issue.source.as_deref() != Some(domain::contract::ISSUE_SOURCE_WIDGET) {
-            return None;
-        }
+        let (icon, label) = match issue.source.as_deref() {
+            Some(domain::contract::ISSUE_SOURCE_WIDGET) => {
+                (ExpIcon::MessageSquare, "Feedback widget")
+            }
+            // EXP-496: bug reports filed by a coding agent over MCP.
+            Some(domain::contract::ISSUE_SOURCE_AGENT) => (registry::UI_AGENT_SOURCE, "Agent"),
+            _ => return None,
+        };
         Some(
             glass_chip()
                 .child(
-                    Icon::from(ExpIcon::MessageSquare)
+                    Icon::from(icon)
                         .xsmall()
                         .text_color(cx.theme().muted_foreground),
                 )
-                .child(SharedString::from("Feedback widget")),
+                .child(SharedString::from(label)),
         )
     }
 

@@ -1,0 +1,1 @@
+ALTER TYPE "public"."issue_source" ADD VALUE IF NOT EXISTS 'agent';

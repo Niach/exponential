@@ -383,6 +383,7 @@ export const SEMANTIC_ICONS = {
   "support-open": `mail-open`,
   "support-resolved": `circle-check`,
   "ui-add": `plus`,
+  "ui-agent-source": `bot`,
   "ui-arrow-right": `arrow-right`,
   "ui-assignee": `circle-user`,
   "ui-attach": `paperclip`,

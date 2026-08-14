@@ -41,41 +41,65 @@
     "startedMax": 4
   },
   "issueStatusDefaults": [
-    { "key": "backlog", "category": "backlog", "name": "Backlog", "color": "#A1A1AA", "sortOrder": 1 },
-    { "key": "todo", "category": "unstarted", "name": "Todo", "color": "#FAFAFA", "sortOrder": 1 },
-    { "key": "in_progress", "category": "started", "name": "In Progress", "color": "#EAB308", "sortOrder": 1 },
-    { "key": "in_review", "category": "started", "name": "In Review", "color": "#22C55E", "sortOrder": 2 },
-    { "key": "done", "category": "completed", "name": "Done", "color": "#3B82F6", "sortOrder": 1 },
-    { "key": "cancelled", "category": "cancelled", "name": "Cancelled", "color": "#A1A1AA", "sortOrder": 1 },
-    { "key": "duplicate", "category": "duplicate", "name": "Duplicate", "color": "#A1A1AA", "sortOrder": 1 }
+    {
+      "key": "backlog",
+      "category": "backlog",
+      "name": "Backlog",
+      "color": "#A1A1AA",
+      "sortOrder": 1
+    },
+    {
+      "key": "todo",
+      "category": "unstarted",
+      "name": "Todo",
+      "color": "#FAFAFA",
+      "sortOrder": 1
+    },
+    {
+      "key": "in_progress",
+      "category": "started",
+      "name": "In Progress",
+      "color": "#EAB308",
+      "sortOrder": 1
+    },
+    {
+      "key": "in_review",
+      "category": "started",
+      "name": "In Review",
+      "color": "#22C55E",
+      "sortOrder": 2
+    },
+    {
+      "key": "done",
+      "category": "completed",
+      "name": "Done",
+      "color": "#3B82F6",
+      "sortOrder": 1
+    },
+    {
+      "key": "cancelled",
+      "category": "cancelled",
+      "name": "Cancelled",
+      "color": "#A1A1AA",
+      "sortOrder": 1
+    },
+    {
+      "key": "duplicate",
+      "category": "duplicate",
+      "name": "Duplicate",
+      "color": "#A1A1AA",
+      "sortOrder": 1
+    }
   ],
   "issuePriority": {
-    "values": [
-      "none",
-      "urgent",
-      "high",
-      "medium",
-      "low"
-    ],
-    "displayOrder": [
-      "urgent",
-      "high",
-      "medium",
-      "low",
-      "none"
-    ]
+    "values": ["none", "urgent", "high", "medium", "low"],
+    "displayOrder": ["urgent", "high", "medium", "low", "none"]
   },
   "issueSource": {
-    "values": [
-      "user",
-      "widget"
-    ]
+    "values": ["user", "widget", "agent"]
   },
   "teamRole": {
-    "values": [
-      "owner",
-      "member"
-    ]
+    "values": ["owner", "member"]
   },
   "boardIcon": {
     "values": [
@@ -142,9 +166,7 @@
     ]
   },
   "commentKind": {
-    "values": [
-      "regular"
-    ]
+    "values": ["regular"]
   },
   "notificationType": {
     "values": [
@@ -159,20 +181,10 @@
     ]
   },
   "prState": {
-    "values": [
-      "open",
-      "closed",
-      "merged",
-      "draft"
-    ]
+    "values": ["open", "closed", "merged", "draft"]
   },
   "codingSessionStatus": {
-    "values": [
-      "running",
-      "in_review",
-      "merged",
-      "ended"
-    ]
+    "values": ["running", "in_review", "merged", "ended"]
   },
   "codingSession": {
     "staleHours": 2
@@ -202,43 +214,19 @@
     ]
   },
   "codingAgent": {
-    "values": [
-      "claude",
-      "codex",
-      "pi"
-    ]
+    "values": ["claude", "codex", "pi"]
   },
   "codingModel": {
-    "values": [
-      "fable",
-      "opus",
-      "sonnet"
-    ]
+    "values": ["fable", "opus", "sonnet"]
   },
   "codingEffort": {
-    "values": [
-      "low",
-      "medium",
-      "high",
-      "xhigh",
-      "max"
-    ]
+    "values": ["low", "medium", "high", "xhigh", "max"]
   },
   "codexModel": {
-    "values": [
-      "gpt-5.6-sol",
-      "gpt-5.6-terra",
-      "gpt-5.6-luna"
-    ]
+    "values": ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]
   },
   "codexEffort": {
-    "values": [
-      "minimal",
-      "low",
-      "medium",
-      "high",
-      "xhigh"
-    ]
+    "values": ["minimal", "low", "medium", "high", "xhigh"]
   },
   "piModel": {
     "values": [
@@ -252,24 +240,10 @@
     ]
   },
   "piThinking": {
-    "values": [
-      "off",
-      "minimal",
-      "low",
-      "medium",
-      "high",
-      "xhigh",
-      "max"
-    ]
+    "values": ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
   },
   "actionInputType": {
-    "values": [
-      "text",
-      "repo",
-      "board",
-      "pr",
-      "icon"
-    ]
+    "values": ["text", "repo", "board", "pr", "icon"]
   },
   "builtinAction": {
     "createActionId": "builtin:create-action",

@@ -129,15 +129,18 @@ export function IssueTimeline({
     await trpc.comments.delete.mutate({ id: commentId })
   }
 
-  // Widget-filed issues have no creator (`creatorId` is NULL by design), so
-  // they read as filed by the widget itself — the wording every client shares.
+  // Widget- and agent-filed issues have no creator (`creatorId` is NULL by
+  // design), so they read as filed by their origin — the wording every client
+  // shares.
   const createdWho =
     issue.source === `widget`
       ? `Feedback widget`
-      : displayUserName(
-          issue.creatorId ? userMap.get(issue.creatorId) : undefined,
-          issue.creatorId
-        )
+      : issue.source === `agent`
+        ? `Agent`
+        : displayUserName(
+            issue.creatorId ? userMap.get(issue.creatorId) : undefined,
+            issue.creatorId
+          )
   const createdTime = relativeTime(issue.createdAt)
 
   // EXP-422 reverses EXP-327: the rule is bounded by the reading column, so

@@ -54,11 +54,12 @@ class DomainContractLockTest {
     @Test
     fun issueSourceWireValuesMatchGeneratedContract() {
         assertEquals(
-            listOf("user", "widget"),
+            listOf("user", "widget", "agent"),
             DomainContract.issueSourceValues,
         )
         // The per-value constants stay in lockstep with the values list.
         assertEquals("user", DomainContract.issueSourceUser)
         assertEquals("widget", DomainContract.issueSourceWidget)
+        assertEquals("agent", DomainContract.issueSourceAgent)
     }
 }

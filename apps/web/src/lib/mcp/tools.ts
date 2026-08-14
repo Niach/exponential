@@ -71,6 +71,9 @@ import {
   releasePrOpenClaim,
 } from "@/lib/integrations/pr-actor-claims"
 import { escapeLikePattern } from "@/lib/like-pattern"
+import { buildRuntimeConfig } from "@/lib/runtime-config"
+import { createAgentBugReport } from "@/lib/widget/agent-report"
+import { TokenBucketLimiter } from "@/lib/widget/rate-limit"
 import { err, ok } from "./helpers"
 import type { McpUser } from "./server"
 import {
@@ -83,6 +86,13 @@ import {
   isTeamVisible,
   type McpAccess,
 } from "./scope"
+
+// EXP-496: per-user bound on agent bug reports. In-process like the widget
+// buckets (rate-limit.ts documents why that is fine for this deploy).
+const agentBugReportLimiter = new TokenBucketLimiter({
+  capacity: 3,
+  refillPerHour: 10,
+})
 
 function buildCtx(user: McpUser, request: Request): Context {
   const now = new Date()
@@ -2070,4 +2080,45 @@ export function registerExponentialTools(
       }
     }
   )
+
+  // EXP-496: vendor bug intake. Registered only where the instance has an
+  // in-app feedback widget (cloud — the same gate as the sidebar Feedback
+  // button), so self-hosted agents never see the tool. Deliberately NO
+  // grant/scope assertion: it writes to the vendor's own feedback board, not
+  // to any of the caller's team data.
+  const feedbackWidgetKey = buildRuntimeConfig().feedbackWidget?.widgetKey
+  if (feedbackWidgetKey) {
+    server.registerTool(
+      `exponential_report_bug`,
+      {
+        description: `File a bug report about Exponential itself (the issue tracker) to the Exponential team. Not for issues in the user's own project.`,
+        inputSchema: {
+          title: z.string().min(1).max(500),
+          description: z.string().min(1).max(10_000),
+        },
+      },
+      async ({ title, description }) => {
+        try {
+          const limit = agentBugReportLimiter.tryTake(user.id)
+          if (!limit.ok) {
+            return err(
+              new Error(
+                `Too many bug reports — retry in ${limit.retryAfterSeconds}s`
+              )
+            )
+          }
+          const result = await createAgentBugReport({
+            widgetKey: feedbackWidgetKey,
+            reporter: { email: user.email, name: user.name ?? null },
+            title,
+            description,
+            userAgent: request.headers.get(`user-agent`),
+          })
+          return ok(result)
+        } catch (e) {
+          return err(e)
+        }
+      }
+    )
+  }
 }

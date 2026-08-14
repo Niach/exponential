@@ -6037,6 +6037,8 @@ public object ExpIcons {
     public val supportResolved: ImageVector get() = `circle-check`
     /** Concept `ui-add`. */
     public val uiAdd: ImageVector get() = `plus`
+    /** Concept `ui-agent-source`. */
+    public val uiAgentSource: ImageVector get() = `bot`
     /** Concept `ui-arrow-right`. */
     public val uiArrowRight: ImageVector get() = `arrow-right`
     /** Concept `ui-assignee`. */

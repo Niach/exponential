@@ -487,6 +487,8 @@ public enum AppIcons {
     public static let supportResolved: String = "circle-check"
     /// Concept `ui-add`.
     public static let uiAdd: String = "plus"
+    /// Concept `ui-agent-source`.
+    public static let uiAgentSource: String = "bot"
     /// Concept `ui-arrow-right`.
     public static let uiArrowRight: String = "arrow-right"
     /// Concept `ui-assignee`.

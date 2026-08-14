@@ -82,6 +82,7 @@ pub mod token_store;
 pub mod trpc;
 pub mod users;
 pub mod teams;
+pub mod widgets;
 
 mod encode;
 

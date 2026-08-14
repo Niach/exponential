@@ -101,12 +101,15 @@ struct IssueDetailView: View {
                                     .glassButton()
                             }
                             // Origin chip: issues filed through the embeddable
-                            // feedback widget carry source='widget' and no user
-                            // creator — surface that provenance read-only.
-                            if issue.source == DomainContract.issueSourceWidget {
+                            // feedback widget (source='widget') or by a coding
+                            // agent over MCP (source='agent', EXP-496) carry no
+                            // user creator — surface that provenance read-only.
+                            if issue.source == DomainContract.issueSourceWidget
+                                || issue.source == DomainContract.issueSourceAgent {
+                                let isAgent = issue.source == DomainContract.issueSourceAgent
                                 HStack(spacing: 6) {
-                                    AppIcon(AppIcons.uiWidget, size: 11)
-                                    Text("Feedback widget")
+                                    AppIcon(isAgent ? AppIcons.uiAgentSource : AppIcons.uiWidget, size: 11)
+                                    Text(isAgent ? "Agent" : "Feedback widget")
                                         .font(.caption)
                                         .lineLimit(1)
                                 }
@@ -209,6 +212,13 @@ struct IssueDetailView: View {
                             currentUserId: deps.auth.userId
                         )
 
+                        // Widget/agent submission metadata (EXP-496):
+                        // expandable card, default collapsed; renders nothing
+                        // for issues without a submission row.
+                        if let submission = vm.widgetSubmission {
+                            WidgetSubmissionCard(submission: submission, source: issue.source)
+                        }
+
                         // Non-image attachments (EXP-297): rendered from the
                         // synced attachment rows, not from the markdown.
                         IssueFilesSection(viewModel: vm)
@@ -263,6 +273,10 @@ struct IssueDetailView: View {
                 // once the board (hence the team) resolves.
                 .task(id: "\(accountId)|\(issue.id)|\(vm.runningSessions.isEmpty)|\(vm.permissions.isMember)|\(vm.board?.teamId ?? "")") {
                     await vm.refreshSteer()
+                }
+                // EXP-496: the submission metadata card's one-shot fetch.
+                .task(id: "widget-submission-\(issue.id)") {
+                    await vm.loadWidgetSubmission()
                 }
                 .sheet(item: $activeSheet) { sheet in
                     sheetContent(sheet, vm: vm, issue: issue)
@@ -398,6 +412,7 @@ struct IssueDetailView: View {
                     subscriptionsApi: deps.subscriptionsApi,
                     steerApi: deps.steerApi,
                     devicesApi: deps.devicesApi,
+                    widgetsApi: deps.widgetsApi,
                     auth: deps.auth
                 )
                 viewModel = vm

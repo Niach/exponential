@@ -15,7 +15,7 @@ public enum DomainContract {
     public static let issueStatusDefaultSortOrders: [Int] = [1, 1, 1, 2, 1, 1, 1]
     public static let issuePriorityValues: [String] = ["none", "urgent", "high", "medium", "low"]
     public static let issuePriorityDisplayOrder: [String] = ["urgent", "high", "medium", "low", "none"]
-    public static let issueSourceValues: [String] = ["user", "widget"]
+    public static let issueSourceValues: [String] = ["user", "widget", "agent"]
     public static let teamRoleValues: [String] = ["owner", "member"]
     public static let boardIconValues: [String] = ["code", "square-kanban", "megaphone", "bug", "rocket", "book-open", "globe", "heart", "star", "zap", "wrench", "shield", "package", "terminal", "lightbulb", "message-circle", "palette", "pen-tool", "database", "server", "cloud", "cpu", "layers", "boxes", "folder", "file-text", "calendar", "clock", "users", "user", "flag", "target", "trophy", "lock", "key", "mail", "phone", "bell", "git-branch", "bot", "sparkles", "flask-conical", "shopping-cart", "credit-card", "map-pin", "compass", "briefcase", "graduation-cap", "puzzle", "gamepad-2", "coffee", "plane", "house", "building", "leaf", "sun", "activity", "chart-line", "scale", "car"]
     public static let commentKindValues: [String] = ["regular"]
@@ -49,6 +49,7 @@ public enum DomainContract {
     public static let issueStatusCategoryDuplicate: String = "duplicate"
     public static let issueSourceUser: String = "user"
     public static let issueSourceWidget: String = "widget"
+    public static let issueSourceAgent: String = "agent"
     public static let teamRoleOwner: String = "owner"
     public static let teamRoleMember: String = "member"
     public static let commentKindRegular: String = "regular"
