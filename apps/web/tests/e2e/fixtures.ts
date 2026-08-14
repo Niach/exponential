@@ -50,7 +50,7 @@ function derivePrefix(name: string) {
     .map((word) => word[0] ?? ``)
     .join(``)
     .toUpperCase()
-    .slice(0, 5)
+    .slice(0, 4)
 }
 
 function slugify(name: string) {

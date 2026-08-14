@@ -65,13 +65,21 @@ async function assertRepositoryInTeam(
   return repo.id
 }
 
-// Postgres unique_violation (23505), as surfaced by postgres-js directly or
-// wrapped in an error cause by drizzle.
-function isUniqueViolation(err: unknown): boolean {
-  if (!err || typeof err !== `object`) return false
-  const candidate = err as { code?: unknown; cause?: unknown }
-  if (candidate.code === `23505`) return true
-  return isUniqueViolation(candidate.cause)
+// Postgres unique_violation (23505), as surfaced by pg's DatabaseError
+// directly or wrapped in an error cause by drizzle. Returns the violated
+// constraint's name (boards has two: team_id+slug and team_id+prefix; ``
+// when pg omitted it) or null when the error is no unique violation.
+function uniqueViolationConstraint(err: unknown): string | null {
+  if (!err || typeof err !== `object`) return null
+  const candidate = err as {
+    code?: unknown
+    constraint?: unknown
+    cause?: unknown
+  }
+  if (candidate.code === `23505`) {
+    return typeof candidate.constraint === `string` ? candidate.constraint : ``
+  }
+  return uniqueViolationConstraint(candidate.cause)
 }
 
 function slugify(name: string): string {
@@ -94,13 +102,14 @@ export const boardsRouter = router({
         // issue-ref token contract (lib/issue-refs.ts) only matches
         // letter-led alphanumeric prefixes — reject whitespace/symbol
         // prefixes at the door so a board can never mint unreferenceable
-        // identifiers (EXP-46 hardening; stored uppercased below).
+        // identifiers (EXP-46 hardening; stored uppercased below). Max 4
+        // chars and unique per team (REV-4) so identifiers stay team-unique.
         prefix: z
           .string()
           .trim()
           .regex(
-            /^[A-Za-z][A-Za-z0-9]{0,9}$/,
-            `Prefix must be 1-10 letters or digits, starting with a letter`
+            /^[A-Za-z][A-Za-z0-9]{0,3}$/,
+            `Prefix must be 1-4 letters or digits, starting with a letter`
           ),
         color: z
           .string()
@@ -170,16 +179,23 @@ export const boardsRouter = router({
           return { board, txId }
         })
       } catch (error) {
-        // A trashed board keeps its (team_id, slug) reservation for the
-        // whole retention window; distinguish that from a live-name clash.
-        if (isUniqueViolation(error)) {
+        // A trashed board keeps its (team_id, slug) AND (team_id, prefix)
+        // reservations for the whole retention window; distinguish those
+        // from a live clash, and say which of the two fields collided.
+        const constraint = uniqueViolationConstraint(error)
+        if (constraint !== null) {
+          const prefixClash = constraint.includes(`prefix`)
+          const field = prefixClash
+            ? eq(boards.prefix, input.prefix.toUpperCase())
+            : eq(boards.slug, slug)
+          const label = prefixClash ? `prefix` : `name`
           const [trashed] = await ctx.db
             .select({ id: boards.id })
             .from(boards)
             .where(
               and(
                 eq(boards.teamId, input.teamId),
-                eq(boards.slug, slug),
+                field,
                 isNotNull(boards.deletedAt)
               )
             )
@@ -187,8 +203,8 @@ export const boardsRouter = router({
           throw new TRPCError({
             code: `BAD_REQUEST`,
             message: trashed
-              ? `A board with this name is in the trash. Restore it or wait for the purge.`
-              : `A board with this name already exists`,
+              ? `A board with this ${label} is in the trash. Restore it or wait for the purge.`
+              : `A board with this ${label} already exists`,
           })
         }
         throw error

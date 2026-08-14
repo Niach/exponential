@@ -156,18 +156,19 @@ struct CreateBoardForm: View {
 
     private func onPrefixChange(_ value: String) {
         prefixEdited = true
-        prefix = String(value.uppercased().prefix(10))
+        prefix = String(value.uppercased().prefix(4))
     }
 
     /// Port of web `derivePrefix` (lib/board.ts): first letter of each word,
-    /// uppercased, capped at 5. Separators are whitespace / `-` / `_`.
+    /// uppercased, capped at 4 (the server cap, REV-4). Separators are
+    /// whitespace / `-` / `_`.
     static func derivePrefix(_ name: String) -> String {
         let letters = name
             .split(whereSeparator: { $0 == "-" || $0 == "_" || $0.isWhitespace })
             .compactMap { $0.first.map(String.init) }
             .joined()
             .uppercased()
-        return String(letters.prefix(5))
+        return String(letters.prefix(4))
     }
 
     // MARK: - Create

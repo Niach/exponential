@@ -252,7 +252,11 @@ export const boards = pgTable(
       .references(() => teams.id, { onDelete: `cascade` }),
     name: varchar({ length: 255 }).notNull(),
     slug: varchar({ length: 255 }).notNull(),
-    prefix: varchar({ length: 10 }).notNull(),
+    // Uppercase, letter-led, max 4 chars (REV-4 — was 10; migration 0069
+    // truncated longer ones). Unique per team so `{PREFIX}-{number}`
+    // identifiers stay team-unique — reviews/mentions/branches resolve
+    // issues by bare identifier.
+    prefix: varchar({ length: 4 }).notNull(),
     color: varchar({ length: 7 }).notNull().default(`#6366f1`),
     // Curated display icon (boardIconValues in domain.ts / the domain
     // contract). NULL = clients derive a fallback from repo presence.
@@ -275,6 +279,9 @@ export const boards = pgTable(
   },
   (table) => [
     unique().on(table.teamId, table.slug),
+    // Duplicate prefixes minted colliding identifiers (two boards' WEB-7);
+    // like the slug, a trashed board keeps its prefix reserved until purge.
+    unique().on(table.teamId, table.prefix),
     index(`idx_boards_repository`).on(table.repositoryId),
     // Serves the purge sweep + trash-aware shape filter; near-empty in steady
     // state (only trashed rows are indexed).

@@ -12,5 +12,5 @@ export function derivePrefix(name: string): string {
     .replace(/[^A-Za-z0-9]/g, ``)
     .replace(/^[0-9]+/, ``)
     .toUpperCase()
-    .slice(0, 5)
+    .slice(0, 4)
 }

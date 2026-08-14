@@ -47,7 +47,8 @@ import com.exponential.app.ui.theme.TextEmphasis
 private const val DEFAULT_COLOR = "#6366f1"
 
 /**
- * First letters of each word, uppercased, capped at 5 — mirrors web
+ * First letters of each word, uppercased, capped at 4 (the server cap,
+ * REV-4) — mirrors web
  * `derivePrefix` (apps/web/src/lib/board.ts) byte-for-byte. The server
  * (boards.create, EXP-46 hardening) requires a letter-led alphanumeric
  * prefix, so symbol initials and leading digits are dropped; symbol/digit-only
@@ -60,7 +61,7 @@ private fun derivePrefix(name: String): String =
         .replace(Regex("[^A-Za-z0-9]"), "")
         .replace(Regex("^[0-9]+"), "")
         .uppercase()
-        .take(5)
+        .take(4)
 
 // Reusable create-board form: one plain form of name, prefix, color, icon
 // and an ALWAYS-optional repository (coding/PR affordances gate on its
@@ -118,7 +119,7 @@ fun CreateBoardForm(
                 value = prefix,
                 onValueChange = {
                     prefixEdited = true
-                    prefix = it.uppercase().take(10)
+                    prefix = it.uppercase().take(4)
                 },
                 singleLine = true,
                 label = { Text("Prefix") },
