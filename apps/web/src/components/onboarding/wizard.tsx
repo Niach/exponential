@@ -406,7 +406,7 @@ function BoardStep({
                 )
               }
               placeholder="e.g. API"
-              maxLength={10}
+              maxLength={4}
             />
           </div>
         </div>

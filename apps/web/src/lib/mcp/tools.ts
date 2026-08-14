@@ -348,13 +348,14 @@ export function registerExponentialTools(
         teamId: uuidString,
         name: z.string().min(1).max(255),
         // Mirrors boards.create's floor (EXP-46): letter-led alphanumeric,
-        // so identifiers stay `{PREFIX}-{number}` referenceable.
+        // max 4, unique per team (REV-4) — identifiers stay `{PREFIX}-{number}`
+        // referenceable and team-unique.
         prefix: z
           .string()
           .trim()
           .regex(
-            /^[A-Za-z][A-Za-z0-9]{0,9}$/,
-            `Prefix must be 1-10 letters or digits, starting with a letter`
+            /^[A-Za-z][A-Za-z0-9]{0,3}$/,
+            `Prefix must be 1-4 letters or digits, starting with a letter`
           ),
         color: z
           .string()

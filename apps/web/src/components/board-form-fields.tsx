@@ -54,7 +54,7 @@ export function BoardPrefixField({
           onChange(e.target.value.replace(/[^A-Za-z0-9]/g, ``).toUpperCase())
         }
         placeholder="e.g. API"
-        maxLength={10}
+        maxLength={4}
       />
     </div>
   )

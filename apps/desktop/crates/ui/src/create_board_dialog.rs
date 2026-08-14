@@ -229,14 +229,14 @@ impl CreateBoardDialogView {
                 _ => {}
             },
         ));
-        // Web prefix input: uppercased, maxLength 10.
+        // Web prefix input: uppercased, maxLength 4 (the server cap, REV-4).
         subscriptions.push(cx.subscribe_in(
             &prefix,
             window,
             |this, _, event: &InputEvent, window, cx| match event {
                 InputEvent::Change => {
                     let value = this.prefix.read(cx).value().to_string();
-                    let normalized: String = value.to_uppercase().chars().take(10).collect();
+                    let normalized: String = value.to_uppercase().chars().take(4).collect();
                     if normalized != value {
                         this.prefix
                             .update(cx, |state, cx| state.set_value(normalized, window, cx));
@@ -1072,14 +1072,15 @@ fn labeled(cx: &App, label: &'static str, input: Input) -> impl IntoElement {
 }
 
 /// Web `derivePrefix` (`lib/board.ts`): first letter of each
-/// space/dash/underscore-separated word, uppercased, max 5.
+/// space/dash/underscore-separated word, uppercased, max 4 (the server cap,
+/// REV-4).
 pub(crate) fn derive_prefix(name: &str) -> String {
     name.split(|c: char| c.is_whitespace() || c == '-' || c == '_')
         .filter_map(|word| word.chars().next())
         .collect::<String>()
         .to_uppercase()
         .chars()
-        .take(5)
+        .take(4)
         .collect()
 }
 
@@ -1157,7 +1158,7 @@ mod tests {
     fn derive_prefix_matches_web() {
         assert_eq!(derive_prefix("My Board"), "MB");
         assert_eq!(derive_prefix("backend-api"), "BA");
-        assert_eq!(derive_prefix("a_b_c_d_e_f_g"), "ABCDE");
+        assert_eq!(derive_prefix("a_b_c_d_e_f_g"), "ABCD");
         assert_eq!(derive_prefix(""), "");
         assert_eq!(derive_prefix("  spaced   out  "), "SO");
     }
