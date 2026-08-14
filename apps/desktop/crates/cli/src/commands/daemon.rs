@@ -568,7 +568,17 @@ fn register_device(
             true
         }
         Err(err) => {
-            log::warn!("devices.register failed (older server?): {err}");
+            // EXP-495: a 4xx is the server REJECTING this build's payload —
+            // the machine will be missing from the web UI even though steer
+            // presence reads online, so say that loudly instead of the
+            // best-effort "older server" shrug (which stays for transport
+            // errors and genuinely routerless servers).
+            match &err {
+                api::ApiError::Http { status: 400..=499, .. } => log::error!(
+                    "devices.register rejected ({err}) — this machine will not appear in the web UI until a register succeeds (retrying on the heartbeat cadence)"
+                ),
+                _ => log::warn!("devices.register failed (older server?): {err}"),
+            }
             false
         }
     }

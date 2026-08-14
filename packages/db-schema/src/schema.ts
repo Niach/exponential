@@ -712,21 +712,26 @@ export interface DeviceLaunchDefaults {
   defaultAgent?: string
   agents?: Record<string, DeviceAgentLaunchDefaults>
 }
+// Every field is `.nullish()`, not `.optional()`: 0.14.10 native builds
+// (EXP-495) serialized capability-masked toggles as explicit `null` and a
+// strict schema 400'd the whole register — leaving the machine invisible
+// with no self-heal path (the update request is consumed on register).
+// `clampLaunchDefaults` strips the nulls; stored copies stay null-free.
 export const deviceLaunchDefaultsSchema = z.object({
-  defaultAgent: z.string().min(1).max(32).optional(),
+  defaultAgent: z.string().min(1).max(32).nullish(),
   agents: z
     .record(
       z.string().min(1).max(32),
       z.object({
-        model: z.string().max(64).optional(),
-        effort: z.string().max(64).optional(),
-        ultracode: z.boolean().optional(),
-        planMode: z.boolean().optional(),
-        skipPermissions: z.boolean().optional(),
+        model: z.string().max(64).nullish(),
+        effort: z.string().max(64).nullish(),
+        ultracode: z.boolean().nullish(),
+        planMode: z.boolean().nullish(),
+        skipPermissions: z.boolean().nullish(),
       })
     )
     .refine((agents) => Object.keys(agents).length <= 16)
-    .optional(),
+    .nullish(),
 })
 
 // EXP-403 registered devices — since EXP-481 an Electric shape (own rows plus
