@@ -14,6 +14,8 @@ import com.exponential.app.data.api.LabelsApi
 import com.exponential.app.data.api.NotificationsApi
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
+import com.exponential.app.data.api.WidgetSubmissionResult
+import com.exponential.app.data.api.WidgetsApi
 import com.exponential.app.data.api.SteerStartOptions
 import com.exponential.app.data.api.SubscriptionsApi
 import com.exponential.app.data.api.UpdateIssueInput
@@ -103,6 +105,7 @@ class IssueDetailViewModel @Inject constructor(
     private val notificationsApi: NotificationsApi,
     private val steerApi: SteerApi,
     private val devicesApi: DevicesApi,
+    private val widgetsApi: WidgetsApi,
     private val stats: SyncStats,
     private val syncManager: SyncManager,
     @dagger.hilt.android.qualifiers.ApplicationContext
@@ -336,6 +339,13 @@ class IssueDetailViewModel @Inject constructor(
     // steer.config is env-derived and static per instance: null = still loading.
     private val _steerEnabled = MutableStateFlow<Boolean?>(null)
     val steerEnabled: StateFlow<Boolean?> = _steerEnabled
+
+    // EXP-496: the widget/agent submission metadata behind this issue
+    // (widgets.submissionForIssue, server-only). null = loading, fetch failed
+    // (non-member), or not a widget/agent issue — the card renders nothing in
+    // every one of those states (web parity).
+    private val _widgetSubmission = MutableStateFlow<WidgetSubmissionResult?>(null)
+    val widgetSubmission: StateFlow<WidgetSubmissionResult?> = _widgetSubmission
 
     // The online machines a start can go to: the caller's own plus (EXP-432)
     // the board team's shared servers. null = not loaded yet.
@@ -733,6 +743,22 @@ class IssueDetailViewModel @Inject constructor(
 
     init {
         viewModelScope.launch { fetchIfAbsent() }
+        // EXP-496: one-shot fetch of the submission metadata card's data.
+        // Errors degrade to "no card" — non-members and older self-hosted
+        // servers without the procedure both land there.
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            try {
+                _widgetSubmission.value = widgetsApi.submissionForIssue(accountId, issueId)
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (t: Throwable) {
+                android.util.Log.d(
+                    "IssueDetailViewModel",
+                    "widgets.submissionForIssue failed for $issueId: ${t.message}",
+                )
+            }
+        }
         // Opening an issue clears its inbox notifications (EXP-92) — push taps
         // and app links never pass through the inbox's own mark-read.
         // Fire-and-forget; also tolerates older self-hosted servers without

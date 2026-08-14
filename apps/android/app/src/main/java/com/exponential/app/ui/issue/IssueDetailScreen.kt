@@ -120,6 +120,7 @@ fun IssueDetailScreen(
     val isSubscribed by viewModel.isSubscribed.collectAsStateWithLifecycle()
     val runningSession by viewModel.runningSession.collectAsStateWithLifecycle()
     val steerEnabled by viewModel.steerEnabled.collectAsStateWithLifecycle()
+    val widgetSubmission by viewModel.widgetSubmission.collectAsStateWithLifecycle()
     val steerDevices by viewModel.steerDevices.collectAsStateWithLifecycle()
     val startState by viewModel.startState.collectAsStateWithLifecycle()
     val startCandidates by viewModel.startCandidates.collectAsStateWithLifecycle()
@@ -502,10 +503,14 @@ fun IssueDetailScreen(
                         .glassButton()
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                 )
-                // Origin chip: issues filed via the feedback widget carry
-                // source == "widget" (no user creator). Read-only indicator.
-                if (issue.source == DomainContract.issueSourceWidget) {
-                    FeedbackWidgetChip()
+                // Origin chip: issues filed via the feedback widget
+                // (source == "widget") or by a coding agent over MCP
+                // (source == "agent", EXP-496) carry no user creator.
+                // Read-only indicator.
+                if (issue.source == DomainContract.issueSourceWidget ||
+                    issue.source == DomainContract.issueSourceAgent
+                ) {
+                    OriginChip(isAgent = issue.source == DomainContract.issueSourceAgent)
                 }
             }
 
@@ -674,6 +679,16 @@ fun IssueDetailScreen(
                     currentUserId = currentUserId,
                     onWatch = onOpenSteer,
                     onOpenChanges = onOpenChanges,
+                )
+            }
+
+            // Widget/agent submission metadata (EXP-496): expandable card,
+            // default collapsed; renders nothing without a submission row.
+            widgetSubmission?.let { submission ->
+                WidgetSubmissionCard(
+                    submission = submission,
+                    isAgent = issue.source == DomainContract.issueSourceAgent,
+                    modifier = Modifier.padding(top = 20.dp),
                 )
             }
 
@@ -942,10 +957,11 @@ private fun RemoteEditBanner(onReload: () -> Unit) {
     }
 }
 
-// Origin pill for widget-filed issues (source == "widget"): a muted, read-only
-// "Feedback widget" indicator built on the shared glass chip idiom.
+// Origin pill for issues without a user creator: "Feedback widget"
+// (source == "widget") or "Agent" (source == "agent", EXP-496) — a muted,
+// read-only indicator built on the shared glass chip idiom.
 @Composable
-private fun FeedbackWidgetChip() {
+private fun OriginChip(isAgent: Boolean) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -953,14 +969,14 @@ private fun FeedbackWidgetChip() {
             .padding(horizontal = 8.dp, vertical = 4.dp),
     ) {
         Icon(
-            ExpIcons.uiWidget,
+            if (isAgent) ExpIcons.uiAgentSource else ExpIcons.uiWidget,
             contentDescription = null,
             modifier = Modifier.size(12.dp),
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
         )
         Spacer(Modifier.width(5.dp))
         Text(
-            "Feedback widget",
+            if (isAgent) "Agent" else "Feedback widget",
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
         )

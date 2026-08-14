@@ -46,6 +46,14 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
 vi.mock(`@/lib/integrations/notifications`, () => ({
   fireAndForgetPrNotify: vi.fn(),
 }))
+vi.mock(`@/lib/widget/agent-report`, () => ({
+  createAgentBugReport: vi.fn(),
+}))
+
+// EXP-496: exponential_report_bug only registers on a cloud instance — stub
+// the env so the budget measures the WORST-case tool surface, not the
+// self-hosted subset.
+vi.stubEnv(`CLOUD_INSTANCE`, `true`)
 
 import { registerExponentialTools } from "@/lib/mcp/tools"
 import { FULL_ACCESS } from "@/lib/mcp/scope"
@@ -83,6 +91,9 @@ function serializeToolDefs() {
 
 it(`keeps the serialized MCP tool context within budget`, () => {
   const defs = serializeToolDefs()
+  // Guard the CLOUD_INSTANCE stub above: if the cloud-only tool ever stops
+  // registering here, the budget silently under-measures.
+  expect(defs.some((def) => def.name === `exponential_report_bug`)).toBe(true)
   const total = JSON.stringify(defs).length
   // 23.2k as of EXP-353. If this trips, trim schemas/descriptions — do not
   // just raise the ceiling: Claude Code's large-MCP-context warning is ~25k.

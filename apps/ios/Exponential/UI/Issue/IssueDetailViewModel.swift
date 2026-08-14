@@ -101,6 +101,12 @@ final class IssueDetailViewModel {
     /// surface explicit "follow it in the Agents tab" feedback instead.
     var batchStartNotice: String?
 
+    /// EXP-496: the widget/agent submission metadata behind this issue
+    /// (`widgets.submissionForIssue`, server-only). `nil` = loading, fetch
+    /// failed (non-member), or not a widget/agent issue — the card renders
+    /// nothing in every one of those states (web parity).
+    var widgetSubmission: WidgetSubmissionRow?
+
     private let accountId: String
     private let issueId: String
     private let db: DatabaseManager
@@ -113,6 +119,8 @@ final class IssueDetailViewModel {
     /// EXP-432: the start circle's device source — `devices.list` team-scoped,
     /// not `steer.myDevices`, so a teammate's shared server counts too.
     private let devicesApi: DevicesApi
+    /// Widget/agent submission metadata (EXP-496) — tRPC-only.
+    private let widgetsApi: WidgetsApi
     private let auth: AuthRepository
     private let baseURL: URL?
     /// Raw instance base string for building shareable web links.
@@ -136,6 +144,7 @@ final class IssueDetailViewModel {
         subscriptionsApi: SubscriptionsApi,
         steerApi: SteerApi,
         devicesApi: DevicesApi,
+        widgetsApi: WidgetsApi,
         auth: AuthRepository
     ) {
         self.accountId = accountId
@@ -148,6 +157,7 @@ final class IssueDetailViewModel {
         self.subscriptionsApi = subscriptionsApi
         self.steerApi = steerApi
         self.devicesApi = devicesApi
+        self.widgetsApi = widgetsApi
         self.auth = auth
         let instanceUrl = auth.accounts.first(where: { $0.id == accountId })?.instanceUrl ?? auth.instanceUrl
         self.instanceUrl = instanceUrl
@@ -492,6 +502,15 @@ final class IssueDetailViewModel {
     /// Load the relay config + device presence for the start circle. Presence
     /// only matters while startable (member, relay on, no live session) — the
     /// same gating the AgentPrCard start area used.
+    /// EXP-496: fetch the widget/agent submission metadata card's data.
+    /// Errors degrade to "no card" — non-members and older self-hosted
+    /// servers without the procedure both land there.
+    func loadWidgetSubmission() async {
+        widgetSubmission = try? await widgetsApi.submissionForIssue(
+            accountId: accountId, issueId: issueId
+        )
+    }
+
     func refreshSteer() async {
         steerConfig = await SteerConfigCache.load(accountId: accountId, api: steerApi)
         guard steerConfig?.enabled == true, permissions.isMember, runningSessions.isEmpty else { return }

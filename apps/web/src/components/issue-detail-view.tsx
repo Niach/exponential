@@ -838,7 +838,7 @@ export function IssueDetailView({
   // EXP-42b: reporter/page/env metadata of widget-filed issues, members-only
   // (the server gates it; anonymous viewers never even fetch).
   const widgetCard = currentUserId ? (
-    <WidgetSubmissionCard issueId={issue.id} />
+    <WidgetSubmissionCard issueId={issue.id} source={issue.source} />
   ) : null
 
   if (isMobile) {

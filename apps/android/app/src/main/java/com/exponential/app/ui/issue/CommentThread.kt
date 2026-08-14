@@ -205,8 +205,8 @@ fun CommentThread(
     }
 }
 
-// The synthesized first item: "«creator» created the issue" (widget-filed
-// issues carry no user creator → "Feedback widget").
+// The synthesized first item: "«creator» created the issue" (widget/agent
+// issues carry no user creator → "Feedback widget" / "Agent").
 @Composable
 private fun CreatedRow(
     item: TimelineItem.Created,
@@ -214,10 +214,10 @@ private fun CreatedRow(
     lineBelow: Boolean,
 ) {
     val issue = item.issue
-    val who = if (issue.source == DomainContract.issueSourceWidget) {
-        "Feedback widget"
-    } else {
-        userDisplayName(issue.creatorId?.let { usersById[it] }, issue.creatorId)
+    val who = when (issue.source) {
+        DomainContract.issueSourceWidget -> "Feedback widget"
+        DomainContract.issueSourceAgent -> "Agent"
+        else -> userDisplayName(issue.creatorId?.let { usersById[it] }, issue.creatorId)
     }
     val time = relativeTime(issue.createdAt)
     Row(

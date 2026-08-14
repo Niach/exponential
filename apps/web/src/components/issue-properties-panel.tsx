@@ -1,4 +1,5 @@
 import { CalendarDays, Megaphone, Plus, Tag } from "lucide-react"
+import { conceptIcon } from "@/lib/icons.generated"
 import type { User } from "@/db/schema"
 import {
   ISSUE_PRIORITY_FALLBACK,
@@ -142,16 +143,20 @@ function BoardChip({
   )
 }
 
-// Muted origin pill shown only for widget-filed issues (no user creator). The
-// author byline slot for feedback that came in through the embeddable widget.
-function SourceChip() {
+const AgentSourceIcon = conceptIcon(`ui-agent-source`)
+
+// Muted origin pill shown only for issues without a user creator: feedback
+// that came in through the embeddable widget, or a bug report filed by a
+// coding agent via the MCP `exponential_report_bug` tool (EXP-496).
+function SourceChip({ source }: { source: string }) {
+  const Icon = source === `agent` ? AgentSourceIcon : Megaphone
   return (
     <Badge
       variant="secondary"
       className="gap-1 font-normal text-muted-foreground"
     >
-      <Megaphone className="size-3" />
-      Feedback widget
+      <Icon className="size-3" />
+      {source === `agent` ? `Agent` : `Feedback widget`}
     </Badge>
   )
 }
@@ -335,7 +340,11 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
       />
     )
 
-  const isWidgetSourced = props.source === `widget`
+  const source = props.source
+  const sourceChip =
+    source === `widget` || source === `agent` ? (
+      <SourceChip source={source} />
+    ) : null
 
   // EXP-422: no left rule (the reading column's own width already reads as the
   // boundary), and the sidebar scrolls on its own so a tall property stack
@@ -351,7 +360,7 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
           {!isSolo && assigneeControl}
           {dueDateControl}
           {boardChip}
-          {isWidgetSourced && <SourceChip />}
+          {sourceChip}
         </PropertyGroup>
         <PropertyGroup label="Labels">{labelControl}</PropertyGroup>
         {props.codingSlot}
@@ -368,7 +377,7 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
       {labelControl}
       {dueDateControl}
       {boardChip}
-      {isWidgetSourced && <SourceChip />}
+      {sourceChip}
     </div>
   )
 }

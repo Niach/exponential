@@ -489,6 +489,8 @@ pub const SUPPORT_OPEN: ExpIcon = ExpIcon::MailOpen;
 pub const SUPPORT_RESOLVED: ExpIcon = ExpIcon::CircleCheck;
 /// Registry concept `ui-add` -> Lucide `plus`.
 pub const UI_ADD: ExpIcon = ExpIcon::Plus;
+/// Registry concept `ui-agent-source` -> Lucide `bot`.
+pub const UI_AGENT_SOURCE: ExpIcon = ExpIcon::Bot;
 /// Registry concept `ui-arrow-right` -> Lucide `arrow-right`.
 pub const UI_ARROW_RIGHT: ExpIcon = ExpIcon::ArrowRight;
 /// Registry concept `ui-assignee` -> Lucide `circle-user`.

@@ -9,8 +9,9 @@ import Foundation
 /// regular comments, and issue events.
 enum TimelineItem: Identifiable {
     /// "«creator» created the issue" — synthesized from the issue row itself
-    /// (widget issues have no user creator and read "Feedback widget").
-    case created(actorId: String?, createdAt: String, isWidget: Bool)
+    /// (widget/agent issues have no user creator and read "Feedback widget" /
+    /// "Agent" off the issue's `source`).
+    case created(actorId: String?, createdAt: String, source: String?)
     case comment(CommentEntity)
     case event(IssueEventEntity)
 

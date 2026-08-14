@@ -238,6 +238,7 @@
     "ui-properties": "sliders-horizontal",
     "ui-team": "users",
     "ui-widget": "megaphone",
+    "ui-agent-source": "bot",
     "ui-issue": "file-text",
     "ui-organization": "building-2",
     "ui-checklist": "list-checks",
@@ -260,31 +261,87 @@
   "custom": {
     "progress-1-4": [
       ["circle", { "cx": "12", "cy": "12", "r": "10", "key": "ring" }],
-      ["path", { "d": "M12 12 L12 6 A6 6 0 0 1 18 12 Z", "fill": "currentColor", "stroke": "none", "key": "wedge" }]
+      [
+        "path",
+        {
+          "d": "M12 12 L12 6 A6 6 0 0 1 18 12 Z",
+          "fill": "currentColor",
+          "stroke": "none",
+          "key": "wedge"
+        }
+      ]
     ],
     "progress-2-4": [
       ["circle", { "cx": "12", "cy": "12", "r": "10", "key": "ring" }],
-      ["path", { "d": "M12 12 L12 6 A6 6 0 0 1 12 18 Z", "fill": "currentColor", "stroke": "none", "key": "wedge" }]
+      [
+        "path",
+        {
+          "d": "M12 12 L12 6 A6 6 0 0 1 12 18 Z",
+          "fill": "currentColor",
+          "stroke": "none",
+          "key": "wedge"
+        }
+      ]
     ],
     "progress-3-4": [
       ["circle", { "cx": "12", "cy": "12", "r": "10", "key": "ring" }],
-      ["path", { "d": "M12 12 L12 6 A6 6 0 1 1 6 12 Z", "fill": "currentColor", "stroke": "none", "key": "wedge" }]
+      [
+        "path",
+        {
+          "d": "M12 12 L12 6 A6 6 0 1 1 6 12 Z",
+          "fill": "currentColor",
+          "stroke": "none",
+          "key": "wedge"
+        }
+      ]
     ],
     "progress-1-5": [
       ["circle", { "cx": "12", "cy": "12", "r": "10", "key": "ring" }],
-      ["path", { "d": "M12 12 L12 6 A6 6 0 0 1 17.7063 10.1459 Z", "fill": "currentColor", "stroke": "none", "key": "wedge" }]
+      [
+        "path",
+        {
+          "d": "M12 12 L12 6 A6 6 0 0 1 17.7063 10.1459 Z",
+          "fill": "currentColor",
+          "stroke": "none",
+          "key": "wedge"
+        }
+      ]
     ],
     "progress-2-5": [
       ["circle", { "cx": "12", "cy": "12", "r": "10", "key": "ring" }],
-      ["path", { "d": "M12 12 L12 6 A6 6 0 0 1 15.5267 16.8541 Z", "fill": "currentColor", "stroke": "none", "key": "wedge" }]
+      [
+        "path",
+        {
+          "d": "M12 12 L12 6 A6 6 0 0 1 15.5267 16.8541 Z",
+          "fill": "currentColor",
+          "stroke": "none",
+          "key": "wedge"
+        }
+      ]
     ],
     "progress-3-5": [
       ["circle", { "cx": "12", "cy": "12", "r": "10", "key": "ring" }],
-      ["path", { "d": "M12 12 L12 6 A6 6 0 1 1 8.4733 16.8541 Z", "fill": "currentColor", "stroke": "none", "key": "wedge" }]
+      [
+        "path",
+        {
+          "d": "M12 12 L12 6 A6 6 0 1 1 8.4733 16.8541 Z",
+          "fill": "currentColor",
+          "stroke": "none",
+          "key": "wedge"
+        }
+      ]
     ],
     "progress-4-5": [
       ["circle", { "cx": "12", "cy": "12", "r": "10", "key": "ring" }],
-      ["path", { "d": "M12 12 L12 6 A6 6 0 1 1 6.2937 10.1459 Z", "fill": "currentColor", "stroke": "none", "key": "wedge" }]
+      [
+        "path",
+        {
+          "d": "M12 12 L12 6 A6 6 0 1 1 6.2937 10.1459 Z",
+          "fill": "currentColor",
+          "stroke": "none",
+          "key": "wedge"
+        }
+      ]
     ]
   }
 }

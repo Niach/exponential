@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-agent-bug-reports`,
+    date: `2026-08-14`,
+    title: `Agent bug reports and richer feedback details`,
+    summary: `Coding agents can file Exponential bug reports straight from a session, and feedback metadata now shows on every platform.`,
+    body: `- **Report bugs from a session**: agents connected over MCP get a report tool that files bugs about Exponential directly to us, credited to you so you get the resolution email. Issues filed this way carry an Agent origin chip.
+- **Feedback details everywhere**: the reporter, page, and device details on widget-filed issues now show in the desktop IDE and as an expandable card on mobile, not just on web.`,
+  },
+  {
     id: `2026-08-pr-notification-attribution`,
     date: `2026-08-13`,
     title: `Better PR notifications`,

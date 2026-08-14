@@ -14,7 +14,7 @@ object DomainContract {
     val issueStatusDefaultSortOrders: List<Int> = listOf(1, 1, 1, 2, 1, 1, 1)
     val issuePriorityValues: List<String> = listOf("none", "urgent", "high", "medium", "low")
     val issuePriorityDisplayOrder: List<String> = listOf("urgent", "high", "medium", "low", "none")
-    val issueSourceValues: List<String> = listOf("user", "widget")
+    val issueSourceValues: List<String> = listOf("user", "widget", "agent")
     val teamRoleValues: List<String> = listOf("owner", "member")
     val boardIconValues: List<String> = listOf("code", "square-kanban", "megaphone", "bug", "rocket", "book-open", "globe", "heart", "star", "zap", "wrench", "shield", "package", "terminal", "lightbulb", "message-circle", "palette", "pen-tool", "database", "server", "cloud", "cpu", "layers", "boxes", "folder", "file-text", "calendar", "clock", "users", "user", "flag", "target", "trophy", "lock", "key", "mail", "phone", "bell", "git-branch", "bot", "sparkles", "flask-conical", "shopping-cart", "credit-card", "map-pin", "compass", "briefcase", "graduation-cap", "puzzle", "gamepad-2", "coffee", "plane", "house", "building", "leaf", "sun", "activity", "chart-line", "scale", "car")
     val commentKindValues: List<String> = listOf("regular")
@@ -48,6 +48,7 @@ object DomainContract {
     const val issueStatusCategoryDuplicate: String = "duplicate"
     const val issueSourceUser: String = "user"
     const val issueSourceWidget: String = "widget"
+    const val issueSourceAgent: String = "agent"
     const val teamRoleOwner: String = "owner"
     const val teamRoleMember: String = "member"
     const val commentKindRegular: String = "regular"

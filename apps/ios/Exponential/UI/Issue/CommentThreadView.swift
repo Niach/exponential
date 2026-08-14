@@ -44,7 +44,7 @@ struct CommentThreadView: View {
         let created = TimelineItem.created(
             actorId: issue.creatorId,
             createdAt: issue.createdAt,
-            isWidget: issue.source == DomainContract.issueSourceWidget
+            source: issue.source
         )
         // (createdAt, id) — the deterministic tie-break Android uses, so
         // same-timestamp items order identically on both platforms.
@@ -94,8 +94,8 @@ struct CommentThreadView: View {
         switch row {
         case .item(let item):
             switch item {
-            case let .created(actorId, createdAt, isWidget):
-                createdRow(actorId: actorId, createdAt: createdAt, isWidget: isWidget, showTop: showTop, showBottom: showBottom)
+            case let .created(actorId, createdAt, source):
+                createdRow(actorId: actorId, createdAt: createdAt, source: source, showTop: showTop, showBottom: showBottom)
             case .comment(let comment):
                 commentRow(comment, showTop: showTop, showBottom: showBottom)
             case .event(let event):
@@ -106,13 +106,15 @@ struct CommentThreadView: View {
         }
     }
 
-    /// Synthesized first item: "«creator» created the issue" (widget issues
-    /// have no user creator — the feedback widget is the actor).
+    /// Synthesized first item: "«creator» created the issue" (widget/agent
+    /// issues have no user creator — their origin is the actor).
     @ViewBuilder
-    private func createdRow(actorId: String?, createdAt: String, isWidget: Bool, showTop: Bool, showBottom: Bool) -> some View {
-        let who = isWidget
+    private func createdRow(actorId: String?, createdAt: String, source: String?, showTop: Bool, showBottom: Bool) -> some View {
+        let who = source == DomainContract.issueSourceWidget
             ? "Feedback widget"
-            : memberDisplayName(actorId.flatMap { users[$0] }, id: actorId)
+            : source == DomainContract.issueSourceAgent
+                ? "Agent"
+                : memberDisplayName(actorId.flatMap { users[$0] }, id: actorId)
         let time = relativeDate(createdAt)
         TimelineRow(
             showTop: showTop,

@@ -74,6 +74,10 @@ const h = vi.hoisted(() => {
   const uploadObject = vi.fn(async () => undefined)
   const deleteObject = vi.fn(async () => undefined)
   const assertWithinStorageLimit = vi.fn(async () => undefined)
+  const createAgentBugReport = vi.fn(async () => ({
+    issueId: `bug-issue-1`,
+    identifier: `EXP-1`,
+  }))
 
   return {
     caller,
@@ -85,6 +89,7 @@ const h = vi.hoisted(() => {
     uploadObject,
     deleteObject,
     assertWithinStorageLimit,
+    createAgentBugReport,
   }
 })
 
@@ -130,6 +135,9 @@ vi.mock(`@/lib/integrations/activity`, () => ({ recordIssueEvent: vi.fn() }))
 vi.mock(`@/lib/integrations/notifications`, () => ({
   fireAndForgetPrNotify: vi.fn(),
 }))
+vi.mock(`@/lib/widget/agent-report`, () => ({
+  createAgentBugReport: h.createAgentBugReport,
+}))
 
 import { registerExponentialTools } from "@/lib/mcp/tools"
 import { FULL_ACCESS } from "@/lib/mcp/scope"
@@ -157,7 +165,7 @@ const USER: McpUser = {
   updatedAt: new Date(),
 } as unknown as McpUser
 
-function collectTools(): Map<string, ToolHandler> {
+function collectTools(user: McpUser = USER): Map<string, ToolHandler> {
   const tools = new Map<string, ToolHandler>()
   const fakeServer = {
     registerTool: (name: string, _def: unknown, handler: ToolHandler) => {
@@ -166,8 +174,10 @@ function collectTools(): Map<string, ToolHandler> {
   }
   registerExponentialTools(
     fakeServer as never,
-    USER,
-    new Request(`https://x.test/api/mcp`),
+    user,
+    new Request(`https://x.test/api/mcp`, {
+      headers: { "user-agent": `claude-code/test` },
+    }),
     FULL_ACCESS
   )
   return tools
@@ -696,5 +706,63 @@ describe(`exponential_issues_update statusId passthrough`, () => {
       statusId: PROJ,
       description: undefined,
     })
+  })
+})
+
+// ── EXP-496: exponential_report_bug ──────────────────────────────────────────
+// Cloud-only vendor bug intake — registration is gated on the instance having
+// an in-app feedback widget (buildRuntimeConfig().feedbackWidget).
+
+describe(`exponential_report_bug`, () => {
+  it(`is not registered without a feedback widget (self-hosted default)`, () => {
+    // The module-level collectTools() above ran with CLOUD_INSTANCE unset.
+    expect(tools.has(`exponential_report_bug`)).toBe(false)
+  })
+
+  it(`files the report as the MCP user via createAgentBugReport`, async () => {
+    vi.stubEnv(`CLOUD_INSTANCE`, `true`)
+    try {
+      const cloudTools = collectTools()
+      const handler = cloudTools.get(`exponential_report_bug`)
+      expect(handler).toBeDefined()
+      const result = await handler!({
+        title: `Sync loop stuck`,
+        description: `Steps: …`,
+      })
+      expect(parseOk(result)).toEqual({
+        issueId: `bug-issue-1`,
+        identifier: `EXP-1`,
+      })
+      expect(h.createAgentBugReport).toHaveBeenCalledWith({
+        widgetKey: expect.stringMatching(/^expw_/),
+        reporter: { email: `u@example.com`, name: `User One` },
+        title: `Sync loop stuck`,
+        description: `Steps: …`,
+        userAgent: `claude-code/test`,
+      })
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it(`rate-limits per user without calling the intake`, async () => {
+    vi.stubEnv(`CLOUD_INSTANCE`, `true`)
+    try {
+      // Fresh user id → fresh token bucket (the limiter is module-scoped).
+      const user = { ...(USER as object), id: `rate-limit-user` } as McpUser
+      const handler = collectTools(user).get(`exponential_report_bug`)!
+      // Burst capacity is 3; the 4th call must fail without reaching intake.
+      for (let i = 0; i < 3; i += 1) {
+        const result = await handler({ title: `t`, description: `d` })
+        expect(result.isError).toBeFalsy()
+      }
+      h.createAgentBugReport.mockClear()
+      const limited = await handler({ title: `t`, description: `d` })
+      expect(limited.isError).toBe(true)
+      expect(limited.content[0].text).toContain(`Too many bug reports`)
+      expect(h.createAgentBugReport).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 })

@@ -49,6 +49,8 @@ final class AppDependencies: @unchecked Sendable {
     let devicesApi: DevicesApi
     // Team action prompts (EXP-253) — tRPC-only, view + run on mobile.
     let actionsApi: ActionsApi
+    // Widget/agent submission metadata (EXP-496) — tRPC-only.
+    let widgetsApi: WidgetsApi
 
     // Push
     let pushTokenManager: PushTokenManager
@@ -153,6 +155,7 @@ final class AppDependencies: @unchecked Sendable {
         self.steerApi = SteerApi(trpc: trpc)
         self.devicesApi = DevicesApi(trpc: trpc)
         self.actionsApi = ActionsApi(trpc: trpc)
+        self.widgetsApi = WidgetsApi(trpc: trpc)
 
         // Push notifications
         let pushTokenManager = PushTokenManager(pushTokensApi: pushTokensApi, auth: auth)

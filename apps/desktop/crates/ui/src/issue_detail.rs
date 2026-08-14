@@ -245,6 +245,12 @@ pub struct IssueDetailView {
     /// Attachment ids with an open/save/delete request in flight — their row
     /// actions are disabled until it settles.
     busy_files: HashSet<String>,
+    /// EXP-496: the widget/agent submission metadata behind this issue
+    /// (`widgets.submissionForIssue`, server-only — fetched per issue, web's
+    /// `widget-submission-card.tsx` parity). `None` = still loading, fetch
+    /// failed (non-member), or not a widget/agent issue — the card renders
+    /// nothing in every one of those states, exactly like web.
+    widget_submission: Option<api::widgets::WidgetSubmission>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -316,6 +322,7 @@ impl IssueDetailView {
             pending_files: Vec::new(),
             next_pending_file_key: 1,
             busy_files: HashSet::new(),
+            widget_submission: None,
             _subscriptions: subscriptions,
         }
     }
@@ -370,6 +377,9 @@ impl IssueDetailView {
         // land through the synced collection).
         self.pending_files.clear();
         self.busy_files.clear();
+        // The metadata card belongs to the OUTGOING issue; refetch below.
+        self.widget_submission = None;
+        self.fetch_widget_submission(issue_id.clone(), window, cx);
         *self.last_saved_description.borrow_mut() = String::new();
         // Back to the top: the scroll offset belongs to the PREVIOUS issue
         // (gpui keys scroll state by element id and this view is shared) —
@@ -423,6 +433,44 @@ impl IssueDetailView {
             .read(cx)
             .get(issue_id)
             .cloned()
+    }
+
+    /// EXP-496: fetch the widget/agent submission metadata for the incoming
+    /// issue (`action_editor_dialog::fetch_body` pattern). Errors degrade to
+    /// "no card" — non-members and non-widget issues both land there, the
+    /// same silent-absence contract as web.
+    fn fetch_widget_submission(
+        &mut self,
+        issue_id: String,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let Some(trpc) = queries::trpc_client(cx) else {
+            return;
+        };
+        cx.spawn_in(window, async move |this, window| {
+            let fetched_issue_id = issue_id.clone();
+            let result = window
+                .background_executor()
+                .spawn(async move { api::widgets::submission_for_issue(&trpc, &fetched_issue_id) })
+                .await;
+            let _ = this.update_in(window, |view, _, cx| {
+                // A slow response must never land on a different issue.
+                if view.issue_id.as_deref() != Some(issue_id.as_str()) {
+                    return;
+                }
+                match result {
+                    Ok(submission) => {
+                        view.widget_submission = submission;
+                        cx.notify();
+                    }
+                    Err(err) => {
+                        log::debug!("[ui] widgets.submissionForIssue({issue_id}) failed: {err}");
+                    }
+                }
+            });
+        })
+        .detach();
     }
 
     // -- sync: collection → local edit state -----------------------------------
@@ -807,6 +855,151 @@ impl IssueDetailView {
             section = section.child(self.render_pending_file_row(key, filename, error, cx));
         }
         section.into_any_element()
+    }
+
+    /// EXP-496: the widget/agent submission metadata card — web's
+    /// `widget-submission-card.tsx` 1:1 (Reporter · Page · Display · User
+    /// agent · Custom data), rendered between the files rail and the
+    /// timeline. Nothing to show → renders nothing.
+    fn render_widget_submission_card(
+        &self,
+        issue: &Issue,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let Some(submission) = self.widget_submission.as_ref() else {
+            return gpui::Empty.into_any_element();
+        };
+
+        let is_agent = issue.source.as_deref() == Some(domain::contract::ISSUE_SOURCE_AGENT);
+        let (icon, heading) = if is_agent {
+            (registry::UI_AGENT_SOURCE, "Reported by agent")
+        } else {
+            (registry::UI_WIDGET, "Reported via widget")
+        };
+
+        let reporter = match (
+            submission.reporter_name.as_deref(),
+            submission.reporter_email.as_deref(),
+        ) {
+            (Some(name), Some(email)) => format!("{name} <{email}>"),
+            (Some(name), None) => name.to_string(),
+            (None, Some(email)) => email.to_string(),
+            (None, None) => "Anonymous".to_string(),
+        };
+
+        let viewport = match (submission.viewport_width, submission.viewport_height) {
+            (Some(width), Some(height)) => {
+                let dpr = submission
+                    .device_pixel_ratio
+                    .map(|ratio| format!(" @{ratio}x"))
+                    .unwrap_or_default();
+                Some(format!("Viewport {width}×{height}{dpr}"))
+            }
+            _ => None,
+        };
+        let screen = match (submission.screen_width, submission.screen_height) {
+            (Some(width), Some(height)) => Some(format!("Screen {width}×{height}")),
+            _ => None,
+        };
+        let display = [viewport, screen]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" · ");
+
+        let custom_data = submission
+            .custom_data
+            .as_ref()
+            .filter(|value| value.as_object().is_some_and(|map| !map.is_empty()))
+            .and_then(|value| serde_json::to_string_pretty(value).ok());
+
+        let mut rows: Vec<(&'static str, String)> = vec![("Reporter", reporter)];
+        if let Some(page_url) = submission.page_url.clone() {
+            rows.push(("Page", page_url));
+        }
+        if !display.is_empty() {
+            rows.push(("Display", display));
+        }
+        if let Some(user_agent) = submission.user_agent.clone() {
+            rows.push(("User agent", user_agent));
+        }
+
+        let muted = cx.theme().muted_foreground;
+        let label_cell = move |label: &'static str| {
+            div()
+                .w(px(80.))
+                .flex_shrink_0()
+                .text_color(muted)
+                .child(label)
+        };
+
+        let mut card = v_flex()
+            .text_xs()
+            .px_3()
+            .py_2p5()
+            .gap_1()
+            .rounded_md()
+            .border_1()
+            .border_color(cx.theme().border)
+            .bg(cx.theme().muted.opacity(0.3))
+            .child(
+                h_flex()
+                    .items_center()
+                    .gap_1p5()
+                    .pb_1()
+                    .child(Icon::from(icon).xsmall().text_color(muted))
+                    .child(
+                        div()
+                            .font_weight(FontWeight::MEDIUM)
+                            .child(SharedString::from(heading)),
+                    ),
+            );
+
+        for (label, value) in rows {
+            card = card.child(
+                h_flex()
+                    .w_full()
+                    .items_start()
+                    .gap_2()
+                    .child(label_cell(label))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .child(SharedString::from(value)),
+                    ),
+            );
+        }
+
+        if let Some(json) = custom_data {
+            card = card.child(
+                h_flex()
+                    .w_full()
+                    .items_start()
+                    .gap_2()
+                    .child(label_cell("Custom data"))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .rounded_md()
+                            .bg(cx.theme().muted.opacity(0.5))
+                            .p_2()
+                            .font_family(cx.theme().mono_font_family.clone())
+                            .child(SharedString::from(json)),
+                    ),
+            );
+        }
+
+        // Web parity: `mx-5 my-3` inside the centered reading column.
+        div()
+            .w_full()
+            .px(px(DETAIL_GUTTER))
+            .py_3()
+            .child(card)
+            .into_any_element()
     }
 
     /// One synced file row: type glyph · filename · size · Open / Save as /
@@ -1365,7 +1558,10 @@ impl IssueDetailView {
             .child(self.render_description(issue, window, cx))
             // EXP-297: the files rail sits under the description and above
             // the timeline — inline images stay in the description itself.
-            .child(self.render_files_section(issue, cx));
+            .child(self.render_files_section(issue, cx))
+            // EXP-496: widget/agent submission metadata, right above the
+            // timeline (web mounts it after the PR row, before the timeline).
+            .child(self.render_widget_submission_card(issue, cx));
 
         // The timeline sits OUTSIDE this centered column and re-centers its
         // own content to the same width — EXP-422 confined its top hairline

@@ -377,9 +377,12 @@ impl IssueTimeline {
             .read(cx)
             .get(issue_id)
             .cloned()?;
-        // Widget rows carry a NULL creator — the origin is the author signal.
+        // Widget/agent rows carry a NULL creator — the origin is the author
+        // signal.
         let who = if issue.source.as_deref() == Some(domain::contract::ISSUE_SOURCE_WIDGET) {
             "Feedback widget".to_string()
+        } else if issue.source.as_deref() == Some(domain::contract::ISSUE_SOURCE_AGENT) {
+            "Agent".to_string()
         } else {
             match issue.creator_id.as_deref() {
                 Some(id) => comments::user_label(id, user_map.get(id)),

@@ -1,17 +1,27 @@
 import { useEffect, useState } from "react"
 import { Megaphone } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
-import { Badge } from "@/components/ui/badge"
+import { conceptIcon } from "@/lib/icons.generated"
 
 type SubmissionRow = Awaited<
   ReturnType<typeof trpc.widgets.submissionForIssue.query>
 >
 
+const AgentSourceIcon = conceptIcon(`ui-agent-source`)
+
 // EXP-42b: compact members-only card surfacing the reporter/page/env metadata
 // that no longer lives in widget-issue descriptions (it's PII on public
 // boards). Backed by widgets.submissionForIssue (member-gated); renders
 // nothing while loading, on error (non-member), or for non-widget issues.
-export function WidgetSubmissionCard({ issueId }: { issueId: string }) {
+// EXP-496: agent-filed bug reports carry the same submission row — the header
+// keys off the issue's source.
+export function WidgetSubmissionCard({
+  issueId,
+  source,
+}: {
+  issueId: string
+  source: string
+}) {
   const [submission, setSubmission] = useState<SubmissionRow | null>(null)
 
   useEffect(() => {
@@ -46,7 +56,10 @@ export function WidgetSubmissionCard({ issueId }: { issueId: string }) {
     submission.screenWidth && submission.screenHeight
       ? `${submission.screenWidth}×${submission.screenHeight}`
       : null
-  const display = [viewport && `Viewport ${viewport}`, screen && `Screen ${screen}`]
+  const display = [
+    viewport && `Viewport ${viewport}`,
+    screen && `Screen ${screen}`,
+  ]
     .filter(Boolean)
     .join(` · `)
 
@@ -69,11 +82,14 @@ export function WidgetSubmissionCard({ issueId }: { issueId: string }) {
   return (
     <div className="mx-5 my-3 rounded-md border border-border bg-muted/30 px-3 py-2.5 text-xs">
       <div className="mb-2 flex items-center gap-1.5">
-        <Megaphone className="size-3.5 text-muted-foreground" />
-        <span className="font-medium">Reported via widget</span>
-        <Badge variant="outline" className="text-[10px] font-normal text-muted-foreground">
-          Members only
-        </Badge>
+        {source === `agent` ? (
+          <AgentSourceIcon className="size-3.5 text-muted-foreground" />
+        ) : (
+          <Megaphone className="size-3.5 text-muted-foreground" />
+        )}
+        <span className="font-medium">
+          {source === `agent` ? `Reported by agent` : `Reported via widget`}
+        </span>
       </div>
       <dl className="space-y-1">
         {rows.map((row) => (

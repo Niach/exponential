@@ -74,13 +74,55 @@ export interface BuiltinStatusDefault {
 }
 
 export const BUILTIN_STATUS_DEFAULTS: BuiltinStatusDefault[] = [
-  { key: `backlog`, category: `backlog`, name: `Backlog`, color: `#A1A1AA`, sortOrder: 1 },
-  { key: `todo`, category: `unstarted`, name: `Todo`, color: `#FAFAFA`, sortOrder: 1 },
-  { key: `in_progress`, category: `started`, name: `In Progress`, color: `#EAB308`, sortOrder: 1 },
-  { key: `in_review`, category: `started`, name: `In Review`, color: `#22C55E`, sortOrder: 2 },
-  { key: `done`, category: `completed`, name: `Done`, color: `#3B82F6`, sortOrder: 1 },
-  { key: `cancelled`, category: `cancelled`, name: `Cancelled`, color: `#A1A1AA`, sortOrder: 1 },
-  { key: `duplicate`, category: `duplicate`, name: `Duplicate`, color: `#A1A1AA`, sortOrder: 1 },
+  {
+    key: `backlog`,
+    category: `backlog`,
+    name: `Backlog`,
+    color: `#A1A1AA`,
+    sortOrder: 1,
+  },
+  {
+    key: `todo`,
+    category: `unstarted`,
+    name: `Todo`,
+    color: `#FAFAFA`,
+    sortOrder: 1,
+  },
+  {
+    key: `in_progress`,
+    category: `started`,
+    name: `In Progress`,
+    color: `#EAB308`,
+    sortOrder: 1,
+  },
+  {
+    key: `in_review`,
+    category: `started`,
+    name: `In Review`,
+    color: `#22C55E`,
+    sortOrder: 2,
+  },
+  {
+    key: `done`,
+    category: `completed`,
+    name: `Done`,
+    color: `#3B82F6`,
+    sortOrder: 1,
+  },
+  {
+    key: `cancelled`,
+    category: `cancelled`,
+    name: `Cancelled`,
+    color: `#A1A1AA`,
+    sortOrder: 1,
+  },
+  {
+    key: `duplicate`,
+    category: `duplicate`,
+    name: `Duplicate`,
+    color: `#A1A1AA`,
+    sortOrder: 1,
+  },
 ]
 
 export const issuePriorityValues = [
@@ -98,7 +140,9 @@ export const teamRoleValues = [`owner`, `member`] as const
 // `widget` = filed anonymously through the embeddable feedback widget — those
 // rows carry a NULL creator_id (no synthetic user), so clients key the
 // "Feedback widget" author label off this value.
-export const issueSourceValues = [`user`, `widget`] as const
+// `agent` = filed through the MCP `exponential_report_bug` tool (EXP-496) —
+// same NULL creator_id shape as `widget`, but clients label it "Agent".
+export const issueSourceValues = [`user`, `widget`, `agent`] as const
 
 // Curated board icon set (boards.icon) — Lucide names. EXP-273: every client
 // now renders the SAME Lucide art for these, generated from
