@@ -1155,6 +1155,7 @@ mod tests {
             conflict: None,
             syncing: false,
             dirty,
+            dirty_files: u32::from(dirty),
             has_upstream: true,
         }
     }

@@ -128,6 +128,8 @@
     "pr-merged": "git-merge",
     "pr-draft": "circle-dot",
 
+    "sc-push": "upload",
+
     "coding-running": "play",
     "coding-in-review": "git-pull-request",
     "coding-ended": "circle-check",

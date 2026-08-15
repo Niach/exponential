@@ -18,7 +18,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::git_worktree::{run_git, GitError};
+use crate::git_worktree::{run_git, GitError, TokenUrl};
 
 // ---------------------------------------------------------------------------
 // Working-tree status
@@ -66,10 +66,13 @@ pub struct StatusSummary {
 // ---------------------------------------------------------------------------
 
 /// One commit row for the history pane (v4 §4.4) — from a NUL-separated
-/// `git log --format` (hash, subject, author, relative time).
+/// `git log --format` (hash, parents, subject, author, relative time).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommitInfo {
     pub hash: String,
+    /// Parent hashes (`%P`, whitespace-split): empty for a root commit, 2+
+    /// for a merge. Drives the history pane's lane graph (EXP-509).
+    pub parents: Vec<String>,
     pub subject: String,
     pub author: String,
     /// Git's `%cr` relative time, e.g. `2 hours ago`.
@@ -176,7 +179,7 @@ pub fn log_branch(
     let mut args = vec![
         "log",
         "-z",
-        "--format=%H%x1f%s%x1f%an%x1f%cr",
+        "--format=%H%x1f%P%x1f%s%x1f%an%x1f%cr",
         &skip_arg,
         &max_arg,
     ];
@@ -268,6 +271,171 @@ pub fn hard_reset_to_remote(repo: &Path, branch: &str) -> Result<(), GitError> {
         None,
         "git reset --hard",
     )?;
+    Ok(())
+}
+
+/// Commits on HEAD not on `origin/<branch>`: `git rev-list origin/<b>..HEAD`,
+/// newest first. Exact (unlike "the first `ahead` log rows" — a local merge
+/// interleaves by date); drives the history pane's unpushed muting (EXP-509).
+pub fn unpushed_hashes(repo: &Path, branch: &str) -> Result<Vec<String>, GitError> {
+    crate::git_worktree::validate_branch_arg(branch, "git rev-list")?;
+    let raw = run_git(
+        Some(repo),
+        &["rev-list", &format!("origin/{branch}..HEAD")],
+        None,
+        "git rev-list",
+    )?;
+    Ok(raw
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect())
+}
+
+/// Cap for inlining an untracked file's contents into the synthesized diff —
+/// past it (or non-UTF-8) the file renders as binary ("No textual diff").
+const UNTRACKED_DIFF_CAP: u64 = 1024 * 1024;
+
+/// The whole working tree vs HEAD in one patch (`git diff HEAD` — staged and
+/// unstaged together), plus synthesized all-addition [`DiffFile`]s for
+/// untracked paths (`git ls-files --others --exclude-standard`) so brand-new
+/// files show too. The "what changed" view for uncommitted work (EXP-509).
+/// An unborn HEAD (no commits yet) degrades to the untracked synthesis alone.
+pub fn working_tree_diff(repo: &Path) -> Result<Vec<DiffFile>, GitError> {
+    let mut files = match run_git(Some(repo), &["diff", "HEAD"], None, "git diff HEAD") {
+        Ok(raw) => parse_unified_diff(&raw),
+        // Unborn HEAD — `git diff HEAD` cannot resolve the rev; a genuinely
+        // broken repo still errors on the ls-files below.
+        Err(_) => Vec::new(),
+    };
+    let untracked = run_git(
+        Some(repo),
+        &["ls-files", "--others", "--exclude-standard"],
+        None,
+        "git ls-files --others",
+    )?;
+    for path in untracked.lines().map(str::trim).filter(|l| !l.is_empty()) {
+        files.push(untracked_diff_file(repo, path));
+    }
+    Ok(files)
+}
+
+/// Synthesize the all-addition [`DiffFile`] for one untracked path (git emits
+/// no diff for files it does not track).
+fn untracked_diff_file(repo: &Path, path: &str) -> DiffFile {
+    let abs = repo.join(path);
+    let text = std::fs::metadata(&abs)
+        .ok()
+        .filter(|meta| meta.len() <= UNTRACKED_DIFF_CAP)
+        .and_then(|_| std::fs::read(&abs).ok())
+        .and_then(|bytes| String::from_utf8(bytes).ok());
+    let Some(text) = text else {
+        return DiffFile {
+            path: path.to_string(),
+            previous_path: None,
+            status: FileStatus::Added,
+            additions: 0,
+            deletions: 0,
+            hunks: Vec::new(),
+            binary: true,
+        };
+    };
+    let mut lines: Vec<&str> = text.split('\n').collect();
+    if lines.last() == Some(&"") {
+        lines.pop(); // trailing newline is not a line
+    }
+    let count = lines.len() as u32;
+    let hunks = if count == 0 {
+        Vec::new()
+    } else {
+        vec![UnifiedHunk {
+            old_start: 0,
+            old_lines: 0,
+            new_start: 1,
+            new_lines: count,
+            header: format!("@@ -0,0 +1,{count} @@"),
+            lines: lines
+                .iter()
+                .enumerate()
+                .map(|(ix, content)| DiffLine {
+                    kind: DiffLineKind::Addition,
+                    old_line: None,
+                    new_line: Some(ix as u32 + 1),
+                    content: (*content).to_string(),
+                })
+                .collect(),
+        }]
+    };
+    DiffFile {
+        path: path.to_string(),
+        previous_path: None,
+        status: FileStatus::Added,
+        additions: count,
+        deletions: 0,
+        hunks,
+        binary: false,
+    }
+}
+
+/// `git add -A` + `git commit -m <message>` — the EXP-509 commit-and-push
+/// affordance's commit half. Clones carry no git identity of their own, so
+/// when neither local nor global `user.email` resolves, the signed-in
+/// account's `identity` (name, email) rides `-c` overrides; identity needed
+/// but absent is an error before anything is staged. The message is safe as
+/// argv: it is always the VALUE consumed by `-m`.
+pub fn stage_all_and_commit(
+    repo: &Path,
+    message: &str,
+    identity: Option<(&str, &str)>,
+) -> Result<(), GitError> {
+    let has_identity = run_git(
+        Some(repo),
+        &["config", "--get", "user.email"],
+        None,
+        "git config user.email",
+    )
+    .map(|v| !v.trim().is_empty())
+    .unwrap_or(false);
+    let identity = if has_identity {
+        None
+    } else {
+        match identity {
+            Some(identity) => Some(identity),
+            None => {
+                return Err(GitError {
+                    op: "git commit".to_string(),
+                    detail: "no git identity (user.email) configured".to_string(),
+                })
+            }
+        }
+    };
+    run_git(Some(repo), &["add", "-A"], None, "git add -A")?;
+    match identity {
+        Some((name, email)) => {
+            let name_arg = format!("user.name={name}");
+            let email_arg = format!("user.email={email}");
+            run_git(
+                Some(repo),
+                &["-c", &name_arg, "-c", &email_arg, "commit", "-m", message],
+                None,
+                "git commit",
+            )?;
+        }
+        None => {
+            run_git(Some(repo), &["commit", "-m", message], None, "git commit")?;
+        }
+    }
+    Ok(())
+}
+
+/// `git push origin <branch>` — the EXP-509 push-upstream affordance. Auth
+/// rides the clone's ambient credential helper (EXP-73 — callers run
+/// [`crate::git_credentials::ensure`] first); `url` is passed for error
+/// scrubbing only. A rejected push (non-fast-forward) surfaces git's message.
+pub fn push(repo: &Path, url: &TokenUrl, branch: &str) -> Result<(), GitError> {
+    crate::git_worktree::validate_branch_arg(branch, "git push")?;
+    run_git(Some(repo), &["push", "origin", branch], Some(url), "git push")?;
     Ok(())
 }
 
@@ -392,19 +560,26 @@ fn status_from_code(code: char) -> FileStatus {
     }
 }
 
-/// Parse NUL-separated `git log -z --format=%H%x1f%s%x1f%an%x1f%cr` output.
+/// Parse NUL-separated `git log -z --format=%H%x1f%P%x1f%s%x1f%an%x1f%cr`
+/// output. `%P` is space-separated parent hashes (empty for a root commit).
 pub fn parse_log(raw: &str) -> Vec<CommitInfo> {
     raw.split('\0')
         .map(|record| record.trim_start_matches(['\n', '\r']))
         .filter(|record| !record.is_empty())
         .filter_map(|record| {
-            let mut fields = record.splitn(4, '\x1f');
+            let mut fields = record.splitn(5, '\x1f');
             let hash = fields.next()?.trim();
             if hash.is_empty() {
                 return None;
             }
             Some(CommitInfo {
                 hash: hash.to_string(),
+                parents: fields
+                    .next()
+                    .unwrap_or("")
+                    .split_whitespace()
+                    .map(str::to_string)
+                    .collect(),
                 subject: fields.next().unwrap_or("").to_string(),
                 author: fields.next().unwrap_or("").to_string(),
                 relative_time: fields.next().unwrap_or("").to_string(),
@@ -738,16 +913,22 @@ u UU N... 100644 100644 100644 100644 hh ii jj conflict.rs
 
     #[test]
     fn parse_log_string_splits_records_and_fields() {
-        let raw = "h1\x1ffix: login, & stuff\x1fDanny\x1f2 hours ago\0\
-                   h2\x1fadd auth\x1fDanny\x1f1 day ago\0";
+        // h1 = a merge (two parents), h2 = ordinary, h3 = root (empty %P).
+        let raw = "h1\x1fh2 hx\x1ffix: login, & stuff\x1fDanny\x1f2 hours ago\0\
+                   h2\x1fh3\x1fadd auth\x1fDanny\x1f1 day ago\0\
+                   h3\x1f\x1finit\x1fDanny\x1f2 days ago\0";
         let log = parse_log(raw);
-        assert_eq!(log.len(), 2);
+        assert_eq!(log.len(), 3);
         assert_eq!(log[0].hash, "h1");
+        assert_eq!(log[0].parents, vec!["h2".to_string(), "hx".to_string()]);
         assert_eq!(log[0].subject, "fix: login, & stuff");
         assert_eq!(log[0].author, "Danny");
         assert_eq!(log[0].relative_time, "2 hours ago");
         assert_eq!(log[1].hash, "h2");
+        assert_eq!(log[1].parents, vec!["h3".to_string()]);
         assert_eq!(log[1].subject, "add auth");
+        assert!(log[2].parents.is_empty());
+        assert_eq!(log[2].subject, "init");
     }
 
     #[test]
@@ -765,6 +946,10 @@ u UU N... 100644 100644 100644 100644 hh ii jj conflict.rs
         assert_eq!(all[2].subject, "first");
         assert_eq!(all[0].author, "t");
         assert!(!all[0].relative_time.is_empty());
+        // Parents chain the linear history; the root has none.
+        assert_eq!(all[0].parents, vec![all[1].hash.clone()]);
+        assert_eq!(all[1].parents, vec![all[2].hash.clone()]);
+        assert!(all[2].parents.is_empty());
 
         // Paging: skip the newest, take one ⇒ the second-newest.
         let page = log_branch(r, None, 1, 1).unwrap();
@@ -970,6 +1155,147 @@ new file mode 100644
     }
 
     // ---- stage / unstage / commit ----
+
+    #[test]
+    fn log_wrapper_reports_merge_parents() {
+        let d = temp_dir("merge-log");
+        let r = &d.0;
+        init_repo(r);
+        write(r, "x.txt", "base\n");
+        commit_all(r, "base");
+        git(r, &["checkout", "--quiet", "-b", "feature"]);
+        write(r, "y.txt", "feature\n");
+        commit_all(r, "feature change");
+        git(r, &["checkout", "--quiet", "main"]);
+        write(r, "z.txt", "main\n");
+        commit_all(r, "main change");
+        git(r, &["merge", "--quiet", "--no-ff", "-m", "merge feature", "feature"]);
+
+        let all = log_branch(r, None, 0, 10).unwrap();
+        assert_eq!(all[0].subject, "merge feature");
+        assert_eq!(all[0].parents.len(), 2);
+        // Every parent points at a loaded commit.
+        for parent in &all[0].parents {
+            assert!(all.iter().any(|c| &c.hash == parent));
+        }
+    }
+
+    #[test]
+    fn working_tree_diff_covers_tracked_staged_and_untracked() {
+        let d = temp_dir("wtdiff");
+        let r = &d.0;
+        init_repo(r);
+        write(r, "tracked.txt", "a\nb\n");
+        commit_all(r, "init");
+
+        write(r, "tracked.txt", "a\nB\n"); // unstaged modification
+        write(r, "staged.txt", "s\n");
+        git(r, &["add", "staged.txt"]); // staged addition
+        write(r, "untracked.txt", "u1\nu2\n"); // untracked
+
+        let files = working_tree_diff(r).unwrap();
+        let tracked = files.iter().find(|f| f.path == "tracked.txt").unwrap();
+        assert_eq!((tracked.additions, tracked.deletions), (1, 1));
+        let staged = files.iter().find(|f| f.path == "staged.txt").unwrap();
+        assert_eq!(staged.status, FileStatus::Added);
+        let untracked = files.iter().find(|f| f.path == "untracked.txt").unwrap();
+        assert_eq!(untracked.status, FileStatus::Added);
+        assert_eq!(untracked.additions, 2);
+        assert!(!untracked.binary);
+        assert_eq!(untracked.hunks[0].lines[0].content, "u1");
+        assert_eq!(untracked.hunks[0].lines[0].new_line, Some(1));
+    }
+
+    #[test]
+    fn working_tree_diff_marks_non_utf8_untracked_as_binary() {
+        let d = temp_dir("wtbin");
+        let r = &d.0;
+        init_repo(r);
+        write(r, "f.txt", "x\n");
+        commit_all(r, "init");
+        fs::write(r.join("blob.bin"), [0u8, 159, 146, 150]).unwrap();
+
+        let files = working_tree_diff(r).unwrap();
+        let bin = files.iter().find(|f| f.path == "blob.bin").unwrap();
+        assert!(bin.binary);
+        assert!(bin.hunks.is_empty());
+    }
+
+    #[test]
+    fn commit_push_roundtrip_and_unpushed_hashes() {
+        let remote_dir = temp_dir("push-remote");
+        let bare = remote_dir.0.join("origin.git");
+        fs::create_dir_all(&bare).unwrap();
+        git(&bare, &["init", "--quiet", "--bare", "-b", "main"]);
+
+        let d = temp_dir("push-work");
+        let r = &d.0;
+        init_repo(r);
+        write(r, "f.txt", "one\n");
+        commit_all(r, "init");
+        git(r, &["remote", "add", "origin", bare.to_str().unwrap()]);
+        git(r, &["push", "--quiet", "-u", "origin", "main"]);
+
+        let url = TokenUrl::new("acme/web", "tok");
+        assert!(unpushed_hashes(r, "main").unwrap().is_empty());
+
+        // Dirty the tree, commit via the wrapper, verify it is unpushed.
+        write(r, "f.txt", "two\n");
+        write(r, "new.txt", "n\n");
+        stage_all_and_commit(r, "local changes", None).unwrap();
+        let unpushed = unpushed_hashes(r, "main").unwrap();
+        assert_eq!(unpushed.len(), 1);
+        let s = status(r).unwrap();
+        assert!(s.changes.is_empty(), "{:?}", s.changes);
+
+        // Push through the wrapper; the remote-tracking ref catches up.
+        push(r, &url, "main").unwrap();
+        git(r, &["fetch", "--quiet", "origin"]); // refresh origin/main locally
+        assert!(unpushed_hashes(r, "main").unwrap().is_empty());
+        let log = log_branch(r, None, 0, 10).unwrap();
+        assert_eq!(log[0].subject, "local changes");
+    }
+
+    #[test]
+    fn stage_all_and_commit_applies_identity_when_repo_has_none() {
+        let d = temp_dir("identity");
+        let r = &d.0;
+        // No init_repo: configure NOTHING locally, and blank the global
+        // config via env so the identity fallback is actually exercised.
+        fs::create_dir_all(r).unwrap();
+        let git_env = |args: &[&str]| {
+            let output = Command::new("git")
+                .args(args)
+                .current_dir(r)
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_CONFIG_SYSTEM", "/dev/null")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "git {args:?} failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            String::from_utf8_lossy(&output.stdout).into_owned()
+        };
+        git_env(&["init", "--quiet", "-b", "main"]);
+        write(r, "f.txt", "x\n");
+
+        // run_git inherits the test process env — blank the globals here too
+        // so `git config --get user.email` resolves nothing. Serial-safe:
+        // set_var is process-wide, so restore before returning.
+        std::env::set_var("GIT_CONFIG_GLOBAL", "/dev/null");
+        std::env::set_var("GIT_CONFIG_SYSTEM", "/dev/null");
+        let missing = stage_all_and_commit(r, "no identity", None);
+        let applied = stage_all_and_commit(r, "with identity", Some(("Danny", "d@example.com")));
+        std::env::remove_var("GIT_CONFIG_GLOBAL");
+        std::env::remove_var("GIT_CONFIG_SYSTEM");
+
+        assert!(missing.is_err());
+        applied.unwrap();
+        let author = git_env(&["log", "-1", "--format=%an <%ae>"]);
+        assert_eq!(author.trim(), "Danny <d@example.com>");
+    }
 
     // ---- conflict detection + abort ----
 

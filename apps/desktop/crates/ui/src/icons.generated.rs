@@ -260,6 +260,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "trophy" => ExpIcon::Trophy,
         "undo-2" => ExpIcon::Undo2,
         "unlink" => ExpIcon::Unlink,
+        "upload" => ExpIcon::Upload,
         "user" => ExpIcon::User,
         "user-minus" => ExpIcon::UserMinus,
         "user-plus" => ExpIcon::UserPlus,
@@ -429,6 +430,8 @@ pub const PRIORITY_MEDIUM: ExpIcon = ExpIcon::SignalMedium;
 pub const PRIORITY_NONE: ExpIcon = ExpIcon::Minus;
 /// Registry concept `priority-urgent` -> Lucide `triangle-alert`.
 pub const PRIORITY_URGENT: ExpIcon = ExpIcon::TriangleAlert;
+/// Registry concept `sc-push` -> Lucide `upload`.
+pub const SC_PUSH: ExpIcon = ExpIcon::Upload;
 /// Registry concept `settings-about` -> Lucide `info`.
 pub const SETTINGS_ABOUT: ExpIcon = ExpIcon::Info;
 /// Registry concept `settings-account` -> Lucide `circle-user`.

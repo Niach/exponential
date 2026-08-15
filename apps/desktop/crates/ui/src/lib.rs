@@ -31,6 +31,7 @@ mod board_form;
 pub mod coding_flow;
 mod coding_selects;
 mod comments;
+mod commit_graph;
 mod create_issue_dialog;
 mod create_board_dialog;
 mod create_team_dialog;

@@ -28,6 +28,9 @@ pub struct TrunkState {
     pub syncing: bool,
     /// Any working-tree change (staged, unstaged, or untracked).
     pub dirty: bool,
+    /// Changed-path count behind `dirty` (the EXP-509 uncommitted-row label;
+    /// porcelain entries deduped by path, so an `MM` file counts once).
+    pub dirty_files: u32,
     /// The checked-out branch tracks an upstream (`# branch.upstream`).
     pub has_upstream: bool,
 }
@@ -43,6 +46,7 @@ impl TrunkState {
             conflict: None,
             syncing: false,
             dirty: false,
+            dirty_files: 0,
             has_upstream: false,
         }
     }
@@ -83,13 +87,20 @@ pub fn read(clone: &Path) -> Result<TrunkState, GitError> {
 /// without a git repo). `syncing` is always `false` here — the caller layers
 /// it on from its own in-flight clone/fetch job (v4 §4.3).
 fn compose(status: StatusSummary, conflict: Option<ConflictState>) -> TrunkState {
+    // Distinct paths, not porcelain entries — an `MM` file (staged + unstaged
+    // change) emits two entries but is ONE changed file to the user.
+    let mut paths: Vec<&str> = status.changes.iter().map(|c| c.path.as_str()).collect();
+    paths.sort_unstable();
+    paths.dedup();
+    let dirty_files = paths.len() as u32;
     TrunkState {
         branch: status.branch,
         ahead: status.ahead,
         behind: status.behind,
         conflict,
         syncing: false,
-        dirty: !status.changes.is_empty(),
+        dirty: dirty_files > 0,
+        dirty_files,
         has_upstream: status.upstream.is_some(),
     }
 }
@@ -142,10 +153,21 @@ mod tests {
         assert_eq!(state.conflict, None);
         assert!(!state.syncing); // caller owns the in-flight flag
         assert!(state.dirty); // one Modified change
+        assert_eq!(state.dirty_files, 1);
         assert!(state.has_upstream);
 
         let clean_state = compose(clean("main", 0, 0), None);
         assert!(!clean_state.dirty);
+        assert_eq!(clean_state.dirty_files, 0);
+
+        // MM = staged + unstaged entries for ONE path → counts once.
+        let mut both = summary("main", 0, 0);
+        both.changes.push(FileChange {
+            path: "src/app.rs".to_string(),
+            status: FileStatus::Modified,
+            staged: true,
+        });
+        assert_eq!(compose(both, None).dirty_files, 1);
 
         let unpublished = compose(
             StatusSummary { upstream: None, ..clean("feature", 0, 0) },

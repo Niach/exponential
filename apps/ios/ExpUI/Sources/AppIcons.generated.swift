@@ -255,6 +255,7 @@ public enum AppIcons {
         "trophy",
         "undo-2",
         "unlink",
+        "upload",
         "user",
         "user-minus",
         "user-plus",
@@ -427,6 +428,8 @@ public enum AppIcons {
     public static let priorityNone: String = "minus"
     /// Concept `priority-urgent`.
     public static let priorityUrgent: String = "triangle-alert"
+    /// Concept `sc-push`.
+    public static let scPush: String = "upload"
     /// Concept `settings-about`.
     public static let settingsAbout: String = "info"
     /// Concept `settings-account`.
