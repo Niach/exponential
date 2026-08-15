@@ -1,5 +1,8 @@
 import { z } from "zod"
-import { actionInputsSchema } from "@exp/db-schema/domain"
+import {
+  actionInputsSchema,
+  MAX_ISSUE_DESCRIPTION,
+} from "@exp/db-schema/domain"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import {
   and,
@@ -577,7 +580,7 @@ export function registerExponentialTools(
         status: issueStatusEnumSchema.optional(),
         priority: issuePriorityEnumSchema.optional(),
         assigneeId: z.string().nullable().optional(),
-        descriptionText: z.string().optional(),
+        descriptionText: z.string().max(MAX_ISSUE_DESCRIPTION).optional(),
         dueDate: dateOnly.nullable().optional(),
         labelIds: z.array(uuidString).optional(),
       },
@@ -610,7 +613,11 @@ export function registerExponentialTools(
         statusId: uuidString.optional(),
         priority: issuePriorityEnumSchema.optional(),
         assigneeId: z.string().nullable().optional(),
-        descriptionText: z.string().nullable().optional(),
+        descriptionText: z
+          .string()
+          .max(MAX_ISSUE_DESCRIPTION)
+          .nullable()
+          .optional(),
         dueDate: dateOnly.nullable().optional(),
       },
     },

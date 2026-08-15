@@ -427,7 +427,14 @@ export const dateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 // Issue descriptions and comment bodies are plain GFM markdown strings (stored
 // in `text` columns). The legacy jsonb `{ text }` envelope was unwrapped; the
 // helpers below stay tolerant of any old `{ text }` rows still in flight.
-export const issueDescriptionSchema = z.string()
+
+// REV-30: descriptions ride the issues Electric shape to every member's
+// clients and feed the idx_issues_fts tsvector expression, which Postgres
+// hard-caps at ~1MB — an uncapped multi-MB paste bricks writes and bloats
+// every fresh snapshot. 64KB matches MAX_ACTION_BODY, far below either limit.
+export const MAX_ISSUE_DESCRIPTION = 64 * 1024
+
+export const issueDescriptionSchema = z.string().max(MAX_ISSUE_DESCRIPTION)
 
 export type IssueDescription = z.infer<typeof issueDescriptionSchema>
 
