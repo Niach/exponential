@@ -189,7 +189,10 @@ mod tests {
     ) -> flume::Receiver<HookEvent> {
         let (tx, rx) = flume::unbounded();
         lock(subscribers).push(HookSubscriber {
-            worktree: worktree.to_path_buf(),
+            // Like the real `subscribe`: on macOS `temp_dir()` sits behind
+            // the `/var` → `/private/var` symlink, and the router compares
+            // CANONICAL paths — a raw path here fails every cwd match.
+            worktree: canonical(worktree),
             tx,
             bound: session_id
                 .map(|id| HashSet::from([id.to_string()]))

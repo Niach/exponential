@@ -602,6 +602,62 @@ fn handle_remote_start(start: steer::RemoteStart, cx: &mut App) {
     }
 }
 
+/// EXP-505: in-flight remote ACTION start reservations — the GUI twin of the
+/// CLI daemon's REV-9 `StartReservations`. Starts are never acked, and
+/// `steer.startSession` gives up after 3s (REV-34 `relay_timeout`) even when
+/// the frame WAS delivered — so the requester retries, and the duplicate
+/// frame would run the same action twice: unlike issue starts (guarded by
+/// `LocalSessions` + the synced-row probe in `remote_issue_start`), action
+/// runs have no natural dedup key — concurrent runs of one action are a
+/// FEATURE locally. The claim covers exactly the blind window: taken on the
+/// frame's arrival, keyed on the action id, and released only when the launch
+/// pipeline finishes — by which point `spawn_into_window` has registered the
+/// session and its synced row tells the remote client the start took. Local
+/// (dialog) starts never claim: the user watching the dialog is the dedup.
+#[derive(Clone, Default)]
+pub(crate) struct StartReservations(Arc<Mutex<HashSet<String>>>);
+
+impl StartReservations {
+    /// All-or-nothing claim: `None` when the key is already held by an
+    /// in-flight start (the caller drops the duplicate frame).
+    fn claim(&self, key: String) -> Option<ReservationGuard> {
+        let mut held = match self.0.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if !held.insert(key.clone()) {
+            return None;
+        }
+        Some(ReservationGuard {
+            held: Arc::clone(&self.0),
+            key,
+        })
+    }
+}
+
+/// Releases its key on drop — every early return and failure path in the
+/// action-run pipeline frees the claim (a poisoned-lock release recovers via
+/// `into_inner`), so a failed start never wedges its action until restart.
+pub(crate) struct ReservationGuard {
+    held: Arc<Mutex<HashSet<String>>>,
+    key: String,
+}
+
+impl Drop for ReservationGuard {
+    fn drop(&mut self) {
+        let mut held = match self.held.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        held.remove(&self.key);
+    }
+}
+
+fn action_start_reservations() -> &'static StartReservations {
+    static RESERVATIONS: std::sync::OnceLock<StartReservations> = std::sync::OnceLock::new();
+    RESERVATIONS.get_or_init(StartReservations::default)
+}
+
 /// Relay ACTION start (§08 / EXP-253): runs directly — EXP-268 removed the
 /// per-device trust gate (actions are team-owner-authored content), so an
 /// unattended desktop just launches. The frame's server-resolved repo group
@@ -617,8 +673,19 @@ fn remote_action_start(
     start: &steer::RemoteStart,
     cx: &mut App,
 ) {
-    // No dedup (batch precedent): each run is its own session; concurrent
-    // repo-backed runs share the trunk cwd exactly like two shell tabs.
+    // EXP-505: claim the frame's action id before launching — the only dedup
+    // a duplicate delivery (REV-34 relay_timeout + requester retry) can hit
+    // while the first start is still fetching/preparing. NOT a concurrency
+    // limit: once a run registers, its claim is gone and further starts run
+    // alongside it (batch precedent — concurrent repo-backed runs share the
+    // trunk cwd exactly like two shell tabs).
+    let Some(reservation) = action_start_reservations().claim(format!("action:{action_id}"))
+    else {
+        log::info!(
+            "steer: remote action start for {action_id} ignored — a start holding it is already in flight"
+        );
+        return;
+    };
     let settings = coding_flow::CodingHub::global(cx).read(cx).settings.clone();
     let options = LaunchOptions::remote(
         &settings,
@@ -657,6 +724,7 @@ fn remote_action_start(
             inputs,
             target: None,
             activate_app: true,
+            reservation: Some(reservation),
         },
         cx,
     );
@@ -1377,7 +1445,10 @@ mod tests {
             Err(poisoned) => poisoned.into_inner(),
         };
         guard.push(HookSubscriber {
-            worktree: worktree.to_path_buf(),
+            // Like the real `subscribe`: on macOS `temp_dir()` sits behind
+            // the `/var` → `/private/var` symlink, and the router compares
+            // CANONICAL paths — a raw path here fails every cwd match.
+            worktree: canonical(worktree),
             tx,
             bound: session_id
                 .map(|id| HashSet::from([id.to_string()]))
@@ -1422,6 +1493,29 @@ mod tests {
         route_hook_event(&subscribers, event(Some("sess-c"), &cwd));
         assert!(unseeded.try_recv().is_ok());
         assert!(seeded.try_recv().is_err());
+    }
+
+    /// EXP-505: a duplicate remote action frame must fail the claim while
+    /// the first start is in flight; dropping the guard (the pipeline
+    /// finishing, on ANY path) frees the key for the next start.
+    #[test]
+    fn action_reservation_is_all_or_nothing_until_released() {
+        let reservations = StartReservations::default();
+        let first = reservations.claim(String::from("action:a"));
+        assert!(first.is_some());
+        assert!(
+            reservations.claim(String::from("action:a")).is_none(),
+            "duplicate frame must be dropped while the first is in flight"
+        );
+        assert!(
+            reservations.claim(String::from("action:b")).is_some(),
+            "an unrelated action must not contend"
+        );
+        drop(first);
+        assert!(
+            reservations.claim(String::from("action:a")).is_some(),
+            "a released claim must free the key"
+        );
     }
 
     #[test]
