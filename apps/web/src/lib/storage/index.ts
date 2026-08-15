@@ -38,14 +38,22 @@ async function createBucketIfMissing() {
   try {
     await storageClient.send(new HeadBucketCommand({ Bucket: storageBucket }))
   } catch (error) {
-    if (
-      error instanceof S3ServiceException &&
-      [404, 301, 400].includes(error.$metadata.httpStatusCode ?? 0)
-    ) {
-      await storageClient.send(
-        new CreateBucketCommand({ Bucket: storageBucket })
-      )
-      return
+    if (error instanceof S3ServiceException) {
+      const httpStatusCode = error.$metadata.httpStatusCode ?? 0
+
+      // Scoped credentials (R2/Hetzner/AWS policies without HeadBucket or
+      // ListBucket) commonly 403 the probe even though the bucket exists.
+      // Treat it as ready and let the actual operation surface real errors.
+      if (httpStatusCode === 403) {
+        return
+      }
+
+      if ([404, 301, 400].includes(httpStatusCode)) {
+        await storageClient.send(
+          new CreateBucketCommand({ Bucket: storageBucket })
+        )
+        return
+      }
     }
 
     throw error
@@ -53,7 +61,13 @@ async function createBucketIfMissing() {
 }
 
 async function ensureBucketReady() {
-  bucketReadyPromise ??= createBucketIfMissing()
+  // A rejected probe (endpoint briefly unreachable at first touch) must not
+  // poison every later storage call for the life of the process — evict the
+  // cached rejection so the next call retries.
+  bucketReadyPromise ??= createBucketIfMissing().catch((error) => {
+    bucketReadyPromise = null
+    throw error
+  })
   await bucketReadyPromise
 }
 
