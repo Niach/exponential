@@ -5,6 +5,7 @@
 //! which keeps editing operations focused on text ranges instead of raw
 //! delimiter strings.
 
+use std::collections::HashMap;
 use std::ops::Range;
 
 use super::footnote::{
@@ -2678,6 +2679,7 @@ fn escape_literal_text_with_offset_map(text: &str) -> InlineMarkdownOffsetMap {
     let mut visible_to_markdown = vec![0; text.len() + 1];
     let mut markdown_to_visible = vec![0];
     let mut index = 0;
+    let mut scan = LiteralEscapeScan::new(text);
 
     while index < text.len() {
         visible_to_markdown[index] = escaped.len();
@@ -2736,7 +2738,7 @@ fn escape_literal_text_with_offset_map(text: &str) -> InlineMarkdownOffsetMap {
         // byte-parity with the other clients' serializers.
         {
             let ch = text[index..].chars().next().unwrap();
-            if literal_char_needs_escape(text, index, ch) {
+            if literal_char_needs_escape(&mut scan, index, ch) {
                 let start = escaped.len();
                 escaped.push('\\');
                 escaped.push(ch);
@@ -2772,7 +2774,15 @@ fn escape_literal_text_with_offset_map(text: &str) -> InlineMarkdownOffsetMap {
 /// fragment text must be backslash-escaped to survive re-parsing. Mirrors the
 /// GFM flanking rules the (patched) inline parser applies, so escaping and
 /// parsing stay exact complements — the byte-parity contract depends on it.
-fn literal_char_needs_escape(text: &str, index: usize, ch: char) -> bool {
+///
+/// REV-36: the arms that need unbounded lookahead (`[`, `<`, `` ` ``) answer
+/// through `scan`, a per-fragment cache, instead of re-tokenizing the
+/// remaining fragment per occurrence — on marker-dense lines (a pasted
+/// minified JSON array, HTML-ish log output) the old per-occurrence slices
+/// were O(n²) in both time and allocation, freezing the editor on every
+/// whole-document serialize.
+fn literal_char_needs_escape(scan: &mut LiteralEscapeScan<'_>, index: usize, ch: char) -> bool {
+    let text = scan.text;
     let prev = text[..index].chars().next_back();
     let next = text[index + ch.len_utf8()..].chars().next();
     let prev_nonspace = prev.is_some_and(|c| !c.is_whitespace());
@@ -2814,7 +2824,7 @@ fn literal_char_needs_escape(text: &str, index: usize, ch: char) -> bool {
         '~' => prev == Some('~') || next == Some('~'),
         // A lone backtick can never form a code span; escape only when the
         // fragment holds another backtick it could pair with.
-        '`' => text[..index].contains('`') || text[index + ch.len_utf8()..].contains('`'),
+        '`' => scan.backtick_elsewhere(index),
         // EXP-261 vendoring (F2): a literal `[` that would re-parse as a
         // link opener must be escaped, otherwise literal text like `[x](y)`
         // (parsed from web's `\[x\](y)`) becomes a REAL link on every
@@ -2832,15 +2842,15 @@ fn literal_char_needs_escape(text: &str, index: usize, ch: char) -> bool {
                     before.next();
                     before.next()
                 };
-                prev_prev != Some('!') && bracket_would_open_construct(&text[index..])
+                prev_prev != Some('!') && scan.bracket_would_open_construct(index)
             } else {
-                bracket_would_open_construct(&text[index..])
+                scan.bracket_would_open_construct(index)
             }
         }
         // EXP-261 vendoring (F1): a literal `<` that would re-parse as an
         // autolink or as a styled inline-HTML container must be escaped —
         // `<tag>` alone re-parses as an autolink in this engine.
-        '<' => angle_would_open_construct(&text[index..]),
+        '<' => scan.angle_would_open_construct(index),
         // EXP-261 vendoring (F1): ATX heading marker — a run of 1-6 `#`
         // followed by space/EOL at line start. Escaping the first `#`
         // neutralizes the whole run.
@@ -2901,43 +2911,369 @@ fn plain_char_tokens(text: &str) -> Vec<CharToken> {
     tokens
 }
 
-/// EXP-261 vendoring: would a bare `[` at the start of this slice re-parse as
-/// a link or footnote reference? Checked WITHOUT `locate_inline_link`'s
-/// `!`/`]`-predecessor rejection on purpose: a preceding `!` makes the bare
-/// form an IMAGE (`![x](y)`) on the other clients, so the `[` must stay
-/// escaped even where this engine's own link parser would decline it.
-fn bracket_would_open_construct(text_from_bracket: &str) -> bool {
-    let tokens = plain_char_tokens(text_from_bracket);
-    if locate_inline_link(&tokens, 0, &LinkReferenceDefinitions::new()).is_some() {
-        return true;
-    }
-    if text_from_bracket.starts_with("[^")
-        && let Some(close) = text_from_bracket.find(']')
-    {
-        return parse_inline_footnote_reference(&text_from_bracket[..=close]).is_some();
-    }
-    false
+/// REV-36: per-fragment cache behind `literal_char_needs_escape`'s lookahead
+/// probes. The pre-REV-36 helpers re-tokenized `&text[index..]` and re-ran
+/// the inline locators for EVERY literal `[`/`<`, which is O(n²) time and
+/// allocation on marker-dense lines. The cache tokenizes the fragment once —
+/// lazily, so a fragment without `[`/`<`/backticks never pays for it — and
+/// answers the unbounded locator scans from O(n)-precomputed tables:
+///
+/// * `bracket_scan`/`paren_scan` memoize `locate_inline_link`'s label and
+///   destination loops for every start position, so a `[` probe is a table
+///   lookup plus at most one `parse_link_target` over an actual candidate
+///   destination.
+/// * `gt_scan` memoizes `locate_autolink`'s unescaped-`>` scan.
+/// * `close_tags` indexes every position that parses as an inline-HTML close
+///   tag: `tolerant` mirrors `locate_inline_html_close_tag` and
+///   short-circuits `locate_matching_inline_html_close` when no close tag of
+///   that name exists downstream; `strict` holds literal `</name>` substring
+///   positions and replaces the autolink rejection's per-probe O(n)
+///   whole-rest `contains` search.
+///
+/// Every table reproduces the corresponding locator's semantics exactly —
+/// `literal_escape_matches_reference_probes` locks the equivalence against
+/// verbatim copies of the pre-REV-36 helpers.
+struct LiteralEscapeScan<'a> {
+    text: &'a str,
+    tokens: Option<Vec<CharToken>>,
+    byte_to_token: Vec<usize>,
+    bracket_scan: Option<Vec<Option<usize>>>,
+    paren_scan: Option<Vec<Option<usize>>>,
+    gt_scan: Option<Vec<Option<usize>>>,
+    last_gt: Option<Option<usize>>,
+    close_tags: Option<CloseTagIndex>,
+    backticks: Option<(Option<usize>, Option<usize>)>,
 }
 
-/// EXP-261 vendoring: would a bare `<` at the start of this slice re-parse as
-/// a construct? Mirrors the parse loop's precedence at a `<`: a styled
-/// inline-HTML container first, then an autolink. Unstyled literal tags like
-/// `<u>text</u>` parse back to literal text and need no escape.
-fn angle_would_open_construct(text_from_angle: &str) -> bool {
-    let tokens = plain_char_tokens(text_from_angle);
-    if let Some(tag) = locate_inline_html_open_tag(&tokens, 0)
-        && !tag.self_closing
-        && is_inline_tag(&tag.name)
-        && !has_dangerous_attrs(&tag.attrs)
-        && locate_matching_inline_html_close(&tokens, tag.end_index + 1, &tag.name).is_some()
-    {
-        let base = InlineStyle::default();
-        if inline_html_semantic_style(&tag.name, base) != base || inline_html_style(&tag).is_some()
+struct CloseTagIndex {
+    tolerant: HashMap<String, Vec<usize>>,
+    strict: HashMap<String, Vec<usize>>,
+}
+
+impl<'a> LiteralEscapeScan<'a> {
+    fn new(text: &'a str) -> Self {
+        Self {
+            text,
+            tokens: None,
+            byte_to_token: Vec::new(),
+            bracket_scan: None,
+            paren_scan: None,
+            gt_scan: None,
+            last_gt: None,
+            close_tags: None,
+            backticks: None,
+        }
+    }
+
+    /// EXP-261 vendoring (F2): would a bare `[` at `byte_index` re-parse as a
+    /// link or footnote reference? Checked WITHOUT `locate_inline_link`'s
+    /// `!`/`]`-predecessor rejection on purpose: a preceding `!` makes the
+    /// bare form an IMAGE (`![x](y)`) on the other clients, so the `[` must
+    /// stay escaped even where this engine's own link parser would decline
+    /// it. With no link reference definitions in scope the only way
+    /// `locate_inline_link` can succeed is the inline `[label](dest)` form,
+    /// which the memoized label/destination tables answer without rescanning.
+    fn bracket_would_open_construct(&mut self, byte_index: usize) -> bool {
+        let opener = self.token_index(byte_index);
+        if let Some(label_end) = self.bracket_close_from(opener + 1)
+            && self.token_char(label_end + 1) == Some('(')
+        {
+            let url_start = label_end + 2;
+            if let Some(url_end) = self.paren_close_from(url_start) {
+                // An empty destination such as in `[label]()` is a valid
+                // link (mirrors `locate_inline_link`).
+                if url_start == url_end {
+                    return true;
+                }
+                let destination = self.tokens_string(url_start, url_end);
+                if parse_link_target(&destination).is_some() {
+                    return true;
+                }
+            }
+        }
+
+        let text_from_bracket = &self.text[byte_index..];
+        if text_from_bracket.starts_with("[^")
+            && let Some(close) = text_from_bracket.find(']')
+        {
+            return parse_inline_footnote_reference(&text_from_bracket[..=close]).is_some();
+        }
+        false
+    }
+
+    /// EXP-261 vendoring (F1): would a bare `<` at `byte_index` re-parse as a
+    /// construct? Mirrors the parse loop's precedence at a `<`: a styled
+    /// inline-HTML container first, then an autolink. Unstyled literal tags
+    /// like `<u>text</u>` parse back to literal text and need no escape.
+    fn angle_would_open_construct(&mut self, byte_index: usize) -> bool {
+        let opener = self.token_index(byte_index);
+        // Both constructs terminate at a later `>`; without one, neither the
+        // open-tag locator (whose attribute scan would otherwise walk to the
+        // fragment end) nor the autolink scan can succeed.
+        if !self.raw_gt_after(opener) {
+            return false;
+        }
+
+        let tag = locate_inline_html_open_tag(self.tokens(), opener);
+        if let Some(tag) = tag
+            && !tag.self_closing
+            && is_inline_tag(&tag.name)
+            && !has_dangerous_attrs(&tag.attrs)
+            // Necessary-condition pre-filter: the tolerant index holds every
+            // position `locate_inline_html_close_tag` can accept, so no
+            // downstream entry means the depth-matching scan cannot succeed.
+            && self.tolerant_close_at_or_after(&tag.name, tag.end_index + 1)
+            && locate_matching_inline_html_close(self.tokens(), tag.end_index + 1, &tag.name)
+                .is_some()
+        {
+            let base = InlineStyle::default();
+            if inline_html_semantic_style(&tag.name, base) != base
+                || inline_html_style(&tag).is_some()
+            {
+                return true;
+            }
+        }
+
+        // `locate_autolink`, with the end position answered by the memoized
+        // `>` table and the close-tag rejection answered by the strict index
+        // instead of a whole-rest substring search.
+        let Some(end_index) = self.gt_close_from(opener + 1) else {
+            return false;
+        };
+        let target = self.tokens_string(opener + 1, end_index);
+        !target.is_empty() && !self.non_autolink_html_tag(end_index, &target)
+    }
+
+    /// Verbatim `looks_like_non_autolink_html_tag`, except the final
+    /// whole-rest `contains("</tag>")` becomes a strict-index lookup.
+    fn non_autolink_html_tag(&mut self, end_index: usize, target: &str) -> bool {
+        let target = target.trim();
+        if target.starts_with('/') {
+            let rest = target.trim_start_matches('/').trim();
+            return html_tag_name_with_attrs(rest).is_some();
+        }
+
+        if let Some((_tag_name, has_attrs_or_slash)) = html_tag_name_with_attrs(target)
+            && has_attrs_or_slash
         {
             return true;
         }
+
+        let Some((tag_name, _)) = html_tag_name_with_attrs(target) else {
+            return false;
+        };
+        let tag_name = tag_name.to_ascii_lowercase();
+        self.strict_close_at_or_after(&tag_name, end_index + 1)
     }
-    locate_autolink(&tokens, 0).is_some()
+
+    /// The backtick arm's `text[..index].contains('`') ||
+    /// text[index + 1..].contains('`')`, answered from the fragment's first
+    /// and last backtick positions instead of two O(n) scans per occurrence.
+    fn backtick_elsewhere(&mut self, byte_index: usize) -> bool {
+        let text = self.text;
+        let (first, last) = *self
+            .backticks
+            .get_or_insert_with(|| (text.find('`'), text.rfind('`')));
+        first.is_some_and(|first| first < byte_index) || last.is_some_and(|last| last > byte_index)
+    }
+
+    fn token_index(&mut self, byte_index: usize) -> usize {
+        self.ensure_tokens();
+        self.byte_to_token[byte_index]
+    }
+
+    fn token_char(&mut self, index: usize) -> Option<char> {
+        self.tokens().get(index).map(|token| token.ch)
+    }
+
+    fn tokens_string(&mut self, start: usize, end: usize) -> String {
+        tokens_to_string(&self.tokens()[start..end])
+    }
+
+    fn tokens(&mut self) -> &[CharToken] {
+        self.ensure_tokens();
+        self.tokens.as_deref().unwrap()
+    }
+
+    fn bracket_close_from(&mut self, position: usize) -> Option<usize> {
+        if self.bracket_scan.is_none() {
+            let table = depth_zero_close_table(self.tokens(), '[', ']');
+            self.bracket_scan = Some(table);
+        }
+        self.bracket_scan.as_ref().unwrap()[position]
+    }
+
+    fn paren_close_from(&mut self, position: usize) -> Option<usize> {
+        if self.paren_scan.is_none() {
+            let table = depth_zero_close_table(self.tokens(), '(', ')');
+            self.paren_scan = Some(table);
+        }
+        self.paren_scan.as_ref().unwrap()[position]
+    }
+
+    fn gt_close_from(&mut self, position: usize) -> Option<usize> {
+        if self.gt_scan.is_none() {
+            let table = unescaped_char_scan_table(self.tokens(), '>');
+            self.gt_scan = Some(table);
+        }
+        self.gt_scan.as_ref().unwrap()[position]
+    }
+
+    /// Whether any raw `>` token exists strictly after `index` — a necessary
+    /// condition for both angle constructs, escaped or not.
+    fn raw_gt_after(&mut self, index: usize) -> bool {
+        self.ensure_tokens();
+        let tokens = self.tokens.as_deref().unwrap();
+        let last = *self
+            .last_gt
+            .get_or_insert_with(|| tokens.iter().rposition(|token| token.ch == '>'));
+        last.is_some_and(|last| last > index)
+    }
+
+    fn tolerant_close_at_or_after(&mut self, name: &str, start: usize) -> bool {
+        self.ensure_close_tags();
+        Self::index_hit(&self.close_tags.as_ref().unwrap().tolerant, name, start)
+    }
+
+    fn strict_close_at_or_after(&mut self, name: &str, start: usize) -> bool {
+        self.ensure_close_tags();
+        Self::index_hit(&self.close_tags.as_ref().unwrap().strict, name, start)
+    }
+
+    fn index_hit(index: &HashMap<String, Vec<usize>>, name: &str, start: usize) -> bool {
+        index
+            .get(name)
+            .is_some_and(|positions| positions.last().is_some_and(|&last| last >= start))
+    }
+
+    fn ensure_tokens(&mut self) {
+        if self.tokens.is_some() {
+            return;
+        }
+        let tokens = plain_char_tokens(self.text);
+        let mut byte_to_token = vec![0; self.text.len() + 1];
+        for (index, token) in tokens.iter().enumerate() {
+            for byte in token.source_range.clone() {
+                byte_to_token[byte] = index;
+            }
+        }
+        byte_to_token[self.text.len()] = tokens.len();
+        self.byte_to_token = byte_to_token;
+        self.tokens = Some(tokens);
+    }
+
+    fn ensure_close_tags(&mut self) {
+        if self.close_tags.is_some() {
+            return;
+        }
+        self.ensure_tokens();
+        let tokens = self.tokens.as_deref().unwrap();
+        let mut tolerant: HashMap<String, Vec<usize>> = HashMap::new();
+        let mut strict: HashMap<String, Vec<usize>> = HashMap::new();
+        for start in 0..tokens.len() {
+            if tokens[start].ch != '<' || tokens.get(start + 1).map(|token| token.ch) != Some('/') {
+                continue;
+            }
+
+            // Strict: the exact `</name>` substring (no interior whitespace)
+            // the autolink rejection searches the remaining fragment for.
+            let mut cursor = start + 2;
+            while tokens
+                .get(cursor)
+                .is_some_and(|token| is_html_tag_name_char(token.ch))
+            {
+                cursor += 1;
+            }
+            if cursor > start + 2 && tokens.get(cursor).is_some_and(|token| token.ch == '>') {
+                let name: String = tokens[start + 2..cursor]
+                    .iter()
+                    .map(|token| token.ch.to_ascii_lowercase())
+                    .collect();
+                strict.entry(name).or_default().push(start);
+            }
+
+            // Tolerant: mirrors `locate_inline_html_close_tag`, which allows
+            // whitespace around the tag name.
+            let mut cursor = start + 2;
+            while tokens
+                .get(cursor)
+                .is_some_and(|token| token.ch.is_whitespace())
+            {
+                cursor += 1;
+            }
+            let name_start = cursor;
+            while tokens
+                .get(cursor)
+                .is_some_and(|token| is_html_tag_name_char(token.ch))
+            {
+                cursor += 1;
+            }
+            if name_start == cursor {
+                continue;
+            }
+            let name_end = cursor;
+            while tokens
+                .get(cursor)
+                .is_some_and(|token| token.ch.is_whitespace())
+            {
+                cursor += 1;
+            }
+            if tokens.get(cursor).is_some_and(|token| token.ch == '>') {
+                let name: String = tokens[name_start..name_end]
+                    .iter()
+                    .map(|token| token.ch.to_ascii_lowercase())
+                    .collect();
+                tolerant.entry(name).or_default().push(start);
+            }
+        }
+        self.close_tags = Some(CloseTagIndex { tolerant, strict });
+    }
+}
+
+/// REV-36: right-to-left table answering, for every start position, where a
+/// depth-zero delimiter scan (`\` skips two tokens; `open` nests; `close` at
+/// depth zero breaks) started there would break — `None` when it runs off the
+/// fragment. `locate_inline_link` runs exactly this loop for link labels
+/// (`[`/`]`) and destinations (`(`/`)`). An opener's entry composes its own
+/// match (`table[position + 1]`) with the continuation past it
+/// (`table[matched + 1]`) — movement never depends on the running depth, so
+/// the composition is exact, every entry is O(1), and the whole table builds
+/// in O(n).
+fn depth_zero_close_table(tokens: &[CharToken], open: char, close: char) -> Vec<Option<usize>> {
+    let mut table = vec![None; tokens.len() + 1];
+    for position in (0..tokens.len()).rev() {
+        let ch = tokens[position].ch;
+        table[position] = if ch == '\\' {
+            table.get(position + 2).copied().flatten()
+        } else if ch == close {
+            Some(position)
+        } else if ch == open {
+            match table[position + 1] {
+                Some(matched) => table[matched + 1],
+                None => None,
+            }
+        } else {
+            table[position + 1]
+        };
+    }
+    table
+}
+
+/// REV-36: same shape for `locate_autolink`'s scan to the first unescaped
+/// `target` character (no nesting delimiter).
+fn unescaped_char_scan_table(tokens: &[CharToken], target: char) -> Vec<Option<usize>> {
+    let mut table = vec![None; tokens.len() + 1];
+    for position in (0..tokens.len()).rev() {
+        let ch = tokens[position].ch;
+        table[position] = if ch == '\\' {
+            table.get(position + 2).copied().flatten()
+        } else if ch == target {
+            Some(position)
+        } else {
+            table[position + 1]
+        };
+    }
+    table
 }
 
 fn escape_code_span_text_with_offset_map(text: &str) -> InlineMarkdownOffsetMap {
@@ -4371,5 +4707,179 @@ mod tests {
         ] {
             assert_serializes_to_fixpoint_exp261(markdown, markdown);
         }
+    }
+
+    // REV-36: verbatim copies of the pre-optimization escape probes. The
+    // production path answers the same questions from the per-fragment
+    // `LiteralEscapeScan` tables; these keep the old per-occurrence slice
+    // semantics as the oracle the tables must match byte-for-byte.
+    fn reference_bracket_would_open_construct(text_from_bracket: &str) -> bool {
+        let tokens = super::plain_char_tokens(text_from_bracket);
+        if super::locate_inline_link(&tokens, 0, &LinkReferenceDefinitions::new()).is_some() {
+            return true;
+        }
+        if text_from_bracket.starts_with("[^")
+            && let Some(close) = text_from_bracket.find(']')
+        {
+            return super::parse_inline_footnote_reference(&text_from_bracket[..=close]).is_some();
+        }
+        false
+    }
+
+    fn reference_angle_would_open_construct(text_from_angle: &str) -> bool {
+        let tokens = super::plain_char_tokens(text_from_angle);
+        if let Some(tag) = super::locate_inline_html_open_tag(&tokens, 0)
+            && !tag.self_closing
+            && super::is_inline_tag(&tag.name)
+            && !super::has_dangerous_attrs(&tag.attrs)
+            && super::locate_matching_inline_html_close(&tokens, tag.end_index + 1, &tag.name)
+                .is_some()
+        {
+            let base = InlineStyle::default();
+            if super::inline_html_semantic_style(&tag.name, base) != base
+                || super::inline_html_style(&tag).is_some()
+            {
+                return true;
+            }
+        }
+        super::locate_autolink(&tokens, 0).is_some()
+    }
+
+    fn reference_literal_char_needs_escape(text: &str, index: usize, ch: char) -> bool {
+        let prev = text[..index].chars().next_back();
+        match ch {
+            '`' => text[..index].contains('`') || text[index + ch.len_utf8()..].contains('`'),
+            '[' => {
+                if prev == Some('!') {
+                    false
+                } else if prev == Some('\\') {
+                    let prev_prev = {
+                        let mut before = text[..index].chars().rev();
+                        before.next();
+                        before.next()
+                    };
+                    prev_prev != Some('!') && reference_bracket_would_open_construct(&text[index..])
+                } else {
+                    reference_bracket_would_open_construct(&text[index..])
+                }
+            }
+            '<' => reference_angle_would_open_construct(&text[index..]),
+            other => {
+                let mut scan = super::LiteralEscapeScan::new(text);
+                super::literal_char_needs_escape(&mut scan, index, other)
+            }
+        }
+    }
+
+    #[track_caller]
+    fn assert_escape_probes_match_reference(text: &str) {
+        let mut scan = super::LiteralEscapeScan::new(text);
+        for (index, ch) in text.char_indices() {
+            assert_eq!(
+                super::literal_char_needs_escape(&mut scan, index, ch),
+                reference_literal_char_needs_escape(text, index, ch),
+                "escape decision diverged for {text:?} at byte {index} ({ch:?})"
+            );
+        }
+    }
+
+    #[test]
+    fn literal_escape_matches_reference_probes() {
+        for sample in [
+            "[x](y)",
+            "![x](y)",
+            "!\\[x](y)",
+            "\\[x](y)",
+            "[not a link]",
+            "[x](",
+            "[]()",
+            "[](x)",
+            "[a[b](c)d](e)",
+            "[a](b(c)d)",
+            "[a](b\\)c)",
+            "[a\\[b]c](d)",
+            "[^1] and text",
+            "[^note] [x](y)",
+            "[^",
+            "[[[",
+            "\\[\\[\\[",
+            "[\\",
+            "before [x](y) after",
+            "![alt](/api/attachments/1)",
+            "ü[x](y)é and 日本語 [リンク](z)",
+            "<u>x</u>",
+            "<em>x</em>",
+            "<u >x</ u >",
+            "<U>x</U>",
+            "<u><u>x</u>",
+            "<u>x",
+            "</u>",
+            "<https://example.com>",
+            "<not a tag>",
+            "<u href='x'>y</u>",
+            "<a>x</a>",
+            "<a>x</ a >",
+            "<div>x</div>",
+            "<div class=\"x\">y</div>",
+            "<sup>1</sup>",
+            "<code>x</code>",
+            "a < b > c",
+            "1 << 2",
+            "<>",
+            "<<u>>x</u>",
+            "<u attr=\"</u>\">x</u>",
+            "<br/>",
+            "`code`",
+            "`only",
+            "a ` b ` c",
+            "text with `tick and [brack](et) and <em>tag</em> mixed",
+        ] {
+            assert_escape_probes_match_reference(sample);
+        }
+
+        // Deterministic fuzz over marker-dense alphabets — small strings, but
+        // every combination of escapes, nesting, and truncation the tables
+        // must agree with the old per-occurrence scans on.
+        let alphabets: [&[char]; 2] = [
+            &['[', ']', '(', ')', '\\', '!', '^', '`', 'a', ' ', '#', '~'],
+            &[
+                '<', '>', '/', 'u', 'e', 'm', 'a', '"', '\'', ' ', '=', '\\', ':', '.', 'h',
+            ],
+        ];
+        let mut state: u64 = 0x243F_6A88_85A3_08D3;
+        let mut next = move |bound: usize| {
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            ((state >> 33) as usize) % bound
+        };
+        for alphabet in alphabets {
+            for _ in 0..200 {
+                let len = 1 + next(64);
+                let text: String = (0..len).map(|_| alphabet[next(alphabet.len())]).collect();
+                assert_escape_probes_match_reference(&text);
+            }
+        }
+    }
+
+    #[test]
+    fn literal_escape_scales_linearly_on_marker_dense_text() {
+        // REV-36: each of these lines used to re-tokenize the remaining
+        // fragment for every literal `[`/`<` — O(n²) time and allocation
+        // that froze the editor for minutes when a minified-JSON or HTML-ish
+        // log line was pasted as plain text. The memoized scan finishes
+        // instantly; none of these openers form a construct, so the text
+        // must also serialize byte-identically.
+        let brackets = "[".repeat(50_000);
+        let escaped = super::escape_literal_text_with_offset_map(&brackets);
+        assert_eq!(escaped.markdown, brackets);
+
+        let json = r#"["alpha","beta",{"gamma":[1,2,3],"delta":["x"]}],"#.repeat(2_000);
+        let escaped = super::escape_literal_text_with_offset_map(&json);
+        assert_eq!(escaped.markdown, json);
+
+        let log = r#"<log level="info">GET /api/health 200</log> "#.repeat(2_000);
+        let escaped = super::escape_literal_text_with_offset_map(&log);
+        assert_eq!(escaped.markdown, log);
     }
 }
