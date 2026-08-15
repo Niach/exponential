@@ -477,14 +477,19 @@ impl Render for ActionsView {
         // The cards render as soon as rows hydrate; readiness only appends
         // the loading note (the tool-window list's behavior — never blank a
         // list that already has data).
+        // NO `w_full` on the column's children (EXP-508): a percent width
+        // here resolves against the UNCLAMPED ancestor available width — at
+        // panels wider than the grid's unwrapped line (~1650px) the wrap
+        // grid stops wrapping and runs off the window, and the machines
+        // section shrink-wraps (the EXP-436 leak; EXP-179 has the same
+        // drop-`w_full` fix). Auto width + the column's flex-col stretch
+        // resolve the capped column width at every panel width.
         let mut actions_section = gpui_component::v_flex()
-            .w_full()
             .min_w_0()
             .gap_2()
             .child(header)
             .child(
                 gpui_component::h_flex()
-                    .w_full()
                     .min_w_0()
                     .flex_wrap()
                     .items_stretch()

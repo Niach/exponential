@@ -731,8 +731,13 @@ impl Render for MachinesSection {
             .into_any_element();
         let count = devices.as_ref().map(Vec::len).unwrap_or(0);
 
+        // NO `w_full` (EXP-508): as a child of the Actions page's centered
+        // column, a percent width resolves against the UNCLAMPED ancestor
+        // available width and shrink-wraps the section at wide windows (the
+        // EXP-436 leak). Auto width + the column's flex-col stretch size it
+        // to the capped column width; the band/rows below a stretch-sized
+        // parent resolve their `w_full` correctly.
         gpui_component::v_flex()
-            .w_full()
             .min_w_0()
             .child(crate::actions_view::section_band(
                 "My machines",
