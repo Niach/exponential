@@ -567,8 +567,12 @@ impl Render for GettingStartedView {
                     .map(|(index, entry)| self.entry_card(index, entry, &team_id, loading, cx))
                     .collect();
 
+                // NO `w_full` (EXP-508): a percent width on the centered
+                // column's direct child resolves against the UNCLAMPED
+                // ancestor available width at wide windows (the EXP-436
+                // leak that broke the Actions page); auto width + the
+                // column's flex-col stretch size it to the capped column.
                 v_flex()
-                    .w_full()
                     .min_w_0()
                     .gap_4()
                     .child(

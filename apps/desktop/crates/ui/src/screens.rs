@@ -1414,16 +1414,27 @@ mod tests {
         assert!(partition(&[], 400., None).is_empty());
     }
 
-    /// EXP-499 regression (the EXP-492 fit-content collapse, on the Actions
-    /// page): an Actions-shaped center — full-width section band, machine
-    /// rows, a wrapping card grid, all with real text inside the page's
-    /// capped `mx_auto` column and scroll pane — must resolve its column to
-    /// exactly `min(1024, panel)` at EVERY panel width, and the grid must
-    /// never run past the window's right edge. Two gates: a width sweep
+    /// EXP-499/EXP-508 regression (the EXP-492 fit-content collapse, on the
+    /// Actions page): an Actions-shaped center — full-width section band,
+    /// machine rows, a wrapping card grid, all with real text inside the
+    /// page's capped `mx_auto` column and scroll pane — must resolve its
+    /// column to exactly `min(1024, panel)` at EVERY panel width, the
+    /// machines section and its band must span that column, and the grid
+    /// must never run past the window's right edge. Two gates: a width sweep
     /// under the production `h_resizable` split (settled frames stay
     /// healthy), then the stray fit-content pass modeled directly — the one
     /// place the un-pinned tree demonstrably breaks (clean `cx.draw` frames
     /// alone never reproduce the live app's between-frame passes).
+    ///
+    /// The sweep runs to 3000px because the EXP-508 failure only starts at
+    /// ~1940px (the EXP-499 sweep stopped at 1700 and missed it): a `w_full`
+    /// PERCENT child of the centered column resolves against the UNCLAMPED
+    /// ancestor available width, so once the panel out-widens the grid's
+    /// unwrapped line the wrap grid stops wrapping (and the machines section
+    /// shrink-wraps) — the EXP-436 block-hop leak. The probe mirrors the
+    /// fixed page: the column's direct children carry NO `w_full` and are
+    /// sized by flex-col stretch; percent widths below those stretch-sized
+    /// parents (the band, the machine rows) resolve fine and stay covered.
     #[gpui::test]
     async fn actions_shaped_center_spans_the_panel_at_every_width(
         cx: &mut gpui::TestAppContext,
@@ -1486,6 +1497,7 @@ mod tests {
                 let band = h_flex()
                     .w_full()
                     .min_w_0()
+                    .debug_selector(|| "probe-band".into())
                     .items_center()
                     .gap_1p5()
                     .px_3()
@@ -1494,7 +1506,6 @@ mod tests {
                     .child(div().flex_1())
                     .child(div().text_xs().child(SharedString::from("Add server")));
                 let grid = h_flex()
-                    .w_full()
                     .min_w_0()
                     .flex_wrap()
                     .items_stretch()
@@ -1539,13 +1550,13 @@ mod tests {
                     .debug_selector(|| "probe-column".into())
                     .child(
                         v_flex()
-                            .w_full()
                             .min_w_0()
+                            .debug_selector(|| "probe-machines".into())
                             .child(band)
                             .child(machine_row("mint · Danny Strähhuber  v0.14.8"))
                             .child(machine_row("macbook · Danny Strähhuber  v0.14.8")),
                     )
-                    .child(v_flex().w_full().min_w_0().gap_2().child(grid));
+                    .child(v_flex().min_w_0().gap_2().child(grid));
                 let content = v_flex()
                     .size_full()
                     .min_h_0()
@@ -1619,7 +1630,7 @@ mod tests {
         // resizable state and the recorded slot width are both fed from
         // prepaint bounds into the NEXT frame, so the second frame is the
         // settled one users actually see.
-        for width in (700..=1700).map(|w| w as f32) {
+        for width in (700..=3000).map(|w| w as f32) {
             for _ in 0..2 {
                 cx.draw(point(px(0.), px(0.)), size(px(width), px(600.)), |_, _| {
                     div().size_full().child(split.clone())
@@ -1649,6 +1660,19 @@ mod tests {
             let right = f32::from(grid.origin.x) + f32::from(grid.size.width);
             if right > width + 1.5 {
                 failures.push((width, right, width));
+            }
+            // The screenshot's second symptom: the machines section (and its
+            // band, a `w_full` percent child of the stretch-sized section)
+            // shrink-wrapping instead of spanning the column.
+            let content = expected - 32.;
+            for selector in ["probe-machines", "probe-band"] {
+                let bounds = cx
+                    .debug_bounds(selector)
+                    .unwrap_or_else(|| panic!("{selector} bounds missing at width {width}"));
+                let actual = f32::from(bounds.size.width);
+                if (actual - content).abs() > 1.5 {
+                    failures.push((width, actual, content));
+                }
             }
         }
         assert!(
@@ -1700,5 +1724,16 @@ mod tests {
             "fit-content pass ran the card grid past the panel edge: \
              {grid_right} > {recorded}"
         );
+        for selector in ["probe-machines", "probe-band"] {
+            let bounds = cx
+                .debug_bounds(selector)
+                .unwrap_or_else(|| panic!("{selector} bounds missing in the fit-content pass"));
+            let actual = f32::from(bounds.size.width);
+            let content = expected - 32.;
+            assert!(
+                (actual - content).abs() <= 1.5,
+                "fit-content pass shrink-wrapped {selector}: {actual} != {content}"
+            );
+        }
     }
 }
