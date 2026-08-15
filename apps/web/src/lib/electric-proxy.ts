@@ -1,5 +1,6 @@
 import "@dotenvx/dotenvx/config"
-import { gzipSync } from "node:zlib"
+import { promisify } from "node:util"
+import { gzip } from "node:zlib"
 
 /**
  * REV-29: the ONLY inbound query params the proxy forwards to Electric —
@@ -23,6 +24,16 @@ const FORWARDED_ELECTRIC_PARAMS = new Set([
   `log`,
   `cache-buster`,
 ])
+
+/**
+ * REV-8: compression must be ASYNC. A snapshot chunk can run to multiple MB
+ * and zlib does ~50MB/s on JSON, so the synchronous variant froze the single
+ * Bun.serve JS thread for ~hundreds of ms per chunk — and a cold-start herd
+ * (deploy restart, shape-identity rotation) serialized seconds of dead event
+ * loop through it, stalling every concurrent long-poll, tRPC mutation and SSR
+ * request. The callback form runs on the threadpool instead.
+ */
+const gzipAsync = promisify(gzip)
 
 /**
  * Returns the Electric SQL endpoint URL: the `ELECTRIC_URL` env var if set,
@@ -227,7 +238,7 @@ async function proxyElectricRequestInner(
     // (Bun decodes automatically, so this is belt-and-braces), leave it alone.
     !response.headers.get(`content-encoding`)
   ) {
-    const compressed = gzipSync(new Uint8Array(body))
+    const compressed = await gzipAsync(new Uint8Array(body))
     headers.set(`content-encoding`, `gzip`)
     headers.set(`content-length`, String(compressed.byteLength))
     return new Response(compressed, {
