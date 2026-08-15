@@ -147,7 +147,8 @@ export function IssueDetailView({
 
   // In-place hop to a sibling issue in the board sequence, preserving the
   // carried filter params. Safe without unmount: the issue.id-keyed reset
-  // effect below re-seeds all local editor state.
+  // effect below re-seeds all local editor state, and IssueTimeline is keyed
+  // on issue.id so its composer draft resets too (REV-47).
   const navigateToIssue = (identifier: string | null) => {
     if (!identifier) return
     void navigate({
@@ -831,8 +832,16 @@ export function IssueDetailView({
     />
   ) : null
 
+  // Keyed on issue.id: prev/next navigation swaps issues in place, and the
+  // composer draft (and comment edit state) must not carry over — an unsent
+  // reply typed on one issue would otherwise post to the next (REV-47).
   const timeline = currentUserId ? (
-    <IssueTimeline issue={issue} currentUserId={currentUserId} users={users} />
+    <IssueTimeline
+      key={issue.id}
+      issue={issue}
+      currentUserId={currentUserId}
+      users={users}
+    />
   ) : null
 
   // EXP-42b: reporter/page/env metadata of widget-filed issues, members-only
