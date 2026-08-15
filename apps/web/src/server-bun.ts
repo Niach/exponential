@@ -47,13 +47,13 @@ import { startCodingSessionSweepScheduler } from "@/lib/coding-session-sweep"
 import { captureLanding } from "@/lib/conversion/capture"
 import { MAX_REQUEST_BODY_BYTES } from "@/lib/request-body-limit"
 
-// Fire-and-forget: seed the bootstrap feedback team and promote initial admins.
-// Idempotent; errors are logged inside bootstrapCloud(). Calling from
-// server-bun.ts keeps the entire boostrap module (and its drizzle/pg deps)
+// Fire-and-forget: apply the custom trigger SQL and promote initial admins.
+// Idempotent; bootstrapCloud() retries internally with backoff until the pass
+// applies cleanly (the promise never rejects), so a boot-time DB hiccup can't
+// leave the instance running trigger-less (REV-18). Calling from
+// server-bun.ts keeps the entire bootstrap module (and its drizzle/pg deps)
 // out of the client bundle.
-bootstrapCloud().catch(() => {
-  // already logged
-})
+void bootstrapCloud()
 
 // Self-hosted only: start the outbound PR-merge poller (no-op on cloud, which
 // uses the GitHub webhook at /api/webhooks/github instead).
