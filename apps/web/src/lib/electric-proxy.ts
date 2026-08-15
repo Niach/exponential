@@ -71,23 +71,29 @@ export function prepareElectricUrl(requestUrl: string): URL {
 }
 
 /**
- * REV2-5: bound on concurrently-proxied INITIAL SNAPSHOT requests
- * (`offset=-1`). Snapshot responses are the expensive path — they carry a
- * shape's full data and are buffered wholly in Bun memory below — and they
- * herd: every client cold start (or shape-identity rotation) fires one per
- * shape. Excess snapshot requests queue FIFO instead of buffering
- * concurrently, so a herd degrades to added latency, not unbounded heap.
- * Live long-polls (offset != -1) are never gated: their bodies are tiny and
- * they'd hold slots for the whole poll window.
+ * REV2-5: bound on concurrently-proxied SNAPSHOT-CLASS requests — every
+ * request WITHOUT `live=true`. That is the initial snapshot (`offset=-1`) AND
+ * all of its continuation chunks (REV-27): Electric splits a snapshot bigger
+ * than its chunk threshold (~10MB) into chunks the client follows with plain
+ * non-live GETs at `offset=<electric-offset>`, so for a large shape the bulk
+ * of the data arrives at offsets != -1. Every one of those bodies is buffered
+ * wholly in Bun memory below, and they herd: every client cold start (or
+ * shape-identity rotation) fires one pipeline per shape, with the client
+ * prefetching up to 2 chunks ahead. Excess snapshot-class requests queue FIFO
+ * instead of buffering concurrently, so a herd degrades to added latency, not
+ * unbounded heap. Live long-polls (`live=true`, incl. the SSE variants) are
+ * never gated: their bodies are tiny and they'd hold slots for the whole poll
+ * window.
  *
- * Sized at 20 = one full client's shape count (18 since EXP-481) plus
- * headroom (EXP-264): at 8, a SINGLE cold-starting client queued its own
- * second half behind its first, so the shapes that arrived last were the ones
- * the app opened onto — stale-looking state on launch. It is still a herd
- * bound: a multi-client storm queues, it just never makes one client wait on
- * itself.
+ * Sized at 32 ≈ one full client's shape count (18 since EXP-481) plus a few
+ * large shapes' chunk-prefetch pipelines and headroom (EXP-264): at 8, a
+ * SINGLE cold-starting client queued its own second half behind its first, so
+ * the shapes that arrived last were the ones the app opened onto —
+ * stale-looking state on launch. It is still a herd bound: a multi-client
+ * storm queues, it just never makes one client wait on itself. The worst-case
+ * heap is bounded by slots × Electric's chunk threshold, not by shape size.
  */
-const SNAPSHOT_PROXY_CONCURRENCY = 20
+const SNAPSHOT_PROXY_CONCURRENCY = 32
 
 let activeSnapshotProxies = 0
 const snapshotWaiters: Array<() => void> = []
@@ -132,18 +138,35 @@ function acquireSnapshotSlot(signal?: AbortSignal): Promise<boolean> {
  * Buffers the upstream body fully before responding so the Bun server can
  * send a properly-framed HTTP/1.1 response with a known content-length —
  * streaming `response.body` directly produced chunked-encoding tails that
- * Traefik logged as `EOF` → 502. Because of that buffering, initial-snapshot
- * requests pass through the semaphore above. Forwarding the inbound
+ * Traefik logged as `EOF` → 502. Because of that buffering, snapshot-class
+ * (non-live) requests pass through the semaphore above. Forwarding the inbound
  * AbortSignal cancels the upstream when the browser hangs up (very common:
  * the Electric client cancels long-polls every time a shape handle is
  * invalidated).
  */
+/**
+ * A request is live iff it carries an affirmative `live` param (the SSE
+ * variants ride alongside it, but count on their own for safety — gating a
+ * held-open stream would pin a slot for its whole lifetime). Everything else
+ * is snapshot-class: the initial `offset=-1` request AND the non-live
+ * continuation chunks the client follows it with (REV-27). The check is on
+ * the value, not mere presence, so `live=false` — which Electric answers with
+ * snapshot data — cannot skip the gate.
+ */
+function isLiveRequest(originUrl: URL): boolean {
+  return (
+    originUrl.searchParams.get(`live`) === `true` ||
+    originUrl.searchParams.get(`live_sse`) === `true` ||
+    originUrl.searchParams.get(`experimental_live_sse`) === `true`
+  )
+}
+
 export async function proxyElectricRequest(
   originUrl: URL,
   signal?: AbortSignal,
   acceptEncoding?: string | null
 ): Promise<Response> {
-  const isSnapshot = originUrl.searchParams.get(`offset`) === `-1`
+  const isSnapshot = !isLiveRequest(originUrl)
   if (isSnapshot) {
     const acquired = await acquireSnapshotSlot(signal)
     if (!acquired) {
