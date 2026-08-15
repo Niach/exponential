@@ -126,8 +126,24 @@ final class InboxViewModel {
         observationTasks = []
     }
 
+    /// The ONE visibility rule for notification rows: a row may count toward
+    /// an unread signal only when the inbox can render AND clear it —
+    /// issue-keyed rows need their issue in the local store (the notifications
+    /// shape is static per user, so delivered rows outlive membership and a
+    /// left team's rows keep syncing without their issues), and issue-less
+    /// rows are helpdesk support replies. MainNavigator's tab-bar dot applies
+    /// the same rule (REV-15) so the dot can never stay lit over an inbox
+    /// that shows "You're all caught up" with no Mark-all-read escape.
+    nonisolated static func isRenderable(_ notification: NotificationEntity, issueIds: Set<String>) -> Bool {
+        guard let issueId = notification.issueId else {
+            return notification.type == DomainContract.notificationTypeSupportReply
+        }
+        return issueIds.contains(issueId)
+    }
+
     private func rebuild() {
         let issuesById = Dictionary(issues.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let issueIds = Set(issuesById.keys)
         let teamsById = Dictionary(teams.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         // Newest-first; first-seen insertion order = groups sorted by latest
         // activity, issue and Support groups interleaved in one stream.
@@ -137,11 +153,11 @@ final class InboxViewModel {
         // Keyed by resolved team id; "" is the generic (NULL/unknown) bucket.
         var supportByTeam: [String: [NotificationEntity]] = [:]
         for n in sorted {
+            guard Self.isRenderable(n, issueIds: issueIds) else { continue }
             guard let iid = n.issueId else {
                 // Issue-less rows: only support_reply is expected (helpdesk
                 // tickets have no issue). A team_id that doesn't resolve to a
                 // synced team collapses into the generic group — web parity.
-                guard n.type == DomainContract.notificationTypeSupportReply else { continue }
                 let teamKey = n.teamId.flatMap { teamsById[$0]?.id } ?? ""
                 if supportByTeam[teamKey] == nil {
                     order.append("support:\(teamKey)")
@@ -150,7 +166,6 @@ final class InboxViewModel {
                 supportByTeam[teamKey]?.append(n)
                 continue
             }
-            guard issuesById[iid] != nil else { continue }
             if byIssue[iid] == nil {
                 order.append("issue:\(iid)")
                 byIssue[iid] = []

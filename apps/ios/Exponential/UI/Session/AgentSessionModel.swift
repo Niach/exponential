@@ -136,8 +136,12 @@ final class AgentSessionModel {
     /// expired together and the stepper rolled back more than one step.
     private var answerExpiryTasks: [String: Task<Void, Never>] = [:]
 
-    // Relay rejects input frames > 8 KiB; chunk pastes well under that.
-    private static let inputChunkChars = 4096
+    // Relay rejects input frames > 8 KiB; chunk pastes well under that. The
+    // cap is measured in UTF-16 code units (the relay validates against JS
+    // string length), so chunking counts UTF-16 units too — counting Swift
+    // Characters (grapheme clusters, up to 11 units each) could serialize a
+    // chunk past the cap and get the frame silently dropped (REV-15).
+    private static let inputChunkUtf16 = 4096
     /// How long an optimistic answer lock holds without an `answer_ack` or a
     /// `question_resolved` — long enough to cover a slow desktop injection,
     /// short enough that a lost frame doesn't strand the card. Web/Android
@@ -269,10 +273,19 @@ final class AgentSessionModel {
     /// trailing return as a paste, which inserts instead of submitting.
     func sendMessage(_ text: String) {
         guard !text.isEmpty, connected else { return }
-        var rest = Substring(text)
-        while !rest.isEmpty {
-            let chunk = String(rest.prefix(Self.inputChunkChars))
-            rest = rest.dropFirst(chunk.count)
+        // Chunk by UTF-16 code units, never splitting a surrogate pair —
+        // web parity (agent-session.tsx extends the boundary by one unit
+        // when it would land mid-pair; 4097 units still sit well under the
+        // relay's 8 KiB cap).
+        let units = Array(text.utf16)
+        var start = 0
+        while start < units.count {
+            var end = min(start + Self.inputChunkUtf16, units.count)
+            if end < units.count, UTF16.isLeadSurrogate(units[end - 1]) {
+                end += 1
+            }
+            let chunk = String(decoding: units[start..<end], as: UTF16.self)
+            start = end
             let frame: [String: Any] = ["t": "input", "data": chunk]
             if let data = try? JSONSerialization.data(withJSONObject: frame),
                let json = String(data: data, encoding: .utf8) {

@@ -685,15 +685,25 @@ struct MainNavigator: View {
                 }
             } catch {}
         }
-        // Unread notifications drive the tab bar's inbox dot.
-        let notifObs = ValueObservation.tracking { db in
-            try NotificationEntity.fetchAll(db)
+        // Unread notifications drive the tab bar's inbox dot. The synced issue
+        // ids ride along because the dot must count ONLY rows the inbox can
+        // render and clear (InboxViewModel.isRenderable, REV-15): delivered
+        // notification rows outlive membership, so after leaving a team its
+        // unread rows keep syncing while their issues drop out of the local
+        // store — a raw count would light the dot forever over an inbox that
+        // shows "You're all caught up".
+        let notifObs = ValueObservation.tracking { db -> ([NotificationEntity], Set<String>) in
+            let notifications = try NotificationEntity.fetchAll(db)
+            let issueIds = try Set(String.fetchAll(db, sql: "SELECT \"id\" FROM \"issues\""))
+            return (notifications, issueIds)
         }
         let notifTask = Task { @MainActor in
             do {
-                for try await notifications in notifObs.values(in: pool) {
+                for try await (notifications, issueIds) in notifObs.values(in: pool) {
                     observedNotifications = notifications
-                    unreadCount = notifications.filter { $0.readAt == nil }.count
+                    unreadCount = notifications.filter {
+                        $0.readAt == nil && InboxViewModel.isRenderable($0, issueIds: issueIds)
+                    }.count
                 }
             } catch {}
         }
