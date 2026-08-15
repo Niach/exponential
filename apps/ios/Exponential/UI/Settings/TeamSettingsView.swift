@@ -14,7 +14,11 @@ struct TeamSettingsView: View {
     @State private var labels: [LabelEntity] = []
     @State private var boards: [BoardEntity] = []
     @State private var users: [UserEntity] = []
-    @State private var observationTask: Task<Void, Never>?
+    // Each observation loop is stored and cancelled individually — a single
+    // wrapper task would NOT propagate cancellation into unstructured inner
+    // `Task {}` loops, and the view re-arms on every appear, so leaked loops
+    // would accumulate per push/pop.
+    @State private var observationTasks: [Task<Void, Never>] = []
     @State private var showDeleteTeam = false
     @State private var deletingTeam = false
     @State private var deleteBoardTarget: BoardEntity?
@@ -112,7 +116,7 @@ struct TeamSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .onAppear { startObserving() }
-        .onDisappear { observationTask?.cancel() }
+        .onDisappear { stopObserving() }
         .alert("Delete Team", isPresented: $showDeleteTeam) {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) {
@@ -179,46 +183,62 @@ struct TeamSettingsView: View {
     }
 
     private func startObserving() {
-        observationTask = Task {
-            guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
-            Task {
-                let obs = ValueObservation.tracking { db in
-                    try TeamEntity.fetchOne(db, key: teamId)
-                }
+        stopObserving() // restartable: the view re-arms on every appear
+        guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+        let teamId = teamId
+
+        observationTasks.append(Task {
+            let obs = ValueObservation.tracking { db in
+                try TeamEntity.fetchOne(db, key: teamId)
+            }
+            do {
                 for try await item in obs.values(in: pool) {
                     await MainActor.run { team = item }
                 }
+            } catch {}
+        })
+        observationTasks.append(Task {
+            let obs = ValueObservation.tracking { db in
+                try TeamMemberEntity.filter(Column("team_id") == teamId).fetchAll(db)
             }
-            Task {
-                let obs = ValueObservation.tracking { db in
-                    try TeamMemberEntity.filter(Column("team_id") == teamId).fetchAll(db)
-                }
+            do {
                 for try await items in obs.values(in: pool) {
                     await MainActor.run { members = items }
                 }
+            } catch {}
+        })
+        observationTasks.append(Task {
+            let obs = ValueObservation.tracking { db in
+                try LabelEntity.filter(Column("team_id") == teamId).fetchAll(db)
             }
-            Task {
-                let obs = ValueObservation.tracking { db in
-                    try LabelEntity.filter(Column("team_id") == teamId).fetchAll(db)
-                }
+            do {
                 for try await items in obs.values(in: pool) {
                     await MainActor.run { labels = items }
                 }
+            } catch {}
+        })
+        observationTasks.append(Task {
+            let obs = ValueObservation.tracking { db in
+                try BoardEntity.filter(Column("team_id") == teamId).fetchAll(db)
             }
-            Task {
-                let obs = ValueObservation.tracking { db in
-                    try BoardEntity.filter(Column("team_id") == teamId).fetchAll(db)
-                }
+            do {
                 for try await items in obs.values(in: pool) {
                     await MainActor.run { boards = items }
                 }
-            }
-            Task {
-                let obs = ValueObservation.tracking { db in try UserEntity.fetchAll(db) }
+            } catch {}
+        })
+        observationTasks.append(Task {
+            let obs = ValueObservation.tracking { db in try UserEntity.fetchAll(db) }
+            do {
                 for try await items in obs.values(in: pool) {
                     await MainActor.run { users = items }
                 }
-            }
-        }
+            } catch {}
+        })
+    }
+
+    private func stopObserving() {
+        for task in observationTasks { task.cancel() }
+        observationTasks = []
     }
 }

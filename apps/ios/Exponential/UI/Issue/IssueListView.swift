@@ -146,8 +146,10 @@ struct IssueListView: View {
                     syncManager: deps.syncManager
                 )
                 viewModel = vm
-                vm.startObserving()
             }
+            // Re-arm on every appear: pushing an issue detail stops the
+            // observations (onDisappear), popping back must resume them.
+            viewModel?.startObserving()
         }
         .onDisappear {
             viewModel?.stopObserving()

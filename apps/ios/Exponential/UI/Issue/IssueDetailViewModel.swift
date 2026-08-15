@@ -125,7 +125,11 @@ final class IssueDetailViewModel {
     private let baseURL: URL?
     /// Raw instance base string for building shareable web links.
     private let instanceUrl: String?
-    private var observationTask: Task<Void, Never>?
+    // Each observation loop is stored and cancelled individually — a single
+    // wrapper task would NOT propagate cancellation into unstructured inner
+    // `Task {}` loops, and the view re-arms on every appear, so leaked loops
+    // would accumulate per push/pop.
+    private var observationTasks: [Task<Void, Never>] = []
     private var autosaveTask: Task<Void, Never>?
     private var livenessTask: Task<Void, Never>?
     private var fallbackTask: Task<Void, Never>?
@@ -213,13 +217,13 @@ final class IssueDetailViewModel {
     }
 
     func startObserving() {
+        stopObserving() // restartable: the view re-arms on every appear
         // The by-id observation below only ever fires for a row that IS local,
         // so an issue outside the synced scope needs its own bounded clock.
         startFallbackClock()
         // GRDB only re-fires on writes — a minute clock re-applies the
         // staleness filter so a phantom session's steer panel clears once its
         // liveness window elapses without any sync delta (EXP-153).
-        livenessTask?.cancel()
         livenessTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(60))
@@ -227,18 +231,20 @@ final class IssueDetailViewModel {
                 self.applySessionLiveness()
             }
         }
-        observationTask = Task { [weak self] in
-            guard let self else { return }
-            guard let pool = try? self.db.pool(forAccountId: self.accountId) else {
-                self.error = "Couldn't open local data store"
-                return
-            }
+        guard let pool = try? db.pool(forAccountId: accountId) else {
+            error = "Couldn't open local data store"
+            return
+        }
+        // Captured locally so the tracking closures don't retain self.
+        let issueId = issueId
 
-            let issueObs = ValueObservation.tracking { db in
-                try IssueEntity.fetchOne(db, key: self.issueId)
-            }
-            Task {
+        let issueObs = ValueObservation.tracking { db in
+            try IssueEntity.fetchOne(db, key: issueId)
+        }
+        observationTasks.append(Task { [weak self] in
+            do {
                 for try await issue in issueObs.values(in: pool) {
+                    guard let self else { return }
                     guard let issue else { continue }
                     let isFirstLoad = self.issue == nil
                     self.issue = issue
@@ -255,75 +261,91 @@ final class IssueDetailViewModel {
                     self.refreshBoard(issue: issue, pool: pool)
                     self.refreshDuplicateOf(issue: issue, pool: pool)
                 }
-            }
+            } catch {}
+        })
 
-            // Live sessions for this issue (14th synced shape) — running AND
-            // in_review (the terminal stays alive after the PR opens, EXP-194)
-            // AND merged (the merge parks the session, EXP-358).
-            let sessionObs = ValueObservation.tracking { db in
-                try CodingSessionEntity
-                    .filter(Column("issue_id") == self.issueId)
-                    .filter([
-                        DomainContract.codingSessionStatusRunning,
-                        DomainContract.codingSessionStatusInReview,
-                        DomainContract.codingSessionStatusMerged,
-                    ].contains(Column("status")))
-                    .fetchAll(db)
-            }
-            Task {
+        // Live sessions for this issue (14th synced shape) — running AND
+        // in_review (the terminal stays alive after the PR opens, EXP-194)
+        // AND merged (the merge parks the session, EXP-358).
+        let sessionObs = ValueObservation.tracking { db in
+            try CodingSessionEntity
+                .filter(Column("issue_id") == issueId)
+                .filter([
+                    DomainContract.codingSessionStatusRunning,
+                    DomainContract.codingSessionStatusInReview,
+                    DomainContract.codingSessionStatusMerged,
+                ].contains(Column("status")))
+                .fetchAll(db)
+        }
+        observationTasks.append(Task { [weak self] in
+            do {
                 for try await sessions in sessionObs.values(in: pool) {
+                    guard let self else { return }
                     self.observedSessions = sessions
                     self.applySessionLiveness()
                 }
-            }
+            } catch {}
+        })
 
-            let labelObs = ValueObservation.tracking { db in try LabelEntity.fetchAll(db) }
-            Task {
+        let labelObs = ValueObservation.tracking { db in try LabelEntity.fetchAll(db) }
+        observationTasks.append(Task { [weak self] in
+            do {
                 for try await labels in labelObs.values(in: pool) {
-                    self.labels = labels
+                    self?.labels = labels
                 }
-            }
+            } catch {}
+        })
 
-            // Team statuses (EXP-314) — same pattern as labels.
-            let statusObs = ValueObservation.tracking { db in try IssueStatusEntity.fetchAll(db) }
-            Task {
+        // Team statuses (EXP-314) — same pattern as labels.
+        let statusObs = ValueObservation.tracking { db in try IssueStatusEntity.fetchAll(db) }
+        observationTasks.append(Task { [weak self] in
+            do {
                 for try await rows in statusObs.values(in: pool) {
-                    self.statusRows = rows
+                    self?.statusRows = rows
                 }
-            }
+            } catch {}
+        })
 
-            // Team boards for the "Move to board" picker (EXP-57).
-            let boardObs = ValueObservation.tracking { db in try BoardEntity.fetchAll(db) }
-            Task {
+        // Team boards for the "Move to board" picker (EXP-57).
+        let boardObs = ValueObservation.tracking { db in try BoardEntity.fetchAll(db) }
+        observationTasks.append(Task { [weak self] in
+            do {
                 for try await boards in boardObs.values(in: pool) {
-                    self.boards = boards
+                    self?.boards = boards
                 }
-            }
+            } catch {}
+        })
 
-            // Attachments on this issue (EXP-297). Filtered in Swift rather
-            // than SQL: the inline-image rule is a shared contract constant, and
-            // the row count per issue is tiny.
-            let attachmentObs = ValueObservation.tracking { db in
-                try AttachmentEntity.filter(Column("issue_id") == self.issueId).fetchAll(db)
-            }
-            Task {
+        // Attachments on this issue (EXP-297). Filtered in Swift rather
+        // than SQL: the inline-image rule is a shared contract constant, and
+        // the row count per issue is tiny.
+        let attachmentObs = ValueObservation.tracking { db in
+            try AttachmentEntity.filter(Column("issue_id") == issueId).fetchAll(db)
+        }
+        observationTasks.append(Task { [weak self] in
+            do {
                 for try await rows in attachmentObs.values(in: pool) {
-                    self.applyAttachments(rows)
+                    self?.applyAttachments(rows)
                 }
-            }
+            } catch {}
+        })
 
-            let issueLabelObs = ValueObservation.tracking { db in
-                try IssueLabelEntity.filter(Column("issue_id") == self.issueId).fetchAll(db)
-            }
-            Task {
+        let issueLabelObs = ValueObservation.tracking { db in
+            try IssueLabelEntity.filter(Column("issue_id") == issueId).fetchAll(db)
+        }
+        observationTasks.append(Task { [weak self] in
+            do {
                 for try await il in issueLabelObs.values(in: pool) {
-                    self.issueLabels = il
+                    self?.issueLabels = il
                 }
-            }
+            } catch {}
+        })
 
-            let userObs = ValueObservation.tracking { db in try UserEntity.fetchAll(db) }
-            Task {
+        let userObs = ValueObservation.tracking { db in try UserEntity.fetchAll(db) }
+        observationTasks.append(Task { [weak self] in
+            do {
                 for try await users in userObs.values(in: pool) {
+                    guard let self else { return }
                     self.users = users
                     // Member user rows arriving can change the member count,
                     // which gates the assignee row (EXP-50).
@@ -331,33 +353,39 @@ final class IssueDetailViewModel {
                         self.refreshPermissions(for: issue)
                     }
                 }
-            }
+            } catch {}
+        })
 
-            // Subscription state for the Bell toggle in the detail toolbar.
-            let subObs = ValueObservation.tracking { db in
-                try IssueSubscriberEntity.filter(Column("issue_id") == self.issueId).fetchAll(db)
-            }
-            Task {
+        // Subscription state for the Bell toggle in the detail toolbar.
+        let subObs = ValueObservation.tracking { db in
+            try IssueSubscriberEntity.filter(Column("issue_id") == issueId).fetchAll(db)
+        }
+        observationTasks.append(Task { [weak self] in
+            do {
                 for try await subs in subObs.values(in: pool) {
+                    guard let self else { return }
                     let me = self.auth.userId
                     self.isSubscribed = me != nil && subs.contains { $0.userId == me && !$0.unsubscribed }
                 }
-            }
+            } catch {}
+        })
 
-            // Recompute permissions when membership or the members-shape sync
-            // state changes. The issue row observed above may not change again
-            // after the members shape snapshots in, so without this the "Syncing
-            // team…" banner would stick and the issue would stay read-only
-            // until the view is remounted. Tracks the two regions the
-            // computation reads: the team_members table and the
-            // "team-members" offset row (isLive).
-            let membersObs = ValueObservation.tracking { db -> ([TeamMemberEntity], Bool) in
-                let rows = try TeamMemberEntity.fetchAll(db)
-                let live = try ElectricOffset.fetchOne(db, key: "team-members")?.isLive ?? false
-                return (rows, live)
-            }
-            Task {
+        // Recompute permissions when membership or the members-shape sync
+        // state changes. The issue row observed above may not change again
+        // after the members shape snapshots in, so without this the "Syncing
+        // team…" banner would stick and the issue would stay read-only
+        // until the view is remounted. Tracks the two regions the
+        // computation reads: the team_members table and the
+        // "team-members" offset row (isLive).
+        let membersObs = ValueObservation.tracking { db -> ([TeamMemberEntity], Bool) in
+            let rows = try TeamMemberEntity.fetchAll(db)
+            let live = try ElectricOffset.fetchOne(db, key: "team-members")?.isLive ?? false
+            return (rows, live)
+        }
+        observationTasks.append(Task { [weak self] in
+            do {
                 for try await (rows, _) in membersObs.values(in: pool) {
+                    guard let self else { return }
                     // The rows also scope the assignee picker / @-mention
                     // vocabulary to this issue's team (EXP-487, `teamUsers`).
                     self.teamMembers = rows
@@ -365,8 +393,8 @@ final class IssueDetailViewModel {
                         self.refreshPermissions(for: issue)
                     }
                 }
-            }
-        }
+            } catch {}
+        })
     }
 
     func toggleSubscribe() async {
@@ -383,8 +411,8 @@ final class IssueDetailViewModel {
     }
 
     func stopObserving() {
-        observationTask?.cancel()
-        observationTask = nil
+        for task in observationTasks { task.cancel() }
+        observationTasks = []
         autosaveTask?.cancel()
         autosaveTask = nil
         livenessTask?.cancel()

@@ -416,7 +416,6 @@ struct IssueDetailView: View {
                     auth: deps.auth
                 )
                 viewModel = vm
-                vm.startObserving()
                 // Opening an issue clears its inbox notifications (EXP-92) —
                 // push taps and universal links never pass through the inbox's
                 // own mark-read. Fire-and-forget; also tolerates older
@@ -431,16 +430,21 @@ struct IssueDetailView: View {
                     )
                 }
             }
+            // Re-arm on every appear: pushing a child screen stops the
+            // observations (onDisappear), popping back must resume them.
+            viewModel?.startObserving()
         }
         .onDisappear {
             // Belt-and-braces with EditorTextView.willMove(toWindow:) — no
             // first responder may outlive this screen (EXP-246).
             UIApplication.endEditing()
             if let vm = viewModel {
+                // Stop synchronously: deferring it behind the async saves
+                // could cancel the observers a quick pop-back just re-armed.
+                vm.stopObserving()
                 Task {
                     await vm.saveTitle()
                     await vm.commitDescription()
-                    vm.stopObserving()
                 }
             }
         }
