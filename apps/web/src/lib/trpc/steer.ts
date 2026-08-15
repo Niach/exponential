@@ -631,14 +631,18 @@ export const steerRouter = router({
             message: `That desktop app can only run actions on claude yet. Update it.`,
           })
         }
-        const actionDeviceAgents =
-          device.agents && device.agents.length > 0
-            ? device.agents
-            : [`claude`]
+        // EXP-409: nullish fallback ONLY — an explicitly empty list means
+        // nothing is runnable (every installed agent signed out), so it must
+        // not fall back to claude. Mirrors the issue path below, including
+        // the signed-out message.
+        const actionDeviceAgents = device.agents ?? [`claude`]
         if (!actionDeviceAgents.includes(actionAgent)) {
+          const signedOut = (device.unauthedAgents ?? []).includes(actionAgent)
           throw new TRPCError({
             code: `PRECONDITION_FAILED`,
-            message: `${actionAgent} is not installed on that device`,
+            message: signedOut
+              ? `${actionAgent} is installed on that device but not signed in — sign in on the machine first`
+              : `${actionAgent} is not installed on that device`,
           })
         }
 

@@ -36,6 +36,16 @@ case "$os" in
   Darwin)
     case "$arch" in
       arm64) target="aarch64-apple-darwin" ;;
+      x86_64)
+        # A Rosetta-translated shell on an M-series Mac reports x86_64; macOS
+        # runs arm64 binaries regardless of the invoking shell's translation
+        # state, so only a genuine Intel Mac is unsupported.
+        if [ "$(sysctl -n sysctl.proc_translated 2>/dev/null)" = "1" ]; then
+          target="aarch64-apple-darwin"
+        else
+          fail "unsupported macOS architecture: $arch (Apple Silicon only)"
+        fi
+        ;;
       *) fail "unsupported macOS architecture: $arch (Apple Silicon only)" ;;
     esac
     ;;
@@ -57,7 +67,11 @@ done
 # per_page=100 (the GitHub max): the list is shared with the desktop/android/
 # ios release trains, which must not bury the newest cli-v* entry.
 say "Looking up the latest CLI release..."
-tag=$(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=100" |
+# Capture curl separately so an unreachable/rate-limited API (403 from a
+# shared-IP network is common unauthenticated) is not reported as "no release".
+releases=$(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=100") ||
+  fail "could not reach api.github.com (rate limited or offline?) — try again later"
+tag=$(printf '%s\n' "$releases" |
   grep -o '"tag_name": *"cli-v[^"]*"' |
   head -n 1 |
   sed 's/.*"\(cli-v[^"]*\)".*/\1/')
@@ -109,4 +123,7 @@ if [ -n "${EXP_TOKEN:-}" ] || ! ( : < /dev/tty ) 2>/dev/null; then
   [ -n "${EXP_INSTANCE:-}" ] && say "  (EXP_INSTANCE=$EXP_INSTANCE)"
   exit 0
 fi
+# exec replaces the shell, so the EXIT trap would never fire — clean up first.
+rm -rf "$tmp"
+trap - EXIT
 exec "$INSTALL_DIR/$BIN_NAME" login < /dev/tty

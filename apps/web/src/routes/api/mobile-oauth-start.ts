@@ -1,7 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { randomBytes } from "crypto"
 import { auth } from "@/lib/auth"
-import { isValidCodeChallenge } from "@/lib/auth/mobile-oauth-code"
+import {
+  isValidCodeChallenge,
+  stateCookieSecureAttribute,
+} from "@/lib/auth/mobile-oauth-code"
 
 // Custom Tabs only emit GETs, but Better Auth's /sign-in/oauth2 and
 // /sign-in/social are POST-only. Bridge: client opens this GET endpoint,
@@ -90,9 +93,11 @@ async function handle({ request }: { request: Request }) {
     // bound to that challenge.
     const state = randomBytes(32).toString(`hex`)
     const cookieValue = codeChallenge ? `${state}.${codeChallenge}` : state
+    // `Secure` only on an https deployment — see stateCookieSecureAttribute.
+    const secure = stateCookieSecureAttribute(request)
     headers.append(
       `Set-Cookie`,
-      `${STATE_COOKIE_NAME}=${cookieValue}; Path=/; Max-Age=600; HttpOnly; Secure; SameSite=Lax`
+      `${STATE_COOKIE_NAME}=${cookieValue}; Path=/; Max-Age=600; HttpOnly${secure}; SameSite=Lax`
     )
     headers.set(`Location`, data.url)
     headers.delete(`Content-Type`)

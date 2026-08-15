@@ -137,7 +137,8 @@ async function subscriberRecipients(
 // notification row can never produce two emails). Two transactions racing in
 // the same instant can still both pass the NOT EXISTS check (it can't see
 // uncommitted rows) — a unique partial index would close that residual window —
-// but this removes the practical double-writes at lowest risk.
+// but this removes the practical double-writes at lowest risk. The probe is
+// index-bounded by idx_notifications_user_created (user_id, created_at DESC).
 const NOTIFICATION_DEDUPE_WINDOW = `30 seconds`
 
 // Per-type prefs gate PUSH too (EXP-369) — the toggles used to be email-only,

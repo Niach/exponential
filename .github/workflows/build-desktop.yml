@@ -46,7 +46,9 @@ jobs:
           fi
           echo "matrix={\"include\":$include}" >> "$GITHUB_OUTPUT"
 
-  # Gate 1: the committed Rust generated files must match contract.json / tokens.json.
+  # Gate 1: the committed generated files must match contract.json / tokens.json.
+  # (test.yml's web vitest also gates all six Swift/Kotlin/Rust outputs on every
+  # push via codegen-drift.test.ts; this job stays as the release-tag backstop.)
   codegen-drift:
     runs-on: ubuntu-latest
     steps:
@@ -64,6 +66,10 @@ jobs:
           git diff --exit-code -- \
             apps/desktop/crates/domain/src/contract.generated.rs \
             apps/desktop/crates/theme/src/tokens.generated.rs \
+            apps/ios/ExpCore/Sources/Domain/DomainContract.generated.swift \
+            apps/ios/ExpUI/Sources/DesignTokens.generated.swift \
+            apps/android/app/src/main/java/com/exponential/app/domain/DomainContract.generated.kt \
+            apps/android/app/src/main/java/com/exponential/app/ui/theme/DesignTokens.generated.kt \
             apps/desktop/assets/licenses/NOTICES.txt \
             apps/web/public/NOTICES.txt \
             apps/marketing/public/NOTICES.txt \

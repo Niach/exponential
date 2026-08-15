@@ -77,8 +77,8 @@ pub use frames::{
     CLOSE_SESSION_ENDED, CLOSE_SLOW_CONSUMER, CLOSE_UNAUTHORIZED,
 };
 pub use hooks::{
-    hook_settings_json, HookContext, HookEvent, HookEventKind, HookQuestion, HookQuestionOption,
-    HookServer, HOOK_PORT_ENV, HOOK_TOKEN_ENV,
+    hook_settings_json, write_hook_curl_config, HookContext, HookEvent, HookEventKind,
+    HookQuestion, HookQuestionOption, HookServer, HOOK_CONFIG_ENV, HOOK_PORT_ENV,
 };
 pub use journal::{ActivityJournal, JOURNAL_BYTE_CAP, JOURNAL_EVENT_CAP};
 pub use publisher::{

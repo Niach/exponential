@@ -20,4 +20,13 @@ describe(`MAX_REQUEST_BODY_BYTES`, () => {
       MAX_REQUEST_BODY_BYTES,
     )
   })
+
+  it(`covers a base64-inflated MCP attachments_upload of the max file size`, () => {
+    // exponential_attachments_upload rides the file as base64 inside a
+    // JSON-RPC envelope: ceil(n/3)*4 bytes of payload plus envelope headroom.
+    const base64Inflated = Math.ceil(maxFileUploadBytes / 3) * 4
+    expect(base64Inflated + multipartHeadroom).toBeLessThanOrEqual(
+      MAX_REQUEST_BODY_BYTES,
+    )
+  })
 })

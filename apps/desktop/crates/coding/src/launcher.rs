@@ -40,7 +40,7 @@ use terminal::TerminalManager;
 
 use crate::agent::CodingAgent;
 use crate::argv::{
-    session_args, AgentMcp, LaunchOptions, SessionTail, HOOK_PORT_ENV, HOOK_TOKEN_ENV,
+    session_args, AgentMcp, LaunchOptions, SessionTail, HOOK_CONFIG_ENV, HOOK_PORT_ENV,
     MCP_TOKEN_ENV, MCP_URL_ENV, OBSERVER_TOKEN_ENV, OBSERVER_URL_ENV,
 };
 use crate::action_prompt::{render_action_prompt, ActionInputValue};
@@ -576,23 +576,60 @@ fn path_segment(id: &str) -> Option<String> {
     (!segment.is_empty()).then_some(segment)
 }
 
-/// Write the session's `--settings` file, or `None` when there is no sidecar
-/// to wire (no [`HookSetup`], a non-claude agent, or an unwritable data dir —
-/// all of which just mean grid-only detection, never a failed launch).
+/// The two per-session hook files [`write_hook_settings`] lands next to each
+/// other: the `--settings` content and the 0600 curl config carrying the
+/// bearer token (REV-51 — the hook command references it via
+/// `$EXP_HOOK_CONFIG` so the token never rides curl's world-readable argv).
+struct HookFiles {
+    settings: PathBuf,
+    curl_config: PathBuf,
+}
+
+/// The curl config's content — mirrors `steer::hooks::hook_curl_config` (the
+/// two crates cannot depend on each other, §3.1).
+fn hook_curl_config(token: &str) -> String {
+    format!("header = \"Authorization: Bearer {token}\"\n")
+}
+
+/// Write the curl config owner-only: it holds the session credential.
+fn write_hook_curl_config(path: &Path, token: &str) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::io::Write as _;
+        use std::os::unix::fs::OpenOptionsExt as _;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?;
+        file.write_all(hook_curl_config(token).as_bytes())
+    }
+    #[cfg(not(unix))]
+    std::fs::write(path, hook_curl_config(token))
+}
+
+/// Write the session's `--settings` file and its curl config, or `None` when
+/// there is no sidecar to wire (no [`HookSetup`], a non-claude agent, or an
+/// unwritable data dir — all of which just mean grid-only detection, never a
+/// failed launch). Both files share the settings TTL prune.
 fn write_hook_settings(
     data_dir: &Path,
     session_id: &str,
     agent: CodingAgent,
     hooks: Option<&HookSetup>,
-) -> Option<PathBuf> {
+) -> Option<HookFiles> {
     let hooks = hooks.filter(|_| agent == CodingAgent::Claude)?;
     let root = data_dir.join(HOOK_SETTINGS_DIR);
     prune_hook_settings(&root);
     let dir = root.join(std::process::id().to_string());
     std::fs::create_dir_all(&dir).ok()?;
-    let path = dir.join(format!("{}.settings.json", path_segment(session_id)?));
-    std::fs::write(&path, &hooks.settings_json).ok()?;
-    Some(path)
+    let segment = path_segment(session_id)?;
+    let settings = dir.join(format!("{segment}.settings.json"));
+    std::fs::write(&settings, &hooks.settings_json).ok()?;
+    let curl_config = dir.join(format!("{segment}.curl.cfg"));
+    write_hook_curl_config(&curl_config, &hooks.token).ok()?;
+    Some(HookFiles { settings, curl_config })
 }
 
 /// Drop settings files past the TTL wherever they sit in the tree — per-pid
@@ -632,12 +669,15 @@ fn prune_hook_settings(root: &Path) {
 fn apply_hook_env(
     spawn: SpawnSpec,
     hooks: Option<&HookSetup>,
-    settings: Option<&PathBuf>,
+    files: Option<&HookFiles>,
 ) -> SpawnSpec {
-    match (hooks, settings) {
-        (Some(hooks), Some(_)) => spawn
+    match (hooks, files) {
+        (Some(hooks), Some(files)) => spawn
             .env(HOOK_PORT_ENV, hooks.port.to_string())
-            .env(HOOK_TOKEN_ENV, &hooks.token),
+            .env(
+                HOOK_CONFIG_ENV,
+                files.curl_config.to_string_lossy().into_owned(),
+            ),
         _ => spawn,
     }
 }
@@ -1106,7 +1146,7 @@ pub fn prepare_with_hooks(
     let args = session_args(
         options,
         &agent_mcp,
-        hook_settings.as_deref(),
+        hook_settings.as_ref().map(|files| files.settings.as_path()),
         claude_session_id.as_deref(),
         tail,
     );
@@ -1491,7 +1531,7 @@ fn prepare_action(
     let args = session_args(
         &options,
         &agent_mcp,
-        hook_settings.as_deref(),
+        hook_settings.as_ref().map(|files| files.settings.as_path()),
         claude_session_id.as_deref(),
         SessionTail::Prompt(delivery.positional()),
     );
@@ -2400,8 +2440,9 @@ mod tests {
     /// EXP-249: a claude session gets its hooks sidecar wired — the settings
     /// file lands under the DATA DIR (never in the worktree, where the agent
     /// could commit it and claude's project scan would see it), rides
-    /// `--settings`, and the port/token env vars its hook command expands
-    /// ride the spawn.
+    /// `--settings`, and the port + curl-config-path env vars its hook
+    /// command expands ride the spawn (REV-51: the token itself only ever
+    /// sits in the 0600 config file).
     #[test]
     fn prepare_wires_the_claude_hooks_sidecar_outside_the_worktree() {
         let dir = temp_dir("hooks-claude");
@@ -2449,15 +2490,37 @@ mod tests {
         assert!(at > 0 && args[at - 1] == "fable");
         assert_eq!(args[at + 2], "--session-id");
         assert_eq!(args[at + 4], "--mcp-config");
-        for (key, value) in [
-            (HOOK_PORT_ENV, "45321".to_string()),
-            (HOOK_TOKEN_ENV, "hook-token-1".to_string()),
-        ] {
-            assert!(
-                prepared.spawn.env.contains(&(key.to_string(), value.clone())),
-                "missing env {key}={value}: {:?}",
-                prepared.spawn.env
-            );
+        assert!(
+            prepared
+                .spawn
+                .env
+                .contains(&(HOOK_PORT_ENV.to_string(), "45321".to_string())),
+            "missing hook port env: {:?}",
+            prepared.spawn.env
+        );
+        // REV-51: the token rides a 0600 curl config referenced by path —
+        // never the spawn-expanded hook command line.
+        let config_path = prepared
+            .spawn
+            .env
+            .iter()
+            .find(|(key, _)| key == HOOK_CONFIG_ENV)
+            .map(|(_, value)| PathBuf::from(value))
+            .expect("hook curl config env");
+        assert_eq!(
+            config_path,
+            settings.with_file_name("sess-1.curl.cfg"),
+            "curl config lands next to the settings file"
+        );
+        assert_eq!(
+            fs::read_to_string(&config_path).unwrap(),
+            "header = \"Authorization: Bearer hook-token-1\"\n"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let mode = fs::metadata(&config_path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600, "curl config must be owner-only");
         }
     }
 
@@ -2488,7 +2551,7 @@ mod tests {
             .spawn
             .env
             .iter()
-            .any(|(key, _)| key == HOOK_PORT_ENV || key == HOOK_TOKEN_ENV));
+            .any(|(key, _)| key == HOOK_PORT_ENV || key == HOOK_CONFIG_ENV));
         assert!(!dir.0.join(HOOK_SETTINGS_DIR).exists());
 
         // Codex has no hooks system: the setup is ignored entirely.
@@ -2525,7 +2588,7 @@ mod tests {
             .spawn
             .env
             .iter()
-            .any(|(key, _)| key == HOOK_PORT_ENV || key == HOOK_TOKEN_ENV));
+            .any(|(key, _)| key == HOOK_PORT_ENV || key == HOOK_CONFIG_ENV));
         assert!(!dir.0.join(HOOK_SETTINGS_DIR).exists());
     }
 
@@ -2598,10 +2661,19 @@ mod tests {
                 .join(std::process::id().to_string())
                 .join("sess-a.settings.json")
         );
-        assert!(prepared
+        let config_path = prepared
             .spawn
             .env
-            .contains(&(HOOK_TOKEN_ENV.to_string(), "hook-token-1".to_string())));
+            .iter()
+            .find(|(key, _)| key == HOOK_CONFIG_ENV)
+            .map(|(_, value)| PathBuf::from(value))
+            .expect("hook curl config env");
+        assert!(
+            fs::read_to_string(&config_path)
+                .unwrap()
+                .contains("Bearer hook-token-1"),
+            "curl config carries the session token"
+        );
     }
 
     /// EXP-257: a missing selected agent blocks an action run with ITS copy

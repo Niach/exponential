@@ -10,10 +10,18 @@ import {
 import {
   isValidCodeChallenge,
   mintMobileOauthCode,
+  stateCookieSecureAttribute,
 } from "@/lib/auth/mobile-oauth-code"
 
 const STATE_COOKIE_NAME = `exp_mobile_oauth_state`
-const CLEAR_STATE_COOKIE = `${STATE_COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`
+
+// Clear with the same `Secure` posture /api/mobile-oauth-start SET the cookie
+// with — on an http self-host a Secure clear would be discarded by the
+// browser and the state cookie would linger.
+function clearStateCookie(request: Request): string {
+  const secure = stateCookieSecureAttribute(request)
+  return `${STATE_COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly${secure}; SameSite=Lax`
+}
 
 function readCookie(cookieHeader: string, name: string): string | null {
   const entry = cookieHeader
@@ -125,7 +133,7 @@ function failureResponse(request: Request, rawReason: unknown): Response {
       status: 200,
       headers: {
         "Content-Type": `text/html; charset=utf-8`,
-        "Set-Cookie": CLEAR_STATE_COOKIE,
+        "Set-Cookie": clearStateCookie(request),
         "Cache-Control": `no-store`,
       },
     }
@@ -225,7 +233,7 @@ export const Route = createFileRoute(`/api/mobile-oauth-return`)({
             status: 200,
             headers: {
               "Content-Type": `text/html; charset=utf-8`,
-              "Set-Cookie": CLEAR_STATE_COOKIE,
+              "Set-Cookie": clearStateCookie(request),
               "Cache-Control": `no-store`,
             },
           }

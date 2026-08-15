@@ -626,6 +626,9 @@ impl StartCodingDialogView {
         } else {
             ActionsLoad::Loading
         };
+        // A live edit to the SELECTED action can change its input set —
+        // reconcile the text-input editor states (typed values survive).
+        self.build_action_text_inputs(window, cx);
         if ready {
             if let Some(pending) = self.pending_action_preselect.take() {
                 self.select_action(pending, window, cx);
@@ -705,34 +708,53 @@ impl StartCodingDialogView {
         self.action_board_picks.clear();
         self.action_pr_picks.clear();
         self.action_icon_picks.clear();
-        if let Some(action) = self.actions.iter().find(|action| action.id == action_id) {
-            for input in &action.inputs {
-                if input.input_type != "text" {
-                    continue;
-                }
-                let placeholder = input.placeholder.clone();
-                let state = cx.new(|cx| {
-                    let mut state = InputState::new(window, cx);
-                    if let Some(placeholder) = placeholder {
-                        state = state.placeholder(placeholder);
-                    }
-                    state
-                });
-                // The footer gate ("Fill in …") must re-evaluate per keystroke.
-                self.action_input_subscriptions.push(cx.subscribe(
-                    &state,
-                    |_, _, event: &InputEvent, cx| {
-                        if matches!(event, InputEvent::Change) {
-                            cx.notify();
-                        }
-                    },
-                ));
-                self.action_text_inputs.insert(input.key.clone(), state);
-            }
-        }
         self.selected_action_id = Some(action_id);
+        self.build_action_text_inputs(window, cx);
         self.seed_action_repo_inputs();
         cx.notify();
+    }
+
+    /// Build editor states for the SELECTED action's text inputs. Idempotent:
+    /// states for keys that still exist are kept (typed values survive a live
+    /// shape refresh), missing keys get fresh states, removed keys are
+    /// dropped — so [`Self::refresh_actions`] can call this when a teammate
+    /// edits the selected action's inputs while the dialog is open, and a
+    /// newly added required input gets a field instead of an unfillable
+    /// "Fill in X." block.
+    fn build_action_text_inputs(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let Some(action) = self.selected_action() else {
+            return;
+        };
+        let text_inputs: Vec<(String, Option<String>)> = action
+            .inputs
+            .iter()
+            .filter(|input| input.input_type == "text")
+            .map(|input| (input.key.clone(), input.placeholder.clone()))
+            .collect();
+        self.action_text_inputs
+            .retain(|key, _| text_inputs.iter().any(|(kept, _)| kept == key));
+        for (key, placeholder) in text_inputs {
+            if self.action_text_inputs.contains_key(&key) {
+                continue;
+            }
+            let state = cx.new(|cx| {
+                let mut state = InputState::new(window, cx);
+                if let Some(placeholder) = placeholder {
+                    state = state.placeholder(placeholder);
+                }
+                state
+            });
+            // The footer gate ("Fill in …") must re-evaluate per keystroke.
+            self.action_input_subscriptions.push(cx.subscribe(
+                &state,
+                |_, _, event: &InputEvent, cx| {
+                    if matches!(event, InputEvent::Change) {
+                        cx.notify();
+                    }
+                },
+            ));
+            self.action_text_inputs.insert(key, state);
+        }
     }
 
     /// Pre-fill `repo` inputs with the selected action's bound repository

@@ -85,3 +85,19 @@ export function exchangeMobileOauthCode(
   if (!timingSafeEqual(expected, actual)) return null
   return entry.token
 }
+
+// `Secure` attribute for the OAuth state cookie, derived the way Better Auth
+// derives useSecureCookies: from the deployment's canonical base URL, not the
+// request scheme — behind the TLS-terminating proxy (Caddy/Coolify) Bun sees
+// plain http, so `request.url` alone would drop Secure on the https cloud
+// deployment. Conversely an http self-host (the out-of-the-box selfhost
+// compose reached via a LAN address) is not a trustworthy origin, so the
+// browser would silently DISCARD a Secure cookie and every native OAuth round
+// trip would die with state_missing on /api/mobile-oauth-return.
+export function stateCookieSecureAttribute(request: Request): string {
+  const base = process.env.BETTER_AUTH_URL
+  const isHttps = base
+    ? base.startsWith(`https:`)
+    : new URL(request.url).protocol === `https:`
+  return isHttps ? `; Secure` : ``
+}

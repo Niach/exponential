@@ -71,8 +71,8 @@ pub mod worktree_agents;
 
 pub use agent::CodingAgent;
 pub use argv::{
-    permission_args, session_args, AgentMcp, LaunchOptions, SessionTail, HOOK_PORT_ENV,
-    HOOK_TOKEN_ENV, MCP_TOKEN_ENV, MCP_URL_ENV, OBSERVER_TOKEN_ENV, OBSERVER_URL_ENV,
+    permission_args, session_args, AgentMcp, LaunchOptions, SessionTail, HOOK_CONFIG_ENV,
+    HOOK_PORT_ENV, MCP_TOKEN_ENV, MCP_URL_ENV, OBSERVER_TOKEN_ENV, OBSERVER_URL_ENV,
 };
 pub use batch_launcher::{
     batch_branch_name, new_batch_id, BatchIssueSpec, BatchLaunchRequest, RepoGroup,

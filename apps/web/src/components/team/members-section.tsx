@@ -31,6 +31,14 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -58,6 +66,15 @@ export function TeamMembersSection({
   showInvite?: boolean
 }) {
   const ownerCount = members.filter((member) => member.role === `owner`).length
+  // Removal confirms first (REV-50): losing team access is instant and has
+  // no undo, and the menu stacks the destructive item right under the
+  // role toggles — matching every other destructive settings action.
+  const [removeTarget, setRemoveTarget] = useState<{
+    memberId: string
+    isSelf: boolean
+    displayName: string
+  } | null>(null)
+  const [removing, setRemoving] = useState(false)
 
   const handleUpdateRole = async (
     memberId: string,
@@ -66,14 +83,22 @@ export function TeamMembersSection({
     await trpc.teamMembers.updateRole.mutate({ memberId, role })
   }
 
-  const handleRemove = async (memberId: string, isSelf: boolean) => {
-    await trpc.teamMembers.remove.mutate({ memberId })
-    invalidateBillingCache()
-    // Leaving the team you're looking at changes every shape's where
-    // clause and drops your read access — hard-navigate home so all Electric
-    // collections restart cleanly.
-    if (isSelf) {
-      window.location.assign(`/t/default`)
+  const handleRemove = async () => {
+    if (!removeTarget) return
+    setRemoving(true)
+    try {
+      await trpc.teamMembers.remove.mutate({ memberId: removeTarget.memberId })
+      invalidateBillingCache()
+      // Leaving the team you're looking at changes every shape's where
+      // clause and drops your read access — hard-navigate home so all Electric
+      // collections restart cleanly.
+      if (removeTarget.isSelf) {
+        window.location.assign(`/t/default`)
+        return
+      }
+      setRemoveTarget(null)
+    } finally {
+      setRemoving(false)
     }
   }
 
@@ -174,7 +199,13 @@ export function TeamMembersSection({
                         )}
                         {isSelf ? (
                           <DropdownMenuItem
-                            onClick={() => handleRemove(member.id, true)}
+                            onClick={() =>
+                              setRemoveTarget({
+                                memberId: member.id,
+                                isSelf: true,
+                                displayName,
+                              })
+                            }
                             className="text-destructive"
                           >
                             <UserMinus className="mr-2 h-4 w-4" />
@@ -183,7 +214,13 @@ export function TeamMembersSection({
                         ) : (
                           canManageMembers && (
                             <DropdownMenuItem
-                              onClick={() => handleRemove(member.id, false)}
+                              onClick={() =>
+                                setRemoveTarget({
+                                  memberId: member.id,
+                                  isSelf: false,
+                                  displayName,
+                                })
+                              }
                               className="text-destructive"
                             >
                               <UserMinus className="mr-2 h-4 w-4" />
@@ -206,6 +243,43 @@ export function TeamMembersSection({
           </>
         )}
       </CardContent>
+
+      <Dialog
+        open={removeTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !removing) setRemoveTarget(null)
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>
+              {removeTarget?.isSelf ? `Leave team` : `Remove member`}
+            </DialogTitle>
+            <DialogDescription>
+              {removeTarget?.isSelf
+                ? `Leave this team? You lose access to its boards and issues immediately and need a new invite to rejoin.`
+                : `Remove ${removeTarget?.displayName} from the team? They lose access to its boards and issues immediately.`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              disabled={removing}
+              onClick={() => setRemoveTarget(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={removing}
+              onClick={() => void handleRemove()}
+            >
+              {removing && <LoaderCircle className="animate-spin" />}
+              {removeTarget?.isSelf ? `Leave team` : `Remove`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   )
 }

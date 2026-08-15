@@ -31,8 +31,8 @@ use steer::publisher::{
     publish, pty_writer_input_hook, PublishSpec, PublisherHooks, PublisherTickets,
 };
 use steer::{
-    hook_settings_json, AnswerLink, EmitterConfig, HookServer, Steering, SteerRuntime,
-    HOOK_PORT_ENV, HOOK_TOKEN_ENV,
+    hook_settings_json, write_hook_curl_config, AnswerLink, EmitterConfig, HookServer, Steering,
+    SteerRuntime, HOOK_CONFIG_ENV, HOOK_PORT_ENV,
 };
 use terminal::{screen_lines, SpawnSpec, Terminal};
 
@@ -151,13 +151,15 @@ fn main() {
     let hook_server = HookServer::start().expect("hook server");
     let settings_path = worktree.join("exp430-hook-settings.json");
     std::fs::write(&settings_path, hook_settings_json()).expect("write settings");
+    let curl_config_path = worktree.join("exp430-hook-curl.cfg");
+    write_hook_curl_config(&curl_config_path, hook_server.token()).expect("write curl config");
 
     println!("{} spawning claude (idle REPL) in 120x36 PTY", stamp());
     let spec = SpawnSpec::new("claude")
         .args(["--settings", settings_path.to_str().unwrap()])
         .env("TERM", "xterm-256color")
         .env(HOOK_PORT_ENV, &hook_server.port().to_string())
-        .env(HOOK_TOKEN_ENV, hook_server.token())
+        .env(HOOK_CONFIG_ENV, curl_config_path.to_str().unwrap())
         .cwd(worktree.to_str().unwrap());
     let terminal = Terminal::spawn(&spec, 120, 36).expect("spawn claude");
 

@@ -7,12 +7,28 @@ export interface ImageDimensions {
   height: number
 }
 
+// Header fields are attacker-controlled bytes: a crafted PNG IHDR can declare
+// width 0xFFFFFFFF, which overflows the int4 `attachments.width` column and
+// aborts the whole insert transaction (REV-26). Anything outside this bound is
+// not a real picture we could serve — degrade to null (best-effort contract).
+const MAX_PLAUSIBLE_DIMENSION = 65535
+
+function plausible(dims: ImageDimensions | null): ImageDimensions | null {
+  if (!dims) return null
+  const { width, height } = dims
+  if (width < 1 || height < 1) return null
+  if (width > MAX_PLAUSIBLE_DIMENSION || height > MAX_PLAUSIBLE_DIMENSION) {
+    return null
+  }
+  return dims
+}
+
 export function getImageDimensions(bytes: Uint8Array): ImageDimensions | null {
-  return (
+  return plausible(
     pngDimensions(bytes) ??
-    gifDimensions(bytes) ??
-    webpDimensions(bytes) ??
-    jpegDimensions(bytes)
+      gifDimensions(bytes) ??
+      webpDimensions(bytes) ??
+      jpegDimensions(bytes)
   )
 }
 

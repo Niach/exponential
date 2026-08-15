@@ -48,6 +48,40 @@ fn applications_dir() -> Option<PathBuf> {
     dirs::data_dir().map(|dir| dir.join("applications"))
 }
 
+/// Render an executable path as ONE Exec argument per the Desktop Entry spec.
+/// An unquoted Exec value is split on whitespace, so `~/My Apps/Exp.AppImage`
+/// silently resolved to the nonexistent `~/My` and every `exponential://`
+/// deep link died with no diagnostic. Quoting rules are the spec's
+/// double-escape: inside double quotes, `"` `` ` `` `$` `\` take an escape
+/// backslash, and BOTH backslashes then double again for the key-file string
+/// layer; literal `%` becomes `%%` so it can't read as a field code.
+fn exec_escape(path: &Path) -> String {
+    let raw = path.display().to_string();
+    const NEEDS_QUOTING: &[char] = &[
+        ' ', '\t', '\n', '"', '\'', '\\', '>', '<', '~', '|', '&', ';', '$', '*', '?', '#',
+        '(', ')', '`',
+    ];
+    if !raw.contains(NEEDS_QUOTING) {
+        return raw.replace('%', "%%");
+    }
+    let mut inner = String::with_capacity(raw.len() + 2);
+    for c in raw.chars() {
+        match c {
+            // Literal backslash: `\` → quoting `\\` → key-file `\\\\`.
+            '\\' => inner.push_str("\\\\\\\\"),
+            // Quoting escape `\<c>`, whose backslash doubles at the
+            // key-file layer → `\\<c>`.
+            '"' | '`' | '$' => {
+                inner.push_str("\\\\");
+                inner.push(c);
+            }
+            '%' => inner.push_str("%%"),
+            _ => inner.push(c),
+        }
+    }
+    format!("\"{inner}\"")
+}
+
 fn desktop_file_name() -> String {
     format!("{APP_ID}.desktop")
 }
@@ -120,7 +154,7 @@ pub fn ensure_scheme_registered() {
          Categories=Development;\n\
          MimeType={scheme_entry};\n\
          StartupWMClass={APP_ID}\n",
-        exec = exec.display(),
+        exec = exec_escape(&exec),
         no_display = if packaged { "" } else { "NoDisplay=true\n" },
         scheme_entry = scheme_entry(),
     );
@@ -252,7 +286,9 @@ fn remove_default_application(contents: &str, key: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{remove_default_application, upsert_default_application, ICON_SVG};
+    use std::path::Path;
+
+    use super::{exec_escape, remove_default_application, upsert_default_application, ICON_SVG};
 
     /// EXP-151: `ICON_SVG` is installed VERBATIM as the hicolor theme icon, and
     /// GtkIconTheme loads it through gdk-pixbuf — which recognizes SVG only by
@@ -271,6 +307,47 @@ mod tests {
             "logo-white.svg must start with an SVG magic prefix, not `{}`",
             &trimmed[..trimmed.len().min(16)],
         );
+    }
+
+    #[test]
+    fn exec_escape_leaves_plain_paths_unquoted() {
+        assert_eq!(
+            exec_escape(Path::new("/usr/local/bin/exponential")),
+            "/usr/local/bin/exponential"
+        );
+    }
+
+    #[test]
+    fn exec_escape_quotes_paths_with_spaces() {
+        assert_eq!(
+            exec_escape(Path::new("/home/u/My Apps/Exponential.AppImage")),
+            "\"/home/u/My Apps/Exponential.AppImage\""
+        );
+    }
+
+    #[test]
+    fn exec_escape_doubles_percent_signs() {
+        // Unquoted: only the field-code escape applies.
+        assert_eq!(exec_escape(Path::new("/opt/100%/app")), "/opt/100%%/app");
+        // Quoted: percent still doubles inside the quotes.
+        assert_eq!(
+            exec_escape(Path::new("/opt/100% done/app")),
+            "\"/opt/100%% done/app\""
+        );
+    }
+
+    #[test]
+    fn exec_escape_double_escapes_quote_and_dollar() {
+        // Spec: a literal `$` in a quoted argument is `\\$`, a literal `"`
+        // is `\\"` (quoting escape + key-file backslash doubling).
+        assert_eq!(exec_escape(Path::new("/a/b\"c$d")), "\"/a/b\\\\\"c\\\\$d\"");
+    }
+
+    #[test]
+    fn exec_escape_double_escapes_backslash() {
+        // Spec: a literal backslash in a quoted argument needs FOUR
+        // backslashes in the file.
+        assert_eq!(exec_escape(Path::new("/a/b\\c d")), "\"/a/b\\\\\\\\c d\"");
     }
 
     const KEY: &str = "x-scheme-handler/exponential";

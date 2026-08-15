@@ -1109,6 +1109,13 @@ export const notifications = pgTable(
     // its issue_id FK cascade fires per deleted issue — without this every
     // issue delete (and issues.move's board_id rewrite) seq-scans the table.
     index(`idx_notifications_issue`).on(table.issueId),
+    // Bounds the deliver()/deliverToTeam 30s dedupe NOT EXISTS (recipient +
+    // recency) — without it the issue-less team-wide fan-out walks each
+    // recipient's full notification history per inbound support message.
+    index(`idx_notifications_user_created`).on(
+      table.userId,
+      table.createdAt.desc()
+    ),
     // The hourly digest sweep's scan: unread, never-emailed rows by age.
     index(`idx_notifications_digest_pending`)
       .on(table.createdAt)

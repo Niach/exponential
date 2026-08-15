@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from "drizzle-orm"
+import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   codingSessions,
@@ -405,7 +405,11 @@ export async function applyPrOpenedState(opts: {
     if (!current) return false
     if (current.prUrl) return false // already linked (idempotent)
 
-    await tx
+    // The link write is the atomic claim (REV-48): the read above is a plain
+    // snapshot, so two concurrent deliveries (webhook redelivery racing the
+    // original, or webhook + MCP open_pr) can both pass it — only the writer
+    // that actually flips prUrl from NULL fires the event/notify below.
+    const claimed = await tx
       .update(issues)
       .set({
         prUrl: opts.prUrl,
@@ -413,7 +417,9 @@ export async function applyPrOpenedState(opts: {
         prState: `open`,
         branch: opts.branch,
       })
-      .where(eq(issues.id, opts.issueId))
+      .where(and(eq(issues.id, opts.issueId), isNull(issues.prUrl)))
+      .returning({ id: issues.id })
+    if (claimed.length === 0) return false
 
     await recordIssueEvent(tx, {
       issueId: opts.issueId,
@@ -457,12 +463,20 @@ export async function applyPrOpenedState(opts: {
 // Applies the open→merged write semantics: flips prState to 'merged', stamps
 // prMergedAt, and emits a single pr_merged activity event.
 //
-// Idempotent on the open→merged transition: if the issue is already 'merged'
-// we return without touching anything, so the webhook and the outbound cron
-// can never double-fire the pr_merged event for the same PR.
+// Idempotent on the open→merged transition, enforced ATOMICALLY (REV-48): the
+// transition UPDATE itself carries the `prState <> 'merged'` claim, so two
+// concurrent invocations (webhook redelivery racing the original delivery, or
+// webhook + the GITHUB_POLLING outbound cron) can never both fire the
+// pr_merged event, the status flip, or the notify — only the writer whose
+// UPDATE actually flipped the row proceeds.
 export async function applyPrMergeState(opts: {
   issueId: string
   prUrl?: string
+  // Backfill sources for an issue whose PR was never linked (REV-26): a merge
+  // resolved via the branch-parse fallback lands on prUrl=null, and without
+  // these the row would show prState='merged' with no PR link anywhere.
+  prNumber?: number
+  headBranch?: string
   mergedAt?: Date | null
   actorUserId?: string | null
   // EXP-494: see applyPrOpenedState.
@@ -501,13 +515,40 @@ export async function applyPrMergeState(opts: {
         return { applied: false }
       }
 
-      await tx
+      // Never-linked issue (branch-parse fallback whose `opened` webhook was
+      // lost): backfill the PR linkage alongside the merge so the row doesn't
+      // end up 'merged' with no PR link (REV-26). Guarded by the WHERE below,
+      // so a concurrently-linked DIFFERENT PR can never be overwritten.
+      const backfill =
+        current.prUrl === null && opts.prUrl
+          ? {
+              prUrl: opts.prUrl,
+              ...(opts.prNumber != null ? { prNumber: opts.prNumber } : {}),
+              ...(opts.headBranch ? { branch: opts.headBranch } : {}),
+            }
+          : {}
+
+      // Atomic restatement of prStateTransitionAllowed(to: 'merged'): the
+      // WHERE is the claim — a concurrent writer that committed first leaves
+      // zero rows here, and everything below is gated on that (REV-48).
+      const claimed = await tx
         .update(issues)
         .set({
           prState: `merged`,
           prMergedAt: opts.mergedAt ?? new Date(),
+          ...backfill,
         })
-        .where(eq(issues.id, opts.issueId))
+        .where(
+          and(
+            eq(issues.id, opts.issueId),
+            or(isNull(issues.prState), ne(issues.prState, `merged`)),
+            ...(opts.prUrl
+              ? [or(isNull(issues.prUrl), eq(issues.prUrl, opts.prUrl))]
+              : [])
+          )
+        )
+        .returning({ id: issues.id })
+      if (claimed.length === 0) return { applied: false }
 
       await recordIssueEvent(tx, {
         issueId: opts.issueId,
@@ -550,7 +591,7 @@ export async function applyPrMergeState(opts: {
       return {
         applied: true,
         prUrl: opts.prUrl ?? current.prUrl,
-        headBranch: current.branch,
+        headBranch: current.branch ?? opts.headBranch ?? null,
       }
     }
   )
@@ -724,20 +765,23 @@ async function applyPrStateFlip(
     const txId = await generateTxId(tx)
     void txId
 
-    const [current] = await tx
-      .select({ prState: issues.prState, prUrl: issues.prUrl })
-      .from(issues)
-      .where(eq(issues.id, issueId))
-      .limit(1)
-
     // Only the linked PR may flip the linked issue, and only along the
-    // open⇄closed lifecycle — see prStateTransitionAllowed.
-    if (!current) return
-    if (!prStateTransitionAllowed(current, { to, prUrl })) return
-
+    // open⇄closed lifecycle — the WHERE is prStateTransitionAllowed stated
+    // atomically (REV-48), so a racing concurrent flip degrades to a no-op
+    // instead of re-applying. (A never-linked issue has prState=null and can
+    // never match the from-state, so no backfill question arises here.)
+    const from = to === `closed` ? `open` : `closed`
     await tx
       .update(issues)
       .set({ prState: to })
-      .where(eq(issues.id, issueId))
+      .where(
+        and(
+          eq(issues.id, issueId),
+          eq(issues.prState, from),
+          ...(prUrl
+            ? [or(isNull(issues.prUrl), eq(issues.prUrl, prUrl))]
+            : [])
+        )
+      )
   })
 }

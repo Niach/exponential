@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, desc, eq, lt } from "drizzle-orm"
+import { and, desc, eq, isNull, lt } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { db } from "@/db/connection"
 import {
@@ -411,10 +411,26 @@ export const helpdeskRouter = router({
           teamId: thread.teamId,
           source: `creator`,
         })
-        await tx
+        // The link write re-checks linkedIssueId INSIDE the transaction: the
+        // guard above read a pre-transaction snapshot, so two concurrent
+        // escalates could both pass it — the loser must roll back its issue
+        // insert instead of leaving an orphan duplicate (REV-26).
+        const linked = await tx
           .update(supportThreads)
           .set({ linkedIssueId: issue.id, updatedAt: new Date() })
-          .where(eq(supportThreads.id, thread.id))
+          .where(
+            and(
+              eq(supportThreads.id, thread.id),
+              isNull(supportThreads.linkedIssueId)
+            )
+          )
+          .returning({ id: supportThreads.id })
+        if (linked.length === 0) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `This ticket already has a linked issue`,
+          })
+        }
         return { issue, txId }
       })
 

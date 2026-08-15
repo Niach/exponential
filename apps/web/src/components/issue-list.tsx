@@ -24,7 +24,8 @@ import {
 } from "lucide-react"
 import { formatDate } from "@/lib/utils"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { formatDateForMutation, type IssueStatus } from "@/lib/domain"
+import { type IssueStatus } from "@/lib/domain"
+import { useToday } from "@/hooks/use-now"
 import { dueDateToneClass } from "@/lib/issue-due-date"
 import { ICON_COMPONENTS } from "@/lib/icons.generated"
 import { hexWithAlpha } from "@/lib/status-icons"
@@ -352,8 +353,9 @@ export function IssueList({
   const anchorIdRef = useRef<string | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   // Local-date boundary for the due-date tone — the same one the overdue-first
-  // comparator sorts on (lib/board-view.ts).
-  const today = useMemo(() => formatDateForMutation(new Date())!, [])
+  // comparator sorts on (lib/board-view.ts). Ticks across midnight so a
+  // long-lived tab keeps tone and ordering in agreement (REV2-48).
+  const today = useToday()
   const visibleGroups = groups.filter((g) => g.issues.length > 0)
   const bulkEnabled = Boolean(bulkTeamId) && canModerate
   const isMobile = useIsMobile()

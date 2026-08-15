@@ -30,6 +30,25 @@ function isEditorAutocompleteInteraction(event: {
   )
 }
 
+// Escape aimed at an inner editor layer — the @/# autocomplete popup or the
+// toolbar's inline link input — must close only that layer. Radix listens for
+// Escape on document with capture, so it fires BEFORE the editor's own
+// handler can consume the key; swallow it here (the layer's handler still
+// runs and closes it) instead of routing it into the dismiss confirm.
+function isEditorInnerLayerEscape(event: {
+  target: EventTarget | null
+}): boolean {
+  // The autocomplete portals to document.body, so the Escape's target is the
+  // editor itself — a mounted portal is the "menu is open" signal.
+  if (document.querySelector(`[data-editor-autocomplete]`) !== null) {
+    return true
+  }
+  return (
+    event.target instanceof Element &&
+    event.target.closest(`[data-editor-link-edit]`) !== null
+  )
+}
+
 interface PrimaryAction {
   disabled?: boolean
   onClick?: () => void
@@ -323,6 +342,10 @@ export function IssueEditorDialogShell({
           data-testid={dialogTestId}
           aria-describedby={undefined}
           onEscapeKeyDown={(event) => {
+            if (isEditorInnerLayerEscape(event)) {
+              event.preventDefault()
+              return
+            }
             if (closeBlocked || onDismissAttempt?.() === true) {
               event.preventDefault()
             }
@@ -395,6 +418,10 @@ export function IssueEditorDialogShell({
         data-testid={dialogTestId}
         aria-describedby={undefined}
         onEscapeKeyDown={(event) => {
+          if (isEditorInnerLayerEscape(event)) {
+            event.preventDefault()
+            return
+          }
           if (closeBlocked || onDismissAttempt?.() === true) {
             event.preventDefault()
           }

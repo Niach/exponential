@@ -3,7 +3,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { FolderKanban } from "lucide-react"
 import {
   useTeamBySlug,
-  useTeamBoards,
+  useTeamBoardsWithReady,
 } from "@/hooks/use-team-data"
 import { EmptyState } from "@/components/empty-state"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
@@ -18,7 +18,7 @@ function TeamIndexPage() {
   const { teamSlug } = Route.useParams()
   const navigate = useNavigate()
   const team = useTeamBySlug(teamSlug)
-  const boards = useTeamBoards(team?.id)
+  const { boards, boardsReady } = useTeamBoardsWithReady(team?.id)
   const [createOpen, setCreateOpen] = useState(false)
 
   useEffect(() => {
@@ -42,7 +42,10 @@ function TeamIndexPage() {
     }
   }, [boards, teamSlug, navigate])
 
-  if (!boards || boards.length > 0) {
+  // Until the boards snapshot lands, an empty list means "still syncing",
+  // not "no boards" — showing the create-your-first-board state early
+  // flashes it at every member of a board-having team (REV2-59 class).
+  if (!boardsReady || boards.length > 0) {
     return null
   }
 

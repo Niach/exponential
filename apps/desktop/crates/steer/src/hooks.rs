@@ -15,7 +15,12 @@
 //!
 //! * **Loopback + bearer token** — the listener binds `127.0.0.1:0` (ephemeral
 //!   port) and rejects any request without the random per-session token, so a
-//!   second local user cannot inject session events.
+//!   second local user cannot inject session events. The token itself rides a
+//!   0600 curl config file (referenced via `-K "$EXP_HOOK_CONFIG"`), never the
+//!   hook shell line — the shell expands `$VAR`s into curl's argv and
+//!   `/proc/<pid>/cmdline` is world-readable on Linux, so an argv token would
+//!   hand that second user exactly the credential the check exists to demand
+//!   (REV-51).
 //! * **Additive, never load-bearing** — the hook command is one `curl` with a
 //!   3s cap. If `curl` is missing, the port is gone, or the payload is junk,
 //!   claude logs a non-blocking hook error and the session runs exactly as it
@@ -39,8 +44,11 @@ use serde_json::Value;
 /// each other, §3.1). Expanded by the hook shell, so the settings file itself
 /// holds no per-session values.
 pub const HOOK_PORT_ENV: &str = "EXP_HOOK_PORT";
-/// Spawn-env var carrying the sidecar's bearer token (see [`HOOK_PORT_ENV`]).
-pub const HOOK_TOKEN_ENV: &str = "EXP_HOOK_TOKEN";
+/// Spawn-env var carrying the PATH of the 0600 curl config file that holds
+/// the sidecar's bearer token (content: [`hook_curl_config`]; see
+/// [`HOOK_PORT_ENV`]). The path — not the token — is what the hook shell
+/// expands into curl's argv (REV-51, module header).
+pub const HOOK_CONFIG_ENV: &str = "EXP_HOOK_CONFIG";
 
 /// Which `PreToolUse` calls the settings file forwards. Anything else stays
 /// on the grid/transcript path — the sidecar is for the blocking, structured
@@ -353,12 +361,39 @@ impl HookGroup {
 
 /// The shell command every hook runs: POST the payload it got on stdin to the
 /// sidecar. Both per-session values are `$ENV` references expanded by the
-/// hook shell, so the file content is constant and carries no secret.
+/// hook shell, so the file content is constant and carries no secret — and
+/// the bearer token stays behind the `-K` config-file indirection so it
+/// never lands in curl's world-readable argv (REV-51).
 pub fn hook_command() -> String {
     format!(
-        "curl -s -m 3 -X POST -H \"Authorization: Bearer ${HOOK_TOKEN_ENV}\" \
+        "curl -s -m 3 -X POST -K \"${HOOK_CONFIG_ENV}\" \
          --data-binary @- \"http://127.0.0.1:${HOOK_PORT_ENV}/hook\""
     )
+}
+
+/// The [`HOOK_CONFIG_ENV`] curl config file's content: the bearer header the
+/// hook command used to carry on its argv. Mirrored by `coding::launcher`,
+/// which writes the per-session file (the two crates cannot depend on each
+/// other, §3.1).
+pub fn hook_curl_config(token: &str) -> String {
+    format!("header = \"Authorization: Bearer {token}\"\n")
+}
+
+/// Write the curl config owner-only (0600) — it holds the session credential.
+pub fn write_hook_curl_config(path: &std::path::Path, token: &str) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?;
+        file.write_all(hook_curl_config(token).as_bytes())
+    }
+    #[cfg(not(unix))]
+    std::fs::write(path, hook_curl_config(token))
 }
 
 /// The `--settings <path>` file content for a hooked claude session.
@@ -905,7 +940,10 @@ mod tests {
             assert_eq!(command["type"], "command");
             let command = command["command"].as_str().unwrap();
             assert!(command.starts_with("curl -s -m 3 -X POST"), "{command}");
-            assert!(command.contains("Bearer $EXP_HOOK_TOKEN"), "{command}");
+            // REV-51: the token must never be argv-visible — the bearer
+            // header rides the 0600 config file behind `-K`.
+            assert!(command.contains("-K \"$EXP_HOOK_CONFIG\""), "{command}");
+            assert!(!command.contains("Bearer"), "{command}");
             assert!(
                 command.contains("http://127.0.0.1:$EXP_HOOK_PORT/hook"),
                 "{command}"
