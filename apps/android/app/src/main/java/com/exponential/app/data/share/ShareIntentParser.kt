@@ -7,6 +7,8 @@ import androidx.core.content.IntentCompat
 import androidx.core.net.toUri
 import java.io.File
 import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Parsed result of an `ACTION_SEND` / `ACTION_SEND_MULTIPLE` intent. Image URIs
@@ -23,13 +25,21 @@ data class SharedPayload(
  * Turns a system share intent into a [SharedPayload].
  *
  * The single most important thing this does is **copy shared images into the
- * app cache synchronously, while the intent's temporary read grant is still
- * live**. That grant is scoped to the receiving task and is revoked once the
- * task finishes; by the time the user has picked a board and tapped Post the
- * original `content://` URI may no longer be readable. Copying up front to
- * `cacheDir/share-inbox` and handing downstream code stable `file://` URIs
- * removes that whole failure class — `ContentResolver.openInputStream` (used by
- * the existing image-upload path) works on `file://` just the same.
+ * app cache immediately at parse time, while the intent's temporary read grant
+ * is still live**. That grant is scoped to the receiving task and is revoked
+ * once the task finishes; by the time the user has picked a board and tapped
+ * Post the original `content://` URI may no longer be readable. Copying up
+ * front to `cacheDir/share-inbox` and handing downstream code stable `file://`
+ * URIs removes that whole failure class — `ContentResolver.openInputStream`
+ * (used by the existing image-upload path) works on `file://` just the same.
+ *
+ * [parse] is suspend and rides every ContentResolver/disk touch on
+ * Dispatchers.IO (REV-16): a cloud-backed provider (e.g. Google Photos with
+ * "free up device storage") streams the ORIGINAL over the network inside
+ * `openInputStream`, so up to [MAX_IMAGES] blocking full-file copies on the
+ * main thread froze the launch frame into an ANR. Copying in a coroutine keeps
+ * the grant window — it starts right at intent delivery and the receiving task
+ * stays alive while it runs.
  */
 object ShareIntentParser {
 
@@ -40,9 +50,8 @@ object ShareIntentParser {
     fun isShareIntent(intent: Intent?): Boolean =
         intent?.action == Intent.ACTION_SEND || intent?.action == Intent.ACTION_SEND_MULTIPLE
 
-    fun parse(context: Context, intent: Intent): SharedPayload? {
+    suspend fun parse(context: Context, intent: Intent): SharedPayload? {
         if (!isShareIntent(intent)) return null
-        pruneStaleInbox(context)
 
         val text = intent.getStringExtra(Intent.EXTRA_TEXT)?.takeIf { it.isNotBlank() }
         val subject = intent.getStringExtra(Intent.EXTRA_SUBJECT)?.takeIf { it.isNotBlank() }
@@ -62,11 +71,17 @@ object ShareIntentParser {
             (0 until clip.itemCount).mapNotNull { clip.getItemAt(it).uri }
         }.orEmpty()
 
-        val imageUris = (rawUris + clipUris)
-            .distinct()
-            .filter { isImage(context, it) }
-            .take(MAX_IMAGES)
-            .mapNotNull { copyToCache(context, it) }
+        // Everything past here talks to ContentResolver or the disk — even
+        // getType() is a binder round-trip into the sending app's provider —
+        // so it all rides IO (same rule as the markdown image picker).
+        val imageUris = withContext(Dispatchers.IO) {
+            pruneStaleInbox(context)
+            (rawUris + clipUris)
+                .distinct()
+                .filter { isImage(context, it) }
+                .take(MAX_IMAGES)
+                .mapNotNull { copyToCache(context, it) }
+        }
 
         if (text == null && imageUris.isEmpty()) return null
         return SharedPayload(text = text, subject = subject, imageUris = imageUris)
