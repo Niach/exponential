@@ -190,6 +190,11 @@ class AuthApi @Inject constructor(
     // body) we refuse to persist the token and return false, and the caller
     // surfaces a login error. Also captures the onboarding flag in the same step
     // so the nav gate never momentarily sees a returning user as "not onboarded".
+    // The hints must come from the SAME credential being persisted (the
+    // sign-in response that minted the token) — never from a stored account
+    // row: a stale row's userId can belong to a different user than the token
+    // and would key it (and every later sync) under the wrong per-user account
+    // (REV-44). Paths without such a source pass null and fail closed.
     suspend fun completeLogin(
         baseUrl: String,
         token: String,
