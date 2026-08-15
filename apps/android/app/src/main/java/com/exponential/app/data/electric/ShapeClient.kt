@@ -644,8 +644,14 @@ class ShapeClient<T : Any>(
         val raw = try {
             json.decodeFromString(rawMessageSerializer, body)
         } catch (error: SerializationException) {
-            android.util.Log.w("ShapeClient", "[$shapeName] decode failed: ${error.message}")
-            return emptyList()
+            // A 200 whose body won't decode (proxy/CDN mangling, a header/body
+            // mismatch like the dev bridge's gzip bug) must be a poll ERROR,
+            // never an empty batch: returning emptyList let pollOnce persist
+            // the response's new offset and stamp success, permanently
+            // skipping every row in the batch (REV-15). Throwing routes it
+            // through the run loop's report/backoff path, which retries from
+            // the SAME saved offset.
+            throw IOException("Shape $shapeName body decode failed: ${error.message}", error)
         }
         return raw.mapNotNull { msg -> mapMessage(msg) }
     }

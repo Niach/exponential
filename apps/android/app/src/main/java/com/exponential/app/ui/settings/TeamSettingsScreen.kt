@@ -333,11 +333,11 @@ private fun DangerZone(
     isOwner: Boolean,
 ) {
     var confirmDelete by remember { mutableStateOf(false) }
-    // Delete team: owner-only, and never for the bootstrap feedback
-    // team (the server rejects it too). An owner may delete ANY of their
-    // teams including the last one (EXP-188) — a team-less account lands
+    // Delete team: owner-only. An owner may delete ANY of their teams
+    // including the last one (EXP-188; EXP-364 killed the feedback-team
+    // special case, so no slug is exempt) — a team-less account lands
     // back in the create-or-join flow.
-    if (isOwner && state.team?.slug != "feedback") {
+    if (isOwner && state.team != null) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SectionHeader("Danger zone")
             OutlinedButton(

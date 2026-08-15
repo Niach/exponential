@@ -149,12 +149,13 @@ struct IssuesHomeView: View {
     // MARK: - Empty state
 
     /// True when the teams observation has delivered and the account has no
-    /// membership beyond the shared feedback team — the EXP-188 zero-team
-    /// state (fresh signup that skipped onboarding's team step, or an owner
-    /// who deleted their last team).
+    /// membership at all — the EXP-188 zero-team state (fresh signup that
+    /// skipped onboarding's team step, or an owner who deleted their last
+    /// team). Every synced team counts: EXP-364 killed the feedback-team
+    /// special case, so a team slugged `feedback` is an ordinary team.
     private var hasNoTeam: Bool {
         guard let syncedTeams else { return false }
-        return !syncedTeams.contains { $0.slug != "feedback" }
+        return syncedTeams.isEmpty
     }
 
     // Nothing synced yet. Team-less accounts get the create-or-join choice

@@ -1,5 +1,6 @@
 package com.exponential.app.data.auth
 
+import com.exponential.app.data.db.DatabaseHolder
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -9,6 +10,7 @@ import kotlinx.coroutines.flow.asStateFlow
 @Singleton
 class AuthRepository @Inject constructor(
     private val accountStore: AccountStore,
+    private val databaseHolder: DatabaseHolder,
 ) {
     val accounts: StateFlow<List<ServerAccount>> = accountStore.accounts
     val activeAccountId: StateFlow<String?> = accountStore.activeAccountId
@@ -95,6 +97,7 @@ class AuthRepository @Inject constructor(
         // false keeps the account out of the wizard (legacy / unknown).
         onboardingKnown: Boolean = false,
     ) {
+        val instanceUrl = accountStore.activeAccount?.instanceUrl
         accountStore.resolveActiveAccount(
             token = token,
             email = email,
@@ -104,6 +107,19 @@ class AuthRepository @Inject constructor(
             onboardingCompletedAt = onboardingCompletedAt,
             onboardingKnown = onboardingKnown,
         )
+        // The resolve just re-keyed this instance to its per-user id, dropping
+        // the pending URL-only row — but the pending id's Room files may exist
+        // (AppViewModel's always-on flows open the active account's DB while
+        // the user sits on the login screen), and nothing else ever sweeps
+        // them (REV-15). Delete them here, unconditionally per login: that
+        // also heals orphans left behind by earlier builds. Guarded on the id
+        // being row-less, so a legacy still-URL-keyed account is never wiped.
+        if (instanceUrl != null) {
+            val pendingId = ServerAccount.makeId(instanceUrl)
+            if (accountStore.accounts.value.none { it.id == pendingId }) {
+                databaseHolder.deleteFiles(pendingId)
+            }
+        }
         republish()
     }
 

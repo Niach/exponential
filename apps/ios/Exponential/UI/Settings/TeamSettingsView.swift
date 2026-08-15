@@ -76,9 +76,9 @@ struct TeamSettingsView: View {
                     )
 
                     // Delete team — owner-only (hidden for non-owners, full
-                    // web parity), and never for the shared feedback team
-                    // (the server rejects deleting it anyway).
-                    if let team, team.slug != "feedback", isOwner {
+                    // web parity). No slug is exempt: EXP-364 killed every
+                    // feedback-team special case, an owner may delete ANY team.
+                    if team != nil, isOwner {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Danger Zone")
                                 .font(.subheadline.weight(.semibold))
