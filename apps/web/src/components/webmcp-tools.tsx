@@ -211,7 +211,7 @@ export function WebMcpReadTools() {
     name: `search_issues`,
     description: `Full-text search across all issues of the current team (titles, descriptions, comments).`,
     inputSchema: {
-      query: z.string().min(1),
+      query: z.string().min(1).max(256),
       limit: z.number().int().min(1).max(50).optional(),
     },
     annotations: readAnnotations,

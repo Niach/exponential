@@ -55,19 +55,20 @@ export async function getReadableTeamIds(
   return []
 }
 
-// Resolves the user ids whose full `users` rows the caller may sync via the
-// users shape (and read via users.listByTeamIds). The users table carries
-// EMAILS and NAMES, so this is deliberately tighter than team
-// readability: a caller sees co-members of teams they have joined, plus
-// themself. Every membership is an explicit invite (the self-service public
-// join is gone), so no per-team exclusion is needed. Anonymous callers
-// get nothing.
+// Resolves the user ids whose full `users` rows the caller may read via
+// users.listByTeamIds. The users table carries EMAILS and NAMES, so this is
+// deliberately tighter than team readability: a caller sees co-members of
+// teams they have joined, plus themself. Every membership is an explicit
+// invite (the self-service public join is gone), so no per-team exclusion is
+// needed. Anonymous callers get nothing. The users SHAPE no longer uses this
+// list (REV-37): its where clause scopes via the trigger-maintained
+// users.team_ids mirror, because an inlined co-member id list grew with
+// instance size until the shape URL tripped Electric's request-line limit.
 export async function getReadableUserIdsInTeams(
   userId: string | null
 ): Promise<string[]> {
   if (!userId) return []
-  // REV2-7: cached ~10s (see membership-cache.ts) — every users-shape
-  // long-poll renewal re-runs these two queries otherwise.
+  // REV2-7: cached ~10s (see membership-cache.ts).
   return readableUserIdsCache.get(userId, () =>
     queryReadableUserIdsInTeams(userId)
   )

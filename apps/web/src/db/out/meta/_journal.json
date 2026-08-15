@@ -491,6 +491,13 @@
       "when": 1786749154208,
       "tag": "0069_narrow_liz_osborn",
       "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1786754398015,
+      "tag": "0070_sticky_starfox",
+      "breakpoints": true
     }
   ]
 }

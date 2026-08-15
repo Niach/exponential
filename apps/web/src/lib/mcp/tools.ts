@@ -436,7 +436,7 @@ export function registerExponentialTools(
         assigneeId: z.string().nullable().optional(),
         dueAfter: dateOnly.optional(),
         dueBefore: dateOnly.optional(),
-        search: z.string().min(1).optional(),
+        search: z.string().min(1).max(256).optional(),
         limit: z.number().int().min(1).max(200).default(50),
         offset: z.number().int().min(0).default(0),
       },

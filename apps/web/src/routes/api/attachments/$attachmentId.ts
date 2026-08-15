@@ -14,6 +14,9 @@ import {
 
 const singleRangePattern = /^bytes=(\d*)-(\d*)$/
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 interface ParsedRange {
   header: string
   satisfiable: boolean
@@ -69,26 +72,37 @@ async function getAttachment({
   params: { attachmentId: string }
   request: Request
 }) {
-  // Attachment URLs appear in issue/comment markdown that MCP clients read, so
-  // this route must accept every credential the MCP endpoint accepts (OAuth2
-  // access tokens, expu_ api keys, session cookie/bearer) — resolveSession is
-  // the shared chokepoint and also downgrades auth-plugin throws to null
-  // instead of leaking them as 500s.
+  // Attachment URLs appear in issue/comment markdown that MCP clients read,
+  // so this route must accept every credential the MCP endpoint accepts other
+  // than OAuth2 access tokens (deliberately confined to /api/mcp): expu_ api
+  // keys and session cookie/bearer — resolveSession is the shared chokepoint
+  // and also downgrades auth-plugin throws to null instead of leaking them as
+  // 500s.
   const session = await resolveSession(request)
 
-  const attachment = await getAttachmentTeamContext(params.attachmentId)
-
-  // Member-only: attachment bytes are never anonymously readable.
-  if (session?.user) {
-    await assertTeamMember(session.user.id, attachment.teamId)
-  } else {
-    // 401 (not 404) to match the historic no-session behavior and avoid an
-    // existence oracle.
+  // Member-only: attachment bytes are never anonymously readable. The 401
+  // comes BEFORE any DB lookup (REV-49) so anonymous probes get a uniform
+  // answer whether or not the id exists — no existence oracle, and matches
+  // the historic no-session behavior.
+  if (!session?.user) {
     throw new TRPCError({
       code: `UNAUTHORIZED`,
       message: `Unauthorized`,
     })
   }
+
+  // The id column is uuid — an unvalidated path segment would make Postgres
+  // throw 22P02 (not a TRPCError), turning every crawler hit on a garbage
+  // attachment URL into a logged 500 instead of this 404.
+  if (!UUID_RE.test(params.attachmentId)) {
+    throw new TRPCError({
+      code: `NOT_FOUND`,
+      message: `Attachment not found`,
+    })
+  }
+
+  const attachment = await getAttachmentTeamContext(params.attachmentId)
+  await assertTeamMember(session.user.id, attachment.teamId)
 
   // An empty stored type must never be sniffed by the browser.
   const contentType = attachment.contentType || `application/octet-stream`

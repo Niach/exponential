@@ -8,8 +8,14 @@
 --    with a board_deleted_at mirror column (REV2-5) guard the bump with a
 --    WHEN clause: the board trash/restore fan-out (propagate_board_deleted_at)
 --    only flips board_deleted_at, and bumping updated_at there would stamp a
---    whole board's history as freshly edited on restore. App writes never
---    touch board_deleted_at, so the guard is a no-op for them.
+--    whole board's history as freshly edited on restore. The ISSUE-CHILD
+--    tables among them additionally guard on board_id (REV-49): issues.move's
+--    re-point UPDATEs only change board_id, which is bookkeeping too — a move
+--    must not stamp every comment/attachment/... as freshly edited. issues
+--    itself keeps only the board_deleted_at guard: the move's own UPDATE
+--    (board_id + number + identifier) SHOULD bump the issue. App writes never
+--    touch board_deleted_at or board_id outside the move re-point, so the
+--    guards are no-ops for them.
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -26,25 +32,31 @@ CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON issues FOR EACH ROW
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON labels FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON issue_statuses FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON comments FOR EACH ROW
-  WHEN (NEW.board_deleted_at IS NOT DISTINCT FROM OLD.board_deleted_at)
+  WHEN (NEW.board_deleted_at IS NOT DISTINCT FROM OLD.board_deleted_at
+    AND NEW.board_id IS NOT DISTINCT FROM OLD.board_id)
   EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON attachments FOR EACH ROW
-  WHEN (NEW.board_deleted_at IS NOT DISTINCT FROM OLD.board_deleted_at)
+  WHEN (NEW.board_deleted_at IS NOT DISTINCT FROM OLD.board_deleted_at
+    AND NEW.board_id IS NOT DISTINCT FROM OLD.board_id)
   EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON notifications FOR EACH ROW
-  WHEN (NEW.board_deleted_at IS NOT DISTINCT FROM OLD.board_deleted_at)
+  WHEN (NEW.board_deleted_at IS NOT DISTINCT FROM OLD.board_deleted_at
+    AND NEW.board_id IS NOT DISTINCT FROM OLD.board_id)
   EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON fcm_tokens FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON team_members FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON team_invites FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON issue_subscribers FOR EACH ROW
-  WHEN (NEW.board_deleted_at IS NOT DISTINCT FROM OLD.board_deleted_at)
+  WHEN (NEW.board_deleted_at IS NOT DISTINCT FROM OLD.board_deleted_at
+    AND NEW.board_id IS NOT DISTINCT FROM OLD.board_id)
   EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON issue_events FOR EACH ROW
-  WHEN (NEW.board_deleted_at IS NOT DISTINCT FROM OLD.board_deleted_at)
+  WHEN (NEW.board_deleted_at IS NOT DISTINCT FROM OLD.board_deleted_at
+    AND NEW.board_id IS NOT DISTINCT FROM OLD.board_id)
   EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON coding_sessions FOR EACH ROW
-  WHEN (NEW.board_deleted_at IS NOT DISTINCT FROM OLD.board_deleted_at)
+  WHEN (NEW.board_deleted_at IS NOT DISTINCT FROM OLD.board_deleted_at
+    AND NEW.board_id IS NOT DISTINCT FROM OLD.board_id)
   EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON repositories FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON actions FOR EACH ROW EXECUTE FUNCTION update_updated_at();
@@ -121,15 +133,18 @@ CREATE OR REPLACE TRIGGER generate_issue_number BEFORE INSERT ON issues FOR EACH
 --    issues Electric shape fires an `updated` event on new discussion (keeps
 --    "recently active" ordering honest on every client). The board
 --    trash/restore fan-out (propagate_board_deleted_at) also UPDATEs comment
---    rows — that is bookkeeping, not discussion, so it must not bump (and
---    would otherwise amplify a trash into one issues-UPDATE per comment).
+--    rows, and issues.move re-points their board_id — both are bookkeeping,
+--    not discussion, so neither must bump (each would otherwise amplify a
+--    trash/move into one issues-UPDATE per comment, REV-49; the move's own
+--    issues UPDATE already bumps the issue exactly once).
 CREATE OR REPLACE FUNCTION bump_issue_updated_at_from_comment()
 RETURNS TRIGGER AS $$
 DECLARE
   target_issue uuid;
 BEGIN
   IF (TG_OP = 'UPDATE')
-    AND (NEW.board_deleted_at IS DISTINCT FROM OLD.board_deleted_at) THEN
+    AND (NEW.board_deleted_at IS DISTINCT FROM OLD.board_deleted_at
+      OR NEW.board_id IS DISTINCT FROM OLD.board_id) THEN
     RETURN NEW;
   END IF;
   IF (TG_OP = 'DELETE') THEN
@@ -223,7 +238,12 @@ CREATE OR REPLACE TRIGGER populate_coding_session_team_id
 --    can commit with a stale NULL board_deleted_at, but such a row is
 --    invisible on every client (its board/issue are out of sync scope) and
 --    purge cascade-deletes it — a benign orphan, not worth the
---    trash-vs-insert lock contention. issue_labels intentionally has BOTH
+--    trash-vs-insert lock contention. That reasoning is CHILD-ONLY: the
+--    issues table's own mirror populate (#8) DOES lock the boards row,
+--    because a stale-NULL issues row is squarely in sync scope (the issues
+--    shape filters on board_deleted_at alone) — it would sync everywhere
+--    while its board doesn't, then vanish in the 48h purge.
+--    issue_labels intentionally has BOTH
 --    triggers (team_id from the label, board_id from the issue). Guarded on
 --    issue_id like the team_id populate: batch-scoped coding_sessions rows
 --    (issue_id NULL) keep board_id + board_deleted_at NULL — they span
@@ -279,13 +299,22 @@ CREATE OR REPLACE TRIGGER populate_notification_board_id
 --    board-derived truth, and re-derives both columns when issues.move
 --    re-points board_id (moves never cross teams, so team_id is effectively
 --    invariant — deriving it anyway keeps the trigger the single source of
---    truth).
+--    truth). The boards read takes FOR SHARE (REV-49) — unlike #7's
+--    child-only unlocked read — so an issue insert/move serializes against a
+--    concurrent board trash (a plain UPDATE's FOR NO KEY UPDATE lock; KEY
+--    SHARE would NOT conflict with it): without the lock, a create racing a
+--    trash could commit a stale-NULL board_deleted_at issue that syncs on
+--    every client while its board doesn't, until the purge silently deletes
+--    it. Accepted cost: ANY boards UPDATE (rename included) briefly blocks
+--    concurrent inserts/moves on that board; concurrent inserts stay
+--    share-compatible with each other.
 CREATE OR REPLACE FUNCTION populate_issue_board_context()
 RETURNS TRIGGER AS $$
 BEGIN
   SELECT b.team_id, b.deleted_at INTO NEW.team_id, NEW.board_deleted_at
   FROM boards b
-  WHERE b.id = NEW.board_id;
+  WHERE b.id = NEW.board_id
+  FOR SHARE OF b;
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -477,3 +506,62 @@ UPDATE device_worktrees w
     AND (w.user_id IS DISTINCT FROM d.user_id
       OR w.shared_team_id IS DISTINCT FROM
          CASE WHEN d.kind = 'server' THEN d.shared_team_id END);
+
+-- 14. (REV-37) Mirror each user's sorted team-id set onto users.team_ids so
+--     the users shape's where clause is `id = me OR team_ids && {my teams}` —
+--     bounded by the CALLER's team count. The old clause enumerated every
+--     readable co-member id, so its URL grew with instance size until it
+--     tripped Electric's ~10KB request-line limit (414 → the users shape
+--     died on every client at once). Sorted array => deterministic value;
+--     the column is filter-only (excluded from the shape allowlist, the
+--     device_worktrees mirror precedent), and a co-member joining/leaving a
+--     team becomes an incremental move-in/move-out delta instead of a
+--     where-clause rewrite. The FOR UPDATE pre-lock (its own statement, so
+--     the recompute starts on a post-wait snapshot) serializes concurrent
+--     recomputes for the same user: without it, the loser of two concurrent
+--     membership writes would recompute from a stale team_members snapshot
+--     and drop the winner's team until the next change (the boot heal pass
+--     below is the backstop either way). users.updated_at is app-stamped
+--     (better-auth; no update_updated_at trigger on users), so mirror writes
+--     never restamp it. UPDATE OF user_id/team_id is belt-and-braces — no
+--     writer re-points membership rows today. A deleted user's cascade fires
+--     this per removed membership row; the users row is already gone, so the
+--     lock+recompute match nothing (harmless no-op).
+CREATE OR REPLACE FUNCTION sync_user_team_ids()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF TG_OP IN ('INSERT', 'UPDATE') THEN
+    PERFORM 1 FROM users WHERE id = NEW.user_id FOR UPDATE;
+    UPDATE users u SET team_ids = (
+      SELECT COALESCE(array_agg(tm.team_id ORDER BY tm.team_id), '{}')
+      FROM team_members tm WHERE tm.user_id = NEW.user_id
+    ) WHERE u.id = NEW.user_id;
+  END IF;
+  IF TG_OP = 'DELETE'
+     OR (TG_OP = 'UPDATE' AND NEW.user_id IS DISTINCT FROM OLD.user_id) THEN
+    PERFORM 1 FROM users WHERE id = OLD.user_id FOR UPDATE;
+    UPDATE users u SET team_ids = (
+      SELECT COALESCE(array_agg(tm.team_id ORDER BY tm.team_id), '{}')
+      FROM team_members tm WHERE tm.user_id = OLD.user_id
+    ) WHERE u.id = OLD.user_id;
+  END IF;
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER sync_user_team_ids
+  AFTER INSERT OR DELETE OR UPDATE OF user_id, team_id ON team_members
+  FOR EACH ROW EXECUTE FUNCTION sync_user_team_ids();
+
+-- Heal pass (idempotent, every boot): membership mirrors for rows written in
+-- the migrate→boot gap or under a pre-trigger binary. The IS DISTINCT FROM
+-- guard keeps a routine boot from rewriting (and Electric-churning) every
+-- users row.
+UPDATE users u
+  SET team_ids = COALESCE(sub.ids, '{}')
+  FROM (
+    SELECT u2.id, (SELECT array_agg(tm.team_id ORDER BY tm.team_id)
+                     FROM team_members tm WHERE tm.user_id = u2.id) AS ids
+    FROM users u2
+  ) sub
+  WHERE u.id = sub.id AND u.team_ids IS DISTINCT FROM COALESCE(sub.ids, '{}');

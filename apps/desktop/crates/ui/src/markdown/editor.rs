@@ -2979,21 +2979,30 @@ pub(crate) fn scan_mentions(line: &str) -> Vec<Range<usize>> {
         while k < bytes.len() && is_domain(bytes[k]) {
             k += 1;
         }
-        let domain = &line[domain_start..k];
-        // Needs a dot + ≥2-alpha TLD (web regex `\.[A-Za-z]{2,}`); trim
-        // trailing dots/hyphens that the regex would not consume.
-        let mut end = k;
-        while end > domain_start && (bytes[end - 1] == b'.' || bytes[end - 1] == b'-') {
-            end -= 1;
+        // Web `MENTION_RE` parity: the greedy domain run backtracks to the
+        // LAST '.' with at least one domain char before it that is followed
+        // by ≥2 ASCII alpha chars, and the match ends right after that
+        // maximal alpha run (`@a@example.com2` → `@a@example.com`,
+        // `@j@a.co-op` → `@j@a.co`). No qualifying dot — including a dot at
+        // `domain_start`, where the regex's `[A-Za-z0-9.-]+` would be empty
+        // — means no match at all.
+        let mut end = None;
+        let mut d = k;
+        while d > domain_start + 1 {
+            d -= 1;
+            if bytes[d] != b'.' {
+                continue;
+            }
+            let mut m = d + 1;
+            while m < k && bytes[m].is_ascii_alphabetic() {
+                m += 1;
+            }
+            if m - (d + 1) >= 2 {
+                end = Some(m);
+                break;
+            }
         }
-        let domain = &domain[..end - domain_start];
-        let tld_ok = domain
-            .rsplit('.')
-            .next()
-            .map(|tld| tld.len() >= 2 && tld.chars().all(|c| c.is_ascii_alphabetic()))
-            .unwrap_or(false)
-            && domain.contains('.');
-        if tld_ok {
+        if let Some(end) = end {
             out.push(i..end);
             i = end;
         } else {
@@ -3078,6 +3087,14 @@ mod tests {
         assert_eq!(scan_mentions("@bad@nodot"), Vec::<Range<usize>>::new());
         // Trailing period is punctuation, not part of the domain.
         assert_eq!(scan_mentions("ping @a.b@c.io."), vec![5..14]);
+        // The regex backtracks instead of rejecting the whole token.
+        assert_eq!(scan_mentions("@a@example.com2"), vec![0..14]);
+        assert_eq!(scan_mentions("@j@a.co-op"), vec![0..7]);
+        assert_eq!(scan_mentions("@a@b.co.uk2"), vec![0..10]);
+        assert_eq!(scan_mentions("@x@y.com-"), vec![0..8]);
+        // A dot at the domain start leaves `[A-Za-z0-9.-]+` empty.
+        assert_eq!(scan_mentions("@a@.com"), Vec::<Range<usize>>::new());
+        assert_eq!(scan_mentions("@a@b.c"), Vec::<Range<usize>>::new());
     }
 
     #[test]

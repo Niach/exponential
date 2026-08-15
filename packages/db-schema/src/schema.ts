@@ -391,6 +391,14 @@ export const issues = pgTable(
     // issue_number_counters below): any residual allocation race fails loudly
     // instead of committing two issues with the same identifier.
     uniqueIndex(`uniq_issues_board_number`).on(table.boardId, table.number),
+    // Serves issues.search's FTS branch (REV-14). The expression must stay
+    // byte-identical to the query's tsvector expression in trpc/issues.ts —
+    // Postgres matches index and predicate on the parse tree, and 'english'
+    // is pinned because the session default config is not immutable.
+    index(`idx_issues_fts`).using(
+      `gin`,
+      sql`to_tsvector('english', coalesce(${table.title}, '') || ' ' || coalesce(${table.description}, ''))`
+    ),
   ]
 )
 
@@ -534,6 +542,12 @@ export const comments = pgTable(
     index(`idx_comments_issue`).on(table.issueId),
     index(`idx_comments_team`).on(table.teamId),
     index(`idx_comments_board`).on(table.boardId),
+    // Serves issues.search's comment-body FTS branch (REV-14). Same
+    // byte-identical-expression contract as idx_issues_fts.
+    index(`idx_comments_body_fts`).using(
+      `gin`,
+      sql`to_tsvector('english', ${table.body})`
+    ),
   ]
 )
 

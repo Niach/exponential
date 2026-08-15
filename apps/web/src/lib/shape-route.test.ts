@@ -15,6 +15,9 @@ import { Route as actionsRoute } from "@/routes/api/shapes/actions"
 import { Route as issueStatusesRoute } from "@/routes/api/shapes/issue-statuses"
 import { Route as devicesRoute } from "@/routes/api/shapes/devices"
 import { Route as deviceWorktreesRoute } from "@/routes/api/shapes/device-worktrees"
+import { Route as labelsRoute } from "@/routes/api/shapes/labels"
+import { Route as teamMembersRoute } from "@/routes/api/shapes/team-members"
+import { Route as teamsRoute } from "@/routes/api/shapes/teams"
 
 const {
   resolveSession,
@@ -34,6 +37,7 @@ const {
 const membership = vi.hoisted(() => ({
   getUserTeamIds: vi.fn(),
   getReadableUserIdsInTeams: vi.fn(),
+  getReadableTeamIds: vi.fn(),
 }))
 
 vi.mock(`@/lib/auth/resolve-bearer`, () => ({
@@ -53,6 +57,7 @@ vi.mock(`@/lib/team-membership`, async (importOriginal) => {
     ...actual,
     getUserTeamIds: membership.getUserTeamIds,
     getReadableUserIdsInTeams: membership.getReadableUserIdsInTeams,
+    getReadableTeamIds: membership.getReadableTeamIds,
   }
 })
 
@@ -311,11 +316,11 @@ describe(`shape column + trash contracts`, () => {
     )
   })
 
-  it(`pins the users shape to exactly the 7 client columns`, async () => {
+  it(`pins the users shape to exactly the 6 client columns`, async () => {
     const originUrl = new URL(`https://electric.example/v1/shape`)
     resolveSession.mockResolvedValue({ user: { id: `user-1` } })
     prepareElectricUrl.mockReturnValue(originUrl)
-    membership.getReadableUserIdsInTeams.mockResolvedValue([`user-1`])
+    membership.getUserTeamIds.mockResolvedValue([`w-1`])
 
     await shapeHandler(usersRoute)({
       request: new Request(`https://example.com/api/shapes/users`, {
@@ -338,6 +343,79 @@ describe(`shape column + trash contracts`, () => {
     expect(columns).not.toContain(`onboarding_completed_at`)
     expect(columns).not.toContain(`is_admin`)
     expect(columns).not.toContain(`email_verified`)
+    // The REV-37 scoping mirror is filter-only — never synced.
+    expect(columns).not.toContain(`team_ids`)
+  })
+
+  it(`users member clause scopes via the team_ids mirror, sorted and byte-stable`, async () => {
+    const originUrl = new URL(`https://electric.example/v1/shape`)
+    resolveSession.mockResolvedValue({ user: { id: `user-1` } })
+    prepareElectricUrl.mockReturnValue(originUrl)
+    // Unsorted on purpose — the emitted clause must come out sorted.
+    membership.getUserTeamIds.mockResolvedValue([`w-2`, `w-1`])
+
+    await shapeHandler(usersRoute)({
+      request: new Request(`https://example.com/api/shapes/users`, {
+        headers: { authorization: `Bearer t` },
+      }),
+    })
+
+    // REV-37: bounded by the CALLER's team count — never a co-member id
+    // list, whose URL grew with instance size until Electric 414'd.
+    expect(originUrl.searchParams.get(`where`)).toBe(
+      `("id" = 'user-1') OR ("team_ids" && '{w-1,w-2}'::uuid[])`
+    )
+    expect(membership.getReadableUserIdsInTeams).not.toHaveBeenCalled()
+  })
+
+  it(`users zero-team members sync only themselves; anonymous gets the sentinel`, async () => {
+    const originUrl = new URL(`https://electric.example/v1/shape`)
+    resolveSession.mockResolvedValue({ user: { id: `user-1` } })
+    prepareElectricUrl.mockReturnValue(originUrl)
+    membership.getUserTeamIds.mockResolvedValue([])
+
+    await shapeHandler(usersRoute)({
+      request: new Request(`https://example.com/api/shapes/users`, {
+        headers: { authorization: `Bearer t` },
+      }),
+    })
+
+    expect(originUrl.searchParams.get(`where`)).toBe(`"id" = 'user-1'`)
+
+    resolveSession.mockResolvedValue(null)
+    await shapeHandler(usersRoute)({
+      request: new Request(`https://example.com/api/shapes/users`),
+    })
+    expect(originUrl.searchParams.get(`where`)).toBe(
+      `"id" = '00000000-0000-0000-0000-000000000000'`
+    )
+  })
+
+  it(`pins the labels and team-members columns (REV-49)`, async () => {
+    const originUrl = new URL(`https://electric.example/v1/shape`)
+    resolveSession.mockResolvedValue({ user: { id: `user-1` } })
+    prepareElectricUrl.mockReturnValue(originUrl)
+    membership.getUserTeamIds.mockResolvedValue([`w-1`])
+
+    // Full-table today, pinned anyway: a future server-only column must ship
+    // BEHIND the allowlist, not silently reach every native client.
+    await shapeHandler(labelsRoute)({
+      request: new Request(`https://example.com/api/shapes/labels`, {
+        headers: { authorization: `Bearer t` },
+      }),
+    })
+    expect(originUrl.searchParams.get(`columns`)).toBe(
+      `id,team_id,name,color,sort_order,created_at,updated_at`
+    )
+
+    await shapeHandler(teamMembersRoute)({
+      request: new Request(`https://example.com/api/shapes/team-members`, {
+        headers: { authorization: `Bearer t` },
+      }),
+    })
+    expect(originUrl.searchParams.get(`columns`)).toBe(
+      `id,team_id,user_id,role,created_at,updated_at`
+    )
   })
 
   it(`pins the team-invites columns and excludes the invite bearer token`, async () => {
@@ -709,4 +787,66 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
     })
     expect(anon.status).toBe(401)
   })
+})
+
+describe(`every shape proxy pins a columns allowlist (REV-49)`, () => {
+  beforeEach(() => {
+    resolveSession.mockReset()
+    prepareElectricUrl.mockReset()
+    proxyElectricRequest.mockReset()
+    membership.getUserTeamIds.mockReset()
+    membership.getReadableUserIdsInTeams.mockReset()
+    membership.getReadableTeamIds.mockReset()
+    proxyElectricRequest.mockResolvedValue(new Response(`ok`))
+  })
+
+  // ALL 18 shape routes (the file list in routes/api/shapes/ IS the list).
+  // The pin is what makes adding a server-only column to a synced table safe
+  // — an unpinned proxy would stream it to every client on the next deploy
+  // with no code change and no test failure. A new route added without a
+  // `columns` allowlist must be appended here AND fail the sweep until it
+  // pins one.
+  const allRoutes = [
+    [`actions`, actionsRoute],
+    [`attachments`, attachmentsRoute],
+    [`boards`, boardsRoute],
+    [`coding-sessions`, codingSessionsRoute],
+    [`comments`, commentsRoute],
+    [`device-worktrees`, deviceWorktreesRoute],
+    [`devices`, devicesRoute],
+    [`issue-events`, issueEventsRoute],
+    [`issue-labels`, issueLabelsRoute],
+    [`issue-statuses`, issueStatusesRoute],
+    [`issue-subscribers`, issueSubscribersRoute],
+    [`issues`, issuesRoute],
+    [`labels`, labelsRoute],
+    [`notifications`, notificationsRoute],
+    [`team-invites`, teamInvitesRoute],
+    [`team-members`, teamMembersRoute],
+    [`teams`, teamsRoute],
+    [`users`, usersRoute],
+  ] as const
+
+  it.each(allRoutes)(
+    `%s sends a non-empty columns param to Electric`,
+    async (name, route) => {
+      const originUrl = new URL(`https://electric.example/v1/shape`)
+      resolveSession.mockResolvedValue({ user: { id: `user-1` } })
+      prepareElectricUrl.mockReturnValue(originUrl)
+      membership.getUserTeamIds.mockResolvedValue([`w-1`])
+      membership.getReadableUserIdsInTeams.mockResolvedValue([`user-1`])
+      membership.getReadableTeamIds.mockResolvedValue([`w-1`])
+
+      await shapeHandler(route)({
+        request: new Request(`https://example.com/api/shapes/${name}`, {
+          headers: { authorization: `Bearer t` },
+        }),
+      })
+
+      const columns = originUrl.searchParams.get(`columns`)?.split(`,`) ?? []
+      // Non-empty is the whole invariant — column SETS are pinned by the
+      // per-route specs above (issue_labels has no `id`: composite key).
+      expect(columns.length).toBeGreaterThan(0)
+    }
+  )
 })

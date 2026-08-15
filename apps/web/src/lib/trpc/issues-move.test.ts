@@ -88,13 +88,20 @@ const PROJ_TO = `00000000-0000-4000-8000-00000000000b`
 
 // FIFO select queue: each tx.select() call resolves the next seeded rows.
 const selectQueue: unknown[][] = []
+// Lock strength per select, in call order (`null` = no .for() call).
+const selectLocks: (string | null)[] = []
 
 function selectChain(): Promise<unknown[]> & Record<string, () => unknown> {
   const p = Promise.resolve(
     selectQueue.shift() ?? []
-  ) as Promise<unknown[]> & Record<string, () => unknown>
-  for (const m of [`from`, `where`, `innerJoin`, `limit`, `for`]) {
+  ) as Promise<unknown[]> & Record<string, (...args: unknown[]) => unknown>
+  const lockIndex = selectLocks.push(null) - 1
+  for (const m of [`from`, `where`, `innerJoin`, `limit`]) {
     p[m] = () => p
+  }
+  p.for = (strength: unknown) => {
+    selectLocks[lockIndex] = strength as string
+    return p
   }
   return p
 }
@@ -187,7 +194,7 @@ function seedHappyPath() {
   executeQueue.push([{ txid: `77` }], [{ current_max: 16 }], [{ counter: 17 }])
   // current issue read → target board read.
   selectQueue.push([{ identifier: `EXP-42`, boardId: PROJ_FROM }])
-  selectQueue.push([{ prefix: `ABC`, slug: `abc` }])
+  selectQueue.push([{ prefix: `ABC`, slug: `abc`, deletedAt: null }])
   issueRowBase = {
     id: ISSUE_ID,
     boardId: PROJ_FROM,
@@ -201,6 +208,7 @@ function seedHappyPath() {
 
 beforeEach(() => {
   selectQueue.length = 0
+  selectLocks.length = 0
   executeQueue.length = 0
   executeCalls.length = 0
   updates.length = 0
@@ -329,6 +337,38 @@ describe(`issues.move`, () => {
       prUrl: `https://github.com/o/r/pull/9`,
       branch: `exp/EXP-42`,
     })
+  })
+
+  it(`locks the issue FOR UPDATE and the target board FOR SHARE`, async () => {
+    seedHappyPath()
+
+    await caller.move({ id: ISSUE_ID, boardId: PROJ_TO })
+
+    // REV-49: FOR UPDATE serializes concurrent moves of the same issue; FOR
+    // SHARE on the target board conflicts with a concurrent trash's plain
+    // UPDATE (FOR NO KEY UPDATE) — KEY SHARE would NOT — so the trashed-
+    // target recheck below cannot be raced past.
+    expect(selectLocks).toEqual([`update`, `share`])
+  })
+
+  it(`404s when the target board was trashed after the pre-tx check`, async () => {
+    seedHappyPath()
+    // Overwrite the target-board read: trash landed first, the FOR SHARE
+    // read sees its committed deleted_at.
+    selectQueue.length = 0
+    selectQueue.push([{ identifier: `EXP-42`, boardId: PROJ_FROM }])
+    selectQueue.push([
+      { prefix: `ABC`, slug: `abc`, deletedAt: new Date(`2026-08-15`) },
+    ])
+
+    const error = await rejectionOf(
+      caller.move({ id: ISSUE_ID, boardId: PROJ_TO })
+    )
+    expect(error).toBeInstanceOf(TRPCError)
+    expect((error as TRPCError).code).toBe(`NOT_FOUND`)
+    expect((error as TRPCError).message).toBe(`Board not found`)
+    expect(updates).toHaveLength(0)
+    expect(h.recordIssueEvent).not.toHaveBeenCalled()
   })
 
   it(`404s when the issue vanished between the access check and the tx read`, async () => {
