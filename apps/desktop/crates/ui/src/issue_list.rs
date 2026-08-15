@@ -1734,13 +1734,14 @@ fn build_row_context_menu(
     // (EXP-42 → ABC-17); the row re-homes on the Electric echo.
     if !move_target_boards(cx, &issue.board_id).is_empty() {
         let issue_id = issue.id.clone();
+        let identifier = issue.identifier.clone();
         let board_id = issue.board_id.clone();
         menu = menu.submenu_with_icon(
             Some(Icon::from(ExpIcon::SquareKanban)),
             "Move to board",
             window,
             cx,
-            move |menu, _, cx| move_to_board_menu(menu, &issue_id, &board_id, cx),
+            move |menu, _, cx| move_to_board_menu(menu, &issue_id, &identifier, &board_id, cx),
         );
     }
 
@@ -1847,14 +1848,15 @@ pub(crate) fn move_target_boards(cx: &App, board_id: &str) -> Vec<Board> {
     boards
 }
 
-/// The shared move-to-board menu body (row context submenu + the detail's
-/// actions menu + the properties panel's Board picker, EXP-57): the board's
+/// The row context menu's move-to-board submenu body (EXP-57): the board's
 /// own glyph tinted with its color + name (EXP-282 — same treatment as the
 /// rail's board icons; it replaced the anonymous color dot), current board
-/// checked + disabled; picking another fires `issues.move`.
+/// checked + disabled; picking another confirms, then fires `issues.move`
+/// (REV-35 — EXP-428's "confirm everywhere").
 pub(crate) fn move_to_board_menu(
     menu: PopupMenu,
     issue_id: &str,
+    identifier: &str,
     board_id: &str,
     cx: &App,
 ) -> PopupMenu {
@@ -1869,7 +1871,9 @@ pub(crate) fn move_to_board_menu(
         let icon = crate::icons::board_icon(&board).text_color(tint);
         let name = SharedString::from(board.name.clone());
         let issue_id = issue_id.to_string();
+        let identifier = identifier.to_string();
         let target_id = board.id.clone();
+        let target_name = board.name.clone();
         menu = menu.item(
             PopupMenuItem::element(move |_, cx| {
                 h_flex()
@@ -1884,12 +1888,46 @@ pub(crate) fn move_to_board_menu(
             })
             .checked(is_current)
             .disabled(is_current)
-            .on_click(move |_, _, cx| {
-                spawn_issue_move(cx, issue_id.clone(), target_id.clone());
+            .on_click(move |_, window, cx| {
+                confirm_issue_move(
+                    window,
+                    cx,
+                    issue_id.clone(),
+                    identifier.clone(),
+                    target_id.clone(),
+                    target_name.clone(),
+                );
             }),
         );
     }
     menu
+}
+
+/// EXP-428 "confirm everywhere": every board-move entry point asks first —
+/// the move renumbers the issue (EXP-42), breaking `#IDENT` references — with
+/// the canonical cross-client wording (web/iOS/Android share it). Shared by
+/// the row context submenu and the detail header's Board chip (EXP-426).
+pub(crate) fn confirm_issue_move(
+    window: &mut Window,
+    cx: &mut App,
+    issue_id: String,
+    identifier: String,
+    target_id: String,
+    target_name: String,
+) {
+    let spec = crate::native_dialog::AlertSpec::new(
+        "Move issue",
+        format!(
+            "Move {identifier} to \"{target_name}\"? The issue will get a new \
+             identifier in that board."
+        ),
+        "Move",
+    )
+    .on_ok(move |_, cx| {
+        spawn_issue_move(cx, issue_id.clone(), target_id.clone());
+        true
+    });
+    crate::native_dialog::open_alert(window, cx, spec);
 }
 
 /// §4.1 un-gated `issues.move` on a background thread (EXP-57): the issue
