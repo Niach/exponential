@@ -1,6 +1,80 @@
 import { gunzipSync } from "node:zlib"
+import { ELECTRIC_PROTOCOL_QUERY_PARAMS } from "@electric-sql/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { proxyElectricRequest } from "@/lib/electric-proxy"
+import { prepareElectricUrl, proxyElectricRequest } from "@/lib/electric-proxy"
+
+// REV-29: the proxy forwards a repo-owned param allowlist, never the
+// dependency's ELECTRIC_PROTOCOL_QUERY_PARAMS — that array grew the
+// `subset__*` params, a client-supplied SQL predicate Electric evaluates over
+// ALL columns regardless of the server-pinned `columns` allowlist. Forwarding
+// it would let any member binary-search the columns the shape allowlists
+// deliberately hide (invite tokens, subscriber emails, action bodies).
+describe(`prepareElectricUrl param forwarding`, () => {
+  it(`forwards exactly the opaque protocol/cursor params`, () => {
+    const forwarded = {
+      live: `true`,
+      live_sse: `true`,
+      experimental_live_sse: `true`,
+      handle: `123-456`,
+      offset: `0_0`,
+      cursor: `789`,
+      expired_handle: `120-455`,
+      log: `changes_only`,
+      "cache-buster": `abc`,
+    }
+    const query = new URLSearchParams(forwarded).toString()
+    const originUrl = prepareElectricUrl(
+      `http://localhost:3000/api/shapes/issues?${query}`
+    )
+
+    for (const [key, value] of Object.entries(forwarded)) {
+      expect(originUrl.searchParams.get(key)).toBe(value)
+    }
+  })
+
+  it(`drops subset__* and every other client-supplied param`, () => {
+    const originUrl = prepareElectricUrl(
+      `http://localhost:3000/api/shapes/team-invites` +
+        `?offset=-1` +
+        `&subset__where=${encodeURIComponent(`token LIKE 'a%'`)}` +
+        `&subset__params=${encodeURIComponent(`{"1":"a"}`)}` +
+        `&subset__limit=1` +
+        `&subset__offset=0` +
+        `&subset__order_by=token` +
+        `&subset__where_expr=x` +
+        `&subset__order_by_expr=y` +
+        `&where=${encodeURIComponent(`1=1`)}` +
+        `&columns=token` +
+        `&table=team_invites` +
+        `&params=1` +
+        `&replica=full` +
+        `&source_id=evil&secret=evil&api_secret=evil`
+    )
+
+    expect([...originUrl.searchParams.keys()].sort()).toEqual([`offset`])
+  })
+
+  it(`covers every param the dependency knows except the SQL-carrying subset__* family`, () => {
+    // Drift guard: a bun update that teaches @electric-sql/client a NEW
+    // protocol param must fail here so forwarding it is a deliberate decision,
+    // never a silent side effect of the dependency's own array growing.
+    const query = new URLSearchParams(
+      ELECTRIC_PROTOCOL_QUERY_PARAMS.map((param) => [param, `x`])
+    ).toString()
+    const originUrl = prepareElectricUrl(
+      `http://localhost:3000/api/shapes/issues?${query}`
+    )
+
+    const dropped = ELECTRIC_PROTOCOL_QUERY_PARAMS.filter(
+      (param) => !originUrl.searchParams.has(param)
+    )
+    expect(dropped.sort()).toEqual(
+      ELECTRIC_PROTOCOL_QUERY_PARAMS.filter((param) =>
+        param.startsWith(`subset__`)
+      ).sort()
+    )
+  })
+})
 
 describe(`proxyElectricRequest`, () => {
   afterEach(() => {

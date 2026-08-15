@@ -1,6 +1,28 @@
 import "@dotenvx/dotenvx/config"
 import { gzipSync } from "node:zlib"
-import { ELECTRIC_PROTOCOL_QUERY_PARAMS } from "@electric-sql/client"
+
+/**
+ * REV-29: the ONLY inbound query params the proxy forwards to Electric —
+ * opaque protocol/cursor state, nothing that can carry SQL or widen a shape.
+ * Deliberately NOT the dependency's `ELECTRIC_PROTOCOL_QUERY_PARAMS`
+ * (@electric-sql/client): that array is third-party-owned and now includes
+ * `subset__where`/`subset__params`/…, a client-supplied SQL predicate Electric
+ * evaluates over ALL columns regardless of the server-pinned `columns`
+ * allowlist — forwarding it would let any member filter on the very columns
+ * the allowlists hide (invite tokens, subscriber emails). New upstream params
+ * stay dropped here until someone adds them on purpose.
+ */
+const FORWARDED_ELECTRIC_PARAMS = new Set([
+  `live`,
+  `live_sse`,
+  `experimental_live_sse`,
+  `handle`,
+  `offset`,
+  `cursor`,
+  `expired_handle`,
+  `log`,
+  `cache-buster`,
+])
 
 /**
  * Returns the Electric SQL endpoint URL: the `ELECTRIC_URL` env var if set,
@@ -23,7 +45,7 @@ export function prepareElectricUrl(requestUrl: string): URL {
 
   // Copy Electric-specific query params
   url.searchParams.forEach((value, key) => {
-    if (ELECTRIC_PROTOCOL_QUERY_PARAMS.includes(key)) {
+    if (FORWARDED_ELECTRIC_PARAMS.has(key)) {
       originUrl.searchParams.set(key, value)
     }
   })
