@@ -38,6 +38,24 @@ export function buildTextInClause(column: string, values: string[]): string {
 }
 
 /**
+ * Overlap clause over a trigger-maintained uuid[] mirror column (REV-37,
+ * users.team_ids via sync_user_team_ids). Ids MUST be database-derived uuids
+ * (same warning as sqlStringLiteral — they are interpolated into an array
+ * literal, so they additionally must never contain `,`/`{`/`}`; uuids can't).
+ * Sorted so the same id SET always yields byte-identical SQL (shape-identity
+ * stability, see buildWhereClause). Empty input returns the impossible-match
+ * sentinel — an empty-array overlap would match nothing too, but the sentinel
+ * keeps the byte-stable convention of the other builders.
+ */
+export function buildArrayOverlapClause(column: string, ids: string[]): string {
+  if (ids.length === 0) {
+    return `"${column}" && '{00000000-0000-0000-0000-000000000000}'::uuid[]`
+  }
+  const sorted = [...ids].sort()
+  return `"${column}" && '{${sorted.join(`,`)}}'::uuid[]`
+}
+
+/**
  * The shared member where clause of the board-scoped child shapes (issues,
  * comments, attachments, issue_labels, issue_subscribers, issue_events,
  * coding_sessions): team-scoped via the denormalized `team_id`, trash-aware

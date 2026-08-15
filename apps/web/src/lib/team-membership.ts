@@ -33,6 +33,7 @@ export {
   buildWhereClause,
   buildTextInClause,
   buildTeamScopedChildWhere,
+  buildArrayOverlapClause,
   andClauses,
   orClauses,
 } from "@/lib/auth/shape-where"

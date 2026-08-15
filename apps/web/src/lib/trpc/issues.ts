@@ -829,15 +829,26 @@ export const issuesRouter = router({
           })
         }
 
+        // FOR SHARE + deleted_at recheck under the lock (REV-49): the pre-tx
+        // getBoardTeamId trash check races a concurrent boards.delete — its
+        // fan-out cannot see this still-uncommitted move, so without the lock
+        // the issue could land on a trashed board with a stale NULL
+        // board_deleted_at (synced everywhere, then silently purged). FOR
+        // SHARE conflicts with the trash UPDATE's FOR NO KEY UPDATE row lock
+        // (KEY SHARE would not), so the trash either committed first (404
+        // here) or waits until this move commits and its fan-out heals the
+        // mirrors.
         const [target] = await tx
           .select({
             prefix: boards.prefix,
             slug: boards.slug,
+            deletedAt: boards.deletedAt,
           })
           .from(boards)
           .where(eq(boards.id, input.boardId))
           .limit(1)
-        if (!target) {
+          .for(`share`)
+        if (!target || target.deletedAt) {
           throw new TRPCError({
             code: `NOT_FOUND`,
             message: `Board not found`,
@@ -880,8 +891,11 @@ export const issuesRouter = router({
         // Re-point the trigger-denormalized board_id on every issue-child
         // table. The populate triggers fire on these UPDATE OF board_id
         // statements and overwrite with issue-derived truth (board_id +
-        // board_deleted_at — the target board is live, guarded above).
-        // team_id is unchanged — moves never cross teams.
+        // board_deleted_at — the target board is live, rechecked under the
+        // FOR SHARE lock above). team_id is unchanged — moves never cross
+        // teams. These are bookkeeping rewrites: the update_updated_at and
+        // bump_issue_updated_at_from_comment board_id guards keep them from
+        // restamping child rows or re-bumping the issue per comment.
         await tx
           .update(comments)
           .set({ boardId: input.boardId })
@@ -1870,18 +1884,30 @@ export const issuesRouter = router({
     }),
 
   // Full-text issue search (EXP-3): Postgres FTS over issue title +
-  // description AND comment bodies, team-scoped, relevance-ordered. An
-  // ILIKE substring fallback keeps this a strict
-  // superset of the old title-substring search — it still matches
-  // identifiers (EXP-42) and partial words that FTS lexemes miss. All
-  // values are parameterized via drizzle `sql` interpolation. GIN
-  // expression indexes on the tsvector expressions are a future scale
-  // optimization (not needed at current volume).
+  // description AND comment bodies, team-scoped, relevance-ordered. A
+  // title/identifier ILIKE fallback keeps this a strict superset of the old
+  // title-substring search — it still matches identifiers (EXP-42) and
+  // partial title words that FTS lexemes miss. All values are parameterized
+  // via drizzle `sql` interpolation; the query cap (REV-17) bounds the FTS
+  // parse and LIKE pattern cost per call.
+  //
+  // REV-14: each `matches` branch is index-friendly on its own — the FTS
+  // branches hit the GIN expression indexes (idx_issues_fts /
+  // idx_comments_body_fts; the tsvector expressions must stay byte-identical
+  // to the index definitions in @exp/db-schema) and the ILIKE branch touches
+  // only the cheap title/identifier columns behind idx_issues_team. A single
+  // OR'd predicate would force a per-row to_tsvector over every issue in the
+  // team instead. Description/comment-body substring fallbacks were dropped
+  // deliberately: they required detoasting + scanning megabytes of markdown
+  // per keystroke, and whole-word matches ride the FTS branches. Team scoping
+  // uses the trigger-denormalized issues/comments team_id +
+  // board_deleted_at mirrors (REV2-5) — equivalent to joining boards on
+  // team_id/deleted_at, without the join.
   search: authedProcedure
     .input(
       z.object({
         teamId: z.string().uuid(),
-        query: z.string().trim().min(1),
+        query: z.string().trim().min(1).max(256),
         limit: z.number().int().min(1).max(50).default(20),
       })
     )
@@ -1892,6 +1918,23 @@ export const issuesRouter = router({
       const like = `%${escapeLikePattern(input.query)}%`
 
       const result = await ctx.db.execute(sql`
+        with matches as (
+          select i.id from issues i
+          where i.team_id = ${input.teamId}::uuid
+            and i.board_deleted_at is null
+            and to_tsvector('english', coalesce(i.title, '') || ' ' || coalesce(i.description, ''))
+              @@ websearch_to_tsquery('english', ${input.query})
+          union
+          select c.issue_id from comments c
+          where c.team_id = ${input.teamId}::uuid
+            and c.board_deleted_at is null
+            and to_tsvector('english', c.body) @@ websearch_to_tsquery('english', ${input.query})
+          union
+          select i.id from issues i
+          where i.team_id = ${input.teamId}::uuid
+            and i.board_deleted_at is null
+            and (i.title ilike ${like} or i.identifier ilike ${like})
+        )
         select
           i.id,
           i.identifier,
@@ -1901,26 +1944,7 @@ export const issuesRouter = router({
           i.status_id as "statusId",
           i.priority
         from issues i
-        join boards p on p.id = i.board_id
-        where p.team_id = ${input.teamId}::uuid
-          and p.deleted_at is null
-          and (
-            to_tsvector('english', coalesce(i.title, '') || ' ' || coalesce(i.description, ''))
-              @@ websearch_to_tsquery('english', ${input.query})
-            or exists (
-              select 1 from comments c
-              where c.issue_id = i.id
-                and to_tsvector('english', c.body) @@ websearch_to_tsquery('english', ${input.query})
-            )
-            or i.title ilike ${like}
-            or i.identifier ilike ${like}
-            or i.description ilike ${like}
-            or exists (
-              select 1 from comments c2
-              where c2.issue_id = i.id
-                and c2.body ilike ${like}
-            )
-          )
+        join matches m on m.id = i.id
         order by
           ts_rank(
             to_tsvector('english', coalesce(i.title, '') || ' ' || coalesce(i.description, '')),

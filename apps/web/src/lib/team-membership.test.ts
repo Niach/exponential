@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
   assertMatchingTeamIds,
   assertTeamAccess,
+  buildArrayOverlapClause,
   buildWhereClause,
 } from "@/lib/team-membership"
 
@@ -57,6 +58,17 @@ describe(`team membership helpers`, () => {
     )
     expect(buildWhereClause(`id`, [`user-1`, `user-2`])).toBe(
       buildWhereClause(`id`, [`user-2`, `user-1`])
+    )
+  })
+
+  it(`builds a sorted uuid[] overlap clause with a sentinel for empty sets`, () => {
+    // REV-37: same byte-stability contract as buildWhereClause — the users
+    // shape identity must only rotate on the caller's own membership changes.
+    expect(buildArrayOverlapClause(`team_ids`, [`w-2`, `w-1`])).toBe(
+      `"team_ids" && '{w-1,w-2}'::uuid[]`
+    )
+    expect(buildArrayOverlapClause(`team_ids`, [])).toBe(
+      `"team_ids" && '{00000000-0000-0000-0000-000000000000}'::uuid[]`
     )
   })
 })

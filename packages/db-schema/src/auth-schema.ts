@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm"
 import {
   pgTable,
   text,
@@ -5,6 +6,7 @@ import {
   boolean,
   integer,
   index,
+  uuid,
 } from "drizzle-orm/pg-core"
 
 export const users = pgTable(
@@ -58,6 +60,17 @@ export const users = pgTable(
     // SERVER-ONLY like the stamps above (the users shape allowlist pins 6
     // columns; this never syncs).
     timezone: text(`timezone`),
+    // Trigger-maintained membership mirror (REV-37, sync_user_team_ids in the
+    // custom trigger file): the user's team ids, sorted for determinism. It
+    // exists so the users shape's where clause can be
+    // `id = me OR team_ids && {my teams}` — bounded by the CALLER's team
+    // count — instead of enumerating every readable co-member id, whose URL
+    // grew with instance size until Electric's request-line limit 414'd the
+    // shape. FILTER-ONLY: excluded from the shape's columns allowlist
+    // (device_worktrees mirror precedent); never write it from the app.
+    // users.updated_at is app-stamped (no update_updated_at trigger on
+    // users), so mirror writes never restamp it.
+    teamIds: uuid(`team_ids`).array().notNull().default(sql`'{}'::uuid[]`),
     createdAt: timestamp(`created_at`)
       .$defaultFn(() => /* @__PURE__ */ new Date())
       .notNull(),
