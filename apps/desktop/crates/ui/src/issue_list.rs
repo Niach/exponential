@@ -118,9 +118,11 @@ pub enum IssueQuery {
     },
 }
 
-/// One flattened virtual-list row. The issue payload is boxed so the enum
-/// stays small (clippy `large_enum_variant` — `Issue` is ~520 bytes vs the
-/// header's ~10).
+/// One flattened virtual-list row. The issue payload sits behind a pointer so
+/// the enum stays small (clippy `large_enum_variant` — `Issue` is ~520 bytes
+/// vs the header's ~10); it is an `Rc` into the memoized [`BoardData`], so
+/// rebuilding the row vector each frame clones handles, never row payloads
+/// (REV-39 — an `Issue` carries the full markdown description).
 enum ListRow {
     Header {
         status: Box<ResolvedStatus>,
@@ -128,9 +130,42 @@ enum ListRow {
         collapsed: bool,
     },
     Issue {
-        issue: Box<Issue>,
-        labels: Vec<Label>,
+        issue: Rc<Issue>,
+        labels: Rc<Vec<Label>>,
     },
+}
+
+/// Every input the memoized [`BoardData`] derives from (REV-39). Revisions
+/// alone are not enough: an empty up-to-date batch flips a collection's
+/// readiness phase WITHOUT bumping its revision, so the combined `ready` bit
+/// rides along; `today` covers the local-midnight overdue boundary. Query and
+/// filter changes invalidate eagerly in [`IssueListView::set_query`] /
+/// [`IssueListView::set_filters`].
+#[derive(PartialEq, Eq)]
+struct BoardDataKey {
+    issues: u64,
+    issue_labels: u64,
+    labels: u64,
+    boards: u64,
+    issue_statuses: u64,
+    ready: bool,
+    today: String,
+}
+
+fn board_data_key(cx: &App) -> BoardDataKey {
+    let collections = Store::global(cx).collections();
+    BoardDataKey {
+        issues: collections.issues.read(cx).revision(),
+        issue_labels: collections.issue_labels.read(cx).revision(),
+        labels: collections.labels.read(cx).revision(),
+        boards: collections.boards.read(cx).revision(),
+        issue_statuses: collections.issue_statuses.read(cx).revision(),
+        ready: collections.issues.read(cx).is_ready()
+            && collections.boards.read(cx).is_ready()
+            && collections.issue_labels.read(cx).is_ready()
+            && collections.labels.read(cx).is_ready(),
+        today: queries::today_local(),
+    }
 }
 
 pub struct IssueListView {
@@ -173,6 +208,14 @@ pub struct IssueListView {
     /// render — the row dropdowns and the context menu read it instead of
     /// re-querying the collections once per row.
     team_statuses: Rc<Vec<ResolvedStatus>>,
+    /// REV-39: the memoized board query. `render` re-runs on every
+    /// `cx.notify` (selection toggles, group collapses, nav highlights,
+    /// width flips, every Electric batch), and rebuilding the full
+    /// clone+filter+group+sort pipeline each frame froze large boards —
+    /// recompute only when [`BoardDataKey`] says an input actually changed.
+    /// Shared with [`Self::bulk_bar`], which used to run one extra board
+    /// query per frame while a selection was alive.
+    data: Option<(BoardDataKey, Rc<BoardData>)>,
     scroll_handle: VirtualListScrollHandle,
     _subscriptions: Vec<gpui::Subscription>,
 }
@@ -209,6 +252,7 @@ impl IssueListView {
             focus_handle: cx.focus_handle(),
             rows: Rc::new(Vec::new()),
             team_statuses: Rc::new(Vec::new()),
+            data: None,
             scroll_handle: VirtualListScrollHandle::new(),
             _subscriptions: subscriptions,
         }
@@ -224,6 +268,7 @@ impl IssueListView {
         self.collapsed.clear();
         self.selected.clear();
         self.select_anchor = None;
+        self.data = None;
         cx.notify();
     }
 
@@ -234,20 +279,32 @@ impl IssueListView {
             return;
         }
         self.filters = filters;
+        self.data = None;
         cx.notify();
     }
 
-    fn board_data(&self, cx: &App) -> Option<BoardData> {
-        match &self.query {
-            IssueQuery::None => None,
-            IssueQuery::Board { board_id } => {
-                Some(queries::board_board(cx, board_id, &self.filters))
+    /// The board query behind [`Self::data`] — a cache hit is a handle clone,
+    /// a miss reruns the full pipeline and re-keys the cache (REV-39).
+    fn board_data(&mut self, cx: &App) -> Option<Rc<BoardData>> {
+        if self.query == IssueQuery::None {
+            return None;
+        }
+        let key = board_data_key(cx);
+        if let Some((cached_key, cached)) = &self.data {
+            if *cached_key == key {
+                return Some(cached.clone());
             }
+        }
+        let data = Rc::new(match &self.query {
+            IssueQuery::None => return None,
+            IssueQuery::Board { board_id } => queries::board_board(cx, board_id, &self.filters),
             IssueQuery::MyIssues {
                 team_id,
                 user_id,
-            } => Some(queries::my_issues(cx, team_id, user_id, &self.filters)),
-        }
+            } => queries::my_issues(cx, team_id, user_id, &self.filters),
+        });
+        self.data = Some((key, data.clone()));
+        Some(data)
     }
 
     fn toggle_group(&mut self, group_key: String, cx: &mut gpui::Context<Self>) {
@@ -608,11 +665,10 @@ impl IssueListView {
     /// CURRENT query data (never a snapshot taken during this view's own
     /// render, which runs AFTER its parent's and would lag a frame), in
     /// visible list order and pruned to rows that still exist — the same
-    /// projection `render` prunes `selected` with. That costs one extra board
-    /// query per frame, but ONLY while a selection is alive (the empty check
-    /// comes first), which is the price of a bar that can never disagree with
-    /// the rows underneath it.
-    pub(crate) fn bulk_bar(&self, cx: &mut gpui::Context<Self>) -> Option<gpui::AnyElement> {
+    /// projection `render` prunes `selected` with. Since REV-39 that read is
+    /// the memoized [`Self::data`], so agreeing with the rows underneath no
+    /// longer costs an extra board query per frame.
+    pub(crate) fn bulk_bar(&mut self, cx: &mut gpui::Context<Self>) -> Option<gpui::AnyElement> {
         if self.selected.is_empty() {
             return None;
         }
@@ -1214,11 +1270,13 @@ impl Render for IssueListView {
             for issue in &group.issues {
                 let labels = data
                     .labels_by_issue
-                    .get(&issue.id)
+                    .get(issue.id.as_str())
                     .cloned()
                     .unwrap_or_default();
                 rows.push(ListRow::Issue {
-                    issue: Box::new(issue.clone()),
+                    // Rc handles into the memoized data — no row payload
+                    // copies per frame (REV-39).
+                    issue: issue.clone(),
                     labels,
                 });
             }

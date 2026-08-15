@@ -177,8 +177,12 @@ pub fn build_filtered_issues(
 /// constructed pre-sync vocabulary); a `builtin:<key>` key also selects the
 /// SYNCED row carrying that builtin key (the fallback→synced re-key), and
 /// unknown keys are simply never matched.
+///
+/// Takes the issues by value and MOVES them into their groups — the old
+/// by-ref form deep-cloned every row (descriptions included) a second time
+/// per call (REV-39).
 pub fn build_status_groups(
-    issues: &[Issue],
+    issues: Vec<Issue>,
     team_rows: &[IssueStatusRow],
     selected_group_keys: &[String],
     today: &str,
@@ -192,7 +196,7 @@ pub fn build_status_groups(
     let mut buckets: HashMap<String, (ResolvedStatus, Vec<Issue>)> = HashMap::new();
     let mut extra_order: Vec<String> = Vec::new();
     for issue in issues {
-        let resolved = resolve_status_sorted(issue, &sorted);
+        let resolved = resolve_status_sorted(&issue, &sorted);
         let key = resolved.group_key.clone();
         let entry = buckets.entry(key.clone()).or_insert_with(|| {
             if !vocabulary.iter().any(|status| status.group_key == key) {
@@ -200,7 +204,7 @@ pub fn build_status_groups(
             }
             (resolved, Vec::new())
         });
-        entry.1.push(issue.clone());
+        entry.1.push(issue);
     }
 
     let mut groups: Vec<IssueGroup> = Vec::with_capacity(vocabulary.len() + extra_order.len());
@@ -405,7 +409,7 @@ mod tests {
             issue_n("high-n9", 9, "todo", "high", Some("2026-07-20")),
             issue_n("high-n8", 8, "todo", "high", Some("2026-07-20")),
         ];
-        let groups = build_status_groups(&issues, &builtin_rows(), &[], TODAY);
+        let groups = build_status_groups(issues.clone(), &builtin_rows(), &[], TODAY);
         assert_eq!(groups.len(), 1);
         let order: Vec<&str> = groups[0].issues.iter().map(|i| i.id.as_str()).collect();
         assert_eq!(
@@ -428,7 +432,7 @@ mod tests {
             issue_n("n10", 10, "todo", "none", None),
             issue_n("n2", 2, "todo", "none", None),
         ];
-        let groups = build_status_groups(&issues, &builtin_rows(), &[], TODAY);
+        let groups = build_status_groups(issues.clone(), &builtin_rows(), &[], TODAY);
         let order: Vec<&str> = groups[0].issues.iter().map(|i| i.id.as_str()).collect();
         // "10" < "2" as strings — numeric compare must win.
         assert_eq!(order, vec!["n2", "n10"]);
@@ -454,7 +458,7 @@ mod tests {
             // Neither key → sorts last.
             closed_issue("keyless", "done", None, None),
         ];
-        let groups = build_status_groups(&issues, &builtin_rows(), &[], TODAY);
+        let groups = build_status_groups(issues.clone(), &builtin_rows(), &[], TODAY);
         assert_eq!(groups.len(), 1);
         let order: Vec<&str> = groups[0].issues.iter().map(|i| i.id.as_str()).collect();
         assert_eq!(order, vec!["fallback", "new-done", "old-done", "keyless"]);
@@ -470,7 +474,7 @@ mod tests {
                 // chronological position (the space→T normalization).
                 closed_issue("newest", status, None, Some("2026-07-02T09:00:00Z")),
             ];
-            let groups = build_status_groups(&issues, &builtin_rows(), &[], TODAY);
+            let groups = build_status_groups(issues.clone(), &builtin_rows(), &[], TODAY);
             assert_eq!(groups.len(), 1);
             let order: Vec<&str> = groups[0].issues.iter().map(|i| i.id.as_str()).collect();
             assert_eq!(order, vec!["newest", "newer", "older"], "status {status}");
@@ -497,7 +501,7 @@ mod tests {
             with_status_id(issue_n("qa-low", 2, "in_progress", "low", None), "qa"),
             with_status_id(issue_n("qa-urgent", 3, "in_progress", "urgent", None), "qa"),
         ];
-        let groups = build_status_groups(&issues, &rows, &[], TODAY);
+        let groups = build_status_groups(issues.clone(), &rows, &[], TODAY);
         assert_eq!(group_names(&groups), vec!["QA", "Shipped"]);
         let qa: Vec<&str> = groups[0].issues.iter().map(|i| i.id.as_str()).collect();
         assert_eq!(qa, vec!["qa-urgent", "qa-low"]);
@@ -512,7 +516,7 @@ mod tests {
             issue("t", "todo", "none", None),
             issue("i", "in_progress", "none", None),
         ];
-        let groups = build_status_groups(&issues, &builtin_rows(), &[], TODAY);
+        let groups = build_status_groups(issues.clone(), &builtin_rows(), &[], TODAY);
         // Category display order with empty groups hidden.
         assert_eq!(group_names(&groups), vec!["Todo", "In Progress", "Done"]);
         // Group keys are the ROW ids.
@@ -527,7 +531,7 @@ mod tests {
             issue("i", "in_progress", "none", None),
             issue("t", "todo", "none", None),
         ];
-        let groups = build_status_groups(&issues, &[], &[], TODAY);
+        let groups = build_status_groups(issues.clone(), &[], &[], TODAY);
         assert_eq!(group_names(&groups), vec!["Todo", "In Progress"]);
         assert_eq!(groups[0].status.group_key, "builtin:todo");
         assert!(groups[0].status.is_fallback());
@@ -542,14 +546,14 @@ mod tests {
             issue("known", "todo", "none", None),
             issue("weird", "triaged", "none", None),
         ];
-        let groups = build_status_groups(&issues, &builtin_rows(), &[], TODAY);
+        let groups = build_status_groups(issues.clone(), &builtin_rows(), &[], TODAY);
         assert_eq!(group_names(&groups), vec!["Backlog", "Todo"]);
         assert_eq!(groups[0].status.group_key, "row-backlog");
         assert!(!groups[0].status.is_fallback());
         assert_eq!(groups[0].issues.len(), 1);
 
         // With NO synced rows it degrades to the constructed backlog default.
-        let groups = build_status_groups(&issues[1..], &[], &[], TODAY);
+        let groups = build_status_groups(issues[1..].to_vec(), &[], &[], TODAY);
         assert_eq!(groups[0].status.group_key, "builtin:backlog");
         assert!(groups[0].status.is_fallback());
     }
@@ -564,7 +568,7 @@ mod tests {
             issue("t", "todo", "none", None),
         ];
         let groups = build_status_groups(
-            &issues,
+            issues.clone(),
             &builtin_rows(),
             &["builtin:in_progress".to_string()],
             TODAY,
@@ -587,7 +591,7 @@ mod tests {
 
         // A row-uuid key still selects exactly its own group.
         let groups =
-            build_status_groups(&issues, &builtin_rows(), &["row-todo".to_string()], TODAY);
+            build_status_groups(issues.clone(), &builtin_rows(), &["row-todo".to_string()], TODAY);
         assert_eq!(group_names(&groups), vec!["Todo"]);
     }
 
@@ -597,7 +601,7 @@ mod tests {
         // keys.includes(g.key))` — WITHOUT the emptiness filter.
         let issues = vec![issue("t", "todo", "none", None)];
         let groups = build_status_groups(
-            &issues,
+            issues.clone(),
             &builtin_rows(),
             &["row-in_progress".to_string(), "row-todo".to_string()],
             TODAY,
@@ -655,7 +659,7 @@ mod tests {
         ];
         // No status filter: empty groups are already hidden; flatten preserves
         // group order + in-group comparator order.
-        let groups = build_status_groups(&issues, &builtin_rows(), &[], TODAY);
+        let groups = build_status_groups(issues.clone(), &builtin_rows(), &[], TODAY);
         assert_eq!(
             flatten_group_issue_ids(&groups),
             vec!["todo-urgent", "todo-low", "wip", "done-1"]
@@ -664,7 +668,7 @@ mod tests {
         // Status-filtered boards keep selected-but-empty groups in the group
         // list — flatten must contribute nothing for them.
         let groups = build_status_groups(
-            &issues,
+            issues.clone(),
             &builtin_rows(),
             &["row-backlog".to_string(), "row-todo".to_string()],
             TODAY,
