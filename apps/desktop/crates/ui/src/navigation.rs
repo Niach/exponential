@@ -330,6 +330,33 @@ pub(crate) fn navigate_from(window: &Window, cx: &mut App, screen: Screen, origi
     navigate_inner(window, cx, screen, PendingOrigin::Explicit(origin));
 }
 
+/// Open an issue's detail LANDING FULLY SCOPED on its board (EXP-510): the
+/// live rail switches to the board list (`select_tool_for_tab` — never
+/// `activate_tool`, whose `set_screen(None)` would close the tab being
+/// opened), the board becomes active, and the tab's origin is the board
+/// explicitly. For paths where the rail may point anywhere while the
+/// navigation fires (create dialog, deep links) — sidebar-row clicks keep
+/// plain [`navigate`], their tool is already active.
+pub(crate) fn open_issue_scoped(
+    window: &mut Window,
+    cx: &mut App,
+    issue_id: String,
+    board_id: String,
+) {
+    crate::sidebar::select_tool_for_tab(window, cx, crate::sidebar::ToolWindow::BoardIssues);
+    set_active_board(window, cx, board_id.clone());
+    navigate_from(
+        window,
+        cx,
+        Screen::IssueDetail { issue_id },
+        TabOrigin {
+            tool: crate::sidebar::ToolWindow::BoardIssues,
+            board_id: Some(board_id),
+            inbox_tab: None,
+        },
+    );
+}
+
 fn navigate_inner(window: &Window, cx: &mut App, screen: Screen, origin: PendingOrigin) {
     let Some(nav) = nav_for_window_readonly(window, cx) else {
         return;

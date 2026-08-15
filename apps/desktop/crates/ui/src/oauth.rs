@@ -139,19 +139,10 @@ fn open_issue_deep_link(identifier: &str, cx: &mut App) {
     };
     if let Some(window) = crate::navigation::active_or_primary_window(cx) {
         let _ = window.update(cx, |_, window, cx| {
-            // EXP-288: land fully scoped — the deep link's tab originates
-            // from the issue's board (the rail may point anywhere).
-            crate::navigation::set_active_board(window, cx, board_id.clone());
-            crate::navigation::navigate_from(
-                window,
-                cx,
-                crate::navigation::Screen::IssueDetail { issue_id },
-                crate::navigation::TabOrigin {
-                    tool: crate::sidebar::ToolWindow::BoardIssues,
-                    board_id: Some(board_id),
-                    inbox_tab: None,
-                },
-            );
+            // EXP-288/EXP-510: land fully scoped — rail tool + active board +
+            // tab origin all follow the issue's board (the rail may point
+            // anywhere when the link arrives).
+            crate::navigation::open_issue_scoped(window, cx, issue_id, board_id);
         });
     }
 }
