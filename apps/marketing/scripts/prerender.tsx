@@ -130,17 +130,18 @@ function metaBlock(page: PageSeo): string {
 }
 
 function gitLastmod(sources: string[]): string {
-  for (const src of sources) {
-    try {
-      const iso = execFileSync(
-        `git`,
-        [`log`, `-1`, `--format=%cI`, `--`, src],
-        { cwd: ROOT, encoding: `utf8` }
-      ).trim()
-      if (iso) return iso
-    } catch {
-      /* fall through to next source / build-date fallback */
-    }
+  /* One call with every source: git returns the latest commit touching ANY
+     of the paths, so a component-level edit (e.g. plans.ts under /pricing/)
+     moves the page's lastmod. */
+  try {
+    const iso = execFileSync(
+      `git`,
+      [`log`, `-1`, `--format=%cI`, `--`, ...sources],
+      { cwd: ROOT, encoding: `utf8` }
+    ).trim()
+    if (iso) return iso
+  } catch {
+    /* fall through to the build-date fallback (git-less builds) */
   }
   return new Date().toISOString()
 }
