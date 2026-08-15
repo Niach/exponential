@@ -99,6 +99,23 @@ export function getWidgetRateLimiters() {
   return { perKeyLimiter, perIpLimiter, perSupportRecipientLimiter }
 }
 
+// Per-IP bucket for the anonymous GET /api/widget/config (REV-25). Separate
+// from the submit buckets and far more generous: the config fetch fires on
+// every host-page load and one NAT'd office/CGNAT IP can front hundreds of
+// legitimate visitors (each browser re-fetches at most every 5 minutes — the
+// response is `max-age=300`). It still has to exist because the key lookup
+// costs a DB round trip before the origin allowlist can reject anything, so
+// an unthrottled key-scanning loop drives the shared pool at line rate.
+let configIpLimiter: TokenBucketLimiter | null = null
+
+export function getWidgetConfigIpLimiter(): TokenBucketLimiter {
+  configIpLimiter ??= new TokenBucketLimiter({
+    capacity: envInt(`WIDGET_CONFIG_RATE_LIMIT_IP_BURST`, 60),
+    refillPerHour: envInt(`WIDGET_CONFIG_RATE_LIMIT_PER_IP_HOURLY`, 600),
+  })
+  return configIpLimiter
+}
+
 // LAST hop of x-forwarded-for: every deploy target (Caddy locally, Traefik
 // on Coolify) fronts the Bun server and APPENDS the real peer address to any
 // client-supplied x-forwarded-for, so the rightmost entry is the only

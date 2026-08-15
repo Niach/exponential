@@ -160,7 +160,7 @@ Per-TEAM rows in six fixed categories (backlog/unstarted/started/completed/cance
 - `INITIAL_ADMIN_EMAILS` auto-promotes global admins — without it the admin console is unreachable.
 - `CLIENT_MIN_VERSION_{ANDROID,IOS,DESKTOP}` gate with HTTP 426 + a blocking update screen (unset = off); always MARKETING versions, NEVER versionCode/build numbers. `CLIENT_LATEST_VERSION_*` is informational.
 - `BUN_CONFIG_MAX_HTTP_REQUESTS` is baked to 65336 in the image — 16 long-polls per client saturate Bun's 256 default (REV2-6).
-- Widget submit limits: refill is `WIDGET_RATE_LIMIT_PER_{KEY,IP}_HOURLY` (60/60), burst is `WIDGET_RATE_LIMIT_{KEY,IP}_BURST` — the burst names have no `PER_`. The KEY pair is self-host-only: cloud swaps the per-key bucket for a per-TEAM plan ceiling (`lib/widget/submit-limit.ts` — free 60/h, paid/comp unlimited); the IP pair applies everywhere, and the `RECIPIENT` pair (6/h, burst 3) bounds support-mode confirmation mail per typed-in address on every tier.
+- Widget submit limits: refill is `WIDGET_RATE_LIMIT_PER_{KEY,IP}_HOURLY` (60/60), burst is `WIDGET_RATE_LIMIT_{KEY,IP}_BURST` — the burst names have no `PER_`. The KEY pair is self-host-only: cloud swaps the per-key bucket for a per-TEAM plan ceiling (`lib/widget/submit-limit.ts` — free 60/h, paid/comp unlimited); the IP pair applies everywhere, and the `RECIPIENT` pair (6/h, burst 3) bounds support-mode confirmation mail per typed-in address on every tier. The anonymous config GET has its own generous per-IP pair `WIDGET_CONFIG_RATE_LIMIT_{PER_IP_HOURLY,IP_BURST}` (600/60, REV-25 — one NAT'd IP fronts many visitors).
 
 ## Coding sessions & Actions
 
