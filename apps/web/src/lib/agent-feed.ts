@@ -45,6 +45,54 @@ export function consumeEcho(
   return true
 }
 
+// ── Frame coalescing (REV-33) ────────────────────────────────────────────────
+
+/** How long incoming activity frames buffer before flushing to state. A join
+ *  replay (and a desktop re-publish after `activity_reset`) fans the relay's
+ *  whole log — up to FEED_CAP frames — out as individual ws messages, each its
+ *  own browser task; applying them one state update at a time re-rendered the
+ *  full non-virtualized feed per frame, O(n²) element work that froze the tab
+ *  for seconds. One batched apply per window is a handful of renders instead,
+ *  and 50ms is imperceptible on live events. */
+export const ACTIVITY_FLUSH_MS = 50
+
+export interface ActivityCoalescer<Op> {
+  /** Buffer one op. The FIRST op in a quiet window schedules the flush and
+   *  later ops ride it (a throttle, not a debounce — a continuous stream can
+   *  never starve rendering). */
+  enqueue(op: Op): void
+  /** Drop the un-flushed ops and the pending timer (socket teardown). */
+  cancel(): void
+}
+
+/** Hand buffered ops to `apply` in arrival order, at most once per `delayMs`.
+ *  `apply` runs the whole batch in one synchronous pass so React folds every
+ *  state update it makes into a single render. */
+export function createActivityCoalescer<Op>(
+  apply: (batch: Op[]) => void,
+  delayMs: number = ACTIVITY_FLUSH_MS
+): ActivityCoalescer<Op> {
+  let pending: Op[] = []
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const flush = () => {
+    timer = null
+    const batch = pending
+    pending = []
+    if (batch.length > 0) apply(batch)
+  }
+  return {
+    enqueue(op) {
+      pending.push(op)
+      timer ??= setTimeout(flush, delayMs)
+    },
+    cancel() {
+      if (timer !== null) clearTimeout(timer)
+      timer = null
+      pending = []
+    },
+  }
+}
+
 /** The desktop's plan-picker resolution narration (steer/src/activity.rs) —
  *  the legacy no-protocol-change signal that a pending plan approval was
  *  answered. Protocol v2 desktops still emit it beside `question_resolved`. */

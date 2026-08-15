@@ -34,6 +34,7 @@ import {
   clearAnswer,
   collectSubagents,
   consumeEcho,
+  createActivityCoalescer,
   dismissPendingQuestions,
   failAnswer,
   groupFeedRows,
@@ -554,6 +555,24 @@ export function AgentSessionView({
       }
     }
 
+    // REV-33: a join replay fans the relay's whole activity log (up to
+    // FEED_CAP frames) out as individual ws messages. Handling each one
+    // directly meant one render per frame over the full non-virtualized feed
+    // — O(n²) work that froze the tab on open/reconnect. Frames buffer here
+    // and apply in one synchronous pass per window instead; `activity_reset`
+    // rides the same queue so a reset can never overtake buffered frames.
+    // The queue outlives redials (order is preserved across them) and only
+    // the effect teardown cancels it.
+    const activityQueue = createActivityCoalescer<
+      { t: `reset` } | { t: `event`; event: ActivityEvent }
+    >((batch) => {
+      if (disposed) return
+      for (const op of batch) {
+        if (op.t === `reset`) resetFeed()
+        else handleActivity(op.event)
+      }
+    })
+
     const dial = async (retrying: boolean) => {
       if (disposed) return
       // Hold the `starting` phase steady across auto-retry redials — flipping
@@ -600,12 +619,12 @@ export function AgentSessionView({
           switch (frame.t) {
             case `activity`: {
               const f = frame as Extract<ServerFrame, { t: `activity` }>
-              handleActivity(f.event)
+              activityQueue.enqueue({ t: `event`, event: f.event })
               markLive()
               return
             }
             case `activity_reset`: {
-              resetFeed()
+              activityQueue.enqueue({ t: `reset` })
               markLive()
               return
             }
@@ -675,6 +694,7 @@ export function AgentSessionView({
     return () => {
       disposed = true
       if (retryTimer) clearTimeout(retryTimer)
+      activityQueue.cancel()
       wsRef.current = null
       ws?.close()
     }
