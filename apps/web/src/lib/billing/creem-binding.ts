@@ -19,9 +19,27 @@ import {
 // time; the plugin persists the base `creem_subscriptions` row (referenceId →
 // user, productId, status, period, creemSubscriptionId) but NEVER writes our
 // `teamId`/`seats` columns. This module reads the metadata off the webhook
-// event and binds those two columns onto the already-persisted row, matched by
-// `creemSubscriptionId`. Because the plugin's own updates only ever set the
-// enumerated columns, a later webhook update cannot clobber the binding.
+// event and binds those two columns onto a row keyed STRICTLY by
+// `creemSubscriptionId` — upserted, not merely updated, because the plugin's
+// row cannot be trusted to exist or to stay keyed (REV-12):
+//
+// - The plugin's subscription-event persistence, when its id lookup misses
+//   (a subscription.* event landing before its checkout.completed), falls
+//   back to matching by creemCustomerId and writes the NEW id onto whatever
+//   row it finds — re-keying the customer's existing subscription row and
+//   silently merging two paying subscriptions into one. The
+//   reject_creem_subscription_rekey trigger (db/out/custom/0001_triggers.sql)
+//   aborts that misdirected update, and the unique index
+//   uniq_creem_subscriptions_creem_subscription_id pins one row per
+//   subscription.
+// - With the theft blocked, the out-of-order event leaves NO row for the new
+//   subscription — so the commit below INSERTs one (seeded from the event)
+//   when none exists, keeping the plan, the REV2-30 duplicate guard, the
+//   team-delete gate and the admin console aware of every paying
+//   subscription even before checkout.completed lands and heals the full row.
+//
+// The plugin's own updates only ever set its enumerated columns, so with the
+// key immutable a later webhook update cannot clobber the binding.
 
 export type SubscriptionBindingInput = {
   /** Checkout/subscription metadata echoed back by Creem. */
@@ -39,10 +57,18 @@ export type SubscriptionBindingInput = {
    * The subscription's own status as this event reports it (`subscription.*`
    * events only — a checkout's status describes the CHECKOUT, not the
    * subscription, so bindingInputFromCheckout never fills this in). Used
-   * solely to heal a stale pending-cancel flag; the plugin owns the `status`
-   * column itself.
+   * solely to heal a stale pending-cancel flag and to seed a missing row;
+   * on an EXISTING row the plugin owns the `status` column itself.
    */
   status?: string | null
+  /**
+   * Creem customer + product ids off the event — seed values for the
+   * insert half of the commit upsert (REV-12), so a row this module creates
+   * still reaches the customer portal (keyed by creemCustomerId) and plan
+   * resolution. Never written onto an existing row.
+   */
+  creemCustomerId?: string | null
+  productId?: string | null
 }
 
 export type TeamBinding = {
@@ -59,6 +85,22 @@ export type TeamBinding = {
 export type BindPatch = {
   /** Reset our optimistic `cancelAtPeriodEnd` mirror to false. */
   clearPendingCancel: boolean
+  /**
+   * Values for the INSERT half of the commit upsert — used only when no row
+   * exists yet for this creemSubscriptionId (the plugin's persistence missed
+   * or was blocked from handling the event, REV-12). Enough for the row to be
+   * plan-resolvable and portal-reachable; the subscription's later webhooks
+   * (checkout.completed above all) heal the rest through the plugin.
+   */
+  seed: SubscriptionRowSeed
+}
+
+export type SubscriptionRowSeed = {
+  /** The buyer (Better Auth user id), off `metadata.referenceId`. */
+  referenceId: string | null
+  creemCustomerId: string | null
+  productId: string | null
+  status: string | null
 }
 
 /** Commit sink — abstracted so the binding logic is testable without drizzle. */
@@ -220,8 +262,8 @@ async function enforceSingleTeamSubscription(
     )
     if (doomed.length > 0) await cancel(doomed)
   } catch (err) {
-    // Never let the duplicate check break the binding itself: an unbound row is
-    // a team with no plan, which is worse than an undetected duplicate.
+    // Never let the duplicate check fail the webhook: the binding is already
+    // committed, and a delivery retry would re-run the same failing check.
     console.error(
       `[billing] could not check team ${binding.teamId} for duplicate subscriptions:`,
       err
@@ -290,13 +332,21 @@ export function statusClearsPendingCancel(
   )
 }
 
+function trimmedOrNull(value: string | null | undefined): string | null {
+  const trimmed = value?.trim()
+  return trimmed ? trimmed : null
+}
+
 /**
- * Bind a persisted `creem_subscriptions` row to its team + seat count.
- * Returns the applied binding, or `null` when the payload wasn't bindable.
- * Before committing, the one-subscription-per-team invariant is re-checked
- * against the DB (see above); the commit additionally heals a stale
- * pending-cancel flag when the event reports a live status. All three sinks
- * default to the real DB/Creem ones; tests inject fakes.
+ * Bind a `creem_subscriptions` row to its team + seat count. Returns the
+ * applied binding, or `null` when the payload wasn't bindable. The commit is
+ * an upsert keyed strictly by `creemSubscriptionId` (see the module note —
+ * the plugin's row may not exist for an out-of-order event, REV-12) and runs
+ * FIRST, so a row it creates participates in the one-subscription-per-team
+ * re-check (see above) within the same webhook delivery. The commit
+ * additionally heals a stale pending-cancel flag when the event reports a
+ * live status. All three sinks default to the real DB/Creem ones; tests
+ * inject fakes.
  */
 export async function bindSubscriptionToTeam(
   input: SubscriptionBindingInput,
@@ -304,14 +354,22 @@ export async function bindSubscriptionToTeam(
 ): Promise<TeamBinding | null> {
   const binding = extractTeamBinding(input)
   if (!binding) return null
+  const rawReferenceId = input.metadata?.referenceId
+  await (options.commit ?? commitBindingToDb)(binding, {
+    clearPendingCancel: statusClearsPendingCancel(input.status),
+    seed: {
+      referenceId:
+        typeof rawReferenceId === `string` ? trimmedOrNull(rawReferenceId) : null,
+      creemCustomerId: trimmedOrNull(input.creemCustomerId),
+      productId: trimmedOrNull(input.productId),
+      status: trimmedOrNull(input.status),
+    },
+  })
   await enforceSingleTeamSubscription(
     binding,
     options.loadTeamSubscriptions ?? loadTeamSubscriptionsFromDb,
     options.cancelSubscriptions ?? cancelCreemSubscriptionsBestEffort
   )
-  await (options.commit ?? commitBindingToDb)(binding, {
-    clearPendingCancel: statusClearsPendingCancel(input.status),
-  })
   return binding
 }
 
@@ -319,35 +377,91 @@ async function commitBindingToDb(
   binding: TeamBinding,
   patch: BindPatch
 ): Promise<void> {
-  await db
+  const bindColumns = {
+    teamId: binding.teamId,
+    seats: binding.seats,
+    ...(patch.clearPendingCancel ? { cancelAtPeriodEnd: false } : {}),
+  }
+  const updated = await db
     .update(creem_subscriptions)
-    .set({
-      teamId: binding.teamId,
-      seats: binding.seats,
-      ...(patch.clearPendingCancel ? { cancelAtPeriodEnd: false } : {}),
-    })
+    .set(bindColumns)
     .where(
       eq(creem_subscriptions.creemSubscriptionId, binding.creemSubscriptionId)
     )
+    .returning({ id: creem_subscriptions.id })
+  if (updated.length > 0) return
+  // No row for this subscription yet: its subscription.* event outran its
+  // checkout.completed (the plugin's misdirected customer-id fallback is
+  // blocked by the reject_creem_subscription_rekey trigger), or the plugin's
+  // persistence failed. Create the row ourselves so the plan, the REV2-30
+  // duplicate guard and the delete gates see the paying subscription NOW;
+  // checkout.completed heals the full row data when it lands. The status
+  // seed defaults to the schema's `pending` for status-less (checkout)
+  // payloads. `onConflictDoUpdate` (arbiter: the unique
+  // creem_subscription_id index) settles the race against a concurrent
+  // webhook delivery creating the row between the update above and this.
+  console.error(
+    `[billing] creating creem_subscriptions row for ${binding.creemSubscriptionId} from the bind path — the plugin has no row for it yet (out-of-order webhook delivery?)`
+  )
+  await db
+    .insert(creem_subscriptions)
+    .values({
+      id: crypto.randomUUID(),
+      creemSubscriptionId: binding.creemSubscriptionId,
+      teamId: binding.teamId,
+      seats: binding.seats,
+      referenceId: patch.seed.referenceId,
+      creemCustomerId: patch.seed.creemCustomerId,
+      // NOT NULL; the plugin itself falls back to `` when a payload omits it.
+      productId: patch.seed.productId ?? ``,
+      ...(patch.seed.status ? { status: patch.seed.status } : {}),
+    })
+    .onConflictDoUpdate({
+      target: creem_subscriptions.creemSubscriptionId,
+      set: bindColumns,
+    })
+}
+
+/** Creem entities arrive expanded (object with id) or as a bare id string. */
+function entityId(
+  value: { id?: string | null } | string | null | undefined
+): string | null {
+  if (!value) return null
+  return typeof value === `string` ? value : (value.id ?? null)
 }
 
 /**
  * Map a flattened `checkout.completed` webhook payload to a binding input.
- * The nested subscription carries the id; `units` sits on the checkout entity.
+ * The nested subscription carries the id; `units` sits on the checkout
+ * entity. Customer/product seed ids prefer the nested subscription's own
+ * (bare-id) references over the checkout's expanded entities — same values
+ * in practice, but the subscription's are authoritative for its row.
  */
 export function bindingInputFromCheckout(event: {
   units?: number | null
   metadata?: Record<string, unknown> | null
-  subscription?: { id?: string | null } | string | null
+  subscription?:
+    | {
+        id?: string | null
+        customer?: { id?: string | null } | string | null
+        product?: { id?: string | null } | string | null
+      }
+    | string
+    | null
+  customer?: { id?: string | null } | string | null
+  product?: { id?: string | null } | string | null
 }): SubscriptionBindingInput {
-  const creemSubscriptionId =
-    typeof event.subscription === `string`
-      ? event.subscription
-      : (event.subscription?.id ?? null)
+  const subscription =
+    typeof event.subscription === `string` ? null : event.subscription
   return {
-    creemSubscriptionId,
+    creemSubscriptionId:
+      typeof event.subscription === `string`
+        ? event.subscription
+        : (subscription?.id ?? null),
     metadata: event.metadata ?? null,
     units: event.units ?? null,
+    creemCustomerId: entityId(subscription?.customer) ?? entityId(event.customer),
+    productId: entityId(subscription?.product) ?? entityId(event.product),
   }
 }
 
@@ -355,18 +469,23 @@ export function bindingInputFromCheckout(event: {
  * Map a flattened `subscription.*` webhook payload (the `onGrantAccess` /
  * `onSubscription*` context) to a binding input. Seat quantity, when present,
  * lives on the first subscription item's `units`. `status` rides along so the
- * commit can heal a stale pending-cancel flag (see statusClearsPendingCancel).
+ * commit can heal a stale pending-cancel flag (see statusClearsPendingCancel);
+ * customer/product ids seed the row when the plugin has none to bind onto.
  */
 export function bindingInputFromSubscription(event: {
   id?: string | null
   metadata?: Record<string, unknown> | null
   items?: Array<{ units?: number | null }> | null
   status?: string | null
+  customer?: { id?: string | null } | string | null
+  product?: { id?: string | null } | string | null
 }): SubscriptionBindingInput {
   return {
     creemSubscriptionId: event.id ?? null,
     metadata: event.metadata ?? null,
     units: event.items?.[0]?.units ?? null,
     status: event.status ?? null,
+    creemCustomerId: entityId(event.customer),
+    productId: entityId(event.product),
   }
 }

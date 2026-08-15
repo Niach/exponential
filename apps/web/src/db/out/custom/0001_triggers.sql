@@ -565,3 +565,36 @@ UPDATE users u
     FROM users u2
   ) sub
   WHERE u.id = sub.id AND u.team_ids IS DISTINCT FROM COALESCE(sub.ids, '{}');
+
+-- 15. (REV-12) creem_subscriptions.creem_subscription_id is IMMUTABLE once
+--     set. The Creem plugin's webhook persistence (updateSubscriptionFromEvent
+--     in @creem_io/better-auth) falls back to matching by creem_customer_id
+--     when its id lookup misses — exactly the out-of-order window where a
+--     subscription.* event for a NEW subscription lands before its
+--     checkout.completed — and then writes the new id onto whatever row it
+--     found. That RE-KEYS the customer's existing subscription row: the old
+--     subscription (still charging at Creem) loses its local row, so
+--     getTeamPlan drops its team to Free, the REV2-30 duplicate guard sees one
+--     merged row instead of two live ones, and the team-delete gate and admin
+--     console go blind to the charge. Raising aborts only that misdirected
+--     UPDATE (the plugin catches and logs it); the new subscription still gets
+--     its own row immediately from the bind-path upsert keyed strictly by
+--     creem_subscription_id (lib/billing/creem-binding.ts), and its
+--     checkout.completed heals the full row data when it lands. Setting the
+--     key on a row that never had one (NULL) stays allowed — that is creation,
+--     not theft; uniq_creem_subscriptions_creem_subscription_id (migration
+--     0071) backstops one-row-per-subscription.
+CREATE OR REPLACE FUNCTION reject_creem_subscription_rekey()
+RETURNS TRIGGER AS $$
+BEGIN
+  RAISE EXCEPTION 'creem_subscriptions.creem_subscription_id is immutable once set (row %: % -> %)',
+    OLD.id, OLD.creem_subscription_id, NEW.creem_subscription_id;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER reject_creem_subscription_rekey
+  BEFORE UPDATE OF creem_subscription_id ON creem_subscriptions
+  FOR EACH ROW
+  WHEN (OLD.creem_subscription_id IS NOT NULL
+    AND NEW.creem_subscription_id IS DISTINCT FROM OLD.creem_subscription_id)
+  EXECUTE FUNCTION reject_creem_subscription_rekey();

@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "uniq_creem_subscriptions_creem_subscription_id" ON "creem_subscriptions" USING btree ("creem_subscription_id");

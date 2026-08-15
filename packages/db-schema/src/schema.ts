@@ -159,48 +159,65 @@ export const teams = pgTable(`teams`, {
 // (rather than in auth-schema.ts) so its `team_id` FK can reference
 // `teams` locally — auth-schema.ts must NOT import schema.ts (that edge
 // forms an eval-time circular import that crashes `createSelectSchema`).
-export const creem_subscriptions = pgTable(`creem_subscriptions`, {
-  id: text(`id`).primaryKey(),
-  productId: text(`product_id`).notNull(),
-  // The BUYER (the Creem customer whose card is charged). NULLABLE + `set
-  // null` on purpose (REV2-55): a subscription belongs to the TEAM, not to
-  // the person who happened to pay for it, so it must survive the purchaser
-  // deleting their account — the old `cascade` silently destroyed a surviving
-  // team's billing row (and with it the local billing history) the moment the
-  // buyer left. Remaining owners keep managing the subscription through the
-  // team-scoped billing router; `reference_id` is only the buyer attribution
-  // used by getUserPlan's free-tier owned-team guard.
-  referenceId: text(`reference_id`).references(() => users.id, {
-    onDelete: `set null`,
-  }),
-  creemCustomerId: text(`creem_customer_id`),
-  creemSubscriptionId: text(`creem_subscription_id`),
-  creemOrderId: text(`creem_order_id`),
-  // v5 per-seat binding: a subscription belongs to exactly one team, and
-  // `seats` is the purchased quantity (Creem checkout `units`). Both are bound
-  // from checkout metadata on the webhook path (lib/billing/creem-binding.ts);
-  // the plugin's own persistence never writes these columns, so later webhook
-  // updates cannot clobber them. `set null` keeps the billing history row if
-  // the team is deleted.
-  teamId: uuid(`team_id`).references(() => teams.id, {
-    onDelete: `set null`,
-  }),
-  seats: integer(`seats`).default(1).notNull(),
-  status: text(`status`)
-    .$defaultFn(() => `pending`)
-    .notNull(),
-  periodStart: timestamp(`period_start`),
-  periodEnd: timestamp(`period_end`),
-  cancelAtPeriodEnd: boolean(`cancel_at_period_end`)
-    .$defaultFn(() => false)
-    .notNull(),
-  createdAt: timestamp(`created_at`)
-    .$defaultFn(() => /* @__PURE__ */ new Date())
-    .notNull(),
-  updatedAt: timestamp(`updated_at`)
-    .$defaultFn(() => /* @__PURE__ */ new Date())
-    .notNull(),
-})
+export const creem_subscriptions = pgTable(
+  `creem_subscriptions`,
+  {
+    id: text(`id`).primaryKey(),
+    productId: text(`product_id`).notNull(),
+    // The BUYER (the Creem customer whose card is charged). NULLABLE + `set
+    // null` on purpose (REV2-55): a subscription belongs to the TEAM, not to
+    // the person who happened to pay for it, so it must survive the purchaser
+    // deleting their account — the old `cascade` silently destroyed a surviving
+    // team's billing row (and with it the local billing history) the moment the
+    // buyer left. Remaining owners keep managing the subscription through the
+    // team-scoped billing router; `reference_id` is only the buyer attribution
+    // used by getUserPlan's free-tier owned-team guard.
+    referenceId: text(`reference_id`).references(() => users.id, {
+      onDelete: `set null`,
+    }),
+    creemCustomerId: text(`creem_customer_id`),
+    // ONE row per Creem subscription, and the key never changes once set:
+    // the unique index below plus the reject_creem_subscription_rekey trigger
+    // (REV-12). Without the trigger, the Creem plugin's webhook persistence
+    // could RE-KEY an existing row — its subscription-event fallback matches
+    // by creem_customer_id when the id lookup misses and then writes the new
+    // id onto whatever row it found, silently merging two paying
+    // subscriptions into one local row.
+    creemSubscriptionId: text(`creem_subscription_id`),
+    creemOrderId: text(`creem_order_id`),
+    // v5 per-seat binding: a subscription belongs to exactly one team, and
+    // `seats` is the purchased quantity (Creem checkout `units`). Both are
+    // bound from checkout metadata on the webhook path
+    // (lib/billing/creem-binding.ts); the plugin's own persistence never
+    // writes these columns, and the re-key protections above keep a later
+    // webhook update from re-pointing the row's KEY out from under the
+    // binding. `set null` keeps the billing history row if the team is
+    // deleted.
+    teamId: uuid(`team_id`).references(() => teams.id, {
+      onDelete: `set null`,
+    }),
+    seats: integer(`seats`).default(1).notNull(),
+    status: text(`status`)
+      .$defaultFn(() => `pending`)
+      .notNull(),
+    periodStart: timestamp(`period_start`),
+    periodEnd: timestamp(`period_end`),
+    cancelAtPeriodEnd: boolean(`cancel_at_period_end`)
+      .$defaultFn(() => false)
+      .notNull(),
+    createdAt: timestamp(`created_at`)
+      .$defaultFn(() => /* @__PURE__ */ new Date())
+      .notNull(),
+    updatedAt: timestamp(`updated_at`)
+      .$defaultFn(() => /* @__PURE__ */ new Date())
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex(`uniq_creem_subscriptions_creem_subscription_id`).on(
+      table.creemSubscriptionId
+    ),
+  ]
+)
 
 export const teamMembers = pgTable(
   `team_members`,
