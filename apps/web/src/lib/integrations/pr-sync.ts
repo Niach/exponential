@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm"
+import { and, eq, inArray, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   codingSessions,
@@ -49,9 +49,16 @@ export function parseIssueIdentifierFromBranch(branch: string): string | null {
 
 // Resolve an issue by (repo full name + head branch), for the webhook's
 // deterministic branch-based linking. The repo scopes the identifier lookup to
-// the boards that repo backs, so identical identifiers in other teams
-// never cross-match. Returns null when the branch doesn't parse, the repo isn't
-// registered, or no linked board holds that identifier.
+// the boards that repo backs — but that scope can still be ambiguous: the SAME
+// GitHub repo may be registered by several teams (unique(team_id, full_name)),
+// and board prefixes are not unique, so "APP-12" can exist in more than one
+// candidate board (REV-22). Linking the wrong team's issue writes its PR
+// fields, flips its status, and notifies its subscribers — so on ambiguity we
+// REFUSE to link (return null) instead of picking an arbitrary row; the
+// webhook payload carries no signal that could break the tie (one GitHub repo
+// has one App installation, shared by every registering team). Returns null
+// when the branch doesn't parse, the repo isn't registered, no linked board
+// holds that identifier, or the identifier is ambiguous across the candidates.
 export async function findIssueIdByBranch(
   repoFullName: string,
   branch: string
@@ -78,25 +85,30 @@ export async function findIssueIdByBranch(
   const boardIds = [...new Set(boardRows.map((p) => p.boardId))]
   if (boardIds.length === 0) return null
 
-  const [issue] = await db
+  // limit(2): one row more than the unambiguous case needs — enough to detect
+  // a collision without loading every match.
+  const issueRows = await db
     .select({ id: issues.id })
     .from(issues)
     .where(
       and(inArray(issues.boardId, boardIds), eq(issues.identifier, identifier))
     )
-    .limit(1)
-  if (issue) return issue.id
+    .limit(2)
+  if (issueRows.length === 1) return issueRows[0].id
+  if (issueRows.length > 1) return null // ambiguous — never guess (REV-22)
 
   // Second chance (EXP-57): the branch may predate a cross-board move that
   // renumbered the issue — identifiers are monotonic and never reused, so a
   // retired identifier matches nothing above. Every move records its retired
   // identifier in a board_moved event; match it TEAM-scoped, because
   // the move re-pointed the issue's events onto the TARGET board, which may
-  // not be backed by this repo at all. Latest event wins (a chain of moves
-  // still resolves each retired identifier to the same issue exactly once).
+  // not be backed by this repo at all. Within one team a retired identifier
+  // maps to exactly one issue (never reused), but the candidate teams can
+  // collide on it just like the direct lookup above — distinct issue, or
+  // refuse (REV-22).
   const teamIds = [...new Set(boardRows.map((p) => p.teamId))]
-  const [movedEvent] = await db
-    .select({ issueId: issueEvents.issueId })
+  const movedRows = await db
+    .selectDistinct({ issueId: issueEvents.issueId })
     .from(issueEvents)
     .where(
       and(
@@ -105,9 +117,8 @@ export async function findIssueIdByBranch(
         sql`${issueEvents.payload} ->> 'fromIdentifier' = ${identifier}`
       )
     )
-    .orderBy(desc(issueEvents.createdAt))
-    .limit(1)
-  return movedEvent?.issueId ?? null
+    .limit(2)
+  return movedRows.length === 1 ? movedRows[0].issueId : null
 }
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
