@@ -78,9 +78,10 @@ struct RepoInfo {
 
 /// Which git op a [`TrunkSync::start_sync`] runs on the background executor.
 /// All token ops route through `coding::token_cache` and re-read the trunk on
-/// completion. (EXP-253 deleted the Push/Publish/GetLatest transport modes —
-/// the IDE neither commits nor switches branches anymore.)
-#[derive(Clone, Copy, PartialEq, Eq)]
+/// completion. (EXP-253 deleted the Push/Publish/GetLatest transport modes;
+/// EXP-509 brought ONE deliberate write back: the uncommitted-row
+/// commit-and-push affordance.)
+#[derive(Clone, PartialEq, Eq)]
 enum SyncMode {
     /// Auto-clone the missing trunk (streams `git clone --progress` %).
     Clone,
@@ -99,6 +100,14 @@ enum SyncMode {
     /// The escape hatch: abort any in-progress rebase/merge, fetch,
     /// force-checkout the default branch, `reset --hard origin/<default>`.
     HardReset,
+    /// EXP-509: push local work upstream — `git add -A` + `git commit`
+    /// (only when the tree is dirty; `message` is required then) followed by
+    /// `git push origin <branch>`. `identity` is the signed-in account's
+    /// (name, email), applied only when the clone resolves no `user.email`.
+    CommitPush {
+        message: Option<String>,
+        identity: Option<(String, String)>,
+    },
 }
 
 /// Foreground-marshaled progress of a background git op. The worker streams
@@ -359,6 +368,44 @@ impl TrunkSync {
             return;
         }
         self.start_sync(SyncMode::HardReset, cx);
+    }
+
+    /// EXP-509: commit-and-push the trunk's local work (the history pane's
+    /// uncommitted-row affordance): `git add -A` + `git commit -m <message>`
+    /// when the tree is dirty, then `git push origin <branch>`. Refused while
+    /// an op is in flight or a rebase/merge sits paused — and the worker
+    /// re-derives both from disk before writing anything.
+    pub(crate) fn commit_push(&mut self, message: Option<String>, cx: &mut gpui::Context<Self>) {
+        if self.syncing {
+            self.op_error =
+                Some("A sync is already running. Try the push again in a moment.".into());
+            cx.notify();
+            return;
+        }
+        if self.trunk.conflict.is_some() {
+            self.op_error = Some("Resolve the paused rebase/merge before pushing.".into());
+            cx.notify();
+            return;
+        }
+        // The signed-in account backs `git commit` when the clone has no
+        // identity of its own (clones never configure one; agents ride their
+        // CLI's environment). Fallback name: the email's local part.
+        let identity = crate::queries::active_account(cx).map(|account| {
+            let name = account
+                .name
+                .filter(|name| !name.trim().is_empty())
+                .unwrap_or_else(|| {
+                    account.email.split('@').next().unwrap_or("user").to_string()
+                });
+            (name, account.email)
+        });
+        self.start_sync(SyncMode::CommitPush { message, identity }, cx);
+    }
+
+    /// The on-disk trunk state as of the last read (EXP-509 — the history
+    /// pane's uncommitted row reads dirty/ahead/conflict off it).
+    pub(crate) fn trunk(&self) -> &TrunkState {
+        &self.trunk
     }
 
     /// Debounced background sync trigger (timer tick + window focus + the
@@ -784,12 +831,12 @@ impl TrunkSync {
 
         self.syncing = true;
         self.job_failed = false;
-        if mode != SyncMode::AutoSync {
+        if !matches!(mode, SyncMode::AutoSync) {
             // A background pass must not clear a user-op error the user has
             // not acted on yet.
             self.op_error = None;
         }
-        if mode == SyncMode::Clone {
+        if matches!(mode, SyncMode::Clone) {
             self.clone_progress = Some(0);
         }
         cx.notify();
@@ -989,12 +1036,17 @@ fn run_sync_worker(
     tx: &flume::Sender<SyncMsg>,
 ) {
     // A pre-transport failure (mint or ambient-auth install), surfaced
-    // through whichever channel the badge reads.
+    // through whichever channel the badge reads. (Kinds copied out — the
+    // closure must not capture `mode`, the match below consumes it.)
+    let is_clone = matches!(mode, SyncMode::Clone);
+    let is_auto_sync = matches!(mode, SyncMode::AutoSync);
     let send_failure = |detail: String| {
-        let _ = tx.send(match mode {
-            SyncMode::Clone => SyncMsg::Clone(CloneEvent::Failed(detail.clone())),
-            SyncMode::AutoSync => SyncMsg::AutoSyncDone(Err(detail.clone())),
-            _ => SyncMsg::Failed(detail.clone()),
+        let _ = tx.send(if is_clone {
+            SyncMsg::Clone(CloneEvent::Failed(detail.clone()))
+        } else if is_auto_sync {
+            SyncMsg::AutoSyncDone(Err(detail.clone()))
+        } else {
+            SyncMsg::Failed(detail.clone())
         });
         let _ = tx.send(SyncMsg::Trunk(Err(detail)));
     };
@@ -1016,7 +1068,7 @@ fn run_sync_worker(
     // so this 120-s/on-focus writer can never clobber a fresher token the
     // refresher installed (the exact postmortem failure). Clone mode installs
     // inside `clone_manager::ensure` — no `.git` exists yet here.
-    if mode != SyncMode::Clone {
+    if !is_clone {
         if let Err(err) = coding::git_credentials::ensure(clone, &url, expires_at) {
             send_failure(err.to_string());
             return;
@@ -1113,6 +1165,61 @@ fn run_sync_worker(
                 }
             }
         }
+        SyncMode::CommitPush { message, identity } => {
+            // Re-derive conflict + trunk from DISK — a write op must never
+            // trust the foreground snapshot the dialog was opened from.
+            if scm::detect_conflict(clone).is_some() {
+                let _ = tx.send(SyncMsg::Failed(
+                    "A rebase/merge is paused — resolve it before pushing.".to_string(),
+                ));
+            } else {
+                match trunk_state::read(clone) {
+                    Ok(state) if state.branch.is_empty() || state.branch.starts_with('(') => {
+                        let _ = tx.send(SyncMsg::Failed(
+                            "Not on a branch — nothing to push.".to_string(),
+                        ));
+                    }
+                    Ok(state) if !state.has_upstream => {
+                        let _ = tx.send(SyncMsg::Failed(
+                            "The branch has no upstream to push to.".to_string(),
+                        ));
+                    }
+                    Ok(state) => {
+                        let committed = if state.dirty {
+                            match &message {
+                                Some(message) => scm::stage_all_and_commit(
+                                    clone,
+                                    message,
+                                    identity
+                                        .as_ref()
+                                        .map(|(name, email)| (name.as_str(), email.as_str())),
+                                )
+                                .map_err(|err| err.to_string()),
+                                // The tree dirtied between the confirm and
+                                // the run — a silent commit with no message
+                                // would be worse than a retry.
+                                None => Err(
+                                    "The working tree changed — push again to include a \
+                                     commit message."
+                                        .to_string(),
+                                ),
+                            }
+                        } else {
+                            Ok(())
+                        };
+                        let result = committed.and_then(|()| {
+                            scm::push(clone, &url, &state.branch).map_err(|err| err.to_string())
+                        });
+                        if let Err(err) = result {
+                            let _ = tx.send(SyncMsg::Failed(err));
+                        }
+                    }
+                    Err(err) => {
+                        let _ = tx.send(SyncMsg::Failed(err.to_string()));
+                    }
+                }
+            }
+        }
     }
 
     // Always re-derive the trunk from disk: a paused rebase engages conflict
@@ -1155,6 +1262,7 @@ mod tests {
             conflict: None,
             syncing: false,
             dirty,
+            dirty_files: u32::from(dirty),
             has_upstream: true,
         }
     }

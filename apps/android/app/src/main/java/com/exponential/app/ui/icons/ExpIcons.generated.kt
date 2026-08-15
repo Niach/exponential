@@ -5290,6 +5290,38 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `upload`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "upload",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M12 3v12"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("m17 8-5-5-5 5"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `user`: ImageVector by lazy {
         ImageVector.Builder(
             name = "user",
@@ -5809,6 +5841,7 @@ public object ExpIcons {
         "trophy" -> `trophy`
         "undo-2" -> `undo-2`
         "unlink" -> `unlink`
+        "upload" -> `upload`
         "user" -> `user`
         "user-minus" -> `user-minus`
         "user-plus" -> `user-plus`
@@ -5977,6 +6010,8 @@ public object ExpIcons {
     public val priorityNone: ImageVector get() = `minus`
     /** Concept `priority-urgent`. */
     public val priorityUrgent: ImageVector get() = `triangle-alert`
+    /** Concept `sc-push`. */
+    public val scPush: ImageVector get() = `upload`
     /** Concept `settings-about`. */
     public val settingsAbout: ImageVector get() = `info`
     /** Concept `settings-account`. */

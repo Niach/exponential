@@ -42,6 +42,7 @@ use gpui_component::{
     menu::DropdownMenu as _,
     scroll::ScrollableElement as _,
     skeleton::Skeleton,
+    spinner::Spinner,
     v_flex, ActiveTheme as _, Disableable as _, Icon, InteractiveElementExt as _,
     Selectable as _, Sizable as _,
 };
@@ -140,9 +141,9 @@ pub(crate) struct RailShared {
     board_active: Entity<BoardView>,
     /// The "My Issues" board (assignee == me across the team).
     board_my: Entity<BoardView>,
-    /// The commit the Source Control screen's diff pane shows — the sidebar
-    /// history list selects it (EXP-253; `None` = nothing selected).
-    sc_selected_commit: Option<String>,
+    /// What the Source Control screen's diff pane shows — the sidebar
+    /// history list selects it (EXP-253; EXP-509 added the working tree).
+    sc_selection: ScSelection,
     /// EXP-288: the trunk-relative file the center file viewer shows — the
     /// Files tree selects it (files are NOT tabs anymore; the viewer is the
     /// Files tool's center content, like the SC diff follows
@@ -171,16 +172,24 @@ impl RailShared {
         self.tool
     }
 
-    /// The sidebar history list's commit selection (EXP-253).
-    pub(crate) fn sc_selected_commit(&self) -> Option<&str> {
-        self.sc_selected_commit.as_deref()
+    /// The sidebar history list's selection (EXP-253/EXP-509).
+    pub(crate) fn sc_selection(&self) -> &ScSelection {
+        &self.sc_selection
     }
 
-    /// Drop the commit selection (a Source Control scope change invalidated
-    /// it).
-    pub(crate) fn clear_sc_selected_commit(&mut self, cx: &mut gpui::Context<Self>) {
-        if self.sc_selected_commit.is_some() {
-            self.sc_selected_commit = None;
+    /// The selected commit hash, when the selection IS a commit (the history
+    /// row highlight).
+    pub(crate) fn sc_selected_commit(&self) -> Option<&str> {
+        match &self.sc_selection {
+            ScSelection::Commit(hash) => Some(hash),
+            _ => None,
+        }
+    }
+
+    /// Drop the selection (a Source Control scope change invalidated it).
+    pub(crate) fn clear_sc_selection(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.sc_selection != ScSelection::None {
+            self.sc_selection = ScSelection::None;
             cx.notify();
         }
     }
@@ -318,13 +327,27 @@ pub(crate) fn select_settings_section(
     });
 }
 
-/// Point the Source Control screen's diff pane at `commit` (EXP-253 — the
-/// sidebar history list's click target); `None` clears the selection.
-pub(crate) fn select_sc_commit(window: &mut Window, cx: &mut App, commit: Option<String>) {
+/// What the Source Control screen's diff pane shows (EXP-253 commit
+/// selection; EXP-509 added the uncommitted working tree).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) enum ScSelection {
+    /// Nothing picked (the pane's placeholder).
+    #[default]
+    None,
+    /// One history commit's diff (`git show <hash>`).
+    Commit(String),
+    /// The uncommitted working tree (`git diff HEAD` + untracked files) —
+    /// the history list's synthetic top row (EXP-509).
+    WorkingTree,
+}
+
+/// Point the Source Control screen's diff pane at `selection` (the sidebar
+/// history list's click target).
+pub(crate) fn set_sc_selection(window: &mut Window, cx: &mut App, selection: ScSelection) {
     let shared = rail_shared_for_window(window, cx);
     shared.update(cx, |shared, cx| {
-        if shared.sc_selected_commit != commit {
-            shared.sc_selected_commit = commit;
+        if shared.sc_selection != selection {
+            shared.sc_selection = selection;
             cx.notify();
         }
     });
@@ -381,7 +404,7 @@ pub(crate) fn rail_shared_for_window(
         file_tree,
         board_active,
         board_my,
-        sc_selected_commit: None,
+        sc_selection: ScSelection::None,
         selected_file: None,
         rail_expanded,
         settings_section: crate::settings::SettingsSection::General,
@@ -522,13 +545,50 @@ const BOARD_ROW_GROUP: &str = "rail-board-row";
 /// inner layout with no `Styled` reach into it (the settings-nav rows set the
 /// same precedent), and a centered label would defeat the whole point of the
 /// labelled rail. Handlers are the caller's job.
+/// A rail entry's status badge (EXP-509 — the Source Control entry outgrew
+/// the plain dot): the classic colored dot (Reviews green, Support amber), a
+/// small status ICON (SC attention triangle / error cross), or the spinning
+/// refresh glyph while a sync is pulling.
+#[derive(Clone)]
+pub(crate) enum RailBadge {
+    Dot(Hsla),
+    Icon(ExpIcon, Hsla),
+    Syncing,
+}
+
+/// One badge element at `glyph_px` (dots keep their fixed 6px regardless).
+fn rail_badge_element(badge: RailBadge, glyph_px: f32, cx: &App) -> gpui::AnyElement {
+    match badge {
+        RailBadge::Dot(color) => div()
+            .size_1p5()
+            .flex_shrink_0()
+            .rounded_full()
+            .bg(color)
+            .into_any_element(),
+        RailBadge::Icon(icon, color) => Icon::from(icon)
+            .with_size(px(glyph_px))
+            .text_color(color)
+            .flex_shrink_0()
+            .into_any_element(),
+        RailBadge::Syncing => div()
+            .flex_shrink_0()
+            .child(
+                Spinner::new()
+                    .icon(registry::UI_REFRESH)
+                    .with_size(px(glyph_px))
+                    .color(cx.theme().muted_foreground),
+            )
+            .into_any_element(),
+    }
+}
+
 fn rail_row(
     id: impl Into<gpui::ElementId>,
     icon: Icon,
     label: impl Into<SharedString>,
     active: bool,
     accent: Hsla,
-    badge: Option<Hsla>,
+    badge: Option<RailBadge>,
     cx: &App,
 ) -> gpui::Stateful<gpui::Div> {
     // Active entries keep the collapsed rail's accent tint on the glyph; the
@@ -552,14 +612,8 @@ fn rail_row(
         .hover(|this| this.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
         .child(icon.xsmall().flex_shrink_0())
         .child(div().flex_1().min_w_0().truncate().child(label.into()))
-        .when_some(badge, |this, color| {
-            this.child(
-                div()
-                    .size_1p5()
-                    .flex_shrink_0()
-                    .rounded_full()
-                    .bg(color),
-            )
+        .when_some(badge, |this, badge| {
+            this.child(rail_badge_element(badge, 12., cx))
         })
 }
 
@@ -632,7 +686,7 @@ impl RailView {
         tool: ToolWindow,
         label: &'static str,
         tooltip: impl Into<SharedString>,
-        badge: Option<Hsla>,
+        badge: Option<RailBadge>,
         accent: Hsla,
         expanded: bool,
         cx: &mut gpui::Context<Self>,
@@ -681,15 +735,13 @@ impl RailView {
                         .bg(accent),
                 )
             })
-            .when_some(badge, |this, color| {
+            .when_some(badge, |this, badge| {
                 this.child(
                     div()
                         .absolute()
                         .top_0()
                         .right_0()
-                        .size_1p5()
-                        .rounded_full()
-                        .bg(color),
+                        .child(rail_badge_element(badge, 10., cx)),
                 )
             })
             .into_any_element()
@@ -1105,7 +1157,7 @@ impl Render for RailView {
             let support_unread = active_team_id(&self.nav, cx)
                 .map(|id| queries::support_unread(cx, &id))
                 .unwrap_or(false);
-            let support_badge = support_unread.then(|| cx.theme().warning);
+            let support_badge = support_unread.then(|| RailBadge::Dot(cx.theme().warning));
             self.rail_tool_icon(
                 "rail-support",
                 Icon::from(icons::registry::NAV_SUPPORT),
@@ -1169,12 +1221,18 @@ impl Render for RailView {
         // badge is its whole rail presence): attention (conflict / local
         // commits / dirty tree) beats sticky error beats syncing; the
         // tooltip carries the attention reason or the "synced Xm ago" stamp.
+        // EXP-509: real glyphs instead of colored dots — a yellow warning
+        // triangle for attention, a red cross for the sticky error, and a
+        // SPINNING refresh while a pull/clone runs.
         let sc_badge = if sc_attention.is_some() {
-            Some(cx.theme().warning)
+            Some(RailBadge::Icon(
+                registry::UI_WARNING,
+                cx.theme().warning,
+            ))
         } else if git_bar.read(cx).sync_error().is_some() {
-            Some(cx.theme().danger)
+            Some(RailBadge::Icon(registry::UI_ERROR, cx.theme().danger))
         } else if git_bar.read(cx).is_syncing() {
-            Some(cx.theme().muted_foreground)
+            Some(RailBadge::Syncing)
         } else {
             None
         };
@@ -1397,7 +1455,7 @@ impl Render for RailView {
                         "Reviews",
                         // Review green (EXP-214): open PRs are "stuff to do",
                         // colored like the in_review issue status.
-                        has_reviews.then(|| theme::tokens::GREEN.to_hsla()),
+                        has_reviews.then(|| RailBadge::Dot(theme::tokens::GREEN.to_hsla())),
                         accent,
                         expanded,
                         cx,
