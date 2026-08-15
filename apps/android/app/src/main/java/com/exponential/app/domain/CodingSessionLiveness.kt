@@ -16,9 +16,9 @@ import kotlinx.coroutines.flow.flow
 // PR-open parking spot — terminal still alive, "ready for review"); only
 // `ended` and stale rows drop out.
 //
-// EXP-358: `merged` joins them — a PR merge no longer kills the session, the
-// server just parks it there and the terminal stays steerable. Only the
-// explicit "Merge and close" (or the desktop's own exit) flips it to `ended`.
+// `merged` counts as live too: a LEGACY parking spot (EXP-358, reversed by
+// EXP-498 — new servers END sessions on merge), kept so rows written by a
+// pre-498 server stay alive until explicitly ended or stale.
 object CodingSessionLiveness {
 
     // The coding_session statuses that can render as a live badge (EXP-194,

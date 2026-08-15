@@ -237,8 +237,13 @@ function ReviewDetailPage() {
     setConfirmMergeOpen(false)
     setMerging(true)
     setActionError(null)
+    // Merge always closes the live coding sessions (EXP-498; closeSessions
+    // kept on the wire for old-server compat).
     trpc.issues.mergePr
-      .mutate({ issueId: issue.id }, { context: { skipErrorToast: true } })
+      .mutate(
+        { issueId: issue.id, closeSessions: true },
+        { context: { skipErrorToast: true } }
+      )
       .catch((error: unknown) => {
         setActionError({
           action: `merge`,
@@ -567,7 +572,7 @@ function ReviewDetailPage() {
                 : `Merge ${issue.identifier}?`}
             </DialogTitle>
             <DialogDescription>
-              {`Squash-merges pull request #${issue.prNumber}${issue.branch ? ` (${issue.branch})` : ``} into the repository's default branch via the GitHub App.`}
+              {`Squash-merges pull request #${issue.prNumber}${issue.branch ? ` (${issue.branch})` : ``} into the repository's default branch via the GitHub App. Any live coding session for it closes.`}
               {isBatch
                 ? ` Completes all ${linked.length} linked issues: ${linked
                     .map((i) => i.identifier)

@@ -565,10 +565,10 @@ impl TerminalDockPanel {
             let id = meta.id;
             let manager_ix = meta.manager_ix;
             let merge_button = meta
-                .issue
+                .merge
                 .as_ref()
-                .filter(|issue| issue.pr_open)
-                .map(|issue| self.tab_merge_button(ix, id, issue, &merge_state, cx));
+                .map(|merge| self.tab_merge_button(ix, id, merge, &merge_state, cx));
+            let has_merge = merge_button.is_some();
             let chip = crate::surface::tab_chip(ix == selected_ix, cx)
                 .id(("terminal-tab", ix))
                 .group(TAB_GROUP)
@@ -629,10 +629,6 @@ impl TerminalDockPanel {
                                     .child(SharedString::from(code.to_string())),
                             )
                         })
-                        // EXP-325: quick merge for an in-review issue session
-                        // (hover-revealed while idle; armed/merging stay
-                        // visible so the confirm never vanishes mid-click).
-                        .when_some(merge_button, |this, button| this.child(button))
                         // Hover-revealed undock (EXP-65) — same treatment as
                         // the center tabs; `invisible` keeps the layout slot.
                         .child(
@@ -653,17 +649,29 @@ impl TerminalDockPanel {
                                         )),
                                 ),
                         )
-                        .child(
-                            Button::new(("close-terminal-tab", ix))
-                                .ghost()
-                                .xsmall()
-                                .icon(registry::UI_CLOSE)
-                                .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                                    cx.stop_propagation();
-                                    this.manager
-                                        .update(cx, |manager, cx| manager.close_tab(id, cx));
-                                })),
-                        ),
+                        // EXP-498: the always-visible "Merge" shortcut for a
+                        // session (issue OR batch) with an open PR — it takes
+                        // the close button's slot (merging closes the
+                        // session, so the one affordance does both). Undock +
+                        // middle-click keep a close-without-merging escape
+                        // hatch.
+                        .when_some(merge_button, |this, button| this.child(button))
+                        .when(!has_merge, |this| {
+                            this.child(
+                                Button::new(("close-terminal-tab", ix))
+                                    .ghost()
+                                    .xsmall()
+                                    .icon(registry::UI_CLOSE)
+                                    .on_click(cx.listener(
+                                        move |this, _: &ClickEvent, _window, cx| {
+                                            cx.stop_propagation();
+                                            this.manager.update(cx, |manager, cx| {
+                                                manager.close_tab(id, cx)
+                                            });
+                                        },
+                                    )),
+                            )
+                        }),
                 )
         });
         // EXP-497: the hidden tabs collapse into a "+N" dropdown; clicking
@@ -806,33 +814,32 @@ impl TerminalDockPanel {
             )
     }
 
-    /// The EXP-325 merge button on an in-review issue-session tab: the
-    /// shared two-click confirm (`pr_merge`), hover-revealed while idle
-    /// (armed/merging stay visible so the ~5s confirm window survives
-    /// pointer drift). A failed merge (typically conflicts) jumps to the
-    /// Reviews tool window, where the shared error caption + Fix-conflicts
-    /// button render exactly as a Reviews-originated failure.
+    /// The merge button on a session tab whose PR is open (issue AND batch
+    /// since EXP-498): always visible, reads "Merge", and REPLACES the tab's
+    /// close button — merging always closes the session, so the one
+    /// affordance does both. Two-click confirm via the shared `pr_merge`
+    /// state ("Merge" → "Confirm merge", ~5s auto-disarm). A failed merge
+    /// (typically conflicts) jumps to the Reviews tool window, where the
+    /// shared error caption + Fix-conflicts button render exactly as a
+    /// Reviews-originated failure.
     ///
-    /// This is the "Merge and close" surface (EXP-358): merging elsewhere
-    /// leaves the session alive in `merged`, but this tab's own button ends
-    /// the session too — LOCALLY, the moment the merge call fires: the tab
-    /// closes right away (the `TabClosed` watcher fires the idempotent
-    /// `codingSessions.end`), so a merge that fails on conflicts never
-    /// leaves a live session holding the branch — the Reviews rail's "Fix
-    /// conflicts" recovery starts immediately instead of parking behind a
-    /// busy worktree. `close_sessions` still rides the server call as the
-    /// backstop for the user's sessions on OTHER devices.
+    /// The tab closes LOCALLY the moment the merge call fires (the
+    /// `TabClosed` watcher fires the idempotent `codingSessions.end`), so a
+    /// merge that fails on conflicts never leaves a live session holding the
+    /// branch — the Reviews rail's "Fix conflicts" recovery starts
+    /// immediately instead of parking behind a busy worktree. The server
+    /// ends the user's live sessions on OTHER devices after the merge.
     fn tab_merge_button(
         &self,
         ix: usize,
         tab: TabId,
-        issue: &IssueTabMeta,
+        merge: &MergeTabMeta,
         merge_state: &Entity<crate::pr_merge::MergeState>,
         cx: &gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let (armed, merging) = {
             let state = merge_state.read(cx);
-            (state.armed(&issue.issue_id), state.merging(&issue.issue_id))
+            (state.armed(&merge.issue_id), state.merging(&merge.issue_id))
         };
         let mut button = Button::new(("merge-terminal-tab", ix)).xsmall();
         if merging {
@@ -842,22 +849,21 @@ impl TerminalDockPanel {
                 .loading(true)
                 .disabled(true);
         } else if armed {
-            button = button.outline().label("Merge and close").danger();
+            button = button.outline().label("Confirm merge").danger();
         } else {
-            button = button.ghost().icon(ExpIcon::GitMerge).tooltip(
-                "Merge and close: completes every linked issue and closes this coding session",
-            );
+            button = button
+                .ghost()
+                .icon(ExpIcon::GitMerge)
+                .label("Merge")
+                .tooltip("Merge: completes every linked issue and closes this coding session");
         }
-        let issue_id = issue.issue_id.clone();
+        let issue_id = merge.issue_id.clone();
         let button = button.on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
             cx.stop_propagation();
             let handle = window.window_handle();
             let outcome = crate::pr_merge::two_click(
                 crate::pr_merge::MergeOp::MergeIssuePr {
                     issue_id: issue_id.clone(),
-                    // Our own session closes locally below; the flag ends the
-                    // user's live sessions on OTHER devices after the merge.
-                    close_sessions: true,
                 },
                 Some(Box::new(move |cx: &mut App| {
                     let _ = handle.update(cx, |_, window, cx| {
@@ -879,15 +885,7 @@ impl TerminalDockPanel {
                     .update(cx, |manager, cx| manager.close_tab(tab, cx));
             }
         }));
-        if armed || merging {
-            button.into_any_element()
-        } else {
-            div()
-                .invisible()
-                .group_hover(TAB_GROUP, |style| style.visible())
-                .child(button)
-                .into_any_element()
-        }
+        button.into_any_element()
     }
 
     /// The "+" dropdown (EXP-325): one item per doctor-INSTALLED agent CLI —
@@ -1423,22 +1421,32 @@ struct TabMeta {
     exit_code: Option<i32>,
     /// EXP-325: present when this tab is a LOCAL issue coding session whose
     /// issue row is synced — the chip then renders the center issue-tab
-    /// treatment (status glyph + mono identifier + synced title + hover
-    /// merge) instead of the plain terminal title. Batch/action/shell tabs
-    /// (and unsynced issues) stay `None`.
+    /// treatment (status glyph + mono identifier + synced title) instead of
+    /// the plain terminal title. Batch/action/shell tabs (and unsynced
+    /// issues) stay `None`.
     issue: Option<IssueTabMeta>,
+    /// EXP-498: present when this tab's session — issue OR batch — has an
+    /// open PR. The chip then swaps its close button for the "Merge" button
+    /// (merging always closes the session). Deliberately separate from
+    /// `issue` so batch tabs gain the merge affordance without inheriting
+    /// the issue-chip content.
+    merge: Option<MergeTabMeta>,
 }
 
 /// The issue-chip snapshot of one issue-session terminal tab (EXP-325).
 struct IssueTabMeta {
-    issue_id: String,
     status: domain::statuses::ResolvedStatus,
     identifier: SharedString,
     /// `None` for a blank issue title — the identifier already labels the
     /// chip (the EXP-310 center-tab rule).
     title: Option<SharedString>,
-    /// Whether the issue's PR is open — gates the hover merge button.
-    pr_open: bool,
+}
+
+/// The tab's merge affordance (EXP-498): the representative synced issue
+/// with an open PR — `issues.mergePr` on it fans out to every issue sharing
+/// the prUrl, so any batch sibling merges the whole PR.
+struct MergeTabMeta {
+    issue_id: String,
 }
 
 /// Measured width of one tab chip, for the EXP-497 overflow partition —
@@ -1456,7 +1464,7 @@ fn measure_tab_chip_width(
     const CHIP_PADDING_REMS: f32 = 0.5 * 2.;
     /// `Icon::xsmall()` — `size_3` (the issue chip's status glyph).
     const LEAD_ICON_REMS: f32 = 0.75;
-    /// An icon-only xsmall `Button` — `size_5` (undock/close/idle merge).
+    /// An icon-only xsmall `Button` — `size_5` (undock/close).
     const XSMALL_BUTTON_REMS: f32 = 1.25;
     /// The trailing button cluster's own `gap_0p5`.
     const CLUSTER_GAP_REMS: f32 = 0.125;
@@ -1503,10 +1511,10 @@ fn measure_tab_chip_width(
         ),
     }
 
-    // The trailing cluster: exit badge, merge button (idle = an `invisible`
-    // icon slot that keeps its box; armed/merging = the labeled button,
-    // measured at the wider "Merge and close" so the armed state never
-    // shoves the strip), undock slot (`invisible` keeps its box too), close.
+    // The trailing cluster: exit badge, merge button (EXP-498: always a
+    // LABELED button — idle "Merge" carries the GitMerge icon, armed
+    // "Confirm merge" / "Merging…" drop it), undock slot (`invisible` keeps
+    // its box), and close — which the merge button REPLACES when present.
     let mut cluster: Vec<f32> = Vec::with_capacity(4);
     if let Some(code) = meta.exit_code {
         cluster.push(
@@ -1519,25 +1527,29 @@ fn measure_tab_chip_width(
                 ),
         );
     }
-    if let Some(issue) = meta.issue.as_ref().filter(|issue| issue.pr_open) {
+    if let Some(merge) = meta.merge.as_ref() {
         let state = merge_state.read(cx);
+        let (label, icon) = if state.merging(&merge.issue_id) {
+            ("Merging…", false)
+        } else if state.armed(&merge.issue_id) {
+            ("Confirm merge", false)
+        } else {
+            ("Merge", true)
+        };
+        // Labeled xsmall button: px_1 chrome (+2px outline border slack) +
+        // shaped label, plus the size_3 icon and the button's gap_1 when the
+        // idle state renders the GitMerge glyph next to the text.
         cluster.push(
-            if state.armed(&issue.issue_id) || state.merging(&issue.issue_id) {
-                LABEL_BUTTON_CHROME * rem
-                    + 2.
-                    + crate::screens::measure_text(
-                        window,
-                        "Merge and close",
-                        base_font.clone(),
-                        gpui::rems(0.75),
-                    )
-            } else {
-                XSMALL_BUTTON_REMS * rem
-            },
+            LABEL_BUTTON_CHROME * rem
+                + 2.
+                + crate::screens::measure_text(window, label, base_font.clone(), gpui::rems(0.75))
+                + if icon { (0.75 + 0.25) * rem } else { 0. },
         );
     }
     cluster.push(XSMALL_BUTTON_REMS * rem);
-    cluster.push(XSMALL_BUTTON_REMS * rem);
+    if meta.merge.is_none() {
+        cluster.push(XSMALL_BUTTON_REMS * rem);
+    }
     let cluster_width = cluster.iter().sum::<f32>()
         + CLUSTER_GAP_REMS * rem * cluster.len().saturating_sub(1) as f32;
     children.push(cluster_width);
@@ -1559,12 +1571,55 @@ fn issue_tab_meta(tab_id: TabId, cx: &App) -> Option<IssueTabMeta> {
     let issue = store.collections().issues.read(cx).get(issue_id)?;
     let title = issue.title.trim();
     Some(IssueTabMeta {
-        issue_id: issue.id.clone(),
         status: crate::queries::resolve_issue_status(cx, issue),
         identifier: SharedString::from(issue.identifier.clone()),
         title: (!title.is_empty()).then(|| SharedString::from(title.to_string())),
-        pr_open: issue.pr_state.as_deref() == Some("open"),
     })
+}
+
+/// Resolve a tab's merge affordance (EXP-498): the representative synced
+/// open-PR issue for the tab's session. Issue sessions match their own
+/// issue; batch sessions match any synced issue on the session's branch
+/// (the batch PR links every one of them to the same prUrl, so any sibling
+/// is a valid merge target). Action/shell tabs never merge.
+fn merge_tab_meta(tab_id: TabId, cx: &App) -> Option<MergeTabMeta> {
+    let sessions = crate::coding_flow::LocalSessions::global_ref(cx)?;
+    let sessions = sessions.read(cx);
+    let session = sessions.session_for_tab(tab_id)?;
+    let store = sync::Store::try_global(cx)?;
+    let issues = store.collections().issues.read(cx);
+    let issue_id = match &session.subject {
+        crate::coding_flow::SessionSubject::Issue(issue_id) => {
+            let issue = issues.get(issue_id)?;
+            issue_has_open_pr(issue).then(|| issue.id.clone())?
+        }
+        crate::coding_flow::SessionSubject::Batch(_) => {
+            open_pr_issue_on_branch(&session.branch, issues.iter())?
+                .id
+                .clone()
+        }
+        crate::coding_flow::SessionSubject::Action(_) => return None,
+    };
+    Some(MergeTabMeta { issue_id })
+}
+
+fn issue_has_open_pr(issue: &domain::rows::Issue) -> bool {
+    issue.pr_state.as_deref() == Some("open")
+}
+
+/// Any synced open-PR issue on `branch` — a batch tab's representative merge
+/// target. Pure (unit-tested); an empty branch never matches (trunk/scratch
+/// runs record no branch).
+fn open_pr_issue_on_branch<'a>(
+    branch: &str,
+    issues: impl Iterator<Item = &'a domain::rows::Issue>,
+) -> Option<&'a domain::rows::Issue> {
+    if branch.is_empty() {
+        return None;
+    }
+    let mut issues =
+        issues.filter(|issue| issue.branch.as_deref() == Some(branch) && issue_has_open_pr(issue));
+    issues.next()
 }
 
 impl Panel for TerminalDockPanel {
@@ -1639,6 +1694,7 @@ impl Render for TerminalDockPanel {
                     title: tab.title().clone(),
                     exit_code: tab.exit_code(),
                     issue: issue_tab_meta(tab.id, cx),
+                    merge: merge_tab_meta(tab.id, cx),
                 })
                 .collect();
             let active = manager
@@ -1706,6 +1762,40 @@ mod tests {
     use gpui_component::dock::{DockAreaState, PanelInfo};
 
     use super::*;
+
+    /// EXP-498: the batch tab's merge target — any synced OPEN-PR issue on
+    /// the session's branch; nothing else qualifies.
+    #[test]
+    fn open_pr_issue_on_branch_picks_only_open_prs_on_the_branch() {
+        let issue = |id: &str,
+                     branch: Option<&str>,
+                     pr_state: Option<&str>|
+         -> domain::rows::Issue {
+            serde_json::from_value(serde_json::json!({
+                "id": id, "board_id": "b-1", "number": 1,
+                "identifier": "EXP-1", "title": "t", "status": "in_review",
+                "branch": branch, "pr_state": pr_state,
+            }))
+            .unwrap()
+        };
+        let open = issue("i-open", Some("exp/batch-a1b2c3d4"), Some("open"));
+        let merged = issue("i-merged", Some("exp/batch-a1b2c3d4"), Some("merged"));
+        let other = issue("i-other", Some("exp/EXP-9"), Some("open"));
+        let branchless = issue("i-none", None, Some("open"));
+
+        let found = open_pr_issue_on_branch(
+            "exp/batch-a1b2c3d4",
+            [&merged, &other, &open, &branchless].into_iter(),
+        );
+        assert_eq!(found.map(|issue| issue.id.as_str()), Some("i-open"));
+        assert!(open_pr_issue_on_branch(
+            "exp/batch-a1b2c3d4",
+            [&merged, &other, &branchless].into_iter()
+        )
+        .is_none());
+        // Trunk/scratch sessions record no branch — never a merge target.
+        assert!(open_pr_issue_on_branch("", [&open].into_iter()).is_none());
+    }
 
     /// A real pre-EXP-301 `window-0.json`: an OPEN bottom dock whose panel
     /// info still carries a persisted login shell and a claude tab. Old files

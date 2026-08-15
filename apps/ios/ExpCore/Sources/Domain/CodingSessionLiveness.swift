@@ -9,9 +9,9 @@ import Foundation
 /// EXP-194: liveness spans both `running` and `in_review` — the terminal stays
 /// alive (watchable/steerable) after the PR opens and the issue parks in
 /// review, so the badge and the bottom-nav agents dot both keep counting it.
-/// EXP-358: `merged` joins them — a PR merge no longer kills the session, the
-/// server just flips its status, so the run stays live until someone ends it
-/// ("Merge and close") or the heartbeat goes stale.
+/// `merged` counts as live too: it's a LEGACY status (EXP-358, reversed by
+/// EXP-498 — new servers END sessions on merge), but rows parked there by a
+/// pre-498 server stay alive until explicitly ended or stale.
 public enum CodingSessionLiveness {
     /// Parse the synced `updatedAt` heartbeat. Delegates to WireTimestamps so
     /// Electric's Postgres text form (space separator, hour-only offset) parses

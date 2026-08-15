@@ -307,11 +307,10 @@ class AgentsViewModel @Inject constructor(
         }
     }
 
-    // ── Merge and close (EXP-358) ────────────────────────────────────────────
-    // A merge alone leaves the session alive on `merged`; this is the explicit
-    // "and close" variant — the server merges AND ends the session, so the row
-    // drops off this list on its own once the `ended` flip syncs. Keyed by
-    // issue id: several rows can be in flight at once.
+    // ── Merge (EXP-498: merging always closes the session) ──────────────────
+    // The server merges AND ends the session, so the row drops off this list
+    // on its own once the `ended` flip syncs. Keyed by issue id: several rows
+    // can be in flight at once.
     private val _merging = MutableStateFlow<Set<String>>(emptySet())
     val merging: StateFlow<Set<String>> = _merging
 
@@ -321,11 +320,11 @@ class AgentsViewModel @Inject constructor(
     val mergeErrors: StateFlow<Map<String, String>> = _mergeErrors
 
     /**
-     * Squash-merge the row's PR and END its coding session (EXP-358). For a
-     * batch PR the server resolves [issueId] to ALL linked issues and completes
-     * them together.
+     * Squash-merge the row's PR — the server always ends its coding session
+     * too (EXP-498). For a batch PR the server resolves [issueId] to ALL
+     * linked issues and completes them together.
      */
-    fun mergeAndClose(issueId: String) {
+    fun merge(issueId: String) {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             _mergeErrors.value = _mergeErrors.value - issueId

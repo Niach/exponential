@@ -346,16 +346,11 @@ pub struct MergeResult {
 /// installed, GitHub-side rejection) surface as [`ApiError::Http`] with the
 /// server's user-facing message. Blocking; background executor only (§3.5).
 ///
-/// EXP-358: a merge no longer ends the issue's coding sessions — the server
-/// moves live sessions to `merged` and leaves them running. `close_sessions`
-/// is the explicit opt-in that also flips them to `ended` (the terminal tab's
-/// "Merge and close"); the desktop tears down off the resulting kill-watch
-/// echo, never locally.
-pub fn merge_pr(
-    trpc: &TrpcClient,
-    issue_id: &str,
-    close_sessions: bool,
-) -> Result<MergeResult, ApiError> {
+/// EXP-498: merge always ends the issue's live coding sessions — the server
+/// enforces it regardless of the flag, and the desktop tears down off the
+/// resulting kill-watch echo (or its own local tab close). `closeSessions:
+/// true` stays hardcoded on the wire so a pre-498 server closes too.
+pub fn merge_pr(trpc: &TrpcClient, issue_id: &str) -> Result<MergeResult, ApiError> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
     struct Input<'a> {
@@ -366,7 +361,7 @@ pub fn merge_pr(
         "issues.mergePr",
         &Input {
             issue_id,
-            close_sessions,
+            close_sessions: true,
         },
     )
 }
@@ -886,30 +881,19 @@ mod tests {
         assert!(request.ends_with(r#"{"id":"i-1","boardId":"p-2"}"#));
     }
 
+    /// EXP-498: merge always closes — `closeSessions: true` is hardcoded on
+    /// the wire so a pre-498 server ends the sessions too.
     #[test]
     fn merge_pr_posts_camel_case_input_and_decodes_result() {
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"merged":true}}}"#);
-        let out = merge_pr(&client(&base), "1f7f6f9e-0000-4000-8000-000000000000", false).unwrap();
+        let out = merge_pr(&client(&base), "1f7f6f9e-0000-4000-8000-000000000000").unwrap();
         assert!(out.merged);
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/issues.mergePr HTTP/1.1"));
         assert!(request.ends_with(
-            r#"{"issueId":"1f7f6f9e-0000-4000-8000-000000000000","closeSessions":false}"#
-        ));
-        assert!(crate::trpc::tests::has_header(&request, "Authorization: Bearer tok-1"));
-    }
-
-    /// EXP-358: "Merge and close" is the only caller that asks the server to
-    /// end the issue's live coding sessions — it rides the same mutation.
-    #[test]
-    fn merge_pr_can_ask_the_server_to_close_sessions() {
-        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"merged":true}}}"#);
-        let out = merge_pr(&client(&base), "1f7f6f9e-0000-4000-8000-000000000000", true).unwrap();
-        assert!(out.merged);
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.ends_with(
             r#"{"issueId":"1f7f6f9e-0000-4000-8000-000000000000","closeSessions":true}"#
         ));
+        assert!(crate::trpc::tests::has_header(&request, "Authorization: Bearer tok-1"));
     }
 
     #[test]
@@ -920,7 +904,7 @@ mod tests {
             412,
             r#"{"error":{"message":"This issue has no linked pull request","code":-32603,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#,
         );
-        let result = merge_pr(&client(&base), "1f7f6f9e-0000-4000-8000-000000000000", false);
+        let result = merge_pr(&client(&base), "1f7f6f9e-0000-4000-8000-000000000000");
         match result {
             Err(ApiError::Http { status, message }) => {
                 assert_eq!(status, 412);

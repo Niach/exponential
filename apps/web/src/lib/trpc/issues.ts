@@ -1173,9 +1173,10 @@ export const issuesRouter = router({
     .input(
       z.object({
         issueId: z.string().uuid(),
-        // EXP-358: merge no longer kills coding sessions — only the explicit
-        // "Merge and close" affordances opt in. Old clients omit the flag and
-        // get merge-only.
+        // Deprecated (EXP-498): merge ALWAYS ends the linked live coding
+        // sessions now — the flag is accepted for old-client wire compat and
+        // ignored. New clients still send `true` so an old server (pre-498
+        // self-host) closes too.
         closeSessions: z.boolean().optional().default(false),
       })
     )
@@ -1211,15 +1212,14 @@ export const issuesRouter = router({
       }
       if (row.prState === `merged`) {
         // Already merged (e.g. the webhook beat us) — idempotent no-op for
-        // the PR itself, but "Merge and close" must still close: the webhook
-        // parked the sessions in `merged`, not `ended` (EXP-358).
-        if (input.closeSessions) {
-          const linked = await ctx.db
-            .select({ id: issues.id })
-            .from(issues)
-            .where(eq(issues.prUrl, row.prUrl))
-          await endMergedPrSessions(linked.map((issue) => issue.id))
-        }
+        // the PR itself, but merge always closes (EXP-498): sweep any live
+        // sessions the earlier writer missed (or legacy rows a pre-498
+        // webhook parked in `merged`).
+        const linked = await ctx.db
+          .select({ id: issues.id })
+          .from(issues)
+          .where(eq(issues.prUrl, row.prUrl))
+        await endMergedPrSessions(linked.map((issue) => issue.id))
         return { merged: true }
       }
       if (row.prState !== `open`) {
@@ -1355,11 +1355,10 @@ export const issuesRouter = router({
           actorViaAgent: ctx.viaMcp === true,
         })
       }
-      // "Merge and close" (EXP-358): end every linked live session — same
-      // blast radius as the pre-358 auto-kill, now opt-in per button.
-      if (input.closeSessions) {
-        await endMergedPrSessions(linkedIds)
-      }
+      // Merge always closes (EXP-498): applyPrMergeState's claim winner ends
+      // sessions in-tx; this unconditional sweep backstops the race where the
+      // webhook won the claim before this mutation got here.
+      await endMergedPrSessions(linkedIds)
 
       return { merged: true }
     }),
