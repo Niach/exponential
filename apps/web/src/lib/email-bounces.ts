@@ -23,6 +23,18 @@ export interface EmailBounceEvent {
   providerMessageId: string | null
 }
 
+// The application-side suppression predicate: a complaint or a Permanent
+// (hard) bounce blocks the address for good; Transient/Undetermined bounces
+// don't. ONE definition shared by the send-time check (lib/email.ts
+// isEmailSuppressed), the webhook's auto-suppress gate and its sticky-upsert
+// branch (REV-43) so the three can never disagree.
+export function suppressesEmail(
+  kind: string,
+  bounceType: string | null
+): boolean {
+  return kind === `complaint` || bounceType === `Permanent`
+}
+
 // SSRF guard for the SNS SubscriptionConfirmation handshake: the webhook
 // blindly fetches SubscribeURL, so only ever fetch a real SNS endpoint.
 export function isTrustedSnsUrl(raw: string): boolean {

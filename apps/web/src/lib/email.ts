@@ -31,6 +31,7 @@ import type { Transporter } from "nodemailer"
 import { eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { emailBounces, emailDeliveries } from "@/db/schema"
+import { suppressesEmail } from "@/lib/email-bounces"
 
 export type EmailProvider = `ses` | `smtp`
 
@@ -110,18 +111,21 @@ export async function recordEmailDelivery(args: {
 // Permanent (hard) bounce is never mailed again by ANY stream — the single
 // enforcement point is sendEmail below. Soft (Transient) bounces don't
 // suppress; the SES account-level list stays as the second, provider-side
-// layer.
+// layer. A stamped suppressed_at also suppresses on its own (REV-43): once
+// an address made it onto the SES account-level list, no later feedback
+// event may un-suppress it here, whatever the classification columns say.
 export async function isEmailSuppressed(email: string): Promise<boolean> {
   const [row] = await db
     .select({
       kind: emailBounces.kind,
       bounceType: emailBounces.bounceType,
+      suppressedAt: emailBounces.suppressedAt,
     })
     .from(emailBounces)
     .where(eq(sql`lower(${emailBounces.email})`, email.trim().toLowerCase()))
     .limit(1)
   if (!row) return false
-  return row.kind === `complaint` || row.bounceType === `Permanent`
+  return row.suppressedAt != null || suppressesEmail(row.kind, row.bounceType)
 }
 
 function fromAddress(): string {

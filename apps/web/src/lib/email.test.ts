@@ -7,7 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 const { sesSendMock, suppressionRows } = vi.hoisted(() => ({
   sesSendMock: vi.fn(),
   // Rows the mocked email_bounces lookup serves — empty = not suppressed.
-  suppressionRows: [] as Array<{ kind: string; bounceType: string | null }>,
+  suppressionRows: [] as Array<{
+    kind: string
+    bounceType: string | null
+    suppressedAt?: Date | null
+  }>,
 }))
 
 // sendEmail's send-time suppression check reads email_bounces through the
@@ -249,6 +253,32 @@ describe(`send-time suppression (bounce/complaint on record)`, () => {
       text: `hi`,
     })
     expect(soft.delivered).toBe(true)
+    stderrSpy.mockRestore()
+  })
+
+  it(`stays suppressed on a stamped suppressedAt even if a late Transient event downgraded the classification (REV-43)`, async () => {
+    // The SES-cloud belt-and-braces layer: the address is on the SES
+    // account-level list (suppressed_at set), so whatever the last feedback
+    // event wrote into kind/bounce_type must not resurrect sends.
+    suppressionRows.push({
+      kind: `bounce`,
+      bounceType: `Transient`,
+      suppressedAt: new Date(`2026-08-01T00:00:00Z`),
+    })
+    const email = await importEmail({ AWS_SES_REGION: `eu-central-1` })
+    const stderrSpy = vi
+      .spyOn(process.stderr, `write`)
+      .mockImplementation(() => true)
+
+    const result = await email.sendEmail({
+      to: `hard-bounced@example.com`,
+      subject: `Hello`,
+      html: `<p>hi</p>`,
+      text: `hi`,
+    })
+
+    expect(result.suppressed).toBe(true)
+    expect(sesSendMock).not.toHaveBeenCalled()
     stderrSpy.mockRestore()
   })
 })
