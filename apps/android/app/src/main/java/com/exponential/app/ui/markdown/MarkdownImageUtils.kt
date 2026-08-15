@@ -29,6 +29,10 @@ fun stripDraftImages(markdown: String): String =
         if (isDraftUrl(match.groupValues[2])) "" else match.value
     }
 
+/** The set of image URLs referenced in [markdown]. */
+fun markdownImageUrls(markdown: String): Set<String> =
+    MARKDOWN_IMAGE_REGEX.findAll(markdown).map { it.groupValues[2] }.toSet()
+
 /** Drop image references whose URL is in `urls`. */
 fun removeMarkdownImagesByUrl(markdown: String, urls: Collection<String>): String {
     if (urls.isEmpty()) return markdown
