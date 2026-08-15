@@ -185,14 +185,14 @@ public struct ClosePrInput: Encodable, Sendable {
 /// App. For a batch PR (one PR linked to several issues) the server resolves
 /// the PR to ALL its linked issues, so passing any one of them merges the PR
 /// and completes them all.
-/// EXP-358: `closeSessions` is the "Merge and close" path — a merge alone now
-/// only flips live sessions to `merged` (they stay alive/steerable), so ending
-/// the run has to be asked for explicitly.
+/// EXP-498: merge always ends the linked live coding sessions — the server
+/// enforces it regardless of `closeSessions`; callers keep sending `true` so
+/// a pre-498 server closes too (the flag is otherwise vestigial).
 public struct MergePrInput: Encodable, Sendable {
     public let issueId: String
     public let closeSessions: Bool
 
-    public init(issueId: String, closeSessions: Bool = false) {
+    public init(issueId: String, closeSessions: Bool = true) {
         self.issueId = issueId
         self.closeSessions = closeSessions
     }
@@ -384,10 +384,9 @@ public final class IssuesApi: Sendable {
     /// Squash-merge the issue's open PR via the GitHub App (EXP-131). Server
     /// resolves a batch PR to every linked issue, so merging completes them all;
     /// the `prState`/`status` flips arrive through Electric sync.
-    /// `closeSessions` (EXP-358) additionally ENDS the linked coding sessions —
-    /// merge-only leaves them alive on the new `merged` status, so every
-    /// plain merge affordance keeps the default.
-    public func mergePr(accountId: String, issueId: String, closeSessions: Bool = false) async throws {
+    /// Merge always ends the linked coding sessions (EXP-498) — the default
+    /// `closeSessions: true` only matters against a pre-498 server.
+    public func mergePr(accountId: String, issueId: String, closeSessions: Bool = true) async throws {
         try await trpc.mutationVoid(
             accountId: accountId,
             path: "issues.mergePr",

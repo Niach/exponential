@@ -184,9 +184,8 @@ export type CodingControlVariant = `row` | `sidebar`
 // Sidebar merge affordance (EXP-268): full-width Merge button + confirm
 // dialog for an issue whose linked PR is open. Mirrors the reviews pages'
 // semantics — `issues.mergePr`, spinner held until the Electric echo flips
-// `prState` away from `open`. Merge-only (EXP-358): the live session parks
-// in `merged` and stays open — closing it is the session rows' "Merge and
-// close" affordance.
+// `prState` away from `open`. Merge always closes the live coding sessions
+// (EXP-498); closeSessions: true stays on the wire for old-server compat.
 function IssueMergeButton({ issue }: { issue: Issue }) {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [merging, setMerging] = useState(false)
@@ -204,7 +203,7 @@ function IssueMergeButton({ issue }: { issue: Issue }) {
     setMerging(true)
     try {
       // Failures surface via the global mutation-error toast.
-      await trpc.issues.mergePr.mutate({ issueId: issue.id })
+      await trpc.issues.mergePr.mutate({ issueId: issue.id, closeSessions: true })
       setConfirmOpen(false) // keep `merging` until the echo flips prState
     } catch {
       setMerging(false)
@@ -233,7 +232,7 @@ function IssueMergeButton({ issue }: { issue: Issue }) {
           <DialogHeader>
             <DialogTitle>Merge pull request?</DialogTitle>
             <DialogDescription>
-              {`Merge PR #${issue.prNumber ?? ``} into the default branch? Every issue linked to it completes.`}
+              {`Merge PR #${issue.prNumber ?? ``} into the default branch? Every issue linked to it completes, and any live coding session for it closes.`}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

@@ -327,7 +327,7 @@ describe(`codingSessions.heartbeat — in_review liveness`, () => {
     expect(Object.keys(updates[0]!.values)).toEqual([`updatedAt`])
   })
 
-  it(`advances updated_at for a merged row without touching status (EXP-358)`, async () => {
+  it(`advances updated_at for a legacy merged row without touching status`, async () => {
     selectResults.push([{ userId: `actor`, status: `merged` }])
 
     const result = await caller.heartbeat({ id: SESSION_ID })
@@ -365,9 +365,11 @@ describe(`codingSessions.heartbeat — in_review liveness`, () => {
     })
   })
 
-  it(`re-creates a swept issue-scoped row as merged when the issue's PR merged meanwhile (EXP-358)`, async () => {
+  it(`re-creates a swept issue-scoped row as ended when the issue's PR merged meanwhile (EXP-498)`, async () => {
     selectResults.push([]) // session row gone (swept)
     // The issue moved on while the laptop slept: PR merged, status done.
+    // Merge always closes — the resurrected row comes back `ended` so the
+    // owner's kill_watch tears the resumed terminal down.
     selectResults.push([{ status: `done`, prState: `merged` }])
 
     const result = await caller.heartbeat({
@@ -380,8 +382,9 @@ describe(`codingSessions.heartbeat — in_review liveness`, () => {
     expect(inserts[0]!.values).toMatchObject({
       id: SESSION_ID,
       issueId: ISSUE_ID,
-      status: `merged`,
+      status: `ended`,
     })
+    expect(inserts[0]!.values.endedAt).toBeInstanceOf(Date)
   })
 
   it(`re-creates a swept batch row as running (no issue to derive from)`, async () => {
@@ -602,7 +605,7 @@ describe(`codingSessions.setNeedsInput — attention flag (EXP-214)`, () => {
     expect(updates[0]!.values).toEqual({ needsInput: true })
   })
 
-  it(`writes needs_input on a merged row (still live, EXP-358)`, async () => {
+  it(`writes needs_input on a legacy merged row (still live)`, async () => {
     selectResults.push([{ userId: `actor`, status: `merged` }])
 
     const result = await caller.setNeedsInput({

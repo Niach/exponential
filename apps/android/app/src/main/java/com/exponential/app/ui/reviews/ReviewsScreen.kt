@@ -474,7 +474,7 @@ private fun MergeConfirmDialog(
 ) {
     val prLabel = entry.prNumber?.let { "PR #$it" } ?: "the pull request"
     val message = buildString {
-        append("Squash-merges $prLabel via the GitHub App.")
+        append("Squash-merges $prLabel via the GitHub App. Any live coding session for it closes.")
         if (entry.isBatch) append(" Completes all ${entry.issues.size} linked issues.")
     }
     AlertDialog(

@@ -215,9 +215,8 @@ export async function applyPrLifecycleStatusInTx(
     // already parked the issue in `in_review`. running-conditioned so an
     // `ended` row is never resurrected. updatedAt stamped explicitly (no
     // $onUpdate on this table) so the review badge starts with a full
-    // staleness window. Merge moves the session to `merged` — see
-    // applyPrMergeState (EXP-358): only an explicit "Merge and close" /
-    // kill ends it (`ended` stays the desktop kill-switch).
+    // staleness window. Merge ENDS the session — see applyPrMergeState
+    // (EXP-498; `ended` stays the desktop kill-switch).
     await tx
       .update(codingSessions)
       .set({ status: `in_review`, updatedAt: new Date() })
@@ -489,6 +488,7 @@ export async function applyPrMergeState(opts: {
       applied: boolean
       prUrl?: string | null
       headBranch?: string | null
+      endedSessionIds?: string[]
     }> => {
       const txId = await generateTxId(tx)
       void txId
@@ -569,29 +569,19 @@ export async function applyPrMergeState(opts: {
         event: `merged`,
       })
 
-      // EXP-358: the merge parks the issue's live coding session in `merged`
-      // instead of killing it — the terminal stays open and steerable (the
-      // desktop kill-switch fires only on the →ended edge, which now comes
-      // solely from explicit ends: killSession, codingSessions.end, or
-      // mergePr's closeSessions opt-in via endMergedPrSessions below).
-      // Independent of the issue-status eligibility gate above. updatedAt
-      // stamped explicitly (no $onUpdate on this table) so the badge starts
-      // with a full staleness window. Batch (issue-less) session rows can't
-      // be matched by issue_id and are left to their terminal exit.
-      await tx
-        .update(codingSessions)
-        .set({ status: `merged`, updatedAt: new Date() })
-        .where(
-          and(
-            eq(codingSessions.issueId, opts.issueId),
-            inArray(codingSessions.status, [`running`, `in_review`])
-          )
-        )
+      // EXP-498 (reversing EXP-358): the merge ENDS the issue's live coding
+      // sessions on every path — webhook, poller, and mergePr all funnel
+      // through this claim, so the winner sweeping here means merge never
+      // leaves a session running. The desktop reads the →ended edge as its
+      // kill switch; the relay kill fires post-commit below. Independent of
+      // the issue-status eligibility gate above.
+      const endedSessionIds = await endLiveIssueSessionsInTx(tx, opts.issueId)
 
       return {
         applied: true,
         prUrl: opts.prUrl ?? current.prUrl,
         headBranch: current.branch ?? opts.headBranch ?? null,
+        endedSessionIds,
       }
     }
   )
@@ -601,6 +591,11 @@ export async function applyPrMergeState(opts: {
   // flipped the state fans out — so an away phone gets exactly one
   // "it's merged" notification on in-app + push + email.
   if (result.applied) {
+    // Post-commit: the durable teardown signal is the synced →ended flip
+    // above; the relay kill only makes the live terminal/mirror teardown
+    // immediate (a pre-commit kill would race the desktop re-reading a
+    // still-running row).
+    await relayKillSessions(result.endedSessionIds ?? [])
     fireAndForgetPrNotify({
       issueId: opts.issueId,
       type: `pr_merged`,
@@ -623,12 +618,46 @@ export async function applyPrMergeState(opts: {
   }
 }
 
-// The "Merge and close" opt-in (EXP-358): explicitly end every live session
-// on the given issues after their PR merged. Matches `merged` too — the
-// webhook usually parks the rows in `merged` before the user's mutation gets
-// here, and a second click must still tear them down. Called by
-// issues.mergePr({closeSessions:true}) only; the plain merge paths (webhook,
-// poller, MCP tool) never end sessions anymore.
+// The EXP-498 in-tx merge sweep: end every live session on the issue whose
+// PR just merged. `merged` is matched too — a legacy value (pre-498 park)
+// that must not survive a merge either. updatedAt stamped explicitly (no
+// $onUpdate on this table). Batch (issue-less) session rows can't be matched
+// by issue_id — the desktop self-closes those when its branch's issues sync
+// a merged PR. Returns the ended row ids for the caller's POST-commit relay
+// kill.
+export async function endLiveIssueSessionsInTx(
+  tx: Tx,
+  issueId: string
+): Promise<string[]> {
+  const ended = await tx
+    .update(codingSessions)
+    .set({ status: `ended`, endedAt: new Date(), updatedAt: new Date() })
+    .where(
+      and(
+        eq(codingSessions.issueId, issueId),
+        inArray(codingSessions.status, [`running`, `in_review`, `merged`])
+      )
+    )
+    .returning({ id: codingSessions.id })
+  return ended.map((s) => s.id)
+}
+
+// Best-effort relay kills for just-ended sessions — the durable signal is
+// the synced →ended row flip; this only makes the live terminal/mirror
+// teardown immediate (relayPostKill never throws). Post-commit only.
+async function relayKillSessions(sessionIds: string[]): Promise<void> {
+  if (sessionIds.length === 0) return
+  const config = getSteerRelayConfig()
+  if (!config) return
+  await Promise.all(sessionIds.map((id) => relayPostKill(config, id)))
+}
+
+// Idempotent belt-and-braces sweep (EXP-498): end every live session on the
+// given issues whose PR already merged. The claim winner inside
+// applyPrMergeState normally ends them in-tx; this catches the paths that
+// lose the claim (issues.mergePr racing the webhook) and legacy rows still
+// parked in the pre-498 `merged` status. Safe to call repeatedly — matched
+// statuses exclude `ended`.
 export async function endMergedPrSessions(issueIds: string[]): Promise<void> {
   if (issueIds.length === 0) return
   const endedSessionIds = await db.transaction(async (tx) => {
@@ -647,15 +676,7 @@ export async function endMergedPrSessions(issueIds: string[]): Promise<void> {
     return ended.map((s) => s.id)
   })
 
-  // Best-effort relay kills for the sessions just ended — the durable signal
-  // is the synced row flip above; this only makes the live terminal/mirror
-  // teardown immediate (relayPostKill never throws).
-  if (endedSessionIds.length > 0) {
-    const config = getSteerRelayConfig()
-    if (config) {
-      await Promise.all(endedSessionIds.map((id) => relayPostKill(config, id)))
-    }
-  }
+  await relayKillSessions(endedSessionIds)
 }
 
 // Retarget every open PR based on a just-merged PR's head branch onto the

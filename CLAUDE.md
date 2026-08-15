@@ -120,7 +120,7 @@ Issues DUAL-WRITE `status` (the builtin ANCHOR enum) and `statusId` (nullable FK
 
 ### Enum behavior
 
-Values in `contract.json` (see Shared Contracts). `issue_status` — `pr_open` flips linked issues to the team's PR-open target (default `in_review`), merge to the PR-merge target (default `done`). `coding_session_status` (running/in_review/merged/ended) — `in_review` = PR open; PR MERGE flips live sessions to `merged` (still alive/steerable, EXP-358); `ended` ONLY from explicit ends (killSession, `codingSessions.end`, `mergePr({closeSessions:true})` = the "Merge and close" buttons), and the desktop reads its own row's →ended edge as the kill switch.
+Values in `contract.json` (see Shared Contracts). `issue_status` — `pr_open` flips linked issues to the team's PR-open target (default `in_review`), merge to the PR-merge target (default `done`). `coding_session_status` (running/in_review/merged/ended) — `in_review` = PR open; PR MERGE **ends** live issue-linked sessions on EVERY path (EXP-498, reversing EXP-358: `applyPrMergeState` in-tx + the idempotent `endMergedPrSessions` sweep + best-effort relay kill; `mergePr`'s `closeSessions` flag is accepted-but-ignored, new clients still send `true` for old-server compat); `merged` is a LEGACY value never written anew (kept for old rows/clients); `ended` also comes from killSession and `codingSessions.end`, and the desktop reads its own row's →ended edge as the kill switch. Batch sessions (issue_id NULL, unmatchable server-side) self-close on the desktop when their branch's issues sync `prState=merged`.
 
 ### Custom triggers
 

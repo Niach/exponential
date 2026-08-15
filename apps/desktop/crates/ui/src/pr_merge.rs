@@ -63,15 +63,10 @@ pub enum FailedOp {
 pub enum MergeOp {
     /// `issues.mergePr` — squash-merge the issue's linked PR (a batch PR
     /// completes every linked issue). Echo-settled: the spinner holds until
-    /// `pr_state` leaves `open`. `close_sessions` (EXP-358) additionally asks
-    /// the server to END the issue's live coding sessions — only the terminal
-    /// tab's "Merge and close" sets it; every other surface merges alone and
-    /// leaves the session open in `merged`. Keys/guards/captions ignore it:
-    /// merging one issue's PR is one row action either way.
-    MergeIssuePr {
-        issue_id: String,
-        close_sessions: bool,
-    },
+    /// `pr_state` leaves `open`. Merge always closes (EXP-498): the server
+    /// ends the issues' live coding sessions on every merge, and the API
+    /// layer hardcodes `closeSessions: true` for pre-498 servers.
+    MergeIssuePr { issue_id: String },
     /// `issues.closePr` — close the linked PR WITHOUT merging (EXP-100).
     /// Echo-settled like the merge.
     CloseIssuePr { issue_id: String },
@@ -147,10 +142,9 @@ impl MergeOp {
 
     fn run(&self, trpc: &api::TrpcClient) -> Result<(), api::ApiError> {
         match self {
-            MergeOp::MergeIssuePr {
-                issue_id,
-                close_sessions,
-            } => api::issues::merge_pr(trpc, issue_id, *close_sessions).map(|_| ()),
+            MergeOp::MergeIssuePr { issue_id } => {
+                api::issues::merge_pr(trpc, issue_id).map(|_| ())
+            }
             MergeOp::CloseIssuePr { issue_id } => {
                 api::issues::close_pr(trpc, issue_id).map(|_| ())
             }
@@ -336,8 +330,8 @@ impl MergeState {
     }
 }
 
-/// What a [`two_click`] call did. The terminal tab's "Merge and close" acts
-/// on [`TwoClick::Fired`]: it closes its session tab the moment the merge
+/// What a [`two_click`] call did. The terminal tab's merge button acts on
+/// [`TwoClick::Fired`]: it closes its session tab the moment the merge
 /// call actually fires, ending the session BEFORE the merge settles — a
 /// conflict failure must never leave a live session holding the branch and
 /// parking the "Fix conflicts" recovery button.
@@ -442,7 +436,6 @@ mod tests {
         assert_eq!(close_pr_key("issue-1"), "close:issue-1");
         let merge = MergeOp::MergeIssuePr {
             issue_id: "i1".to_string(),
-            close_sessions: false,
         };
         let close = MergeOp::CloseIssuePr {
             issue_id: "i1".to_string(),
@@ -468,15 +461,6 @@ mod tests {
         assert_eq!(merge.failed_op(), FailedOp::Merge);
         assert_eq!(close.failed_op(), FailedOp::Close);
         assert_eq!(pull.failed_op(), FailedOp::Merge);
-        // EXP-358: "Merge and close" is the same row action — `close_sessions`
-        // must never split the key/guard/caption namespace.
-        let merge_and_close = MergeOp::MergeIssuePr {
-            issue_id: "i1".to_string(),
-            close_sessions: true,
-        };
-        assert_eq!(merge_and_close.key(), merge.key());
-        assert_eq!(merge_and_close.row_key(), merge.row_key());
-        assert_eq!(merge_and_close.guard_keys(), merge.guard_keys());
     }
 
     #[test]

@@ -2,13 +2,12 @@
 //! path that survives a dead relay.
 //!
 //! An explicit kill flips the synced `coding_sessions` row to
-//! `status = ended` (the relay `kill` fan-out is best-effort). Only three
-//! things do that (EXP-358): `steer.killSession`, `codingSessions.end`, and
-//! `issues.mergePr` when the caller opted into `closeSessions` (the terminal
-//! tab's "Merge and close"). A plain PR merge no longer routes through
-//! `ended` — the server moves live sessions to `merged` and leaves them
-//! running — so `ended` stays what it always was: the one status that tears a
-//! session down.
+//! `status = ended` (the relay `kill` fan-out is best-effort). That comes
+//! from the explicit ends — `steer.killSession`, `codingSessions.end` — and,
+//! since EXP-498, from EVERY PR merge: the server ends an issue's live
+//! sessions on merge (webhook, poller, and `issues.mergePr` alike; the old
+//! EXP-358 `merged` parking is legacy and never written anew). `ended` stays
+//! what it always was: the one status that tears a session down.
 //!
 //! This watch subscribes to the [`crate::collections`] `coding_sessions`
 //! entity (read-only — it consumes the public collections API and never
@@ -197,8 +196,8 @@ mod tests {
         // EXP-194: the server flips running→in_review when the agent's PR
         // opens — a REVIEW flip must never read as a remote kill.
         assert!(!session_row_is_ended(Some(&session("in_review"))));
-        // EXP-358: the PR MERGE flip is `merged`, and the session survives it
-        // — only an explicit "merge and close"/kill writes `ended`.
+        // Legacy `merged` rows (pre-498 servers parked merged sessions there)
+        // must never read as a remote kill — new servers write `ended`.
         assert!(!session_row_is_ended(Some(&session("merged"))));
         assert!(!session_row_fires_kill(
             Some(&owned_session("merged", "me")),

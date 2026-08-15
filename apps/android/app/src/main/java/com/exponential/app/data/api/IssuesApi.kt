@@ -59,15 +59,15 @@ data class DeleteIssueInput(val id: String)
 data class ClosePrInput(@SerialName("issueId") val issueId: String)
 
 /**
- * `issues.mergePr` (EXP-358). Separate from [ClosePrInput] because a merge
- * additionally decides the fate of the issue's LIVE coding session:
- * `closeSessions = true` ends it server-side ("Merge and close"), the default
- * leaves it alive on the new `merged` status.
+ * `issues.mergePr` (EXP-498): merge always ends the linked live coding
+ * sessions — the server enforces it regardless of the flag; the `true`
+ * default only matters against a pre-498 server (the flag is otherwise
+ * vestigial wire compat).
  */
 @Serializable
 data class MergePrInput(
     @SerialName("issueId") val issueId: String,
-    @SerialName("closeSessions") val closeSessions: Boolean = false,
+    @SerialName("closeSessions") val closeSessions: Boolean = true,
 )
 
 /**
@@ -199,12 +199,11 @@ class IssuesApi @Inject constructor(private val trpc: TrpcClient) {
      * representative issue's id — the server resolves the PR to ALL linked
      * issues and completes them together; the `done` flip arrives via Electric.
      *
-     * EXP-358: a merge no longer kills the coding session — live rows park on
-     * `merged` and stay steerable. [closeSessions] is the explicit "Merge and
-     * close" opt-in: the server ends them, and the rows drop out of the live
-     * lists via sync.
+     * Merge always ends the linked live coding sessions (EXP-498) — the rows
+     * drop out of the live lists via sync; the `true` default on
+     * [closeSessions] only matters against a pre-498 server.
      */
-    suspend fun mergePr(accountId: String, issueId: String, closeSessions: Boolean = false) {
+    suspend fun mergePr(accountId: String, issueId: String, closeSessions: Boolean = true) {
         trpc.mutationUnit(
             accountId,
             path = "issues.mergePr",

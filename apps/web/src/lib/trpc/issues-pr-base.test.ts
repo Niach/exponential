@@ -27,6 +27,7 @@ const h = vi.hoisted(() => ({
   })),
   isInstallationLinkedToTeam: vi.fn(async () => true),
   applyPrMergeState: vi.fn(async () => {}),
+  endMergedPrSessions: vi.fn(async () => {}),
 }))
 
 // membership.ts's getDb() dynamically imports @/db/connection; this mock also
@@ -76,7 +77,7 @@ vi.mock(`@/lib/trpc/integrations`, () => ({
 vi.mock(`@/lib/integrations/pr-sync`, () => ({
   applyPrClosedState: vi.fn(),
   applyPrMergeState: h.applyPrMergeState,
-  endMergedPrSessions: vi.fn(),
+  endMergedPrSessions: h.endMergedPrSessions,
 }))
 vi.mock(`@/lib/storage/issue-attachments`, () => ({
   canonicalizeMarkdownImageUrls: vi.fn(),
@@ -350,6 +351,44 @@ describe(`issues.mergePr 405 diagnosis (EXP-324)`, () => {
       message: `Squash merges are not allowed on this repository`,
     })
     expect(h.diagnoseUnmergeablePr).not.toHaveBeenCalled()
+  })
+})
+
+// EXP-498: merge ALWAYS closes — the sweep runs unconditionally, with or
+// without the deprecated closeSessions flag, on both the fresh-merge and the
+// already-merged (webhook-won-the-claim) paths.
+describe(`issues.mergePr always ends sessions (EXP-498)`, () => {
+  const mergeRow = {
+    prNumber: 241,
+    prUrl: PR_URL,
+    prState: `open`,
+    identifier: `EXP-320`,
+    title: `Stacked child`,
+  }
+  const OTHER_ISSUE = `33333333-3333-4333-8333-333333333333`
+
+  it(`sweeps every linked issue's sessions after a fresh merge, without the flag`, async () => {
+    h.selectQueue.push([mergeRow])
+    // The linked-issues resolve after the GitHub merge (batch fan-out).
+    h.selectQueue.push([{ id: ISSUE_ID }, { id: OTHER_ISSUE }])
+
+    await expect(caller.mergePr({ issueId: ISSUE_ID })).resolves.toEqual({
+      merged: true,
+    })
+    expect(h.applyPrMergeState).toHaveBeenCalledTimes(2)
+    expect(h.endMergedPrSessions).toHaveBeenCalledTimes(1)
+    expect(h.endMergedPrSessions).toHaveBeenCalledWith([ISSUE_ID, OTHER_ISSUE])
+  })
+
+  it(`sweeps on the already-merged idempotent path too (closeSessions:false)`, async () => {
+    h.selectQueue.push([{ ...mergeRow, prState: `merged` }])
+    h.selectQueue.push([{ id: ISSUE_ID }])
+
+    await expect(
+      caller.mergePr({ issueId: ISSUE_ID, closeSessions: false })
+    ).resolves.toEqual({ merged: true })
+    expect(h.mergePullRequest).not.toHaveBeenCalled()
+    expect(h.endMergedPrSessions).toHaveBeenCalledWith([ISSUE_ID])
   })
 })
 

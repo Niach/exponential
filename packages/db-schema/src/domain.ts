@@ -295,12 +295,13 @@ export const prStateValues = [`open`, `closed`, `merged`, `draft`] as const
 // child — claude/codex/pi — in one worktree); `running` drives the "coding
 // now" badge + Watch/Steer button.
 // `in_review` = the agent's PR is open and the terminal is still alive
-// awaiting review (EXP-194). `merged` = the PR merged but the session lives on
-// (EXP-358) — still steerable/heartbeating; the merge no longer kills it. The
-// server writes running→in_review on PR open and →merged on PR merge; →ended
-// is reserved for the EXPLICIT kill signal (steer.killSession,
-// codingSessions.end, or mergePr({closeSessions:true}) — "Merge and close"):
-// that flip is the desktop's remote-kill switch.
+// awaiting review (EXP-194). The server writes running→in_review on PR open
+// and →ended on PR merge (EXP-498: merge ALWAYS ends the session, on every
+// merge path); →ended also comes from the explicit kills (steer.killSession,
+// codingSessions.end). The →ended flip is the desktop's remote-kill switch.
+// `merged` is a LEGACY value (EXP-358, reversed by EXP-498) never written
+// anew — kept in the enum for rows parked there by pre-498 servers and for
+// old clients that still render it.
 export const codingSessionStatusValues = [
   `running`,
   `in_review`,

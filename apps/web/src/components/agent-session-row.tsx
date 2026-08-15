@@ -82,13 +82,12 @@ export function RunningIndicator({ state }: { state: SessionDisplayState }) {
   )
 }
 
-// "Merge and close" (EXP-358): the ONE merge affordance that also ends the
-// session — merges the PR, completes every linked issue, and flips the
-// session to `ended` server-side (closeSessions: true). All other merge
-// buttons are merge-only and leave the session parked in `merged`. Spinner
-// held until the Electric echo flips the issue's prState away from `open`
-// (mirrors IssueMergeButton).
-function MergeAndCloseButton({
+// Merge always closes (EXP-498): merges the PR, completes every linked
+// issue, and ends the session server-side. closeSessions: true stays on the
+// wire so an old (pre-498) server closes too. Spinner held until the
+// Electric echo flips the issue's prState away from `open` (mirrors
+// IssueMergeButton).
+function SessionMergeButton({
   prState,
   prNumber,
   issueId,
@@ -132,7 +131,7 @@ function MergeAndCloseButton({
         }}
       >
         {merging ? <LoaderCircle className="animate-spin" /> : <GitMerge />}
-        {merging ? `Merging…` : `Merge and close`}
+        {merging ? `Merging…` : `Merge`}
       </Button>
       <Dialog
         open={confirmOpen}
@@ -145,7 +144,7 @@ function MergeAndCloseButton({
           onClick={(e) => e.stopPropagation()}
         >
           <DialogHeader>
-            <DialogTitle>Merge and close?</DialogTitle>
+            <DialogTitle>Merge pull request?</DialogTitle>
             <DialogDescription>
               {`Merge PR #${prNumber ?? ``} into the default branch? Every issue linked to it completes, and its coding session closes.`}
             </DialogDescription>
@@ -164,7 +163,7 @@ function MergeAndCloseButton({
               ) : (
                 <GitMerge />
               )}
-              Merge and close
+              Merge
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -258,7 +257,7 @@ export function SessionRow({
       </div>
       <div className="flex items-center gap-2">
         {issue && (
-          <MergeAndCloseButton
+          <SessionMergeButton
             prState={issue.prState}
             prNumber={issue.prNumber}
             issueId={issue.id}

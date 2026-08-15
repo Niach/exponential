@@ -2409,8 +2409,6 @@ impl SidebarPanel {
                 crate::pr_merge::two_click(
                     MergeOp::MergeIssuePr {
                         issue_id: click_id.clone(),
-                        // Merge only — the run's session stays open (EXP-358).
-                        close_sessions: false,
                     },
                     None,
                     None,

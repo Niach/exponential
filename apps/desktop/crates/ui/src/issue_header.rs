@@ -660,9 +660,8 @@ impl IssueHeader {
     /// "Confirm merge", auto-disarm ~5s — the reviews-rail pattern), then
     /// `issues.mergePr` on the background executor. The spinner is held
     /// until the Electric echo flips `pr_state` away from `open` (which
-    /// also drops the whole button). Merge-only (EXP-358): a live coding
-    /// session moves to `merged` and STAYS open — only the terminal tab's
-    /// "Merge and close" asks the server to end it.
+    /// also drops the whole button). Merge always closes (EXP-498): the
+    /// server ends every linked live coding session on merge.
     fn merge_button(&self, issue: &Issue, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let merge_state = crate::pr_merge::MergeState::global(cx);
         let armed = merge_state.read(cx).armed(&issue.id);
@@ -683,12 +682,11 @@ impl IssueHeader {
             } else {
                 "Merge PR"
             })
-            .tooltip("Merge the pull request and complete every linked issue")
+            .tooltip("Merge the pull request: completes every linked issue and closes its coding sessions")
             .on_click(cx.listener(move |_, _, _, cx| {
                 crate::pr_merge::two_click(
                     crate::pr_merge::MergeOp::MergeIssuePr {
                         issue_id: issue_id.clone(),
-                        close_sessions: false,
                     },
                     None,
                     None,

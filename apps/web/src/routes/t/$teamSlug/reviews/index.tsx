@@ -114,9 +114,13 @@ function ReviewsPage() {
       return next
     })
     // Merging through the representative issue merges the ONE PR — the server
-    // then completes every linked issue.
+    // then completes every linked issue and ends its live coding sessions
+    // (EXP-498; closeSessions kept on the wire for old-server compat).
     trpc.issues.mergePr
-      .mutate({ issueId: entry.issue.id }, { context: { skipErrorToast: true } })
+      .mutate(
+        { issueId: entry.issue.id, closeSessions: true },
+        { context: { skipErrorToast: true } }
+      )
       .catch((error: unknown) => {
         // Captioned on the row instead of toasted: the reason (GitHub's
         // verbatim "not mergeable") has to stay next to the recovery button,
@@ -412,7 +416,7 @@ function ReviewsPage() {
                 : `Merge ${mergeTarget?.issue.identifier}?`}
             </DialogTitle>
             <DialogDescription>
-              {`Squash-merges pull request #${mergeTarget?.issue.prNumber} (${mergeTarget?.issue.branch}) into the repository's default branch via the GitHub App.`}
+              {`Squash-merges pull request #${mergeTarget?.issue.prNumber} (${mergeTarget?.issue.branch}) into the repository's default branch via the GitHub App. Any live coding session for it closes.`}
               {mergeTarget && mergeTarget.issues.length > 1
                 ? ` Completes all ${mergeTarget.issues.length} linked issues: ${mergeTarget.issues
                     .map((linked) => linked.identifier)

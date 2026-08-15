@@ -100,7 +100,8 @@ fun AgentsScreen(
     var settingsTargetId by remember { mutableStateOf<String?>(null) }
     var removeTarget by remember { mutableStateOf<SteerDevice?>(null) }
 
-    // The row whose "Merge and close" is awaiting confirmation (EXP-358).
+    // The row whose merge is awaiting confirmation (EXP-498: merging always
+    // closes the session).
     var mergeTarget by remember { mutableStateOf<AgentRow?>(null) }
 
     // The issue whose "Fix conflicts" sheet is open (EXP-486, Reviews parity
@@ -231,7 +232,7 @@ fun AgentsScreen(
                                     }
                                 },
                                 onInfo = { row.session.issueId?.let(onOpenIssue) },
-                                onMergeAndClose = { mergeTarget = row },
+                                onMerge = { mergeTarget = row },
                                 // The recovery run rebases the PR's branch, so
                                 // it needs one recorded — the same gate as the
                                 // Reviews rows (EXP-323), plus a reachable
@@ -315,23 +316,23 @@ fun AgentsScreen(
         )
     }
 
-    // EXP-358: merging alone parks the session on `merged`, so the destructive
-    // half ("and close") is confirm-gated — same shape as the Reviews dialog.
+    // EXP-498: merging always closes the session too, so the merge is
+    // confirm-gated — same shape as the Reviews dialog.
     mergeTarget?.let { row ->
         val issueId = row.issue?.id
         AlertDialog(
             onDismissRequest = { mergeTarget = null },
-            title = { Text("Merge and close?") },
+            title = { Text("Merge pull request?") },
             text = {
                 Text("Merges the pull request, completes every linked issue, and closes the coding session.")
             },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        issueId?.let(viewModel::mergeAndClose)
+                        issueId?.let(viewModel::merge)
                         mergeTarget = null
                     },
-                ) { Text("Merge and close") }
+                ) { Text("Merge") }
             },
             dismissButton = {
                 TextButton(onClick = { mergeTarget = null }) { Text("Cancel") }
@@ -637,13 +638,13 @@ private fun AgentSessionRow(
     errorMessage: String?,
     onClick: () -> Unit,
     onInfo: () -> Unit,
-    onMergeAndClose: () -> Unit,
+    onMerge: () -> Unit,
     canFixConflicts: Boolean,
     onFixConflicts: () -> Unit,
 ) {
     val state = codingSessionDisplayState(session, issue?.prState)
-    // EXP-358: "Merge and close" only shows while the linked PR is still open —
-    // a batch row (no issue) or an already-merged PR has nothing to merge.
+    // The merge shortcut only shows while the linked PR is still open — a
+    // batch row (no issue) or an already-merged PR has nothing to merge.
     val canMerge = issue?.prState == DomainContract.prStateOpen
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -714,11 +715,10 @@ private fun AgentSessionRow(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            // EXP-358: a plain merge leaves the session alive on `merged`, so
-            // the list carries the explicit "and close" variant — confirm-gated,
+            // EXP-498: merging always closes the session too — confirm-gated,
             // and only while the PR is actually open.
             if (canMerge) {
-                IconButton(onClick = onMergeAndClose, enabled = !merging) {
+                IconButton(onClick = onMerge, enabled = !merging) {
                     if (merging) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(18.dp),
@@ -728,7 +728,7 @@ private fun AgentSessionRow(
                     } else {
                         Icon(
                             ExpIcons.prMerged,
-                            contentDescription = "Merge and close",
+                            contentDescription = "Merge",
                             modifier = Modifier.size(18.dp),
                             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                         )

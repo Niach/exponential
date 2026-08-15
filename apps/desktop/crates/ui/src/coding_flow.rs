@@ -277,8 +277,8 @@ impl LocalSessions {
     /// EVERY live local session (issue, batch, or action) whose worktree is
     /// on `branch`. Trunk/scratch action runs carry an empty branch and never
     /// match. The fix-conflicts launch uses this to END the stale sessions
-    /// still holding the PR branch (EXP-358 keeps sessions alive through
-    /// in_review/merged) before the run rebases that worktree.
+    /// still holding the PR branch (a session stays alive through in_review)
+    /// before the run rebases that worktree.
     ///
     /// All of them, never "the first found": one branch is routinely held by
     /// TWO sessions at once — a live fix-conflicts run sits in `by_action`
@@ -344,11 +344,16 @@ impl LocalSessions {
 
     /// The subject whose terminal tab is `tab` — the terminal dock resolves
     /// an issue-session tab back to its issue for the EXP-325 issue-styled
-    /// chip (status glyph + identifier + synced title + hover merge).
+    /// chip (status glyph + identifier + synced title).
     pub fn subject_for_tab(&self, tab: TabId) -> Option<&SessionSubject> {
-        self.all()
-            .find(|session| session.tab == tab)
-            .map(|session| &session.subject)
+        self.session_for_tab(tab).map(|session| &session.subject)
+    }
+
+    /// The live local session whose terminal tab is `tab` — the terminal
+    /// dock's merge affordance needs both the subject AND the branch
+    /// (EXP-498: a batch tab's merge target resolves by branch match).
+    pub fn session_for_tab(&self, tab: TabId) -> Option<&LocalCodingSession> {
+        self.all().find(|session| session.tab == tab)
     }
 
     /// Every live local session's row id (issue + batch) — the EXP-105
@@ -482,6 +487,31 @@ impl LocalSessions {
                 }));
             }
         }
+        // EXP-498: merge always closes, but a batch session's row can't be
+        // ended server-side (issue_id NULL, no batch↔PR linkage) — so the
+        // desktop closes it itself when its branch's synced issues reach a
+        // MERGED PR (merged from web/mobile/GitHub; this tab's own merge
+        // button already closes locally before the sync echo). Closing the
+        // tab reuses the full teardown: the TabClosed watcher above ends the
+        // row and removes the entry, which drops this subscription — fire-
+        // once by construction. Issue sessions need none of this: their
+        // server-side →ended flip lands via the kill-watch.
+        let batch_close = (matches!(subject, SessionSubject::Batch(_))
+            && !session.branch.is_empty())
+        .then(|| (session.branch.clone(), session.tab, session.manager.clone()));
+        if let Some((branch, tab, manager)) = batch_close.clone() {
+            if let Some(store) = Store::try_global(cx) {
+                let issues = store.collections().issues.clone();
+                watchers.push(cx.observe(&issues, move |issues, cx| {
+                    if !branch_pr_merged(&branch, issues.read(cx).iter()) {
+                        return;
+                    }
+                    if let Some(manager) = manager.upgrade() {
+                        manager.update(cx, |manager, cx| manager.close_tab(tab, cx));
+                    }
+                }));
+            }
+        }
         // EXP-481: a session registering changes the inventory's busy flags.
         crate::device_sync::report_soon(cx);
         sessions.update(cx, |this, cx| {
@@ -501,6 +531,20 @@ impl LocalSessions {
             }
             cx.notify();
         });
+        // A batch registered late against an already-merged PR (resume onto
+        // a merged branch) never sees another issues notify — run the same
+        // check once, AFTER the entry exists so the close's teardown finds
+        // and removes it.
+        if let Some((branch, tab, manager)) = batch_close {
+            let merged = Store::try_global(cx).is_some_and(|store| {
+                branch_pr_merged(&branch, store.collections().issues.read(cx).iter())
+            });
+            if merged {
+                if let Some(manager) = manager.upgrade() {
+                    manager.update(cx, |manager, cx| manager.close_tab(tab, cx));
+                }
+            }
+        }
     }
 }
 
@@ -516,6 +560,22 @@ fn holds_branch(session_branch: &str, branch: &str) -> bool {
 /// session's action id — `None` for issue/batch sessions.
 pub(crate) fn is_fix_conflicts_run(action_id: Option<&str>) -> bool {
     action_id == Some(api::actions::BUILTIN_FIX_CONFLICTS_ID)
+}
+
+/// Does any synced issue on `branch` carry a MERGED PR? The batch self-close
+/// predicate (EXP-498): a batch session's issues all share its branch, so one
+/// merged sibling means the batch PR merged and the session must end. An
+/// empty branch never matches (trunk/scratch runs record no branch), and an
+/// issue with no branch never matches either.
+fn branch_pr_merged<'a>(
+    branch: &str,
+    issues: impl Iterator<Item = &'a domain::rows::Issue>,
+) -> bool {
+    !branch.is_empty()
+        && issues.into_iter().any(|issue| {
+            issue.branch.as_deref() == Some(branch)
+                && issue.pr_state.as_deref() == Some("merged")
+        })
 }
 
 /// One live session's claim on a branch, reduced to what a fix-conflicts
@@ -1505,6 +1565,37 @@ mod tests {
         assert!(!holds_branch("", ""), "two scratch runs share no branch");
         assert!(!holds_branch("", "exp/EXP-1"));
         assert!(!holds_branch("exp/EXP-1", ""));
+    }
+
+    /// EXP-498: the batch self-close predicate — only a MERGED PR on the
+    /// session's own branch closes the batch tab.
+    #[test]
+    fn branch_pr_merged_matches_only_merged_prs_on_the_branch() {
+        let issue = |branch: Option<&str>, pr_state: Option<&str>| -> domain::rows::Issue {
+            serde_json::from_value(serde_json::json!({
+                "id": "i-1", "board_id": "b-1", "number": 1,
+                "identifier": "EXP-1", "title": "t", "status": "in_review",
+                "branch": branch, "pr_state": pr_state,
+            }))
+            .unwrap()
+        };
+        let merged = issue(Some("exp/batch-a1b2c3d4"), Some("merged"));
+        let open = issue(Some("exp/batch-a1b2c3d4"), Some("open"));
+        let other_branch = issue(Some("exp/EXP-1"), Some("merged"));
+        let branchless = issue(None, Some("merged"));
+        assert!(branch_pr_merged("exp/batch-a1b2c3d4", [&merged].into_iter()));
+        // One merged sibling suffices, whatever else shares the branch.
+        assert!(branch_pr_merged(
+            "exp/batch-a1b2c3d4",
+            [&open, &merged].into_iter()
+        ));
+        assert!(!branch_pr_merged("exp/batch-a1b2c3d4", [&open].into_iter()));
+        assert!(!branch_pr_merged(
+            "exp/batch-a1b2c3d4",
+            [&other_branch, &branchless].into_iter()
+        ));
+        // Trunk/scratch runs record no branch — never match anything.
+        assert!(!branch_pr_merged("", [&merged, &branchless].into_iter()));
     }
 
     #[test]

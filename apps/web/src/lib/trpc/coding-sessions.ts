@@ -368,15 +368,18 @@ export const codingSessionsRouter = router({
               issueCtx.teamId
             )
             // A swept session may resurface AFTER its PR opened — or merged
-            // (laptop suspend through the whole run) — re-derive the badge
+            // (laptop suspend through the whole run) — re-derive the state
             // from the issue so the re-created row doesn't claim
-            // "coding now" on a parked issue (EXP-358: nor "in review" on a
-            // merged one).
+            // "coding now" on a parked issue. Merge always closes (EXP-498):
+            // a merged PR resurrects the row as `ended`, so the owner's
+            // kill_watch tears the resumed terminal down instead of the
+            // session outliving its merge.
             const [issue] = await ctx.db
               .select({ status: issues.status, prState: issues.prState })
               .from(issues)
               .where(eq(issues.id, input.issueId))
               .limit(1)
+            const merged = issue?.prState === `merged`
             await ctx.db.insert(codingSessions).values({
               id: input.id,
               issueId: input.issueId,
@@ -385,12 +388,12 @@ export const codingSessionsRouter = router({
               userId: attribution.userId,
               hostUserId: attribution.hostUserId,
               deviceLabel: input.deviceLabel ?? null,
-              status:
-                issue?.prState === `merged`
-                  ? `merged`
-                  : issue?.status === `in_review`
-                    ? `in_review`
-                    : `running`,
+              status: merged
+                ? `ended`
+                : issue?.status === `in_review`
+                  ? `in_review`
+                  : `running`,
+              ...(merged ? { endedAt: new Date() } : {}),
             })
           } else {
             await assertTeamMember(ctx.session.user.id, input.teamId!)
