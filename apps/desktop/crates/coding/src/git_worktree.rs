@@ -265,12 +265,16 @@ pub fn fetch_base(clone: &Path, default_branch: &str, url: &TokenUrl) -> Result<
 }
 
 /// Create (or reuse) the worktree for `branch` at the §7.1 layout path.
-/// Idempotent: an existing worktree for the branch is reattached, an
-/// existing branch without a worktree gets one (no `-b`), and only a truly
-/// new branch is cut from `base_ref` (`origin/<defaultBranch>`).
+/// Idempotent: an existing worktree still ON `branch` is reattached, one an
+/// agent switched onto another branch gets `branch` checked back out
+/// (REV-21), an existing branch without a worktree gets one (no `-b`), and
+/// only a truly new branch is cut from `base_ref` (`origin/<defaultBranch>`).
 ///
 /// A branch checked out at some OTHER path is reused THERE (EXP-357) — see
-/// [`checked_out_at`].
+/// [`checked_out_at`]. Either way the returned path is GUARANTEED to have
+/// `branch` checked out — it becomes the session cwd, and every downstream
+/// step (the prompt's "push your branch", fix-conflicts' rebase +
+/// force-push) is HEAD-relative.
 pub fn create_worktree(
     clone: &Path,
     branch: &str,
@@ -278,10 +282,18 @@ pub fn create_worktree(
     url: &TokenUrl,
 ) -> Result<PathBuf, GitError> {
     let worktree = worktree_path(clone, branch);
-    if worktree.join(".git").exists() {
+    let layout_dir_exists = worktree.join(".git").exists();
+    if layout_dir_exists && worktree_head(&worktree).as_deref() == Some(branch) {
         refresh_worktree_stamp(&worktree);
         return Ok(worktree); // reuse — one issue = one worktree
     }
+    // A layout dir whose HEAD is NOT `branch` (REV-21: the EXP-357 agent
+    // behavior seen from the original issue's side — `git checkout -b
+    // exp/EXP-42` run inside `.worktrees/exp-EXP-41`) must never be returned
+    // as-is: the session would spawn with its cwd on the wrong branch and
+    // push this issue's commits onto the other issue's PR. Fall through —
+    // [`checked_out_at`] finds `branch` wherever it actually lives, else the
+    // reclaim block below checks it back out in place.
     if let Some(parent) = worktree.parent() {
         std::fs::create_dir_all(parent).map_err(|e| GitError {
             op: format!("prepare worktrees dir for {branch}"),
@@ -314,6 +326,35 @@ default branch and retry.",
                 clone.display()
             ),
         });
+    }
+
+    if layout_dir_exists {
+        // REV-21 reclaim: the layout dir is a live worktree parked on some
+        // other branch (or a detached HEAD), and `branch` is checked out
+        // nowhere (just ruled out above) — so it can simply be checked back
+        // out in place (`worktree add` would refuse the non-empty dir). The
+        // stray branch survives as an ordinary ref, and git refuses the
+        // switch when uncommitted changes conflict — an error surface, never
+        // a clobber. A `branch` deleted from under its dir is re-cut from
+        // `base_ref`, mirroring the fresh `worktree add -b` leg.
+        validate_branch_arg(branch, &format!("git checkout {branch}"))?;
+        if branch_exists(clone, branch, url) {
+            run_git(
+                Some(&worktree),
+                &["checkout", branch],
+                Some(url),
+                &format!("git checkout {branch}"),
+            )?;
+        } else {
+            run_git(
+                Some(&worktree),
+                &["checkout", "-b", branch, base_ref],
+                Some(url),
+                &format!("git checkout -b {branch} from {base_ref}"),
+            )?;
+        }
+        refresh_worktree_stamp(&worktree);
+        return Ok(worktree);
     }
 
     let worktree_str = worktree.to_string_lossy().into_owned();
@@ -370,6 +411,25 @@ pub fn ensure_branch_at_origin(
     branch: &str,
     url: &TokenUrl,
 ) -> Result<(), GitError> {
+    // Precondition (REV-21): everything below — and the fix-conflicts run's
+    // rebase + force-push after it — executes IN `worktree` and is
+    // HEAD-relative, so a worktree parked on some other branch must hard-fail
+    // here rather than ff/rebase/push the wrong branch. [`create_worktree`]
+    // guarantees this never fires on the launcher path; this is the guard
+    // that keeps that assumption honest.
+    let head = worktree_head(worktree);
+    if head.as_deref() != Some(branch) {
+        return Err(GitError {
+            op: format!("sync {branch} to origin/{branch}"),
+            detail: format!(
+                "the worktree at {} has {} checked out instead of {branch}; \
+running fix-conflicts there would rebase and force-push the wrong branch. \
+Check {branch} back out (or remove the worktree) and retry.",
+                worktree.display(),
+                head.map_or_else(|| "a detached HEAD".to_string(), |b| b),
+            ),
+        });
+    }
     let local_ref = format!("refs/heads/{branch}");
     let remote_ref = format!("refs/remotes/origin/{branch}");
     let local = run_git(
@@ -569,6 +629,25 @@ pub fn list_worktrees(clone: &Path) -> Result<Vec<WorktreeEntry>, GitError> {
         }
     }
     Ok(entries)
+}
+
+/// The branch checked out at `worktree` (short name, e.g. `exp/EXP-42`);
+/// `None` when detached or unreadable. Purely local, tokenless.
+fn worktree_head(worktree: &Path) -> Option<String> {
+    let head = run_git(
+        Some(worktree),
+        &["rev-parse", "--abbrev-ref", "HEAD"],
+        None,
+        "git rev-parse --abbrev-ref HEAD",
+    )
+    .ok()?;
+    let head = head.trim();
+    // `--abbrev-ref` prints the literal `HEAD` when detached.
+    if head.is_empty() || head == "HEAD" {
+        None
+    } else {
+        Some(head.to_string())
+    }
 }
 
 /// Where `branch` is currently checked out among `clone`'s worktrees, if
@@ -1007,6 +1086,104 @@ mod tests {
         assert!(!worktree_path(&clone, "exp/EXP-42").exists());
     }
 
+    /// REV-21: the EXP-357 agent behavior seen from the ORIGINAL issue's
+    /// side — the agent in `.worktrees/exp-EXP-41` switched onto exp/EXP-42,
+    /// then the user relaunches EXP-41. Blind layout-dir reuse would spawn
+    /// the EXP-41 session with its cwd on exp/EXP-42, landing EXP-41's
+    /// commits (and push) on EXP-42's branch and open PR.
+    #[test]
+    fn create_worktree_checks_the_branch_back_out_after_an_agent_switched_away() {
+        let dir = temp_dir("reclaim");
+        let origin = seed_origin(&dir.0);
+        let repos_root = dir.0.join("repos");
+        let clone = clone_path(&repos_root, "acme/web");
+        fs::create_dir_all(clone.parent().unwrap()).unwrap();
+        git(
+            &dir.0,
+            &["clone", "--quiet", origin.to_str().unwrap(), clone.to_str().unwrap()],
+        );
+        let url = TokenUrl::new("acme/web", "ghs_dead");
+
+        let worktree = create_worktree(&clone, "exp/EXP-41", "origin/main", &url).unwrap();
+        git(&worktree, &["checkout", "--quiet", "-b", "exp/EXP-42"]);
+
+        let reused = create_worktree(&clone, "exp/EXP-41", "origin/main", &url).unwrap();
+        assert_eq!(reused, worktree);
+        let head = Command::new("git")
+            .args(["rev-parse", "--abbrev-ref", "HEAD"])
+            .current_dir(&worktree)
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8_lossy(&head.stdout).trim(), "exp/EXP-41");
+        // The stray branch survives as an ordinary ref — nothing is deleted.
+        assert_eq!(rev(&clone, "exp/EXP-42"), rev(&clone, "exp/EXP-41"));
+    }
+
+    /// The reclaim's `-b` leg: the agent detached the layout dir's HEAD and
+    /// the branch is gone entirely — re-cut it from `base_ref` in place,
+    /// mirroring what a fresh launch would do via `worktree add -b`.
+    #[test]
+    fn create_worktree_recuts_a_deleted_branch_inside_its_layout_dir() {
+        let dir = temp_dir("recut");
+        let origin = seed_origin(&dir.0);
+        let repos_root = dir.0.join("repos");
+        let clone = clone_path(&repos_root, "acme/web");
+        fs::create_dir_all(clone.parent().unwrap()).unwrap();
+        git(
+            &dir.0,
+            &["clone", "--quiet", origin.to_str().unwrap(), clone.to_str().unwrap()],
+        );
+        let url = TokenUrl::new("acme/web", "ghs_dead");
+
+        let worktree = create_worktree(&clone, "exp/EXP-41", "origin/main", &url).unwrap();
+        git(&worktree, &["checkout", "--quiet", "--detach"]);
+        git(&worktree, &["branch", "--quiet", "-D", "exp/EXP-41"]);
+
+        let reused = create_worktree(&clone, "exp/EXP-41", "origin/main", &url).unwrap();
+        assert_eq!(reused, worktree);
+        let head = Command::new("git")
+            .args(["rev-parse", "--abbrev-ref", "HEAD"])
+            .current_dir(&worktree)
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8_lossy(&head.stdout).trim(), "exp/EXP-41");
+        assert_eq!(rev(&worktree, "HEAD"), rev(&clone, "origin/main"));
+    }
+
+    /// Both directions at once: the layout dir is parked on a stray branch
+    /// AND the requested branch is checked out at a sibling — git allows one
+    /// checkout per branch, so EXP-357's honor-the-existing-checkout wins
+    /// over reclaiming the layout dir.
+    #[test]
+    fn create_worktree_prefers_the_existing_checkout_over_a_stray_layout_dir() {
+        let dir = temp_dir("stray-vs-elsewhere");
+        let origin = seed_origin(&dir.0);
+        let repos_root = dir.0.join("repos");
+        let clone = clone_path(&repos_root, "acme/web");
+        fs::create_dir_all(clone.parent().unwrap()).unwrap();
+        git(
+            &dir.0,
+            &["clone", "--quiet", origin.to_str().unwrap(), clone.to_str().unwrap()],
+        );
+        let url = TokenUrl::new("acme/web", "ghs_dead");
+
+        let own = create_worktree(&clone, "exp/EXP-41", "origin/main", &url).unwrap();
+        let sibling = create_worktree(&clone, "exp/EXP-43", "origin/main", &url).unwrap();
+        // Free exp/EXP-41 from its own dir, then check it out at the sibling.
+        git(&own, &["checkout", "--quiet", "-b", "exp/tmp"]);
+        git(&sibling, &["checkout", "--quiet", "exp/EXP-41"]);
+
+        let reused = create_worktree(&clone, "exp/EXP-41", "origin/main", &url).unwrap();
+        assert_eq!(reused, sibling.canonicalize().unwrap());
+        // The stray layout dir keeps its parked branch untouched.
+        let head = Command::new("git")
+            .args(["rev-parse", "--abbrev-ref", "HEAD"])
+            .current_dir(&own)
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8_lossy(&head.stdout).trim(), "exp/tmp");
+    }
+
     /// The one case that stays an error — but a readable one: the branch sits
     /// in the trunk clone, which the autopull engine owns.
     #[test]
@@ -1104,6 +1281,30 @@ mod tests {
             ensure_branch_at_origin(&clone, &worktree, "exp/EXP-9", &url).unwrap_err();
         assert!(err.detail.contains("force-push"), "{err}");
         assert_eq!(rev(&clone, "exp/EXP-9"), local_tip, "local commit must survive");
+    }
+
+    /// REV-21 defense-in-depth: the fix-conflicts guard runs its ff-merge —
+    /// and the run after it rebases + force-pushes — inside `worktree`, so a
+    /// worktree parked on some OTHER branch must hard-fail up front instead
+    /// of operating on the wrong branch. (`create_worktree` prevents this
+    /// state on the launcher path; the guard keeps that assumption honest.)
+    #[test]
+    fn ensure_branch_at_origin_refuses_a_worktree_on_another_branch() {
+        let dir = temp_dir("wrong-head");
+        let (_origin, clone, worktree) = seed_pr_branch_fixture(&dir.0);
+        let url = TokenUrl::new("acme/web", "ghs_dead");
+
+        git(&worktree, &["checkout", "--quiet", "-b", "exp/OTHER"]);
+        let err =
+            ensure_branch_at_origin(&clone, &worktree, "exp/EXP-9", &url).unwrap_err();
+        assert!(err.detail.contains("exp/OTHER"), "detail: {}", err.detail);
+        assert!(err.detail.contains("wrong branch"), "detail: {}", err.detail);
+
+        // Detached HEAD reads as such, not as a phantom branch.
+        git(&worktree, &["checkout", "--quiet", "--detach"]);
+        let err =
+            ensure_branch_at_origin(&clone, &worktree, "exp/EXP-9", &url).unwrap_err();
+        assert!(err.detail.contains("detached HEAD"), "detail: {}", err.detail);
     }
 
     #[test]
