@@ -1,13 +1,29 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest"
 
-// Record every db.update(...).set(...).where(...) chain so the default commit
-// path can be asserted without a real Postgres connection, and serve rows to
-// the default duplicate-guard read. `vi.hoisted` lets the mock factory (hoisted
-// above imports) share these recorders with the tests.
-const { updateCalls, selectRows } = vi.hoisted(() => ({
-  updateCalls: [] as Array<{ table: unknown; values: unknown; where: unknown }>,
-  selectRows: [] as unknown[],
-}))
+// Record every db.update(...).set(...).where(...).returning() and
+// db.insert(...).values(...).onConflictDoUpdate(...) chain so the default
+// commit path can be asserted without a real Postgres connection, and serve
+// rows to the default duplicate-guard read. `updateReturning` is what the
+// update's RETURNING reports — an empty array means "no row keyed by this
+// creemSubscriptionId yet", which sends the commit down its insert path
+// (REV-12). `vi.hoisted` lets the mock factory (hoisted above imports) share
+// these recorders with the tests.
+const { updateCalls, insertCalls, selectRows, updateReturning } = vi.hoisted(
+  () => ({
+    updateCalls: [] as Array<{
+      table: unknown
+      values: unknown
+      where: unknown
+    }>,
+    insertCalls: [] as Array<{
+      table: unknown
+      values: Record<string, unknown>
+      conflict: { target: unknown; set: unknown }
+    }>,
+    selectRows: [] as unknown[],
+    updateReturning: [] as unknown[],
+  })
+)
 
 vi.mock(`@/db/connection`, () => ({
   db: {
@@ -15,7 +31,17 @@ vi.mock(`@/db/connection`, () => ({
       set: (values: unknown) => ({
         where: (where: unknown) => {
           updateCalls.push({ table, values, where })
-          return Promise.resolve()
+          return { returning: async () => [...updateReturning] }
+        },
+      }),
+    }),
+    insert: (table: unknown) => ({
+      values: (values: Record<string, unknown>) => ({
+        onConflictDoUpdate: async (conflict: {
+          target: unknown
+          set: unknown
+        }) => {
+          insertCalls.push({ table, values, conflict })
         },
       }),
     }),
@@ -57,9 +83,20 @@ function row(overrides: Partial<TeamBoundSubscription>): TeamBoundSubscription {
   }
 }
 
+// The seed an input with nothing beyond metadata/units produces — the shape
+// most injected-commit assertions expect.
+const EMPTY_SEED = {
+  referenceId: null,
+  creemCustomerId: null,
+  productId: null,
+  status: null,
+}
+
 beforeEach(() => {
   updateCalls.length = 0
+  insertCalls.length = 0
   selectRows.length = 0
+  updateReturning.length = 0
   vi.spyOn(console, `error`).mockImplementation(() => {})
 })
 
@@ -157,6 +194,8 @@ describe(`payload mappers`, () => {
       creemSubscriptionId: SUB,
       metadata: { teamId: WS, seats: 5, referenceId: `user_1` },
       units: 5,
+      creemCustomerId: null,
+      productId: null,
     })
   })
 
@@ -172,7 +211,46 @@ describe(`payload mappers`, () => {
       metadata: { teamId: WS, seats: 9 },
       units: 9,
       status: `active`,
+      creemCustomerId: null,
+      productId: null,
     })
+  })
+
+  // Seed ids for the commit's insert path (REV-12): subscription events carry
+  // expanded customer/product entities; a checkout's nested subscription
+  // references them as bare id strings (preferred over the checkout's own
+  // expanded entities — they are the subscription's).
+  it(`carries customer/product ids off a subscription event`, () => {
+    const input = bindingInputFromSubscription({
+      id: SUB,
+      metadata: { teamId: WS },
+      customer: { id: `cust_1` },
+      product: { id: `prod_1` },
+    })
+    expect(input.creemCustomerId).toBe(`cust_1`)
+    expect(input.productId).toBe(`prod_1`)
+  })
+
+  it(`prefers the nested subscription's bare-id references on a checkout`, () => {
+    const input = bindingInputFromCheckout({
+      metadata: { teamId: WS },
+      subscription: { id: SUB, customer: `cust_1`, product: `prod_1` },
+      customer: { id: `cust_other` },
+      product: { id: `prod_other` },
+    })
+    expect(input.creemCustomerId).toBe(`cust_1`)
+    expect(input.productId).toBe(`prod_1`)
+  })
+
+  it(`falls back to the checkout's expanded entities when the nested subscription omits them`, () => {
+    const input = bindingInputFromCheckout({
+      metadata: { teamId: WS },
+      subscription: { id: SUB },
+      customer: { id: `cust_1` },
+      product: { id: `prod_1` },
+    })
+    expect(input.creemCustomerId).toBe(`cust_1`)
+    expect(input.productId).toBe(`prod_1`)
   })
 
   // A checkout's `status` describes the CHECKOUT (`completed`), not the
@@ -304,7 +382,7 @@ describe(`bindSubscriptionToTeam`, () => {
     expect(result).toEqual({ creemSubscriptionId: SUB, teamId: WS, seats: 6 })
     expect(commit).toHaveBeenCalledExactlyOnceWith(
       { creemSubscriptionId: SUB, teamId: WS, seats: 6 },
-      { clearPendingCancel: false }
+      { clearPendingCancel: false, seed: EMPTY_SEED }
     )
   })
 
@@ -328,6 +406,7 @@ describe(`bindSubscriptionToTeam`, () => {
       subscription: { id: SUB },
     })
     selectRows.push(row({ creemSubscriptionId: SUB }))
+    updateReturning.push({ id: `row_1` })
     const result = await bindSubscriptionToTeam(event)
 
     expect(result).toEqual({ creemSubscriptionId: SUB, teamId: WS, seats: 8 })
@@ -336,7 +415,67 @@ describe(`bindSubscriptionToTeam`, () => {
     // A where-clause (keyed on creemSubscriptionId) is always applied — never a
     // table-wide update.
     expect(updateCalls[0].where).toBeDefined()
+    // The row existed, so the insert half of the upsert never runs.
+    expect(insertCalls).toHaveLength(0)
     expect(console.error).not.toHaveBeenCalled()
+  })
+
+  // REV-12: a subscription.* event can outrun its checkout.completed, and the
+  // plugin's misdirected customer-id fallback is blocked by the
+  // reject_creem_subscription_rekey trigger — so no row exists for the id.
+  // The default commit must CREATE it (seeded from the event) instead of
+  // silently updating zero rows, or the paying subscription stays invisible
+  // to getTeamPlan, the duplicate guard and the delete gates.
+  it(`creates the row when the plugin has none for this subscription id`, async () => {
+    const event = bindingInputFromSubscription({
+      id: SUB,
+      metadata: { teamId: WS, referenceId: `user_1` },
+      items: [{ units: 4 }],
+      status: `active`,
+      customer: { id: `cust_1` },
+      product: { id: `prod_1` },
+    })
+    const result = await bindSubscriptionToTeam(event, {
+      loadTeamSubscriptions: async () => [],
+    })
+
+    expect(result).toEqual({ creemSubscriptionId: SUB, teamId: WS, seats: 4 })
+    expect(insertCalls).toHaveLength(1)
+    expect(insertCalls[0].values).toMatchObject({
+      creemSubscriptionId: SUB,
+      teamId: WS,
+      seats: 4,
+      referenceId: `user_1`,
+      creemCustomerId: `cust_1`,
+      productId: `prod_1`,
+      status: `active`,
+    })
+    expect(insertCalls[0].values.id).toEqual(expect.any(String))
+    // Conflict target + set: a concurrent delivery creating the row between
+    // the update and the insert must degrade to the plain binding write.
+    expect(insertCalls[0].conflict.target).toBeDefined()
+    expect(insertCalls[0].conflict.set).toEqual({
+      teamId: WS,
+      seats: 4,
+      // The live status also clears the pending-cancel mirror (see the
+      // healing describe below) — same set as the update half.
+      cancelAtPeriodEnd: false,
+    })
+    // Loud: a bind-path row creation means the plugin missed the event.
+    expect(console.error).toHaveBeenCalledOnce()
+  })
+
+  it(`never seeds a status-less (checkout) payload with a fake status`, async () => {
+    const event = bindingInputFromCheckout({
+      units: 2,
+      metadata: { teamId: WS, referenceId: `user_1` },
+      subscription: { id: SUB, customer: `cust_1`, product: `prod_1` },
+    })
+    await bindSubscriptionToTeam(event, { loadTeamSubscriptions: async () => [] })
+
+    expect(insertCalls).toHaveLength(1)
+    // No status key at all — the schema's `pending` default applies.
+    expect(insertCalls[0].values).not.toHaveProperty(`status`)
   })
 })
 
@@ -354,6 +493,7 @@ describe(`bindSubscriptionToTeam pending-cancel healing`, () => {
       status: `active`,
     })
     selectRows.push(row({ creemSubscriptionId: SUB, cancelAtPeriodEnd: true }))
+    updateReturning.push({ id: `row_1` })
     await bindSubscriptionToTeam(event)
 
     expect(updateCalls).toHaveLength(1)
@@ -374,6 +514,7 @@ describe(`bindSubscriptionToTeam pending-cancel healing`, () => {
     selectRows.push(
       row({ creemSubscriptionId: SUB, status: `scheduled_cancel` })
     )
+    updateReturning.push({ id: `row_1` })
     await bindSubscriptionToTeam(event)
 
     expect(updateCalls).toHaveLength(1)
@@ -384,6 +525,7 @@ describe(`bindSubscriptionToTeam pending-cancel healing`, () => {
     // checkout.completed and any legacy/partial payload: nothing was learned
     // about the cancellation state, so nothing is written.
     selectRows.push(row({ creemSubscriptionId: SUB }))
+    updateReturning.push({ id: `row_1` })
     await bindSubscriptionToTeam(
       bindingInputFromCheckout({
         units: 2,
@@ -409,7 +551,7 @@ describe(`bindSubscriptionToTeam pending-cancel healing`, () => {
     )
     expect(commit).toHaveBeenCalledExactlyOnceWith(
       { creemSubscriptionId: SUB, teamId: WS, seats: 1 },
-      { clearPendingCancel: true }
+      { clearPendingCancel: true, seed: { ...EMPTY_SEED, status: `trialing` } }
     )
   })
 })
@@ -498,6 +640,37 @@ describe(`bindSubscriptionToTeam duplicate guard (REV2-30)`, () => {
     )
     expect(cancelSubscriptions).not.toHaveBeenCalled()
     expect(console.error).not.toHaveBeenCalled()
+  })
+
+  // The full REV-12 out-of-order scenario: subscription.active for a NEW
+  // subscription arrives first, no row exists for it, and the team already
+  // has a live incumbent. The commit must create the row BEFORE the guard
+  // runs so the duplicate is caught (and cancelled) within this same webhook
+  // delivery instead of waiting for checkout.completed.
+  it(`creates the missing row first, then cancels it as the newer duplicate`, async () => {
+    const insertsSeenAtCancel: number[] = []
+    const cancelSubscriptions = vi.fn(async () => {
+      insertsSeenAtCancel.push(insertCalls.length)
+    })
+    await bindSubscriptionToTeam(
+      bindingInputFromSubscription({
+        id: SUB,
+        metadata: { teamId: WS, referenceId: `user_1` },
+        items: [{ units: 5 }],
+        status: `active`,
+        customer: { id: `cust_1` },
+        product: { id: `prod_1` },
+      }),
+      {
+        cancelSubscriptions,
+        loadTeamSubscriptions: async () => [incumbent, incoming],
+      }
+    )
+
+    expect(insertCalls).toHaveLength(1)
+    expect(cancelSubscriptions).toHaveBeenCalledExactlyOnceWith([incoming])
+    // The row existed by the time the guard's verdict was executed.
+    expect(insertsSeenAtCancel).toEqual([1])
   })
 
   it(`binds anyway when the duplicate check itself fails`, async () => {
