@@ -8,15 +8,17 @@ import coil3.request.ErrorResult
 import coil3.request.ImageRequest
 import coil3.request.ImageResult
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.auth.ServerAccount
 
 /**
  * Resolves relative attachment URLs (`/api/attachments/{id}`) against the active
  * instance URL AND attaches that instance's Bearer token. The shared Ktor
  * HttpClient's DefaultRequest only sets `Accept` (every real call attaches auth
  * per-request), so without this Coil fetches attachments anonymously and the
- * server 401s every attachment — broken images everywhere. The token is matched
- * to the account whose instance URL serves the image (multi-account safe),
- * mirroring how TrpcClient / IssueImagesApi pick the per-account token.
+ * server 401s every attachment — broken images everywhere. Coil requests carry
+ * no accountId (unlike TrpcClient / IssueImagesApi), so the token is matched to
+ * the signed-in account whose instance URL serves the image, active account
+ * first (see [resolveAccountForUrl]).
  *
  * On a 401 the request is retried once with a freshly-read token from the auth
  * repository: the token captured at request-build time can be stale when the
@@ -55,12 +57,7 @@ class InstanceUrlInterceptor(private val auth: AuthRepository) : Interceptor {
     // private-team attachments authenticate. Match by instance URL
     // prefix rather than assuming the active account.
     private fun resolveToken(absoluteUrl: String): String? =
-        auth.accounts.value
-            .firstOrNull { acct ->
-                val acctBase = acct.instanceUrl.trimEnd('/')
-                absoluteUrl == acctBase || absoluteUrl.startsWith("$acctBase/")
-            }
-            ?.token
+        resolveAccountForUrl(auth.accounts.value, auth.activeAccountId.value, absoluteUrl)?.token
 
     private fun buildRequest(base: ImageRequest, absoluteUrl: String, token: String?): ImageRequest {
         val builder = ImageRequest.Builder(base).data(absoluteUrl)
@@ -79,3 +76,24 @@ private fun ImageResult.isUnauthorized(): Boolean {
     val throwable = (this as? ErrorResult)?.throwable
     return throwable is HttpException && throwable.response.code == 401
 }
+
+/**
+ * The signed-in account whose instance URL serves [absoluteUrl]. Several
+ * accounts can share a server (see [com.exponential.app.data.push.WebLinkResolver]),
+ * and the stored list keeps them oldest-first, so among URL-prefix matches the
+ * ACTIVE account wins, then the most recently used — plain list order would
+ * attach the oldest same-server account's token and permanently break
+ * membership-gated attachments for the newer account (REV-3). Tokenless
+ * (signed-out) rows never win a match away from a signed-in sibling.
+ */
+internal fun resolveAccountForUrl(
+    accounts: List<ServerAccount>,
+    activeAccountId: String?,
+    absoluteUrl: String,
+): ServerAccount? =
+    accounts
+        .filter { acct ->
+            val acctBase = acct.instanceUrl.trimEnd('/')
+            acct.token != null && (absoluteUrl == acctBase || absoluteUrl.startsWith("$acctBase/"))
+        }
+        .maxWithOrNull(compareBy<ServerAccount> { it.id == activeAccountId }.thenBy { it.lastUsedAt })
