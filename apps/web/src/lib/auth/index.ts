@@ -19,7 +19,10 @@ import {
   type OidcProviderConfig,
 } from "@/lib/oidc-providers"
 import { isCloudInstance, maybePromoteNewUser } from "@/lib/bootstrap-cloud"
-import { isPasswordSignupDisabled } from "@/lib/auth/config"
+import {
+  isAuthRateLimitEnabled,
+  isPasswordSignupDisabled,
+} from "@/lib/auth/config"
 import {
   recordEmailDelivery,
   sendPasswordResetEmail,
@@ -141,7 +144,10 @@ export const auth = betterAuth({
     // instance can open registration for launch (shared helper — also feeds
     // buildAuthConfig's signupEnabled).
     disableSignUp: isPasswordSignupDisabled(),
-    minPasswordLength: process.env.NODE_ENV === `production` ? 8 : 1,
+    // Constant on purpose (REV-5): this used to be NODE_ENV-derived, but the
+    // shipped image never set NODE_ENV, so production accepted 1-char
+    // passwords while reset-password.tsx and error-messages.ts promised 8.
+    minPasswordLength: 8,
     sendResetPassword: async ({ user, url }) => {
       const result = await sendPasswordResetEmail({ to: user.email, url })
       await recordEmailDelivery({
@@ -229,7 +235,10 @@ export const auth = betterAuth({
     ...(appleLoginEnabled ? [`https://appleid.apple.com`] : []),
   ],
   rateLimit: {
-    enabled: process.env.NODE_ENV === `production`,
+    // Build-derived with an env override, NEVER NODE_ENV (REV-5) — with the
+    // limiter off, Better Auth's per-path defaults (3/10s sign-in + sign-up,
+    // 3/60s forget-password) never fire and nothing upstream compensates.
+    enabled: isAuthRateLimitEnabled(),
     window: 60,
     max: 200,
     customRules: {
