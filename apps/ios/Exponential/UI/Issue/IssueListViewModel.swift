@@ -37,7 +37,11 @@ final class IssueListViewModel {
     private let labelsApi: LabelsApi
     private let auth: AuthRepository
     private let syncManager: SyncManager
-    private var observationTask: Task<Void, Never>?
+    // Each observation loop is stored and cancelled individually — a single
+    // wrapper task would NOT propagate cancellation into unstructured inner
+    // `Task {}` loops, and the view re-arms on every appear, so leaked loops
+    // would accumulate per push/pop.
+    private var observationTasks: [Task<Void, Never>] = []
 
     init(accountId: String, boardId: String, db: DatabaseManager, issuesApi: IssuesApi, boardsApi: BoardsApi, labelsApi: LabelsApi, auth: AuthRepository, syncManager: SyncManager) {
         self.accountId = accountId
@@ -51,117 +55,116 @@ final class IssueListViewModel {
     }
 
     func startObserving() {
-        observationTask = Task { [weak self] in
-            guard let self else { return }
-            guard let pool = try? self.db.pool(forAccountId: self.accountId) else { return }
+        stopObserving() // restartable: the view re-arms on every appear
+        guard let pool = try? db.pool(forAccountId: accountId) else { return }
+        // Captured locally so the tracking closures don't retain self.
+        let boardId = boardId
 
-            // Observe board
-            let boardObservation = ValueObservation.tracking { db in
-                try BoardEntity.fetchOne(db, key: self.boardId)
-            }
-            let boardTask = Task {
-                do {
-                    for try await board in boardObservation.values(in: pool) {
-                        self.board = board
-                        self.refreshPermissions(for: board)
-                    }
-                } catch {}
-            }
-
-            // Observe issues
-            let issueObservation = ValueObservation.tracking { db in
-                try IssueEntity
-                    .filter(Column("board_id") == self.boardId)
-                    .fetchAll(db)
-            }
-            let issueTask = Task {
-                do {
-                    for try await issues in issueObservation.values(in: pool) {
-                        self.issues = issues
-                    }
-                } catch {}
-            }
-
-            // Observe labels (team-scoped, need board's team)
-            let labelObservation = ValueObservation.tracking { db in
-                try LabelEntity.fetchAll(db)
-            }
-            let labelTask = Task {
-                do {
-                    for try await labels in labelObservation.values(in: pool) {
-                        self.labels = labels
-                    }
-                } catch {}
-            }
-
-            // Observe issue statuses (team-scoped, EXP-314) — same pattern as
-            // labels: fetch all, scope to the board's team in `teamStatuses`.
-            let statusObservation = ValueObservation.tracking { db in
-                try IssueStatusEntity.fetchAll(db)
-            }
-            let statusTask = Task {
-                do {
-                    for try await rows in statusObservation.values(in: pool) {
-                        self.statusRows = rows
-                    }
-                } catch {}
-            }
-
-            // Observe issue labels
-            let issueLabelObservation = ValueObservation.tracking { db in
-                try IssueLabelEntity.fetchAll(db)
-            }
-            let issueLabelTask = Task {
-                do {
-                    for try await issueLabels in issueLabelObservation.values(in: pool) {
-                        self.issueLabels = issueLabels
-                    }
-                } catch {}
-            }
-
-            // Observe users
-            let userObservation = ValueObservation.tracking { db in
-                try UserEntity.fetchAll(db)
-            }
-            let userTask = Task {
-                do {
-                    for try await users in userObservation.values(in: pool) {
-                        self.users = users
-                    }
-                } catch {}
-            }
-
-            // Recompute permissions when membership or the members-shape sync
-            // state changes. The board row observed above may never change
-            // again after the members shape snapshots in, so without this the
-            // "Syncing team…" banner would stick and controls would stay
-            // read-only until the view is remounted. Tracks the two regions the
-            // computation reads: the team_members table and the
-            // "team-members" offset row (isLive).
-            let permsObservation = ValueObservation.tracking { db -> ([TeamMemberEntity], Bool) in
-                let rows = try TeamMemberEntity.fetchAll(db)
-                let live = try ElectricOffset.fetchOne(db, key: "team-members")?.isLive ?? false
-                return (rows, live)
-            }
-            let permsTask = Task {
-                do {
-                    for try await (rows, _) in permsObservation.values(in: pool) {
-                        // The rows also scope the bulk-assign picker to this
-                        // board's team (EXP-487, `teamUsers`).
-                        self.teamMembers = rows
-                        self.refreshPermissions(for: self.board)
-                    }
-                } catch {}
-            }
-
-            // Wait for cancellation
-            _ = await (boardTask.value, issueTask.value, labelTask.value, statusTask.value, issueLabelTask.value, userTask.value, permsTask.value)
+        // Observe board
+        let boardObservation = ValueObservation.tracking { db in
+            try BoardEntity.fetchOne(db, key: boardId)
         }
+        observationTasks.append(Task { [weak self] in
+            do {
+                for try await board in boardObservation.values(in: pool) {
+                    guard let self else { return }
+                    self.board = board
+                    self.refreshPermissions(for: board)
+                }
+            } catch {}
+        })
+
+        // Observe issues
+        let issueObservation = ValueObservation.tracking { db in
+            try IssueEntity
+                .filter(Column("board_id") == boardId)
+                .fetchAll(db)
+        }
+        observationTasks.append(Task { [weak self] in
+            do {
+                for try await issues in issueObservation.values(in: pool) {
+                    self?.issues = issues
+                }
+            } catch {}
+        })
+
+        // Observe labels (team-scoped, need board's team)
+        let labelObservation = ValueObservation.tracking { db in
+            try LabelEntity.fetchAll(db)
+        }
+        observationTasks.append(Task { [weak self] in
+            do {
+                for try await labels in labelObservation.values(in: pool) {
+                    self?.labels = labels
+                }
+            } catch {}
+        })
+
+        // Observe issue statuses (team-scoped, EXP-314) — same pattern as
+        // labels: fetch all, scope to the board's team in `teamStatuses`.
+        let statusObservation = ValueObservation.tracking { db in
+            try IssueStatusEntity.fetchAll(db)
+        }
+        observationTasks.append(Task { [weak self] in
+            do {
+                for try await rows in statusObservation.values(in: pool) {
+                    self?.statusRows = rows
+                }
+            } catch {}
+        })
+
+        // Observe issue labels
+        let issueLabelObservation = ValueObservation.tracking { db in
+            try IssueLabelEntity.fetchAll(db)
+        }
+        observationTasks.append(Task { [weak self] in
+            do {
+                for try await issueLabels in issueLabelObservation.values(in: pool) {
+                    self?.issueLabels = issueLabels
+                }
+            } catch {}
+        })
+
+        // Observe users
+        let userObservation = ValueObservation.tracking { db in
+            try UserEntity.fetchAll(db)
+        }
+        observationTasks.append(Task { [weak self] in
+            do {
+                for try await users in userObservation.values(in: pool) {
+                    self?.users = users
+                }
+            } catch {}
+        })
+
+        // Recompute permissions when membership or the members-shape sync
+        // state changes. The board row observed above may never change
+        // again after the members shape snapshots in, so without this the
+        // "Syncing team…" banner would stick and controls would stay
+        // read-only until the view is remounted. Tracks the two regions the
+        // computation reads: the team_members table and the
+        // "team-members" offset row (isLive).
+        let permsObservation = ValueObservation.tracking { db -> ([TeamMemberEntity], Bool) in
+            let rows = try TeamMemberEntity.fetchAll(db)
+            let live = try ElectricOffset.fetchOne(db, key: "team-members")?.isLive ?? false
+            return (rows, live)
+        }
+        observationTasks.append(Task { [weak self] in
+            do {
+                for try await (rows, _) in permsObservation.values(in: pool) {
+                    guard let self else { return }
+                    // The rows also scope the bulk-assign picker to this
+                    // board's team (EXP-487, `teamUsers`).
+                    self.teamMembers = rows
+                    self.refreshPermissions(for: self.board)
+                }
+            } catch {}
+        })
     }
 
     func stopObserving() {
-        observationTask?.cancel()
-        observationTask = nil
+        for task in observationTasks { task.cancel() }
+        observationTasks = []
     }
 
     // MARK: - Computed

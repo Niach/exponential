@@ -34,7 +34,11 @@ struct CommentThreadView: View {
     // Opened event runs, keyed by the run's first event id (survives sync
     // re-emits — see collapseTimeline).
     @State private var expandedRuns: Set<String> = []
-    @State private var observationTask: Task<Void, Never>?
+    // Each observation loop is stored and cancelled individually — a single
+    // wrapper task would NOT propagate cancellation into unstructured inner
+    // `Task {}` loops, and the view re-arms on every appear, so leaked loops
+    // would accumulate per push/pop.
+    @State private var observationTasks: [Task<Void, Never>] = []
 
     private var humanComments: [CommentEntity] {
         comments.filter { $0.commentKind == .regular }
@@ -84,7 +88,7 @@ struct CommentThreadView: View {
         }
         .padding(.vertical, 8)
         .onAppear { startObserving() }
-        .onDisappear { observationTask?.cancel() }
+        .onDisappear { stopObserving() }
     }
 
     // MARK: - Rows
@@ -299,62 +303,76 @@ struct CommentThreadView: View {
     }
 
     private func startObserving() {
-        observationTask?.cancel()
-        observationTask = Task {
-            guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+        stopObserving() // restartable: the view re-arms on every appear
+        guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+        let issueId = issue.id
 
-            let commentObs = ValueObservation.tracking { db in
-                try CommentEntity
-                    .filter(Column("issue_id") == issue.id)
-                    .order(Column("created_at").asc)
-                    .fetchAll(db)
-            }
-            Task {
+        let commentObs = ValueObservation.tracking { db in
+            try CommentEntity
+                .filter(Column("issue_id") == issueId)
+                .order(Column("created_at").asc)
+                .fetchAll(db)
+        }
+        observationTasks.append(Task {
+            do {
                 for try await rows in commentObs.values(in: pool) {
                     self.comments = rows
                 }
-            }
+            } catch {}
+        })
 
-            let userObs = ValueObservation.tracking { db in
-                try UserEntity.fetchAll(db)
-            }
-            Task {
+        let userObs = ValueObservation.tracking { db in
+            try UserEntity.fetchAll(db)
+        }
+        observationTasks.append(Task {
+            do {
                 for try await rows in userObs.values(in: pool) {
                     self.users = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
                 }
-            }
+            } catch {}
+        })
 
-            let labelObs = ValueObservation.tracking { db in
-                try LabelEntity.fetchAll(db)
-            }
-            Task {
+        let labelObs = ValueObservation.tracking { db in
+            try LabelEntity.fetchAll(db)
+        }
+        observationTasks.append(Task {
+            do {
                 for try await rows in labelObs.values(in: pool) {
                     self.labels = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
                 }
-            }
+            } catch {}
+        })
 
-            // Board names for board_moved events (EXP-57).
-            let boardObs = ValueObservation.tracking { db in
-                try BoardEntity.fetchAll(db)
-            }
-            Task {
+        // Board names for board_moved events (EXP-57).
+        let boardObs = ValueObservation.tracking { db in
+            try BoardEntity.fetchAll(db)
+        }
+        observationTasks.append(Task {
+            do {
                 for try await rows in boardObs.values(in: pool) {
                     self.boards = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
                 }
-            }
+            } catch {}
+        })
 
-            let eventObs = ValueObservation.tracking { db in
-                try IssueEventEntity
-                    .filter(Column("issue_id") == issue.id)
-                    .order(Column("created_at").asc)
-                    .fetchAll(db)
-            }
-            Task {
+        let eventObs = ValueObservation.tracking { db in
+            try IssueEventEntity
+                .filter(Column("issue_id") == issueId)
+                .order(Column("created_at").asc)
+                .fetchAll(db)
+        }
+        observationTasks.append(Task {
+            do {
                 for try await rows in eventObs.values(in: pool) {
                     self.events = rows
                 }
-            }
-        }
+            } catch {}
+        })
+    }
+
+    private func stopObserving() {
+        for task in observationTasks { task.cancel() }
+        observationTasks = []
     }
 }
 

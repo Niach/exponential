@@ -62,7 +62,11 @@ final class InboxViewModel {
     private let db: DatabaseManager
     private let auth: AuthRepository
     private let notificationsApi: NotificationsApi
-    private var observationTask: Task<Void, Never>?
+    // Each observation loop is stored and cancelled individually — a single
+    // wrapper task would NOT propagate cancellation into unstructured inner
+    // `Task {}` loops, and MyWorkView re-arms on every appear, so leaked
+    // loops would accumulate per push/pop.
+    private var observationTasks: [Task<Void, Never>] = []
 
     // Backing arrays for the observations; any firing rebuilds the entries.
     private var notifications: [NotificationEntity] = []
@@ -77,42 +81,49 @@ final class InboxViewModel {
     }
 
     func startObserving() {
-        observationTask = Task { [weak self] in
-            guard let self else { return }
-            guard let pool = try? self.db.pool(forAccountId: self.accountId) else { return }
+        stopObserving() // restartable: the view re-arms on every appear
+        guard let pool = try? db.pool(forAccountId: accountId) else { return }
 
-            // The notifications shape is already scoped to the signed-in user.
-            let notifObs = ValueObservation.tracking { db in try NotificationEntity.fetchAll(db) }
-            Task {
+        // The notifications shape is already scoped to the signed-in user.
+        let notifObs = ValueObservation.tracking { db in try NotificationEntity.fetchAll(db) }
+        observationTasks.append(Task { [weak self] in
+            do {
                 for try await notifications in notifObs.values(in: pool) {
+                    guard let self else { return }
                     self.notifications = notifications
                     self.rebuild()
                 }
-            }
+            } catch {}
+        })
 
-            let issueObs = ValueObservation.tracking { db in try IssueEntity.fetchAll(db) }
-            Task {
+        let issueObs = ValueObservation.tracking { db in try IssueEntity.fetchAll(db) }
+        observationTasks.append(Task { [weak self] in
+            do {
                 for try await issues in issueObs.values(in: pool) {
+                    guard let self else { return }
                     self.issues = issues
                     self.rebuild()
                 }
-            }
+            } catch {}
+        })
 
-            // Teams resolve the Support groups' names (and their >1-team label
-            // gate).
-            let teamObs = ValueObservation.tracking { db in try TeamEntity.fetchAll(db) }
-            Task {
+        // Teams resolve the Support groups' names (and their >1-team label
+        // gate).
+        let teamObs = ValueObservation.tracking { db in try TeamEntity.fetchAll(db) }
+        observationTasks.append(Task { [weak self] in
+            do {
                 for try await teams in teamObs.values(in: pool) {
+                    guard let self else { return }
                     self.teams = teams
                     self.rebuild()
                 }
-            }
-        }
+            } catch {}
+        })
     }
 
     func stopObserving() {
-        observationTask?.cancel()
-        observationTask = nil
+        for task in observationTasks { task.cancel() }
+        observationTasks = []
     }
 
     private func rebuild() {
