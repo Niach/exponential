@@ -91,12 +91,65 @@ fn pidfile(data_dir: &Path) -> PathBuf {
     data_dir.join("cli-daemon.pid")
 }
 
-/// The running daemon's pid, liveness-checked.
+/// The last `--label` value this machine actually applied via
+/// `devices.rename`. `install --label` bakes the flag into the service's
+/// ExecStart, so without this latch every daemon restart (reboot,
+/// auto-update re-exec) would replay the one-time install intent and
+/// silently revert a rename made in the web UI's machine list.
+fn applied_label_file(data_dir: &Path) -> PathBuf {
+    data_dir.join("cli-daemon.label")
+}
+
+/// The running daemon's pid, liveness- AND identity-checked. The pidfile
+/// survives an unclean shutdown (power loss, OOM SIGKILL, hard reboot), and
+/// after a reboot the recorded pid can belong to ANY live same-user process
+/// — `kill(pid, 0)` alone then blocks startup forever (and lets `uninstall`
+/// signal an innocent process), so a live pid only counts when it still
+/// looks like our binary.
 pub fn daemon_pid(data_dir: &Path) -> Option<u32> {
     let raw = std::fs::read_to_string(pidfile(data_dir)).ok()?;
     let pid: u32 = raw.trim().parse().ok()?;
     let alive = unsafe { libc::kill(pid as i32, 0) } == 0;
-    alive.then_some(pid)
+    (alive && pid_is_exponential(pid)).then_some(pid)
+}
+
+/// Best-effort process-identity probe: does `pid` run an executable named
+/// `exponential`? Fails OPEN (true) when the identity cannot be read — a
+/// pid racing its own exit or a /proc-less mount must keep the conservative
+/// "a daemon is already running" behavior, never yield two daemons.
+fn pid_is_exponential(pid: u32) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        // /proc/<pid>/comm is the executable name truncated to 15 bytes —
+        // "exponential" (11) fits whole.
+        match std::fs::read_to_string(format!("/proc/{pid}/comm")) {
+            Ok(comm) => comm.trim() == "exponential",
+            Err(_) => true,
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut buf = [0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+        let len = unsafe {
+            libc::proc_pidpath(
+                pid as libc::c_int,
+                buf.as_mut_ptr() as *mut libc::c_void,
+                buf.len() as u32,
+            )
+        };
+        if len <= 0 {
+            return true;
+        }
+        let path = String::from_utf8_lossy(&buf[..len as usize]).into_owned();
+        Path::new(&path)
+            .file_name()
+            .is_none_or(|name| name == "exponential")
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        let _ = pid;
+        true
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -276,10 +329,23 @@ fn run_daemon(args: &[String]) -> CommandResult {
         register_device(&ctx, &device_id, &device_label, &advertised, &device_worker);
     device_worker.send(DeviceWork::ReportWorktrees).ok();
     // `register` only SEEDS the label (it never stomps a rename); an
-    // explicit --label is an intentional write and goes through `rename`.
+    // explicit --label is an intentional write and goes through `rename` —
+    // but only when its VALUE changed since the last applied one, so a
+    // service-baked flag doesn't replay on every restart and stomp a web
+    // rename (a failed rename leaves the latch unwritten and retries on the
+    // next start).
     if let Some(label) = &explicit_label {
-        if let Err(err) = api::devices::rename(&ctx.trpc, &device_id, label) {
-            log::debug!("devices.rename for --label failed: {err}");
+        let latch = applied_label_file(&ctx.data_dir);
+        let last_applied = std::fs::read_to_string(&latch).ok();
+        if last_applied.as_deref().map(str::trim) != Some(label.as_str()) {
+            match api::devices::rename(&ctx.trpc, &device_id, label) {
+                Ok(()) => {
+                    if let Err(err) = std::fs::write(&latch, label) {
+                        log::debug!("persisting the applied --label failed: {err}");
+                    }
+                }
+                Err(err) => log::debug!("devices.rename for --label failed: {err}"),
+            }
         }
     }
 

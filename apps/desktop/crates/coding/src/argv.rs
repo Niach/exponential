@@ -38,11 +38,14 @@ pub const MCP_TOKEN_ENV: &str = "EXP_MCP_TOKEN";
 pub const MCP_URL_ENV: &str = "EXP_MCP_URL";
 
 /// EXP-249 — the hooks sidecar's spawn env (mirrors `steer::hooks`'
-/// `HOOK_PORT_ENV`/`HOOK_TOKEN_ENV`; the two crates cannot depend on each
+/// `HOOK_PORT_ENV`/`HOOK_CONFIG_ENV`; the two crates cannot depend on each
 /// other, §3.1). The `--settings` file's hook commands expand these at hook
-/// time, so the file itself stays constant and secret-free.
+/// time, so the file itself stays constant and secret-free. The CONFIG var
+/// carries the PATH of a 0600 curl config file holding the bearer token
+/// (REV-51: the token itself must never be shell-expanded into curl's
+/// world-readable argv).
 pub const HOOK_PORT_ENV: &str = "EXP_HOOK_PORT";
-pub const HOOK_TOKEN_ENV: &str = "EXP_HOOK_TOKEN";
+pub const HOOK_CONFIG_ENV: &str = "EXP_HOOK_CONFIG";
 
 /// Spawn-env vars the pi observer extension reads (EXP-383; mirror of
 /// `steer::pi_observer::OBSERVER_{URL,TOKEN}_ENV` — the two crates cannot

@@ -760,8 +760,14 @@ impl WysiwygDescription {
             return;
         };
         let next = crate::attachments_row::remove_image_occurrence(&markdown, index);
+        // The occurrence indices were computed on the restored (save-form)
+        // markdown above; the RELOAD must go through the same normalization
+        // as every other load path, or `&nbsp;` blank-line markers render as
+        // literal text (the vendored engine has no notion of HTML entities).
         self.editor
-            .update(cx, |editor, cx| editor.replace_markdown(next, cx));
+            .update(cx, |editor, cx| {
+                editor.replace_markdown(normalize_for_wysiwyg(&next), cx)
+            });
         self.sync_images(cx);
         self.save_now(window, cx);
     }
