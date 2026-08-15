@@ -281,15 +281,22 @@ class MainActivity : ComponentActivity() {
         // captures the onboarding flag in the same step, persisting the token
         // as a per-user account. If no userId can be resolved it stores
         // nothing — the app stays on login rather than key the wrong account.
+        // No identity hints (REV-44): the active row here may be a signed-out
+        // account whose login screen the OAuth ran from, while the Custom Tab
+        // completed as a DIFFERENT user — a hint from that row would key the
+        // new token (and its synced data) under the wrong per-user account.
+        // Unlike the password path, nothing on this path names the user the
+        // token belongs to, so only the session read may supply the id
+        // (iOS fetchSessionRetrying parity: fail closed, user retries).
         val account = authRepository.accounts.value
             .firstOrNull { it.id == authRepository.activeAccountId.value }
             ?: return
         val ok = authApi.completeLogin(
             baseUrl = account.instanceUrl,
             token = token,
-            userIdHint = account.userId,
-            emailHint = account.userEmail,
-            isAdminHint = account.isAdmin,
+            userIdHint = null,
+            emailHint = null,
+            isAdminHint = false,
         )
         // No userId could be resolved → nothing was persisted and the app
         // stays on login; surface the same message the password path uses so
