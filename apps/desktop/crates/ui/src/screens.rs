@@ -144,7 +144,7 @@ struct TabEntry {
 /// themselves take — including the per-frame layout cache — so measuring a
 /// label the strip is about to render is a cache hit, not a second shaping.
 /// The run carries no decorations: only the glyph advances matter here.
-fn measure_text(window: &Window, text: &str, font: gpui::Font, size: gpui::Rems) -> f32 {
+pub(crate) fn measure_text(window: &Window, text: &str, font: gpui::Font, size: gpui::Rems) -> f32 {
     if text.is_empty() {
         return 0.;
     }
@@ -164,21 +164,23 @@ fn measure_text(window: &Window, text: &str, font: gpui::Font, size: gpui::Rems)
 
 /// Gap between chips in the strip — the `gap_1()` on the strip's `h_flex`,
 /// which like every gpui spacing helper resolves against the rem size.
-fn chip_gap(window: &Window) -> f32 {
+/// Shared with the terminal dock's strip (EXP-497), which uses the same gap.
+pub(crate) fn chip_gap(window: &Window) -> f32 {
     0.25 * f32::from(window.rem_size())
 }
 
 /// Width of the trailing "+N" button: an xsmall `Button` (`px_1` a side)
 /// with a `text_xs` label. `hidden_max` is the largest count the label could
 /// carry, so the reserve never comes out short.
-fn overflow_button_width(window: &Window, hidden_max: usize) -> f32 {
+pub(crate) fn overflow_button_width(window: &Window, hidden_max: usize) -> f32 {
     let label = format!("+{hidden_max}");
     0.5 * f32::from(window.rem_size())
         + measure_text(window, &label, window.text_style().font(), gpui::rems(0.75))
 }
 
 /// EXP-288: which tabs get a chip, in strip order — the rest collapse into
-/// the trailing "+N" dropdown.
+/// the trailing "+N" dropdown. Shared with the terminal dock's tab strip
+/// (EXP-497), which partitions its chips the same way.
 ///
 /// Chips are laid out in tab order until the next one would not fit; the
 /// overflow button's own width is only reserved once something actually
@@ -191,7 +193,7 @@ fn overflow_button_width(window: &Window, hidden_max: usize) -> f32 {
 /// room to its right. `widths`, `gap` and `overflow_w` are measured against
 /// the window now (see [`ScreensPanel::measure_chip_width`]) and `available`
 /// is computed from the window chrome, so "fits" means fits.
-fn partition_tabs(
+pub(crate) fn partition_tabs(
     widths: &[f32],
     available: f32,
     gap: f32,
