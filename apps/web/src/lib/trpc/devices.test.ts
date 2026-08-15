@@ -443,7 +443,7 @@ describe(`devices.list`, () => {
     })
   })
 
-  it(`synthesizes an entry for a connected device that never registered`, async () => {
+  it(`omits relay-connected devices that never registered (pre-registry builds retired)`, async () => {
     h.state.selectRows = []
     h.relayGetDevices.mockResolvedValue({
       devices: [
@@ -451,16 +451,7 @@ describe(`devices.list`, () => {
       ],
     })
     const { devices } = await caller.list()
-    expect(devices).toHaveLength(1)
-    expect(devices[0]).toMatchObject({
-      deviceId: `old-desktop`,
-      kind: `desktop`,
-      online: true,
-      registered: false,
-      lastSeenAt: null,
-      agents: [`claude`],
-      caps: [],
-    })
+    expect(devices).toHaveLength(0)
   })
 
   it(`marks a pending update blocked while the daemon reports live sessions (EXP-411)`, async () => {
@@ -819,14 +810,14 @@ describe(`devices.setLaunchDefaults`, () => {
     })
   })
 
-  it(`skips the nudge for devices without any EXP-481 cap (old frame parsers)`, async () => {
+  it(`nudges regardless of registered caps (pre-EXP-481 frame parsers retired)`, async () => {
     h.state.selectQueue = deviceRow({ caps: [`actions`] })
     const result = await caller.setLaunchDefaults({
       deviceId: `dev-1`,
       launchDefaults: { defaultAgent: `claude` },
     })
     expect(result.ok).toBe(true)
-    expect(h.relayPostNudge).not.toHaveBeenCalled()
+    expect(h.relayPostNudge).toHaveBeenCalled()
   })
 })
 

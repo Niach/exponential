@@ -68,6 +68,25 @@ Content-Type: application/json
 ]
 ```
 
+### Continuation chunks (large shapes)
+
+A large snapshot does not arrive in one response. Until the server includes an
+`up-to-date` control message, the client keeps issuing plain (non-`live`)
+requests from the returned cursor:
+
+```
+GET /api/shapes/{table}?offset=<previous-electric-offset>&handle=<previous-electric-handle>
+```
+
+Only after `up-to-date` does the client switch to the live loop below. The
+proxy gates ALL of these snapshot-class requests (anything without `live=true`)
+behind its FIFO semaphore; live long-polls are never gated.
+
+Responses of 1024 bytes or more are returned with `content-encoding: gzip`
+when the request advertises `Accept-Encoding: gzip` — native clients must
+either advertise-and-decode (URLSession/OkHttp do so transparently) or omit
+the header to receive identity bodies.
+
 ### Live loop (after snapshot)
 
 ```

@@ -110,17 +110,9 @@ function clampLaunchDefaults(
   return out
 }
 
-// Old desktop builds may drop the whole control connection on an unknown
-// ServerFrame — only nudge devices whose registered caps prove a
-// check_in-aware build (any EXP-481 cap).
-function deviceUnderstandsCheckIn(caps: string[]): boolean {
-  return caps.includes(`worktrees`) || caps.includes(`launch-defaults`)
-}
-
 // Best-effort, fire-and-forget: persisted state is the durable path, the
 // nudge only kills heartbeat-pickup latency for online devices.
-function nudgeDevice(ownerId: string, deviceId: string, caps: string[]): void {
-  if (!deviceUnderstandsCheckIn(caps)) return
+function nudgeDevice(ownerId: string, deviceId: string): void {
   const config = getSteerRelayConfig()
   if (!config) return
   void relayPostNudge(config, ownerId, deviceId).catch(() => {})
@@ -422,7 +414,7 @@ export const devicesRouter = router({
           .where(eq(devices.id, row.id))
         return id
       })
-      nudgeDevice(ctx.session.user.id, input.deviceId, row.caps)
+      nudgeDevice(ctx.session.user.id, input.deviceId)
       return {
         ok: true as const,
         launchDefaults: clamped,
@@ -626,7 +618,7 @@ export const devicesRouter = router({
           payload,
         })
         .returning({ id: deviceCommands.id })
-      nudgeDevice(ctx.session.user.id, input.deviceId, row.caps)
+      nudgeDevice(ctx.session.user.id, input.deviceId)
       return { id: command.id }
     }),
 
@@ -836,7 +828,6 @@ export const devicesRouter = router({
 
     const entries: DeviceListEntry[] = rows.map((row) => {
       const online = liveById.get(row.deviceId)
-      liveById.delete(row.deviceId)
       return {
         deviceId: row.deviceId,
         // The REGISTRY label is authoritative for registered rows — a
@@ -892,28 +883,6 @@ export const devicesRouter = router({
         updateBlocked: Boolean(row.updateRequestedAt) && row.activeSessions > 0,
         sharedTeamId: row.sharedTeamId,
         owner: { id: row.userId, name: ownerName },
-      })
-    }
-
-    // A connected device that never registered (desktop build predating the
-    // registry): still show it, or remote start would regress on update lag.
-    for (const d of liveById.values()) {
-      entries.unshift({
-        deviceId: d.deviceId,
-        deviceLabel: d.deviceLabel,
-        kind: `desktop`,
-        platform: null,
-        agents: d.agents ?? [`claude`],
-        unauthedAgents: d.unauthedAgents ?? [],
-        caps: d.caps ?? [],
-        launchDefaults: d.launchDefaults,
-        online: true,
-        lastSeenAt: null,
-        registered: false,
-        version: null,
-        updateRequested: false,
-        updateBlocked: false,
-        sharedTeamId: null,
       })
     }
 

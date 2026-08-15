@@ -95,7 +95,14 @@ export async function findIssueIdByBranch(
     )
     .limit(2)
   if (issueRows.length === 1) return issueRows[0].id
-  if (issueRows.length > 1) return null // ambiguous — never guess (REV-22)
+  if (issueRows.length > 1) {
+    // Ambiguous — never guess (REV-22), but say so: a silently unlinked PR
+    // reads as "automation broken" with nothing to go on.
+    console.warn(
+      `pr-sync: identifier ${identifier} on ${repoFullName} matches issues in multiple teams — refusing to link`
+    )
+    return null
+  }
 
   // Second chance (EXP-57): the branch may predate a cross-board move that
   // renumbered the issue — identifiers are monotonic and never reused, so a
@@ -118,6 +125,11 @@ export async function findIssueIdByBranch(
       )
     )
     .limit(2)
+  if (movedRows.length > 1) {
+    console.warn(
+      `pr-sync: retired identifier ${identifier} on ${repoFullName} matches moved issues in multiple teams — refusing to link`
+    )
+  }
   return movedRows.length === 1 ? movedRows[0].issueId : null
 }
 
