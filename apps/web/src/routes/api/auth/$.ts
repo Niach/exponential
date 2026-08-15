@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { auth } from "@/lib/auth"
+import { withProxyAttestedClientIp } from "@/lib/auth/client-ip"
 import { guardMcpAuthorize } from "@/lib/auth/mcp-authorize-guard"
 
 // The Creem plugin registers session-facing endpoints we never call —
@@ -18,25 +19,28 @@ function isBlockedCreemEndpoint(pathname: string): boolean {
 }
 
 // MCP OAuth authorize requests get a pre-flight (stale-client error page,
-// forced prompt=consent) before better-auth handles them.
+// forced prompt=consent) before better-auth handles them. EXP-503: both
+// handlers hand better-auth a request whose x-forwarded-for is collapsed to
+// the proxy-attested last hop, so its per-IP rate-limit buckets key on an
+// address the client cannot rotate or spoof.
 async function handleGet(request: Request) {
   const pathname = new URL(request.url).pathname
   if (isBlockedCreemEndpoint(pathname)) {
     return new Response(`Not found`, { status: 404 })
   }
   if (pathname === `/api/auth/mcp/authorize`) {
-    const guarded = await guardMcpAuthorize(request)
+    const guarded = await guardMcpAuthorize(withProxyAttestedClientIp(request))
     if (`response` in guarded) return guarded.response
     return auth.handler(guarded.request)
   }
-  return auth.handler(request)
+  return auth.handler(withProxyAttestedClientIp(request))
 }
 
 async function handlePost(request: Request) {
   if (isBlockedCreemEndpoint(new URL(request.url).pathname)) {
     return new Response(`Not found`, { status: 404 })
   }
-  return auth.handler(request)
+  return auth.handler(withProxyAttestedClientIp(request))
 }
 
 export const Route = createFileRoute(`/api/auth/$`)({

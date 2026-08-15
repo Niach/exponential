@@ -243,6 +243,13 @@ export const auth = betterAuth({
     max: 200,
     customRules: {
       "/get-session": { window: 60, max: 600 },
+      // EXP-503: now that the buckets key on the proxy-attested last
+      // x-forwarded-for hop (routes/api/auth/$.ts), one office NAT is one
+      // bucket — better-auth's 3-per-10s default 429s the third coworker
+      // signing in at 9am. 10/60s is burst-friendlier AND a lower sustained
+      // rate (10/min vs 18/min) against online password guessing.
+      "/sign-in/*": { window: 60, max: 10 },
+      "/sign-up/*": { window: 60, max: 10 },
     },
   },
   socialProviders: {
