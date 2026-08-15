@@ -427,22 +427,28 @@ PUSH_RELAY_SECRET=<shared secret>
             <p>
               The self-host compose ships it behind an opt-in profile, pulling
               the published image (
-              <code>ghcr.io/niach/exponential-steer-relay</code>). Set the two
-              vars in <code>.env</code> (they configure the relay container
-              and the web app at once), then bring the profile up:
+              <code>ghcr.io/niach/exponential-steer-relay</code>). Caddy
+              proxies it under <code>/steer</code> on your app domain — it is
+              not exposed on any other port — so it shares the site&apos;s TLS
+              certificate and the WebSocket is <code>wss://</code> end to end.
+              Set the two vars in <code>.env</code> (they configure the relay
+              container and the web app at once), then bring the profile up:
             </p>
             <DocsCode language="env">{`
-STEER_RELAY_URL=ws://your-host:4002   # what desktops + phones dial
-STEER_RELAY_SECRET=<shared secret>    # openssl rand -hex 32
+STEER_RELAY_URL=wss://issues.example.com/steer   # what desktops + phones dial
+STEER_RELAY_SECRET=<shared secret>               # openssl rand -hex 32
 `}</DocsCode>
             <DocsCode language="shell">{`
 docker compose --profile steer up -d
 
 # verify
-curl http://localhost:4002/healthz   # => {"ok":true,...}
+curl https://issues.example.com/steer/healthz   # => {"ok":true,...}
 `}</DocsCode>
             <p>
-              To host it on its own box instead, run the same image there:
+              To host it on its own box instead, run the same image there —
+              and unless that box only serves a trusted LAN, front it with a
+              TLS-terminating proxy (with <code>TRUST_PROXY=true</code>, see
+              below) so clients dial <code>wss://</code>:
             </p>
             <DocsCode language="shell">{`
 docker run -d \\
@@ -455,10 +461,20 @@ docker run -d \\
               <code>STEER_RELAY_URL</code> a <code>ws://</code> or{` `}
               <code>wss://</code> URL (an <code>http(s)://</code> one works
               too, since the server converts it); the web app derives the HTTP
-              origin from it for its own server-to-server calls. A LAN address is
-              fine: every client dials out, so the relay never has to be
+              origin from it for its own server-to-server calls. A LAN address
+              is fine: every client dials out, so the relay never has to be
               reachable from the internet.
             </p>
+            <DocsCallout kind="warn" title="Internet-reachable ⇒ TLS, always">
+              The steering socket carries bearer steer tickets, the live
+              terminal stream of your coding sessions, and remote steering
+              input. Plain <code>ws://</code> is cleartext — anyone on the
+              path can read the stream or inject input into a running agent.
+              Only use <code>ws://</code> on a trusted LAN; anything reachable
+              from the internet (phone steering away from home) must be{` `}
+              <code>wss://</code> behind TLS, which the compose stack&apos;s{` `}
+              <code>/steer</code> route gives you for free.
+            </DocsCallout>
             <DocsCallout kind="warn" title="Set the secret on both sides">
               <code>STEER_RELAY_SECRET</code> is the shared HS256 key: the web
               app signs the short-lived tickets clients present, the relay
@@ -691,9 +707,11 @@ EMAIL_FROM="Exponential <noreply@yourcompany.com>"
               </EnvVar>
               <EnvVar name="STEER_RELAY_URL">
                 Steer relay WebSocket URL (e.g.{` `}
-                <code>ws://your-host:4002</code>) for remote start and live
-                watch/steer. Unset ⇒ the subsystem is off; local coding is
-                unaffected.
+                <code>wss://issues.example.com/steer</code> — Caddy serves the
+                compose profile&apos;s relay under <code>/steer</code>) for
+                remote start and live watch/steer. Must be{` `}
+                <code>wss://</code> whenever it crosses untrusted networks.
+                Unset ⇒ the subsystem is off; local coding is unaffected.
               </EnvVar>
               <EnvVar name="STEER_RELAY_SECRET">
                 Shared HS256 secret the web app signs steer tickets with. The

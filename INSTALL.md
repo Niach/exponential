@@ -86,12 +86,14 @@ All configured by appending vars to `.env` (the whole file reaches the web conta
 - **Email** (password reset, invites, notification digest, helpdesk magic links): `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS` + `EMAIL_FROM`, or Amazon SES via `AWS_SES_REGION` + AWS credentials. Without a transport, email features are silently off; everything else works.
 - **Sign-in providers**: `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`/`GOOGLE_LOGIN_ENABLED=true`, or any OIDC IdP via `OIDC_PROVIDERS` (JSON array: Authentik, Keycloak, Zitadel, …).
 - **GitHub App** (only needed for coding, which means repo-backed boards, coding sessions and PRs): create a GitHub App and set `GITHUB_APP_ID`/`GITHUB_APP_SLUG`/`GITHUB_APP_PRIVATE_KEY` (+ `GITHUB_WEBHOOK_SECRET`, or `GITHUB_POLLING=true` behind NAT). Setup walkthrough in the [self-host docs](https://exponential.at/docs/self-host/#github-app).
-- **Steer relay** (start coding sessions from your phone, watch/steer live): set `STEER_RELAY_SECRET` (any random string) and `STEER_RELAY_URL=ws://<host>:4002` in `.env`, then
+- **Steer relay** (start coding sessions from your phone, watch/steer live): set `STEER_RELAY_SECRET` (any random string) and `STEER_RELAY_URL=wss://issues.example.com/steer` in `.env`, then
 
   ```sh
   docker compose --profile steer up -d
-  curl -fsS http://localhost:4002/healthz
+  curl -fsS https://issues.example.com/steer/healthz
   ```
+
+  Caddy proxies the relay under `/steer` on your app domain (it is not exposed on any other port), so it shares the site's Let's Encrypt certificate and the WebSocket is encrypted end to end — required, because that socket carries bearer steer tickets, the live terminal stream of your coding sessions, and remote steering input. Plain `ws://` is cleartext: only use it on a trusted LAN with the no-domain plain-HTTP setup (`STEER_RELAY_URL=ws://<host>/steer`, health check `http://localhost/steer/healthz`), never across the internet.
 
 - **Push notifications: cloud only for the store mobile apps**, see [Limitations](#limitations).
 

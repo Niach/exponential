@@ -7,8 +7,8 @@
 # Needs Docker Compose >= 2.23.1 (inline `configs:` content). The web image
 # applies database migrations AND its custom trigger SQL at every boot — no
 # manual SQL steps, ever. Attachment storage is any S3-compatible bucket you
-# bring (S3_* in .env); nothing but Caddy (80/443) and the optional steer
-# relay (4002) is exposed to the host.
+# bring (S3_* in .env); nothing but Caddy (80/443) is exposed to the host —
+# the optional steer relay is served THROUGH Caddy under /steer.
 
 name: exponential-selfhost
 
@@ -97,7 +97,10 @@ services:
 
   # Optional remote-start/steer relay: `docker compose --profile steer up -d`.
   # Pair it with STEER_RELAY_URL + STEER_RELAY_SECRET in .env (the web app
-  # picks both up via env_file).
+  # picks both up via env_file). NOT published to the host: Caddy proxies it
+  # under /steer, so with a DOMAIN configured the relay speaks wss:// with the
+  # site's certificate — the steer tickets and the live terminal stream on
+  # that socket must never cross the internet in cleartext.
   steer-relay:
     profiles: [steer]
     image: ghcr.io/niach/exponential-steer-relay:${IMAGE_TAG:-latest}
@@ -106,25 +109,36 @@ services:
       # Deliberately NOT `:?` — compose interpolates the whole file even when
       # the profile is inactive.
       STEER_RELAY_SECRET: ${STEER_RELAY_SECRET:-}
-    ports:
-      - 4002:4002
+      # Safe because ONLY Caddy can reach the relay (no host port), and Caddy
+      # appends the real client address to X-Forwarded-For — this keys the
+      # relay's per-IP connect rate limits to that address.
+      TRUST_PROXY: true
 
 configs:
   caddyfile:
     # The transport timeouts + flush_interval -1 are REQUIRED for Electric's
     # live long-poll shape requests — don't trim them. Caddy resolves
     # {$DOMAIN} from its process env at runtime (the doubled $$ only escapes
-    # compose interpolation).
+    # compose interpolation). /steer/* is the optional steer relay (profile
+    # `steer`): handle_path strips the prefix, so the relay sees its bare
+    # routes (/ws, /healthz, ...) and shares the site's TLS certificate —
+    # STEER_RELAY_URL=wss://<domain>/steer. Without the profile the path
+    # answers 502; everything else falls through to the web app.
     content: |
       {$$DOMAIN} {
-      	reverse_proxy web:3000 {
-      		transport http {
-      			dial_timeout 10s
-      			read_timeout 5m
-      			write_timeout 5m
-      			keepalive 5m
+      	handle_path /steer/* {
+      		reverse_proxy steer-relay:4002
+      	}
+      	handle {
+      		reverse_proxy web:3000 {
+      			transport http {
+      				dial_timeout 10s
+      				read_timeout 5m
+      				write_timeout 5m
+      				keepalive 5m
+      			}
+      			flush_interval -1
       		}
-      		flush_interval -1
       	}
       }
 
