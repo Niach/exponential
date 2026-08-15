@@ -117,6 +117,50 @@ class EditorModelTest {
         assertEquals("**hello** world", m.currentMarkdown())
     }
 
+    // -- Ordered-list renumbering (REV-31: per-depth, never flat) --
+
+    @Test
+    fun enterOnNestedOrderedListKeepsPerDepthNumbering() {
+        // Web-authored nested ordered list: renumbering after a structural edit
+        // must keep a counter PER DEPTH — the flat walk used to rewrite b→2,
+        // c→3, d→4, corrupting the stored bytes for every client.
+        val m = model("1. a\n   1. b\n   2. c\n2. d")
+        assertEquals(listOf(0, 1, 1, 0), paras(m).map { it.attrs.listDepth })
+        assertEquals(listOf(1, 1, 2, 2), paras(m).map { it.attrs.orderedIndex })
+        // Enter at the end of "d" appends a new depth-0 item.
+        m.splitParagraphFrom(paras(m).last().id, "d\n")
+        assertEquals(listOf(1, 1, 2, 2, 3), paras(m).map { it.attrs.orderedIndex })
+        // Trailing "3. " loses its space to the serializer's final trim.
+        assertEquals("1. a\n  1. b\n  2. c\n2. d\n3.", m.currentMarkdown())
+    }
+
+    @Test
+    fun nestedBulletBetweenOrderedSiblingsDoesNotResetNumbering() {
+        val m = model("1. a\n   - x\n2. d")
+        m.splitParagraphFrom(paras(m).last().id, "d\n")
+        // The nested bullet must not break the depth-0 ordered run: d stays 2.
+        assertEquals(listOf(1, 0, 2, 3), paras(m).map { it.attrs.orderedIndex })
+    }
+
+    @Test
+    fun sameDepthTypeSwitchStartsANewOrderedList() {
+        // A bullet AT THE SAME depth ends the ordered list, so the ordered item
+        // after it heads a new list and restarts at 1.
+        val m = model("1. a\n- x\n1. b")
+        m.splitParagraphFrom(paras(m).last().id, "b\n")
+        assertEquals(listOf(1, 0, 1, 2), paras(m).map { it.attrs.orderedIndex })
+    }
+
+    @Test
+    fun laterParentGetsAFreshNestedCounter() {
+        // Each parent item's nested list is its own list — the second parent's
+        // children restart at 1 instead of continuing the first parent's run.
+        val m = model("1. a\n   1. b\n2. c\n   1. d\n   2. e")
+        m.splitParagraphFrom(paras(m).last().id, "e\n")
+        assertEquals(listOf(1, 1, 2, 1, 2, 3), paras(m).map { it.attrs.orderedIndex })
+        assertEquals(listOf(0, 1, 0, 1, 1, 1), paras(m).map { it.attrs.listDepth })
+    }
+
     // -- Image insertion (EXP-327: caret vs end-of-description) --
 
     @Test

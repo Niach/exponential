@@ -715,25 +715,52 @@ class EditorModel {
         rows = rows.toMutableList().also { it[idx] = row }
     }
 
-    /** Renumber consecutive ordered list items (1,2,3…) so serialization matches the UI. */
+    /**
+     * Renumber consecutive ordered list items (1,2,3…) so serialization matches
+     * the UI. Counters are PER DEPTH, mirroring the parser's ListFrame stack: a
+     * nested list lives inside its parent item, so deeper rows must not break
+     * the parent's run and the parent's counter must never bleed into a nested
+     * list (REV-31). A depth's counter resets when its run breaks — a non-list
+     * row, a shallower list row (which closes the nested list), or a different
+     * list type arriving at the same depth (a marker-type switch starts a new
+     * list in CommonMark).
+     */
     private fun renumberOrdered() {
         val next = rows.toMutableList()
-        var counter = 0
-        var prevWasOrdered = false
+        val counters = mutableListOf<Int>() // counters[d] = last ordered index emitted at depth d
+        val types = mutableListOf<ListType>() // list type of the open run at depth d
         var changed = false
         for (i in next.indices) {
             val r = next[i] as? EditorRow.Para
-            val isOrdered = r != null && r.attrs.kind == BlockKind.ListItem && r.attrs.listType == ListType.Ordered
-            if (isOrdered) {
-                counter = if (prevWasOrdered) counter + 1 else 1
-                if (r!!.attrs.orderedIndex != counter) {
-                    next[i] = r.copy(attrs = r.attrs.copy(orderedIndex = counter))
+            val a = r?.attrs
+            if (a == null || a.kind != BlockKind.ListItem) {
+                counters.clear()
+                types.clear()
+                continue
+            }
+            val depth = a.listDepth.coerceAtLeast(0)
+            // This row closes any deeper open lists…
+            while (counters.size > depth + 1) {
+                counters.removeAt(counters.size - 1)
+                types.removeAt(types.size - 1)
+            }
+            // …and opens its own level (plus any skipped intermediates).
+            val type = a.listType ?: ListType.Bullet // the serializer emits null as a bullet
+            while (counters.size <= depth) {
+                counters.add(0)
+                types.add(type)
+            }
+            if (types[depth] != type) {
+                counters[depth] = 0
+                types[depth] = type
+            }
+            if (type == ListType.Ordered) {
+                counters[depth] = counters[depth] + 1
+                if (a.orderedIndex != counters[depth]) {
+                    next[i] = r.copy(attrs = a.copy(orderedIndex = counters[depth]))
                     changed = true
                 }
-            } else {
-                counter = 0
             }
-            prevWasOrdered = isOrdered
         }
         if (changed) rows = next
     }
