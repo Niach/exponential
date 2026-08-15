@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   ackAnswer,
   activeQuestionIds,
@@ -10,6 +10,7 @@ import {
   clearAnswer,
   collectSubagents,
   consumeEcho,
+  createActivityCoalescer,
   dismissPendingQuestions,
   failAnswer,
   groupFeedRows,
@@ -899,5 +900,63 @@ describe(`looksLikeMarkdown`, () => {
     expect(
       looksLikeMarkdown(`See [the runbook](https://example.dev/run).`)
     ).toBe(true)
+  })
+})
+
+// ── Frame coalescing (REV-33) ────────────────────────────────────────────────
+
+describe(`createActivityCoalescer`, () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it(`applies a burst as ONE batch in arrival order`, () => {
+    const batches: number[][] = []
+    const queue = createActivityCoalescer<number>((b) => batches.push(b), 50)
+    for (let i = 0; i < 2000; i++) queue.enqueue(i)
+    // Nothing flushes synchronously — that is the whole point.
+    expect(batches).toHaveLength(0)
+    vi.advanceTimersByTime(50)
+    expect(batches).toHaveLength(1)
+    expect(batches[0]).toHaveLength(2000)
+    expect(batches[0][0]).toBe(0)
+    expect(batches[0][1999]).toBe(1999)
+  })
+
+  it(`throttles from the FIRST op — a continuous stream flushes every window`, () => {
+    const batches: string[][] = []
+    const queue = createActivityCoalescer<string>((b) => batches.push(b), 50)
+    queue.enqueue(`a`)
+    vi.advanceTimersByTime(40)
+    // A late arrival must not push the deadline out (debounce would starve).
+    queue.enqueue(`b`)
+    vi.advanceTimersByTime(10)
+    expect(batches).toEqual([[`a`, `b`]])
+    queue.enqueue(`c`)
+    vi.advanceTimersByTime(50)
+    expect(batches).toEqual([[`a`, `b`], [`c`]])
+  })
+
+  it(`an empty window applies nothing`, () => {
+    const batches: number[][] = []
+    createActivityCoalescer<number>((b) => batches.push(b), 50)
+    vi.advanceTimersByTime(500)
+    expect(batches).toHaveLength(0)
+  })
+
+  it(`cancel drops the buffered ops and the timer`, () => {
+    const batches: number[][] = []
+    const queue = createActivityCoalescer<number>((b) => batches.push(b), 50)
+    queue.enqueue(1)
+    queue.cancel()
+    vi.advanceTimersByTime(500)
+    expect(batches).toHaveLength(0)
+    // The queue stays usable after a cancel (redial within the same effect).
+    queue.enqueue(2)
+    vi.advanceTimersByTime(50)
+    expect(batches).toEqual([[2]])
   })
 })
