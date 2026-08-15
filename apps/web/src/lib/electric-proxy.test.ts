@@ -202,12 +202,14 @@ describe(`proxyElectricRequest gzip`, () => {
   })
 })
 
-// REV2-5: initial-snapshot (offset=-1) proxying is bounded by a semaphore —
-// snapshot bodies are buffered wholly in memory, so a thundering herd (every
-// member of a team cold-starting 14 shapes) must degrade to FIFO queueing,
-// not unbounded Bun heap. These tests drive the gate through deferred fetch
-// resolutions. Each test drains every in-flight request before finishing so
-// the module-level slot count stays clean across tests.
+// REV2-5: snapshot-class proxying — every non-live request, i.e. the initial
+// `offset=-1` snapshot AND its non-live continuation chunks (REV-27) — is
+// bounded by a semaphore. Their bodies are buffered wholly in memory, so a
+// thundering herd (every member of a team cold-starting 18 shapes, each large
+// shape followed chunk by chunk) must degrade to FIFO queueing, not unbounded
+// Bun heap. These tests drive the gate through deferred fetch resolutions.
+// Each test drains every in-flight request before finishing so the
+// module-level slot count stays clean across tests.
 
 type Deferred = {
   resolve: (response: Response) => void
@@ -232,6 +234,15 @@ function snapshotUrl(index: number): URL {
   return new URL(`http://electric.local/v1/shape?table=t${index}&offset=-1`)
 }
 
+// A snapshot continuation chunk: the client follows `electric-offset` with a
+// plain non-live GET (see @electric-sql/client getNextChunkUrl) — same
+// fully-buffered cost as offset=-1, so it must gate identically (REV-27).
+function chunkUrl(index: number): URL {
+  return new URL(
+    `http://electric.local/v1/shape?table=t${index}&offset=123_${index}&handle=h1`
+  )
+}
+
 function livePollUrl(): URL {
   return new URL(
     `http://electric.local/v1/shape?table=t&offset=123_0&live=true`
@@ -252,26 +263,59 @@ describe(`snapshot proxy concurrency gate`, () => {
     const { mock, calls } = deferredFetch()
     vi.stubGlobal(`fetch`, mock)
 
-    const pending = Array.from({ length: 22 }, (_, i) =>
+    const pending = Array.from({ length: 34 }, (_, i) =>
       proxyElectricRequest(snapshotUrl(i))
     )
     await settle()
 
-    // Only 20 snapshots may buffer concurrently; the other 2 queue. The bound
-    // is one client's full shape count (18 since EXP-481) plus headroom
-    // (EXP-264) — a single cold start must never queue behind itself.
-    expect(mock).toHaveBeenCalledTimes(20)
+    // Only 32 snapshots may buffer concurrently; the other 2 queue. The bound
+    // is one client's full shape count (18 since EXP-481) plus chunk-prefetch
+    // pipelines and headroom (EXP-264) — a single cold start must never queue
+    // behind itself.
+    expect(mock).toHaveBeenCalledTimes(32)
 
     calls[0].resolve(new Response(`snapshot-0`))
     await settle()
-    expect(mock).toHaveBeenCalledTimes(21)
+    expect(mock).toHaveBeenCalledTimes(33)
 
     calls[1].resolve(new Response(`snapshot-1`))
     await settle()
-    expect(mock).toHaveBeenCalledTimes(22)
+    expect(mock).toHaveBeenCalledTimes(34)
 
     for (const call of calls.slice(2)) call.resolve(new Response(`ok`))
     const responses = await Promise.all(pending)
+    for (const response of responses) expect(response.status).toBe(200)
+  })
+
+  it(`non-live continuation chunks gate exactly like initial snapshots (REV-27)`, async () => {
+    const { mock, calls } = deferredFetch()
+    vi.stubGlobal(`fetch`, mock)
+
+    // Saturate the gate with initial snapshots, then follow with continuation
+    // chunks — the shape of a large-shape cold start. Chunk bodies are as big
+    // as offset=-1 bodies (Electric's chunk threshold), so they must queue,
+    // not buffer ungated.
+    const holders = Array.from({ length: 32 }, (_, i) =>
+      proxyElectricRequest(snapshotUrl(i))
+    )
+    const chunks = Array.from({ length: 2 }, (_, i) =>
+      proxyElectricRequest(chunkUrl(i))
+    )
+    await settle()
+    expect(mock).toHaveBeenCalledTimes(32)
+
+    calls[0].resolve(new Response(`ok`))
+    await settle()
+    // The freed slot went to the first queued chunk, FIFO.
+    expect(mock).toHaveBeenCalledTimes(33)
+    expect(String(mock.mock.calls[32][0])).toContain(`offset=123_0`)
+
+    for (const call of calls.slice(1)) call.resolve(new Response(`ok`))
+    await settle()
+    expect(mock).toHaveBeenCalledTimes(34)
+    calls[33].resolve(new Response(`ok`))
+
+    const responses = await Promise.all([...holders, ...chunks])
     for (const response of responses) expect(response.status).toBe(200)
   })
 
@@ -279,23 +323,23 @@ describe(`snapshot proxy concurrency gate`, () => {
     const { mock, calls } = deferredFetch()
     vi.stubGlobal(`fetch`, mock)
 
-    const snapshots = Array.from({ length: 21 }, (_, i) =>
+    const snapshots = Array.from({ length: 33 }, (_, i) =>
       proxyElectricRequest(snapshotUrl(i))
     )
     await settle()
-    expect(mock).toHaveBeenCalledTimes(20)
+    expect(mock).toHaveBeenCalledTimes(32)
 
     // A live poll must not queue behind the saturated snapshot gate — its
     // body is tiny and gating it would starve every synced client.
     const livePoll = proxyElectricRequest(livePollUrl())
     await settle()
-    expect(mock).toHaveBeenCalledTimes(21)
+    expect(mock).toHaveBeenCalledTimes(33)
 
     for (const call of calls) call.resolve(new Response(`ok`))
     await settle()
-    // The 21st snapshot got its slot after a release.
-    expect(mock).toHaveBeenCalledTimes(22)
-    calls[21].resolve(new Response(`ok`))
+    // The 33rd snapshot got its slot after a release.
+    expect(mock).toHaveBeenCalledTimes(34)
+    calls[33].resolve(new Response(`ok`))
 
     const responses = await Promise.all([...snapshots, livePoll])
     for (const response of responses) expect(response.status).toBe(200)
@@ -305,11 +349,11 @@ describe(`snapshot proxy concurrency gate`, () => {
     const { mock, calls } = deferredFetch()
     vi.stubGlobal(`fetch`, mock)
 
-    const holders = Array.from({ length: 20 }, (_, i) =>
+    const holders = Array.from({ length: 32 }, (_, i) =>
       proxyElectricRequest(snapshotUrl(i))
     )
     await settle()
-    expect(mock).toHaveBeenCalledTimes(20)
+    expect(mock).toHaveBeenCalledTimes(32)
 
     const controller = new AbortController()
     const queued = proxyElectricRequest(snapshotUrl(99), controller.signal)
@@ -318,7 +362,7 @@ describe(`snapshot proxy concurrency gate`, () => {
 
     const response = await queued
     expect(response.status).toBe(499)
-    expect(mock).toHaveBeenCalledTimes(20)
+    expect(mock).toHaveBeenCalledTimes(32)
 
     // Draining the holders must not over-release the slot the aborted
     // request never held.
@@ -330,17 +374,17 @@ describe(`snapshot proxy concurrency gate`, () => {
     const { mock, calls } = deferredFetch()
     vi.stubGlobal(`fetch`, mock)
 
-    const holders = Array.from({ length: 20 }, (_, i) =>
+    const holders = Array.from({ length: 32 }, (_, i) =>
       proxyElectricRequest(snapshotUrl(i))
     )
     const queued = proxyElectricRequest(snapshotUrl(99))
     await settle()
-    expect(mock).toHaveBeenCalledTimes(20)
+    expect(mock).toHaveBeenCalledTimes(32)
 
     calls[0].reject(new Error(`upstream down`))
     await settle()
     // The failed snapshot's slot went to the queued request.
-    expect(mock).toHaveBeenCalledTimes(21)
+    expect(mock).toHaveBeenCalledTimes(33)
 
     for (const call of calls.slice(1)) call.resolve(new Response(`ok`))
     const [failed, ...rest] = await Promise.all([
