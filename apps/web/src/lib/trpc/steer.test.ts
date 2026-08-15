@@ -527,6 +527,34 @@ describe(`steer.startSession — action runs (EXP-257)`, () => {
     expect((error as TRPCError).message).toContain(`codex is not installed`)
   })
 
+  it(`treats an explicitly empty agents list as nothing-runnable (EXP-409)`, async () => {
+    // Every installed agent signed out: agents=[] must NOT fall back to
+    // claude, and a signed-out agent gets the sign-in message.
+    h.relayGetDevices.mockResolvedValue({
+      devices: [
+        {
+          deviceId: `dev-1`,
+          deviceLabel: `MacBook`,
+          connectedAt: 0,
+          agents: [],
+          unauthedAgents: [`claude`],
+          caps: [`actions`, `action-inputs`],
+        },
+      ],
+    })
+    h.dbQueue.push([
+      { id: ACTION_ID, teamId: `ws-1`, repositoryId: null, name: `A`, inputs: [] },
+    ])
+    const error = await rejectionOf(
+      caller.startSession({ actionId: ACTION_ID, deviceId: `dev-1` })
+    )
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toContain(
+      `claude is installed on that device but not signed in`
+    )
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
   it(`refuses a device without the actions cap`, async () => {
     // Default beforeEach device advertises agents but NO caps.
     h.dbQueue.push([

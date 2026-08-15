@@ -55,9 +55,16 @@ export async function fetchSessionOnce(): Promise<SessionData | null> {
     if (data) {
       cachedSession = data
       cacheTimestamp = Date.now()
-    } else if (result.error && cachedSession) {
+    } else if (result.error) {
       // 429 or transient error — return the last known session instead of
       // treating it as "logged out" and redirecting to login.
+      if (cachedSession) cacheTimestamp = Date.now()
+    } else {
+      // The server answered cleanly with no session (expired, revoked,
+      // deleted account) — the user IS logged out. Clearing the cache here
+      // lets the auth guard redirect instead of resurrecting a dead session
+      // whose tRPC calls all 401.
+      cachedSession = null
       cacheTimestamp = Date.now()
     }
     inflight = null
