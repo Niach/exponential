@@ -1,7 +1,18 @@
 const attachmentPathPattern =
   /^\/api\/attachments\/(?<attachmentId>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i
 
-const markdownImagePattern = /!\[([^\]]*)]\(([^)\s]+)(?:\s+"[^"]*")?\)/g
+// The alt group must consume backslash-escape pairs: serializers (TipTap via
+// prosemirror-markdown) escape markdown punctuation in alt text, so a filename
+// like `shot [1].png` is stored as `![shot \[1\].png](url)` — a plain [^\]]*
+// would stop at the escaped `]` and drop the whole occurrence (REV-6).
+const markdownImagePattern =
+  /!\[((?:\\.|[^\\\]])*)]\(([^)\s]+)(?:\s+"[^"]*")?\)/g
+
+// Reverses CommonMark backslash escapes (ASCII punctuation only) so occurrence
+// alts carry the display text, not the serialized escape form.
+function unescapeMarkdownText(text: string) {
+  return text.replace(/\\([!-/:-@[-`{-~])/g, `$1`)
+}
 
 export const acceptedImageContentTypes = [
   `image/png`,
@@ -254,7 +265,7 @@ export function extractMarkdownImageOccurrences(
       const start = match.index ?? 0
 
       return {
-        alt: match[1] ?? ``,
+        alt: unescapeMarkdownText(match[1] ?? ``),
         end: start + match[0].length,
         occurrenceIndex,
         start,

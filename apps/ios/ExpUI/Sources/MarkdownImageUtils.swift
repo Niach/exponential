@@ -35,8 +35,12 @@ public struct MarkdownImageOccurrence {
 public enum MarkdownImageUtils {
     // Matches the web pattern exactly: alt = group 1, url = group 2, optional
     // quoted title is consumed but not captured. Stops the URL at the first
-    // whitespace so `![a](u "t")` parses cleanly.
-    private static let imagePattern = #"!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)"#
+    // whitespace so `![a](u "t")` parses cleanly. The alt group consumes
+    // backslash-escape pairs — serializers escape markdown punctuation in alt
+    // (web's TipTap turns a `shot [1].png` filename into `\[1\]`), and a plain
+    // `[^\]]*` would drop the whole occurrence (REV-6). `alt` stays the raw
+    // (still-escaped) source text; only ranges/urls are consumed here.
+    private static let imagePattern = #"!\[((?:\\.|[^\\\]])*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)"#
 
     private static let regex: NSRegularExpression? = {
         try? NSRegularExpression(pattern: imagePattern)
