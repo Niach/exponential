@@ -7,7 +7,7 @@
 //! action). `daemon install|uninstall|status` manage a systemd user unit
 //! (Linux) / launchd agent (macOS).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -151,6 +151,72 @@ fn issue_is_coding_here(sessions: &Sessions, issue_id: &str) -> bool {
     })
 }
 
+/// REV-9: in-flight remote-start reservations. The handler's dedup checks
+/// (`issue_is_coding_here`, the server `live_for_issue` probe) only see a
+/// session once prepare has FINISHED — the sessions vec is pushed after
+/// `session_host::launch` returns and the server row is prepare's step 6,
+/// both seconds (minutes on a first clone) after the frame arrived. Starts
+/// are never acked, so a phone that observes nothing retries, and the
+/// duplicate frame's own thread passes both checks and spawns a second agent
+/// into the SAME `exp/<ID>` worktree. Each frame therefore atomically claims
+/// its subject keys ON THE RUN LOOP, before its handler thread spawns; a
+/// frame that fails to claim is dropped, and a claim is released only when
+/// the handler returns — by which point the LiveSession is pushed, so one of
+/// the two guards always covers a live start.
+#[derive(Clone, Default)]
+struct StartReservations(Arc<Mutex<HashSet<String>>>);
+
+impl StartReservations {
+    /// All-or-nothing claim: `Err(clashing key)` — holding NOTHING — when any
+    /// key is already held by an in-flight start.
+    fn claim(&self, keys: Vec<String>) -> Result<ReservationGuard, String> {
+        let mut held = match self.0.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if let Some(clash) = keys.iter().find(|key| held.contains(*key)) {
+            return Err(clash.clone());
+        }
+        held.extend(keys.iter().cloned());
+        Ok(ReservationGuard { held: Arc::clone(&self.0), keys })
+    }
+}
+
+/// Releases its keys on drop — including a handler panic (a poisoned-lock
+/// claim recovers via `into_inner`, so a crashed start never wedges its
+/// issue until restart).
+struct ReservationGuard {
+    held: Arc<Mutex<HashSet<String>>>,
+    keys: Vec<String>,
+}
+
+impl Drop for ReservationGuard {
+    fn drop(&mut self) {
+        let mut held = match self.held.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        for key in &self.keys {
+            held.remove(key);
+        }
+    }
+}
+
+/// The subject keys one `start_session` frame must hold: every issue an
+/// issue/batch start would put an agent on (an overlapping batch and single
+/// start contend on the shared issue), the action id for an action start (a
+/// doubled fix-conflicts frame would otherwise race `take_over_branch`'s
+/// holder scan into the same PR worktree).
+fn reservation_keys(subject: &RemoteStartSubject) -> Vec<String> {
+    match subject {
+        RemoteStartSubject::Issue(issue_id) => vec![format!("issue:{issue_id}")],
+        RemoteStartSubject::Batch { issue_ids, .. } => {
+            issue_ids.iter().map(|id| format!("issue:{id}")).collect()
+        }
+        RemoteStartSubject::Action { action_id, .. } => vec![format!("action:{action_id}")],
+    }
+}
+
 fn run_daemon(args: &[String]) -> CommandResult {
     let mut args = args.to_vec();
     let label_flag = take_value(&mut args, "--label");
@@ -195,6 +261,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
     };
     let personal_key = context::ensure_personal_key(&ctx).ok();
     let sessions: Sessions = Arc::new(Mutex::new(Vec::new()));
+    let reservations = StartReservations::default();
     // EXP-481: the serialized device-state worker (defaults convergence,
     // worktree commands, inventory reports) + the relay check_in flag that
     // forces an immediate heartbeat (the beat IS the work pull).
@@ -250,25 +317,34 @@ fn run_daemon(args: &[String]) -> CommandResult {
     let mut reported_sessions: Option<usize> = None;
     while !shutdown_requested() {
         match inbox_rx.recv_timeout(Duration::from_secs(1)) {
-            Ok(start) => {
-                let ctx = Arc::clone(&ctx);
-                let sidecars = Arc::clone(&sidecars);
-                let runtime = runtime.clone();
-                let sessions = Arc::clone(&sessions);
-                let personal_key = personal_key.clone();
-                let device_id = device_id.clone();
-                std::thread::spawn(move || {
-                    handle_remote_start(
-                        &ctx,
-                        &sidecars,
-                        runtime.as_ref(),
-                        &sessions,
-                        personal_key,
-                        &device_id,
-                        start,
-                    );
-                });
-            }
+            // REV-9: claim the frame's subject BEFORE spawning its thread —
+            // the claim is the only dedup a duplicate frame can hit while the
+            // first is still preparing (see [`StartReservations`]).
+            Ok(start) => match reservations.claim(reservation_keys(&start.subject)) {
+                Err(clash) => {
+                    log::info!("remote start ignored — a start holding {clash} is already in flight");
+                }
+                Ok(reservation) => {
+                    let ctx = Arc::clone(&ctx);
+                    let sidecars = Arc::clone(&sidecars);
+                    let runtime = runtime.clone();
+                    let sessions = Arc::clone(&sessions);
+                    let personal_key = personal_key.clone();
+                    let device_id = device_id.clone();
+                    std::thread::spawn(move || {
+                        let _reservation = reservation;
+                        handle_remote_start(
+                            &ctx,
+                            &sidecars,
+                            runtime.as_ref(),
+                            &sessions,
+                            personal_key,
+                            &device_id,
+                            start,
+                        );
+                    });
+                }
+            },
             Err(flume::RecvTimeoutError::Timeout) => {}
             Err(flume::RecvTimeoutError::Disconnected) => break,
         }
@@ -1519,5 +1595,91 @@ mod tests {
             AdvertStep::AwaitConfirmation
         );
         assert_eq!(pending, Some(second));
+    }
+
+    // -----------------------------------------------------------------------
+    // REV-9: in-flight remote-start reservations
+    // -----------------------------------------------------------------------
+
+    fn issue_subject(id: &str) -> RemoteStartSubject {
+        RemoteStartSubject::Issue(id.to_string())
+    }
+
+    #[test]
+    fn a_duplicate_frame_is_refused_while_the_first_is_in_flight() {
+        let reservations = StartReservations::default();
+        let first = reservations
+            .claim(reservation_keys(&issue_subject("EXP-42")))
+            .expect("first frame claims");
+        let clash = reservations
+            .claim(reservation_keys(&issue_subject("EXP-42")))
+            .err()
+            .expect("the retry frame must be refused while prepare runs");
+        assert_eq!(clash, "issue:EXP-42");
+        drop(first);
+        assert!(
+            reservations
+                .claim(reservation_keys(&issue_subject("EXP-42")))
+                .is_ok(),
+            "the handler returning (success or failure) releases the claim"
+        );
+    }
+
+    #[test]
+    fn unrelated_subjects_start_concurrently() {
+        let reservations = StartReservations::default();
+        let _a = reservations
+            .claim(reservation_keys(&issue_subject("EXP-1")))
+            .expect("first issue");
+        assert!(reservations.claim(reservation_keys(&issue_subject("EXP-2"))).is_ok());
+        assert!(reservations
+            .claim(reservation_keys(&RemoteStartSubject::Action {
+                action_id: "act-1".to_string(),
+                action_name: "Fix merge conflicts".to_string(),
+                team_id: "team-1".to_string(),
+                repo: None,
+                inputs: Vec::new(),
+            }))
+            .is_ok());
+    }
+
+    #[test]
+    fn an_overlapping_batch_claim_is_all_or_nothing() {
+        let reservations = StartReservations::default();
+        let _held = reservations
+            .claim(reservation_keys(&issue_subject("EXP-2")))
+            .expect("single-issue start in flight");
+        let batch = RemoteStartSubject::Batch {
+            issue_ids: vec!["EXP-1".to_string(), "EXP-2".to_string()],
+            team_id: "team-1".to_string(),
+            repo: steer::StartRepoGroup {
+                repository_id: "repo-1".to_string(),
+                full_name: "niach/exponential".to_string(),
+                default_branch: "master".to_string(),
+            },
+        };
+        let clash = reservations
+            .claim(reservation_keys(&batch))
+            .err()
+            .expect("a batch overlapping an in-flight issue start is refused");
+        assert_eq!(clash, "issue:EXP-2");
+        // The refusal held NOTHING — the batch's other issue stays startable.
+        assert!(reservations.claim(reservation_keys(&issue_subject("EXP-1"))).is_ok());
+    }
+
+    #[test]
+    fn a_panicking_handler_still_releases_its_claim() {
+        let reservations = StartReservations::default();
+        let inner = reservations.clone();
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let _guard = inner
+                .claim(reservation_keys(&issue_subject("EXP-9")))
+                .expect("claims before the panic");
+            panic!("prepare blew up");
+        }));
+        assert!(
+            reservations.claim(reservation_keys(&issue_subject("EXP-9"))).is_ok(),
+            "a crashed start must not wedge its issue until daemon restart"
+        );
     }
 }
