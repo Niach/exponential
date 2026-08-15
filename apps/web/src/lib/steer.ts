@@ -285,6 +285,16 @@ export type SteerStartSubject =
       inputs?: SteerStartInput[]
     }
 
+/**
+ * REV-34: `steer.startSession` awaits this call inline — an accepting-but-
+ * wedged relay must fail the Start button fast, not pin the mutation (and a
+ * server connection) open until the client gives up. A healthy relay answers
+ * /start in milliseconds (it validates and routes before replying), so 3s is
+ * generous; the timeout resolves into the structured failure shape below and
+ * the caller surfaces it as a retryable relay error.
+ */
+const RELAY_START_TIMEOUT_MS = 3_000
+
 /** POST /start — route a remote start to the device's control socket.
  * Undefined option fields are dropped by JSON.stringify — never sent.
  * `startedBy` (EXP-432): the requesting teammate on a start targeting a
@@ -297,14 +307,25 @@ export async function relayPostStart(
     SteerStartOptions,
   fetchImpl: RelayFetch = globalThis.fetch
 ): Promise<RelayStartResult> {
-  const res = await fetchImpl(`${steerHttpBase(config.url)}/start`, {
-    method: `POST`,
-    headers: {
-      "content-type": `application/json`,
-      "x-relay-secret": config.secret,
-    },
-    body: JSON.stringify(body),
-  })
+  let res: RelayResponse
+  try {
+    res = await fetchImpl(`${steerHttpBase(config.url)}/start`, {
+      method: `POST`,
+      headers: {
+        "content-type": `application/json`,
+        "x-relay-secret": config.secret,
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(RELAY_START_TIMEOUT_MS),
+    })
+  } catch (err) {
+    // The armed timeout raises a `TimeoutError` DOMException — which does not
+    // extend Error in every runtime, so match on the name alone.
+    if ((err as { name?: unknown } | null)?.name === `TimeoutError`) {
+      return { ok: false, status: 504, reason: `relay_timeout` }
+    }
+    throw err
+  }
   if (res.ok) return { ok: true }
   const json = (await res.json().catch(() => null)) as {
     error?: string

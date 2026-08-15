@@ -266,6 +266,8 @@ describe(`relay admin HTTP`, () => {
         deviceId: `dev-1`,
         issueId: `issue-1`,
       }),
+      // REV-34: bounded — a wedged relay must not hang startSession.
+      signal: expect.any(AbortSignal),
     })
   })
 
@@ -373,6 +375,48 @@ describe(`relay admin HTTP`, () => {
         fetchImpl
       )
     ).resolves.toEqual({ ok: false, status: 500, reason: `relay_error` })
+  })
+
+  // REV-34: startSession awaits this inline — an accepting-but-wedged relay
+  // must abort into the structured failure shape (which the caller surfaces
+  // as a retryable relay error), not hold the mutation open indefinitely.
+  it(`start bounds a hung relay with an armed timeout signal`, async () => {
+    const hungFetch = vi.fn<RelayFetch>().mockImplementation(
+      (_url, init) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener(`abort`, () =>
+            reject(new DOMException(`The operation timed out.`, `TimeoutError`))
+          )
+        })
+    )
+    const call = relayPostStart(
+      CONFIG,
+      { userId: `user-1`, deviceId: `dev-1`, issueId: `issue-1` },
+      hungFetch
+    )
+    const signal = hungFetch.mock.calls[0]?.[1]?.signal
+    expect(signal).toBeInstanceOf(AbortSignal)
+    expect(signal?.aborted).toBe(false)
+    await expect(call).resolves.toEqual({
+      ok: false,
+      status: 504,
+      reason: `relay_timeout`,
+    })
+  })
+
+  // Non-timeout transport failures keep the pre-REV-34 contract: they throw
+  // to the caller (startSession is not best-effort like kill/nudge).
+  it(`start still throws on a non-timeout fetch failure`, async () => {
+    const downFetch = vi
+      .fn<RelayFetch>()
+      .mockRejectedValue(new Error(`ECONNREFUSED`))
+    await expect(
+      relayPostStart(
+        CONFIG,
+        { userId: `user-1`, deviceId: `dev-1`, issueId: `issue-1` },
+        downFetch
+      )
+    ).rejects.toThrow(`ECONNREFUSED`)
   })
 
   it(`kill is best-effort: reports delivery and never throws`, async () => {
