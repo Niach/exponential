@@ -1750,8 +1750,9 @@ pub(crate) fn open_duplicate_picker(issue_id: String, window: &mut Window, cx: &
     });
 }
 
-/// Searchable issue list over the synced `issues` collection, excluding the
-/// current issue. Picking commits `duplicate_of_id` and closes the dialog.
+/// Searchable issue list over the synced `issues` collection, confined to the
+/// marked issue's team and excluding the issue itself. Picking commits
+/// `duplicate_of_id` and closes the dialog.
 struct DuplicatePicker {
     exclude_issue_id: String,
     search: Entity<InputState>,
@@ -1773,6 +1774,8 @@ impl DuplicatePicker {
         )];
         let collections = Store::global(cx).collections().clone();
         subscriptions.push(cx.observe(&collections.issues, |_, _, cx| cx.notify()));
+        // REV-19: `matches()` joins issues→boards to team-scope the list.
+        subscriptions.push(cx.observe(&collections.boards, |_, _, cx| cx.notify()));
 
         Self {
             exclude_issue_id,
@@ -1783,18 +1786,36 @@ impl DuplicatePicker {
 
     fn matches(&self, cx: &App) -> Vec<Issue> {
         let query = self.search.read(cx).value().trim().to_lowercase();
-        let mut issues: Vec<Issue> = Store::global(cx)
-            .collections()
+        let collections = Store::global(cx).collections();
+        // REV-19: candidates are confined to the marked issue's TEAM (join
+        // through the boards collection) — the synced issues collection spans
+        // every member team, the server rejects a cross-team `duplicateOfId`,
+        // and a same-prefix identifier from another team is indistinguishable
+        // in the row (web IssueRefProvider scoping; §4.6 picker parity).
+        let Some(team_id) = collections
             .issues
             .read(cx)
-            .iter()
+            .get(&self.exclude_issue_id)
+            .map(|issue| issue.board_id.clone())
+            .and_then(|board_id| {
+                collections
+                    .boards
+                    .read(cx)
+                    .get(&board_id)
+                    .map(|board| board.team_id.clone())
+            })
+        else {
+            return Vec::new();
+        };
+        let mut issues: Vec<Issue> = collections
+            .issues_in_team(&team_id, cx)
+            .into_iter()
             .filter(|issue| issue.id != self.exclude_issue_id)
             .filter(|issue| {
                 query.is_empty()
                     || issue.identifier.to_lowercase().contains(&query)
                     || issue.title.to_lowercase().contains(&query)
             })
-            .cloned()
             .collect();
         issues.sort_by(|a, b| sync::cmp_identifiers(&a.identifier, &b.identifier));
         issues.truncate(50);
