@@ -802,7 +802,7 @@ impl IssueHeader {
                 user_id,
             } => queries::my_issues(cx, team_id, user_id, &filters),
         };
-        let ids = domain::board::flatten_group_issue_ids(&data.groups);
+        let ids = data.flatten_issue_ids();
         let position = ids.iter().position(|id| *id == issue.id)?;
         Some(SwitcherState {
             position,

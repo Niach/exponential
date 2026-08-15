@@ -7,17 +7,16 @@
 //! no SQL at render time. Grouping/sorting semantics live in `domain::board`
 //! (the verbatim `board-view.ts` port); this module only joins collections.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::App;
 use sync::Store;
 
-use domain::board::{
-    build_filtered_issues, build_issue_label_ids_map, build_status_groups, IssueGroup,
-};
+use domain::board::{build_filtered_issues, build_status_groups};
 use domain::filters::IssueFilters;
-use domain::rows::{IssueStatusRow, Label};
+use domain::rows::{Issue, IssueStatusRow, Label};
 use domain::statuses::{resolve_status_sorted, sort_team_statuses, ResolvedStatus};
 
 use crate::session::AuthContext;
@@ -33,9 +32,31 @@ pub struct BoardData {
     /// yet" from "filters hide everything", web `hasAnyIssues`).
     pub has_any_issues: bool,
     /// Status groups in display order, empty groups hidden (web parity).
-    pub groups: Vec<IssueGroup>,
-    /// issue id → its labels (for the row label chips).
-    pub labels_by_issue: HashMap<String, Vec<Label>>,
+    pub groups: Vec<BoardGroup>,
+    /// issue id → its labels (for the row label chips), shared behind `Rc`
+    /// so per-frame row building clones a handle, not the resolved vec.
+    pub labels_by_issue: HashMap<String, Rc<Vec<Label>>>,
+}
+
+/// One status group as the views consume it — [`domain::board::IssueGroup`]
+/// with every issue behind an `Rc` (REV-39): an [`Issue`] carries the full
+/// markdown description, and the list re-derives its rows on every render, so
+/// group members must be clonable as handles, never as row payloads.
+pub struct BoardGroup {
+    pub status: ResolvedStatus,
+    pub issues: Vec<Rc<Issue>>,
+}
+
+impl BoardData {
+    /// [`domain::board::flatten_group_issue_ids`] over the `Rc`'d groups: the
+    /// visible top-to-bottom issue order (the EXP-48 prev/next switcher's
+    /// read).
+    pub fn flatten_issue_ids(&self) -> Vec<String> {
+        self.groups
+            .iter()
+            .flat_map(|group| group.issues.iter().map(|issue| issue.id.clone()))
+            .collect()
+    }
 }
 
 /// `use-board-view-data.ts`: one board's issues, filtered + grouped.
@@ -69,7 +90,7 @@ pub fn my_issues(
 
 fn board_data_from(
     cx: &App,
-    issues: Vec<domain::rows::Issue>,
+    issues: Vec<Issue>,
     team_id: Option<&str>,
     filters: &IssueFilters,
 ) -> BoardData {
@@ -84,8 +105,22 @@ fn board_data_from(
     // arrive. Gating would hang the whole list on a permanent skeleton
     // against a server that does not serve the shape at all.
 
-    let issue_links: Vec<_> = collections.issue_labels.read(cx).iter().cloned().collect();
-    let label_ids_by_issue = build_issue_label_ids_map(&issue_links);
+    // REV-39: the issue_labels shape spans every member team — build the
+    // label-ids map scoped to THIS scope's issues instead of cloning the
+    // whole collection into a Vec first (web buildIssueLabelIdsMap over the
+    // scoped links).
+    let label_ids_by_issue = {
+        let issue_ids: HashSet<&str> = issues.iter().map(|issue| issue.id.as_str()).collect();
+        let mut map: HashMap<String, Vec<String>> = HashMap::new();
+        for link in collections.issue_labels.read(cx).iter() {
+            if issue_ids.contains(link.issue_id.as_str()) {
+                map.entry(link.issue_id.clone())
+                    .or_default()
+                    .push(link.label_id.clone());
+            }
+        }
+        map
+    };
 
     // EXP-314: the board groups by the team's OWN status rows.
     let status_rows = team_id.map(|id| team_statuses(cx, id)).unwrap_or_default();
@@ -93,12 +128,12 @@ fn board_data_from(
     let has_any_issues = !issues.is_empty();
     let filtered = build_filtered_issues(issues, &label_ids_by_issue, &status_rows, filters);
     let today = today_local();
-    let groups = build_status_groups(&filtered, &status_rows, &filters.status_keys, &today);
+    let groups = build_status_groups(filtered, &status_rows, &filters.status_keys, &today);
 
     // Resolve label rows for the chips (web buildIssueLabelMap: unknown label
     // ids are skipped — referential integrity is a query-time concern, §5.4).
     let labels = collections.labels.read(cx);
-    let mut labels_by_issue: HashMap<String, Vec<Label>> = HashMap::new();
+    let mut labels_by_issue: HashMap<String, Rc<Vec<Label>>> = HashMap::new();
     for group in &groups {
         for issue in &group.issues {
             let Some(ids) = label_ids_by_issue.get(&issue.id) else {
@@ -109,10 +144,20 @@ fn board_data_from(
                 .filter_map(|id| labels.get(id).cloned())
                 .collect();
             if !resolved.is_empty() {
-                labels_by_issue.insert(issue.id.clone(), resolved);
+                labels_by_issue.insert(issue.id.clone(), Rc::new(resolved));
             }
         }
     }
+
+    // The grouped issues move behind `Rc` handles (one allocation per issue,
+    // no row payload copies) — the list's rows clone these per frame.
+    let groups = groups
+        .into_iter()
+        .map(|group| BoardGroup {
+            status: group.status,
+            issues: group.issues.into_iter().map(Rc::new).collect(),
+        })
+        .collect();
 
     BoardData {
         is_ready,
