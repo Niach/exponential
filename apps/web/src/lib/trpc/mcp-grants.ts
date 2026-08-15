@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, asc, eq, inArray, isNull } from "drizzle-orm"
+import { and, asc, eq, inArray } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   mcpGrants,
@@ -10,6 +10,7 @@ import {
   teams,
 } from "@/db/schema"
 import { auth } from "@/lib/auth"
+import { boardVisible } from "@/lib/board-visibility"
 import { authedProcedure, router } from "@/lib/trpc"
 
 // Backs the /auth/consent page of the MCP OAuth flow: what the client is,
@@ -93,7 +94,7 @@ export const mcpGrantsRouter = router({
             boards.teamId,
             memberTeams.map((w) => w.id)
           ),
-          isNull(boards.deletedAt)
+          boardVisible()
         )
       )
       .orderBy(asc(boards.sortOrder), asc(boards.name))
@@ -176,7 +177,7 @@ export const mcpGrantsRouter = router({
           .where(
             and(
               inArray(boards.id, input.boardIds),
-              isNull(boards.deletedAt)
+              boardVisible()
             )
           )
         boardIds = rows

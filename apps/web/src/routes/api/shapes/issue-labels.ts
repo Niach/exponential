@@ -5,8 +5,9 @@ import {
 } from "@/lib/team-membership"
 import { createShapeRouteHandler } from "@/lib/shape-route"
 
-// Server-pinned column allowlist — excludes the REV2-5 `board_deleted_at`
-// trash mirror (server-only; the where clause filters on it). issue_labels
+// Server-pinned column allowlist — excludes the `board_deleted_at` trash
+// mirror (REV2-5) and the `board_archived_at` archive mirror (EXP-500), both
+// server-only (the where clause filters on them). issue_labels
 // has no timestamps; the composite PK columns are both included.
 const ISSUE_LABEL_COLUMNS = [`issue_id`, `label_id`, `team_id`, `board_id`]
 

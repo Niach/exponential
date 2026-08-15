@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, eq, isNull } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import { contract } from "@exp/domain-contract"
 import {
   MAX_ACTION_INPUTS,
@@ -22,6 +22,7 @@ import {
   assertTeamMember,
   getIssueTeamContext,
 } from "@/lib/team-membership"
+import { boardVisible } from "@/lib/board-visibility"
 import {
   effectiveDefaultBranch,
   resolveBoardRepository,
@@ -489,7 +490,7 @@ export const steerRouter = router({
               const [row] = await db
                 .select({ teamId: boards.teamId, name: boards.name })
                 .from(boards)
-                .where(and(eq(boards.id, id), isNull(boards.deletedAt)))
+                .where(and(eq(boards.id, id), boardVisible()))
                 .limit(1)
               return row && row.teamId === teamId ? { name: row.name } : null
             },

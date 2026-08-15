@@ -46,6 +46,18 @@ describe(`isBoardPurgeDue`, () => {
     const deletedAt = new Date(now.getTime() - BOARD_TRASH_RETENTION_MS + 60_000)
     expect(isBoardPurgeDue(deletedAt, now)).toBe(false)
   })
+
+  it(`never purges an ARCHIVED board — archive is trash without the purge`, () => {
+    // EXP-500: archiving stamps `archived_at` and leaves `deleted_at` NULL, so
+    // an archived board can sit hidden forever without ever becoming
+    // purge-due. Both the predicate and the sweep query key on deletedAt
+    // alone, which is what makes archive non-destructive. A board that was
+    // archived and THEN trashed still purges on its trash clock — the trash
+    // owns it from that point on.
+    expect(isBoardPurgeDue(null, now)).toBe(false)
+    const trashedLater = new Date(now.getTime() - BOARD_TRASH_RETENTION_MS - 1)
+    expect(isBoardPurgeDue(trashedLater, now)).toBe(true)
+  })
 })
 
 describe(`purgeBoardInTx`, () => {

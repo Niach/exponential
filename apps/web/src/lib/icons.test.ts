@@ -314,7 +314,10 @@ describe(`icon call sites`, () => {
     // EXP-238: + the Personal group (Account, Notifications, API keys).
     expect(webNav.size).toBe(12)
     // EXP-262: + About (desktop-only in the settings nav, like Tools/Agents).
-    expect(desktopNav.size).toBe(14)
+    // EXP-500: + Archived boards, also desktop-only in the NAV — web keeps the
+    // same list as a card on its single Boards settings page, which desktop
+    // flattened into per-board panes (EXP-288), so it needs its own entry.
+    expect(desktopNav.size).toBe(15)
 
     // The sections both clients render, web label → desktop variant.
     const shared: [string, string][] = [

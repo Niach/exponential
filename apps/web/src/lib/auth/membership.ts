@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server"
-import { and, eq, inArray, isNull } from "drizzle-orm"
+import { boardVisible } from "@/lib/board-visibility"
+import { and, eq, inArray } from "drizzle-orm"
 import {
   attachments,
   issues,
@@ -185,10 +186,11 @@ export async function getBoardTeamId(boardId: string) {
       teamId: boards.teamId,
     })
     .from(boards)
-    // Trashed boards 404 for every member mutation (issues.create,
-    // boards.update/setRepository via assertBoardMember, widgets retarget,
-    // MCP boards_get). The restore path uses a direct select, not this helper.
-    .where(and(eq(boards.id, boardId), isNull(boards.deletedAt)))
+    // Trashed and archived boards 404 for every member mutation
+    // (issues.create, boards.update/setRepository via assertBoardMember,
+    // widgets retarget, MCP boards_get). The restore/unarchive paths use a
+    // direct select, not this helper.
+    .where(and(eq(boards.id, boardId), boardVisible()))
     .limit(1)
 
   if (!board) {
@@ -221,9 +223,10 @@ export async function getIssueTeamContext(issueId: string) {
     })
     .from(issues)
     .innerJoin(boards, eq(issues.boardId, boards.id))
-    // Trashed board ⇒ its issues 404 for all issue/comment/label/subscribe
-    // reads + mutations (restored automatically on restore).
-    .where(and(eq(issues.id, issueId), isNull(boards.deletedAt)))
+    // Trashed or archived board ⇒ its issues 404 for all
+    // issue/comment/label/subscribe reads + mutations (restored automatically
+    // on restore/unarchive).
+    .where(and(eq(issues.id, issueId), boardVisible()))
     .limit(1)
 
   if (!issueContext) {
@@ -253,9 +256,9 @@ export async function getAttachmentTeamContext(attachmentId: string) {
     .from(attachments)
     .innerJoin(issues, eq(attachments.issueId, issues.id))
     .innerJoin(boards, eq(issues.boardId, boards.id))
-    // Trashed board ⇒ block attachment byte reads during the trash window
-    // (restored automatically on restore).
-    .where(and(eq(attachments.id, attachmentId), isNull(boards.deletedAt)))
+    // Trashed or archived board ⇒ block attachment byte reads for as long as
+    // it stays hidden (restored automatically on restore/unarchive).
+    .where(and(eq(attachments.id, attachmentId), boardVisible()))
     .limit(1)
 
   if (!attachmentContext) {

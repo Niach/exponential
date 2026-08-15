@@ -33,6 +33,7 @@ mod labels;
 mod statuses;
 mod local_repos;
 mod members;
+mod archived_boards;
 mod notifications_prefs;
 mod board_detail;
 mod repositories;
@@ -72,6 +73,7 @@ use statuses::StatusesPane;
 use local_repos::LocalReposPane;
 use members::MembersPane;
 use agents::AgentsPane;
+use archived_boards::ArchivedBoardsPane;
 use board_detail::BoardDetailPane;
 use notifications_prefs::NotificationsPrefsPane;
 use repositories::RepositoriesPane;
@@ -98,6 +100,12 @@ pub(crate) enum SettingsSection {
     /// One board's detail settings page (EXP-288 — the Boards group lists
     /// every board as its own nav entry; the payload is the board id).
     Board(String),
+    /// EXP-500: the team's archived boards, with unarchive. Owner-only, and
+    /// necessarily its own pane: an archived board is excluded from the boards
+    /// shape, so it has no per-board nav row to hang off and can only be read
+    /// over tRPC. Web keeps the equivalent as a card on its single Boards
+    /// settings page, which desktop flattened into per-board panes (EXP-288).
+    ArchivedBoards,
     Repositories,
     /// This-device tools (EXP-288: renamed from "Coding" — repos root,
     /// branch prefix, terminal shell).
@@ -171,10 +179,16 @@ const NAV_GROUPS: &[NavGroup] = &[
     },
     NavGroup {
         label: "Boards",
-        items: &[NavItem {
-            label: "Repositories",
-            section: SettingsSection::Repositories,
-        }],
+        items: &[
+            NavItem {
+                label: "Archived boards",
+                section: SettingsSection::ArchivedBoards,
+            },
+            NavItem {
+                label: "Repositories",
+                section: SettingsSection::Repositories,
+            },
+        ],
     },
     NavGroup {
         label: "This device",
@@ -234,6 +248,7 @@ fn section_icon(section: &SettingsSection) -> Icon {
         SettingsSection::Labels => Icon::from(registry::SETTINGS_LABELS),
         SettingsSection::Statuses => Icon::from(registry::SETTINGS_STATUSES),
         SettingsSection::Storage => Icon::from(registry::SETTINGS_STORAGE),
+        SettingsSection::ArchivedBoards => Icon::from(registry::UI_ARCHIVE),
         SettingsSection::Board(_) => Icon::from(registry::SETTINGS_BOARDS),
         SettingsSection::Repositories => Icon::from(registry::SETTINGS_REPOSITORIES),
         SettingsSection::Tools => Icon::from(registry::SETTINGS_TOOLS),
@@ -252,6 +267,7 @@ fn section_visible(section: &SettingsSection, owner: bool) -> bool {
         SettingsSection::General
         | SettingsSection::Storage
         | SettingsSection::Board(_)
+        | SettingsSection::ArchivedBoards
         | SettingsSection::Repositories => owner,
         _ => true,
     }
@@ -323,6 +339,9 @@ pub struct SettingsView {
     statuses: Entity<StatusesPane>,
     /// EXP-297 owner-only attachment manager (fetch-on-open server read).
     storage: Entity<StoragePane>,
+    /// EXP-500 owner-only archived-boards list (fetch-on-open server read —
+    /// archived boards are not synced).
+    archived_boards: Entity<ArchivedBoardsPane>,
     /// EXP-288: ONE per-board detail pane — it reads the selected `Board(id)`
     /// from the shared selection itself and re-points at board switches.
     board_detail: Entity<BoardDetailPane>,
@@ -365,6 +384,7 @@ impl SettingsView {
         let labels = cx.new(|cx| LabelsPane::new(nav.clone(), window, cx));
         let statuses = cx.new(|cx| StatusesPane::new(nav.clone(), window, cx));
         let storage = cx.new(|cx| StoragePane::new(nav.clone(), cx));
+        let archived_boards = cx.new(|cx| ArchivedBoardsPane::new(nav.clone(), cx));
         let board_detail =
             cx.new(|cx| BoardDetailPane::new(nav.clone(), shared.clone(), window, cx));
         let repositories = cx.new(|cx| RepositoriesPane::new(nav.clone(), window, cx));
@@ -396,6 +416,7 @@ impl SettingsView {
             labels,
             statuses,
             storage,
+            archived_boards,
             board_detail,
             repositories,
             tools,
@@ -463,6 +484,9 @@ impl Render for SettingsView {
             SettingsSection::Labels => self.labels.clone().into_any_element(),
             SettingsSection::Statuses => self.statuses.clone().into_any_element(),
             SettingsSection::Storage => self.storage.clone().into_any_element(),
+            SettingsSection::ArchivedBoards => {
+                self.archived_boards.clone().into_any_element()
+            }
             // The pane reads the selected board id from the shared selection
             // itself (it needs to flush a pending rename on board switches).
             SettingsSection::Board(_) => self.board_detail.clone().into_any_element(),
@@ -1142,6 +1166,7 @@ mod tests {
             SettingsSection::General,
             SettingsSection::Storage,
             SettingsSection::Board("b-1".to_string()),
+            SettingsSection::ArchivedBoards,
             SettingsSection::Repositories,
         ] {
             assert_eq!(
@@ -1253,6 +1278,20 @@ mod tests {
         assert_eq!(
             effective_selection(selected, true, |_| false),
             SettingsSection::General
+        );
+    }
+
+    /// EXP-500: archiving the board whose settings pane is open drops it out
+    /// of the synced collection, which is exactly the stale-`Board(id)` case
+    /// above — the nav clamps to General instead of rendering a blank pane.
+    /// The Archived boards pane it was archived from stays reachable.
+    #[test]
+    fn archived_boards_pane_is_owner_only_and_never_clamped() {
+        assert!(section_visible(&SettingsSection::ArchivedBoards, true));
+        assert!(!section_visible(&SettingsSection::ArchivedBoards, false));
+        assert_eq!(
+            effective_selection(SettingsSection::ArchivedBoards, true, |_| false),
+            SettingsSection::ArchivedBoards
         );
     }
 }

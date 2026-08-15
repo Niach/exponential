@@ -58,6 +58,38 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `archive`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "archive",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M3 3H21A1 1 0 0 1 22 4V7A1 1 0 0 1 21 8H3A1 1 0 0 1 2 7V4A1 1 0 0 1 3 3Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M10 12h4"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `arrow-down-left`: ImageVector by lazy {
         ImageVector.Builder(
             name = "arrow-down-left",
@@ -5684,6 +5716,7 @@ public object ExpIcons {
     /** Registry name -> glyph. Null for an unknown name (caller falls back). */
     public fun byName(name: String): ImageVector? = when (name) {
         "activity" -> `activity`
+        "archive" -> `archive`
         "arrow-down-left" -> `arrow-down-left`
         "arrow-left" -> `arrow-left`
         "arrow-left-right" -> `arrow-left-right`
@@ -6074,6 +6107,8 @@ public object ExpIcons {
     public val uiAdd: ImageVector get() = `plus`
     /** Concept `ui-agent-source`. */
     public val uiAgentSource: ImageVector get() = `bot`
+    /** Concept `ui-archive`. */
+    public val uiArchive: ImageVector get() = `archive`
     /** Concept `ui-arrow-right`. */
     public val uiArrowRight: ImageVector get() = `arrow-right`
     /** Concept `ui-assignee`. */

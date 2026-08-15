@@ -15,7 +15,8 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // owner-only") is deliberately excluded via the columns allowlist — no client
 // reads subscriber emails from sync; the server-side notification fan-out
 // reads them straight from the DB. `board_deleted_at` (the REV2-5 trash
-// mirror) is excluded the same way.
+// mirror) and `board_archived_at` (the EXP-500 archive mirror) are excluded
+// the same way.
 //
 // Anonymous viewers get NOTHING (the subscribe toggle is member-only).
 export const Route = createFileRoute(`/api/shapes/issue-subscribers`)({

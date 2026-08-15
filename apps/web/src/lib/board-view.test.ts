@@ -67,6 +67,7 @@ function makeIssue(overrides: Partial<Issue>): Issue {
     boardId: `board-1`,
     teamId: `team-1`,
     boardDeletedAt: null,
+    boardArchivedAt: null,
     duplicateOfId: null,
     prUrl: null,
     prNumber: null,
@@ -102,6 +103,7 @@ function makeIssueLabel(overrides: Partial<IssueLabel>): IssueLabel {
     teamId: `team-1`,
     boardId: `board-1`,
     boardDeletedAt: null,
+    boardArchivedAt: null,
     ...overrides,
   }
 }

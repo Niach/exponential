@@ -25,6 +25,7 @@ import {
   getSoleHumanMemberId,
   getUserTeamIds,
 } from "@/lib/team-membership"
+import { boardVisible } from "@/lib/board-visibility"
 import {
   closePullRequest,
   diagnoseUnmergeablePr,
@@ -113,6 +114,7 @@ async function resolveIssueIdentifier(
         and(
           inArray(issues.teamId, teamIds),
           isNull(issues.boardDeletedAt),
+          isNull(issues.boardArchivedAt),
           eq(issues.identifier, identifier.toUpperCase())
         )
       )
@@ -585,12 +587,14 @@ export const issuesRouter = router({
                 message: `An issue cannot be a duplicate of itself`,
               })
             }
-            // The canonical issue must live in the same team.
+            // The canonical issue must live in the same team, on a board that
+            // is neither trashed nor archived — pointing a live issue at a
+            // hidden canonical would render as an unresolvable duplicate.
             const [canonical] = await tx
               .select({ teamId: boards.teamId })
               .from(issues)
               .innerJoin(boards, eq(boards.id, issues.boardId))
-              .where(eq(issues.id, updates.duplicateOfId))
+              .where(and(eq(issues.id, updates.duplicateOfId), boardVisible()))
               .limit(1)
             if (!canonical || canonical.teamId !== issueContext.teamId) {
               throw new TRPCError({
@@ -829,26 +833,27 @@ export const issuesRouter = router({
           })
         }
 
-        // FOR SHARE + deleted_at recheck under the lock (REV-49): the pre-tx
-        // getBoardTeamId trash check races a concurrent boards.delete — its
-        // fan-out cannot see this still-uncommitted move, so without the lock
-        // the issue could land on a trashed board with a stale NULL
-        // board_deleted_at (synced everywhere, then silently purged). FOR
-        // SHARE conflicts with the trash UPDATE's FOR NO KEY UPDATE row lock
-        // (KEY SHARE would not), so the trash either committed first (404
-        // here) or waits until this move commits and its fan-out heals the
-        // mirrors.
+        // FOR SHARE + deleted_at/archived_at recheck under the lock (REV-49):
+        // the pre-tx getBoardTeamId visibility check races a concurrent
+        // boards.delete or boards.archive — their fan-outs cannot see this
+        // still-uncommitted move, so without the lock the issue could land on
+        // a hidden board with stale NULL mirrors (synced everywhere, then
+        // silently purged or stranded). FOR SHARE conflicts with those
+        // UPDATEs' FOR NO KEY UPDATE row lock (KEY SHARE would not), so the
+        // trash/archive either committed first (404 here) or waits until this
+        // move commits and its fan-out heals the mirrors.
         const [target] = await tx
           .select({
             prefix: boards.prefix,
             slug: boards.slug,
             deletedAt: boards.deletedAt,
+            archivedAt: boards.archivedAt,
           })
           .from(boards)
           .where(eq(boards.id, input.boardId))
           .limit(1)
           .for(`share`)
-        if (!target || target.deletedAt) {
+        if (!target || target.deletedAt || target.archivedAt) {
           throw new TRPCError({
             code: `NOT_FOUND`,
             message: `Board not found`,
@@ -891,8 +896,8 @@ export const issuesRouter = router({
         // Re-point the trigger-denormalized board_id on every issue-child
         // table. The populate triggers fire on these UPDATE OF board_id
         // statements and overwrite with issue-derived truth (board_id +
-        // board_deleted_at — the target board is live, rechecked under the
-        // FOR SHARE lock above). team_id is unchanged — moves never cross
+        // board_deleted_at + board_archived_at — the target board is live,
+        // rechecked under the FOR SHARE lock above). team_id is unchanged — moves never cross
         // teams. These are bookkeeping rewrites: the update_updated_at and
         // bump_issue_updated_at_from_comment board_id guards keep them from
         // restamping child rows or re-bumping the issue per comment.
@@ -988,7 +993,7 @@ export const issuesRouter = router({
         })
         .from(issues)
         .innerJoin(boards, eq(issues.boardId, boards.id))
-        .where(and(inArray(issues.id, input.ids), isNull(boards.deletedAt)))
+        .where(and(inArray(issues.id, input.ids), boardVisible()))
 
       if (eligible.length === 0) {
         throw new TRPCError({
@@ -1120,7 +1125,7 @@ export const issuesRouter = router({
         .select({ id: issues.id, teamId: boards.teamId })
         .from(issues)
         .innerJoin(boards, eq(issues.boardId, boards.id))
-        .where(and(inArray(issues.id, input.ids), isNull(boards.deletedAt)))
+        .where(and(inArray(issues.id, input.ids), boardVisible()))
 
       if (eligible.length === 0) {
         throw new TRPCError({
@@ -1900,8 +1905,10 @@ export const issuesRouter = router({
   // deliberately: they required detoasting + scanning megabytes of markdown
   // per keystroke, and whole-word matches ride the FTS branches. Team scoping
   // uses the trigger-denormalized issues/comments team_id +
-  // board_deleted_at mirrors (REV2-5) — equivalent to joining boards on
-  // team_id/deleted_at, without the join.
+  // board_deleted_at + board_archived_at mirrors (REV2-5, EXP-500) —
+  // equivalent to joining boards on team_id/deleted_at/archived_at, without
+  // the join. This is what keeps an archived board's issues and comments out
+  // of search on every client.
   search: authedProcedure
     .input(
       z.object({
@@ -1921,17 +1928,20 @@ export const issuesRouter = router({
           select i.id from issues i
           where i.team_id = ${input.teamId}::uuid
             and i.board_deleted_at is null
+            and i.board_archived_at is null
             and to_tsvector('english', coalesce(i.title, '') || ' ' || coalesce(i.description, ''))
               @@ websearch_to_tsquery('english', ${input.query})
           union
           select c.issue_id from comments c
           where c.team_id = ${input.teamId}::uuid
             and c.board_deleted_at is null
+            and c.board_archived_at is null
             and to_tsvector('english', c.body) @@ websearch_to_tsquery('english', ${input.query})
           union
           select i.id from issues i
           where i.team_id = ${input.teamId}::uuid
             and i.board_deleted_at is null
+            and i.board_archived_at is null
             and (i.title ilike ${like} or i.identifier ilike ${like})
         )
         select

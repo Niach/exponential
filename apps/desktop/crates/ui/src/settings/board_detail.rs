@@ -278,6 +278,37 @@ impl BoardDetailPane {
         native_dialog::open_alert(window, cx, spec);
     }
 
+    /// The archive confirm (EXP-500). Archiving is the non-purging sibling of
+    /// the trash: the board and its issues leave every client's sync scope
+    /// until an owner unarchives it from this settings section, and nothing is
+    /// ever deleted. The nav clamps the now-stale `Board(id)` selection away
+    /// on the next boards delta.
+    fn open_archive_dialog(
+        board_id: String,
+        board_name: String,
+        window: &mut Window,
+        cx: &mut gpui::App,
+    ) {
+        let spec = AlertSpec::new(
+            "Archive board",
+            format!(
+                "Archive {board_name}? It disappears for the whole team \u{2014} from the \
+                 sidebar, search, pickers and every issue list \u{2014} along with all of \
+                 its issues. Nothing is deleted, and it can be brought back from \
+                 Archived boards at any time."
+            ),
+            "Archive board",
+        )
+        .on_ok(move |_, cx| {
+            let board_id = board_id.clone();
+            spawn_trpc(cx, "boards.archive", move |trpc| {
+                api::boards::boards_archive(trpc, &board_id)
+            });
+            true
+        });
+        native_dialog::open_alert(window, cx, spec);
+    }
+
     /// `boards.setRepository` off the foreground; success needs nothing
     /// (the synced board row's Electric echo re-labels every surface, incl.
     /// the trunk resolver), a rejection surfaces inline (web parity — a
@@ -519,20 +550,46 @@ impl Render for BoardDetailPane {
             body = body.child(error_notice(error.clone(), cx));
         }
 
-        // Trash (owner-only pane already; the dialog confirms before it fires).
+        // Archive + trash (owner-only pane already; both dialogs confirm
+        // before they fire). Archive is deliberately NOT a danger button — it
+        // hides, it does not destroy.
+        let archive_id = board.id.clone();
+        let archive_name = board.name.clone();
         let board_id = board.id.clone();
         let board_name = board.name.clone();
         body = body.child(
-            h_flex().pt_2().child(
-                Button::new(row_id("board-detail-trash", &board.id))
-                    .danger()
-                    .small()
-                    .icon(registry::UI_DELETE)
-                    .label("Move to trash")
-                    .on_click(cx.listener(move |_, _, window, cx| {
-                        Self::open_trash_dialog(board_id.clone(), board_name.clone(), window, cx);
-                    })),
-            ),
+            h_flex()
+                .pt_2()
+                .gap_2()
+                .child(
+                    Button::new(row_id("board-detail-archive", &board.id))
+                        .small()
+                        .icon(registry::UI_ARCHIVE)
+                        .label("Archive board")
+                        .on_click(cx.listener(move |_, _, window, cx| {
+                            Self::open_archive_dialog(
+                                archive_id.clone(),
+                                archive_name.clone(),
+                                window,
+                                cx,
+                            );
+                        })),
+                )
+                .child(
+                    Button::new(row_id("board-detail-trash", &board.id))
+                        .danger()
+                        .small()
+                        .icon(registry::UI_DELETE)
+                        .label("Move to trash")
+                        .on_click(cx.listener(move |_, _, window, cx| {
+                            Self::open_trash_dialog(
+                                board_id.clone(),
+                                board_name.clone(),
+                                window,
+                                cx,
+                            );
+                        })),
+                ),
         );
 
         v_flex().child(body).into_any_element()

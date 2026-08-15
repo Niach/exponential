@@ -2,7 +2,7 @@ import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { boards, repositories } from "@/db/schema"
-import { and, eq, isNotNull, isNull } from "drizzle-orm"
+import { and, eq, isNotNull, isNull, or } from "drizzle-orm"
 import {
   boardIconSchema,
   BOARD_TRASH_RETENTION_MS,
@@ -180,8 +180,9 @@ export const boardsRouter = router({
         })
       } catch (error) {
         // A trashed board keeps its (team_id, slug) AND (team_id, prefix)
-        // reservations for the whole retention window; distinguish those
-        // from a live clash, and say which of the two fields collided.
+        // reservations for the whole retention window, and an ARCHIVED one
+        // keeps them forever; distinguish both from a live clash, and say
+        // which of the two fields collided.
         const constraint = uniqueViolationConstraint(error)
         if (constraint !== null) {
           const prefixClash = constraint.includes(`prefix`)
@@ -189,23 +190,29 @@ export const boardsRouter = router({
             ? eq(boards.prefix, input.prefix.toUpperCase())
             : eq(boards.slug, slug)
           const label = prefixClash ? `prefix` : `name`
-          const [trashed] = await ctx.db
-            .select({ id: boards.id })
+          const [hidden] = await ctx.db
+            .select({
+              deletedAt: boards.deletedAt,
+              archivedAt: boards.archivedAt,
+            })
             .from(boards)
             .where(
               and(
                 eq(boards.teamId, input.teamId),
                 field,
-                isNotNull(boards.deletedAt)
+                or(
+                  isNotNull(boards.deletedAt),
+                  isNotNull(boards.archivedAt)
+                )
               )
             )
             .limit(1)
-          throw new TRPCError({
-            code: `BAD_REQUEST`,
-            message: trashed
+          const message = !hidden
+            ? `A board with this ${label} already exists`
+            : hidden.deletedAt
               ? `A board with this ${label} is in the trash. Restore it or wait for the purge.`
-              : `A board with this ${label} already exists`,
-          })
+              : `A board with this ${label} is archived. Unarchive it or pick another ${label}.`
+          throw new TRPCError({ code: `BAD_REQUEST`, message })
         }
         throw error
       }
@@ -401,5 +408,127 @@ export const boardsRouter = router({
           ? new Date(row.deletedAt.getTime() + BOARD_TRASH_RETENTION_MS)
           : null,
       }))
+    }),
+
+  // Owner-only: archive a board (EXP-500). Trash without the purge — the board
+  // and every one of its issues leave the Electric shapes (via the
+  // board_archived_at fan-out) and every server read surface, and stay gone
+  // until an owner unarchives it. Nothing is ever deleted, and the
+  // (team_id, slug)/(team_id, prefix) reservations are kept. Direct select
+  // (not the visibility-filtered helper) so an already-archived board stays
+  // resolvable for the idempotent no-op.
+  archive: authedProcedure
+    .input(z.object({ boardId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const [board] = await ctx.db
+        .select({
+          teamId: boards.teamId,
+          deletedAt: boards.deletedAt,
+          archivedAt: boards.archivedAt,
+        })
+        .from(boards)
+        .where(eq(boards.id, input.boardId))
+        .limit(1)
+
+      if (!board) {
+        throw new TRPCError({ code: `NOT_FOUND`, message: `Board not found` })
+      }
+
+      await assertTeamOwner(ctx.session.user.id, board.teamId)
+
+      // A trashed board is already hidden and on its way out; archiving it
+      // would only make the trash card's countdown a lie.
+      if (board.deletedAt) {
+        throw new TRPCError({
+          code: `BAD_REQUEST`,
+          message: `This board is in the trash. Restore it before archiving.`,
+        })
+      }
+
+      // Already archived → nothing changed, so no sync barrier needed.
+      if (board.archivedAt) {
+        return { ok: true as const }
+      }
+
+      return await ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
+        await tx
+          .update(boards)
+          .set({ archivedAt: new Date() })
+          .where(and(eq(boards.id, input.boardId), isNull(boards.archivedAt)))
+        return { ok: true as const, txId }
+      })
+    }),
+
+  // Owner-only: bring an archived board (and all of its history) back. Direct
+  // select bypasses the visibility-filtered helper, which would 404 the very
+  // row this resolves. The slug and prefix were reserved the whole time, so
+  // there is no unarchive-time conflict.
+  unarchive: authedProcedure
+    .input(z.object({ boardId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const [board] = await ctx.db
+        .select({ teamId: boards.teamId })
+        .from(boards)
+        .where(eq(boards.id, input.boardId))
+        .limit(1)
+
+      if (!board) {
+        throw new TRPCError({ code: `NOT_FOUND`, message: `Board not found` })
+      }
+
+      await assertTeamOwner(ctx.session.user.id, board.teamId)
+
+      return await ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
+        const restored = await tx
+          .update(boards)
+          .set({ archivedAt: null })
+          .where(
+            and(eq(boards.id, input.boardId), isNotNull(boards.archivedAt))
+          )
+          .returning({ id: boards.id })
+        if (restored.length === 0) {
+          throw new TRPCError({
+            code: `NOT_FOUND`,
+            message: `Board is not archived`,
+          })
+        }
+        return { ok: true as const, txId }
+      })
+    }),
+
+  // Owner-only: the team's archived boards, for the web + desktop "Archived
+  // boards" surfaces. Archived boards are excluded from the Electric shape,
+  // so this tRPC read is the ONLY way to see them — which is the whole point:
+  // the previous archiving attempt synced them and asked every client to
+  // filter, and got deleted for leaking (REV2-103). No purgeAt: nothing
+  // purges an archived board.
+  listArchived: authedProcedure
+    .input(z.object({ teamId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      await assertTeamOwner(ctx.session.user.id, input.teamId)
+      return await ctx.db
+        .select({
+          id: boards.id,
+          name: boards.name,
+          slug: boards.slug,
+          prefix: boards.prefix,
+          color: boards.color,
+          icon: boards.icon,
+          repositoryId: boards.repositoryId,
+          archivedAt: boards.archivedAt,
+        })
+        .from(boards)
+        .where(
+          and(
+            eq(boards.teamId, input.teamId),
+            isNotNull(boards.archivedAt),
+            // A board can be archived and THEN trashed; the trash card owns
+            // those, so they must not show up in both lists.
+            isNull(boards.deletedAt)
+          )
+        )
+        .orderBy(boards.name)
     }),
 })

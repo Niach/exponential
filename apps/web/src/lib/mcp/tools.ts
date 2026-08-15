@@ -48,6 +48,7 @@ import {
   getUserTeamIds,
   resolveTeamAccess,
 } from "@/lib/team-membership"
+import { boardVisible } from "@/lib/board-visibility"
 import { deleteObject, getObject, uploadObject } from "@/lib/storage"
 import {
   buildAttachmentStorageKey,
@@ -150,7 +151,7 @@ async function resolveIssueId(
     const boardRows = await db
       .select({ id: boards.id, teamId: boards.teamId })
       .from(boards)
-      .where(and(inArray(boards.teamId, teamIds), isNull(boards.deletedAt)))
+      .where(and(inArray(boards.teamId, teamIds), boardVisible()))
     const boardIds = boardRows
       .filter((r) => isBoardGranted(access, r.id, r.teamId))
       .map((r) => r.id)
@@ -481,7 +482,7 @@ export function registerExponentialTools(
             .select({ id: boards.id, teamId: boards.teamId })
             .from(boards)
             .where(
-              and(inArray(boards.teamId, teamIds), isNull(boards.deletedAt))
+              and(inArray(boards.teamId, teamIds), boardVisible())
             )
           allowedBoardIds = boardRows
             .filter((r) => isBoardGranted(access, r.id, r.teamId))

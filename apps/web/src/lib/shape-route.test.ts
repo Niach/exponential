@@ -275,7 +275,7 @@ describe(`shape column + trash contracts`, () => {
     proxyElectricRequest.mockResolvedValue(new Response(`ok`))
   })
 
-  it(`pins the boards columns and appends the deleted_at filter for members`, async () => {
+  it(`pins the boards columns and appends the hidden-board filters for members`, async () => {
     const originUrl = new URL(`https://electric.example/v1/shape`)
     resolveSession.mockResolvedValue({ user: { id: `user-1` } })
     prepareElectricUrl.mockReturnValue(originUrl)
@@ -296,8 +296,13 @@ describe(`shape column + trash contracts`, () => {
     expect(columns).not.toContain(`public_show_comments`)
     expect(columns).not.toContain(`public_show_activity`)
     expect(columns).not.toContain(`helpdesk_enabled`)
+    // EXP-500: archived_at is server-only bookkeeping the where clause filters
+    // on. Syncing it and asking every client to filter is exactly what got the
+    // first archiving attempt deleted (REV2-103).
+    expect(columns).not.toContain(`archived_at`)
     const where = originUrl.searchParams.get(`where`) ?? ``
     expect(where).toContain(`"deleted_at" IS NULL`)
+    expect(where).toContain(`"archived_at" IS NULL`)
     // Byte-stable: team ids are sorted regardless of query heap order.
     expect(where).toContain(`"team_id" IN ('w-1','w-2')`)
   })
@@ -555,10 +560,11 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
   })
 
   // All board-scoped shapes scope members by TEAM (stable across board
-  // create/trash/restore) with the static board_deleted_at trash predicate —
-  // a board-id list here would rotate the shape identity on every board
-  // create/trash in ANY of the user's teams and force full cross-team
-  // resyncs. buildWhereClause sorts the id list, so the SQL is byte-stable.
+  // create/trash/restore/archive/unarchive) with the static board_deleted_at
+  // and board_archived_at predicates — a board-id list here would rotate the
+  // shape identity on every board create/trash in ANY of the user's teams and
+  // force full cross-team resyncs. buildWhereClause sorts the id list, so the
+  // SQL is byte-stable.
   const childRoutes = [
     [`issues`, issuesRoute],
     [`comments`, commentsRoute],
@@ -570,7 +576,7 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
   ] as const
 
   it.each(childRoutes)(
-    `%s member branch is team-scoped, trash-aware, and byte-stable`,
+    `%s member branch is team-scoped, trash/archive-aware, and byte-stable`,
     async (_name, route) => {
       const originUrl = new URL(`https://electric.example/v1/shape`)
       resolveSession.mockResolvedValue({ user: { id: `user-1` } })
@@ -585,7 +591,7 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
       })
 
       expect(originUrl.searchParams.get(`where`)).toBe(
-        `("team_id" IN ('w-1','w-2')) AND ("board_deleted_at" IS NULL)`
+        `("team_id" IN ('w-1','w-2')) AND ("board_deleted_at" IS NULL) AND ("board_archived_at" IS NULL)`
       )
     }
   )
@@ -602,14 +608,14 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
       })
 
       expect(originUrl.searchParams.get(`where`)).toBe(
-        `("team_id" = '00000000-0000-0000-0000-000000000000') AND ("board_deleted_at" IS NULL)`
+        `("team_id" = '00000000-0000-0000-0000-000000000000') AND ("board_deleted_at" IS NULL) AND ("board_archived_at" IS NULL)`
       )
       expect(membership.getUserTeamIds).not.toHaveBeenCalled()
     }
   )
 
   it.each(childRoutes)(
-    `%s pins a columns allowlist that excludes board_deleted_at`,
+    `%s pins a columns allowlist that excludes the board hide mirrors`,
     async (_name, route) => {
       const originUrl = new URL(`https://electric.example/v1/shape`)
       resolveSession.mockResolvedValue({ user: { id: `user-1` } })
@@ -617,10 +623,11 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
       membership.getUserTeamIds.mockResolvedValue([`w-1`])
 
       // A client attempting to widen the allowlist to the server-only trash
-      // mirror must be overridden — native schemas don't carry the column.
+      // or archive mirror must be overridden — native schemas don't carry
+      // either column.
       await shapeHandler(route)({
         request: new Request(
-          `https://example.com/api/shapes/x?columns=board_deleted_at`,
+          `https://example.com/api/shapes/x?columns=board_deleted_at,board_archived_at`,
           { headers: { authorization: `Bearer t` } }
         ),
       })
@@ -628,6 +635,7 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
       const columns = originUrl.searchParams.get(`columns`)?.split(`,`) ?? []
       expect(columns.length).toBeGreaterThan(0)
       expect(columns).not.toContain(`board_deleted_at`)
+      expect(columns).not.toContain(`board_archived_at`)
     }
   )
 
@@ -669,7 +677,7 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
     expect(columns).not.toContain(`email`)
     expect(columns).toContain(`team_id`)
     expect(originUrl.searchParams.get(`where`)).toBe(
-      `("team_id" IN ('w-1')) AND ("board_deleted_at" IS NULL)`
+      `("team_id" IN ('w-1')) AND ("board_deleted_at" IS NULL) AND ("board_archived_at" IS NULL)`
     )
   })
 
@@ -685,15 +693,16 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
     })
 
     // No membership id lists at all — this shape's identity never rotates.
-    // Trash-awareness rides the static board_deleted_at predicate; issue-less
-    // rows (NULL board_deleted_at) always match.
+    // Trash- and archive-awareness ride the static board_deleted_at /
+    // board_archived_at predicates; issue-less rows (both NULL) always match.
     expect(originUrl.searchParams.get(`where`)).toBe(
-      `("user_id" = 'user-1') AND ("board_deleted_at" IS NULL)`
+      `("user_id" = 'user-1') AND ("board_deleted_at" IS NULL) AND ("board_archived_at" IS NULL)`
     )
     expect(membership.getUserTeamIds).not.toHaveBeenCalled()
     const columns = originUrl.searchParams.get(`columns`)?.split(`,`) ?? []
     expect(columns).not.toContain(`board_id`)
     expect(columns).not.toContain(`board_deleted_at`)
+    expect(columns).not.toContain(`board_archived_at`)
     expect(columns).not.toContain(`emailed_at`)
   })
 

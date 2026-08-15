@@ -21,7 +21,8 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // removed stay in their inbox, like received email.
 //
 // `emailed_at` (the hourly digest sweep's server-side claim stamp),
-// `board_id`, and `board_deleted_at` (trash-scoping bookkeeping, filtered on
+// `board_id`, `board_deleted_at` and `board_archived_at` (trash/archive
+// scoping bookkeeping, filtered on
 // above) are deliberately excluded via the columns allowlist — none is inbox
 // state. `team_id` IS synced: issue-less rows (helpdesk support_reply) carry
 // it so clients can route the notification to the right team's Support
@@ -50,7 +51,8 @@ export const Route = createFileRoute(`/api/shapes/notifications`)({
           if (!userId) return null
           return andClauses(
             `"user_id" = ${sqlStringLiteral(userId)}`,
-            `"board_deleted_at" IS NULL`
+            `"board_deleted_at" IS NULL`,
+            `"board_archived_at" IS NULL`
           )
         },
       }),

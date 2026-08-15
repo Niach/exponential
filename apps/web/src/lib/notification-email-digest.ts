@@ -12,6 +12,7 @@
 import { and, eq, gt, inArray, isNull, or, sql } from "drizzle-orm"
 import { alias } from "drizzle-orm/pg-core"
 import { db } from "@/db/connection"
+import { boardVisible } from "@/lib/board-visibility"
 import {
   emailDeliveries,
   issues,
@@ -127,7 +128,7 @@ export async function runEmailDigestSweep(
         // Leave them UNCLAIMED (filtered from the scan, not claim-only): a
         // restore inside the backstop window lets them digest late, and a
         // purge cascade-deletes them.
-        or(isNull(notifications.boardId), isNull(boards.deletedAt))
+        or(isNull(notifications.boardId), boardVisible())
       )
     )
     .orderBy(notifications.createdAt)
