@@ -12,6 +12,7 @@ import {
   TokenBucketLimiter,
 } from "@/lib/widget/rate-limit"
 import { recordEmailDelivery, sendEmail } from "@/lib/email"
+import { isProductionBuild } from "@/lib/production-build"
 
 // EXP-39: contact/enterprise-inquiry endpoint for the marketing site's form
 // (replaces the bare mailto CTA). Mirrors /api/widget/submit's structure —
@@ -19,13 +20,13 @@ import { recordEmailDelivery, sendEmail } from "@/lib/email"
 // have failed to register under the nitro-alpha dev server; see
 // lib/widget/service.ts).
 
-// Marketing-site origins only. Localhost is allowed outside production for
-// the marketing dev server (any port — the pattern grammar ignores ports
-// unless one is specified).
-const allowedOrigins =
-  process.env.NODE_ENV === `production`
-    ? [`exponential.at`, `www.exponential.at`]
-    : [`exponential.at`, `www.exponential.at`, `localhost`, `127.0.0.1`]
+// Marketing-site origins only. Localhost is allowed in dev builds for the
+// marketing dev server (any port — the pattern grammar ignores ports unless
+// one is specified). Build-derived, not NODE_ENV (REV-5): the shipped image
+// never set NODE_ENV, so the runtime check took the dev branch in production.
+const allowedOrigins = isProductionBuild
+  ? [`exponential.at`, `www.exponential.at`]
+  : [`exponential.at`, `www.exponential.at`, `localhost`, `127.0.0.1`]
 
 const contactSchema = z.object({
   name: z.string().trim().max(255).optional(),

@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start"
 import { parseOidcProviders } from "@/lib/oidc-providers"
 import { emailEnabled } from "@/lib/email-enabled"
+import { isProductionBuild } from "@/lib/production-build"
 
 export type AuthConfig = {
   passwordEnabled: boolean
@@ -26,7 +27,17 @@ export type AuthConfig = {
 export function isPasswordSignupDisabled(): boolean {
   return process.env.AUTH_SIGNUP_ENABLED
     ? process.env.AUTH_SIGNUP_ENABLED === `false`
-    : process.env.NODE_ENV === `production`
+    : isProductionBuild
+}
+
+// Better Auth's global rate limiter (REV-5): ON in every production build,
+// off under the dev server; AUTH_RATE_LIMIT_ENABLED overrides in either
+// direction (e.g. `false` behind a reverse proxy that already rate-limits,
+// or load tests against a production image).
+export function isAuthRateLimitEnabled(): boolean {
+  return process.env.AUTH_RATE_LIMIT_ENABLED
+    ? process.env.AUTH_RATE_LIMIT_ENABLED !== `false`
+    : isProductionBuild
 }
 
 export function buildAuthConfig(): AuthConfig {

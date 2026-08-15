@@ -29,8 +29,9 @@ services:
       ELECTRIC_URL: http://electric:3000
       # Self-hosted is the DEFAULT since EXP-364 (CLOUD_INSTANCE is the
       # cloud's opt-in flag) — nothing to set here anymore.
-      # NODE_ENV=production disables password sign-up by default; flip to
-      # false in .env once your accounts exist.
+      # Production builds disable public password sign-up by default; this
+      # opens it for first setup — flip to false in .env once your accounts
+      # exist.
       AUTH_SIGNUP_ENABLED: ${AUTH_SIGNUP_ENABLED:-true}
     depends_on:
       postgres:

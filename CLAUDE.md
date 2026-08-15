@@ -152,7 +152,7 @@ Per-TEAM rows in six fixed categories (backlog/unstarted/started/completed/cance
 **`.env.example` at the repo root is the CANONICAL reference** (required core, optional subsystems, cloud-only) and `selfhost/.env.example` is its self-host subset — read them instead of a list here; each relay has its own `apps/*/.env.example`. What is not obvious from those files:
 
 - `CLOUD_INSTANCE` is the opt-IN cloud marker (EXP-364): `'true'` turns on billing, plan limits, the in-app widget and conversion tracking; unset = self-hosted, every FEATURE limit unlocked.
-- `AUTH_PASSWORD_ENABLED`/`AUTH_SIGNUP_ENABLED`: password login defaults true, public signup is on in dev and OFF under `NODE_ENV=production` — but `selfhost/docker-compose.yaml` re-defaults it to `true`.
+- `AUTH_PASSWORD_ENABLED`/`AUTH_SIGNUP_ENABLED`: password login defaults true, public signup is on in dev and OFF in production builds — but `selfhost/docker-compose.yaml` re-defaults it to `true`. Auth security posture is BUILD-derived (`lib/production-build.ts` `isProductionBuild`, REV-5) — never key it on runtime `NODE_ENV`, which the shipped image only sets belt-and-braces.
 - Mail: SES (`AWS_SES_REGION` + creds) OR `SMTP_*` for ALL mail — SES wins if both; unset region = email silently off.
 - OIDC: `OIDC_PROVIDERS` (JSON array) is the primary mechanism; the single-provider `AUTH_OIDC_ENABLED`/`OIDC_*` vars are legacy and only read when it is unset.
 - GitHub App installations are claimed PER TEAM (`github_installation_links`); `GITHUB_APP_CLIENT_SECRET` unset ⇒ install-page round-trip fallback; `GITHUB_POLLING=true` = outbound merge cron for NAT'd self-hosts (decoupled from `CLOUD_INSTANCE`).

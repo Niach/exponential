@@ -61,6 +61,13 @@ COPY --from=builder /app/LICENSE /app/NOTICE ./
 # header comment in apps/web/src/server-bun.ts and
 # packages/electric-protocol/README.md ("Infra knobs").
 ENV BUN_CONFIG_MAX_HTTP_REQUESTS=65336
+# REV-5: neither the oven/bun base image nor any deploy recipe sets NODE_ENV,
+# and vite does NOT inline `process.env.NODE_ENV` into the server bundle — so
+# runtime NODE_ENV checks (ours and our dependencies') silently took their dev
+# branch in production. App-level security posture now derives from the build
+# (src/lib/production-build.ts); this is belt-and-braces for library-internal
+# checks (e.g. Better Auth's default-secret guard).
+ENV NODE_ENV=production
 EXPOSE 3000
 # start-period covers the migrate step before the server begins listening.
 # REV2-68: probe whatever the server actually binds — server-bun.ts reads
