@@ -80,7 +80,7 @@ export function CancelSubscriptionDialog({
 
         <div className="space-y-2 text-sm text-muted-foreground">
           <p>
-            On Free the team is limited to 1 seat, 250 MB of attachment
+            On Free the team is limited to 3 seats, 250 MB of attachment
             storage and 1 feedback widget. Existing members keep working. Only
             new invites are blocked.
           </p>

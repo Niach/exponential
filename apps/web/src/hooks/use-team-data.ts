@@ -32,8 +32,13 @@ export function useTeamBySlug(teamSlug: string) {
   return (data?.[0] ?? null) as Team | null
 }
 
-export function useTeamBoards(teamId?: string) {
-  const { data } = useLiveQuery(
+// Boards plus the live query's readiness. A DISABLED live query reports
+// `isReady: true` (it never ran), so the readiness signal carries its own
+// enabling condition (REV2-59) — false until the team is resolved AND the
+// boards snapshot landed, letting callers tell "no boards" from "still
+// syncing".
+export function useTeamBoardsWithReady(teamId?: string) {
+  const { data, isReady } = useLiveQuery(
     (query) =>
       teamId
         ? query
@@ -44,7 +49,14 @@ export function useTeamBoards(teamId?: string) {
     [teamId]
   )
 
-  return (data ?? []) as Board[]
+  return {
+    boards: (data ?? []) as Board[],
+    boardsReady: Boolean(teamId) && isReady,
+  }
+}
+
+export function useTeamBoards(teamId?: string) {
+  return useTeamBoardsWithReady(teamId).boards
 }
 
 export function useTeamMemberships(userId?: string) {

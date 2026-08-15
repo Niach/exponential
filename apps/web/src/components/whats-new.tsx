@@ -46,6 +46,10 @@ export function WhatsNewCard({ onOpen }: { onOpen: () => void }) {
         onOpen()
       }}
       onKeyDown={(event) => {
+        // Only activate for keys aimed at the card itself — keydown from the
+        // focused Dismiss button bubbles up here, and preventDefault would
+        // suppress its native activation and open the sheet instead.
+        if (event.target !== event.currentTarget) return
         if (event.key === `Enter` || event.key === ` `) {
           event.preventDefault()
           dismiss()

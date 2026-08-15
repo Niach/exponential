@@ -7,7 +7,7 @@ import {
 } from "@/lib/collections"
 import {
   useTeamBySlug,
-  useTeamBoards,
+  useTeamBoardsWithReady,
   useTeamUsers,
 } from "@/hooks/use-team-data"
 import type { IssueFilters } from "@/lib/filters"
@@ -36,7 +36,7 @@ export function useMyIssuesData({
   // Const binding so TS narrowing survives into the live-query closure.
   const assignee = userId
   const team = useTeamBySlug(teamSlug)
-  const boards = useTeamBoards(team?.id)
+  const { boards, boardsReady } = useTeamBoardsWithReady(team?.id)
   const boardIds = useMemo(
     () => boards.map((board) => board.id),
     [boards]
@@ -108,9 +108,11 @@ export function useMyIssuesData({
     return {
       issueLabelMap,
       // The issues query is skipped until the session user + boards are
-      // known; a team with no boards can never deliver a snapshot, so
-      // treat it as ready-empty instead of loading forever.
-      issuesReady: issuesReady || boardMap.size === 0,
+      // known; a team with CONFIRMED zero boards can never deliver a
+      // snapshot, so treat it as ready-empty instead of loading forever —
+      // but only once the boards snapshot itself landed, or the empty
+      // state flashes while boards are still syncing (REV2-59 class).
+      issuesReady: issuesReady || (boardsReady && boardMap.size === 0),
       labelList,
       boardMap,
       totalIssueCount: issueList.length,
@@ -132,6 +134,7 @@ export function useMyIssuesData({
     issuesReady,
     labelList,
     boardMap,
+    boardsReady,
     statusOptions,
     resolveStatus,
     userMap,

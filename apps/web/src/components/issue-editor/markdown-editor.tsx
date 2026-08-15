@@ -231,7 +231,7 @@ function LinkControl({ editor }: { editor: Editor }) {
 
   if (editing) {
     return (
-      <span className="toolbar-link-edit">
+      <span className="toolbar-link-edit" data-editor-link-edit="">
         <input
           ref={inputRef}
           className="toolbar-link-input"
