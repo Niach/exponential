@@ -1,7 +1,8 @@
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { Link } from "@tanstack/react-router"
 import { useLiveQuery } from "@tanstack/react-db"
 import { Bell, CircleCheck } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import type { NotificationType } from "@exp/db-schema/domain"
 import { notificationTypeValues } from "@exp/db-schema/domain"
 import { conceptIcon } from "@/lib/icons.generated"
@@ -68,6 +69,12 @@ type SupportGroup = {
 }
 
 type Group = IssueGroup | SupportGroup
+
+// REV-46: the notifications shape syncs every delivered row, so a long-lived
+// account can group into thousands of rows — cap + expand like the board's
+// issue list instead of mounting them all.
+const GROUP_CAP = 100
+const GROUP_CHUNK = 200
 
 // Single Linear-style activity stream: one row per issue group, showing the
 // latest notification's sentence (titles are already full human sentences —
@@ -164,6 +171,11 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
     )
   }, [notifications, issueMap, boardMap, teamMap])
 
+  const [visibleCount, setVisibleCount] = useState(GROUP_CAP)
+  const visibleGroups =
+    groups.length > visibleCount ? groups.slice(0, visibleCount) : groups
+  const hiddenCount = groups.length - visibleGroups.length
+
   const markGroupRead = async (items: Notification[]) => {
     await Promise.all(
       items
@@ -182,7 +194,7 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
             description="Assignments, comments and mentions on issues you follow will show up here."
           />
         ) : (
-          groups.map((g) => {
+          visibleGroups.map((g) => {
             const latest = g.items[0]
             if (g.kind === `support`) {
               return (
@@ -274,6 +286,17 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
               </Link>
             )
           })
+        )}
+        {hiddenCount > 0 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full text-xs text-muted-foreground"
+            onClick={() => setVisibleCount((c) => c + GROUP_CHUNK)}
+          >
+            Show {Math.min(GROUP_CHUNK, hiddenCount)} more ({hiddenCount}{` `}
+            hidden)
+          </Button>
         )}
       </div>
     </div>
