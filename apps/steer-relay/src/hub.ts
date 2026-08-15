@@ -240,8 +240,18 @@ export class Hub {
     switch (msg.t) {
       case `online`: {
         if (conn.claims.role !== `control`) return
-        conn.deviceId = msg.deviceId
         let byDevice = this.devices.get(conn.claims.sub)
+        // REV-11: a socket re-announcing under a NEW deviceId must evict the
+        // entry it registered before — onClose only reclaims the LAST
+        // announced id, so without this every extra `online` frame leaked a
+        // DeviceEntry forever (unbounded heap for a hostile control client,
+        // and ghost devices whose startSession sends into a dead socket).
+        // One control socket owns at most one presence entry.
+        if (conn.deviceId && conn.deviceId !== msg.deviceId) {
+          const prev = byDevice?.get(conn.deviceId)
+          if (prev?.conn === conn) byDevice!.delete(conn.deviceId)
+        }
+        conn.deviceId = msg.deviceId
         if (!byDevice) {
           byDevice = new Map()
           this.devices.set(conn.claims.sub, byDevice)
