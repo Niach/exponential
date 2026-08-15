@@ -39,10 +39,12 @@ import {
   fireAndForgetNewIssueNotify,
   fireAndForgetSupportThreadNotify,
 } from "@/lib/integrations/notifications"
+import { TtlPromiseCache } from "@/lib/ttl-promise-cache"
 import { buildWidgetDescription } from "./metadata"
 import { isWidgetKeyFormat } from "./key"
 import { isOriginAllowed } from "./origin"
 import { corsHeaders, jsonResponse } from "./cors"
+import { clientIpFromRequest, getWidgetConfigIpLimiter } from "./rate-limit"
 
 // Screenshots are widget-generated (canvas encodes), so the accepted set is a
 // deliberate subset of acceptedImageContentTypes — no gif/avif uploads here.
@@ -274,16 +276,37 @@ export function normalizedWidgetFormToggles(
 // on AND the plan still covers it — the owner-side write gate can go stale
 // (helpdesk toggled off, plan lapsed), so both the config response and raw
 // submits re-check dynamically.
+// 30s-TTL memo over the plan gate (REV-25): this check runs on the ANONYMOUS
+// config path, and on cloud assertCanUseHelpdesk → getTeamPlan costs two
+// uncached selects per call — unmemoized, every config fetch for a
+// support-mode widget triples its DB cost. BOTH outcomes are cached as
+// booleans (a lapsed plan rejects on every call, and TtlPromiseCache evicts
+// rejected promises on settle — caching the raw assert would leave exactly
+// the hot path uncached). The staleness matches the plan cache the submit
+// limiter already rides (submit-limit.ts); the helpdesk toggle itself stays
+// live — it rides the config row, not this cache.
+let supportPlanGateCache: TtlPromiseCache<boolean> | null = null
+
 async function widgetSupportAvailable(
   config: WidgetConfigWithBoard
 ): Promise<boolean> {
   if (config.teamHelpdeskEnabled !== true) return false
-  try {
-    await assertCanUseHelpdesk(config.teamId)
-    return true
-  } catch {
-    return false
-  }
+  supportPlanGateCache ??= new TtlPromiseCache<boolean>({
+    ttlMs: 30_000,
+    maxEntries: 5_000,
+  })
+  return supportPlanGateCache.get(config.teamId, async () => {
+    try {
+      await assertCanUseHelpdesk(config.teamId)
+      return true
+    } catch {
+      return false
+    }
+  })
+}
+
+export function resetWidgetSupportGateCacheForTest(): void {
+  supportPlanGateCache = null
 }
 
 // Per-mode availability: feedback needs a live target board, support the
@@ -904,6 +927,27 @@ export async function createWidgetSupportSubmission(args: {
 // route files with a wider server-only import graph have failed to register
 // under the nitro-alpha dev server (silent 404); see widget route files.
 export async function handleWidgetConfig(request: Request): Promise<Response> {
+  // Per-IP bucket BEFORE the key lookup (REV-25): the endpoint is anonymous
+  // and the lookup joins three tables, so the domain allowlist — checked only
+  // after the load — provides no load relief against a key-scanning loop.
+  // Every sibling anonymous endpoint (widget submit, /api/support/*) takes a
+  // bucket first; this one was the gap. The 429 echoes the requesting origin
+  // permissively like the preflight handler — it carries no data, and the
+  // real config response stays allowlist-gated.
+  const ipLimit = getWidgetConfigIpLimiter().tryTake(
+    `ip:${clientIpFromRequest(request)}`
+  )
+  if (!ipLimit.ok) {
+    return jsonResponse(
+      429,
+      { error: `Too many requests, try again later` },
+      {
+        ...corsHeaders(request.headers.get(`origin`)),
+        "Retry-After": String(ipLimit.retryAfterSeconds),
+      }
+    )
+  }
+
   const key = new URL(request.url).searchParams.get(`key`) ?? ``
 
   let config

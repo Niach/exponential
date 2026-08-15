@@ -13,6 +13,12 @@ const h = vi.hoisted(() => ({
   fireAndForgetAssignmentNotify: vi.fn(),
   fireAndForgetSupportThreadNotify: vi.fn(),
   assertCanUseHelpdesk: vi.fn(async (): Promise<void> => undefined),
+  // REV-25: the config endpoint's per-IP bucket.
+  configIpTryTake: vi.fn(
+    (): { ok: true } | { ok: false; retryAfterSeconds: number } => ({
+      ok: true,
+    })
+  ),
   createSupportThreadInTx: vi.fn(
     async (_tx: unknown, _args: Record<string, unknown>) => ({
       threadId: `thread-1`,
@@ -140,6 +146,10 @@ vi.mock(`@/lib/integrations/notifications`, () => ({
   fireAndForgetAssignmentNotify: h.fireAndForgetAssignmentNotify,
   fireAndForgetSupportThreadNotify: h.fireAndForgetSupportThreadNotify,
 }))
+vi.mock(`@/lib/widget/rate-limit`, () => ({
+  clientIpFromRequest: () => `203.0.113.7`,
+  getWidgetConfigIpLimiter: () => ({ tryTake: h.configIpTryTake }),
+}))
 
 import {
   attachments,
@@ -154,6 +164,7 @@ import {
   createWidgetSubmission,
   createWidgetSupportSubmission,
   effectiveWidgetModes,
+  handleWidgetConfig,
   normalizedWidgetFormToggles,
   requestedWidgetModes,
   resolveWidgetConfigLabels,
@@ -161,9 +172,17 @@ import {
   sanitizeWidgetHexColor,
   sanitizeWidgetLabelIds,
   sanitizeWidgetTheme,
+  resetWidgetSupportGateCacheForTest,
   WidgetRequestError,
   type WidgetConfigWithBoard,
 } from "@/lib/widget/service"
+
+// The support plan gate is memoized per team (REV-25) and the tests below
+// flip h.assertCanUseHelpdesk between tests while reusing one teamId — start
+// every test with a cold cache.
+beforeEach(() => {
+  resetWidgetSupportGateCacheForTest()
+})
 
 const config = {
   id: `cfg-1`,
@@ -709,6 +728,60 @@ describe(`widget modes`, () => {
       `feedback`,
       `support`,
     ])
+  })
+
+  // REV-25: the plan gate runs on the anonymous config path, so it is
+  // memoized per team — repeated fetches inside the TTL cost zero extra
+  // billing queries, for BOTH outcomes (a lapsed plan rejects every call,
+  // which is exactly the case that must not stay uncached).
+  it(`memoizes the plan gate per team`, async () => {
+    await effectiveWidgetModes(supportConfig)
+    await effectiveWidgetModes(supportConfig)
+    expect(h.assertCanUseHelpdesk).toHaveBeenCalledTimes(1)
+  })
+
+  it(`memoizes the lapsed-plan outcome too`, async () => {
+    h.assertCanUseHelpdesk.mockRejectedValue(new Error(`plan`))
+    expect(await effectiveWidgetModes(supportConfig)).toEqual([`feedback`])
+    expect(await effectiveWidgetModes(supportConfig)).toEqual([`feedback`])
+    expect(h.assertCanUseHelpdesk).toHaveBeenCalledTimes(1)
+  })
+})
+
+// REV-25: the anonymous GET /api/widget/config takes a per-IP token BEFORE
+// any DB work. The db mock in this file has no leftJoin chain, so a
+// well-formed key that reached loadWidgetConfigByKey would surface as a 500
+// — the 429/404 statuses below double as proof the lookup never ran.
+describe(`handleWidgetConfig rate limiting`, () => {
+  beforeEach(() => {
+    h.configIpTryTake.mockClear()
+    h.configIpTryTake.mockReturnValue({ ok: true })
+  })
+
+  const configRequest = (key: string, origin?: string) =>
+    new Request(`https://app.test/api/widget/config?key=${key}`, {
+      headers: origin ? { origin } : {},
+    })
+
+  it(`429s with Retry-After before the key lookup when the bucket is empty`, async () => {
+    h.configIpTryTake.mockReturnValue({ ok: false, retryAfterSeconds: 42 })
+    const res = await handleWidgetConfig(
+      configRequest(`expw_${`a`.repeat(32)}`, `https://example.com`)
+    )
+    expect(res.status).toBe(429)
+    expect(res.headers.get(`Retry-After`)).toBe(`42`)
+    // Permissive origin echo, like the preflight handler — the body carries
+    // no data and the real config response stays allowlist-gated.
+    expect(res.headers.get(`Access-Control-Allow-Origin`)).toBe(
+      `https://example.com`
+    )
+    expect(h.configIpTryTake).toHaveBeenCalledWith(`ip:203.0.113.7`)
+  })
+
+  it(`spends a token even on malformed keys`, async () => {
+    const res = await handleWidgetConfig(configRequest(`nope`))
+    expect(res.status).toBe(404)
+    expect(h.configIpTryTake).toHaveBeenCalledTimes(1)
   })
 })
 
