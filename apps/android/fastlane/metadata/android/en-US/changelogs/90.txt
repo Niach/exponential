@@ -1,0 +1,1 @@
+A wave of stability and performance fixes across lists, sync, and the editor, and merging a PR now wraps up its coding session everywhere.

@@ -1,3 +1,4 @@
-- Assignee picker only offers current team members
-- PR notifications credit the person who started the work
+- Merging a PR now wraps up its coding session on every path
+- Faster, leak-free issue lists and inbox
+- Sharing images into the app no longer stutters
 - Smaller fixes and polish

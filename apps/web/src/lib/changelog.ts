@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-review-hardening-wave`,
+    date: `2026-08-15`,
+    title: `Stability wave: 40+ fixes across every app`,
+    summary: `A deep code review turned into a wave of correctness, performance, and security fixes on web, desktop, iOS, and Android.`,
+    body: `- **Merging wraps up the session**: merging a PR now ends its live coding session on every path (webhook, poller, or the Merge button), so machines stop working on branches that already landed.
+- **Faster lists**: big boards render instantly on web (virtualized) and much cheaper on desktop; steering a session no longer replays its whole history frame by frame.
+- **Editor fixes**: bracket-heavy lines no longer freeze the desktop editor, nested numbered lists keep their numbering on Android, and image alt text with brackets parses correctly.
+- **Sync and auth hardening**: attachment storage recovers after a hiccup instead of sticking until restart, login rate limiting is on in production, and a batch of rare account/session edge cases are closed.`,
+  },
+  {
     id: `2026-08-agent-bug-reports`,
     date: `2026-08-14`,
     title: `Agent bug reports and richer feedback details`,
