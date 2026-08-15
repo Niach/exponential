@@ -3,11 +3,12 @@ import { TRPCError } from "@trpc/server"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { db } from "@/db/connection"
 import { issueLabels, issues, labels, boards } from "@/db/schema"
-import { and, eq, inArray, isNull } from "drizzle-orm"
+import { and, eq, inArray } from "drizzle-orm"
 import {
   assertIssueLabelTeamMatch,
   assertTeamMember,
 } from "@/lib/team-membership"
+import { boardVisible } from "@/lib/board-visibility"
 import { recordIssueEvent } from "@/lib/integrations/activity"
 
 export const issueLabelsRouter = router({
@@ -124,7 +125,7 @@ export const issueLabelsRouter = router({
             and(
               inArray(issues.id, input.issueIds),
               eq(boards.teamId, label.teamId),
-              isNull(boards.deletedAt)
+              boardVisible()
             )
           )
         if (eligible.length === 0) {
@@ -184,7 +185,7 @@ export const issueLabelsRouter = router({
             and(
               inArray(issues.id, input.issueIds),
               eq(boards.teamId, label.teamId),
-              isNull(boards.deletedAt)
+              boardVisible()
             )
           )
         if (eligible.length === 0) {

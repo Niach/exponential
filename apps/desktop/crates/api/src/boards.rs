@@ -9,6 +9,12 @@
 //!   field, §4.2; prefix is uppercased server-side.)
 //! - `boards.update({id, name?, color?, icon?})` → `{board}` (no txId).
 //! - `boards.delete({boardId})` → `{ok, txId}` (owner-only).
+//! - `boards.archive({boardId})` / `boards.unarchive({boardId})` → `{ok, txId}`
+//!   and `boards.listArchived({teamId})` → `[{id, name, …, archivedAt}]`
+//!   (owner-only, EXP-500). Archiving is the non-purging sibling of the trash:
+//!   the board and all of its issues leave every shape, so an archived board
+//!   is NOT in the synced collection — this tRPC read is the only way to see
+//!   one.
 //!
 //! (`boards.updatePreviewConfig` is the §7 run-target mirror — owned by the
 //! run-configs surface, not wrapped here.)
@@ -182,6 +188,67 @@ pub fn boards_delete(trpc: &TrpcClient, board_id: &str) -> Result<OkTxOutput, Ap
     trpc.mutation("boards.delete", &Input { board_id })
 }
 
+/// One archived board, as `boards.listArchived` returns it. No `purgeAt`
+/// counterpart to the trash card's countdown — nothing ever deletes an
+/// archived board.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchivedBoard {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub slug: Option<String>,
+    #[serde(default)]
+    pub prefix: Option<String>,
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub repository_id: Option<String>,
+    /// ISO-8601; the server sends a plain JSON date string (no transformer).
+    #[serde(default)]
+    pub archived_at: Option<String>,
+}
+
+/// `boards.archive` — mutation (owner-only, EXP-500). Hides the board and all
+/// of its issues from everyone until it is unarchived; deletes nothing. The
+/// board leaves the synced collection on the next Electric delta, which is
+/// what makes it vanish from the rail, pickers and search.
+pub fn boards_archive(trpc: &TrpcClient, board_id: &str) -> Result<OkTxOutput, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        board_id: &'a str,
+    }
+    trpc.mutation("boards.archive", &Input { board_id })
+}
+
+/// `boards.unarchive` — mutation (owner-only). The board and its whole history
+/// sync back in.
+pub fn boards_unarchive(trpc: &TrpcClient, board_id: &str) -> Result<OkTxOutput, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        board_id: &'a str,
+    }
+    trpc.mutation("boards.unarchive", &Input { board_id })
+}
+
+/// `boards.listArchived` — query (owner-only). Archived boards are excluded
+/// from the boards shape, so this is the ONLY way the client can see them.
+pub fn boards_list_archived(
+    trpc: &TrpcClient,
+    team_id: &str,
+) -> Result<Vec<ArchivedBoard>, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        team_id: &'a str,
+    }
+    trpc.query_with_input("boards.listArchived", &Input { team_id })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -272,5 +339,40 @@ mod tests {
         assert_eq!(out.tx_id, Some(3));
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(r#"{"boardId":"p-1"}"#));
+    }
+
+    #[test]
+    fn archive_and_unarchive_post_camel_case_board_id() {
+        let (base, captured) =
+            one_shot_server(200, r#"{"result":{"data":{"ok":true,"txId":7}}}"#);
+        let out = boards_archive(&client(&base), "p-1").unwrap();
+        assert!(out.ok);
+        assert_eq!(out.tx_id, Some(7));
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/boards.archive HTTP/1.1"));
+        assert!(request.ends_with(r#"{"boardId":"p-1"}"#));
+
+        let (base, captured) =
+            one_shot_server(200, r#"{"result":{"data":{"ok":true,"txId":8}}}"#);
+        boards_unarchive(&client(&base), "p-1").unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/boards.unarchive HTTP/1.1"));
+        assert!(request.ends_with(r#"{"boardId":"p-1"}"#));
+    }
+
+    #[test]
+    fn list_archived_is_a_query_and_decodes_rows() {
+        let (base, captured) = one_shot_server(
+            200,
+            r##"{"result":{"data":[{"id":"p-1","name":"Old","slug":"old","prefix":"OLD","color":"#6366f1","icon":null,"repositoryId":null,"archivedAt":"2026-08-01T00:00:00.000Z"}]}}"##,
+        );
+        let rows = boards_list_archived(&client(&base), "w-1").unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "Old");
+        assert_eq!(rows[0].archived_at.as_deref(), Some("2026-08-01T00:00:00.000Z"));
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        // A GET with the percent-encoded raw-JSON input, per trpc.rs.
+        assert!(request.starts_with("GET /api/trpc/boards.listArchived?input="));
+        assert!(request.contains("%22teamId%22"));
     }
 }

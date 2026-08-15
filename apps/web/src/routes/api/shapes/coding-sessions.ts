@@ -5,8 +5,9 @@ import {
 } from "@/lib/team-membership"
 import { createShapeRouteHandler } from "@/lib/shape-route"
 
-// Server-pinned column allowlist — excludes the REV2-5 `board_deleted_at`
-// trash mirror (server-only; the where clause filters on it).
+// Server-pinned column allowlist — excludes the `board_deleted_at` trash
+// mirror (REV2-5) and the `board_archived_at` archive mirror (EXP-500), both
+// server-only (the where clause filters on them).
 // `action_id`/`action_name` were appended for EXP-253 — a ONE-TIME shape-
 // identity rotation (benign: small table, full resync; land in one deploy).
 // Old native builds drop unknown columns safely (verified: iOS filters to

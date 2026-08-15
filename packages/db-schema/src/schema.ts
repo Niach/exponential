@@ -292,6 +292,13 @@ export const boards = pgTable(
     // time is computed, never stored (constant retention). Trashed boards drop
     // out of every membership/public scope but keep their rows for restore.
     deletedAt: timestamp(`deleted_at`, { withTimezone: true }),
+    // Archive marker (EXP-500) — the non-purging sibling of deletedAt. Non-null
+    // = archived: the board and every one of its issues drop out of the Electric
+    // shapes and of every server read surface, exactly like the trash, but
+    // NOTHING ever deletes them. Owners bring a board back with boards.unarchive.
+    // Archiving previously shipped as a SYNCED column each client filtered by
+    // hand and was deleted for leaking (REV2-103); it is server-side now.
+    archivedAt: timestamp(`archived_at`, { withTimezone: true }),
     ...timestamps,
   },
   (table) => [
@@ -305,6 +312,11 @@ export const boards = pgTable(
     index(`idx_boards_deleted`)
       .on(table.deletedAt)
       .where(sql`deleted_at IS NOT NULL`),
+    // Serves boards.listArchived; near-empty in steady state, like the trash
+    // index above (only archived rows are indexed).
+    index(`idx_boards_archived`)
+      .on(table.archivedAt)
+      .where(sql`archived_at IS NOT NULL`),
   ]
 )
 
@@ -325,12 +337,15 @@ export const issues = pgTable(
     teamId: uuid(`team_id`)
       .notNull()
       .references(() => teams.id, { onDelete: `cascade` }),
-    // Mirror of the parent board's deleted_at, maintained by
+    // Mirrors of the parent board's deleted_at / archived_at, maintained by
     // populate_issue_board_context on insert/move and fanned out by
-    // propagate_board_deleted_at on trash/restore. Lets the shape's trash
-    // filter be the STATIC predicate `board_deleted_at IS NULL` instead of a
-    // per-request board-id list (REV2-5). Server-only, shape-excluded.
+    // propagate_board_deleted_at / propagate_board_archived_at on
+    // trash/restore and archive/unarchive. Lets the shape's hide filters be
+    // the STATIC predicates `board_deleted_at IS NULL` +
+    // `board_archived_at IS NULL` instead of a per-request board-id list
+    // (REV2-5, EXP-500). Server-only, shape-excluded.
     boardDeletedAt: timestamp(`board_deleted_at`, { withTimezone: true }),
+    boardArchivedAt: timestamp(`board_archived_at`, { withTimezone: true }),
     number: integer().notNull().default(0),
     identifier: varchar({ length: 20 }).notNull().default(``),
     title: varchar({ length: 500 }).notNull(),
@@ -517,9 +532,11 @@ export const issueLabels = pgTable(
     boardId: uuid(`board_id`)
       .notNull()
       .references(() => boards.id, { onDelete: `cascade` }),
-    // Mirror of the parent board's deleted_at (trigger-maintained, REV2-5) —
-    // the shape's static trash predicate. Server-only, shape-excluded.
+    // Mirrors of the parent board's deleted_at / archived_at
+    // (trigger-maintained, REV2-5 + EXP-500) — the shape's static trash and
+    // archive predicates. Server-only, shape-excluded.
     boardDeletedAt: timestamp(`board_deleted_at`, { withTimezone: true }),
+    boardArchivedAt: timestamp(`board_archived_at`, { withTimezone: true }),
   },
   (table) => [
     primaryKey({ columns: [table.issueId, table.labelId] }),
@@ -544,9 +561,11 @@ export const comments = pgTable(
     boardId: uuid(`board_id`)
       .notNull()
       .references(() => boards.id, { onDelete: `cascade` }),
-    // Mirror of the parent board's deleted_at (trigger-maintained, REV2-5) —
-    // the shape's static trash predicate. Server-only, shape-excluded.
+    // Mirrors of the parent board's deleted_at / archived_at
+    // (trigger-maintained, REV2-5 + EXP-500) — the shape's static trash and
+    // archive predicates. Server-only, shape-excluded.
     boardDeletedAt: timestamp(`board_deleted_at`, { withTimezone: true }),
+    boardArchivedAt: timestamp(`board_archived_at`, { withTimezone: true }),
     authorId: text(`author_id`)
       .notNull()
       .references(() => users.id, { onDelete: `cascade` }),
@@ -599,10 +618,12 @@ export const codingSessions = pgTable(
     boardId: uuid(`board_id`).references(() => boards.id, {
       onDelete: `cascade`,
     }),
-    // Mirror of the parent board's deleted_at (trigger-maintained, REV2-5) —
-    // the shape's static trash predicate; stays NULL on batch rows, which
-    // therefore always sync. Server-only, shape-excluded.
+    // Mirrors of the parent board's deleted_at / archived_at
+    // (trigger-maintained, REV2-5 + EXP-500) — the shape's static trash and
+    // archive predicates; both stay NULL on batch rows, which therefore
+    // always sync. Server-only, shape-excluded.
     boardDeletedAt: timestamp(`board_deleted_at`, { withTimezone: true }),
+    boardArchivedAt: timestamp(`board_archived_at`, { withTimezone: true }),
     // Action-scoped sessions (EXP-253): the action being run (SET NULL — a
     // deleted action degrades the row to batch-shaped) plus a display-name
     // snapshot (actions are server-only, never synced — clients can't join).
@@ -666,9 +687,11 @@ export const attachments = pgTable(
     boardId: uuid(`board_id`)
       .notNull()
       .references(() => boards.id, { onDelete: `cascade` }),
-    // Mirror of the parent board's deleted_at (trigger-maintained, REV2-5) —
-    // the shape's static trash predicate. Server-only, shape-excluded.
+    // Mirrors of the parent board's deleted_at / archived_at
+    // (trigger-maintained, REV2-5 + EXP-500) — the shape's static trash and
+    // archive predicates. Server-only, shape-excluded.
     boardDeletedAt: timestamp(`board_deleted_at`, { withTimezone: true }),
+    boardArchivedAt: timestamp(`board_archived_at`, { withTimezone: true }),
     commentId: uuid(`comment_id`).references(() => comments.id, {
       onDelete: `set null`,
     }),
@@ -1078,10 +1101,12 @@ export const notifications = pgTable(
     boardId: uuid(`board_id`).references(() => boards.id, {
       onDelete: `cascade`,
     }),
-    // Mirror of the parent board's deleted_at (trigger-maintained, REV2-5) —
-    // the shape's static trash predicate; stays NULL on issue-less rows,
-    // which therefore always sync. Server-only, shape-excluded.
+    // Mirrors of the parent board's deleted_at / archived_at
+    // (trigger-maintained, REV2-5 + EXP-500) — the shape's static trash and
+    // archive predicates; both stay NULL on issue-less rows, which therefore
+    // always sync. Server-only, shape-excluded.
     boardDeletedAt: timestamp(`board_deleted_at`, { withTimezone: true }),
+    boardArchivedAt: timestamp(`board_archived_at`, { withTimezone: true }),
     // App-written team pointer for ISSUE-LESS rows (helpdesk support_reply):
     // with no issue to resolve a team from, clients need this to route the
     // notification to the right team's Support inbox. Synced (in the shape
@@ -1151,9 +1176,11 @@ export const issueSubscribers = pgTable(
     boardId: uuid(`board_id`)
       .notNull()
       .references(() => boards.id, { onDelete: `cascade` }),
-    // Mirror of the parent board's deleted_at (trigger-maintained, REV2-5) —
-    // the shape's static trash predicate. Server-only, shape-excluded.
+    // Mirrors of the parent board's deleted_at / archived_at
+    // (trigger-maintained, REV2-5 + EXP-500) — the shape's static trash and
+    // archive predicates. Server-only, shape-excluded.
     boardDeletedAt: timestamp(`board_deleted_at`, { withTimezone: true }),
+    boardArchivedAt: timestamp(`board_archived_at`, { withTimezone: true }),
     source: subscriberSourceEnum().notNull(),
     unsubscribed: boolean().notNull().default(false),
     ...timestamps,
@@ -1193,9 +1220,11 @@ export const issueEvents = pgTable(
     boardId: uuid(`board_id`)
       .notNull()
       .references(() => boards.id, { onDelete: `cascade` }),
-    // Mirror of the parent board's deleted_at (trigger-maintained, REV2-5) —
-    // the shape's static trash predicate. Server-only, shape-excluded.
+    // Mirrors of the parent board's deleted_at / archived_at
+    // (trigger-maintained, REV2-5 + EXP-500) — the shape's static trash and
+    // archive predicates. Server-only, shape-excluded.
     boardDeletedAt: timestamp(`board_deleted_at`, { withTimezone: true }),
+    boardArchivedAt: timestamp(`board_archived_at`, { withTimezone: true }),
     actorUserId: text(`actor_user_id`).references(() => users.id, {
       onDelete: `set null`,
     }),
@@ -1687,6 +1716,7 @@ export const createIssueSchema = createInsertSchema(issues).omit({
   // Server-derived (populate_issue_board_context) — never client input.
   teamId: true,
   boardDeletedAt: true,
+  boardArchivedAt: true,
   createdAt: true,
   updatedAt: true,
 })

@@ -87,10 +87,13 @@ describe(`updated_at triggers`, () => {
     expect(unknown).toEqual([])
   })
 
-  it(`guards the board_deleted_at mirror tables with a WHEN clause`, () => {
+  it(`guards the board mirror tables with a WHEN clause`, () => {
     // REV2-5: the board trash/restore fan-out only flips board_deleted_at, and
     // bumping updated_at there would stamp a whole board's history as freshly
-    // edited on restore. REV-49 extends the ISSUE-CHILD guards with a
+    // edited on restore. EXP-500 adds the same guard for board_archived_at —
+    // archive/unarchive is the same bookkeeping flip, and an unarchive that
+    // restamped a whole board's history would be the same bug. REV-49 extends
+    // the ISSUE-CHILD guards with a
     // board_id arm: issues.move's re-point UPDATEs only change board_id, and
     // restamping every comment/attachment/... on a move is the same class of
     // bookkeeping churn. issues itself must NOT carry the board_id arm — the
@@ -112,6 +115,9 @@ describe(`updated_at triggers`, () => {
       expect(trigger).toContain(
         `NEW.board_deleted_at IS NOT DISTINCT FROM OLD.board_deleted_at`
       )
+      expect(trigger).toContain(
+        `NEW.board_archived_at IS NOT DISTINCT FROM OLD.board_archived_at`
+      )
       if (config.name === `issues`) {
         expect(trigger).not.toContain(
           `NEW.board_id IS NOT DISTINCT FROM OLD.board_id`
@@ -125,17 +131,21 @@ describe(`updated_at triggers`, () => {
   })
 
   it(`skips the comment→issue bump for board re-points and trash fan-outs`, () => {
-    // REV-49: bump_issue_updated_at_from_comment must treat both bookkeeping
-    // rewrites of comment rows — the trash fan-out's board_deleted_at flip
-    // AND the move's board_id re-point — as non-discussion, or a single
-    // move/trash amplifies into one issues-UPDATE (and one Electric op fan-
-    // out) per comment.
+    // REV-49: bump_issue_updated_at_from_comment must treat every bookkeeping
+    // rewrite of comment rows — the trash fan-out's board_deleted_at flip, the
+    // EXP-500 archive fan-out's board_archived_at flip, AND the move's
+    // board_id re-point — as non-discussion, or a single
+    // move/trash/archive amplifies into one issues-UPDATE (and one Electric op
+    // fan-out) per comment.
     const start = triggersSql.indexOf(
       `CREATE OR REPLACE FUNCTION bump_issue_updated_at_from_comment()`
     )
     const body = triggersSql.slice(start, triggersSql.indexOf(`$$ LANGUAGE plpgsql;`, start))
     expect(body).toContain(
       `NEW.board_deleted_at IS DISTINCT FROM OLD.board_deleted_at`
+    )
+    expect(body).toContain(
+      `NEW.board_archived_at IS DISTINCT FROM OLD.board_archived_at`
     )
     expect(body).toContain(`NEW.board_id IS DISTINCT FROM OLD.board_id`)
   })

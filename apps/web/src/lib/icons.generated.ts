@@ -32,6 +32,7 @@
 
 import {
   Activity,
+  Archive,
   ArrowDownLeft,
   ArrowLeft,
   ArrowLeftRight,
@@ -211,6 +212,7 @@ const Progress45 = createLucideIcon(`progress-4-5`, [["circle",{"cx":"12","cy":"
 
 export const ICON_COMPONENTS: Record<IconName, LucideIcon> = {
   "activity": Activity,
+  "archive": Archive,
   "arrow-down-left": ArrowDownLeft,
   "arrow-left": ArrowLeft,
   "arrow-left-right": ArrowLeftRight,

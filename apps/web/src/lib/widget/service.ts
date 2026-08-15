@@ -77,7 +77,7 @@ export class WidgetRequestError extends Error {
   }
 }
 
-// The widget config row plus the trash state of its feedback target
+// The widget config row plus the trash/archive state of its feedback target
 // board (nullable — support-only widgets have none) and the team's
 // helpdesk flag, so the submit + config paths can gate each mode on live
 // state.
@@ -85,6 +85,7 @@ export type WidgetConfigWithBoard = typeof widgetConfigs.$inferSelect & {
   boardSlug: string | null
   boardName: string | null
   boardDeletedAt: Date | null
+  boardArchivedAt: Date | null
   teamSlug: string | null
   // The reporter-facing helpdesk identity (REV2-51): the SAME name the
   // conversation page and every member reply email carry.
@@ -104,6 +105,7 @@ export async function loadWidgetConfigByKey(
       boardSlug: boards.slug,
       boardName: boards.name,
       boardDeletedAt: boards.deletedAt,
+      boardArchivedAt: boards.archivedAt,
       teamSlug: teams.slug,
       teamName: teams.name,
       teamHelpdeskEnabled: teams.helpdeskEnabled,
@@ -121,6 +123,7 @@ export async function loadWidgetConfigByKey(
     boardSlug: row.boardSlug,
     boardName: row.boardName,
     boardDeletedAt: row.boardDeletedAt,
+    boardArchivedAt: row.boardArchivedAt,
     teamSlug: row.teamSlug,
     teamName: row.teamName,
     teamHelpdeskEnabled: row.teamHelpdeskEnabled,
@@ -317,7 +320,9 @@ export async function effectiveWidgetModes(
 ): Promise<WidgetMode[]> {
   const modes = requestedWidgetModes(config)
   const feedbackAvailable =
-    config.boardId != null && config.boardDeletedAt == null
+    config.boardId != null &&
+    config.boardDeletedAt == null &&
+    config.boardArchivedAt == null
   const supportAvailable =
     modes.includes(`support`) && (await widgetSupportAvailable(config))
 
@@ -432,11 +437,15 @@ export async function createWidgetSubmission(args: {
 }): Promise<WidgetSubmitResult> {
   const { config, formData } = args
 
-  // A missing or trashed target board rejects new writes (a support-only
-  // widget has no feedback board at all); restore brings a trashed board
-  // back automatically.
+  // A missing, trashed or archived target board rejects new writes (a
+  // support-only widget has no feedback board at all); restoring or
+  // unarchiving brings a hidden board back automatically.
   const boardId = config.boardId
-  if (boardId == null || config.boardDeletedAt != null) {
+  if (
+    boardId == null ||
+    config.boardDeletedAt != null ||
+    config.boardArchivedAt != null
+  ) {
     throw new WidgetRequestError(403, `This feedback board is unavailable`)
   }
 

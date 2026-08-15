@@ -23,10 +23,15 @@ export async function createAgentBugReport(args: {
 }): Promise<{ issueId: string; identifier: string }> {
   const config = await loadWidgetConfigByKey(args.widgetKey)
 
-  // Same gate as the widget submit path: a missing or trashed feedback board
-  // rejects new writes; restore brings a trashed board back automatically.
+  // Same gate as the widget submit path: a missing, trashed or archived
+  // feedback board rejects new writes; restoring or unarchiving brings a
+  // hidden board back automatically.
   const boardId = config.boardId
-  if (boardId == null || config.boardDeletedAt != null) {
+  if (
+    boardId == null ||
+    config.boardDeletedAt != null ||
+    config.boardArchivedAt != null
+  ) {
     throw new WidgetRequestError(403, `This feedback board is unavailable`)
   }
 

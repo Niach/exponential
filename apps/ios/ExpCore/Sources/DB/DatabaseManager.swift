@@ -673,15 +673,24 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
-        // v11 (REV2-103): archiving is gone from the product — `boards.archived_at`
-        // and `issues.archived_at` no longer exist server-side and the shapes no
-        // longer carry them. Drop the dead columns from the cache (the
+        // v11 (REV2-103): the SYNCED archiving columns are gone —
+        // `boards.archived_at` / `issues.archived_at` no longer reach any
+        // client. Drop the dead columns from the cache (the
         // v5_drop_user_is_agent / v7_drop_board_dead_columns precedent); guarded
         // on presence so fresh installs (which never create them above) and
         // re-runs are no-ops. Stale stores that only now run the v6 issues
         // rebuild still get the column from that historical create — this drops
         // it right after. Board TRASH (`deleted_at`) is a different feature and
         // is filtered server-side by the boards shape, so nothing here touches it.
+        //
+        // EXP-500 later brought BOARD archiving back, but deliberately without
+        // a synced column: the boards shape excludes archived boards and the
+        // archive fan-out pulls their issues out of the issue-child shapes, so
+        // an archived board just stops arriving and iOS needs no filter and no
+        // new migration. This drop stays correct — do not resurrect the column
+        // (syncing it and filtering per-client is what leaked in the first
+        // place). Never rename this migration identifier: it is applied
+        // history.
         migrator.registerMigration("v11_drop_archived_at") { db in
             for table in ["boards", "issues"] {
                 guard try db.tableExists(table) else { continue }

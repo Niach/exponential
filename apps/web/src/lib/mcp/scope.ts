@@ -1,6 +1,7 @@
-import { and, eq, gt, inArray, isNull } from "drizzle-orm"
+import { and, eq, gt, inArray } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { mcpGrants, oauthAccessTokens, boards } from "@/db/schema"
+import { boardVisible } from "@/lib/board-visibility"
 
 // What an /api/mcp request may touch. Session-cookie and personal `expu_`
 // api-key requests are the user's own credentials and get `full` access; an
@@ -74,7 +75,7 @@ export async function resolveMcpAccessForGrant(
       .select({ id: boards.id, teamId: boards.teamId })
       .from(boards)
       .where(
-        and(inArray(boards.id, grant.boardIds), isNull(boards.deletedAt))
+        and(inArray(boards.id, grant.boardIds), boardVisible())
       )
     for (const row of rows) map.set(row.id, row.teamId)
   }

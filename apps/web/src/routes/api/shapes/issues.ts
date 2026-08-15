@@ -6,7 +6,8 @@ import {
 import { createShapeRouteHandler } from "@/lib/shape-route"
 
 // Server-pinned column allowlist (clients cannot widen it). Excludes the
-// REV2-5 scoping columns `team_id` + `board_deleted_at` — server-only
+// scoping columns `team_id` + `board_deleted_at` (REV2-5) +
+// `board_archived_at` (EXP-500) — server-only
 // bookkeeping the where clause filters on (Electric evaluates `where`
 // server-side, so a shape may filter on a column its allowlist excludes);
 // native schemas don't carry them.

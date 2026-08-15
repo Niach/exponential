@@ -5,10 +5,11 @@
 --   docker exec -i exponential-postgres-1 psql -U postgres -d exponential < src/db/out/custom/0001_triggers.sql
 
 -- 1. Auto-update updated_at timestamp on all tables that carry it. Tables
---    with a board_deleted_at mirror column (REV2-5) guard the bump with a
---    WHEN clause: the board trash/restore fan-out (propagate_board_deleted_at)
---    only flips board_deleted_at, and bumping updated_at there would stamp a
---    whole board's history as freshly edited on restore. The ISSUE-CHILD
+--    with the board_deleted_at / board_archived_at mirror columns (REV2-5,
+--    EXP-500) guard the bump with a WHEN clause: the board fan-outs
+--    (propagate_board_deleted_at, propagate_board_archived_at) only flip those
+--    mirrors, and bumping updated_at there would stamp a whole board's history
+--    as freshly edited on restore or unarchive. The ISSUE-CHILD
 --    tables among them additionally guard on board_id (REV-49): issues.move's
 --    re-point UPDATEs only change board_id, which is bookkeeping too — a move
 --    must not stamp every comment/attachment/... as freshly edited. issues
@@ -27,20 +28,24 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON teams FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON boards FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON issues FOR EACH ROW
-  WHEN (NEW.board_deleted_at IS NOT DISTINCT FROM OLD.board_deleted_at)
+  WHEN (NEW.board_deleted_at IS NOT DISTINCT FROM OLD.board_deleted_at
+    AND NEW.board_archived_at IS NOT DISTINCT FROM OLD.board_archived_at)
   EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON labels FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON issue_statuses FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON comments FOR EACH ROW
   WHEN (NEW.board_deleted_at IS NOT DISTINCT FROM OLD.board_deleted_at
+    AND NEW.board_archived_at IS NOT DISTINCT FROM OLD.board_archived_at
     AND NEW.board_id IS NOT DISTINCT FROM OLD.board_id)
   EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON attachments FOR EACH ROW
   WHEN (NEW.board_deleted_at IS NOT DISTINCT FROM OLD.board_deleted_at
+    AND NEW.board_archived_at IS NOT DISTINCT FROM OLD.board_archived_at
     AND NEW.board_id IS NOT DISTINCT FROM OLD.board_id)
   EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON notifications FOR EACH ROW
   WHEN (NEW.board_deleted_at IS NOT DISTINCT FROM OLD.board_deleted_at
+    AND NEW.board_archived_at IS NOT DISTINCT FROM OLD.board_archived_at
     AND NEW.board_id IS NOT DISTINCT FROM OLD.board_id)
   EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON fcm_tokens FOR EACH ROW EXECUTE FUNCTION update_updated_at();
@@ -48,14 +53,17 @@ CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON team_members FOR EA
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON team_invites FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON issue_subscribers FOR EACH ROW
   WHEN (NEW.board_deleted_at IS NOT DISTINCT FROM OLD.board_deleted_at
+    AND NEW.board_archived_at IS NOT DISTINCT FROM OLD.board_archived_at
     AND NEW.board_id IS NOT DISTINCT FROM OLD.board_id)
   EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON issue_events FOR EACH ROW
   WHEN (NEW.board_deleted_at IS NOT DISTINCT FROM OLD.board_deleted_at
+    AND NEW.board_archived_at IS NOT DISTINCT FROM OLD.board_archived_at
     AND NEW.board_id IS NOT DISTINCT FROM OLD.board_id)
   EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON coding_sessions FOR EACH ROW
   WHEN (NEW.board_deleted_at IS NOT DISTINCT FROM OLD.board_deleted_at
+    AND NEW.board_archived_at IS NOT DISTINCT FROM OLD.board_archived_at
     AND NEW.board_id IS NOT DISTINCT FROM OLD.board_id)
   EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON repositories FOR EACH ROW EXECUTE FUNCTION update_updated_at();
@@ -132,11 +140,11 @@ CREATE OR REPLACE TRIGGER generate_issue_number BEFORE INSERT ON issues FOR EACH
 -- 3. Bump issue.updated_at when a comment is created/edited/deleted so the
 --    issues Electric shape fires an `updated` event on new discussion (keeps
 --    "recently active" ordering honest on every client). The board
---    trash/restore fan-out (propagate_board_deleted_at) also UPDATEs comment
---    rows, and issues.move re-points their board_id — both are bookkeeping,
---    not discussion, so neither must bump (each would otherwise amplify a
---    trash/move into one issues-UPDATE per comment, REV-49; the move's own
---    issues UPDATE already bumps the issue exactly once).
+--    trash/restore and archive/unarchive fan-outs also UPDATE comment rows,
+--    and issues.move re-points their board_id — all bookkeeping,
+--    not discussion, so none must bump (each would otherwise amplify a
+--    trash/archive/move into one issues-UPDATE per comment, REV-49; the move's
+--    own issues UPDATE already bumps the issue exactly once).
 CREATE OR REPLACE FUNCTION bump_issue_updated_at_from_comment()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -144,6 +152,7 @@ DECLARE
 BEGIN
   IF (TG_OP = 'UPDATE')
     AND (NEW.board_deleted_at IS DISTINCT FROM OLD.board_deleted_at
+      OR NEW.board_archived_at IS DISTINCT FROM OLD.board_archived_at
       OR NEW.board_id IS DISTINCT FROM OLD.board_id) THEN
     RETURN NEW;
   END IF;
@@ -218,10 +227,12 @@ CREATE OR REPLACE TRIGGER populate_coding_session_team_id
   BEFORE INSERT ON coding_sessions
   FOR EACH ROW EXECUTE FUNCTION populate_issue_child_team_id();
 
--- 7. Auto-populate board_id + board_deleted_at on every issue-child synced
---    table from the referenced issue. board_deleted_at mirrors the parent
---    board's deleted_at (REV2-5) so the member shapes stay trash-aware via the
---    STATIC predicate `board_deleted_at IS NULL` — the old per-user board-id
+-- 7. Auto-populate board_id + board_deleted_at + board_archived_at on every
+--    issue-child synced table from the referenced issue. The two mirrors track
+--    the parent board's deleted_at/archived_at (REV2-5, EXP-500) so the member
+--    shapes stay trash- and archive-aware via the STATIC predicates
+--    `board_deleted_at IS NULL` + `board_archived_at IS NULL` — the old
+--    per-user board-id
 --    where clauses rotated every board-scoped shape identity on any board
 --    create/trash (Electric where clauses are single-table AND part of the
 --    shape identity). Covers every writer (tRPC, widget service, attachment
@@ -254,7 +265,8 @@ CREATE OR REPLACE FUNCTION populate_issue_child_board_id()
 RETURNS TRIGGER AS $$
 BEGIN
   IF NEW.issue_id IS NOT NULL THEN
-    SELECT i.board_id, b.deleted_at INTO NEW.board_id, NEW.board_deleted_at
+    SELECT i.board_id, b.deleted_at, b.archived_at
+      INTO NEW.board_id, NEW.board_deleted_at, NEW.board_archived_at
     FROM issues i JOIN boards b ON b.id = i.board_id
     WHERE i.id = NEW.issue_id
     FOR KEY SHARE OF i;
@@ -291,10 +303,11 @@ CREATE OR REPLACE TRIGGER populate_notification_board_id
   BEFORE INSERT OR UPDATE OF board_id ON notifications
   FOR EACH ROW EXECUTE FUNCTION populate_issue_child_board_id();
 
--- 8. Auto-populate team_id + board_deleted_at on issues from the parent
---    board (REV2-5). team_id makes the issues shape TEAM-scoped (stable
---    across board create/trash); board_deleted_at is the shape's static
---    trash predicate. Writers pass the team_id they already resolved for
+-- 8. Auto-populate team_id + board_deleted_at + board_archived_at on issues
+--    from the parent board (REV2-5, EXP-500). team_id makes the issues shape
+--    TEAM-scoped (stable across board create/trash/archive); the two mirrors
+--    are the shape's static trash and archive predicates. Writers pass the
+--    team_id they already resolved for
 --    auth (the column is NOT NULL), but this trigger overwrites with
 --    board-derived truth, and re-derives both columns when issues.move
 --    re-points board_id (moves never cross teams, so team_id is effectively
@@ -311,7 +324,8 @@ CREATE OR REPLACE TRIGGER populate_notification_board_id
 CREATE OR REPLACE FUNCTION populate_issue_board_context()
 RETURNS TRIGGER AS $$
 BEGIN
-  SELECT b.team_id, b.deleted_at INTO NEW.team_id, NEW.board_deleted_at
+  SELECT b.team_id, b.deleted_at, b.archived_at
+    INTO NEW.team_id, NEW.board_deleted_at, NEW.board_archived_at
   FROM boards b
   WHERE b.id = NEW.board_id
   FOR SHARE OF b;
@@ -361,6 +375,43 @@ CREATE OR REPLACE TRIGGER propagate_board_deleted_at
   FOR EACH ROW
   WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
   EXECUTE FUNCTION propagate_board_deleted_at();
+
+-- 9b. The same fan-out for archive/unarchive (EXP-500). Archiving is trash
+--     WITHOUT the purge: an archived board and all of its history leave every
+--     client's sync scope and every server read surface, and stay that way
+--     until an owner unarchives it. Kept as its own function + WHEN clause
+--     rather than widened into #9 so each fan-out only rewrites child rows
+--     when its OWN column changed — the two markers are independent (a board
+--     can be archived and then trashed). Same cost model and the same
+--     updated_at preservation (the WHEN guards in #1 cover both mirrors).
+CREATE OR REPLACE FUNCTION propagate_board_archived_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  UPDATE issues SET board_archived_at = NEW.archived_at
+    WHERE board_id = NEW.id AND board_archived_at IS DISTINCT FROM NEW.archived_at;
+  UPDATE comments SET board_archived_at = NEW.archived_at
+    WHERE board_id = NEW.id AND board_archived_at IS DISTINCT FROM NEW.archived_at;
+  UPDATE attachments SET board_archived_at = NEW.archived_at
+    WHERE board_id = NEW.id AND board_archived_at IS DISTINCT FROM NEW.archived_at;
+  UPDATE issue_labels SET board_archived_at = NEW.archived_at
+    WHERE board_id = NEW.id AND board_archived_at IS DISTINCT FROM NEW.archived_at;
+  UPDATE issue_subscribers SET board_archived_at = NEW.archived_at
+    WHERE board_id = NEW.id AND board_archived_at IS DISTINCT FROM NEW.archived_at;
+  UPDATE issue_events SET board_archived_at = NEW.archived_at
+    WHERE board_id = NEW.id AND board_archived_at IS DISTINCT FROM NEW.archived_at;
+  UPDATE coding_sessions SET board_archived_at = NEW.archived_at
+    WHERE board_id = NEW.id AND board_archived_at IS DISTINCT FROM NEW.archived_at;
+  UPDATE notifications SET board_archived_at = NEW.archived_at
+    WHERE board_id = NEW.id AND board_archived_at IS DISTINCT FROM NEW.archived_at;
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER propagate_board_archived_at
+  AFTER UPDATE ON boards
+  FOR EACH ROW
+  WHEN (OLD.archived_at IS DISTINCT FROM NEW.archived_at)
+  EXECUTE FUNCTION propagate_board_archived_at();
 
 -- 10. Seed the 7 locked builtin issue statuses for every NEW team (EXP-314).
 --     A trigger rather than teams.create code because teams are inserted from

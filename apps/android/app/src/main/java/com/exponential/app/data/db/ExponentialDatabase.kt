@@ -122,10 +122,15 @@ import androidx.room.RoomDatabase
     // v29 (EXP-273): actions.icon — the action's curated registry glyph, the
     //      same set boards.icon draws from. Additive column on the existing
     //      actions shape; destructive fallback wipes + resyncs.
-    // v30 (REV2-103): archiving deleted from the product — boards.archived_at
+    // v30 (REV2-103): the SYNCED archiving columns deleted — boards.archived_at
     //      and issues.archived_at dropped from the entities (and the shapes
     //      server-side). Removing a column is decode-safe (ignoreUnknownKeys)
-    //      and the destructive fallback wipes + resyncs.
+    //      and the destructive fallback wipes + resyncs. EXP-500 later brought
+    //      BOARD archiving back WITHOUT a synced column: the server excludes
+    //      archived boards from the boards shape and their issues from the
+    //      issue-child shapes, so they simply stop arriving and Android needs
+    //      no entity field, no DAO filter and no version bump. Do not re-add
+    //      the column — per-client filtering is what leaked originally.
     // v31 (REV2-103): due times deleted from the product — issues.due_time and
     //      issues.end_time dropped from the entity (and the schema/shape
     //      server-side); the due DATE stays. Removing a column is decode-safe

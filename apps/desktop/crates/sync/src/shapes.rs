@@ -124,13 +124,21 @@ pub const SHAPES: [ShapeSpec; 18] = [
             "color",
             // Nullable repo + icon. `heal_missing_columns` ALTERs these onto
             // existing tables on the next open (all TEXT). The dropped
-            // public-board columns (`is_public`/`public_show_*`), the dropped
-            // `archived_at` (REV2-103: archiving is gone; board trash is the
-            // unrelated `deleted_at` feature, server-side scoped) and the
+            // public-board columns (`is_public`/`public_show_*`) and the
             // dropped `is_protected` (EXP-364: protected boards are gone —
             // nothing stamped the flag, so the column left the server) linger
             // as orphaned local TEXT columns on pre-drop installs; the
             // allowlist drops the keys on upsert.
+            //
+            // `archived_at` is absent ON PURPOSE (EXP-500): board archiving
+            // came back, but it is enforced entirely server-side — the shape's
+            // where clause excludes archived boards, and the archive fan-out
+            // pulls their issues out of the issue-child shapes too, so an
+            // archived board simply stops arriving here. That is the whole
+            // point: the FIRST archiving attempt synced this column and asked
+            // all four clients to filter on it, leaked, and was deleted
+            // (REV2-103). Do not re-add it — the archived-boards list in
+            // settings reads `boards.listArchived` over tRPC instead.
             "icon",
             "repository_id",
             "sort_order",

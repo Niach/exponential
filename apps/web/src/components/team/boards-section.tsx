@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Github, Pencil, Plus, Trash2 } from "lucide-react"
+import { Archive, Github, Pencil, Plus, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { getBoardIcon } from "@/lib/board-icons"
 import { Badge } from "@/components/ui/badge"
@@ -59,8 +59,14 @@ export function TeamBoardsSection({
     name: string
   } | null>(null)
   const [deleting, setDeleting] = useState(false)
-  // Bumped on delete so the trash card refetches (restored boards re-appear
-  // in the synced list on their own via Electric).
+  const [archiveTarget, setArchiveTarget] = useState<{
+    id: string
+    name: string
+  } | null>(null)
+  const [archiving, setArchiving] = useState(false)
+  // Bumped on delete/archive so the trash + archive cards refetch (restored
+  // and unarchived boards re-appear in the synced list on their own via
+  // Electric).
   const [trashRefreshKey, setTrashRefreshKey] = useState(0)
   const [createOpen, setCreateOpen] = useState(false)
   // Live row so edit-dialog toggle writes reflect immediately via Electric
@@ -78,6 +84,18 @@ export function TeamBoardsSection({
     } finally {
       setDeleting(false)
       setDeleteTarget(null)
+    }
+  }
+
+  const handleArchive = async () => {
+    if (!archiveTarget) return
+    setArchiving(true)
+    try {
+      await trpc.boards.archive.mutate({ boardId: archiveTarget.id })
+      setTrashRefreshKey((key) => key + 1)
+    } finally {
+      setArchiving(false)
+      setArchiveTarget(null)
     }
   }
 
@@ -159,6 +177,21 @@ export function TeamBoardsSection({
                     <Button
                       variant="ghost"
                       size="icon"
+                      className="h-7 w-7 shrink-0 text-muted-foreground"
+                      title="Archive board"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setArchiveTarget({
+                          id: board.id,
+                          name: board.name,
+                        })
+                      }}
+                    >
+                      <Archive className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
                       className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
                       title="Move to trash"
                       onClick={(e) => {
@@ -178,6 +211,8 @@ export function TeamBoardsSection({
           )}
         </CardContent>
       </Card>
+
+      <ArchivedBoardsCard teamId={teamId} refreshKey={trashRefreshKey} />
 
       <PendingDeletionCard
         teamId={teamId}
@@ -222,6 +257,41 @@ export function TeamBoardsSection({
         </DialogContent>
       </Dialog>
 
+      <Dialog
+        open={archiveTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setArchiveTarget(null)
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Archive board</DialogTitle>
+            <DialogDescription>
+              Archive{` `}
+              <span className="font-semibold text-foreground">
+                {archiveTarget?.name}
+              </span>
+              ? It disappears for the whole team — from the sidebar, search,
+              pickers and every issue list — along with all of its issues.
+              Nothing is deleted, and owners can bring it back from this page
+              at any time.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setArchiveTarget(null)}
+              disabled={archiving}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleArchive} disabled={archiving}>
+              {archiving ? `Archiving…` : `Archive board`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <CreateBoardDialog
         open={createOpen}
         onOpenChange={(open) => {
@@ -241,6 +311,117 @@ export function TeamBoardsSection({
         onRepoChanged={() => void refreshRepos()}
       />
     </>
+  )
+}
+
+type ArchivedBoard = Awaited<
+  ReturnType<typeof trpc.boards.listArchived.query>
+>[number]
+
+// Dates cross the tRPC boundary as ISO strings (no transformer), so coerce.
+function formatArchivedOn(archivedAt: Date | string | null): string {
+  if (!archivedAt) return `Archived`
+  return `Archived ${new Date(archivedAt).toLocaleDateString(undefined, {
+    year: `numeric`,
+    month: `short`,
+    day: `numeric`,
+  })}`
+}
+
+// The team's archived boards. Renders NOTHING when there are none — like the
+// trash card, the surface only exists while something is in it. This tRPC read
+// is the only way to see archived boards at all: they are excluded from the
+// Electric shape, which is what keeps them hidden everywhere else.
+function ArchivedBoardsCard({
+  teamId,
+  refreshKey,
+}: {
+  teamId: string
+  refreshKey: number
+}) {
+  const [archived, setArchived] = useState<ArchivedBoard[] | null>(null)
+  const [restoringId, setRestoringId] = useState<string | null>(null)
+
+  const refresh = useCallback(async () => {
+    try {
+      setArchived(await trpc.boards.listArchived.query({ teamId }))
+    } catch {
+      setArchived([])
+    }
+  }, [teamId])
+
+  useEffect(() => {
+    void refresh()
+  }, [refresh, refreshKey])
+
+  const handleUnarchive = async (id: string) => {
+    setRestoringId(id)
+    try {
+      await trpc.boards.unarchive.mutate({ boardId: id })
+    } finally {
+      setRestoringId(null)
+      // Refresh on success AND failure — an unarchive can fail because the
+      // board was trashed out from under us, in which case it belongs to the
+      // trash card now and should drop off this one.
+      await refresh()
+    }
+  }
+
+  if (!archived || archived.length === 0) return null
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Archive className="h-4 w-4" />
+          Archived boards
+        </CardTitle>
+        <CardDescription>
+          Archived boards and their issues are hidden from everyone in the team.
+          Nothing is deleted — unarchive to bring a board back exactly as it
+          was.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="divide-y rounded-md border">
+          {archived.map((board) => {
+            const TypeIcon = getBoardIcon(board)
+            return (
+              <div
+                key={board.id}
+                className="flex items-center gap-3 px-3 py-2.5"
+              >
+                <TypeIcon
+                  className="h-4 w-4 shrink-0"
+                  style={{ color: board.color }}
+                />
+                <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                  {board.name}
+                </span>
+                <Badge
+                  variant="outline"
+                  className="hidden shrink-0 font-mono text-xs sm:inline-flex"
+                >
+                  {board.prefix}
+                </Badge>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {formatArchivedOn(board.archivedAt)}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 shrink-0"
+                  disabled={restoringId === board.id}
+                  onClick={() => void handleUnarchive(board.id)}
+                >
+                  {restoringId === board.id ? `Unarchiving…` : `Unarchive`}
+                </Button>
+              </div>
+            )
+          })}
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 

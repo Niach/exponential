@@ -185,6 +185,7 @@
     "ui-check": "check",
     "ui-close": "x",
     "ui-delete": "trash-2",
+    "ui-archive": "archive",
     "ui-edit": "pencil",
     "ui-copy": "copy",
     "ui-refresh": "refresh-cw",
