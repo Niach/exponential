@@ -39,15 +39,18 @@ async function promoteInitialAdmins() {
 
 // Drizzle migrations don't run our hand-written triggers + partial unique
 // index. Apply them on every boot — every statement is idempotent
-// (CREATE OR REPLACE / CREATE … IF NOT EXISTS).
+// (CREATE OR REPLACE / CREATE … IF NOT EXISTS), so "already exists" is not a
+// possible failure here: any error is a real one (connection blip, pool
+// exhaustion, missing TRIGGER privilege) and must propagate. Several triggers
+// exist ONLY via this path — swallowing a failure would leave the instance
+// running trigger-less until the next restart (REV-18).
 async function applyCustomSql() {
   for (const [name, content] of [[`0001_triggers.sql`, triggersSql]] as const) {
     if (!content) continue
     try {
       await db.execute(sql.raw(content))
     } catch (err) {
-      // Triggers may already exist; surface but don't abort.
-      console.warn(`[bootstrap-cloud] applying ${name} produced:`, err)
+      throw new Error(`applying ${name} failed`, { cause: err })
     }
   }
 }
@@ -62,20 +65,46 @@ export function isCloudInstance(): boolean {
 
 let bootstrapPromise: Promise<void> | null = null
 
+// One attempt of the boot-time work, throwing on failure. Exported for tests;
+// bootstrapCloud() below is the only production caller.
+export async function runBootstrapPass(): Promise<void> {
+  await applyCustomSql()
+  await promoteInitialAdmins()
+}
+
+const RETRY_BASE_DELAY_MS = 5 * 1000
+const RETRY_MAX_DELAY_MS = 5 * 60 * 1000
+
 // Boot-time bootstrap. EXP-364 removed the dogfood machinery entirely (the
 // feedback team, its comp/helpdesk forcing, and the widget-config seeding are
 // ordinary hand-managed rows on the cloud now — nothing recreates or heals
 // them); what remains is instance-agnostic.
+//
+// The sole caller (server-bun.ts) invokes this exactly once, fire-and-forget,
+// so a failed pass would never be re-applied until the next process restart.
+// Every pass is idempotent, so instead of surfacing failure we retry with
+// capped backoff until the pass applies cleanly — the returned promise
+// resolves only on success and never rejects (REV-18). A permanently broken
+// setup (e.g. a DB role without TRIGGER privilege) keeps logging at error
+// level every few minutes instead of degrading silently.
 export function bootstrapCloud(): Promise<void> {
   if (bootstrapPromise) return bootstrapPromise
   bootstrapPromise = (async () => {
-    try {
-      await applyCustomSql()
-      await promoteInitialAdmins()
-    } catch (err) {
-      console.error(`[bootstrap-cloud] failed:`, err)
-      bootstrapPromise = null
-      throw err
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await runBootstrapPass()
+        return
+      } catch (err) {
+        const delayMs = Math.min(
+          RETRY_BASE_DELAY_MS * 2 ** (attempt - 1),
+          RETRY_MAX_DELAY_MS
+        )
+        console.error(
+          `[bootstrap-cloud] attempt ${attempt} failed (retrying in ${Math.round(delayMs / 1000)}s):`,
+          err
+        )
+        await new Promise((resolve) => setTimeout(resolve, delayMs))
+      }
     }
   })()
   return bootstrapPromise
