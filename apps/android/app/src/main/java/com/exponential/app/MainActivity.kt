@@ -23,7 +23,23 @@ import com.exponential.app.navigation.AppNavHost
 import com.exponential.app.ui.theme.ExponentialTheme
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+
+// Outlives any one MainActivity instance (same idiom as descriptionFlushScope):
+// a share's image copies must survive a rotation mid-copy, because handleIntent's
+// fresh-delivery gate never re-parses the redelivered intent. ShareIntentParser
+// hops to Dispatchers.IO itself; the read grant stays valid across the
+// recreation — it is scoped to the receiving TASK, not the activity instance.
+private val shareParseScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+// Last-share-wins across overlapping parses (main-thread only: bumped in
+// handleIntent, compared on the Main.immediate resume): share A's slow copies
+// finishing after a newer share B must not stomp B on the bus — the old
+// synchronous parse ordered deliveries by blocking, this preserves that.
+private var shareParseSeq = 0
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -71,11 +87,26 @@ class MainActivity : ComponentActivity() {
     private fun handleIntent(intent: Intent?, freshDelivery: Boolean) {
         if (intent == null || !freshDelivery) return
         // Shared content (ACTION_SEND/_MULTIPLE) arrives with a null data URI, so
-        // this must run before the exponential:// deep-link guard below. Parse +
-        // copy images while the read grant is still live (see ShareIntentParser).
+        // this must run before the exponential:// deep-link guard below. The
+        // image copies start immediately — while the read grant is live — but
+        // OFF the main thread (REV-16: a cloud-backed provider streams originals
+        // over the network inside the copy, and 10 of those here froze the
+        // launch frame into an ANR). shareParseScope (not lifecycleScope): the
+        // fresh-delivery gate above means a rotation mid-copy never re-delivers
+        // this intent, so cancelling with the activity would silently drop the
+        // share; the payload lands in the singleton DeepLinkBus, which the
+        // recreated activity's collector still observes. applicationContext so
+        // the copy doesn't pin a destroyed activity either.
         if (ShareIntentParser.isShareIntent(intent)) {
-            val payload = ShareIntentParser.parse(this, intent) ?: return
-            deepLinkBus.openShare(payload.text, payload.subject, payload.imageUris)
+            val appContext = applicationContext
+            val bus = deepLinkBus
+            val seq = ++shareParseSeq
+            shareParseScope.launch {
+                val payload = ShareIntentParser.parse(appContext, intent) ?: return@launch
+                if (seq == shareParseSeq) {
+                    bus.openShare(payload.text, payload.subject, payload.imageUris)
+                }
+            }
             return
         }
         val data = intent.data
