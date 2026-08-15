@@ -52,6 +52,29 @@ describe(`getSteerRelayConfig`, () => {
       })
     ).toBeNull()
   })
+
+  // EXP-504: the selfhost compose network address for the web app's own
+  // server-to-server calls — optional, blank = unset (derive from the url).
+  it(`carries STEER_RELAY_INTERNAL_URL through when set`, () => {
+    expect(
+      getSteerRelayConfig({
+        STEER_RELAY_URL: `wss://issues.example.com/steer`,
+        STEER_RELAY_SECRET: `s`,
+        STEER_RELAY_INTERNAL_URL: `http://steer-relay:4002`,
+      })
+    ).toEqual({
+      url: `wss://issues.example.com/steer`,
+      secret: `s`,
+      internalUrl: `http://steer-relay:4002`,
+    })
+    expect(
+      getSteerRelayConfig({
+        STEER_RELAY_URL: `wss://issues.example.com/steer`,
+        STEER_RELAY_SECRET: `s`,
+        STEER_RELAY_INTERNAL_URL: `  `,
+      })
+    ).toEqual({ url: `wss://issues.example.com/steer`, secret: `s` })
+  })
 })
 
 describe(`relay URL derivation`, () => {
@@ -231,6 +254,40 @@ describe(`relay admin HTTP`, () => {
         // EXP-414: bounded — a wedged relay must not hang `devices.list`.
         signal: expect.any(AbortSignal),
       }
+    )
+  })
+
+  // EXP-504: with an internal URL configured, every server-to-server call
+  // dials the compose-network address (no hairpin through public DNS) while
+  // the ticket dial URL — what clients connect to — keeps the public url.
+  it(`prefers the internal URL for server-to-server calls only`, async () => {
+    const config = {
+      url: `wss://issues.example.com/steer`,
+      secret: `test-secret`,
+      internalUrl: `http://steer-relay:4002`,
+    }
+    const fetchImpl = vi
+      .fn<RelayFetch>()
+      .mockResolvedValue(fakeResponse(200, { devices: [], delivered: true }))
+
+    await relayGetDevices(config, `user-1`, fetchImpl)
+    await relayPostStart(
+      config,
+      { userId: `user-1`, deviceId: `dev-1`, issueId: `issue-1` },
+      fetchImpl
+    )
+    await relayPostKill(config, `sess-1`, fetchImpl)
+    await relayPostNudge(config, `user-1`, `dev-1`, fetchImpl)
+    expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
+      `http://steer-relay:4002/devices/user-1`,
+      `http://steer-relay:4002/start`,
+      `http://steer-relay:4002/sessions/sess-1/kill`,
+      `http://steer-relay:4002/devices/user-1/dev-1/nudge`,
+    ])
+
+    const minted = mintSteerTicket(config, { kind: `control`, userId: `u` })
+    expect(`url` in minted && minted.url).toMatch(
+      /^wss:\/\/issues\.example\.com\/steer\/ws\?ticket=/
     )
   })
 

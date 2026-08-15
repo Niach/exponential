@@ -2291,11 +2291,15 @@ fn locate_inline_html_open_tag(tokens: &[CharToken], index: usize) -> Option<Inl
     None
 }
 
-fn locate_inline_html_close_tag(
+/// EXP-507: the name-agnostic core of [`locate_inline_html_close_tag`] —
+/// parses ANY tolerant close tag (`</ name >`, whitespace allowed around the
+/// name) at `index`, returning the lowercased name and its `>` index. Shared
+/// by the per-name locator, the REV-36 close-tag index, and the EXP-507
+/// angle classification so tolerant-close acceptance has ONE definition.
+fn parse_tolerant_inline_html_close(
     tokens: &[CharToken],
     index: usize,
-    expected_name: &str,
-) -> Option<usize> {
+) -> Option<(String, usize)> {
     if tokens.get(index)?.ch != '<' || tokens.get(index + 1)?.ch != '/' {
         return None;
     }
@@ -2315,16 +2319,22 @@ fn locate_inline_html_close_tag(
         return None;
     }
     let name = tokens_to_string(&tokens[name_start..cursor]).to_ascii_lowercase();
-    if name != expected_name {
-        return None;
-    }
     while tokens
         .get(cursor)
         .is_some_and(|token| token.ch.is_whitespace())
     {
         cursor += 1;
     }
-    (tokens.get(cursor)?.ch == '>').then_some(cursor)
+    (tokens.get(cursor)?.ch == '>').then_some((name, cursor))
+}
+
+fn locate_inline_html_close_tag(
+    tokens: &[CharToken],
+    index: usize,
+    expected_name: &str,
+) -> Option<usize> {
+    let (name, end) = parse_tolerant_inline_html_close(tokens, index)?;
+    (name == expected_name).then_some(end)
 }
 
 fn locate_matching_inline_html_close(
@@ -2929,6 +2939,10 @@ fn plain_char_tokens(text: &str) -> Vec<CharToken> {
 ///   that name exists downstream; `strict` holds literal `</name>` substring
 ///   positions and replaces the autolink rejection's per-probe O(n)
 ///   whole-rest `contains` search.
+/// * EXP-507 (the two corners REV-36 left): `literal_bracket_closes`
+///   memoizes the footnote probe's `find(']')`, and `angle_tags` +
+///   `html_match` answer `locate_matching_inline_html_close` itself from a
+///   per-name composition table instead of a per-probe forward walk.
 ///
 /// Every table reproduces the corresponding locator's semantics exactly —
 /// `literal_escape_matches_reference_probes` locks the equivalence against
@@ -2943,6 +2957,27 @@ struct LiteralEscapeScan<'a> {
     last_gt: Option<Option<usize>>,
     close_tags: Option<CloseTagIndex>,
     backticks: Option<(Option<usize>, Option<usize>)>,
+    /// EXP-507: sorted byte positions of every literal `]` in the fragment.
+    literal_bracket_closes: Option<Vec<usize>>,
+    /// EXP-507: per-`<`-position classification under the html locators.
+    angle_tags: Option<Vec<Option<AngleTag>>>,
+    /// EXP-507: per tag name, `locate_matching_inline_html_close`'s answer
+    /// for every start position.
+    html_match: HashMap<String, Vec<Option<(usize, usize)>>>,
+}
+
+/// EXP-507: what [`locate_matching_inline_html_close`]'s loop does when its
+/// cursor lands on this `<` — classified ONCE per fragment instead of once
+/// per probe. Positions that parse as neither advance one token.
+enum AngleTag {
+    /// A tolerant close tag: lowercased name + its `>` index.
+    Close { name: String, end: usize },
+    /// An open tag: lowercased name, its `>` index, self-closing flag.
+    Open {
+        name: String,
+        end: usize,
+        self_closing: bool,
+    },
 }
 
 struct CloseTagIndex {
@@ -2962,6 +2997,9 @@ impl<'a> LiteralEscapeScan<'a> {
             last_gt: None,
             close_tags: None,
             backticks: None,
+            literal_bracket_closes: None,
+            angle_tags: None,
+            html_match: HashMap::new(),
         }
     }
 
@@ -2992,13 +3030,28 @@ impl<'a> LiteralEscapeScan<'a> {
             }
         }
 
-        let text_from_bracket = &self.text[byte_index..];
-        if text_from_bracket.starts_with("[^")
-            && let Some(close) = text_from_bracket.find(']')
+        // EXP-507 (REV-36 residual): the close bracket comes from the sorted
+        // `]` table instead of a `find(']')` suffix scan per `[^` occurrence
+        // — a long line of repeated `[^` with no closing bracket was O(n²).
+        let text = self.text;
+        if text[byte_index..].starts_with("[^")
+            && let Some(close) = self.literal_bracket_close_at_or_after(byte_index)
         {
-            return parse_inline_footnote_reference(&text_from_bracket[..=close]).is_some();
+            return parse_inline_footnote_reference(&text[byte_index..=close]).is_some();
         }
         false
+    }
+
+    /// The first literal `]` at or after `byte_index`, from a lazily-built
+    /// sorted position table (EXP-507).
+    fn literal_bracket_close_at_or_after(&mut self, byte_index: usize) -> Option<usize> {
+        let text = self.text;
+        let closes = self
+            .literal_bracket_closes
+            .get_or_insert_with(|| text.match_indices(']').map(|(at, _)| at).collect());
+        closes
+            .get(closes.partition_point(|&at| at < byte_index))
+            .copied()
     }
 
     /// EXP-261 vendoring (F1): would a bare `<` at `byte_index` re-parse as a
@@ -3021,10 +3074,10 @@ impl<'a> LiteralEscapeScan<'a> {
             && !has_dangerous_attrs(&tag.attrs)
             // Necessary-condition pre-filter: the tolerant index holds every
             // position `locate_inline_html_close_tag` can accept, so no
-            // downstream entry means the depth-matching scan cannot succeed.
+            // downstream entry means the depth-matching scan cannot succeed
+            // (and the per-name match table below never has to build).
             && self.tolerant_close_at_or_after(&tag.name, tag.end_index + 1)
-            && locate_matching_inline_html_close(self.tokens(), tag.end_index + 1, &tag.name)
-                .is_some()
+            && self.matching_close_after(&tag.name, tag.end_index + 1)
         {
             let base = InlineStyle::default();
             if inline_html_semantic_style(&tag.name, base) != base
@@ -3130,6 +3183,72 @@ impl<'a> LiteralEscapeScan<'a> {
         last.is_some_and(|last| last > index)
     }
 
+    /// EXP-507 (REV-36 residual): `locate_matching_inline_html_close`,
+    /// answered from a per-name table instead of a per-probe forward walk —
+    /// an inline-tag-dense line (repeated `<u>a` with one distant `</u>`)
+    /// passed the tolerant pre-filter per probe and ran the depth-matching
+    /// scan to the far close each time, O(n²). The table composes each
+    /// position's answer from the positions after it (the
+    /// `depth_zero_close_table` trick — movement never depends on the
+    /// running depth): a same-name close IS the answer, a same-name open
+    /// chains its own matching close with the continuation past it, any
+    /// other recognized tag skips to its `>`, everything else steps one
+    /// token.
+    fn matching_close_after(&mut self, name: &str, start: usize) -> bool {
+        if !self.html_match.contains_key(name) {
+            self.ensure_angle_tags();
+            let tags = self.angle_tags.as_deref().unwrap();
+            let mut table: Vec<Option<(usize, usize)>> = vec![None; tags.len() + 1];
+            for position in (0..tags.len()).rev() {
+                table[position] = match &tags[position] {
+                    Some(AngleTag::Close {
+                        name: close_name,
+                        end,
+                    }) if close_name == name => Some((position, *end)),
+                    Some(AngleTag::Open {
+                        name: open_name,
+                        end,
+                        self_closing,
+                    }) if open_name == name && !self_closing => table
+                        .get(end + 1)
+                        .copied()
+                        .flatten()
+                        .and_then(|(_, close_end)| table.get(close_end + 1).copied().flatten()),
+                    Some(AngleTag::Open { end, .. }) => table.get(end + 1).copied().flatten(),
+                    _ => table[position + 1],
+                };
+            }
+            self.html_match.insert(name.to_string(), table);
+        }
+        self.html_match[name].get(start).copied().flatten().is_some()
+    }
+
+    /// Classify every `<` position once (EXP-507): close first, open second —
+    /// exactly the precedence `locate_matching_inline_html_close`'s loop
+    /// applies when its cursor lands there.
+    fn ensure_angle_tags(&mut self) {
+        if self.angle_tags.is_some() {
+            return;
+        }
+        self.ensure_tokens();
+        let tokens = self.tokens.as_deref().unwrap();
+        let mut tags: Vec<Option<AngleTag>> = Vec::with_capacity(tokens.len());
+        for start in 0..tokens.len() {
+            tags.push(if tokens[start].ch != '<' {
+                None
+            } else if let Some((name, end)) = parse_tolerant_inline_html_close(tokens, start) {
+                Some(AngleTag::Close { name, end })
+            } else {
+                locate_inline_html_open_tag(tokens, start).map(|tag| AngleTag::Open {
+                    name: tag.name,
+                    end: tag.end_index,
+                    self_closing: tag.self_closing,
+                })
+            });
+        }
+        self.angle_tags = Some(tags);
+    }
+
     fn tolerant_close_at_or_after(&mut self, name: &str, start: usize) -> bool {
         self.ensure_close_tags();
         Self::index_hit(&self.close_tags.as_ref().unwrap().tolerant, name, start)
@@ -3192,37 +3311,9 @@ impl<'a> LiteralEscapeScan<'a> {
                 strict.entry(name).or_default().push(start);
             }
 
-            // Tolerant: mirrors `locate_inline_html_close_tag`, which allows
-            // whitespace around the tag name.
-            let mut cursor = start + 2;
-            while tokens
-                .get(cursor)
-                .is_some_and(|token| token.ch.is_whitespace())
-            {
-                cursor += 1;
-            }
-            let name_start = cursor;
-            while tokens
-                .get(cursor)
-                .is_some_and(|token| is_html_tag_name_char(token.ch))
-            {
-                cursor += 1;
-            }
-            if name_start == cursor {
-                continue;
-            }
-            let name_end = cursor;
-            while tokens
-                .get(cursor)
-                .is_some_and(|token| token.ch.is_whitespace())
-            {
-                cursor += 1;
-            }
-            if tokens.get(cursor).is_some_and(|token| token.ch == '>') {
-                let name: String = tokens[name_start..name_end]
-                    .iter()
-                    .map(|token| token.ch.to_ascii_lowercase())
-                    .collect();
+            // Tolerant: `locate_inline_html_close_tag`'s acceptance, via the
+            // shared name-agnostic parse (EXP-507).
+            if let Some((name, _)) = parse_tolerant_inline_html_close(tokens, start) {
                 tolerant.entry(name).or_default().push(start);
             }
         }
@@ -4801,6 +4892,10 @@ mod tests {
             "[^1] and text",
             "[^note] [x](y)",
             "[^",
+            "[^]",
+            "[^a[^b]",
+            "[^a[^a[^a]",
+            "[^valid] trailing ]",
             "[[[",
             "\\[\\[\\[",
             "[\\",
@@ -4814,6 +4909,12 @@ mod tests {
             "<u><u>x</u>",
             "<u>x",
             "</u>",
+            "<u>a<u>b</u>",
+            "<u>a<u>b</u></u>",
+            "<em>a<em>b</em>",
+            "<em><u>x</u></em>",
+            "<u><br/></u>",
+            "<u></div></u>",
             "<https://example.com>",
             "<not a tag>",
             "<u href='x'>y</u>",
@@ -4881,5 +4982,20 @@ mod tests {
         let log = r#"<log level="info">GET /api/health 200</log> "#.repeat(2_000);
         let escaped = super::escape_literal_text_with_offset_map(&log);
         assert_eq!(escaped.markdown, log);
+
+        // EXP-507: the two corners REV-36 left quadratic. A footnote-probe
+        // line of repeated `[^` with no closing bracket re-ran `find(']')`
+        // over the whole rest per occurrence; an inline-tag-dense line with
+        // ONE distant close tag passed the tolerant pre-filter per probe and
+        // ran the depth-matching scan to the far close each time. Both must
+        // now finish instantly (`]` position table; per-name match table),
+        // and neither input escapes anything.
+        let footnotes = "[^".repeat(50_000);
+        let escaped = super::escape_literal_text_with_offset_map(&footnotes);
+        assert_eq!(escaped.markdown, footnotes);
+
+        let tags = format!("{}</u>", "<u>a".repeat(50_000));
+        let escaped = super::escape_literal_text_with_offset_map(&tags);
+        assert_eq!(escaped.markdown, tags);
     }
 }

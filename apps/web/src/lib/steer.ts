@@ -15,6 +15,11 @@ export type { SteerStartInput } from "@/lib/action-inputs"
 export interface SteerRelayConfig {
   url: string
   secret: string
+  /** EXP-504: base for the web app's OWN server-to-server relay calls
+   * (`STEER_RELAY_INTERNAL_URL`, e.g. `http://steer-relay:4002` inside the
+   * selfhost compose network). Unset ⇒ derive from `url` as before. Clients
+   * always dial the public `url`; only this process uses the internal one. */
+  internalUrl?: string
 }
 
 // Enabled iff BOTH STEER_RELAY_URL and STEER_RELAY_SECRET are set — mirrors
@@ -25,7 +30,8 @@ export function getSteerRelayConfig(
   const url = env.STEER_RELAY_URL?.trim()
   const secret = env.STEER_RELAY_SECRET?.trim()
   if (!url || !secret) return null
-  return { url, secret }
+  const internalUrl = env.STEER_RELAY_INTERNAL_URL?.trim()
+  return { url, secret, ...(internalUrl ? { internalUrl } : {}) }
 }
 
 // ── Relay URL derivation ──────────────────────────────────────────────────────
@@ -50,6 +56,17 @@ export function steerHttpBase(relayUrl: string): string {
   if (base.startsWith(`wss://`)) return `https://${base.slice(`wss://`.length)}`
   if (base.startsWith(`ws://`)) return `http://${base.slice(`ws://`.length)}`
   return base
+}
+
+// EXP-504: the http(s) base for the relay admin calls below (/devices,
+// /start, /kill, nudge). These are SERVER-to-server: deriving them from the
+// public STEER_RELAY_URL sends the web container out through public DNS and
+// back in through the reverse proxy, which half-breaks remote start on
+// consumer routers without hairpin NAT (phones and desktops connect fine,
+// the container's own calls don't). STEER_RELAY_INTERNAL_URL short-circuits
+// that to the compose-network address; ticket dial URLs keep the public url.
+export function steerServerHttpBase(config: SteerRelayConfig): string {
+  return steerHttpBase(config.internalUrl ?? config.url)
 }
 
 // The full dial URL. The relay reads the ticket from the query string
@@ -211,7 +228,7 @@ export async function relayGetDevices(
   fetchImpl: RelayFetch = globalThis.fetch
 ): Promise<{ devices: SteerDevice[] }> {
   const res = await fetchImpl(
-    `${steerHttpBase(config.url)}/devices/${encodeURIComponent(userId)}`,
+    `${steerServerHttpBase(config)}/devices/${encodeURIComponent(userId)}`,
     {
       headers: { "x-relay-secret": config.secret },
       signal: AbortSignal.timeout(RELAY_DEVICES_TIMEOUT_MS),
@@ -309,7 +326,7 @@ export async function relayPostStart(
 ): Promise<RelayStartResult> {
   let res: RelayResponse
   try {
-    res = await fetchImpl(`${steerHttpBase(config.url)}/start`, {
+    res = await fetchImpl(`${steerServerHttpBase(config)}/start`, {
       method: `POST`,
       headers: {
         "content-type": `application/json`,
@@ -354,7 +371,7 @@ export async function relayPostKill(
 ): Promise<{ delivered: boolean }> {
   try {
     const res = await fetchImpl(
-      `${steerHttpBase(config.url)}/sessions/${encodeURIComponent(sessionId)}/kill`,
+      `${steerServerHttpBase(config)}/sessions/${encodeURIComponent(sessionId)}/kill`,
       {
         method: `POST`,
         headers: { "x-relay-secret": config.secret },
@@ -388,7 +405,7 @@ export async function relayPostNudge(
 ): Promise<{ delivered: boolean }> {
   try {
     const res = await fetchImpl(
-      `${steerHttpBase(config.url)}/devices/${encodeURIComponent(userId)}/${encodeURIComponent(deviceId)}/nudge`,
+      `${steerServerHttpBase(config)}/devices/${encodeURIComponent(userId)}/${encodeURIComponent(deviceId)}/nudge`,
       {
         method: `POST`,
         headers: { "x-relay-secret": config.secret },

@@ -1276,6 +1276,7 @@ impl StartCodingDialogView {
                     inputs,
                     target: Some(handle),
                     activate_app: false,
+                    reservation: None,
                 },
                 cx,
             );

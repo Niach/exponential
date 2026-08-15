@@ -33,6 +33,14 @@ services:
       # opens it for first setup — flip to false in .env once your accounts
       # exist.
       AUTH_SIGNUP_ENABLED: ${AUTH_SIGNUP_ENABLED:-true}
+      # EXP-504: the web app's server-to-server relay calls (/devices, /start,
+      # /kill) go straight to the relay container. Deriving them from the
+      # public STEER_RELAY_URL would dial out through public DNS and back in
+      # through Caddy — broken on consumer routers without hairpin NAT, where
+      # remote start half-fails while phones and desktops connect fine.
+      # Harmless when the steer profile is off (only used once STEER_RELAY_URL
+      # + STEER_RELAY_SECRET are set).
+      STEER_RELAY_INTERNAL_URL: ${STEER_RELAY_INTERNAL_URL:-http://steer-relay:4002}
     depends_on:
       postgres:
         condition: service_healthy

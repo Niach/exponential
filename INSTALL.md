@@ -95,6 +95,8 @@ All configured by appending vars to `.env` (the whole file reaches the web conta
 
   Caddy proxies the relay under `/steer` on your app domain (it is not exposed on any other port), so it shares the site's Let's Encrypt certificate and the WebSocket is encrypted end to end — required, because that socket carries bearer steer tickets, the live terminal stream of your coding sessions, and remote steering input. Plain `ws://` is cleartext: only use it on a trusted LAN with the no-domain plain-HTTP setup (`STEER_RELAY_URL=ws://<host>/steer`, health check `http://localhost/steer/healthz`), never across the internet.
 
+  Two notes on networking: the relay's port 4002 is deliberately **not published** to the host — if you carried a `STEER_RELAY_URL=ws://<host>:4002` over from an older setup, change it to the `/steer` form above or nothing can reach the relay. And the web container's own relay calls (device lists, remote start, kill) go straight to the relay over the compose network (`STEER_RELAY_INTERNAL_URL`, defaulted to `http://steer-relay:4002` in the compose file) rather than out through public DNS and back in — home routers often lack hairpin NAT, which would otherwise leave remote start broken while phones and desktops connect fine.
+
 - **Push notifications: cloud only for the store mobile apps**, see [Limitations](#limitations).
 
 ## Upgrading

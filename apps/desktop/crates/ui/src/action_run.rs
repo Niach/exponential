@@ -130,6 +130,12 @@ pub(crate) struct StartActionArgs {
     pub target: Option<gpui::AnyWindowHandle>,
     /// Foreground the app first (remote starts surface the new tab).
     pub activate_app: bool,
+    /// EXP-505: the remote start's duplicate-delivery claim (see
+    /// `steer_wiring::StartReservations`) — held across the WHOLE pipeline
+    /// (fetch → prepare → spawn) and released on drop when it finishes or
+    /// fails, so a retried relay frame can't run the same action twice while
+    /// this one is still preparing. `None` on local dialog starts.
+    pub reservation: Option<crate::steer_wiring::ReservationGuard>,
 }
 
 /// Start an action: fetch FRESH body (`actions.get`) → resolve repo →
@@ -144,6 +150,7 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
         inputs,
         target,
         activate_app,
+        reservation,
     } = args;
     let Some(trpc) = queries::trpc_client(cx) else {
         log::warn!("actions: run ignored — not signed in");
@@ -171,6 +178,10 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
         .map(|fix| (fix.branch.clone(), fix.identifier.clone(), fix.issue_id.clone()));
 
     cx.spawn(async move |cx| {
+        // EXP-505: the reservation rides this future through the fetch and
+        // into `launch_action` — an early return anywhere below drops it,
+        // releasing the claim so a retry is allowed again.
+        let reservation = reservation;
         // Background: fetch-fresh + resolve the repo. The builtins construct
         // their rows locally (the server REJECTS `actions.get` for the
         // builtin ids). The creator forces repo-less — its repo INPUT only
@@ -327,7 +338,7 @@ team settings → Repositories.";
                 origin,
                 options,
             };
-            launch_action(request, window, cx);
+            launch_action(request, window, reservation, cx);
         });
     })
     .detach();
@@ -394,8 +405,16 @@ fn notify_target_error(target: Option<gpui::AnyWindowHandle>, message: &str, cx:
 }
 
 /// The launch tail: background `prepare(Action)` → foreground
-/// `spawn_into_window` — the exact remote-issue-start shape.
-fn launch_action(request: ActionLaunchRequest, target: gpui::AnyWindowHandle, cx: &mut App) {
+/// `spawn_into_window` — the exact remote-issue-start shape. The EXP-505
+/// `reservation` (remote starts only) is held until the spawn attempt
+/// resolves: by then the session is registered (or the start failed), so
+/// releasing the claim can no longer let a duplicate frame double-run.
+fn launch_action(
+    request: ActionLaunchRequest,
+    target: gpui::AnyWindowHandle,
+    reservation: Option<crate::steer_wiring::ReservationGuard>,
+    cx: &mut App,
+) {
     let Some(deps) = coding_flow::build_action_deps(cx) else {
         log::warn!("actions: launch ignored — not signed in");
         return;
@@ -403,6 +422,7 @@ fn launch_action(request: ActionLaunchRequest, target: gpui::AnyWindowHandle, cx
     let hooks = crate::steer_wiring::hook_setup(cx);
     let observer = crate::steer_wiring::observer_setup(cx);
     cx.spawn(async move |cx| {
+        let _reservation = reservation;
         let prepared = cx
             .background_executor()
             .spawn(async move {
