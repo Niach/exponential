@@ -8,6 +8,7 @@ import { updateEmailPrefs } from "@/lib/notification-prefs"
 import {
   isTrustedSnsUrl,
   parseSesNotification,
+  suppressesEmail,
   type EmailBounceEvent,
 } from "@/lib/email-bounces"
 
@@ -29,11 +30,25 @@ function secretMatches(provided: string, expected: string): boolean {
 
 // Upsert the per-address email_bounces rows and stamp the originating
 // email_deliveries rows (matched by SES MessageId) bounced/complained.
-async function recordEmailBounceEvents(
+// Exported for tests — the parser is pure (lib/email-bounces.ts), this is
+// the DB shell.
+export async function recordEmailBounceEvents(
   events: EmailBounceEvent[],
   now: Date = new Date()
 ): Promise<void> {
   for (const event of events) {
+    // A suppressing classification is STICKY (REV-43): SNS delivers feedback
+    // unordered and retries for hours, and mail already in flight keeps
+    // producing events after a suppression lands — a delayed Transient bounce
+    // arriving AFTER the complaint/Permanent event must not downgrade the
+    // classification columns, or isEmailSuppressed would flip back to false
+    // and every stream would resume mailing a dead or complaining address.
+    // The late event still bumps event_count/last_event_at; only the
+    // classification columns hold.
+    const suppressing = suppressesEmail(event.kind, event.bounceType)
+    // In ON CONFLICT DO UPDATE, target-table column references read the
+    // EXISTING row — this is "the stored classification already suppresses".
+    const rowSuppresses = sql`(${emailBounces.kind} = 'complaint' OR ${emailBounces.bounceType} = 'Permanent')`
     const [row] = await db
       .insert(emailBounces)
       .values({
@@ -48,10 +63,19 @@ async function recordEmailBounceEvents(
       .onConflictDoUpdate({
         target: emailBounces.email,
         set: {
-          kind: event.kind,
-          bounceType: event.bounceType,
-          bounceSubType: event.bounceSubType,
-          diagnostic: event.diagnostic,
+          ...(suppressing
+            ? {
+                kind: event.kind,
+                bounceType: event.bounceType,
+                bounceSubType: event.bounceSubType,
+                diagnostic: event.diagnostic,
+              }
+            : {
+                kind: sql`CASE WHEN ${rowSuppresses} THEN ${emailBounces.kind} ELSE ${event.kind} END`,
+                bounceType: sql`CASE WHEN ${rowSuppresses} THEN ${emailBounces.bounceType} ELSE ${event.bounceType} END`,
+                bounceSubType: sql`CASE WHEN ${rowSuppresses} THEN ${emailBounces.bounceSubType} ELSE ${event.bounceSubType} END`,
+                diagnostic: sql`CASE WHEN ${rowSuppresses} THEN ${emailBounces.diagnostic} ELSE ${event.diagnostic} END`,
+              }),
           eventCount: sql`${emailBounces.eventCount} + 1`,
           lastEventAt: now,
           updatedAt: now,
@@ -67,10 +91,8 @@ async function recordEmailBounceEvents(
     // tests never pollute the real list; a failed call just leaves the row
     // for send-time suppression (which blocks these addresses regardless)
     // and a manual retry.
-    const autoBlocked =
-      event.kind === `complaint` || event.bounceType === `Permanent`
     if (
-      autoBlocked &&
+      suppressing &&
       row &&
       !row.suppressedAt &&
       process.env.AWS_SES_REGION &&

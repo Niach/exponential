@@ -2,7 +2,21 @@ import { describe, expect, it } from "vitest"
 import {
   isTrustedSnsUrl,
   parseSesNotification,
+  suppressesEmail,
 } from "@/lib/email-bounces"
+
+describe(`suppressesEmail`, () => {
+  it(`suppresses complaints and Permanent bounces`, () => {
+    expect(suppressesEmail(`complaint`, null)).toBe(true)
+    expect(suppressesEmail(`bounce`, `Permanent`)).toBe(true)
+  })
+
+  it(`lets soft/undetermined bounces through`, () => {
+    expect(suppressesEmail(`bounce`, `Transient`)).toBe(false)
+    expect(suppressesEmail(`bounce`, `Undetermined`)).toBe(false)
+    expect(suppressesEmail(`bounce`, null)).toBe(false)
+  })
+})
 
 describe(`parseSesNotification`, () => {
   it(`parses a bounce with recipients, type/subtype, diagnostic, messageId`, () => {

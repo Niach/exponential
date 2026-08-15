@@ -1371,10 +1371,14 @@ export const emailDeliveries = pgTable(
 export const emailBounces = pgTable(`email_bounces`, {
   id: uuidPk(),
   email: varchar({ length: 320 }).notNull().unique(),
-  // bounce|complaint — the LAST event's kind (documented varchar).
+  // bounce|complaint — the LAST event's kind (documented varchar), EXCEPT
+  // that a suppressing classification (complaint, or bounce_type Permanent)
+  // is sticky: the webhook upsert keeps it when a later Transient/
+  // non-suppressing event arrives out of order (REV-43).
   kind: varchar({ length: 16 }).notNull(),
-  // SES bounce classification of the last event (e.g. Permanent/General);
-  // complaints carry the feedback type in bounceSubType.
+  // SES bounce classification of the last event (e.g. Permanent/General;
+  // sticky once Permanent, see `kind`); complaints carry the feedback type
+  // in bounceSubType.
   bounceType: varchar(`bounce_type`, { length: 32 }),
   bounceSubType: varchar(`bounce_sub_type`, { length: 64 }),
   diagnostic: text(),
