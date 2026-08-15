@@ -545,7 +545,11 @@ pub struct ObserverSetup {
 /// Where the per-session `--settings` files live: under the app data dir,
 /// NEVER in the worktree. A `.claude/settings.json` inside the tree would be
 /// committable by the agent AND would land in claude's project-approval scan
-/// (the EXP-98 trap that made `.exp-mcp.json` non-discoverable).
+/// (the EXP-98 trap that made `.exp-mcp.json` non-discoverable). Files sit
+/// one level down in a per-process dir (`claude-hooks/<pid>/`) so the path
+/// in the agent's argv encodes WHICH exponential process (desktop or CLI
+/// daemon — they share the data dir) spawned the session; the reaper's quit
+/// sweep skips sessions a live sibling still owns (REV-20).
 const HOOK_SETTINGS_DIR: &str = "claude-hooks";
 
 /// One settings file per session accumulates; drop the ancient ones.
@@ -582,23 +586,44 @@ fn write_hook_settings(
     hooks: Option<&HookSetup>,
 ) -> Option<PathBuf> {
     let hooks = hooks.filter(|_| agent == CodingAgent::Claude)?;
-    let dir = data_dir.join(HOOK_SETTINGS_DIR);
+    let root = data_dir.join(HOOK_SETTINGS_DIR);
+    prune_hook_settings(&root);
+    let dir = root.join(std::process::id().to_string());
     std::fs::create_dir_all(&dir).ok()?;
-    if let Ok(entries) = std::fs::read_dir(&dir) {
-        for entry in entries.flatten() {
-            let stale = entry
-                .metadata()
-                .and_then(|meta| meta.modified())
-                .map(|modified| modified.elapsed().is_ok_and(|age| age > HOOK_SETTINGS_TTL))
-                .unwrap_or(false);
-            if stale {
-                let _ = std::fs::remove_file(entry.path());
-            }
-        }
-    }
     let path = dir.join(format!("{}.settings.json", path_segment(session_id)?));
     std::fs::write(&path, &hooks.settings_json).ok()?;
     Some(path)
+}
+
+/// Drop settings files past the TTL wherever they sit in the tree — per-pid
+/// dirs and pre-REV-20 flat files alike — and clear pid dirs that end up
+/// empty (`remove_dir` refuses non-empty ones, so a live dir is never lost).
+fn prune_hook_settings(root: &Path) {
+    let stale = |entry: &std::fs::DirEntry| {
+        entry
+            .metadata()
+            .and_then(|meta| meta.modified())
+            .map(|modified| modified.elapsed().is_ok_and(|age| age > HOOK_SETTINGS_TTL))
+            .unwrap_or(false)
+    };
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if let Ok(files) = std::fs::read_dir(&path) {
+                for file in files.flatten() {
+                    if stale(&file) {
+                        let _ = std::fs::remove_file(file.path());
+                    }
+                }
+            }
+            let _ = std::fs::remove_dir(&path);
+        } else if stale(&entry) {
+            let _ = std::fs::remove_file(path);
+        }
+    }
 }
 
 /// The spawn-env half of the sidecar wiring — applied only when the settings
@@ -2411,7 +2436,10 @@ mod tests {
         let settings = PathBuf::from(&args[at + 1]);
         assert_eq!(
             settings,
-            dir.0.join(HOOK_SETTINGS_DIR).join("sess-1.settings.json")
+            dir.0
+                .join(HOOK_SETTINGS_DIR)
+                .join(std::process::id().to_string())
+                .join("sess-1.settings.json")
         );
         assert!(!settings.starts_with(&worktree), "settings file inside the worktree");
         assert_eq!(fs::read_to_string(&settings).unwrap(), hooks.settings_json);
@@ -2565,7 +2593,10 @@ mod tests {
         let at = args.iter().position(|arg| arg == "--settings").expect("--settings");
         assert_eq!(
             PathBuf::from(&args[at + 1]),
-            dir.0.join(HOOK_SETTINGS_DIR).join("sess-a.settings.json")
+            dir.0
+                .join(HOOK_SETTINGS_DIR)
+                .join(std::process::id().to_string())
+                .join("sess-a.settings.json")
         );
         assert!(prepared
             .spawn

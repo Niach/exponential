@@ -34,7 +34,15 @@
 //! Anchored on `<data_dir>/claude-hooks/`, a directory only this app ever
 //! writes. A process carrying that path in its argv is definitionally ours,
 //! so a user's own `claude` session — even one running inside the same repo —
-//! can never match. From those seeds:
+//! can never match. Settings files live one level down in a per-process dir
+//! (`claude-hooks/<pid>/<session>.settings.json`), which encodes WHICH
+//! exponential process spawned the session: a machine running both the
+//! desktop app and the CLI daemon shares one data dir (REV-20), and one
+//! side's quit sweep must not kill the sibling's healthy live sessions.
+//! Mirroring the registry's EXP-295 pid guard, a seed whose owner pid is a
+//! LIVE process other than us is skipped; a dead owner — or the legacy flat
+//! layout from before the per-pid dirs — is fair game. From the surviving
+//! seeds:
 //!
 //! - **down**: every descendant (the daemon's own children carry no marker of
 //!   their own — `claude bg-pty-host`, `claude bg-spare`).
@@ -64,6 +72,19 @@ pub fn hook_marker(data_dir: &Path) -> String {
     data_dir.join("claude-hooks").to_string_lossy().into_owned()
 }
 
+/// The owner pid encoded in a per-process settings path
+/// (`<marker>/<pid>/<session>.settings.json`), or `None` for the legacy flat
+/// layout (`<marker>/<session>.settings.json`) — session ids are UUIDs, so a
+/// flat filename can never parse as an all-digit path segment.
+fn owner_pid(command: &str, marker: &str) -> Option<i32> {
+    let rest = command.get(command.find(marker)? + marker.len()..)?;
+    let (segment, _) = rest.strip_prefix('/')?.split_once('/')?;
+    if segment.is_empty() || !segment.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    segment.parse().ok()
+}
+
 /// Pick the processes to kill. Pure — [`reap`] supplies the process table and
 /// does the signalling, so the whole selection rule is testable.
 pub fn select(procs: &[Proc], marker: &str, self_pid: i32) -> Vec<i32> {
@@ -75,10 +96,35 @@ pub fn select(procs: &[Proc], marker: &str, self_pid: i32) -> Vec<i32> {
 
     let mut selected: BTreeSet<i32> = BTreeSet::new();
 
+    // Protected: marked processes a LIVE sibling exponential process still
+    // owns (REV-20: desktop + daemon share the data dir; neither's quit
+    // sweep may kill the other's healthy sessions), plus their descendants —
+    // a subtree, not just a seed filter, because a shared orphaned ancestor
+    // reached from one of OUR seeds must not pull the down-walk through the
+    // sibling's live tree. Liveness = presence in this same `ps` snapshot;
+    // like the registry's EXP-295 pid guard this trades a rare recycled-pid
+    // false negative (the escapee survives one quit) for never killing live
+    // work.
+    let mut protected: BTreeSet<i32> = BTreeSet::new();
+    let mut stack: Vec<i32> = procs
+        .iter()
+        .filter(|p| p.pid != self_pid && p.command.contains(marker))
+        .filter(|p| {
+            matches!(owner_pid(&p.command, marker),
+                Some(owner) if owner != self_pid && by_pid.contains_key(&owner))
+        })
+        .map(|p| p.pid)
+        .collect();
+    while let Some(pid) = stack.pop() {
+        if protected.insert(pid) {
+            stack.extend(children.get(&pid).map(Vec::as_slice).unwrap_or(&[]));
+        }
+    }
+
     // Seeds: processes carrying the app-owned marker path.
     let seeds: Vec<i32> = procs
         .iter()
-        .filter(|p| p.pid != self_pid && p.command.contains(marker))
+        .filter(|p| p.pid != self_pid && p.command.contains(marker) && !protected.contains(&p.pid))
         .map(|p| p.pid)
         .collect();
 
@@ -88,7 +134,7 @@ pub fn select(procs: &[Proc], marker: &str, self_pid: i32) -> Vec<i32> {
         let mut cur = seed;
         while let Some(proc) = by_pid.get(&cur) {
             let parent = proc.ppid;
-            if parent <= 1 || parent == self_pid {
+            if parent <= 1 || parent == self_pid || protected.contains(&parent) {
                 break;
             }
             match by_pid.get(&parent) {
@@ -106,7 +152,7 @@ pub fn select(procs: &[Proc], marker: &str, self_pid: i32) -> Vec<i32> {
     selected.extend(seeds.iter().copied());
     while let Some(pid) = stack.pop() {
         for &child in children.get(&pid).map(Vec::as_slice).unwrap_or(&[]) {
-            if child != self_pid && selected.insert(child) {
+            if child != self_pid && !protected.contains(&child) && selected.insert(child) {
                 stack.push(child);
             }
         }
@@ -259,6 +305,79 @@ mod tests {
         ];
         let got = select(&procs, MARKER, 999);
         assert_eq!(got, vec![600], "climbed into the shell/terminal: {got:?}");
+    }
+
+    /// REV-20: the desktop's quit sweep runs while the CLI daemon (pid 800,
+    /// alive in the same `ps` snapshot) hosts a healthy session — every
+    /// process whose settings path sits under the daemon's pid dir must
+    /// survive, descendants included.
+    #[test]
+    fn spares_a_live_siblings_sessions() {
+        let procs = vec![
+            Proc { pid: 1, ppid: 0, command: "/sbin/launchd".into() },
+            Proc { pid: 800, ppid: 1, command: "exponential daemon run".into() },
+            Proc {
+                pid: 801,
+                ppid: 800,
+                command: format!("claude --settings {MARKER}/800/s1.settings.json"),
+            },
+            Proc { pid: 802, ppid: 801, command: "claude bg-spare".into() },
+        ];
+        assert!(select(&procs, MARKER, 999).is_empty());
+    }
+
+    /// A per-pid dir whose owner is DEAD (not in the snapshot) is an escapee
+    /// from a crashed instance; our own pid dir is ours. Both stay reapable.
+    #[test]
+    fn reaps_own_and_dead_owner_pid_dirs() {
+        let procs = vec![
+            Proc { pid: 1, ppid: 0, command: "/sbin/launchd".into() },
+            Proc {
+                pid: 700,
+                ppid: 999,
+                command: format!("claude --settings {MARKER}/999/a.settings.json"),
+            },
+            Proc {
+                pid: 701,
+                ppid: 1,
+                command: format!("claude --settings {MARKER}/12345/b.settings.json"),
+            },
+        ];
+        assert_eq!(select(&procs, MARKER, 999), vec![700, 701]);
+    }
+
+    /// The sibling's live tree must survive even when it hangs under the SAME
+    /// orphaned claude daemon as one of our reapable seeds — the down-walk
+    /// from the shared ancestor must not pull the protected subtree in.
+    #[test]
+    fn shared_orphan_ancestor_does_not_pull_in_a_live_siblings_subtree() {
+        let procs = vec![
+            Proc { pid: 1, ppid: 0, command: "/sbin/launchd".into() },
+            Proc { pid: 800, ppid: 1, command: "exponential daemon run".into() },
+            Proc { pid: 300, ppid: 1, command: "claude daemon run --origin transient".into() },
+            Proc {
+                pid: 301,
+                ppid: 300,
+                command: format!("claude --bg-pty-host --settings {MARKER}/999/a.settings.json"),
+            },
+            Proc {
+                pid: 302,
+                ppid: 300,
+                command: format!("claude --bg-pty-host --settings {MARKER}/800/b.settings.json"),
+            },
+            Proc { pid: 303, ppid: 302, command: "claude bg-spare".into() },
+        ];
+        let got = select(&procs, MARKER, 999);
+        assert_eq!(got, vec![300, 301], "sibling subtree not spared: {got:?}");
+    }
+
+    #[test]
+    fn owner_pid_parses_per_pid_dirs_and_rejects_the_flat_layout() {
+        let command = format!("claude --settings {MARKER}/4321/s.settings.json");
+        assert_eq!(owner_pid(&command, MARKER), Some(4321));
+        let flat = format!("claude --settings {MARKER}/b98.settings.json");
+        assert_eq!(owner_pid(&flat, MARKER), None);
+        assert_eq!(owner_pid("claude", MARKER), None);
     }
 
     #[test]
