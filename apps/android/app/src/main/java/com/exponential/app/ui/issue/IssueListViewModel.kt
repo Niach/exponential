@@ -43,6 +43,7 @@ import com.exponential.app.domain.sanitizeFilename
 import com.exponential.app.domain.sortIssuesForCategory
 import com.exponential.app.domain.toggleStatus
 import com.exponential.app.ui.markdown.IssueRefTarget
+import com.exponential.app.ui.markdown.markdownImageUrls
 import com.exponential.app.ui.markdown.removeMarkdownImagesByUrl
 import com.exponential.app.ui.markdown.replaceMarkdownImageUrls
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -764,8 +765,15 @@ class IssueListViewModel @Inject constructor(
         return try {
             val accountId = auth.activeAccountId.value ?: return false
             val rawDescription = description?.takeIf { it.isNotBlank() }
+            // The create screen's pending map is add-only — deleting an image
+            // row in the editor removes its placeholder from the markdown but
+            // never from the map — so upload only the drafts the submitted
+            // description still references (REV-24).
+            val referencedImages = rawDescription
+                ?.let { md -> pendingImages.filterKeys { it in markdownImageUrls(md) } }
+                .orEmpty()
             val strippedDescription = rawDescription
-                ?.let { removeMarkdownImagesByUrl(it, pendingImages.keys) }
+                ?.let { removeMarkdownImagesByUrl(it, referencedImages.keys) }
                 ?.takeIf { it.isNotBlank() }
 
             val created = issuesApi.create(
@@ -784,12 +792,12 @@ class IssueListViewModel @Inject constructor(
             )
             upsertCreatedLocally(accountId, created, labelIds)
 
-            if (rawDescription != null && pendingImages.isNotEmpty()) {
-                val urlByPlaceholder = uploadPendingImages(accountId, created.id, pendingImages)
+            if (rawDescription != null && referencedImages.isNotEmpty()) {
+                val urlByPlaceholder = uploadPendingImages(accountId, created.id, referencedImages)
                 val finalDescription = replaceMarkdownImageUrls(
                     markdown = removeMarkdownImagesByUrl(
                         rawDescription,
-                        pendingImages.keys.minus(urlByPlaceholder.keys),
+                        referencedImages.keys.minus(urlByPlaceholder.keys),
                     ),
                     replacements = urlByPlaceholder,
                 )
