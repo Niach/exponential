@@ -7,17 +7,23 @@
 //! "Discard & reset" (EXP-259 deleted the claude-task "Fix conflicts with
 //! Claude" button — PR merge conflicts are fixed by the builtin "Fix merge
 //! conflicts" ACTION run from the Reviews list / actions surfaces; a trunk
-//! rebase/merge conflict is a manual-recovery anomaly). The IDE neither
-//! stages, commits nor pushes anymore — the editor is view-only, changes
-//! arrive via PRs, and the trunk is kept fresh by the headless
-//! [`crate::trunk_sync`] engine. The ONE write affordance is the escape
-//! hatch: discard local changes via
+//! rebase/merge conflict is a manual-recovery anomaly). The editor is
+//! view-only — changes arrive via PRs, and the trunk is kept fresh by the
+//! headless [`crate::trunk_sync`] engine. TWO write affordances, both behind
+//! explicit confirms (EXP-509): discard local changes via
 //! [`crate::trunk_sync::TrunkSync::hard_reset`] (reset to origin/<default>),
-//! behind an explicit confirm.
+//! and commit-and-push them upstream via
+//! [`crate::trunk_sync::TrunkSync::commit_push`] — the history list's
+//! uncommitted-row icons carry both.
 //!
 //! Commit HISTORY lives in the sidebar tool column ([`HistoryList`], EXP-253
 //! — it replaced the branch list): clicking a commit selects it on the
 //! shared rail state and opens this screen, which shows the commit's diff.
+//! EXP-509 gave the list a lane GRAPH (a [`crate::commit_graph`] gutter —
+//! colored lanes, curved merge connectors, hollow dots for unpushed
+//! commits) and a synthetic muted top row while the tree is dirty or local
+//! commits sit unpushed: clicking it shows the working-tree diff, its icon
+//! buttons push upstream / discard.
 //!
 //! Trunk resolution (§4.2 rule 1: trunk-only, no board/issue scope): the
 //! active team's clone. The team's first board (sidebar order)
@@ -33,17 +39,19 @@
 //! git invocations are argv-only through [`coding::scm`] — never `gh`, never
 //! a library (DNR L5).
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, size, AnyElement, App, AppContext as _, Entity, FocusHandle, Focusable, FontWeight,
-    InteractiveElement, IntoElement, ParentElement, Render, SharedString,
-    StatefulInteractiveElement as _, Styled, Subscription, Window,
+    canvas, div, point, px, size, AnyElement, App, AppContext as _, Bounds, Entity, FocusHandle,
+    Focusable, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement, Pixels, Render,
+    SharedString, StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
+    input::{Input, InputState},
     scroll::{ScrollableElement as _, ScrollbarAxis},
     v_virtual_list, ActiveTheme as _, Disableable as _, Sizable as _, VirtualListScrollHandle,
 };
@@ -52,10 +60,12 @@ use sync::Store;
 use coding::scm::{self, CommitInfo, ConflictKind, ConflictState};
 
 use crate::coding_flow::{self, CodingHub};
+use crate::commit_graph::{self, EdgeKind, Graph, GraphRow, MAX_LANES};
 use crate::diff::{build_scm_diff, DiffView};
 use crate::icons::registry;
 use crate::navigation::{self, Navigation};
 use crate::repo_resolver::{repo_resolver_for_window, RepoLookup, RepoResolver};
+use crate::sidebar::ScSelection;
 
 /// History page size (§4.4: "200 at a time, Load more").
 const HISTORY_PAGE: usize = 200;
@@ -65,6 +75,19 @@ const HISTORY_ROW_HEIGHT: f32 = 48.;
 /// The trailing "Load more" row's height.
 const HISTORY_MORE_ROW_HEIGHT: f32 = 30.;
 
+// EXP-509 graph gutter geometry — the row height doubles as the lane pitch's
+// vertical rhythm, so only the horizontals live here.
+/// Horizontal distance between lane centers.
+const GRAPH_LANE_PITCH: f32 = 10.;
+/// Inset from the row's left edge to the first lane center.
+const GRAPH_LEFT_PAD: f32 = 14.;
+/// Gap between the last lane center and the text block.
+const GRAPH_RIGHT_PAD: f32 = 9.;
+/// Commit dot radius.
+const GRAPH_DOT_RADIUS: f32 = 3.5;
+/// Lane line width.
+const GRAPH_LINE_WIDTH: f32 = 2.;
+
 /// What the diff pane is showing.
 #[derive(Clone)]
 enum Selection {
@@ -73,8 +96,11 @@ enum Selection {
     /// One conflicted file's marker diff (conflict-banner chip).
     ConflictFile,
     /// A history commit (`git show`) — the sidebar history list carries
-    /// WHICH commit (rail `sc_selected_commit`); this only picks the pane.
+    /// WHICH commit (rail [`ScSelection`]); this only picks the pane.
     Commit,
+    /// The uncommitted working tree (`git diff HEAD` + untracked files) —
+    /// the history list's synthetic top row (EXP-509).
+    WorkingTree,
 }
 
 /// Scope-resolution / git-read lifecycle (render-time kicks exactly one
@@ -107,8 +133,8 @@ pub struct SourceControlView {
     /// pulled by auto-sync must show up without closing/reopening the
     /// screen).
     seen_sync_seq: u64,
-    /// The sidebar history selection this view last applied (`None` = none).
-    seen_commit: Option<String>,
+    /// The sidebar history selection this view last applied.
+    seen_selection: ScSelection,
     /// The shared per-window repo resolver (§4.2) — the trunk repo comes from
     /// here instead of a per-screen `repositories.list` call.
     repo_resolver: Entity<RepoResolver>,
@@ -173,7 +199,7 @@ impl SourceControlView {
             nav,
             rail,
             seen_sync_seq,
-            seen_commit: None,
+            seen_selection: ScSelection::None,
             repo_resolver,
             diff,
             scope_board: None,
@@ -211,12 +237,12 @@ impl SourceControlView {
             self.selection = Selection::None;
             self.error = None;
             self.scope_load = Load::Idle;
-            // A scope change invalidates the sidebar's commit selection —
-            // clearing it also lets the SAME hash re-fire later (the
-            // equality guards would otherwise swallow the re-select).
-            self.seen_commit = None;
+            // A scope change invalidates the sidebar's selection — clearing
+            // it also lets the SAME hash re-fire later (the equality guards
+            // would otherwise swallow the re-select).
+            self.seen_selection = ScSelection::None;
             let rail = self.rail.clone();
-            rail.update(cx, |rail, cx| rail.clear_sc_selected_commit(cx));
+            rail.update(cx, |rail, cx| rail.clear_sc_selection(cx));
         }
         // Re-run while resolving (Idle/Loading) so the resolver's completion is
         // picked up; only `Ready` (scope set or confirmed absent) short-circuits.
@@ -310,6 +336,23 @@ impl SourceControlView {
                 {
                     this.selection = Selection::None;
                 }
+                // EXP-509: a fresh status re-cuts the working-tree pane —
+                // and a now-clean tree falls back to the placeholder (the
+                // rail clear flows to the history row highlight too).
+                if matches!(this.selection, Selection::WorkingTree) {
+                    let clean = this
+                        .status
+                        .as_ref()
+                        .is_none_or(|status| status.changes.is_empty());
+                    if clean {
+                        this.selection = Selection::None;
+                        this.seen_selection = ScSelection::None;
+                        let rail = this.rail.clone();
+                        rail.update(cx, |rail, cx| rail.clear_sc_selection(cx));
+                    } else {
+                        this.select_working_tree(cx);
+                    }
+                }
                 cx.notify();
             });
         })
@@ -369,6 +412,40 @@ impl SourceControlView {
                 .background_executor()
                 .spawn(async move {
                     scm::commit_diff(&clone, &hash).map(|files| build_scm_diff(&files, &theme))
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.diff_generation != generation {
+                    return;
+                }
+                this.diff.update(cx, |diff, cx| match result {
+                    Ok(prepared) => diff.set_prepared(prepared, cx),
+                    Err(err) => diff.set_error(err.to_string(), cx),
+                });
+            });
+        })
+        .detach();
+    }
+
+    /// EXP-509: the uncommitted working tree — the whole `git diff HEAD`
+    /// patch plus synthesized adds for untracked files, through the same
+    /// shared renderer (per-file headers come free).
+    fn select_working_tree(&mut self, cx: &mut gpui::Context<Self>) {
+        self.selection = Selection::WorkingTree;
+        let Some(scope) = self.scope.clone() else {
+            return;
+        };
+        let clone = scope.clone_dir.clone();
+        self.diff_generation += 1;
+        let generation = self.diff_generation;
+        // Build the diff rows on the background executor (see `select_conflict_file`).
+        let theme = cx.theme().highlight_theme.clone();
+        self.diff.update(cx, |diff, cx| diff.set_loading(cx));
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    scm::working_tree_diff(&clone).map(|files| build_scm_diff(&files, &theme))
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
@@ -449,34 +526,9 @@ impl SourceControlView {
                     .as_ref()
                     .map(|status| status.branch.clone())
                     .filter(|branch| !branch.is_empty())
-            })
-            .unwrap_or_else(|| "the remote branch".to_string());
-        let trunk_sync = self.rail.read(cx).trunk_sync().clone();
-        // The hatch stays available while an Action / agent-shell tab is
-        // working on this clone (it's the escape hatch), but the confirm
-        // must say the tree is about to move under a live session.
-        let session_live = trunk_sync.read(cx).repo_agents_alive(window, cx);
+            });
         let this = cx.entity().downgrade();
-        let mut description = format!(
-            "This resets the trunk to origin/{branch}, discarding all \
-             local tracked changes and aborting any paused rebase or \
-             merge. Untracked files are kept. This cannot be undone."
-        );
-        if session_live {
-            description.push_str(
-                " A coding or action session is currently running in \
-                 this clone. The reset will move the working tree \
-                 under it and may disrupt the session.",
-            );
-        }
-        let spec = crate::native_dialog::AlertSpec::new(
-            "Discard local changes?",
-            description,
-            "Discard changes & reset",
-        )
-        .height(px(280.))
-        .on_ok(move |_, cx| {
-            trunk_sync.update(cx, |engine, cx| engine.hard_reset(cx));
+        prompt_hard_reset_confirm(window, cx, &self.rail, branch, move |cx| {
             if let Some(this) = this.upgrade() {
                 this.update(cx, |this, cx| {
                     this.selection = Selection::None;
@@ -484,9 +536,7 @@ impl SourceControlView {
                     cx.notify();
                 });
             }
-            true
         });
-        crate::native_dialog::open_alert(window, cx, spec);
     }
 
     // -- render -------------------------------------------------------------
@@ -731,6 +781,12 @@ impl SourceControlView {
             .is_none()
             .then(|| self.status.as_ref().and_then(anomaly_strip_message))
             .flatten();
+        // EXP-509: "View changes" only makes sense with an actual dirty tree
+        // (an ahead-only anomaly has nothing uncommitted to show).
+        let dirty = self
+            .status
+            .as_ref()
+            .is_some_and(|status| !status.changes.is_empty());
         // Copied out (Hsla is Copy) so the theme borrow doesn't overlap the
         // mutable cx borrows of the render calls below.
         // EXP-277: faint glass row stroke for the content header line.
@@ -757,13 +813,32 @@ impl SourceControlView {
                                 .child(SharedString::from(message)),
                         )
                         .child(
-                            Button::new("scm-hard-reset")
-                                .xsmall()
-                                .label("Discard changes & reset…")
-                                .disabled(self.busy.is_some())
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    this.prompt_hard_reset(window, cx);
-                                })),
+                            gpui_component::h_flex()
+                                .gap_1()
+                                .when(dirty, |this| {
+                                    this.child(
+                                        // EXP-509: jump to the working-tree diff.
+                                        Button::new("scm-view-changes")
+                                            .xsmall()
+                                            .label("View changes")
+                                            .on_click(cx.listener(|_, _, window, cx| {
+                                                crate::sidebar::set_sc_selection(
+                                                    window,
+                                                    cx,
+                                                    ScSelection::WorkingTree,
+                                                );
+                                            })),
+                                    )
+                                })
+                                .child(
+                                    Button::new("scm-hard-reset")
+                                        .xsmall()
+                                        .label("Discard changes & reset…")
+                                        .disabled(self.busy.is_some())
+                                        .on_click(cx.listener(|this, _, window, cx| {
+                                            this.prompt_hard_reset(window, cx);
+                                        })),
+                                ),
                         ),
                 )
             })
@@ -781,20 +856,17 @@ impl Focusable for SourceControlView {
 impl Render for SourceControlView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         self.ensure_scope(cx);
-        // Follow the sidebar history list's commit selection.
-        let want = self
-            .rail
-            .read(cx)
-            .sc_selected_commit()
-            .map(str::to_string);
-        if want != self.seen_commit {
-            self.seen_commit = want.clone();
+        // Follow the sidebar history list's selection.
+        let want = self.rail.read(cx).sc_selection().clone();
+        if want != self.seen_selection {
+            self.seen_selection = want.clone();
             match want {
-                Some(hash) => self.select_commit(hash, cx),
+                ScSelection::Commit(hash) => self.select_commit(hash, cx),
+                ScSelection::WorkingTree => self.select_working_tree(cx),
                 // Deselected out from under us (scope change) — back to the
                 // placeholder.
-                None => {
-                    if matches!(self.selection, Selection::Commit) {
+                ScSelection::None => {
+                    if matches!(self.selection, Selection::Commit | Selection::WorkingTree) {
                         self.selection = Selection::None;
                     }
                 }
@@ -863,6 +935,58 @@ fn anomaly_strip_message(status: &scm::StatusSummary) -> Option<String> {
     Some(format!("{}. Auto-pull is paused.", parts.join(" · ")))
 }
 
+/// The shared discard confirm (the EXP-253 escape hatch; EXP-509 reuses it
+/// from the history list's uncommitted row): explicit dialog, then
+/// [`crate::trunk_sync::TrunkSync::hard_reset`] + rail-selection clear.
+/// `branch` labels the reset target (fallback: the engine's checked-out
+/// branch, then "the remote branch"); `after_ok` is the caller's own
+/// post-kick cleanup.
+fn prompt_hard_reset_confirm(
+    window: &mut Window,
+    cx: &mut App,
+    rail: &Entity<crate::sidebar::RailShared>,
+    branch: Option<String>,
+    after_ok: impl Fn(&mut App) + 'static,
+) {
+    let trunk_sync = rail.read(cx).trunk_sync().clone();
+    let branch = branch
+        .or_else(|| {
+            let checked_out = trunk_sync.read(cx).branch().to_string();
+            (!checked_out.is_empty() && !checked_out.starts_with('(')).then_some(checked_out)
+        })
+        .unwrap_or_else(|| "the remote branch".to_string());
+    // The hatch stays available while an Action / agent-shell tab is
+    // working on this clone (it's the escape hatch), but the confirm
+    // must say the tree is about to move under a live session.
+    let session_live = trunk_sync.read(cx).repo_agents_alive(window, cx);
+    let rail = rail.clone();
+    let mut description = format!(
+        "This resets the trunk to origin/{branch}, discarding all \
+         local tracked changes and aborting any paused rebase or \
+         merge. Untracked files are kept. This cannot be undone."
+    );
+    if session_live {
+        description.push_str(
+            " A coding or action session is currently running in \
+             this clone. The reset will move the working tree \
+             under it and may disrupt the session.",
+        );
+    }
+    let spec = crate::native_dialog::AlertSpec::new(
+        "Discard local changes?",
+        description,
+        "Discard changes & reset",
+    )
+    .height(px(280.))
+    .on_ok(move |_, cx| {
+        trunk_sync.update(cx, |engine, cx| engine.hard_reset(cx));
+        rail.update(cx, |rail, cx| rail.clear_sc_selection(cx));
+        after_ok(cx);
+        true
+    });
+    crate::native_dialog::open_alert(window, cx, spec);
+}
+
 // ---------------------------------------------------------------------------
 // HistoryList — the sidebar Source Control tool window (EXP-253: it replaced
 // the branch list / flow graph)
@@ -882,9 +1006,18 @@ pub struct HistoryList {
     /// The last trunk-sync `sync_seq` this list re-read for.
     seen_sync_seq: u64,
     history: Vec<CommitInfo>,
+    /// The loaded window's lane layout (EXP-509) — recomputed whole on every
+    /// refresh/append (deterministic over a prefix, so appends never
+    /// re-lane or recolor loaded rows).
+    graph: Graph,
+    /// Commits on HEAD not on origin (`git rev-list origin/<b>..HEAD`) —
+    /// rendered hollow/muted (EXP-509).
+    unpushed: HashSet<String>,
     history_skip: usize,
     history_has_more: bool,
     history_loading: bool,
+    /// The commit-and-push dialog's message field (EXP-509).
+    commit_msg_input: Entity<InputState>,
     /// Stale-read guard (a superseded refresh is dropped).
     generation: u64,
     _subscriptions: Vec<Subscription>,
@@ -894,6 +1027,8 @@ impl HistoryList {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let rail = crate::sidebar::rail_shared_for_window(window, cx);
         let trunk_sync = rail.read(cx).trunk_sync().clone();
+        let commit_msg_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Commit message"));
         let subscriptions = vec![
             // Selection highlight + scope both live on the rail state.
             cx.observe(&rail, |_, _, cx| cx.notify()),
@@ -905,9 +1040,12 @@ impl HistoryList {
             seen_clone: None,
             seen_sync_seq: 0,
             history: Vec::new(),
+            graph: Graph::default(),
+            unpushed: HashSet::new(),
             history_skip: 0,
             history_has_more: false,
             history_loading: false,
+            commit_msg_input,
             generation: 0,
             _subscriptions: subscriptions,
         }
@@ -924,6 +1062,8 @@ impl HistoryList {
             self.seen_clone = clone.clone();
             self.seen_sync_seq = seq;
             self.history.clear();
+            self.graph = Graph::default();
+            self.unpushed.clear();
             self.history_skip = 0;
             self.history_has_more = false;
             self.generation += 1;
@@ -938,18 +1078,38 @@ impl HistoryList {
         }
     }
 
-    /// (Re)load the first history page for the current clone.
+    /// (Re)load the first history page for the current clone, plus the
+    /// unpushed set when the engine reports local commits (EXP-509).
     fn refresh(&mut self, cx: &mut gpui::Context<Self>) {
         let Some(clone) = self.seen_clone.clone() else {
             return;
         };
+        // Which branch to diff against origin — only when there IS an
+        // upstream and something ahead (the common clean case skips the
+        // extra rev-list entirely).
+        let unpushed_branch = {
+            let trunk_sync = self.rail.read(cx).trunk_sync().clone();
+            let trunk = trunk_sync.read(cx).trunk();
+            (trunk.ahead > 0
+                && trunk.has_upstream
+                && !trunk.branch.is_empty()
+                && !trunk.branch.starts_with('('))
+            .then(|| trunk.branch.clone())
+        };
         self.generation += 1;
         let generation = self.generation;
         cx.spawn(async move |this, cx| {
-            let page = cx
+            let (page, unpushed) = cx
                 .background_executor()
                 .spawn(async move {
-                    scm::log_branch(&clone, None, 0, HISTORY_PAGE).unwrap_or_default()
+                    let page =
+                        scm::log_branch(&clone, None, 0, HISTORY_PAGE).unwrap_or_default();
+                    let unpushed: HashSet<String> = unpushed_branch
+                        .and_then(|branch| scm::unpushed_hashes(&clone, &branch).ok())
+                        .unwrap_or_default()
+                        .into_iter()
+                        .collect();
+                    (page, unpushed)
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
@@ -959,6 +1119,8 @@ impl HistoryList {
                 this.history_skip = page.len();
                 this.history_has_more = page.len() == HISTORY_PAGE;
                 this.history = page;
+                this.graph = commit_graph::layout(&this.history);
+                this.unpushed = unpushed;
                 cx.notify();
             });
         })
@@ -992,22 +1154,53 @@ impl HistoryList {
                 this.history_skip += page.len();
                 this.history_has_more = page.len() == HISTORY_PAGE;
                 this.history.extend(page);
+                // Whole-window recompute — deterministic over a prefix, so
+                // the already-visible rows keep their lanes and colors.
+                this.graph = commit_graph::layout(&this.history);
                 cx.notify();
             });
         })
         .detach();
     }
 
-    /// One virtual row: a commit for `ix < history.len()`, else the trailing
-    /// "Load more" row (present only while `history_has_more`).
+    /// The uncommitted synthetic top row's presence (EXP-509): a dirty tree
+    /// or unpushed local commits.
+    fn uncommitted_visible(&self, cx: &App) -> bool {
+        if self.seen_clone.is_none() {
+            return false;
+        }
+        let trunk_sync = self.rail.read(cx).trunk_sync().clone();
+        let trunk = trunk_sync.read(cx).trunk();
+        trunk.dirty || (trunk.ahead > 0 && trunk.has_upstream)
+    }
+
+    /// The gutter cell's width — global over the loaded window, so every
+    /// row's lanes line up (including "Load more" and the uncommitted row).
+    fn gutter_width(&self) -> f32 {
+        let lanes = self.graph.max_lane.min(MAX_LANES - 1) as f32 + 1.;
+        GRAPH_LEFT_PAD + (lanes - 0.5) * GRAPH_LANE_PITCH + GRAPH_RIGHT_PAD
+    }
+
+    /// One virtual row: the synthetic uncommitted row first (when present),
+    /// commits, then the trailing "Load more" row (while `history_has_more`).
     fn render_row(&self, ix: usize, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let uncommitted = self.uncommitted_visible(cx);
+        if uncommitted && ix == 0 {
+            return self.uncommitted_row(cx).into_any_element();
+        }
+        let ix = ix - usize::from(uncommitted);
         match self.history.get(ix) {
-            Some(commit) => self.commit_row(commit, cx).into_any_element(),
+            Some(commit) => self.commit_row(ix, commit, cx).into_any_element(),
             None => self.load_more_row(cx).into_any_element(),
         }
     }
 
-    fn commit_row(&self, commit: &CommitInfo, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn commit_row(
+        &self,
+        ix: usize,
+        commit: &CommitInfo,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl IntoElement {
         let theme = cx.theme();
         let selected = self
             .rail
@@ -1016,37 +1209,59 @@ impl HistoryList {
             .is_some_and(|hash| hash == commit.hash);
         let hash = commit.hash.clone();
         let meta = format!("{} · {}", commit.author, commit.relative_time);
+        // EXP-509: not-yet-pushed commits render hollow + muted.
+        let unpushed = self.unpushed.contains(&commit.hash);
+        let row = self.graph.rows.get(ix).cloned().unwrap_or_default();
+        let gutter = gutter_cell(self.gutter_width(), move |bounds, window| {
+            paint_graph_row(bounds, window, &row, unpushed);
+        });
         // EXP-282: flat edge-to-edge rows like the issue list — the pill
         // inset (rounded + horizontal container padding) and the pre-glass
         // `accent` fills are gone; hover/selected use the glass list tokens.
         // EXP-344: the row pins the virtual list's fixed height.
-        gpui_component::v_flex()
+        // EXP-509: an h_flex now — graph gutter cell + the two-line text.
+        gpui_component::h_flex()
             .id(SharedString::from(format!("hist-commit-{}", commit.hash)))
             .w_full()
             .h(px(HISTORY_ROW_HEIGHT))
             .overflow_hidden()
-            .justify_center()
-            .gap_0p5()
-            .px_3()
             .when(selected, |this| this.bg(theme.list_active))
             .hover(|this| this.bg(theme.list_hover))
             .cursor_pointer()
+            .child(gutter)
             .child(
-                div()
-                    .text_xs()
-                    .truncate()
-                    .text_color(theme.foreground)
-                    .child(SharedString::from(commit.subject.clone())),
-            )
-            .child(
-                div()
-                    .text_xs()
-                    .truncate()
-                    .text_color(theme.muted_foreground)
-                    .child(SharedString::from(meta)),
+                gpui_component::v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
+                    .justify_center()
+                    .gap_0p5()
+                    .pr_3()
+                    .child(
+                        div()
+                            .text_xs()
+                            .truncate()
+                            .text_color(if unpushed {
+                                theme.muted_foreground
+                            } else {
+                                theme.foreground
+                            })
+                            .child(SharedString::from(commit.subject.clone())),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .truncate()
+                            .text_color(theme.muted_foreground)
+                            .child(SharedString::from(meta)),
+                    ),
             )
             .on_click(cx.listener(move |_, _, window, cx| {
-                crate::sidebar::select_sc_commit(window, cx, Some(hash.clone()));
+                crate::sidebar::set_sc_selection(
+                    window,
+                    cx,
+                    ScSelection::Commit(hash.clone()),
+                );
                 // Opens/refocuses the Source Control screen, which follows
                 // the selection.
                 crate::sidebar::activate_tool(
@@ -1057,13 +1272,193 @@ impl HistoryList {
             }))
     }
 
-    /// History "Load more" (§4.4) as the list's trailing virtual row.
+    /// The EXP-509 uncommitted-changes row: a muted synthetic entry above
+    /// HEAD with a dashed stub in the gutter and icon-only actions — push
+    /// upstream (commit first when dirty) and the discard hatch.
+    fn uncommitted_row(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        let trunk_sync = self.rail.read(cx).trunk_sync().clone();
+        let engine = trunk_sync.read(cx);
+        let trunk = engine.trunk();
+        let selected = matches!(self.rail.read(cx).sc_selection(), ScSelection::WorkingTree);
+        let dirty = trunk.dirty;
+        // Push needs a branch with an upstream and no engaged conflict; the
+        // worker re-derives all of it from disk before writing.
+        let push_blocked = engine.is_syncing()
+            || trunk.conflict.is_some()
+            || trunk.branch.is_empty()
+            || trunk.branch.starts_with('(')
+            || !trunk.has_upstream;
+        let busy = engine.is_syncing();
+        let mut parts: Vec<String> = Vec::new();
+        if trunk.dirty_files > 0 {
+            let noun = if trunk.dirty_files == 1 { "file" } else { "files" };
+            parts.push(format!("{} {noun}", trunk.dirty_files));
+        }
+        if trunk.ahead > 0 && trunk.has_upstream {
+            parts.push(format!("{} ahead", trunk.ahead));
+        }
+        let meta = parts.join(" · ");
+        let head_lane = self.graph.rows.first().map(|row| row.lane).unwrap_or(0);
+        let muted = theme.muted_foreground;
+        let gutter = gutter_cell(self.gutter_width(), move |bounds, window| {
+            paint_uncommitted_stub(bounds, window, head_lane, muted);
+        });
+
+        gpui_component::h_flex()
+            .id("hist-uncommitted")
+            .w_full()
+            .h(px(HISTORY_ROW_HEIGHT))
+            .overflow_hidden()
+            .when(selected, |this| this.bg(theme.list_active))
+            .hover(|this| this.bg(theme.list_hover))
+            .cursor_pointer()
+            .child(gutter)
+            .child(
+                gpui_component::v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
+                    .justify_center()
+                    .gap_0p5()
+                    .child(
+                        div()
+                            .text_xs()
+                            .truncate()
+                            .text_color(theme.muted_foreground)
+                            .child(if dirty {
+                                "Uncommitted changes"
+                            } else {
+                                "Unpushed commits"
+                            }),
+                    )
+                    .when(!meta.is_empty(), |this| {
+                        this.child(
+                            div()
+                                .text_xs()
+                                .truncate()
+                                .text_color(theme.muted_foreground.opacity(0.7))
+                                .child(SharedString::from(meta)),
+                        )
+                    }),
+            )
+            .child(
+                gpui_component::h_flex()
+                    .flex_shrink_0()
+                    .items_center()
+                    .gap_0p5()
+                    .pr_2()
+                    .child(
+                        Button::new("hist-push")
+                            .ghost()
+                            .xsmall()
+                            .icon(registry::SC_PUSH)
+                            .tooltip(if dirty {
+                                "Commit & push local changes"
+                            } else {
+                                "Push local commits"
+                            })
+                            .disabled(push_blocked)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.prompt_push(window, cx);
+                            })),
+                    )
+                    .child(
+                        Button::new("hist-discard")
+                            .ghost()
+                            .xsmall()
+                            .icon(registry::UI_DELETE)
+                            .tooltip("Discard changes & reset…")
+                            .disabled(busy)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                prompt_hard_reset_confirm(
+                                    window,
+                                    cx,
+                                    &this.rail.clone(),
+                                    None,
+                                    |_| {},
+                                );
+                            })),
+                    ),
+            )
+            .on_click(cx.listener(|_, _, window, cx| {
+                crate::sidebar::set_sc_selection(window, cx, ScSelection::WorkingTree);
+                crate::sidebar::activate_tool(
+                    window,
+                    cx,
+                    crate::sidebar::ToolWindow::SourceControl,
+                );
+            }))
+    }
+
+    /// The push confirm (EXP-509): with a dirty tree, a commit-message input
+    /// rides the dialog (machine-rename pattern); clean-but-ahead is a plain
+    /// confirm. The engine's worker re-checks everything from disk.
+    fn prompt_push(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let trunk_sync = self.rail.read(cx).trunk_sync().clone();
+        let trunk = trunk_sync.read(cx).trunk().clone();
+        let branch = if trunk.branch.is_empty() {
+            "the branch".to_string()
+        } else {
+            trunk.branch.clone()
+        };
+        if trunk.dirty {
+            self.commit_msg_input.update(cx, |state, cx| {
+                state.set_value("Local changes", window, cx);
+            });
+            let content_input = self.commit_msg_input.clone();
+            let ok_input = self.commit_msg_input.clone();
+            let spec = crate::native_dialog::AlertSpec::new(
+                "Push local changes?",
+                format!(
+                    "Commits ALL local changes on the trunk and pushes them \
+                     straight to origin/{branch}."
+                ),
+                "Commit & push",
+            )
+            .height(px(260.))
+            .content(move |_, _| {
+                div()
+                    .mt_2()
+                    .child(Input::new(&content_input).small())
+                    .into_any_element()
+            })
+            .on_ok(move |_, cx| {
+                let message = ok_input.read(cx).value().trim().to_string();
+                if message.is_empty() {
+                    return false; // no unnamed commits — keep the dialog open
+                }
+                trunk_sync.update(cx, |engine, cx| engine.commit_push(Some(message), cx));
+                true
+            });
+            crate::native_dialog::open_alert(window, cx, spec);
+        } else {
+            let noun = if trunk.ahead == 1 { "commit" } else { "commits" };
+            let spec = crate::native_dialog::AlertSpec::new(
+                "Push local commits?",
+                format!("Pushes {} local {noun} to origin/{branch}.", trunk.ahead),
+                "Push",
+            )
+            .on_ok(move |_, cx| {
+                trunk_sync.update(cx, |engine, cx| engine.commit_push(None, cx));
+                true
+            });
+            crate::native_dialog::open_alert(window, cx, spec);
+        }
+    }
+
+    /// History "Load more" (§4.4) as the list's trailing virtual row — its
+    /// gutter keeps painting the graph's open lanes so lines visually run
+    /// off the bottom toward the not-yet-loaded commits.
     fn load_more_row(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        div()
+        let tail = self.graph.tail.clone();
+        let gutter = gutter_cell(self.gutter_width(), move |bounds, window| {
+            paint_lane_tail(bounds, window, &tail);
+        });
+        gpui_component::h_flex()
             .h(px(HISTORY_MORE_ROW_HEIGHT))
-            .px_2()
-            .flex()
             .items_center()
+            .child(gutter)
             .child(
                 Button::new("hist-more")
                     .ghost()
@@ -1081,13 +1476,185 @@ impl HistoryList {
     }
 }
 
+// ---------------------------------------------------------------------------
+// EXP-509 graph gutter painting (canvas + PathBuilder — the shell.rs notch is
+// the precedent; PathBuilder, never the raw scene Path)
+// ---------------------------------------------------------------------------
+
+/// The lane color palette — fixed brand accents, cycled by the layout's
+/// color index (a branch keeps its color for its whole run).
+fn lane_color(ix: usize) -> Hsla {
+    const PALETTE: [theme::Srgb8; 6] = [
+        theme::tokens::BRAND,
+        theme::tokens::GREEN,
+        theme::tokens::ORANGE,
+        theme::tokens::BLUE,
+        theme::tokens::YELLOW,
+        theme::tokens::RED,
+    ];
+    PALETTE[ix % PALETTE.len()].to_hsla()
+}
+
+/// A fixed-width full-height gutter cell wrapping a paint-only canvas.
+fn gutter_cell(
+    width: f32,
+    paint: impl Fn(Bounds<Pixels>, &mut Window) + 'static,
+) -> impl IntoElement {
+    div()
+        .w(px(width))
+        .h_full()
+        .flex_shrink_0()
+        .child(
+            canvas(|_, _, _| (), move |bounds, _, window, _| paint(bounds, window))
+                .size_full(),
+        )
+}
+
+/// A lane's x center inside `bounds` (clamped to the render cap).
+fn lane_x(bounds: &Bounds<Pixels>, lane: usize) -> Pixels {
+    bounds.origin.x
+        + px(GRAPH_LEFT_PAD + lane.min(MAX_LANES - 1) as f32 * GRAPH_LANE_PITCH)
+}
+
+/// A vertical lane segment as a cheap quad.
+fn paint_lane_segment(window: &mut Window, x: Pixels, top: Pixels, bottom: Pixels, color: Hsla) {
+    if bottom <= top {
+        return;
+    }
+    window.paint_quad(gpui::fill(
+        Bounds::new(
+            point(x - px(GRAPH_LINE_WIDTH / 2.), top),
+            size(px(GRAPH_LINE_WIDTH), bottom - top),
+        ),
+        color,
+    ));
+}
+
+/// One commit row's gutter: pass-throughs, curved connectors, and the dot
+/// (hollow when the commit is not on origin yet).
+fn paint_graph_row(
+    bounds: Bounds<Pixels>,
+    window: &mut Window,
+    row: &GraphRow,
+    unpushed: bool,
+) {
+    let top = bounds.origin.y;
+    let bottom = top + bounds.size.height;
+    let mid = top + bounds.size.height / 2.;
+    let dot_x = lane_x(&bounds, row.lane);
+    let dot_gap = px(GRAPH_DOT_RADIUS + 1.5);
+
+    for edge in &row.edges {
+        let color = lane_color(edge.color);
+        match edge.kind {
+            EdgeKind::Pass => {
+                paint_lane_segment(window, lane_x(&bounds, edge.lane_top), top, bottom, color);
+            }
+            EdgeKind::IntoDot => {
+                let from_x = lane_x(&bounds, edge.lane_top);
+                if edge.lane_top == row.lane {
+                    // Straight from the row top into the dot.
+                    paint_lane_segment(window, from_x, top, mid - dot_gap, color);
+                } else {
+                    // Curved: down from the top edge, bending into the dot.
+                    let mut path = gpui::PathBuilder::stroke(px(GRAPH_LINE_WIDTH));
+                    path.move_to(point(from_x, top));
+                    path.curve_to(point(dot_x, mid), point(from_x, mid));
+                    if let Ok(path) = path.build() {
+                        window.paint_path(path, color);
+                    }
+                }
+            }
+            EdgeKind::OutOfDot => {
+                let to_x = lane_x(&bounds, edge.lane_bottom);
+                if edge.lane_bottom == row.lane {
+                    // Straight from the dot to the row bottom.
+                    paint_lane_segment(window, to_x, mid + dot_gap, bottom, color);
+                } else {
+                    // Curved: out of the dot toward the target lane, then
+                    // down to the row bottom.
+                    let mut path = gpui::PathBuilder::stroke(px(GRAPH_LINE_WIDTH));
+                    path.move_to(point(dot_x, mid));
+                    path.curve_to(point(to_x, bottom), point(to_x, mid));
+                    if let Ok(path) = path.build() {
+                        window.paint_path(path, color);
+                    }
+                }
+            }
+        }
+    }
+
+    paint_dot(window, dot_x, mid, lane_color(row.color), !unpushed);
+}
+
+/// The "Load more" row's gutter: every still-open lane passes through.
+fn paint_lane_tail(bounds: Bounds<Pixels>, window: &mut Window, tail: &[(usize, usize)]) {
+    let top = bounds.origin.y;
+    let bottom = top + bounds.size.height;
+    for &(lane, color) in tail {
+        paint_lane_segment(window, lane_x(&bounds, lane), top, bottom, lane_color(color));
+    }
+}
+
+/// The uncommitted row's gutter (EXP-509): a dashed hollow circle above
+/// HEAD's lane with a dashed stub running down toward it — visibly "not a
+/// commit yet".
+fn paint_uncommitted_stub(
+    bounds: Bounds<Pixels>,
+    window: &mut Window,
+    head_lane: usize,
+    color: Hsla,
+) {
+    let mid = bounds.origin.y + bounds.size.height / 2.;
+    let bottom = bounds.origin.y + bounds.size.height;
+    let x = lane_x(&bounds, head_lane);
+    let r = px(GRAPH_DOT_RADIUS);
+
+    let mut stub = gpui::PathBuilder::stroke(px(GRAPH_LINE_WIDTH)).dash_array(&[px(2.), px(3.)]);
+    stub.move_to(point(x, mid + r + px(1.5)));
+    stub.line_to(point(x, bottom));
+    if let Ok(path) = stub.build() {
+        window.paint_path(path, color);
+    }
+
+    let mut ring = gpui::PathBuilder::stroke(px(1.5)).dash_array(&[px(2.), px(2.)]);
+    ring.move_to(point(x - r, mid));
+    ring.arc_to(point(r, r), px(0.), false, true, point(x + r, mid));
+    ring.arc_to(point(r, r), px(0.), false, true, point(x - r, mid));
+    if let Ok(path) = ring.build() {
+        window.paint_path(path, color);
+    }
+}
+
+/// A commit dot — filled, or a hollow ring for unpushed commits.
+fn paint_dot(window: &mut Window, x: Pixels, y: Pixels, color: Hsla, filled: bool) {
+    let r = px(GRAPH_DOT_RADIUS);
+    let mut path = if filled {
+        gpui::PathBuilder::fill()
+    } else {
+        gpui::PathBuilder::stroke(px(1.5))
+    };
+    path.move_to(point(x - r, y));
+    path.arc_to(point(r, r), px(0.), false, true, point(x + r, y));
+    path.arc_to(point(r, r), px(0.), false, true, point(x - r, y));
+    if filled {
+        path.close();
+    }
+    if let Ok(path) = path.build() {
+        window.paint_path(path, color);
+    }
+}
+
 impl Render for HistoryList {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         self.ensure_fresh(cx);
         let no_clone = self.seen_clone.is_none();
+        // EXP-509: the synthetic uncommitted row leads the list — even over
+        // an empty history (a fresh repo with only local edits).
+        let uncommitted = self.uncommitted_visible(cx);
 
         // Empty states need no scroller at all.
-        if no_clone || self.history.is_empty() {
+        if no_clone || (self.history.is_empty() && !uncommitted) {
             let muted = cx.theme().muted_foreground;
             return div()
                 .flex_1()
@@ -1111,8 +1678,16 @@ impl Render for HistoryList {
         // EXP-344: the history is a virtualized fixed-height-row list (like
         // the issue list) — the old plain scroll pane re-laid-out every
         // loaded commit row each frame, which got visibly laggy at 200+
-        // rows. The optional "Load more" row rides along as the last index.
-        let mut sizes = vec![size(px(0.), px(HISTORY_ROW_HEIGHT)); self.history.len()];
+        // rows. The optional "Load more" row rides along as the last index;
+        // the optional uncommitted row as the first (EXP-509).
+        let mut sizes = Vec::with_capacity(self.history.len() + 2);
+        if uncommitted {
+            sizes.push(size(px(0.), px(HISTORY_ROW_HEIGHT)));
+        }
+        sizes.extend(std::iter::repeat_n(
+            size(px(0.), px(HISTORY_ROW_HEIGHT)),
+            self.history.len(),
+        ));
         if self.history_has_more {
             sizes.push(size(px(0.), px(HISTORY_MORE_ROW_HEIGHT)));
         }

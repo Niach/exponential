@@ -497,7 +497,7 @@ impl ScreensPanel {
             // paths / commit hashes of the OLD team's clone).
             self.rail.update(cx, |rail, cx| {
                 rail.clear_selected_file(cx);
-                rail.clear_sc_selected_commit(cx);
+                rail.clear_sc_selection(cx);
             });
         }
         let Some(screen) = resolved_screen(&self.nav, cx) else {
