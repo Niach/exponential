@@ -337,6 +337,15 @@ pub struct ScreensPanel {
     /// long-lived, so a transition INTO one is the only "opened" signal a
     /// pane that fetches server-only data gets.
     active_screen: Option<Screen>,
+    /// EXP-492/EXP-499: the panel's painted slot width, recorded each
+    /// prepaint (the editor's EXP-421/436 recipe). The center content gets
+    /// this as a DEFINITE pixel width, because between real layout frames
+    /// gpui runs passes that resolve the panel subtree at fit-content —
+    /// percent chains collapse (the Actions page's machines rows shrink-wrap
+    /// and its card wrap-grid stops wrapping, running off the right edge).
+    /// One frame stale during a live resize; 0.0 before the first paint
+    /// falls back to stretch.
+    slot_width: std::rc::Rc<std::cell::Cell<f32>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -423,6 +432,7 @@ impl ScreensPanel {
             tabs: Vec::new(),
             tabs_team: None,
             active_screen: None,
+            slot_width: std::rc::Rc::new(std::cell::Cell::new(0.0)),
             _subscriptions: subscriptions,
         };
         this.sync_tabs(window, cx);
@@ -1285,13 +1295,54 @@ impl Render for ScreensPanel {
                 .child(self.render_tab_strip(available, window, cx))
         });
 
-        div().size_full().bg(cx.theme().colors.list).child(
+        pinned_panel_root(
+            cx.theme().colors.list,
+            fallback_strip,
+            self.slot_width.clone(),
+            content,
+        )
+    }
+}
+
+/// EXP-492/EXP-499: the panel root — background, the optional fallback tab
+/// strip, then the center content pinned to the panel's recorded painted
+/// width. Between real layout frames, gpui resolves this subtree under
+/// fit-content constraints (diagnosed in EXP-492 with a per-frame bounds
+/// logger: whole-column collapses to ~173px); a percent-width (`w_full`)
+/// chain below then latches its collapsed result — on the Actions page the
+/// machines rows shrink-wrapped and the card wrap-grid resolved its
+/// unwrapped max-content line, running off the right edge (EXP-499). A
+/// DEFINITE pixel width on the content slot makes those passes resolve
+/// every percent chain below correctly. One frame stale during a live
+/// resize, like the editor's own EXP-421/436 slot recording; before the
+/// first paint (0.0) the content stretches as before.
+fn pinned_panel_root(
+    background: gpui::Hsla,
+    fallback_strip: Option<gpui::Div>,
+    slot_width: std::rc::Rc<std::cell::Cell<f32>>,
+    content: gpui::AnyElement,
+) -> gpui::Div {
+    let recorded = slot_width.get();
+    div()
+        .size_full()
+        .bg(background)
+        .on_children_prepainted(move |bounds, _, _| {
+            if let Some(first) = bounds.first() {
+                slot_width.set(f32::from(first.size.width));
+            }
+        })
+        .child(
             v_flex()
                 .size_full()
                 .children(fallback_strip)
-                .child(div().flex_1().min_h_0().child(content)),
+                .child(
+                    div()
+                        .flex_1()
+                        .min_h_0()
+                        .when(recorded > 1.0, |this| this.w(px(recorded)))
+                        .child(content),
+                ),
         )
-    }
 }
 
 #[cfg(test)]
@@ -1361,5 +1412,293 @@ mod tests {
     #[test]
     fn no_tabs_partition_to_nothing() {
         assert!(partition(&[], 400., None).is_empty());
+    }
+
+    /// EXP-499 regression (the EXP-492 fit-content collapse, on the Actions
+    /// page): an Actions-shaped center — full-width section band, machine
+    /// rows, a wrapping card grid, all with real text inside the page's
+    /// capped `mx_auto` column and scroll pane — must resolve its column to
+    /// exactly `min(1024, panel)` at EVERY panel width, and the grid must
+    /// never run past the window's right edge. Two gates: a width sweep
+    /// under the production `h_resizable` split (settled frames stay
+    /// healthy), then the stray fit-content pass modeled directly — the one
+    /// place the un-pinned tree demonstrably breaks (clean `cx.draw` frames
+    /// alone never reproduce the live app's between-frame passes).
+    #[gpui::test]
+    async fn actions_shaped_center_spans_the_panel_at_every_width(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        use gpui::{
+            div, point, px, size, AppContext as _, InteractiveElement as _, IntoElement,
+            ParentElement as _, Render, ScrollHandle, SharedString, Styled as _, Window,
+        };
+        use gpui_component::{h_flex, v_flex};
+
+        use super::pinned_panel_root;
+
+        struct PanelProbe {
+            scroll: ScrollHandle,
+            slot_width: std::rc::Rc<std::cell::Cell<f32>>,
+        }
+        impl Render for PanelProbe {
+            fn render(
+                &mut self,
+                _window: &mut Window,
+                _cx: &mut gpui::Context<Self>,
+            ) -> impl IntoElement {
+                // The Actions page's real shapes (actions_view.rs /
+                // machines.rs), with production-like text.
+                let card = |name: &'static str, blurb: &'static str| {
+                    v_flex()
+                        .flex_basis(px(260.))
+                        .flex_grow(1.)
+                        .min_w(px(240.))
+                        .max_w(px(420.))
+                        .gap_2()
+                        .p_3()
+                        .child(div().text_sm().child(SharedString::from(name)))
+                        .child(
+                            div()
+                                .w_full()
+                                .min_w_0()
+                                .text_xs()
+                                .line_clamp(2)
+                                .child(SharedString::from(blurb)),
+                        )
+                };
+                let machine_row = |label: &'static str| {
+                    h_flex()
+                        .w_full()
+                        .min_w_0()
+                        .items_center()
+                        .gap_2()
+                        .px_3()
+                        .py_2()
+                        .child(
+                            div()
+                                .text_sm()
+                                .whitespace_nowrap()
+                                .child(SharedString::from(label)),
+                        )
+                        .child(h_flex().flex_1())
+                        .child(div().text_xs().child(SharedString::from("Online")))
+                };
+                let band = h_flex()
+                    .w_full()
+                    .min_w_0()
+                    .items_center()
+                    .gap_1p5()
+                    .px_3()
+                    .py_1p5()
+                    .child(div().text_sm().child(SharedString::from("My machines")))
+                    .child(div().flex_1())
+                    .child(div().text_xs().child(SharedString::from("Add server")));
+                let grid = h_flex()
+                    .w_full()
+                    .min_w_0()
+                    .flex_wrap()
+                    .items_stretch()
+                    .gap_3()
+                    .debug_selector(|| "probe-grid".into())
+                    .child(card(
+                        "Fix merge conflicts",
+                        "Pick a conflicted pull request and let your agent rebase, \
+                         resolve, and merge it",
+                    ))
+                    .child(card(
+                        "Triage code review findings",
+                        "Re-check the latest code review board against today's code, \
+                         cancel stale findings, and file one grouped issue",
+                    ))
+                    .child(card(
+                        "Release staging",
+                        "Copy the prod DB over staging, refresh staging web + steer \
+                         relay, and push the staging iOS/Android build",
+                    ))
+                    .child(card(
+                        "Release prod",
+                        "Review the unreleased commit wave, then ship production — \
+                         prod web, relays, marketing, desktop",
+                    ))
+                    .child(card(
+                        "Release all",
+                        "Run the full release train in one go: the staging refresh \
+                         first, then the prod train — one combined wave, one report",
+                    ))
+                    .child(card(
+                        "Extended code review",
+                        "Run a deep multi-pass code review over the whole codebase \
+                         and file every confirmed finding as an issue",
+                    ));
+                let column = v_flex()
+                    .w_full()
+                    .min_w_0()
+                    .px_4()
+                    .py_4()
+                    .gap_4()
+                    .debug_selector(|| "probe-column".into())
+                    .child(
+                        v_flex()
+                            .w_full()
+                            .min_w_0()
+                            .child(band)
+                            .child(machine_row("mint · Danny Strähhuber  v0.14.8"))
+                            .child(machine_row("macbook · Danny Strähhuber  v0.14.8")),
+                    )
+                    .child(v_flex().w_full().min_w_0().gap_2().child(grid));
+                let content = v_flex()
+                    .size_full()
+                    .min_h_0()
+                    .min_w_0()
+                    .child(crate::scroll_pane::v_scroll_pane(
+                        "probe-scroll",
+                        &self.scroll,
+                        div()
+                            .w_full()
+                            .min_w_0()
+                            .child(column.max_w(px(1024.)).mx_auto()),
+                    ))
+                    .into_any_element();
+                div()
+                    .size_full()
+                    .debug_selector(|| "probe-slot".into())
+                    .child(pinned_panel_root(
+                        gpui::hsla(0., 0., 0., 1.),
+                        None,
+                        self.slot_width.clone(),
+                        content,
+                    ))
+            }
+        }
+
+        // The production nesting (shell.rs `CenterPanel`): an `h_resizable`
+        // split whose right panel holds the screens panel. The resizable
+        // panels are flex items with `flex_basis` fed BACK from prepaint
+        // bounds via `ResizableState` — at widths where the bases mismatch
+        // the container, taffy's flex resolution measures the panel CONTENT
+        // under fit-content constraints (the EXP-492 diagnosis).
+        struct Split {
+            probe: gpui::Entity<PanelProbe>,
+            state: gpui::Entity<gpui_component::resizable::ResizableState>,
+        }
+        impl Render for Split {
+            fn render(
+                &mut self,
+                _window: &mut Window,
+                _cx: &mut gpui::Context<Self>,
+            ) -> impl IntoElement {
+                use gpui_component::resizable::{h_resizable, resizable_panel};
+                div().size_full().child(
+                    h_resizable("center-split")
+                        .with_state(&self.state)
+                        .child(
+                            resizable_panel()
+                                .size(px(crate::sidebar::DEFAULT_DOCK_WIDTH))
+                                .size_range(px(crate::sidebar::MIN_DOCK_WIDTH)..px(880.))
+                                .child(div().size_full()),
+                        )
+                        .child(resizable_panel().child(self.probe.clone())),
+                )
+            }
+        }
+
+        let cx = cx.add_empty_window();
+        // The resizable components read the gpui-component Theme global.
+        cx.update(|_, cx| gpui_component::init(cx));
+        let split = cx.update(|_, cx| {
+            let probe = cx.new(|_| PanelProbe {
+                scroll: ScrollHandle::new(),
+                slot_width: std::rc::Rc::new(std::cell::Cell::new(0.0)),
+            });
+            let state = cx.new(|_| gpui_component::resizable::ResizableState::default());
+            cx.new(|_| Split { probe, state })
+        });
+        let mut failures: Vec<(f32, f32, f32)> = Vec::new();
+        // Every integer window width — the collapse bands are a few px wide,
+        // so a coarse step would miss them. Each width draws TWICE: the
+        // resizable state and the recorded slot width are both fed from
+        // prepaint bounds into the NEXT frame, so the second frame is the
+        // settled one users actually see.
+        for width in (700..=1700).map(|w| w as f32) {
+            for _ in 0..2 {
+                cx.draw(point(px(0.), px(0.)), size(px(width), px(600.)), |_, _| {
+                    div().size_full().child(split.clone())
+                });
+            }
+            let panel = cx
+                .debug_bounds("probe-slot")
+                .unwrap_or_else(|| panic!("slot bounds missing at width {width}"));
+            let panel_width = f32::from(panel.size.width);
+            assert!(
+                panel_width > 100.0,
+                "panel itself collapsed at width {width}: {panel_width}"
+            );
+            let column = cx
+                .debug_bounds("probe-column")
+                .unwrap_or_else(|| panic!("column bounds missing at width {width}"));
+            let expected = panel_width.min(1024.);
+            let actual = f32::from(column.size.width);
+            if (actual - expected).abs() > 1.5 {
+                failures.push((width, actual, expected));
+            }
+            // The literal EXP-499 symptom: the card grid running off the
+            // window's right edge.
+            let grid = cx
+                .debug_bounds("probe-grid")
+                .unwrap_or_else(|| panic!("grid bounds missing at width {width}"));
+            let right = f32::from(grid.origin.x) + f32::from(grid.size.width);
+            if right > width + 1.5 {
+                failures.push((width, right, width));
+            }
+        }
+        assert!(
+            failures.is_empty(),
+            "actions column broke at {} widths (width, actual, expected): {:?}",
+            failures.len(),
+            &failures[..failures.len().min(20)]
+        );
+
+        // The EXP-492 stray pass itself, modeled directly: between real
+        // layout frames gpui can resolve the panel subtree under FIT-CONTENT
+        // constraints (a flex parent that neither stretches nor sizes its
+        // child), and the app can idle on that frame — the EXP-499
+        // screenshot. Un-pinned, the percent chains collapse: the machines
+        // band shrink-wraps and the card grid resolves its unwrapped
+        // max-content line. The recorded-width pin must make even this pass
+        // resolve the page like the real panel slot.
+        let recorded = f32::from(
+            cx.debug_bounds("probe-slot")
+                .expect("slot bounds after the sweep")
+                .size
+                .width,
+        );
+        let probe = split.read_with(cx, |split, _| split.probe.clone());
+        cx.draw(point(px(0.), px(0.)), size(px(1700.), px(600.)), |_, _| {
+            div()
+                .size_full()
+                .flex()
+                .flex_row()
+                .items_start()
+                .child(probe.clone())
+        });
+        let column = cx
+            .debug_bounds("probe-column")
+            .expect("column bounds in the fit-content pass");
+        let expected = recorded.min(1024.);
+        let actual = f32::from(column.size.width);
+        assert!(
+            (actual - expected).abs() <= 1.5,
+            "fit-content pass collapsed the column: {actual} != {expected} \
+             (recorded panel {recorded})"
+        );
+        let grid = cx
+            .debug_bounds("probe-grid")
+            .expect("grid bounds in the fit-content pass");
+        let grid_right = f32::from(grid.origin.x) + f32::from(grid.size.width);
+        assert!(
+            grid_right <= recorded + 1.5,
+            "fit-content pass ran the card grid past the panel edge: \
+             {grid_right} > {recorded}"
+        );
     }
 }
