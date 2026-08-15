@@ -32,8 +32,12 @@ pub(crate) struct ImageOccurrence {
 }
 
 /// Rust port of the web `markdownImagePattern`
-/// (`/!\[([^\]]*)]\(([^)\s]+)(?:\s+"[^"]*")?\)/g`): alt without `]`, URL
-/// without `)`/whitespace, optional quoted title.
+/// (`/!\[((?:\\.|[^\\\]])*)]\(([^)\s]+)(?:\s+"[^"]*")?\)/g`): alt runs to the
+/// first UNESCAPED `]` (serializers escape `]`/`\` inside alt — the vendored
+/// editor's `pasted_image_markdown`, TipTap via prosemirror-markdown — so a
+/// `shot [1].png` filename must not break the scan, REV-6), URL without
+/// `)`/whitespace, optional quoted title. `alt` is unescaped display text,
+/// matching the web occurrence's `alt`.
 pub(crate) fn extract_image_occurrences(text: &str) -> Vec<ImageOccurrence> {
     let bytes = text.as_bytes();
     let mut out = Vec::new();
@@ -44,11 +48,25 @@ pub(crate) fn extract_image_occurrences(text: &str) -> Vec<ImageOccurrence> {
         // regex engine would retry from.
         let retry = start + 1;
 
-        // `[^\]]*` — alt runs to the first `]`.
-        let Some(alt_rel) = text[start + 2..].find(']') else {
+        // `(?:\\.|[^\\\]])*` — alt runs to the first unescaped `]`; a
+        // backslash consumes the following char as an escape pair.
+        let mut cursor = start + 2;
+        let alt_end = loop {
+            match bytes.get(cursor) {
+                None => break None,
+                Some(b']') => break Some(cursor),
+                Some(b'\\') => {
+                    let Some(escaped) = text[cursor + 1..].chars().next() else {
+                        break None;
+                    };
+                    cursor += 1 + escaped.len_utf8();
+                }
+                Some(_) => cursor += 1,
+            }
+        };
+        let Some(alt_end) = alt_end else {
             break;
         };
-        let alt_end = start + 2 + alt_rel;
         if bytes.get(alt_end + 1) != Some(&b'(') {
             i = retry;
             continue;
@@ -89,12 +107,33 @@ pub(crate) fn extract_image_occurrences(text: &str) -> Vec<ImageOccurrence> {
         let end = k + 1;
 
         out.push(ImageOccurrence {
-            alt: text[start + 2..alt_end].to_string(),
+            alt: unescape_markdown_text(&text[start + 2..alt_end]),
             url: text[url_start..j].to_string(),
             start,
             end,
         });
         i = end;
+    }
+    out
+}
+
+/// Reverses CommonMark backslash escapes (ASCII punctuation only) — the web
+/// `unescapeMarkdownText`, so occurrence alts carry the display text, not the
+/// serialized escape form.
+fn unescape_markdown_text(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            if let Some(&next) = chars.peek() {
+                if next.is_ascii_punctuation() {
+                    out.push(next);
+                    chars.next();
+                    continue;
+                }
+            }
+        }
+        out.push(ch);
     }
     out
 }
@@ -317,6 +356,26 @@ mod tests {
             &text[occurrences[0].start..occurrences[0].end],
             "![shot](/api/attachments/abc)"
         );
+    }
+
+    #[test]
+    fn parses_serializer_escaped_alt_text() {
+        // `pasted_image_markdown` escapes `]`/`\` in alt (and TipTap escapes
+        // all markdown punctuation) — the alt scan must consume escape pairs
+        // instead of dropping the whole occurrence (REV-6).
+        let occurrences = extract_image_occurrences(r"![shot \[1\].png](draft://x)");
+        assert_eq!(occurrences.len(), 1);
+        assert_eq!(occurrences[0].alt, "shot [1].png");
+        assert_eq!(occurrences[0].url, "draft://x");
+
+        let trailing = extract_image_occurrences(r"![trailing\\](draft://x)");
+        assert_eq!(trailing.len(), 1);
+        assert_eq!(trailing[0].alt, "trailing\\");
+
+        // A backslash before a non-punctuation char stays literal.
+        let literal = extract_image_occurrences(r"![a\ b](draft://x)");
+        assert_eq!(literal.len(), 1);
+        assert_eq!(literal[0].alt, r"a\ b");
     }
 
     #[test]

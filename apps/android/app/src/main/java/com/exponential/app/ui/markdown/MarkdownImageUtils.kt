@@ -2,7 +2,12 @@ package com.exponential.app.ui.markdown
 
 import java.util.UUID
 
-private val MARKDOWN_IMAGE_REGEX = Regex("""!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)""")
+// Mirrors the web `markdownImagePattern`. The alt group consumes
+// backslash-escape pairs — serializers escape markdown punctuation in alt
+// (web's TipTap turns a `shot [1].png` filename into `\[1\]`), and a plain
+// `[^\]]*` would drop the whole occurrence (REV-6). Group 1 stays the raw
+// (still-escaped) alt so `replaceMarkdownImageUrls` round-trips it verbatim.
+private val MARKDOWN_IMAGE_REGEX = Regex("""!\[((?:\\.|[^\\\]])*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)""")
 
 /** A not-yet-uploaded image placeholder URL, e.g. `draft://<uuid>`. */
 fun draftUrl(): String = "draft://${UUID.randomUUID()}"

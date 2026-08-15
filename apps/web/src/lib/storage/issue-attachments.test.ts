@@ -70,6 +70,40 @@ describe(`issue attachment helpers`, () => {
     ])
   })
 
+  it(`parses serializer-escaped alt text and unescapes it`, () => {
+    // TipTap's prosemirror-markdown serializer escapes markdown punctuation in
+    // alt text, so a `shot [1].png` filename round-trips as `\[1\]` (REV-6).
+    expect(
+      extractMarkdownImageOccurrences(`![shot \\[1\\].png](blob:draft)`)
+    ).toEqual([
+      expect.objectContaining({
+        alt: `shot [1].png`,
+        markdown: `![shot \\[1\\].png](blob:draft)`,
+        url: `blob:draft`,
+      }),
+    ])
+    expect(collectMarkdownImageUrls(`![shot \\[1\\].png](blob:draft)`)).toEqual(
+      [`blob:draft`]
+    )
+    expect(hasMarkdownImages(`![shot \\[1\\].png](blob:draft)`)).toBe(true)
+  })
+
+  it(`parses alt text ending in an escaped backslash`, () => {
+    expect(
+      extractMarkdownImageOccurrences(`![trailing\\\\](blob:draft)`)
+    ).toEqual([
+      expect.objectContaining({ alt: `trailing\\`, url: `blob:draft` }),
+    ])
+  })
+
+  it(`removes images with escaped alt text by url`, () => {
+    expect(
+      removeMarkdownImagesByUrl(`before\n![shot \\[1\\].png](blob:draft)`, [
+        `blob:draft`,
+      ])
+    ).toBe(`before\n`)
+  })
+
   it(`accepts relative and same-origin attachment urls`, () => {
     expect(
       extractAttachmentIdsFromDescription(
@@ -563,6 +597,19 @@ describe(`replaceAttachmentReferencesWithPlaceholder`, () => {
     expect(
       extractAttachmentIdsFromDescription(result.text, origin).attachmentIds
     ).toEqual([other])
+  })
+
+  it(`rewrites an image with serializer-escaped alt text`, () => {
+    const text = `![shot \\[1\\].png](/api/attachments/${target})`
+    const result = replaceAttachmentReferencesWithPlaceholder(
+      text,
+      target,
+      origin,
+      `fallback.png`
+    )
+    expect(result.changed).toBe(true)
+    // Unescaped alt, then the placeholder's own bracket strip.
+    expect(result.text).toBe(`*(deleted image: shot 1.png)*`)
   })
 
   it(`rewrites a stored uppercase-id URL (extracted ids are lowercased)`, () => {
