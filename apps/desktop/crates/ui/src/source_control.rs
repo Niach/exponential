@@ -1626,23 +1626,21 @@ fn paint_uncommitted_stub(
     }
 }
 
-/// A commit dot — filled, or a hollow ring for unpushed commits.
+/// A commit dot — filled, or a hollow ring for unpushed commits. A fully
+/// rounded quad, not a lyon path: the GPU quad's SDF corners stay crisp at
+/// this radius where the tessellated arc reads square-ish.
 fn paint_dot(window: &mut Window, x: Pixels, y: Pixels, color: Hsla, filled: bool) {
     let r = px(GRAPH_DOT_RADIUS);
-    let mut path = if filled {
-        gpui::PathBuilder::fill()
+    let bounds = Bounds::new(point(x - r, y - r), size(r * 2., r * 2.));
+    let quad = if filled {
+        gpui::fill(bounds, color).corner_radii(r)
     } else {
-        gpui::PathBuilder::stroke(px(1.5))
+        gpui::fill(bounds, gpui::transparent_black())
+            .corner_radii(r)
+            .border_widths(px(1.5))
+            .border_color(color)
     };
-    path.move_to(point(x - r, y));
-    path.arc_to(point(r, r), px(0.), false, true, point(x + r, y));
-    path.arc_to(point(r, r), px(0.), false, true, point(x - r, y));
-    if filled {
-        path.close();
-    }
-    if let Ok(path) = path.build() {
-        window.paint_path(path, color);
-    }
+    window.paint_quad(quad);
 }
 
 impl Render for HistoryList {
