@@ -122,6 +122,7 @@ describe(`assertSubscriptionMutable`, () => {
       assertSubscriptionMutable({
         creemSubscriptionId: `sub_1`,
         cancelAtPeriodEnd: false,
+        status: `active`,
       })
     ).not.toThrow()
   })
@@ -137,6 +138,7 @@ describe(`assertSubscriptionMutable`, () => {
       assertSubscriptionMutable({
         creemSubscriptionId: null,
         cancelAtPeriodEnd: false,
+        status: `active`,
       })
     ).toThrow(/Contact support/)
   })
@@ -146,6 +148,20 @@ describe(`assertSubscriptionMutable`, () => {
       assertSubscriptionMutable({
         creemSubscriptionId: `sub_1`,
         cancelAtPeriodEnd: true,
+        status: `active`,
+      })
+    ).toThrow(/scheduled to cancel/)
+  })
+
+  // REV-26: a cancellation scheduled through the Creem portal never sets our
+  // optimistic cancelAtPeriodEnd column — status is the only signal, and the
+  // guard must refuse on it like every other pending-cancel consumer.
+  it(`throws when the cancellation was scheduled outside our UI (status only)`, () => {
+    expect(() =>
+      assertSubscriptionMutable({
+        creemSubscriptionId: `sub_1`,
+        cancelAtPeriodEnd: false,
+        status: `scheduled_cancel`,
       })
     ).toThrow(/scheduled to cancel/)
   })

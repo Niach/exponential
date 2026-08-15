@@ -54,8 +54,10 @@ const BOT_UA =
   /bot|crawl|spider|slurp|preview|fetch|monitor|scrape|curl|wget|headless/i
 
 // Paths that are never a human "landing": APIs, widget assets, the helpdesk
-// magic-link surface (its URL is a credential), router internals.
-const EXCLUDED_PREFIXES = [`/api/`, `/widget/`, `/support`, `/_`]
+// magic-link surface (its URL is a credential), invite links (the token is a
+// team-join bearer secret and must never land in conversion_events —
+// invite_accepted is tracked separately), router internals.
+const EXCLUDED_PREFIXES = [`/api/`, `/widget/`, `/support`, `/invite/`, `/_`]
 
 // Document GETs from anonymous browsers only. The session-cookie substring
 // check matches better-auth's `session_token` cookie under any prefix

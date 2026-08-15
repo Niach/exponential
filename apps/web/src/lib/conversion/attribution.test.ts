@@ -95,6 +95,7 @@ describe(`shouldCaptureLanding`, () => {
       `/api/shapes/issues`,
       `/widget/v1/loader.js`,
       `/support/tok123`,
+      `/invite/${`ab`.repeat(32)}`,
       `/favicon.ico`,
       `/assets/app.css`,
     ]) {

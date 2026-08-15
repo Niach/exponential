@@ -190,6 +190,8 @@ describe(`github webhook — batch PR fan-out (multi-issue pr_url resolution)`, 
       expect(prSyncMock.applyPrMergeState).toHaveBeenCalledWith({
         issueId,
         prUrl: HTML_URL,
+        prNumber: 7,
+        headBranch: `exp/batch-a1b2c3d4`,
         mergedAt: new Date(MERGED_AT_ISO),
         actorUserId: null,
       })
@@ -259,6 +261,8 @@ describe(`github webhook — batch PR fan-out (multi-issue pr_url resolution)`, 
     expect(prSyncMock.applyPrMergeState).toHaveBeenCalledWith({
       issueId: ISSUE_A,
       prUrl: HTML_URL,
+      prNumber: 7,
+      headBranch: `exp/batch-a1b2c3d4`,
       mergedAt: new Date(MERGED_AT_ISO),
       actorUserId: null,
     })
@@ -330,6 +334,8 @@ describe(`github webhook — batch PR fan-out (multi-issue pr_url resolution)`, 
       expect(prSyncMock.applyPrMergeState).toHaveBeenCalledWith({
         issueId,
         prUrl: HTML_URL,
+        prNumber: 7,
+        headBranch: `exp/batch-a1b2c3d4`,
         mergedAt: new Date(MERGED_AT_ISO),
         actorUserId: `u-merger`,
         actorViaAgent: true,
@@ -352,6 +358,8 @@ describe(`github webhook — batch PR fan-out (multi-issue pr_url resolution)`, 
     expect(prSyncMock.applyPrMergeState).toHaveBeenCalledWith({
       issueId: ISSUE_A,
       prUrl: HTML_URL,
+      prNumber: 7,
+      headBranch: `exp/batch-a1b2c3d4`,
       mergedAt: new Date(MERGED_AT_ISO),
       actorUserId: null,
     })

@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server"
 import { createCreemClient } from "@creem_io/better-auth/server"
 import { db } from "@/db/connection"
 import { creem_subscriptions } from "@/db/schema"
+import { isSubscriptionPendingCancel } from "@/lib/billing/billing-handover"
 import { isCloudInstance } from "@/lib/bootstrap-cloud"
 
 // Self-service subscription changes (seat count, plan switch) mutate the
@@ -87,7 +88,7 @@ export async function getActiveTeamSubscription(
 export function assertSubscriptionMutable(
   row: Pick<
     TeamSubscriptionRow,
-    `creemSubscriptionId` | `cancelAtPeriodEnd`
+    `creemSubscriptionId` | `cancelAtPeriodEnd` | `status`
   > | null
 ): asserts row is TeamSubscriptionRow {
   if (!row) {
@@ -102,7 +103,11 @@ export function assertSubscriptionMutable(
       message: `This subscription can't be changed automatically. Contact support.`,
     })
   }
-  if (row.cancelAtPeriodEnd) {
+  // Two-signal pending-cancel check, same as every other consumer (REV-26):
+  // a cancellation scheduled through the Creem portal/dashboard only shows in
+  // `status === 'scheduled_cancel'` — our optimistic cancelAtPeriodEnd column
+  // stays false — and seat/plan changes must refuse either way.
+  if (isSubscriptionPendingCancel(row)) {
     throw new TRPCError({
       code: `PRECONDITION_FAILED`,
       message: `This subscription is scheduled to cancel. Resume it before changing it.`,

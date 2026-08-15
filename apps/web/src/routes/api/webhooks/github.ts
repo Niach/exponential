@@ -297,6 +297,10 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         await applyPrMergeState({
           issueId,
           prUrl: htmlUrl,
+          // Backfill sources for a never-linked issue (branch-parse fallback
+          // whose 'opened' webhook was lost) — see applyPrMergeState (REV-26).
+          ...(pr.number != null ? { prNumber: pr.number } : {}),
+          ...(headRef ? { headBranch: headRef } : {}),
           mergedAt,
           ...(claim
             ? { actorUserId: claim.userId, actorViaAgent: claim.viaAgent }
