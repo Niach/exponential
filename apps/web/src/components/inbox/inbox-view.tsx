@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
 import { Link } from "@tanstack/react-router"
-import { useLiveQuery } from "@tanstack/react-db"
+import { inArray, useLiveQuery } from "@tanstack/react-db"
 import { Bell, CircleCheck } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { NotificationType } from "@exp/db-schema/domain"
@@ -90,8 +90,24 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
       .from({ n: notificationCollection })
       .orderBy(({ n }) => n.createdAt, `desc`)
   )
-  const { data: issues } = useLiveQuery((query) =>
-    query.from({ issues: issueCollection })
+  // Only the issues the notifications actually reference — subscribing to the
+  // whole collection re-fired the grouping memo on every issue change in any
+  // of the user's teams (REV-48).
+  const notifiedIssueIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const n of (notifications ?? []) as Notification[]) {
+      if (n.issueId) ids.add(n.issueId)
+    }
+    return [...ids].sort()
+  }, [notifications])
+  const { data: issues } = useLiveQuery(
+    (query) =>
+      notifiedIssueIds.length > 0
+        ? query
+            .from({ issues: issueCollection })
+            .where(({ issues }) => inArray(issues.id, notifiedIssueIds))
+        : undefined,
+    [notifiedIssueIds.join(`,`)]
   )
   const { data: boards } = useLiveQuery((query) =>
     query.from({ boards: boardCollection })
@@ -176,9 +192,22 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
     groups.length > visibleCount ? groups.slice(0, visibleCount) : groups
   const hiddenCount = groups.length - visibleGroups.length
 
-  const markGroupRead = async (items: Notification[]) => {
+  // One mutation per group, not one per row (REV-48): the server-side
+  // by-issue/by-team clears also catch rows the client hasn't synced yet.
+  // Only the legacy null-team support group (rows from before team_id
+  // existed) still clears row-by-row — markReadSupport needs a team.
+  const markGroupRead = async (g: Group) => {
+    if (g.unread === 0) return
+    if (g.kind === `issue`) {
+      await trpc.notifications.markReadByIssue.mutate({ issueId: g.issue.id })
+      return
+    }
+    if (g.teamId) {
+      await trpc.notifications.markReadSupport.mutate({ teamId: g.teamId })
+      return
+    }
     await Promise.all(
-      items
+      g.items
         .filter((n) => !n.readAt)
         .map((n) => trpc.notifications.markRead.mutate({ id: n.id }))
     )
@@ -202,7 +231,7 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
                   key={`support:${g.teamId ?? `unknown`}`}
                   to="/t/$teamSlug/support"
                   params={{ teamSlug: g.teamSlug ?? teamSlug }}
-                  onClick={() => void markGroupRead(g.items)}
+                  onClick={() => void markGroupRead(g)}
                   className={cn(
                     `flex items-start gap-3 rounded-md border px-3 py-2 transition-colors hover:bg-accent/50`,
                     g.unread === 0 && `opacity-60`
@@ -250,7 +279,7 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
                   boardSlug: g.board.slug,
                   issueIdentifier: g.issue.identifier,
                 }}
-                onClick={() => void markGroupRead(g.items)}
+                onClick={() => void markGroupRead(g)}
                 className={cn(
                   `flex items-start gap-3 rounded-md border px-3 py-2 transition-colors hover:bg-accent/50`,
                   g.unread === 0 && `opacity-60`

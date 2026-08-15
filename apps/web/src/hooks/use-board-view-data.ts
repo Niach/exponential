@@ -78,7 +78,11 @@ export function useBoardViewData({
 
   const { data: issueLabels } = useLiveQuery(
     (query) =>
-      board ? query.from({ issueLabels: issueLabelCollection }) : undefined,
+      board
+        ? query
+            .from({ issueLabels: issueLabelCollection })
+            .where(({ issueLabels }) => eq(issueLabels.boardId, board.id))
+        : undefined,
     [board?.id]
   )
 
