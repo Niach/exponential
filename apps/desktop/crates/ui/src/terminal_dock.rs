@@ -15,8 +15,10 @@
 //!   dock still opens directly. This is also the launch surface: the
 //!   Start-coding launcher and the actions panel call the same
 //!   `TerminalManager::open_tab`.
-//! - close buttons per tab (and cmd-w / ctrl-shift-w), ctrl-tab /
-//!   ctrl-shift-tab to switch;
+//! - close buttons per tab (middle-click too, and cmd-w / ctrl-shift-w),
+//!   ctrl-tab / ctrl-shift-tab to switch; tabs that don't fit the strip
+//!   collapse into a trailing "+N" dropdown exactly like the center tab
+//!   strip (EXP-497 — no cut-off horizontal scroll);
 //! - **empty state** (EXP-369): an expanded, tab-less dock NEVER spawns
 //!   anything by itself — it renders the tab bar over a row of launch cards
 //!   (`render_empty_dock_options`), one per doctor-installed agent plus "New
@@ -42,10 +44,10 @@
 //! dock/manager only surface the exit edge.
 
 use gpui::{
-    actions, div, prelude::FluentBuilder as _, px, AnyElement, App, AppContext as _, ClickEvent,
-    Entity, FocusHandle, Focusable, InteractiveElement, IntoElement, KeyBinding, ParentElement,
-    Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription, WeakEntity,
-    Window,
+    actions, div, prelude::FluentBuilder as _, px, AnyElement, App, AppContext as _, Bounds,
+    ClickEvent, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement, KeyBinding,
+    MouseButton, ParentElement, Pixels, Render, SharedString,
+    StatefulInteractiveElement as _, Styled, Subscription, WeakEntity, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -133,6 +135,15 @@ pub struct TerminalDockPanel {
     /// window closed with live holds leaks its refresh loops until quit —
     /// bounded and rare; sessions normally end by tab close.)
     agent_shell_holds: HashMap<TabId, PathBuf>,
+    /// EXP-497: the painted width of the strip's chip slot (the `flex_1`
+    /// container the chips + the `+` menu render into), recorded by an
+    /// `on_children_prepainted` listener on the strip. Unlike the center
+    /// strip, this width is NOT derivable from window chrome — the dock sits
+    /// right of the rail and left of whatever tool windows are open — so it
+    /// is measured off the real layout instead. `None` until the first paint
+    /// (that one frame renders every chip; the partition kicks in as soon as
+    /// the width lands).
+    chips_slot_width: Option<f32>,
     /// EXP-372: the in-flight empty-state launch (its card label), if any.
     /// `prepare_agent_shell` (doctor → token → clone/autopull → MCP wiring)
     /// takes about a second, and the launch cards stayed live and clickable
@@ -249,6 +260,7 @@ impl TerminalDockPanel {
             manager,
             dock_area,
             agent_shell_holds: HashMap::new(),
+            chips_slot_width: None,
             pending_launch: None,
             _subscription: subscription,
         }
@@ -506,10 +518,17 @@ impl TerminalDockPanel {
     /// the toggle, mirroring the collapsed strip's whole-bar expand
     /// (tab/button handlers stop propagation so their clicks never fall
     /// through to the collapse).
+    ///
+    /// EXP-497: chips that don't fit collapse into a trailing "+N" dropdown —
+    /// the center strip's EXP-288 treatment (the scrolled chips this replaces
+    /// left overflowing tabs cut off). Chip widths are measured, not guessed
+    /// (the EXP-326 lesson), against the recorded [`Self::chips_slot_width`];
+    /// the SELECTED tab is always kept visible.
     fn render_tab_bar(
         &self,
         metas: &[TabMeta],
         selected_ix: usize,
+        window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         // EXP-277: hand-rolled rounded chips (crate::surface::tab_chip), same
@@ -518,7 +537,31 @@ impl TerminalDockPanel {
         // EXP-325: the shared merge state drives the hover merge button —
         // materialized here (needs `&mut App`), read inside the chip closure.
         let merge_state = crate::pr_merge::MergeState::global(cx);
-        let chips = metas.iter().enumerate().map(|(ix, meta)| {
+
+        // EXP-497: partition the chips against the slot's painted width. The
+        // `+` new-session menu rides INSIDE the slot right after the chips —
+        // an xsmall icon button (`size_5`) plus one gap comes off the budget.
+        let widths: Vec<f32> = metas
+            .iter()
+            .map(|meta| measure_tab_chip_width(meta, &merge_state, window, cx))
+            .collect();
+        let plus_reserve = 1.25 * f32::from(window.rem_size()) + crate::screens::chip_gap(window);
+        let available = self
+            .chips_slot_width
+            .map_or(f32::MAX, |slot| (slot - plus_reserve).max(0.));
+        let visible = crate::screens::partition_tabs(
+            &widths,
+            available,
+            crate::screens::chip_gap(window),
+            crate::screens::overflow_button_width(window, metas.len().saturating_sub(1)),
+            (!metas.is_empty()).then_some(selected_ix),
+        );
+        let hidden: Vec<usize> = (0..metas.len())
+            .filter(|ix| !visible.contains(ix))
+            .collect();
+
+        let chips = visible.into_iter().map(|ix| {
+            let meta = &metas[ix];
             let id = meta.id;
             let manager_ix = meta.manager_ix;
             let merge_button = meta
@@ -534,7 +577,18 @@ impl TerminalDockPanel {
                     this.manager
                         .update(cx, |manager, cx| manager.activate(manager_ix, cx));
                     this.focus_active_terminal(window, cx);
-                }));
+                }))
+                // Middle-click closes (EXP-497 — the center tabs' EXP-235
+                // behavior; same as the chip's own close button, so the
+                // TabClosed watcher handles focus/collapse).
+                .on_mouse_down(
+                    MouseButton::Middle,
+                    cx.listener(move |this, _, _window, cx| {
+                        cx.stop_propagation();
+                        this.manager
+                            .update(cx, |manager, cx| manager.close_tab(id, cx));
+                    }),
+                );
             // EXP-325: an issue-session tab renders the center issue-tab
             // treatment (status glyph + mono identifier + synced title,
             // mirroring `screens::render_tab_strip`); everything else keeps
@@ -612,9 +666,102 @@ impl TerminalDockPanel {
                         ),
                 )
         });
+        // EXP-497: the hidden tabs collapse into a "+N" dropdown; clicking
+        // one activates it. Keyed by TabId, not strip index — the menu's
+        // closures run at click time, and a tab closed while the dropdown is
+        // open shifts every index after it (the center strip's EXP-288
+        // rationale; the TabId is the stable identity here).
+        let overflow_button = (!hidden.is_empty()).then(|| {
+            type HiddenEntry = (
+                TabId,
+                Option<domain::statuses::ResolvedStatus>,
+                SharedString,
+            );
+            let hidden_entries: Vec<HiddenEntry> = hidden
+                .iter()
+                .map(|&ix| {
+                    let meta = &metas[ix];
+                    // The menu rows mirror the chips: issue sessions carry
+                    // the status glyph + "IDENT title", the rest their plain
+                    // terminal title.
+                    match &meta.issue {
+                        Some(issue) => {
+                            let label = match &issue.title {
+                                Some(title) => SharedString::from(format!(
+                                    "{} {title}",
+                                    issue.identifier
+                                )),
+                                None => issue.identifier.clone(),
+                            };
+                            (meta.id, Some(issue.status.clone()), label)
+                        }
+                        None => (meta.id, None, meta.title.clone()),
+                    }
+                })
+                .collect();
+            let panel = cx.entity().downgrade();
+            Button::new("terminal-tab-overflow")
+                .ghost()
+                .xsmall()
+                .label(format!("+{}", hidden_entries.len()))
+                .tooltip("More tabs")
+                .dropdown_menu(move |mut menu, _window, cx| {
+                    menu = menu.scrollable(true).max_h(px(320.));
+                    for (id, status, label) in &hidden_entries {
+                        let panel = panel.clone();
+                        let id = *id;
+                        let mut item = PopupMenuItem::new(label.clone());
+                        if let Some(status) = status {
+                            item = item.icon(crate::icons::resolved_status_icon(status, cx));
+                        }
+                        menu = menu.item(item.on_click(move |_, window, cx| {
+                            let _ = panel.update(cx, |this, cx| {
+                                let Some(ix) = this
+                                    .manager
+                                    .read(cx)
+                                    .tabs()
+                                    .iter()
+                                    .position(|tab| tab.id == id)
+                                else {
+                                    return;
+                                };
+                                this.manager
+                                    .update(cx, |manager, cx| manager.activate(ix, cx));
+                                this.focus_active_terminal(window, cx);
+                            });
+                        }));
+                    }
+                    menu
+                })
+        });
+
         // Clicking the strip's empty space collapses the dock — the whole
         // strip is the toggle (chip/button handlers stop propagation).
         h_flex()
+            // EXP-497: record the chip slot's painted width (`bounds[0]` —
+            // the `flex_1` child below, a pure-stretch flex item the chips
+            // cannot inflate) so the partition above budgets against the real
+            // layout. Change-gated: only a real width change repaints. (On
+            // the bare `Div` — the method is not exposed on `Stateful`, so it
+            // rides ahead of `.id()`.)
+            .on_children_prepainted({
+                let panel = cx.entity().downgrade();
+                move |bounds: Vec<Bounds<Pixels>>, _window, cx| {
+                    let Some(first) = bounds.first() else {
+                        return;
+                    };
+                    let width = f32::from(first.size.width);
+                    let _ = panel.update(cx, |this, cx| {
+                        if this
+                            .chips_slot_width
+                            .is_none_or(|prev| (prev - width).abs() > 0.5)
+                        {
+                            this.chips_slot_width = Some(width);
+                            cx.notify();
+                        }
+                    });
+                }
+            })
             .id("terminal-tab-strip")
             .w_full()
             .px_1()
@@ -624,19 +771,20 @@ impl TerminalDockPanel {
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                 this.collapse_dock(window, cx);
             }))
-            // The chips scroll as a group (the center strip does the same) —
-            // the chips are `flex_none`, so without this a handful of live
-            // sessions would push the `+` and the collapse chevron out of the
-            // window and leave the overflowing tabs unclickable.
             .child(
+                // EXP-497: chips never scroll — non-fitting tabs fold into
+                // the "+N" dropdown (partition above). `overflow_x_hidden`
+                // covers the one unmeasured first frame, which renders every
+                // chip.
                 h_flex()
                     .id("terminal-tab-chips")
                     .min_w_0()
                     .flex_1()
-                    .overflow_x_scroll()
+                    .overflow_x_hidden()
                     .gap_1()
                     .items_center()
                     .children(chips)
+                    .when_some(overflow_button, |this, button| this.child(button))
                     // The `+` rides the slot right AFTER the last tab
                     // (JetBrains placement), not the far-right suffix.
                     // EXP-325: a dropdown — the doctor-installed agent CLIs
@@ -1293,6 +1441,111 @@ struct IssueTabMeta {
     pr_open: bool,
 }
 
+/// Measured width of one tab chip, for the EXP-497 overflow partition —
+/// mirrors the chip layout in `render_tab_bar` piece for piece, the way
+/// `screens::measure_chip_width` mirrors the center chips (EXP-326: spacing
+/// helpers resolve against the rem size and labels are SHAPED with the
+/// window's text system, so "fits" means fits).
+fn measure_tab_chip_width(
+    meta: &TabMeta,
+    merge_state: &Entity<crate::pr_merge::MergeState>,
+    window: &Window,
+    cx: &App,
+) -> f32 {
+    /// `tab_chip`'s `px_2`, both sides.
+    const CHIP_PADDING_REMS: f32 = 0.5 * 2.;
+    /// `Icon::xsmall()` — `size_3` (the issue chip's status glyph).
+    const LEAD_ICON_REMS: f32 = 0.75;
+    /// An icon-only xsmall `Button` — `size_5` (undock/close/idle merge).
+    const XSMALL_BUTTON_REMS: f32 = 1.25;
+    /// The trailing button cluster's own `gap_0p5`.
+    const CLUSTER_GAP_REMS: f32 = 0.125;
+    /// The exit badge's `px_1`, both sides.
+    const BADGE_PADDING_REMS: f32 = 0.25 * 2.;
+    /// A labeled xsmall `Button`'s `px_1` (both sides) plus its outline
+    /// border — the armed/merging merge button.
+    const LABEL_BUTTON_CHROME: f32 = 0.5;
+    /// `.max_w(px(180.)).truncate()` on the title child — a real pixel
+    /// value, so it does NOT scale with the rem.
+    const TITLE_MAX_W: f32 = 180.;
+
+    let rem = f32::from(window.rem_size());
+    let base_font = window.text_style().font();
+    let mut children: Vec<f32> = Vec::with_capacity(3);
+    match &meta.issue {
+        Some(issue) => {
+            children.push(LEAD_ICON_REMS * rem);
+            // EXP-310 treatment: the identifier renders `text_xs` in the
+            // terminal mono family, not the bar's proportional font.
+            let mut mono = base_font.clone();
+            mono.family = theme::terminal::FONT_FAMILY.into();
+            children.push(crate::screens::measure_text(
+                window,
+                &issue.identifier,
+                mono,
+                gpui::rems(0.75),
+            ));
+            if let Some(title) = issue.title.as_ref() {
+                children.push(
+                    crate::screens::measure_text(
+                        window,
+                        title,
+                        base_font.clone(),
+                        gpui::rems(0.875),
+                    )
+                    .min(TITLE_MAX_W),
+                );
+            }
+        }
+        None => children.push(
+            crate::screens::measure_text(window, &meta.title, base_font.clone(), gpui::rems(0.875))
+                .min(TITLE_MAX_W),
+        ),
+    }
+
+    // The trailing cluster: exit badge, merge button (idle = an `invisible`
+    // icon slot that keeps its box; armed/merging = the labeled button,
+    // measured at the wider "Merge and close" so the armed state never
+    // shoves the strip), undock slot (`invisible` keeps its box too), close.
+    let mut cluster: Vec<f32> = Vec::with_capacity(4);
+    if let Some(code) = meta.exit_code {
+        cluster.push(
+            BADGE_PADDING_REMS * rem
+                + crate::screens::measure_text(
+                    window,
+                    &code.to_string(),
+                    base_font.clone(),
+                    gpui::rems(0.75),
+                ),
+        );
+    }
+    if let Some(issue) = meta.issue.as_ref().filter(|issue| issue.pr_open) {
+        let state = merge_state.read(cx);
+        cluster.push(
+            if state.armed(&issue.issue_id) || state.merging(&issue.issue_id) {
+                LABEL_BUTTON_CHROME * rem
+                    + 2.
+                    + crate::screens::measure_text(
+                        window,
+                        "Merge and close",
+                        base_font.clone(),
+                        gpui::rems(0.75),
+                    )
+            } else {
+                XSMALL_BUTTON_REMS * rem
+            },
+        );
+    }
+    cluster.push(XSMALL_BUTTON_REMS * rem);
+    cluster.push(XSMALL_BUTTON_REMS * rem);
+    let cluster_width = cluster.iter().sum::<f32>()
+        + CLUSTER_GAP_REMS * rem * cluster.len().saturating_sub(1) as f32;
+    children.push(cluster_width);
+
+    let gaps = crate::screens::chip_gap(window) * children.len().saturating_sub(1) as f32;
+    CHIP_PADDING_REMS * rem + gaps + children.into_iter().sum::<f32>()
+}
+
 /// Resolve a tab back to its issue chip, when it is an issue session over a
 /// synced issue row (mirrors `screens::chip_content`).
 fn issue_tab_meta(tab_id: TabId, cx: &App) -> Option<IssueTabMeta> {
@@ -1423,21 +1676,21 @@ impl Render for TerminalDockPanel {
                 // undocked (or the active tab just popped out mid-frame).
                 // Keep the bar (the `+` stays reachable) over a hint.
                 return root
-                    .child(self.render_tab_bar(&metas, 0, cx))
+                    .child(self.render_tab_bar(&metas, 0, window, cx))
                     .child(self.render_undocked_hint(cx));
             }
             // EXP-369: an expanded, empty dock offers its launch cards — the
             // bar stays (the `+` / collapse chevron keep working) and nothing
             // spawns until the user picks something.
             return root
-                .child(self.render_tab_bar(&metas, 0, cx))
+                .child(self.render_tab_bar(&metas, 0, window, cx))
                 .child(self.render_empty_dock_options(window, cx));
         };
 
         let selected_ix = active_id
             .and_then(|id| metas.iter().position(|meta| meta.id == id))
             .unwrap_or(0);
-        root.child(self.render_tab_bar(&metas, selected_ix, cx))
+        root.child(self.render_tab_bar(&metas, selected_ix, window, cx))
             // min_h(0) so the flex child can shrink with the dock; the grid
             // element itself guards the 0-height collapsed case (§6.9).
             .child(div().flex_1().min_h_0().child(active_view))
