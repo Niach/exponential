@@ -1130,24 +1130,14 @@ impl IssueHeader {
                             .get(&board_id)
                             .map(|board| board.name.clone())
                             .unwrap_or_else(|| "that board".to_string());
-                        let issue_id = issue_id.clone();
-                        let spec = crate::native_dialog::AlertSpec::new(
-                            "Move issue",
-                            format!(
-                                "Move {identifier} to \"{target_name}\"? The issue will \
-                                 get a new identifier in that board."
-                            ),
-                            "Move",
-                        )
-                        .on_ok(move |_, cx| {
-                            crate::issue_list::spawn_issue_move(
-                                cx,
-                                issue_id.clone(),
-                                board_id.clone(),
-                            );
-                            true
-                        });
-                        crate::native_dialog::open_alert(window, cx, spec);
+                        crate::issue_list::confirm_issue_move(
+                            window,
+                            cx,
+                            issue_id.clone(),
+                            identifier.clone(),
+                            board_id,
+                            target_name,
+                        );
                     }),
                     width: Some(px(PICKER_SEARCH_WIDTH)),
                 },
