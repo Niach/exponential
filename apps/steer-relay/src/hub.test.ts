@@ -511,6 +511,56 @@ describe(`device presence + remote start`, () => {
     ).toEqual({ ok: false, reason: `device_offline` })
   })
 
+  test(`re-announcing a new deviceId on one socket evicts the previous entry (REV-11)`, () => {
+    const hub = new Hub()
+    const desktop = new FakeSocket()
+    hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
+    // A hostile client streams online frames with fresh deviceIds on ONE
+    // connection — each must replace, never accumulate.
+    for (let i = 0; i < 1000; i++) {
+      hub.onMessage(
+        desktop,
+        JSON.stringify({ t: `online`, deviceId: `dev-${i}` })
+      )
+    }
+    expect(hub.devicesFor(`owner`)).toMatchObject([{ deviceId: `dev-999` }])
+    // The abandoned ids are gone, not ghosts routing into this socket.
+    expect(hub.startSession(`owner`, `dev-0`, { issueId: `issue-9` })).toEqual({
+      ok: false,
+      reason: `device_offline`,
+    })
+    expect(hub.stats().devices).toBe(1)
+
+    hub.onClose(desktop)
+    expect(hub.devicesFor(`owner`)).toEqual([])
+    expect(hub.stats().devices).toBe(0)
+  })
+
+  test(`re-announce eviction never removes an entry another socket took over`, () => {
+    const hub = new Hub()
+    const first = new FakeSocket()
+    hub.onOpen(first, claims({ role: `control`, sub: `owner` }))
+    hub.onMessage(first, JSON.stringify({ t: `online`, deviceId: `dev-1` }))
+    // A reconnect claims dev-1 (closes `first`), but `first`'s close hasn't
+    // been processed yet when it re-announces a different id.
+    const second = new FakeSocket()
+    hub.onOpen(second, claims({ role: `control`, sub: `owner` }))
+    hub.onMessage(second, JSON.stringify({ t: `online`, deviceId: `dev-1` }))
+    hub.onMessage(first, JSON.stringify({ t: `online`, deviceId: `dev-2` }))
+
+    // dev-1 still belongs to the second socket — the eviction only removes
+    // entries the re-announcing conn itself owns.
+    expect(hub.startSession(`owner`, `dev-1`, { issueId: `issue-9` })).toEqual({
+      ok: true,
+    })
+    expect(second.lastFrame(`start_session`)).toMatchObject({
+      issueId: `issue-9`,
+    })
+    hub.onClose(first)
+    hub.onClose(second)
+    expect(hub.devicesFor(`owner`)).toEqual([])
+  })
+
   test(`same-device reconnect replaces the old socket`, () => {
     const hub = new Hub()
     const first = new FakeSocket()
