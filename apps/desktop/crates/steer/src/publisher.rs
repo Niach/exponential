@@ -469,6 +469,15 @@ async fn pump_connection(
     // and without pings, a dropped connection can sit undetected while UIs retry
     // endlessly against a stale `no_such_session`.
     const PING_INTERVAL: Duration = Duration::from_secs(30);
+    // REV-41, mirroring control_channel's EXP-414: no inbound traffic (relay
+    // pongs included) for this long means the path is dead — `send()` alone
+    // can buffer into TCP retransmit for ~15min without erroring, so the
+    // ping arm's send-side check can't detect a silently dead path (NAT
+    // expiry, AP roam, VPN flap). The relay's idle detector closes the room
+    // after 90s of publisher silence; without this watchdog the session
+    // looks live locally while remote view/steer is dead until TCP gives up.
+    // Dropping here reconnects promptly: re-mint, re-hello, journal replay.
+    const LIVENESS_TIMEOUT: Duration = Duration::from_secs(90);
     // EXP-334: a free-text message arriving while a plan/ask picker owns the
     // keyboard would be EATEN by the picker — and its trailing Enter would
     // activate the highlighted row (observed: a note typed on a plan approval
@@ -505,6 +514,10 @@ async fn pump_connection(
     let mut sink_buffer = String::new();
     let mut ping_interval = tokio::time::interval(PING_INTERVAL);
     ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    // REV-41: any inbound frame (the relay's pongs to our pings included —
+    // they surface through `ws.next()`) proves the path; silence past
+    // LIVENESS_TIMEOUT means it is gone.
+    let mut last_rx = Instant::now();
     loop {
         tokio::select! {
             // 1) local control commands (unbounded — never dropped).
@@ -533,175 +546,191 @@ async fn pump_connection(
                 }
             }
             // 2) relay → publisher control frames.
-            msg = ws.next() => match msg {
-                Some(Ok(Message::Text(text))) => match ServerFrame::parse(&text) {
-                    Some(ServerFrame::Input { data }) => {
-                        // EXP-383 (pi): with a text sink, whole composer
-                        // messages route to the observer extension — pi's own
-                        // `sendUserMessage` submits them, so the trailing
-                        // `\r` is swallowed too. Single keystrokes (digits,
-                        // Esc, arrows) still land raw on the PTY: local
-                        // parity for everything that is not a message.
-                        if let Some(sink) = &hooks.text_sink {
-                            let stale = message_chunk_at
-                                .is_none_or(|at| at.elapsed() >= MESSAGE_STALENESS);
-                            if stale && !sink_buffer.is_empty() {
-                                sink_buffer.clear();
-                            }
-                            if is_message_text(&data) {
-                                sink_buffer.push_str(&data);
-                                message_chunk_at = Some(Instant::now());
-                                continue;
-                            }
-                            if data == "\r" && !sink_buffer.is_empty() {
-                                sink(std::mem::take(&mut sink_buffer));
-                                message_chunk_at = None;
-                                continue;
-                            }
-                        }
-                        // EXP-444: a login screen that solicited the OAuth
-                        // code closed before this text arrived (local Esc,
-                        // OAuth timeout) — writing it now would submit the
-                        // code as an ordinary prompt, publish it as a
-                        // UserMessage and journal it to every viewer. Refuse
-                        // the message (one-shot — the emitter narrates that
-                        // nothing was sent) and swallow its trailing Enter.
-                        // Single keystrokes pass untouched.
-                        if is_message_text(&data)
-                            && hooks
-                                .answers
-                                .as_ref()
-                                .is_some_and(|answers| answers.login_refusal_active())
-                        {
-                            if let Some(answers) = &hooks.answers {
-                                answers.note_login_refusal();
-                            }
-                            login_refused_message = true;
-                            continue;
-                        }
-                        if std::mem::take(&mut login_refused_message) && data == "\r" {
-                            continue;
-                        }
-                        let ask_pending = hooks
-                            .answers
-                            .as_ref()
-                            .is_some_and(|answers| answers.ask_pending());
-                        if data == "\r" {
-                            let cascade = ask_pending
-                                && last_digit_at
-                                    .is_some_and(|at| at.elapsed() < ENTER_CASCADE_WINDOW);
-                            if cascade {
-                                last_digit_at = None;
-                                continue;
-                            }
-                            if let Some(at) = last_input_at {
-                                let elapsed = at.elapsed();
-                                if elapsed < ENTER_SEPARATION {
-                                    tokio::time::sleep(ENTER_SEPARATION - elapsed).await;
+            msg = ws.next() => {
+                if matches!(msg, Some(Ok(_))) {
+                    last_rx = Instant::now();
+                }
+                match msg {
+                    Some(Ok(Message::Text(text))) => match ServerFrame::parse(&text) {
+                        Some(ServerFrame::Input { data }) => {
+                            // EXP-383 (pi): with a text sink, whole composer
+                            // messages route to the observer extension — pi's own
+                            // `sendUserMessage` submits them, so the trailing
+                            // `\r` is swallowed too. Single keystrokes (digits,
+                            // Esc, arrows) still land raw on the PTY: local
+                            // parity for everything that is not a message.
+                            if let Some(sink) = &hooks.text_sink {
+                                let stale = message_chunk_at
+                                    .is_none_or(|at| at.elapsed() >= MESSAGE_STALENESS);
+                                if stale && !sink_buffer.is_empty() {
+                                    sink_buffer.clear();
+                                }
+                                if is_message_text(&data) {
+                                    sink_buffer.push_str(&data);
+                                    message_chunk_at = Some(Instant::now());
+                                    continue;
+                                }
+                                if data == "\r" && !sink_buffer.is_empty() {
+                                    sink(std::mem::take(&mut sink_buffer));
+                                    message_chunk_at = None;
+                                    continue;
                                 }
                             }
-                        }
-                        // EXP-334: message text while a picker is on the grid
-                        // → Esc the picker away first, or it eats the text and
-                        // the trailing Enter answers it with the highlighted
-                        // row. Single keystrokes (digits, Tab, Esc, arrow
-                        // sequences) stay verbatim — they ARE picker input.
-                        if is_message_text(&data) {
-                            let picker = || {
-                                hooks
+                            // EXP-444: a login screen that solicited the OAuth
+                            // code closed before this text arrived (local Esc,
+                            // OAuth timeout) — writing it now would submit the
+                            // code as an ordinary prompt, publish it as a
+                            // UserMessage and journal it to every viewer. Refuse
+                            // the message (one-shot — the emitter narrates that
+                            // nothing was sent) and swallow its trailing Enter.
+                            // Single keystrokes pass untouched.
+                            if is_message_text(&data)
+                                && hooks
                                     .answers
                                     .as_ref()
-                                    .is_some_and(|answers| answers.grid_picker_pending())
-                            };
-                            let routed = esc_routed_at
-                                .is_some_and(|at| at.elapsed() < ESC_REROUTE_WINDOW);
-                            if picker() && !routed {
-                                // EXP-347: the flag may be a stale tick — defer
-                                // past one emitter poll and re-confirm before
-                                // the Esc, which would cancel a live turn if
-                                // the picker was in fact just answered.
-                                tokio::time::sleep(PICKER_REVALIDATE_DEFER).await;
-                                if picker() {
-                                    esc_routed_at = Some(Instant::now());
-                                    (hooks.write_input)(b"\x1b");
-                                    tokio::time::sleep(PICKER_DISMISS_PAUSE).await;
+                                    .is_some_and(|answers| answers.login_refusal_active())
+                            {
+                                if let Some(answers) = &hooks.answers {
+                                    answers.note_login_refusal();
+                                }
+                                login_refused_message = true;
+                                continue;
+                            }
+                            if std::mem::take(&mut login_refused_message) && data == "\r" {
+                                continue;
+                            }
+                            let ask_pending = hooks
+                                .answers
+                                .as_ref()
+                                .is_some_and(|answers| answers.ask_pending());
+                            if data == "\r" {
+                                let cascade = ask_pending
+                                    && last_digit_at
+                                        .is_some_and(|at| at.elapsed() < ENTER_CASCADE_WINDOW);
+                                if cascade {
+                                    last_digit_at = None;
+                                    continue;
+                                }
+                                if let Some(at) = last_input_at {
+                                    let elapsed = at.elapsed();
+                                    if elapsed < ENTER_SEPARATION {
+                                        tokio::time::sleep(ENTER_SEPARATION - elapsed).await;
+                                    }
                                 }
                             }
-                        }
-                        if is_message_text(&data) {
-                            // EXP-383: the codex composer hijacks a leading
-                            // `/` (slash popup), `!` (bash mode) or `@` (file
-                            // search) — Enter then accepts a completion
-                            // instead of submitting. A space prefix defuses
-                            // all three; only the chunk that OPENS the
-                            // composer needs it.
-                            let opens_composer = message_chunk_at
-                                .is_none_or(|at| at.elapsed() >= MESSAGE_STALENESS);
-                            if hooks.agent == SessionAgent::Codex
-                                && opens_composer
-                                && data.starts_with(['/', '!', '@'])
-                            {
-                                (hooks.write_input)(b" ");
+                            // EXP-334: message text while a picker is on the grid
+                            // → Esc the picker away first, or it eats the text and
+                            // the trailing Enter answers it with the highlighted
+                            // row. Single keystrokes (digits, Tab, Esc, arrow
+                            // sequences) stay verbatim — they ARE picker input.
+                            if is_message_text(&data) {
+                                let picker = || {
+                                    hooks
+                                        .answers
+                                        .as_ref()
+                                        .is_some_and(|answers| answers.grid_picker_pending())
+                                };
+                                let routed = esc_routed_at
+                                    .is_some_and(|at| at.elapsed() < ESC_REROUTE_WINDOW);
+                                if picker() && !routed {
+                                    // EXP-347: the flag may be a stale tick — defer
+                                    // past one emitter poll and re-confirm before
+                                    // the Esc, which would cancel a live turn if
+                                    // the picker was in fact just answered.
+                                    tokio::time::sleep(PICKER_REVALIDATE_DEFER).await;
+                                    if picker() {
+                                        esc_routed_at = Some(Instant::now());
+                                        (hooks.write_input)(b"\x1b");
+                                        tokio::time::sleep(PICKER_DISMISS_PAUSE).await;
+                                    }
+                                }
                             }
-                            message_chunk_at = Some(Instant::now());
-                        } else if data == "\r" {
-                            message_chunk_at = None;
+                            if is_message_text(&data) {
+                                // EXP-383: the codex composer hijacks a leading
+                                // `/` (slash popup), `!` (bash mode) or `@` (file
+                                // search) — Enter then accepts a completion
+                                // instead of submitting. A space prefix defuses
+                                // all three; only the chunk that OPENS the
+                                // composer needs it.
+                                let opens_composer = message_chunk_at
+                                    .is_none_or(|at| at.elapsed() >= MESSAGE_STALENESS);
+                                if hooks.agent == SessionAgent::Codex
+                                    && opens_composer
+                                    && data.starts_with(['/', '!', '@'])
+                                {
+                                    (hooks.write_input)(b" ");
+                                }
+                                message_chunk_at = Some(Instant::now());
+                            } else if data == "\r" {
+                                message_chunk_at = None;
+                            }
+                            if data.len() == 1 && data.as_bytes()[0].is_ascii_digit() {
+                                last_digit_at = Some(Instant::now());
+                            }
+                            last_input_at = Some(Instant::now());
+                            (hooks.write_input)(data.as_bytes())
                         }
-                        if data.len() == 1 && data.as_bytes()[0].is_ascii_digit() {
-                            last_digit_at = Some(Instant::now());
+                        // EXP-249: the semantic answer path — the emitter owns
+                        // question identity + the TUI key choreography, so the
+                        // publisher only routes.
+                        Some(ServerFrame::Answer { question_id, ask_id, keys }) => {
+                            if let Some(answers) = &hooks.answers {
+                                answers.submit(RemoteAnswer { question_id, ask_id, keys });
+                            }
                         }
-                        last_input_at = Some(Instant::now());
-                        (hooks.write_input)(data.as_bytes())
-                    }
-                    // EXP-249: the semantic answer path — the emitter owns
-                    // question identity + the TUI key choreography, so the
-                    // publisher only routes.
-                    Some(ServerFrame::Answer { question_id, ask_id, keys }) => {
-                        if let Some(answers) = &hooks.answers {
-                            answers.submit(RemoteAnswer { question_id, ask_id, keys });
+                        Some(ServerFrame::Kill) => {
+                            // §8.4: relay kill → end the session. The kill hook
+                            // kills the child (whose exit hook ends the synced
+                            // row); we close the room cleanly right away.
+                            log::info!("steer publisher: kill received");
+                            running.store(false, Ordering::SeqCst);
+                            (hooks.kill)(KillSignal::RemoteKill);
+                            let bye = ClientFrame::Bye { outcome: Some("killed") }.to_json();
+                            let _ = ws.send(Message::Text(bye)).await;
+                            let _ = ws.close(None).await;
+                            return LoopEnd::Clean;
                         }
+                        Some(ServerFrame::Bye { outcome }) => {
+                            log::debug!("steer publisher: relay bye ({outcome:?})");
+                            return LoopEnd::Dropped;
+                        }
+                        Some(ServerFrame::Error { code, message }) => {
+                            log::debug!("steer publisher: relay error {code} ({message:?})");
+                            return LoopEnd::Dropped;
+                        }
+                        Some(ServerFrame::StartSession { .. }) | Some(ServerFrame::CheckIn) => {
+                            // Control-socket frames; never valid here. Ignore.
+                        }
+                        None => log::debug!("steer publisher: unparseable frame ignored"),
+                    },
+                    Some(Ok(Message::Close(frame))) => {
+                        return LoopEnd::Closed(close_code(&frame));
                     }
-                    Some(ServerFrame::Kill) => {
-                        // §8.4: relay kill → end the session. The kill hook
-                        // kills the child (whose exit hook ends the synced
-                        // row); we close the room cleanly right away.
-                        log::info!("steer publisher: kill received");
-                        running.store(false, Ordering::SeqCst);
-                        (hooks.kill)(KillSignal::RemoteKill);
-                        let bye = ClientFrame::Bye { outcome: Some("killed") }.to_json();
-                        let _ = ws.send(Message::Text(bye)).await;
-                        let _ = ws.close(None).await;
-                        return LoopEnd::Clean;
+                    Some(Ok(_binary_or_ping)) => {
+                        // The relay speaks TEXT only since EXP-249; pings are
+                        // answered by tungstenite internally, and the relay's
+                        // pongs to OUR pings land here — bumping `last_rx`
+                        // above is their whole job (REV-41).
                     }
-                    Some(ServerFrame::Bye { outcome }) => {
-                        log::debug!("steer publisher: relay bye ({outcome:?})");
+                    Some(Err(err)) => {
+                        log::debug!("steer publisher: socket error: {err}");
                         return LoopEnd::Dropped;
                     }
-                    Some(ServerFrame::Error { code, message }) => {
-                        log::debug!("steer publisher: relay error {code} ({message:?})");
-                        return LoopEnd::Dropped;
-                    }
-                    Some(ServerFrame::StartSession { .. }) | Some(ServerFrame::CheckIn) => {
-                        // Control-socket frames; never valid here. Ignore.
-                    }
-                    None => log::debug!("steer publisher: unparseable frame ignored"),
-                },
-                Some(Ok(Message::Close(frame))) => {
-                    return LoopEnd::Closed(close_code(&frame));
+                    None => return LoopEnd::Dropped,
                 }
-                Some(Ok(_binary_or_ping)) => {
-                    // The relay speaks TEXT only since EXP-249; pings are
-                    // answered by tungstenite internally.
-                }
-                Some(Err(err)) => {
-                    log::debug!("steer publisher: socket error: {err}");
+            }
+            // 3) periodic ping to keep the connection alive and let the relay
+            // detect dead publishers (REV2-X: plan mode can idle for minutes),
+            // and reconnect when the path has been silent past the watchdog
+            // window (REV-41).
+            _ = ping_interval.tick() => {
+                if last_rx.elapsed() > LIVENESS_TIMEOUT {
+                    log::debug!(
+                        "steer publisher: no traffic for {:?} — reconnecting",
+                        last_rx.elapsed()
+                    );
                     return LoopEnd::Dropped;
                 }
-                None => return LoopEnd::Dropped,
-            },
-            // 3) periodic ping to keep the connection alive and let the relay
-            // detect dead publishers (REV2-X: plan mode can idle for minutes).
-            _ = ping_interval.tick() => {
                 if ws.send(Message::Ping(vec![])).await.is_err() {
                     return LoopEnd::Dropped;
                 }
