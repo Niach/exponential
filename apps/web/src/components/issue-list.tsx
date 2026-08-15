@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import type { Issue, Label, Board, User } from "@/db/schema"
 import { boardCollection } from "@/lib/collections"
@@ -30,6 +30,16 @@ import { ICON_COMPONENTS } from "@/lib/icons.generated"
 import { hexWithAlpha } from "@/lib/status-icons"
 import type { StatusRowOption } from "@/lib/team-statuses"
 import type { IssueGroup } from "@/lib/board-view"
+
+// REV-46: the desktop IDE virtualizes this exact list (issue_list.rs
+// v_virtual_list — "the list can be long; virtualization is mandatory"). The
+// web analog follows diff-view.tsx instead: cap + expand, so a board with
+// thousands of issues never mounts thousands of interactive rows (each row is
+// a Radix context menu around three dropdown components) in one commit.
+// Each group renders this many rows before a "Show more" button takes over.
+const GROUP_ROW_CAP = 100
+// Every "Show more" click reveals this many additional rows.
+const GROUP_ROW_CHUNK = 400
 
 // Status-tinted washes for the sticky group headers — the Tailwind palette
 // colors the old rgba literals encoded (zinc-500/zinc-300/yellow-500/
@@ -86,7 +96,9 @@ interface IssueListProps {
   // started" cards here (EXP-88).
   emptyStateExtra?: React.ReactNode
   // Optional trailing per-row action cell. Rendered in its own
-  // click-isolated grid column.
+  // click-isolated grid column. Rows are memoized (REV-46), so the output
+  // must be a function of the issue row alone — external state it closes
+  // over won't re-render untouched rows.
   renderRowAction?: (issue: Issue) => React.ReactNode
   // Enables bulk selection (hover checkboxes on md+, shift-click ranges,
   // Cmd/Ctrl+A, Esc). Undefined = bulk select off. Selection also requires
@@ -103,6 +115,9 @@ interface IssueListProps {
 const EMPTY_SELECTION = new Set<string>()
 const noopSetSelectedIds: React.Dispatch<React.SetStateAction<Set<string>>> =
   () => {}
+// Shared empty-labels instance — a fresh `[]` per label-less row would break
+// the row memo on every parent render.
+const NO_LABELS: Label[] = []
 
 function IssueListSkeleton() {
   return (
@@ -126,6 +141,186 @@ function IssueListSkeleton() {
   )
 }
 
+interface IssueRowProps {
+  issue: Issue
+  issueLabels: Label[]
+  labels: Label[]
+  users: User[]
+  userMap: Map<string, User>
+  teamBoards?: Board[]
+  rowGridClass: string
+  today: string
+  isSolo: boolean
+  bulkEnabled: boolean
+  mobileSelectionActive: boolean
+  isSelected: boolean
+  // Any selection exists — keeps every row's checkbox visible (not just
+  // hovered) while a selection is in progress.
+  anySelected: boolean
+  // rowCanMutate && canModerate, precomputed so the memo compares a boolean.
+  canMutateRow: boolean
+  onOpen: (issue: Issue) => void
+  onToggleSelect: (issueId: string, shiftKey: boolean) => void
+  renderRowAction?: (issue: Issue) => React.ReactNode
+}
+
+// REV-46: memoized so a selection toggle reconciles only the toggled row —
+// `selectedIds` lives in the route, so every checkbox click re-renders the
+// whole page; without the memo each click re-rendered every row's context
+// menu + three dropdowns. All props are primitives or referentially stable
+// (the callbacks come from the latest-ref wrappers in IssueList).
+const IssueRow = memo(function IssueRow({
+  issue,
+  issueLabels,
+  labels,
+  users,
+  userMap,
+  teamBoards,
+  rowGridClass,
+  today,
+  isSolo,
+  bulkEnabled,
+  mobileSelectionActive,
+  isSelected,
+  anySelected,
+  canMutateRow,
+  onOpen,
+  onToggleSelect,
+  renderRowAction,
+}: IssueRowProps) {
+  return (
+    <IssueRowContextMenu
+      issue={issue}
+      issueLabels={issueLabels}
+      labels={labels}
+      users={users}
+      userMap={userMap}
+      boards={teamBoards}
+      onOpenIssue={() => onOpen(issue)}
+      onToggleSelect={
+        bulkEnabled ? () => onToggleSelect(issue.id, false) : undefined
+      }
+      isSelected={isSelected}
+    >
+      <div
+        className={`grid ${rowGridClass} items-center h-12 md:h-10 px-3 md:px-6 hover:bg-glass-row border-b border-border/30 group/row cursor-pointer ${isSelected ? `max-md:bg-glass-active` : ``}`}
+        onClick={() => {
+          if (mobileSelectionActive) {
+            onToggleSelect(issue.id, false)
+            return
+          }
+          onOpen(issue)
+        }}
+        data-testid={`issue-row-${issue.identifier}`}
+      >
+        {bulkEnabled && (
+          <div
+            // self-stretch + the padding bleed grow the toggle
+            // hitbox to the full row height and the row's left
+            // padding — a click slightly beside the checkbox
+            // must select, never open the issue (FEED-12).
+            className="hidden md:flex items-center self-stretch -ml-6 pl-6"
+            // Suppress the browser's shift-click text selection
+            // so range-select doesn't highlight row text.
+            onMouseDown={(e) => {
+              if (e.shiftKey) e.preventDefault()
+            }}
+            onClick={(e) => {
+              e.stopPropagation()
+              onToggleSelect(issue.id, e.shiftKey)
+            }}
+          >
+            <Checkbox
+              checked={isSelected}
+              aria-label={`Select ${issue.identifier}`}
+              className={`transition-opacity ${anySelected ? `opacity-100` : `opacity-0 group-hover/row:opacity-100`}`}
+            />
+          </div>
+        )}
+        <div
+          className="flex items-center justify-center"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <PriorityDropdown
+            issueId={issue.id}
+            priority={issue.priority}
+            disabled={!canMutateRow}
+          />
+        </div>
+        <span className="hidden md:inline text-xs text-muted-foreground font-mono truncate">
+          {issue.identifier}
+        </span>
+        <div
+          className="flex items-center justify-center"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <StatusDropdown
+            issueId={issue.id}
+            status={issue.status}
+            statusId={issue.statusId}
+            disabled={!canMutateRow}
+          />
+        </div>
+        <span className="flex items-center gap-1.5 text-sm truncate ml-2 min-w-0">
+          <span className="truncate">{issue.title}</span>
+        </span>
+        <div className="hidden md:flex items-center gap-1.5 ml-4 shrink-0">
+          {issueLabels.map((label) => (
+            <span
+              key={label.id}
+              className="flex items-center gap-1 border border-border/50 rounded-full px-1.5 py-px text-xs text-muted-foreground"
+            >
+              <div
+                className="h-1.5 w-1.5 rounded-full shrink-0"
+                style={{ backgroundColor: label.color }}
+              />
+              {label.name}
+            </span>
+          ))}
+        </div>
+        {!isSolo && (
+          <div
+            className="hidden md:flex items-center justify-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <AssigneeDropdown
+              issueId={issue.id}
+              assigneeId={issue.assigneeId}
+              users={users}
+              userMap={userMap}
+              disabled={!canMutateRow}
+            />
+          </div>
+        )}
+        {/* Display-only: due dates are edited in the issue
+            detail, never inline from the list (EXP-247). The
+            tone (red overdue / orange today) is what explains
+            the overdue-first ordering — REV2-48. */}
+        <div className="flex items-center justify-end">
+          {issue.dueDate && (
+            <span
+              className={`flex items-center gap-1 px-1 ${dueDateToneClass(issue.dueDate, today)}`}
+            >
+              <CalendarDays className="size-3 shrink-0" />
+              <span className="text-xs whitespace-nowrap">
+                {formatDate(issue.dueDate)}
+              </span>
+            </span>
+          )}
+        </div>
+        {renderRowAction && (
+          <div
+            className="flex items-center justify-end"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {renderRowAction(issue)}
+          </div>
+        )}
+      </div>
+    </IssueRowContextMenu>
+  )
+})
+
 export function IssueList({
   groups,
   issueLabelMap,
@@ -148,7 +343,13 @@ export function IssueList({
   onSelectedIdsChange: setSelectedIds = noopSetSelectedIds,
 }: IssueListProps) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
-  const [anchorId, setAnchorId] = useState<string | null>(null)
+  // Extra rows revealed per group id beyond GROUP_ROW_CAP via "Show more"
+  // (REV-46). Only ever grows; a stale entry after a filter change is just a
+  // higher cap for that group.
+  const [extraRows, setExtraRows] = useState<Map<string, number>>(new Map())
+  // The shift-range anchor is never rendered — a ref keeps toggleSelect
+  // referentially stable so it doesn't re-render every memoized row.
+  const anchorIdRef = useRef<string | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   // Local-date boundary for the due-date tone — the same one the overdue-first
   // comparator sorts on (lib/board-view.ts).
@@ -184,8 +385,13 @@ export function IssueList({
     [boardRows, bulkTeamId]
   )
 
-  // The range/select-all universe: filtered rows in render order, minus
-  // collapsed groups.
+  const renderLimit = (groupId: string) =>
+    GROUP_ROW_CAP + (extraRows.get(groupId) ?? 0)
+
+  // The range/select-all universe: RENDERED rows in render order — windowed
+  // by the group cap, minus collapsed groups. Rows hidden behind "Show more"
+  // stay out deliberately: a shift-range or Cmd/Ctrl+A must never sweep up
+  // rows the user hasn't revealed.
   const visibleFlatIssues = useMemo(
     () =>
       groups
@@ -193,9 +399,13 @@ export function IssueList({
           (group) =>
             group.issues.length > 0 && !collapsedGroups.has(group.status.id)
         )
-        .flatMap((group) => group.issues),
-    [groups, collapsedGroups]
+        .flatMap((group) =>
+          group.issues.slice(0, renderLimit(group.status.id))
+        ),
+    [groups, collapsedGroups, extraRows]
   )
+  const visibleFlatIssuesRef = useRef(visibleFlatIssues)
+  visibleFlatIssuesRef.current = visibleFlatIssues
 
   // Prune selected ids whose rows left the data set (filter change, delete
   // elsewhere, sync). Collapsing a group hides rows but keeps them selected.
@@ -213,39 +423,65 @@ export function IssueList({
   // the shift-range anchor — the next shift-click must not extend a range
   // from a pre-clear row.
   useEffect(() => {
-    if (selectedIds.size === 0) setAnchorId(null)
+    if (selectedIds.size === 0) anchorIdRef.current = null
   }, [selectedIds])
 
-  const toggleSelect = (issueId: string, shiftKey: boolean) => {
-    const ids = visibleFlatIssues.map((issue) => issue.id)
-    const anchorIndex = anchorId ? ids.indexOf(anchorId) : -1
-    const targetIndex = ids.indexOf(issueId)
-    if (shiftKey && anchorIndex !== -1 && targetIndex !== -1) {
-      // Shift-click extends: ADD the contiguous visible slice between the
-      // anchor and the target (anchor stays put for further extensions).
-      const [from, to] =
-        anchorIndex < targetIndex
-          ? [anchorIndex, targetIndex]
-          : [targetIndex, anchorIndex]
-      const range = ids.slice(from, to + 1)
+  // Stable (reads the universe + anchor through refs) so memoized rows don't
+  // re-render when the selection changes.
+  const toggleSelect = useCallback(
+    (issueId: string, shiftKey: boolean) => {
+      const ids = visibleFlatIssuesRef.current.map((issue) => issue.id)
+      const anchorId = anchorIdRef.current
+      const anchorIndex = anchorId ? ids.indexOf(anchorId) : -1
+      const targetIndex = ids.indexOf(issueId)
+      if (shiftKey && anchorIndex !== -1 && targetIndex !== -1) {
+        // Shift-click extends: ADD the contiguous visible slice between the
+        // anchor and the target (anchor stays put for further extensions).
+        const [from, to] =
+          anchorIndex < targetIndex
+            ? [anchorIndex, targetIndex]
+            : [targetIndex, anchorIndex]
+        const range = ids.slice(from, to + 1)
+        setSelectedIds((prev) => {
+          const next = new Set(prev)
+          for (const id of range) next.add(id)
+          return next
+        })
+        return
+      }
       setSelectedIds((prev) => {
         const next = new Set(prev)
-        for (const id of range) next.add(id)
+        if (next.has(issueId)) {
+          next.delete(issueId)
+        } else {
+          next.add(issueId)
+        }
         return next
       })
-      return
-    }
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(issueId)) {
-        next.delete(issueId)
-      } else {
-        next.add(issueId)
-      }
-      return next
-    })
-    setAnchorId(issueId)
-  }
+      anchorIdRef.current = issueId
+    },
+    [setSelectedIds]
+  )
+
+  // Latest-ref wrappers: the callers hold the selection state, so their
+  // inline callbacks get a new identity on every selection change — routing
+  // the calls through refs keeps the row props stable.
+  const onIssueClickRef = useRef(onIssueClick)
+  onIssueClickRef.current = onIssueClick
+  const openIssue = useCallback(
+    (issue: Issue) => onIssueClickRef.current(issue),
+    []
+  )
+  const renderRowActionRef = useRef(renderRowAction)
+  renderRowActionRef.current = renderRowAction
+  const hasRowAction = Boolean(renderRowAction)
+  const stableRenderRowAction = useMemo(
+    () =>
+      hasRowAction
+        ? (issue: Issue) => renderRowActionRef.current?.(issue)
+        : undefined,
+    [hasRowAction]
+  )
 
   // Cmd/Ctrl+A selects everything visible under the current filters; Escape
   // clears. Both keys are overlay-scoped: an Escape that dismisses a Radix
@@ -379,6 +615,10 @@ export function IssueList({
         const Icon = ICON_COMPONENTS[option.icon]
         const isOpen = !collapsedGroups.has(option.id)
         const wash = groupHeaderWash(option)
+        const limit = renderLimit(option.id)
+        const renderedIssues =
+          group.issues.length > limit ? group.issues.slice(0, limit) : group.issues
+        const hiddenCount = group.issues.length - renderedIssues.length
         return (
           <CollapsiblePrimitive.Root
             key={option.id}
@@ -438,147 +678,51 @@ export function IssueList({
 
             {/* Issue rows */}
             <CollapsiblePrimitive.Content className="overflow-hidden data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down">
-              {group.issues.map((issue) => {
-                const issueLabels = issueLabelMap.get(issue.id) ?? []
+              {renderedIssues.map((issue) => {
                 const rowCanMutate = canMutateIssue
                   ? canMutateIssue(issue)
                   : true
-                const moderatorRowCanMutate = rowCanMutate && canModerate
                 return (
-                  <IssueRowContextMenu
+                  <IssueRow
                     key={issue.id}
                     issue={issue}
-                    issueLabels={issueLabels}
+                    issueLabels={issueLabelMap.get(issue.id) ?? NO_LABELS}
                     labels={labels}
                     users={users}
                     userMap={userMap}
-                    boards={teamBoards}
-                    onOpenIssue={() => onIssueClick(issue)}
-                    onToggleSelect={
-                      bulkEnabled
-                        ? () => toggleSelect(issue.id, false)
-                        : undefined
-                    }
+                    teamBoards={teamBoards}
+                    rowGridClass={rowGridClass}
+                    today={today}
+                    isSolo={isSolo}
+                    bulkEnabled={bulkEnabled}
+                    mobileSelectionActive={mobileSelectionActive}
                     isSelected={selectedIds.has(issue.id)}
-                  >
-                    <div
-                      className={`grid ${rowGridClass} items-center h-12 md:h-10 px-3 md:px-6 hover:bg-glass-row border-b border-border/30 group/row cursor-pointer ${selectedIds.has(issue.id) ? `max-md:bg-glass-active` : ``}`}
-                      onClick={() => {
-                        if (mobileSelectionActive) {
-                          toggleSelect(issue.id, false)
-                          return
-                        }
-                        onIssueClick(issue)
-                      }}
-                      data-testid={`issue-row-${issue.identifier}`}
-                    >
-                      {bulkEnabled && (
-                        <div
-                          // self-stretch + the padding bleed grow the toggle
-                          // hitbox to the full row height and the row's left
-                          // padding — a click slightly beside the checkbox
-                          // must select, never open the issue (FEED-12).
-                          className="hidden md:flex items-center self-stretch -ml-6 pl-6"
-                          // Suppress the browser's shift-click text selection
-                          // so range-select doesn't highlight row text.
-                          onMouseDown={(e) => {
-                            if (e.shiftKey) e.preventDefault()
-                          }}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            toggleSelect(issue.id, e.shiftKey)
-                          }}
-                        >
-                          <Checkbox
-                            checked={selectedIds.has(issue.id)}
-                            aria-label={`Select ${issue.identifier}`}
-                            className={`transition-opacity ${selectedIds.size > 0 ? `opacity-100` : `opacity-0 group-hover/row:opacity-100`}`}
-                          />
-                        </div>
-                      )}
-                      <div
-                        className="flex items-center justify-center"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <PriorityDropdown
-                          issueId={issue.id}
-                          priority={issue.priority}
-                          disabled={!moderatorRowCanMutate}
-                        />
-                      </div>
-                      <span className="hidden md:inline text-xs text-muted-foreground font-mono truncate">
-                        {issue.identifier}
-                      </span>
-                      <div
-                        className="flex items-center justify-center"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <StatusDropdown
-                          issueId={issue.id}
-                          status={issue.status}
-                          statusId={issue.statusId}
-                          disabled={!moderatorRowCanMutate}
-                        />
-                      </div>
-                      <span className="flex items-center gap-1.5 text-sm truncate ml-2 min-w-0">
-                        <span className="truncate">{issue.title}</span>
-                      </span>
-                      <div className="hidden md:flex items-center gap-1.5 ml-4 shrink-0">
-                        {issueLabels.map((label) => (
-                          <span
-                            key={label.id}
-                            className="flex items-center gap-1 border border-border/50 rounded-full px-1.5 py-px text-xs text-muted-foreground"
-                          >
-                            <div
-                              className="h-1.5 w-1.5 rounded-full shrink-0"
-                              style={{ backgroundColor: label.color }}
-                            />
-                            {label.name}
-                          </span>
-                        ))}
-                      </div>
-                      {!isSolo && (
-                        <div
-                          className="hidden md:flex items-center justify-center"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <AssigneeDropdown
-                            issueId={issue.id}
-                            assigneeId={issue.assigneeId}
-                            users={users}
-                            userMap={userMap}
-                            disabled={!moderatorRowCanMutate}
-                          />
-                        </div>
-                      )}
-                      {/* Display-only: due dates are edited in the issue
-                          detail, never inline from the list (EXP-247). The
-                          tone (red overdue / orange today) is what explains
-                          the overdue-first ordering — REV2-48. */}
-                      <div className="flex items-center justify-end">
-                        {issue.dueDate && (
-                          <span
-                            className={`flex items-center gap-1 px-1 ${dueDateToneClass(issue.dueDate, today)}`}
-                          >
-                            <CalendarDays className="size-3 shrink-0" />
-                            <span className="text-xs whitespace-nowrap">
-                              {formatDate(issue.dueDate)}
-                            </span>
-                          </span>
-                        )}
-                      </div>
-                      {renderRowAction && (
-                        <div
-                          className="flex items-center justify-end"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {renderRowAction(issue)}
-                        </div>
-                      )}
-                    </div>
-                  </IssueRowContextMenu>
+                    anySelected={selectedIds.size > 0}
+                    canMutateRow={rowCanMutate && canModerate}
+                    onOpen={openIssue}
+                    onToggleSelect={toggleSelect}
+                    renderRowAction={stableRenderRowAction}
+                  />
                 )
               })}
+              {hiddenCount > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full rounded-none border-b border-border/30 text-xs text-muted-foreground"
+                  onClick={() =>
+                    setExtraRows((prev) =>
+                      new Map(prev).set(
+                        option.id,
+                        (prev.get(option.id) ?? 0) + GROUP_ROW_CHUNK
+                      )
+                    )
+                  }
+                >
+                  Show {Math.min(GROUP_ROW_CHUNK, hiddenCount)} more (
+                  {hiddenCount} hidden)
+                </Button>
+              )}
             </CollapsiblePrimitive.Content>
           </CollapsiblePrimitive.Root>
         )
