@@ -68,6 +68,7 @@ use coding::git_worktree::{sanitize_branch_for_path, worktrees_dir};
 use coding::CodingAgent;
 
 use crate::coding_flow::{CodingHub, LocalSessions};
+use crate::controls::WebControl as _;
 use crate::file_tree::{self, OpenAgentShellHere, OpenTerminalHere};
 use crate::native_dialog::{self, AlertSpec};
 use crate::repo_resolver::{repo_resolver_for_window, RepoResolver};
@@ -632,8 +633,8 @@ impl LocalReposPane {
                 let full_name = repo.full_name.clone();
                 meta.child(
                     Button::new(("repo-worktrees", ix))
-                        .ghost().cursor_pointer()
-                        .xsmall()
+                        .ghost()
+                        .web_xs()
                         .icon(if expanded {
                             registry::UI_CHEVRON_DOWN
                         } else {
@@ -665,8 +666,8 @@ impl LocalReposPane {
             let full_name = repo.full_name.clone();
             let clone = repo.clone_path.clone();
             Button::new(("repo-prune", ix))
-                .outline().cursor_pointer()
-                .xsmall()
+                .outline()
+                .web_xs()
                 .label("Prune merged worktrees")
                 .tooltip(
                     "Remove worktrees whose work has landed on the default branch \
@@ -685,8 +686,8 @@ impl LocalReposPane {
             let full_name = repo.full_name.clone();
             let clone = repo.clone_path.clone();
             let mut button = Button::new(("repo-remove", ix))
-                .ghost().cursor_pointer()
-                .xsmall()
+                .ghost()
+                .web_xs()
                 .icon(Icon::new(registry::UI_DELETE).text_color(if in_use {
                     cx.theme().muted_foreground
                 } else {
@@ -788,8 +789,8 @@ impl LocalReposPane {
             let full_name = repo.full_name.clone();
             let path = path.clone();
             Button::new((terminal_id, wt_ix))
-                .ghost().cursor_pointer()
-                .xsmall()
+                .ghost()
+                .web_icon_xs()
                 .icon(registry::NAV_TERMINAL)
                 .tooltip("Open a terminal in this worktree")
                 .dropdown_menu(move |mut menu, _window, _cx| {
@@ -823,8 +824,8 @@ impl LocalReposPane {
             let clone = repo.clone_path.clone();
             let worktree = worktree.clone();
             let mut button = Button::new((remove_id, wt_ix))
-                .ghost().cursor_pointer()
-                .xsmall()
+                .ghost()
+                .web_icon_xs()
                 .icon(Icon::new(registry::UI_DELETE).text_color(if in_use {
                     cx.theme().muted_foreground
                 } else {
@@ -987,8 +988,8 @@ impl Render for LocalReposPane {
         body = body.child(
             h_flex().gap_2().child(
                 Button::new("local-repos-refresh")
-                    .ghost().cursor_pointer()
-                    .xsmall()
+                    .ghost()
+                    .web_xs()
                     .label("Refresh")
                     .loading(self.scanning)
                     .on_click(cx.listener(|this, _, _, cx| this.refresh(cx))),

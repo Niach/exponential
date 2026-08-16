@@ -22,7 +22,7 @@ use gpui_component::{
     h_flex,
     input::{Input, InputEvent, InputState, Textarea, TextareaState},
     menu::{DropdownMenu as _, PopupMenuItem},
-    v_flex, ActiveTheme as _, Disableable as _, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _,
 };
 
 use crate::controls::WebControl as _;

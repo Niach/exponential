@@ -31,6 +31,7 @@ use gpui_component::{
 use coding::{CodingAgent, DoctorReport, Tool, ToolCheck};
 
 use crate::coding_flow::CodingHub;
+use crate::controls::WebControl as _;
 use crate::icons::registry;
 
 use super::{card_header, section};
@@ -279,7 +280,7 @@ impl DoctorPanel {
                 h_flex().child(
                     Button::new(SharedString::from(format!("doctor-install-{}", tool.label())))
                         .outline().cursor_pointer()
-                        .xsmall()
+                        .web_xs()
                         .label("Install page")
                         .icon(registry::UI_EXTERNAL_LINK)
                         .on_click(cx.listener(move |_, _, _, cx| {
@@ -293,7 +294,7 @@ impl DoctorPanel {
                     .gap_2()
                     .items_center()
                     .child(div().flex_1().min_w_0().child(
-                        Input::new(self.input_for(agent)).small(),
+                        Input::new(self.input_for(agent)).web_input_sm(),
                     ))
                     .child(
                         Button::new(SharedString::from(format!(
@@ -301,7 +302,7 @@ impl DoctorPanel {
                             agent.id()
                         )))
                         .outline().cursor_pointer()
-                        .xsmall()
+                        .web_xs()
                         .label("Save path")
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.save_path(agent, cx);
@@ -356,7 +357,7 @@ impl Render for DoctorPanel {
             h_flex().child(
                 Button::new("doctor-check")
                     .outline().cursor_pointer()
-                    .xsmall()
+                    .web_sm()
                     .label("Check tools")
                     .loading(running)
                     .disabled(running)

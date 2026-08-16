@@ -21,6 +21,7 @@ use gpui_component::{
 };
 use sync::Store;
 
+use crate::controls::WebControl as _;
 use crate::diff::DiffView;
 use crate::icons::ExpIcon;
 use crate::navigation::{navigate, Screen};
@@ -155,8 +156,8 @@ impl Render for PrDiffView {
                     let undock_id = issue.id.clone();
                     row.child(
                         Button::new("pr-diff-undock")
-                            .ghost().cursor_pointer()
-                            .xsmall()
+                            .ghost()
+                            .web_icon_xs()
                             .icon(ExpIcon::ExternalLink)
                             .tooltip("Open in new window")
                             .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {

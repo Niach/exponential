@@ -36,6 +36,7 @@ use sync::Store;
 
 
 use crate::actions::{CreateTeam, JoinTeam, NewBoard};
+use crate::controls::WebControl as _;
 use crate::icons::{registry, ExpIcon};
 use crate::issue_detail::IssueDetailView;
 use crate::navigation::{
@@ -1109,8 +1110,8 @@ impl ScreensPanel {
                             .gap_2()
                             .child(
                                 Button::new("screens-create-team")
-                                    .primary().cursor_pointer()
-                                    .small()
+                                    .primary()
+                                    .web_sm()
                                     .label("Create team…")
                                     .on_click(|_, window, cx| {
                                         window.dispatch_action(Box::new(CreateTeam), cx);
@@ -1118,7 +1119,7 @@ impl ScreensPanel {
                             )
                             .child(
                                 Button::new("screens-join-team")
-                                    .small()
+                                    .web_sm()
                                     .label("Join team…")
                                     .on_click(|_, window, cx| {
                                         window.dispatch_action(Box::new(JoinTeam), cx);
@@ -1227,8 +1228,8 @@ impl ScreensPanel {
         if active_team.is_some() {
             column = column.child(
                 Button::new("screens-new-board")
-                    .primary().cursor_pointer()
-                    .small()
+                    .primary()
+                    .web_sm()
                     .label("New board…")
                     .on_click(|_, window, cx| {
                         window.dispatch_action(Box::new(NewBoard), cx);

@@ -24,9 +24,10 @@ use gpui_component::{
     button::Button,
     h_flex,
     scroll::{ScrollableElement as _, ScrollbarAxis},
-    v_flex, v_virtual_list, ActiveTheme as _, Icon, Sizable as _, VirtualListScrollHandle,
+    v_flex, v_virtual_list, ActiveTheme as _, Icon, VirtualListScrollHandle,
 };
 
+use crate::controls::WebControl as _;
 use crate::icons::registry;
 use crate::licenses;
 
@@ -102,7 +103,7 @@ impl AboutPane {
     fn link_button(id: &'static str, label: &'static str, url: &'static str) -> Button {
         Button::new(id)
             .outline().cursor_pointer()
-            .xsmall()
+            .web_xs()
             .icon(Icon::new(registry::UI_EXTERNAL_LINK))
             .label(label)
             .on_click(|_, _, cx| open_url(cx, url.to_string()))
@@ -143,7 +144,7 @@ impl AboutPane {
                     .child(
                         Button::new("about-notices-copy")
                             .outline().cursor_pointer()
-                            .xsmall()
+                            .web_xs()
                             .label("Copy")
                             .tooltip("Copy the full notice")
                             .on_click(|_, _, cx| {

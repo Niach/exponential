@@ -51,6 +51,7 @@ use sync::Store;
 use domain::rows::{Attachment, Issue};
 
 use crate::coding_flow::StartCodingControl;
+use crate::controls::WebControl as _;
 use crate::icons::{registry, ExpIcon};
 use crate::issue_files::{
     all_attachment_ids, attachment_label, file_attachments, format_bytes, icon_for_content_type,
@@ -683,8 +684,8 @@ impl IssueDetailView {
                 )
                 .child(
                     Button::new("duplicate-of-link")
-                        .outline().cursor_pointer()
-                        .xsmall()
+                        .outline()
+                        .web_xs()
                         .label(SharedString::from(format!("#{}", canonical.identifier)))
                         .on_click(cx.listener(move |_, _, window, cx| {
                             navigate(
@@ -708,8 +709,8 @@ impl IssueDetailView {
                 )
                 .child(
                     Button::new("duplicate-unmark")
-                        .ghost().cursor_pointer()
-                        .xsmall()
+                        .ghost()
+                        .web_xs()
                         .icon(Icon::new(registry::UI_UNDO).text_color(cx.theme().muted_foreground))
                         .label("Unmark")
                         .on_click(cx.listener(|this, _, _, cx| {
@@ -922,8 +923,8 @@ impl IssueDetailView {
         let issue_id = issue.id.clone();
         // EXP-316: icon-only attach button (tooltip carries the wording).
         let attach_button = Button::new("issue-files-attach")
-            .ghost().cursor_pointer()
-            .xsmall()
+            .ghost()
+            .web_icon_xs()
             .icon(Icon::from(ExpIcon::Paperclip).xsmall())
             .tooltip("Attach file")
             .on_click(cx.listener(move |this, _, window, cx| {
@@ -1151,8 +1152,8 @@ impl IssueDetailView {
             .child({
                 let (id, label) = (id.clone(), label.clone());
                 Button::new(SharedString::from(format!("issue-file-open-{id}")))
-                    .ghost().cursor_pointer()
-                    .xsmall()
+                    .ghost()
+                    .web_icon_xs()
                     .disabled(busy)
                     .icon(Icon::from(ExpIcon::ExternalLink).xsmall())
                     .tooltip("Open")
@@ -1163,8 +1164,8 @@ impl IssueDetailView {
             .child({
                 let (id, label) = (id.clone(), label.clone());
                 Button::new(SharedString::from(format!("issue-file-save-{id}")))
-                    .ghost().cursor_pointer()
-                    .xsmall()
+                    .ghost()
+                    .web_icon_xs()
                     .disabled(busy)
                     .icon(Icon::from(ExpIcon::Download).xsmall())
                     .tooltip("Save as…")
@@ -1175,8 +1176,8 @@ impl IssueDetailView {
             .child({
                 let (id, label) = (id.clone(), label.clone());
                 Button::new(SharedString::from(format!("issue-file-delete-{id}")))
-                    .ghost().cursor_pointer()
-                    .xsmall()
+                    .ghost()
+                    .web_icon_xs()
                     .disabled(busy)
                     .icon(
                         Icon::from(ExpIcon::Trash2)
@@ -1241,8 +1242,8 @@ impl IssueDetailView {
             .when(failed, |row| {
                 row.child(
                     Button::new(SharedString::from(format!("issue-file-dismiss-{key}")))
-                        .ghost().cursor_pointer()
-                        .xsmall()
+                        .ghost()
+                        .web_icon_xs()
                         .icon(Icon::new(registry::UI_CLOSE).xsmall())
                         .tooltip("Dismiss")
                         .on_click(cx.listener(move |this, _, _, cx| {
@@ -1990,7 +1991,7 @@ impl Render for DuplicatePicker {
         v_flex()
             .w_full()
             .gap_2()
-            .child(Input::new(&self.search))
+            .child(Input::new(&self.search).web_input_sm())
             .child(
                 div()
                     .id("dup-pick-scroll")

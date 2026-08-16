@@ -49,6 +49,7 @@ use gpui_component::{
 use coding::{CodingAgent, Settings};
 
 use crate::coding_flow::CodingHub;
+use crate::controls::WebControl as _;
 use crate::coding_selects::{
     agent_icon, choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect,
     AGENT_CHOICES,
@@ -345,7 +346,7 @@ impl AgentsPane {
         v_flex()
             .gap_1()
             .child(div().text_xs().text_color(cx.theme().muted_foreground).child(label))
-            .child(Input::new(input).small())
+            .child(Input::new(input).web_input_sm())
     }
 
     /// A labeled [`ChoiceSelect`] row (the select analog of `labeled_input`).
@@ -358,7 +359,7 @@ impl AgentsPane {
         v_flex()
             .gap_1()
             .child(div().text_xs().text_color(cx.theme().muted_foreground).child(label))
-            .child(Select::new(select).small())
+            .child(Select::new(select).web_input_sm())
     }
 
     /// One toggle row: a single-line label with the `Switch` on the right —
@@ -497,8 +498,8 @@ impl Render for AgentsPane {
         save_area = save_area.child(
             h_flex().justify_end().child(
                 Button::new("agents-save")
-                    .primary().cursor_pointer()
-                    .small()
+                    .primary()
+                    .web_sm()
                     .label("Save changes")
                     .disabled(!dirty)
                     .on_click(cx.listener(|this, _, _, cx| this.save(cx))),

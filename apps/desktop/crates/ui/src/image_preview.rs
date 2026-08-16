@@ -13,9 +13,10 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    ActiveTheme as _, Icon, Sizable as _,
+    ActiveTheme as _, Icon,
 };
 
+use crate::controls::WebControl as _;
 use crate::icons::ExpIcon;
 use crate::markdown::{attachment_natural_size, placeholder_box, ImageCache, ImageSlot};
 use crate::native_dialog::{self, DialogContent, DialogSpec};
@@ -67,8 +68,8 @@ pub(crate) fn open_image_preview(
             content = content.chromeless_header_actions(move |_, cx| {
                 let open_url = open_url.clone();
                 Button::new("image-preview-open-browser")
-                    .ghost().cursor_pointer()
-                    .xsmall()
+                    .ghost()
+                    .web_xs()
                     .icon(
                         Icon::from(ExpIcon::ArrowUpRight)
                             .text_color(cx.theme().muted_foreground),

@@ -29,6 +29,7 @@ use sync::Store;
 
 use domain::rows::Label;
 
+use crate::controls::WebControl as _;
 use crate::navigation::{active_team_id, Navigation};
 
 use super::{section, card_header, parse_hex_color, spawn_trpc};
@@ -361,7 +362,7 @@ impl LabelsPane {
         // itself with a percent width, which collapses to content width
         // inside a flex-basis-0 wrapper div — cutting the name to ~1 char.
         if let Some(input) = self.name_inputs.get(&label.id) {
-            row = row.child(Input::new(input).small().appearance(false).flex_1().min_w_0());
+            row = row.child(Input::new(input).web_input_sm().appearance(false).flex_1().min_w_0());
         } else {
             row = row.child(
                 div()
@@ -490,7 +491,7 @@ impl Render for LabelsPane {
                     .rounded(cx.theme().radius)
                     .border_1()
                     .border_color(super::row_stroke(cx))
-                    .child(Input::new(&self.new_name).small())
+                    .child(Input::new(&self.new_name).web_input_sm())
                     .when_some(form_error, |col, message| {
                         col.child(
                             div()
@@ -527,7 +528,7 @@ impl Render for LabelsPane {
                             .child(
                                 Button::new("label-create")
                                     .primary().cursor_pointer()
-                                    .xsmall()
+                                    .web_xs()
                                     .label(if self.submitting {
                                         "Creating…"
                                     } else {
@@ -540,7 +541,7 @@ impl Render for LabelsPane {
                             .child(
                                 Button::new("label-create-cancel")
                                     .ghost().cursor_pointer()
-                                    .xsmall()
+                                    .web_xs()
                                     .label("Cancel")
                                     .disabled(self.submitting)
                                     .on_click(cx.listener(|this, _, window, cx| {
@@ -559,7 +560,7 @@ impl Render for LabelsPane {
                 h_flex().child(
                     Button::new("label-new")
                         .outline().cursor_pointer()
-                        .small()
+                        .web_sm()
                         .icon(registry::UI_ADD)
                         .label("New label")
                         .on_click(cx.listener(|this, _, window, cx| {

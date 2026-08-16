@@ -24,6 +24,7 @@ use gpui_component::{
 
 use domain::rows::{Comment, User};
 
+use crate::controls::WebControl as _;
 use crate::description_editor::open_issue_by_identifier;
 use crate::icons::{registry, ExpIcon};
 use crate::markdown::{ImageCache, MarkdownView, RefResolver};
@@ -217,8 +218,8 @@ pub(crate) fn comment_row(
                     .items_center()
                     .child(
                         Button::new(SharedString::from(format!("comment-save-{comment_id}")))
-                            .primary().cursor_pointer()
-                            .xsmall()
+                            .primary()
+                            .web_xs()
                             .label("Save")
                             .loading(props.saving)
                             .on_click(cx.listener({
@@ -230,8 +231,8 @@ pub(crate) fn comment_row(
                     )
                     .child(
                         Button::new(SharedString::from(format!("comment-cancel-{comment_id}")))
-                            .ghost().cursor_pointer()
-                            .xsmall()
+                            .ghost()
+                            .web_xs()
                             .label("Cancel")
                             .on_click(cx.listener(|this, _, _, cx| this.cancel_edit(cx))),
                     ),
@@ -300,8 +301,8 @@ pub(crate) fn composer_row(
         .child(v_flex().flex_1().min_w_0().child(input.clone()))
         .child(
             Button::new("comment-submit")
-                .primary().cursor_pointer()
-                .small()
+                .primary()
+                .web_icon_sm()
                 .icon(Icon::from(ExpIcon::Send))
                 .loading(submitting)
                 .disabled(submitting || !has_draft)

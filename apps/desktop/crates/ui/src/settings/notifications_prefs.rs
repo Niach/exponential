@@ -28,8 +28,10 @@ use gpui_component::{
     menu::{DropdownMenu as _, PopupMenuItem},
     skeleton::Skeleton,
     switch::Switch,
-    v_flex, ActiveTheme as _, Disableable as _, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _,
 };
+
+use crate::controls::WebControl as _;
 
 use api::notifications::{EmailPrefs, UpdateEmailPrefsInput};
 use domain::contract::{
@@ -292,8 +294,8 @@ impl Render for NotificationsPrefsPane {
                     .child(
                         h_flex().child(
                             Button::new("prefs-retry")
-                                .outline().cursor_pointer()
-                                .xsmall()
+                                .outline()
+                                .web_xs()
                                 .label("Retry")
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.load = Load::Idle;
@@ -361,7 +363,7 @@ impl Render for NotificationsPrefsPane {
                     "How often the digest goes out.",
                     Button::new("digest-select")
                         .outline().cursor_pointer()
-                        .small()
+                        .web_input_sm()
                         .label(digest_label)
                         .icon(registry::UI_CHEVRON_DOWN)
                         .disabled(digest_disabled)
@@ -401,7 +403,7 @@ impl Render for NotificationsPrefsPane {
                         "Full hours only, in your timezone.",
                         Button::new("digest-hour-select")
                             .outline().cursor_pointer()
-                            .small()
+                            .web_input_sm()
                             .label(SharedString::from(format!("{hour}:00")))
                             .icon(registry::UI_CHEVRON_DOWN)
                             .disabled(digest_disabled)

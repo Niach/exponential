@@ -24,12 +24,13 @@ use gpui_component::{
     input::{Input, InputState},
     notification::Notification,
     skeleton::Skeleton,
-    v_flex, ActiveTheme as _, Disableable as _, Sizable as _, WindowExt as _,
+    v_flex, ActiveTheme as _, Disableable as _, WindowExt as _,
 };
 
 use api::token_store::{SecretKind, TokenStore};
 use api::users::{MintedPersonalKey, PersonalKeyMeta, PERSONAL_KEY_READ_TIMEOUT};
 
+use crate::controls::WebControl as _;
 use crate::native_dialog::{open_alert, AlertSpec};
 use crate::queries;
 use crate::session::AuthContext;
@@ -175,7 +176,7 @@ impl ApiKeysPane {
                         .text_color(cx.theme().muted_foreground)
                         .child("Name"),
                 )
-                .child(Input::new(&content_input).small())
+                .child(Input::new(&content_input).web_input_sm())
                 .into_any_element()
         })
         .on_ok(move |_, cx| {
@@ -361,7 +362,7 @@ impl ApiKeysPane {
                     .child(
                         Button::new("api-key-copy")
                             .outline().cursor_pointer()
-                            .xsmall()
+                            .web_xs()
                             .label("Copy")
                             .on_click(move |_, _, cx| {
                                 cx.write_to_clipboard(ClipboardItem::new_string(key.clone()));
@@ -370,7 +371,7 @@ impl ApiKeysPane {
                     .child(
                         Button::new("api-key-dismiss")
                             .ghost().cursor_pointer()
-                            .xsmall()
+                            .web_xs()
                             .label("Dismiss")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.minted = None;
@@ -473,7 +474,7 @@ impl ApiKeysPane {
             .child(
                 Button::new(SharedString::from(format!("api-key-revoke-{}", row.id)))
                     .outline().cursor_pointer()
-                    .xsmall()
+                    .web_xs()
                     .label("Revoke")
                     .disabled(self.busy)
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -501,7 +502,7 @@ impl Render for ApiKeysPane {
 
         let new_key = Button::new("api-key-new")
             .outline().cursor_pointer()
-            .xsmall()
+            .web_sm()
             .label("New key")
             .disabled(self.busy || !matches!(self.load, Load::Ready(_)))
             .on_click(cx.listener(|this, _, window, cx| {
@@ -509,7 +510,7 @@ impl Render for ApiKeysPane {
             }));
         let refresh = Button::new("api-keys-refresh")
             .ghost().cursor_pointer()
-            .xsmall()
+            .web_sm()
             .label("Refresh")
             .loading(matches!(self.load, Load::Loading))
             .on_click(cx.listener(|this, _, _, cx| this.refetch(cx)));

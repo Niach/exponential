@@ -54,14 +54,6 @@ pub(crate) trait WebControl: Styled + Sizable + Sized {
             .cursor_pointer()
     }
 
-    /// Web Button `icon`: size-9 circle.
-    fn web_icon_md(self) -> Self {
-        self.with_size(Size::Medium)
-            .size(px(CTL_MD_H))
-            .rounded_full()
-            .cursor_pointer()
-    }
-
     /// Web Button icon-sm: size-8 circle.
     fn web_icon_sm(self) -> Self {
         self.with_size(Size::Small)

@@ -47,7 +47,7 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
+    h_flex, ActiveTheme as _, Disableable as _, Icon,
 };
 use gpui_component::dock::DockItem;
 use sync::Store;
@@ -58,6 +58,7 @@ use coding::{
     LaunchRequest, Settings,
 };
 
+use crate::controls::WebControl as _;
 use crate::queries;
 use crate::session::AuthContext;
 use crate::terminal_dock::TerminalDockPanel;
@@ -1466,8 +1467,8 @@ impl Render for StartCodingControl {
                 )
                 .child(
                     Button::new("stop-coding")
-                        .outline().cursor_pointer()
-                        .small()
+                        .outline()
+                        .web_sm()
                         .icon(Icon::new(registry::CODING_STOP).text_color(cx.theme().danger))
                         .label("Stop")
                         .tooltip("Stop the coding session and close its terminal")
@@ -1482,8 +1483,8 @@ impl Render for StartCodingControl {
         let disabled = self.disabled_reason(cx);
         let mut row = h_flex().gap_1().items_center();
         let button = Button::new("start-coding")
-            .primary().cursor_pointer()
-            .small()
+            .primary()
+            .web_sm()
             // The solid variant carries the emphasis now — a green glyph on
             // the primary fill only muddies it.
             .icon(Icon::new(registry::ACTION_RUN).text_color(if disabled.is_some() {
@@ -1500,8 +1501,8 @@ impl Render for StartCodingControl {
                 if matches!(self.probe, RepoProbe::Ready(None)) {
                     row = row.child(
                         Button::new("start-coding-retry")
-                            .ghost().cursor_pointer()
-                            .xsmall()
+                            .ghost()
+                            .web_icon_xs()
                             .icon(
                                 Icon::new(registry::UI_UNDO)
                                     .text_color(cx.theme().muted_foreground),

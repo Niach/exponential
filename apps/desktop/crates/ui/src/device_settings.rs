@@ -46,6 +46,7 @@ use sync::Store;
 use coding::CodingAgent;
 
 use crate::coding_flow::CodingHub;
+use crate::controls::WebControl as _;
 use crate::coding_selects::{
     agent_icon, choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect,
     AGENT_CHOICES,
@@ -830,7 +831,7 @@ impl DeviceSettingsView {
                     .text_color(cx.theme().muted_foreground)
                     .child(label),
             )
-            .child(Select::new(select).small())
+            .child(Select::new(select).web_input_sm())
     }
 
     fn render_defaults_section(
@@ -937,8 +938,8 @@ impl DeviceSettingsView {
         body = body.child(
             h_flex().justify_end().child(
                 Button::new("device-defaults-save")
-                    .primary().cursor_pointer()
-                    .small()
+                    .primary()
+                    .web_sm()
                     .label(if busy { "Saving…" } else { "Save defaults" })
                     .disabled(!self.defaults_dirty(cx) || busy)
                     .on_click(cx.listener(|this, _, _, cx| this.save_defaults(cx))),
@@ -964,8 +965,8 @@ impl DeviceSettingsView {
             .child(Self::section_title("Worktrees", cx))
             .child(
                 Button::new("device-worktrees-prune")
-                    .outline().cursor_pointer()
-                    .xsmall()
+                    .outline()
+                    .web_xs()
                     .icon(registry::UI_CLEAN)
                     .label(if prune_pending {
                         "Pruning…"
@@ -1072,8 +1073,8 @@ impl DeviceSettingsView {
             let remove_branch = branch.clone();
             row = row.child(
                 Button::new(("device-worktree-remove", index))
-                    .ghost().cursor_pointer()
-                    .xsmall()
+                    .ghost()
+                    .web_icon_xs()
                     .icon(registry::UI_DELETE)
                     .disabled(busy || removing)
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -1127,11 +1128,11 @@ impl Render for DeviceSettingsView {
                 h_flex()
                     .gap_2()
                     .items_center()
-                    .child(div().flex_1().child(Input::new(&self.name_input).small()))
+                    .child(div().flex_1().child(Input::new(&self.name_input).web_input_sm()))
                     .child(
                         Button::new("device-name-save")
-                            .outline().cursor_pointer()
-                            .small()
+                            .outline()
+                            .web_sm()
                             .label(if name_busy { "Saving…" } else { "Save" })
                             .disabled(name_busy)
                             .on_click(cx.listener(|this, _, _, cx| this.save_name(cx))),
@@ -1155,11 +1156,11 @@ impl Render for DeviceSettingsView {
                 h_flex()
                     .gap_2()
                     .items_center()
-                    .child(div().flex_1().child(Select::new(&self.share_select).small()))
+                    .child(div().flex_1().child(Select::new(&self.share_select).web_input_sm()))
                     .child(
                         Button::new("device-share-save")
-                            .outline().cursor_pointer()
-                            .small()
+                            .outline()
+                            .web_sm()
                             .label(if sharing_busy { "Saving…" } else { "Save" })
                             .disabled(sharing_busy || self.share_teams.is_empty())
                             .on_click(cx.listener(|this, _, _, cx| this.save_sharing(cx))),

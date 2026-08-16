@@ -39,6 +39,7 @@ use sync::Store;
 use api::attachments::{AttachmentsListForTeamOutput, TeamAttachmentRow};
 use api::billing::TeamPlanOut;
 
+use crate::controls::WebControl as _;
 use crate::icons::ExpIcon;
 use crate::issue_files::{format_bytes, icon_for_content_type};
 use crate::native_dialog::{open_alert, AlertSpec};
@@ -450,8 +451,8 @@ impl StoragePane {
             .child(status_chip(status, cx))
             .child(
                 Button::new(SharedString::from(format!("storage-delete-{}", row.id)))
-                    .ghost().cursor_pointer()
-                    .xsmall()
+                    .ghost()
+                    .web_icon_xs()
                     .icon(Icon::from(ExpIcon::Trash2).xsmall().text_color(muted))
                     .disabled(self.busy)
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -479,8 +480,8 @@ impl Render for StoragePane {
         // summary/sweep header row once the list is up, on its own row while
         // loading or after a failure.
         let refresh = Button::new("storage-refresh")
-            .ghost().cursor_pointer()
-            .xsmall()
+            .ghost()
+            .web_xs()
             .label("Refresh")
             .loading(matches!(self.load, Load::Loading))
             .on_click(cx.listener(|this, _, _, cx| this.refetch(cx)));
@@ -562,8 +563,8 @@ impl Render for StoragePane {
                         .child(refresh)
                         .child(
                             Button::new("storage-sweep")
-                                .outline().cursor_pointer()
-                                .xsmall()
+                                .outline()
+                                .web_xs()
                                 .icon(Icon::from(ExpIcon::Trash2).xsmall())
                                 .label(SharedString::from(sweep_label))
                                 .disabled(candidates == 0 || self.busy)

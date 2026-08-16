@@ -56,7 +56,7 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     input::{Input, InputState},
     scroll::{ScrollableElement as _, ScrollbarAxis},
-    v_virtual_list, ActiveTheme as _, Disableable as _, Sizable as _, VirtualListScrollHandle,
+    v_virtual_list, ActiveTheme as _, Disableable as _, VirtualListScrollHandle,
 };
 use sync::Store;
 
@@ -64,6 +64,7 @@ use coding::scm::{self, CommitInfo, ConflictKind, ConflictState};
 
 use crate::coding_flow::{self, CodingHub};
 use crate::commit_graph::{self, EdgeKind, Graph, GraphRow, MAX_LANES};
+use crate::controls::WebControl as _;
 use crate::diff::{build_scm_diff, DiffView};
 use crate::icons::registry;
 use crate::navigation::{self, Navigation};
@@ -607,7 +608,7 @@ impl SourceControlView {
                     .gap_2()
                     .child(
                         Button::new("scm-open-terminal")
-                            .small()
+                            .web_sm()
                             .label("Open terminal")
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.open_terminal(window, cx);
@@ -615,8 +616,8 @@ impl SourceControlView {
                     )
                     .child(
                         Button::new("scm-abort")
-                            .danger().cursor_pointer()
-                            .small()
+                            .danger()
+                            .web_sm()
                             .label(abort_label)
                             .disabled(self.busy.is_some())
                             .on_click(cx.listener(|this, _, _window, cx| {
@@ -625,7 +626,7 @@ impl SourceControlView {
                     )
                     .child(
                         Button::new("scm-conflict-reset")
-                            .small()
+                            .web_sm()
                             .label("Discard & reset…")
                             .disabled(self.busy.is_some())
                             .on_click(cx.listener(|this, _, window, cx| {
@@ -717,7 +718,7 @@ impl SourceControlView {
                 )
                 .child(
                     Button::new("scm-install-git")
-                        .xsmall()
+                        .web_xs()
                         .label("Install git")
                         .icon(registry::UI_EXTERNAL_LINK)
                         .on_click(cx.listener(|_, _, _, cx| {
@@ -730,7 +731,7 @@ impl SourceControlView {
             })
             .child(
                 Button::new("scm-retry-clone")
-                    .xsmall()
+                    .web_xs()
                     .label(if failed { "Retry" } else { "Clone now" })
                     .on_click(cx.listener(|this, _, window, cx| {
                         let trunk_sync = this.rail.read(cx).trunk_sync().clone();
@@ -822,7 +823,7 @@ impl SourceControlView {
                                     this.child(
                                         // EXP-509: jump to the working-tree diff.
                                         Button::new("scm-view-changes")
-                                            .xsmall()
+                                            .web_xs()
                                             .label("View changes")
                                             .on_click(cx.listener(|_, _, window, cx| {
                                                 crate::sidebar::set_sc_selection(
@@ -835,7 +836,7 @@ impl SourceControlView {
                                 })
                                 .child(
                                     Button::new("scm-hard-reset")
-                                        .xsmall()
+                                        .web_xs()
                                         .label("Discard changes & reset…")
                                         .disabled(self.busy.is_some())
                                         .on_click(cx.listener(|this, _, window, cx| {
@@ -1375,8 +1376,8 @@ impl HistoryList {
                     .pr_2()
                     .child(
                         Button::new("hist-push")
-                            .ghost().cursor_pointer()
-                            .xsmall()
+                            .ghost()
+                            .web_icon_xs()
                             .icon(registry::SC_PUSH)
                             .tooltip(if dirty {
                                 "Commit & push local changes"
@@ -1390,8 +1391,8 @@ impl HistoryList {
                     )
                     .child(
                         Button::new("hist-discard")
-                            .ghost().cursor_pointer()
-                            .xsmall()
+                            .ghost()
+                            .web_icon_xs()
                             .icon(registry::UI_DELETE)
                             .tooltip("Discard changes & reset…")
                             .disabled(busy)
@@ -1457,7 +1458,7 @@ impl HistoryList {
             .content(move |_, _| {
                 div()
                     .mt_2()
-                    .child(Input::new(&content_input).small())
+                    .child(Input::new(&content_input).web_input_sm())
                     .into_any_element()
             })
             .on_ok(move |_, cx| {
@@ -1500,8 +1501,8 @@ impl HistoryList {
             .child(gutter)
             .child(
                 Button::new("hist-more")
-                    .ghost().cursor_pointer()
-                    .xsmall()
+                    .ghost()
+                    .web_xs()
                     .label(if self.history_loading {
                         "Loading…"
                     } else {

@@ -23,7 +23,7 @@ use gpui_component::{
     h_flex,
     input::{Input, InputEvent, InputState},
     scroll::{Scrollbar, ScrollbarAxis},
-    v_flex, ActiveTheme as _, Disableable as _, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _,
 };
 use sync::Store;
 

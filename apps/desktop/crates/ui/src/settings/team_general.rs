@@ -18,10 +18,11 @@ use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
     input::{Input, InputEvent, InputState},
-    v_flex, ActiveTheme as _, Disableable as _, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _,
 };
 use sync::Store;
 
+use crate::controls::WebControl as _;
 use crate::native_dialog::{self, AlertSpec};
 use crate::navigation::Navigation;
 
@@ -325,8 +326,8 @@ impl GeneralPane {
                 body = body.child(
                     h_flex().child(
                         Button::new("billing-manage")
-                            .outline().cursor_pointer()
-                            .small()
+                            .outline()
+                            .web_sm()
                             .icon(registry::UI_EXTERNAL_LINK)
                             .label("Manage billing on the web")
                             .on_click(cx.listener(move |_, _, _, cx| {
@@ -379,7 +380,7 @@ impl GeneralPane {
                         .text_color(cx.theme().muted_foreground)
                         .child(SharedString::from(prompt.clone())),
                 )
-                .child(Input::new(&content_input).small())
+                .child(Input::new(&content_input).web_input_sm())
                 .into_any_element()
         })
         .on_ok(move |_, cx| {
@@ -447,7 +448,7 @@ impl Render for GeneralPane {
                             .text_color(cx.theme().muted_foreground)
                             .child("Name"),
                     )
-                    .child(Input::new(&self.name_input).small().disabled(!owner)),
+                    .child(Input::new(&self.name_input).web_input_sm().disabled(!owner)),
             );
 
         if let Some(error) = &self.error {
@@ -462,8 +463,8 @@ impl Render for GeneralPane {
         general = general.child(
             h_flex().justify_end().child(
                 Button::new("team-save")
-                    .primary().cursor_pointer()
-                    .small()
+                    .primary()
+                    .web_sm()
                     .label(if saving { "Saving…" } else { "Save changes" })
                     .disabled(!owner || !dirty || saving)
                     .loading(saving)
@@ -517,8 +518,8 @@ impl Render for GeneralPane {
                     .child(
                         h_flex().child(
                             Button::new("team-delete")
-                                .danger().cursor_pointer()
-                                .small()
+                                .danger()
+                                .web_sm()
                                 .label("Delete team")
                                 .on_click(cx.listener(move |this, _, window, cx| {
                                     this.open_delete_dialog(

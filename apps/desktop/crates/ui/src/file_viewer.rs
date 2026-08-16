@@ -30,9 +30,10 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     text::TextView,
-    v_flex, ActiveTheme as _, Sizable as _,
+    v_flex, ActiveTheme as _,
 };
 
+use crate::controls::WebControl as _;
 use crate::file_tree::{self, OpenTerminalHere, RevealInFileManager, MAX_VIEWER_BYTES};
 use crate::icons::registry;
 
@@ -193,8 +194,8 @@ impl FileViewerView {
                         Button::new("file-viewer-open-file")
                             .icon(registry::UI_EXTERNAL_LINK)
                             .label("Open file")
-                            .ghost().cursor_pointer()
-                            .small()
+                            .ghost()
+                            .web_sm()
                             .on_click(move |_, _window, cx| {
                                 if let Some(file) = &open_target {
                                     cx.open_with_system(file);
@@ -205,8 +206,8 @@ impl FileViewerView {
                         Button::new("file-viewer-show-in-files")
                             .icon(registry::UI_FOLDER)
                             .label("Show in files")
-                            .ghost().cursor_pointer()
-                            .small()
+                            .ghost()
+                            .web_sm()
                             .on_click(move |_, window, cx| {
                                 if let Some(file) = &reveal_target {
                                     window.dispatch_action(
@@ -222,8 +223,8 @@ impl FileViewerView {
                         Button::new("file-viewer-open-terminal")
                             .icon(registry::NAV_TERMINAL)
                             .label("Open in terminal")
-                            .ghost().cursor_pointer()
-                            .small()
+                            .ghost()
+                            .web_sm()
                             .on_click(move |_, window, cx| {
                                 if let Some(dir) = &dir {
                                     window.dispatch_action(
