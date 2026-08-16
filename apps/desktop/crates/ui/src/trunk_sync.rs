@@ -101,8 +101,11 @@ enum SyncMode {
     /// force-checkout the default branch, `reset --hard origin/<default>`.
     HardReset,
     /// EXP-509: push local work upstream — `git add -A` + `git commit`
-    /// (only when the tree is dirty; `message` is required then) followed by
-    /// `git push origin <branch>`. `identity` is the signed-in account's
+    /// (only when the tree is dirty; `message` is required then), then fetch
+    /// and — when the trunk is also BEHIND origin (EXP-516) — rebase the
+    /// local commits onto `origin/<branch>` (a diverged trunk can never push
+    /// fast-forward; a conflicted rebase pauses for the conflict banner),
+    /// then `git push origin <branch>`. `identity` is the signed-in account's
     /// (name, email), applied only when the clone resolves no `user.email`.
     CommitPush {
         message: Option<String>,
@@ -372,9 +375,11 @@ impl TrunkSync {
 
     /// EXP-509: commit-and-push the trunk's local work (the history pane's
     /// uncommitted-row affordance): `git add -A` + `git commit -m <message>`
-    /// when the tree is dirty, then `git push origin <branch>`. Refused while
-    /// an op is in flight or a rebase/merge sits paused — and the worker
-    /// re-derives both from disk before writing anything.
+    /// when the tree is dirty, a fetch + rebase onto `origin/<branch>` when
+    /// the trunk is also behind (EXP-516 — the guided path out of an
+    /// ahead-and-behind trunk), then `git push origin <branch>`. Refused
+    /// while an op is in flight or a rebase/merge sits paused — and the
+    /// worker re-derives both from disk before writing anything.
     pub(crate) fn commit_push(&mut self, message: Option<String>, cx: &mut gpui::Context<Self>) {
         if self.syncing {
             self.op_error =
@@ -1207,9 +1212,36 @@ fn run_sync_worker(
                         } else {
                             Ok(())
                         };
-                        let result = committed.and_then(|()| {
-                            scm::push(clone, &url, &state.branch).map_err(|err| err.to_string())
-                        });
+                        // EXP-516: fetch, then rebase onto origin/<branch>
+                        // when the trunk is behind — an ahead-AND-behind
+                        // trunk can never push fast-forward, and the raw
+                        // non-fast-forward error left no path but the
+                        // terminal or the destructive reset. A conflicted
+                        // rebase pauses in place; the trailing trunk read
+                        // engages the Source Control conflict banner
+                        // (resolve / abort / reset).
+                        let result = committed
+                            .and_then(|()| {
+                                clone_manager::fetch(clone, &url).map_err(|err| err.to_string())
+                            })
+                            .and_then(|()| {
+                                let behind = trunk_state::read(clone)
+                                    .map(|fresh| fresh.behind)
+                                    .unwrap_or(state.behind);
+                                if behind == 0 {
+                                    return Ok(());
+                                }
+                                scm::rebase_onto_remote(clone, &state.branch).map_err(|err| {
+                                    rebase_failure_detail(
+                                        &state.branch,
+                                        scm::detect_conflict(clone).is_some(),
+                                        err.to_string(),
+                                    )
+                                })
+                            })
+                            .and_then(|()| {
+                                scm::push(clone, &url, &state.branch).map_err(|err| err.to_string())
+                            });
                         if let Err(err) = result {
                             let _ = tx.send(SyncMsg::Failed(err));
                         }
@@ -1226,6 +1258,20 @@ fn run_sync_worker(
     // mode even though the op returned an error.
     let trunk = trunk_state::read(clone).map_err(|err| err.to_string());
     let _ = tx.send(SyncMsg::Trunk(trunk));
+}
+
+/// The EXP-516 commit-push rebase failure detail: a PAUSED rebase names the
+/// guided recovery (the Source Control conflict banner) instead of git's raw
+/// conflict output; any other failure keeps git's words.
+fn rebase_failure_detail(branch: &str, conflicted: bool, raw: String) -> String {
+    if conflicted {
+        format!(
+            "Rebasing your local commits onto origin/{branch} hit conflicts. \
+             Resolve or abort the rebase in Source Control."
+        )
+    } else {
+        raw
+    }
 }
 
 /// EXP-465: whether the finished-set watch fires the auto-clean — only after
@@ -1353,6 +1399,21 @@ mod tests {
         assert!(!git_recovery_retry(Some(false), true, true, false, false));
         // Healthy clone, no error → nothing to redo.
         assert!(!git_recovery_retry(Some(false), true, false, true, false));
+    }
+
+    /// EXP-516: a conflicted rebase must name the guided recovery, not dump
+    /// git's raw output; a non-conflict failure keeps git's words.
+    #[test]
+    fn rebase_failure_detail_names_the_banner_only_when_paused() {
+        assert_eq!(
+            rebase_failure_detail("master", true, "raw git noise".to_string()),
+            "Rebasing your local commits onto origin/master hit conflicts. \
+             Resolve or abort the rebase in Source Control."
+        );
+        assert_eq!(
+            rebase_failure_detail("master", false, "raw git noise".to_string()),
+            "raw git noise"
+        );
     }
 
     #[test]

@@ -1313,6 +1313,11 @@ impl HistoryList {
         if trunk.ahead > 0 && trunk.has_upstream {
             parts.push(format!("{} ahead", trunk.ahead));
         }
+        // EXP-516: a diverged trunk (ahead AND behind) is exactly the state
+        // the push path now rebases through — say so at the affordance.
+        if trunk.behind > 0 && trunk.has_upstream {
+            parts.push(format!("{} behind", trunk.behind));
+        }
         let meta = parts.join(" · ");
         // The trunk (HEAD) lane is 0 by construction in every case — seeded
         // (lane 0 reserved for the tip), unseeded tip-first (the fresh tip
@@ -1413,7 +1418,9 @@ impl HistoryList {
 
     /// The push confirm (EXP-509): with a dirty tree, a commit-message input
     /// rides the dialog (machine-rename pattern); clean-but-ahead is a plain
-    /// confirm. The engine's worker re-checks everything from disk.
+    /// confirm. When the trunk is ALSO behind origin the confirm says the
+    /// push rebases through the divergence first (EXP-516) — the worker
+    /// re-checks everything from disk either way.
     fn prompt_push(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let trunk_sync = self.rail.read(cx).trunk_sync().clone();
         let trunk = trunk_sync.read(cx).trunk().clone();
@@ -1421,6 +1428,16 @@ impl HistoryList {
             "the branch".to_string()
         } else {
             trunk.branch.clone()
+        };
+        let behind_note = if trunk.behind > 0 && trunk.has_upstream {
+            let noun = if trunk.behind == 1 { "commit" } else { "commits" };
+            format!(
+                " The trunk is also {} {noun} behind origin — local work is \
+                 rebased onto origin/{branch} first.",
+                trunk.behind
+            )
+        } else {
+            String::new()
         };
         if trunk.dirty {
             self.commit_msg_input.update(cx, |state, cx| {
@@ -1432,11 +1449,11 @@ impl HistoryList {
                 "Push local changes?",
                 format!(
                     "Commits ALL local changes on the trunk and pushes them \
-                     straight to origin/{branch}."
+                     straight to origin/{branch}.{behind_note}"
                 ),
                 "Commit & push",
             )
-            .height(px(260.))
+            .height(px(if behind_note.is_empty() { 260. } else { 300. }))
             .content(move |_, _| {
                 div()
                     .mt_2()
@@ -1454,11 +1471,13 @@ impl HistoryList {
             crate::native_dialog::open_alert(window, cx, spec);
         } else {
             let noun = if trunk.ahead == 1 { "commit" } else { "commits" };
+            let height = px(if behind_note.is_empty() { 220. } else { 260. });
             let spec = crate::native_dialog::AlertSpec::new(
                 "Push local commits?",
-                format!("Pushes {} local {noun} to origin/{branch}.", trunk.ahead),
+                format!("Pushes {} local {noun} to origin/{branch}.{behind_note}", trunk.ahead),
                 "Push",
             )
+            .height(height)
             .on_ok(move |_, cx| {
                 trunk_sync.update(cx, |engine, cx| engine.commit_push(None, cx));
                 true

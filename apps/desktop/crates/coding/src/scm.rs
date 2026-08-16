@@ -301,6 +301,24 @@ pub fn hard_reset_to_remote(repo: &Path, branch: &str) -> Result<(), GitError> {
     Ok(())
 }
 
+/// Rebase the checked-out branch onto `origin/<branch>` — the EXP-516
+/// commit-and-push catch-up: a trunk both ahead and behind can never push
+/// fast-forward, so the push path integrates the remote first (the guided
+/// `pull --rebase`). Local + tokenless (callers [`crate::clone_manager::fetch`]
+/// first). A conflicted rebase pauses in place — callers surface it via
+/// [`detect_conflict`] and the Source Control conflict banner, never
+/// auto-abort.
+pub fn rebase_onto_remote(repo: &Path, branch: &str) -> Result<(), GitError> {
+    crate::git_worktree::validate_branch_arg(branch, "git rebase")?;
+    run_git(
+        Some(repo),
+        &["rebase", &format!("origin/{branch}")],
+        None,
+        "git rebase",
+    )?;
+    Ok(())
+}
+
 /// Commits on HEAD not on `origin/<branch>`: `git rev-list origin/<b>..HEAD`,
 /// newest first. Exact (unlike "the first `ahead` log rows" — a local merge
 /// interleaves by date); drives the history pane's unpushed muting (EXP-509).
@@ -1281,6 +1299,84 @@ new file mode 100644
         assert!(unpushed_hashes(r, "main").unwrap().is_empty());
         let log = log_branch(r, None, 0, 10).unwrap();
         assert_eq!(log[0].subject, "local changes");
+    }
+
+    #[test]
+    fn rebase_onto_remote_integrates_a_diverged_trunk() {
+        // The EXP-516 shape: one local commit AND one remote commit on main.
+        let remote_dir = temp_dir("rebase-remote");
+        let bare = remote_dir.0.join("origin.git");
+        fs::create_dir_all(&bare).unwrap();
+        git(&bare, &["init", "--quiet", "--bare", "-b", "main"]);
+
+        let d = temp_dir("rebase-work");
+        let r = &d.0;
+        init_repo(r);
+        write(r, "base.txt", "base\n");
+        commit_all(r, "base");
+        git(r, &["remote", "add", "origin", bare.to_str().unwrap()]);
+        git(r, &["push", "--quiet", "-u", "origin", "main"]);
+
+        // Advance origin out-of-band via a second clone.
+        let c = temp_dir("rebase-consumer");
+        let consumer = c.0.join("consumer");
+        git(&c.0, &["clone", "--quiet", bare.to_str().unwrap(), consumer.to_str().unwrap()]);
+        git(&consumer, &["config", "user.email", "c@example.com"]);
+        git(&consumer, &["config", "user.name", "c"]);
+        write(&consumer, "remote.txt", "r\n");
+        commit_all(&consumer, "remote work");
+        git(&consumer, &["push", "--quiet", "origin", "main"]);
+
+        // Diverge locally, fetch, rebase: both commits land, linear history.
+        write(r, "local.txt", "l\n");
+        commit_all(r, "local work");
+        git(r, &["fetch", "--quiet", "origin"]);
+        rebase_onto_remote(r, "main").unwrap();
+        assert!(r.join("remote.txt").exists());
+        assert!(r.join("local.txt").exists());
+        let s = status(r).unwrap();
+        assert_eq!((s.ahead, s.behind), (1, 0));
+        // The rebased local commit pushes fast-forward now.
+        let url = TokenUrl::new("acme/web", "tok");
+        push(r, &url, "main").unwrap();
+    }
+
+    #[test]
+    fn rebase_onto_remote_pauses_on_conflict_for_the_banner() {
+        let remote_dir = temp_dir("rebconf-remote");
+        let bare = remote_dir.0.join("origin.git");
+        fs::create_dir_all(&bare).unwrap();
+        git(&bare, &["init", "--quiet", "--bare", "-b", "main"]);
+
+        let d = temp_dir("rebconf-work");
+        let r = &d.0;
+        init_repo(r);
+        write(r, "x.txt", "base\n");
+        commit_all(r, "base");
+        git(r, &["remote", "add", "origin", bare.to_str().unwrap()]);
+        git(r, &["push", "--quiet", "-u", "origin", "main"]);
+
+        let c = temp_dir("rebconf-consumer");
+        let consumer = c.0.join("consumer");
+        git(&c.0, &["clone", "--quiet", bare.to_str().unwrap(), consumer.to_str().unwrap()]);
+        git(&consumer, &["config", "user.email", "c@example.com"]);
+        git(&consumer, &["config", "user.name", "c"]);
+        write(&consumer, "x.txt", "remote\n");
+        commit_all(&consumer, "remote edit");
+        git(&consumer, &["push", "--quiet", "origin", "main"]);
+
+        write(r, "x.txt", "local\n");
+        commit_all(r, "local edit");
+        git(r, &["fetch", "--quiet", "origin"]);
+
+        // Both edited x.txt → the rebase errors and PAUSES (never aborts):
+        // detect_conflict picks it up for the Source Control banner.
+        assert!(rebase_onto_remote(r, "main").is_err());
+        let conflict = detect_conflict(r).expect("rebase should be paused");
+        assert_eq!(conflict.kind, ConflictKind::Rebase);
+        assert!(conflict.files.contains(&"x.txt".to_string()), "{:?}", conflict.files);
+        abort_conflict(r, ConflictKind::Rebase).unwrap();
+        assert!(detect_conflict(r).is_none());
     }
 
     #[test]
