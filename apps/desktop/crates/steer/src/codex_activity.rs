@@ -1534,6 +1534,7 @@ mod tests {
             question_id: "approval:1".to_string(),
             ask_id: None,
             keys: vec!["1".to_string()],
+            text: None,
         };
         let outcome = handle_approval_answer(&mut approvals, &answer, &term, &write_input, &sender);
         assert_eq!(outcome, AnswerAttempt::Settled);
@@ -1578,6 +1579,7 @@ mod tests {
                 question_id: "approval:1".to_string(),
                 ask_id: None,
                 keys: vec!["1".to_string()],
+                text: None,
             },
             &term,
             &write_input,
@@ -1594,6 +1596,7 @@ mod tests {
                 question_id: "approval:99".to_string(),
                 ask_id: None,
                 keys: vec!["1".to_string()],
+                text: None,
             },
             &term,
             &write_input,

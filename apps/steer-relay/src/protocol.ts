@@ -107,6 +107,11 @@ export const answerFrame = z.object({
   questionId: z.string().max(128),
   askId: z.string().max(128).optional(),
   keys: z.array(z.string().max(8)).min(1).max(10),
+  // EXP-513: the typed reply for a `freeText` option — the desktop selects
+  // the row with `keys`, types this into the TUI's inline editor and
+  // submits. Bounded well under the input-frame cap; a reply is a line, not
+  // a document.
+  text: z.string().max(4000).optional(),
 })
 
 export const killFrame = z.object({ t: z.literal(`kill`) })
@@ -135,6 +140,11 @@ export const questionOptionSchema = z.object({
   // `keys` member of the semantic answer frame).
   key: z.string().min(1).max(8),
   description: z.string().max(1024).optional(),
+  // EXP-513: claude's synthetic free-text row ("Type something.") — clients
+  // render an inline text input and send the typed reply as `answer.text`.
+  // Must be declared here — the relay re-serializes the PARSED event, so an
+  // undeclared field would be stripped.
+  freeText: z.boolean().optional(),
 })
 
 export const activityEventSchema = z.discriminatedUnion(`kind`, [
@@ -323,7 +333,7 @@ export type ServerFrame =
       inputs?: StartInput[]
     } & StartSessionOptions)
   | { t: `input`; data: string } // viewer keystrokes, relay → publisher
-  | { t: `answer`; questionId: string; askId?: string; keys: string[] } // relay → publisher
+  | { t: `answer`; questionId: string; askId?: string; keys: string[]; text?: string } // relay → publisher
   | { t: `kill` }
   // EXP-481: fire-and-forget check-in nudge to a device's control socket —
   // the web server persisted new work (a queued command, edited launch

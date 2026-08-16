@@ -818,9 +818,9 @@ async fn pump_connection(
                         // EXP-249: the semantic answer path — the emitter owns
                         // question identity + the TUI key choreography, so the
                         // publisher only routes.
-                        Some(ServerFrame::Answer { question_id, ask_id, keys }) => {
+                        Some(ServerFrame::Answer { question_id, ask_id, keys, text }) => {
                             if let Some(answers) = &hooks.answers {
-                                answers.submit(RemoteAnswer { question_id, ask_id, keys });
+                                answers.submit(RemoteAnswer { question_id, ask_id, keys, text });
                             }
                         }
                         Some(ServerFrame::Kill) => {
@@ -1240,6 +1240,7 @@ mod tests {
                 question_id: "toolu_1#0".to_string(),
                 ask_id: Some("toolu_1".to_string()),
                 keys: vec!["2".to_string()],
+                text: None,
             }
         );
         assert_eq!(recorded.inputs.lock().unwrap().len(), 1, "answers never keystroke");

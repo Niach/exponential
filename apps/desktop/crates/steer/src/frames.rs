@@ -406,6 +406,13 @@ pub struct QuestionOption {
     /// one); omitted when the picker offers none.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// EXP-513: the option is claude's synthetic free-text row ("Type
+    /// something."). A client renders it as an inline text input and sends
+    /// the typed text on the answer frame; the desktop types it into the
+    /// TUI's inline editor. Omitted when false so pre-EXP-513 consumers see
+    /// byte-identical frames.
+    #[serde(rename = "freeText", skip_serializing_if = "std::ops::Not::not")]
+    pub free_text: bool,
 }
 
 impl QuestionOption {
@@ -414,6 +421,7 @@ impl QuestionOption {
             label: label.into(),
             key: key.into(),
             description: None,
+            free_text: false,
         }
     }
 }
@@ -535,6 +543,12 @@ pub enum ServerFrame {
         #[serde(default)]
         ask_id: Option<String>,
         keys: Vec<String>,
+        /// EXP-513: the typed reply for a `freeText` option — the desktop
+        /// selects the row with `keys`, types this into the inline editor,
+        /// and submits. Absent on ordinary answers (and from pre-EXP-513
+        /// clients).
+        #[serde(default)]
+        text: Option<String>,
     },
     Kill,
     Bye {
@@ -875,6 +889,7 @@ mod tests {
                             label: "Red".into(),
                             key: "1".into(),
                             description: Some("warm".into()),
+                            free_text: false,
                         },
                         QuestionOption::new("Blue", "2"),
                     ],
@@ -1093,6 +1108,7 @@ mod tests {
                 question_id: "toolu_01#0".into(),
                 ask_id: Some("toolu_01".into()),
                 keys: vec!["1".into(), "3".into()],
+                text: None,
             }
         );
         // A plan answer carries no askId.
@@ -1102,7 +1118,37 @@ mod tests {
                 question_id: "plan-1".into(),
                 ask_id: None,
                 keys: vec!["1".into()],
+                text: None,
             }
+        );
+        // EXP-513: a free-text answer rides its typed reply.
+        assert_eq!(
+            ServerFrame::parse(
+                r#"{"t":"answer","questionId":"toolu_01#0","askId":"toolu_01","keys":["4"],"text":"purple"}"#
+            )
+            .unwrap(),
+            ServerFrame::Answer {
+                question_id: "toolu_01#0".into(),
+                ask_id: Some("toolu_01".into()),
+                keys: vec!["4".into()],
+                text: Some("purple".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn question_options_omit_free_text_unless_set() {
+        // Pre-EXP-513 consumers must see byte-identical frames for ordinary
+        // options; a free-text row carries the flag.
+        let plain = serde_json::to_string(&QuestionOption::new("Red", "1")).unwrap();
+        assert_eq!(plain, r#"{"label":"Red","key":"1"}"#);
+        let free = QuestionOption {
+            free_text: true,
+            ..QuestionOption::new("Type something.", "4")
+        };
+        assert_eq!(
+            serde_json::to_string(&free).unwrap(),
+            r#"{"label":"Type something.","key":"4","freeText":true}"#
         );
     }
 

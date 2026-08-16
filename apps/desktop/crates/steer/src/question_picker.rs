@@ -27,7 +27,12 @@
 //! option run, a tab-bar line (`☐`/`☒`/`☑`/`✔`) above it, and an
 //! "Enter to select" footer below it — and parses the REAL option labels/keys
 //! off the rows, skipping interleaved description lines and stopping at the
-//! rule (so the synthetic "Chat about this" is never offered). The one
+//! rule (so the synthetic "Chat about this" is never offered — re-verified
+//! live on v2.1.233, where its digit INSTANTLY cancels the whole ask; the
+//! label match keeps it out of any future above-the-rule layout too). The
+//! single-select "Type something." row is published flagged `free_text`
+//! (EXP-513): its digit only moves the cursor, typed characters fill the row
+//! in place, and Enter submits them as that question's answer. The one
 //! footer-less screen accepted is the REVIEW step as claude ≥2.1.220 paints
 //! it (no footer, no rule, no "Chat about this" — EXP-374): there a fully
 //! answered multi-tab bar is the anchor instead. Plan-approval
@@ -99,6 +104,32 @@ pub struct QuestionSnapshot {
 /// pane right — so option rows carry pane borders/content after the label.
 /// The label is cut at the first such character.
 const PREVIEW_PANE_CHARS: &[char] = &['│', '┌', '┐', '└', '┘', '├', '┤', '─'];
+
+/// Claude's synthetic free-text row ("Type something." — the trailing dot
+/// varies by version). On a SINGLE-select picker its digit only moves the
+/// cursor, typed characters then fill the row in place, and Enter submits
+/// them as that question's answer — while Enter on the still-EMPTY row
+/// declines the whole ask (verified live on v2.1.233, EXP-513). Published
+/// with `free_text` so clients collect the reply before answering.
+fn is_free_text_label(label: &str) -> bool {
+    label
+        .trim_end_matches(['.', '…'])
+        .trim()
+        .eq_ignore_ascii_case("type something")
+}
+
+/// Claude's synthetic "Chat about this" row. Its digit INSTANTLY cancels the
+/// entire ask — every answer already given included — and drops to the
+/// composer (verified live on v2.1.233). It normally sits below the rule and
+/// falls out with the boundary stop; the label match keeps it out even if a
+/// future layout numbers it above the rule. Remote steerers chat via the
+/// composer instead (the EXP-334 Esc-reroute).
+fn is_chat_about_this_label(label: &str) -> bool {
+    label
+        .trim_end_matches(['.', '…'])
+        .trim()
+        .eq_ignore_ascii_case("chat about this")
+}
 
 /// One parsed option row: number, label (checkbox stripped), and the checkbox
 /// state — `None` on a single-select row, `Some(ticked)` on a multiSelect one.
@@ -272,6 +303,9 @@ fn detect_impl(lines: &[String], ask_pending: bool) -> Option<QuestionSnapshot> 
     for (i, line) in lines.iter().enumerate().skip(first_idx) {
         let t = line.trim();
         match parse_option_row(t) {
+            // "Chat about this" instantly cancels the whole ask — never
+            // offered, wherever a claude version renders it (EXP-513).
+            Some((n, label, _)) if n == next && is_chat_about_this_label(label) => break,
             Some((n, label, checkbox)) if n == next => {
                 options.push(QuestionOption::new(label, n.to_string()));
                 checked.push(checkbox == Some(true));
@@ -286,6 +320,14 @@ fn detect_impl(lines: &[String], ask_pending: bool) -> Option<QuestionSnapshot> 
     }
     if options.len() < 2 || marker_number >= next {
         return None;
+    }
+    // Mark the free-text row — single-select only: in a multiSelect picker
+    // its digit TOGGLES like any row and the reply-typing flow is different
+    // machinery (deliberately unsupported for now, EXP-513).
+    if !multi_select {
+        for option in &mut options {
+            option.free_text = is_free_text_label(&option.label);
+        }
     }
 
     // Anchors: a tab-bar line above the options, the footer below them. The
@@ -365,6 +407,20 @@ fn detect_impl(lines: &[String], ask_pending: bool) -> Option<QuestionSnapshot> 
 /// the two comparable (and survives mid-word wrap points).
 pub fn normalize_question_text(s: &str) -> String {
     s.chars().filter(|c| !c.is_whitespace()).collect()
+}
+
+/// The option number the `❯` cursor sits on, if any. The free-text reply
+/// choreography (EXP-513) types only once the cursor verifiably reached the
+/// free-text row — characters typed while the cursor is elsewhere are eaten
+/// by the picker, and the closing Enter would activate whatever row IS
+/// highlighted.
+pub fn selected_option(lines: &[String]) -> Option<u32> {
+    lines.iter().rev().find_map(|line| {
+        let t = line.trim_start();
+        t.starts_with(SELECTION_MARKER)
+            .then(|| parse_option_row(t).map(|(n, _, _)| n))
+            .flatten()
+    })
 }
 
 /// Debounce depth — a question must be present with the SAME text (or absent)
@@ -583,6 +639,72 @@ mod tests {
     fn chat_about_this_below_the_rule_is_never_offered() {
         let snap = detect(&color_screen()).unwrap();
         assert!(snap.options.iter().all(|o| o.label != "Chat about this"));
+    }
+
+    #[test]
+    fn chat_about_this_above_the_rule_is_still_never_offered() {
+        // A layout that numbers the row INSIDE the option run (no rule
+        // between) must exclude it by label — its digit instantly cancels
+        // the whole ask (EXP-513).
+        let lines = screen(&[
+            " ☐ Color",
+            "",
+            "Which color do you prefer?",
+            "",
+            "❯ 1. Red",
+            "  2. Green",
+            "  3. Chat about this",
+            "",
+            "Enter to select · ↑/↓ to navigate · Esc to cancel",
+        ]);
+        let snap = detect(&lines).expect("picker detected");
+        assert_eq!(
+            snap.options
+                .iter()
+                .map(|o| o.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Red", "Green"]
+        );
+    }
+
+    #[test]
+    fn the_free_text_row_is_flagged_on_single_select_only() {
+        // EXP-513: "Type something." is claude's inline free-text row —
+        // flagged so clients collect a reply before answering.
+        let snap = detect(&color_screen()).unwrap();
+        assert_eq!(
+            snap.options
+                .iter()
+                .map(|o| (o.label.as_str(), o.free_text))
+                .collect::<Vec<_>>(),
+            vec![
+                ("Red", false),
+                ("Green", false),
+                ("Blue", false),
+                ("Type something.", true),
+            ]
+        );
+        // In a multiSelect picker the digit TOGGLES — the reply flow is
+        // different machinery, deliberately unmarked.
+        let snap = detect(&toppings_screen()).unwrap();
+        assert!(snap.options.iter().all(|o| !o.free_text));
+    }
+
+    #[test]
+    fn selected_option_reads_the_cursor_row() {
+        // The free-text choreography types only once the ❯ verifiably sits
+        // on the free-text row (EXP-513).
+        assert_eq!(selected_option(&color_screen()), Some(1));
+        let mut lines = color_screen();
+        lines[6] = "  1. Red".into();
+        lines[9] = "❯ 4. Type something.".into();
+        assert_eq!(selected_option(&lines), Some(4));
+        // Typed characters replace the label in place — the row still reads.
+        lines[9] = "❯ 4. purple".into();
+        assert_eq!(selected_option(&lines), Some(4));
+        lines[9] = "  4. Type something.".into();
+        assert_eq!(selected_option(&screen(&["no picker here"])), None);
+        assert_eq!(selected_option(&lines), None);
     }
 
     #[test]
