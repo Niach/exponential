@@ -115,7 +115,7 @@ fn painted_chip_editor<'a>(
     // Two frames: the first applies the pending focus handshake, the second
     // lays out (and therefore injects into) the focused block as well.
     for _ in 0..2 {
-        cx.update(|window, cx| window.draw(cx).clear());
+        cx.update(|window, cx| window.draw(cx).clear(cx));
         cx.run_until_parked();
     }
     (editor, cx)

@@ -142,7 +142,7 @@ jobs:
         # workspace version and would always think an update is available.
         env:
           EXP_DESKTOP_VERSION: ${{ steps.ver.outputs.version }}
-        run: cargo build --release --manifest-path apps/desktop/Cargo.toml -p app ${{ steps.feat.outputs.flags }}
+        run: cargo build --release --locked --manifest-path apps/desktop/Cargo.toml -p app ${{ steps.feat.outputs.flags }}
 
       # Linux → package a single-file AppImage. The raw `.AppImage` is the
       # ONLY Linux asset (EXP-68 — no `.tar.gz` twin): it is both the

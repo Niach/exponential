@@ -25,7 +25,7 @@ use gpui::{
 };
 use gpui_component::{
     h_flex,
-    input::{InputEvent, InputState},
+    input::{InputEvent, TextareaState},
     v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use sync::Store;
@@ -57,7 +57,7 @@ impl TimelineItem {
 /// The comment being edited (web `editingCommentId` + the draft field).
 struct EditState {
     comment_id: String,
-    input: Entity<InputState>,
+    input: Entity<TextareaState>,
     /// The §4.6 mention-capable wrapper around `input` (rendered in the row).
     mention: Entity<MentionInput>,
     saving: bool,
@@ -68,7 +68,7 @@ pub struct IssueTimeline {
     /// The composer's scoping team (drives autocomplete + pill
     /// resolution); re-resolved as the issue/board chain syncs.
     team_id: Option<String>,
-    composer: Entity<InputState>,
+    composer: Entity<TextareaState>,
     /// Mention-capable wrapper around the composer (§4.2: "the lightweight
     /// `@`-autocomplete textarea from §4.6, not the heavy block editor").
     composer_mention: Entity<MentionInput>,
@@ -83,7 +83,7 @@ pub struct IssueTimeline {
 impl IssueTimeline {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let composer = cx.new(|cx| {
-            InputState::new(window, cx)
+            TextareaState::new(window, cx)
                 .auto_grow(2, 8)
                 .placeholder("Leave a reply…")
         });
@@ -241,7 +241,7 @@ impl IssueTimeline {
             .and_then(|comment| comment.body.clone())
             .unwrap_or_default();
         let input = cx.new(|cx| {
-            let mut state = InputState::new(window, cx).auto_grow(2, 12);
+            let mut state = TextareaState::new(window, cx).auto_grow(2, 12);
             state.set_value(body, window, cx);
             state
         });

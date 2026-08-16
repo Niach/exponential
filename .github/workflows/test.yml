@@ -159,7 +159,10 @@ jobs:
           workspaces: apps/desktop
       - name: Cargo tests
         working-directory: apps/desktop
-        run: cargo test --no-fail-fast
+        # EXP-519: --locked is load-bearing — the workspace manifest FLOATS the zed
+        # git deps (upstream gpui-component's discipline) and Cargo.lock is the one
+        # true pin; an accidental re-resolve must fail loudly, never build zed HEAD.
+        run: cargo test --no-fail-fast --locked
       # EXP-375 — the Rust licence inventory can only be collected where cargo
       # is. The pure-bun `web` job re-runs the merge and byte-compares the
       # notices; this proves the inventory it merges is still current.

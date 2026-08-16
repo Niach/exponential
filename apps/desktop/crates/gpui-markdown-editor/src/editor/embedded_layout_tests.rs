@@ -41,7 +41,7 @@ fn embedded_rows_reserve_room_for_their_wrapped_lines() {
     cx.simulate_resize(size(px(600.), px(900.)));
     // Two frames: the first assigns bounds, the second reads them back.
     for _ in 0..2 {
-        cx.update(|window, cx| window.draw(cx).clear());
+        cx.update(|window, cx| window.draw(cx).clear(cx));
         cx.run_until_parked();
     }
 
@@ -145,7 +145,7 @@ fn embedded_wide_image_recorded_width_is_stable_across_frames() {
 
     let mut recorded = Vec::new();
     for _ in 0..6 {
-        cx.update(|window, cx| window.draw(cx).clear());
+        cx.update(|window, cx| window.draw(cx).clear(cx));
         cx.run_until_parked();
         recorded.push(harness.read_with(cx, |harness, cx| {
             let editor = harness.editor.read(cx);
@@ -196,7 +196,7 @@ fn embedded_unbroken_run_wraps_at_the_slot() {
     });
     cx.simulate_resize(size(px(900.), px(900.)));
     for _ in 0..4 {
-        cx.update(|window, cx| window.draw(cx).clear());
+        cx.update(|window, cx| window.draw(cx).clear(cx));
         cx.run_until_parked();
     }
 
@@ -244,7 +244,7 @@ fn embedded_unbroken_run_beside_inline_math_wraps_at_the_slot() {
     });
     cx.simulate_resize(size(px(900.), px(900.)));
     for _ in 0..4 {
-        cx.update(|window, cx| window.draw(cx).clear());
+        cx.update(|window, cx| window.draw(cx).clear(cx));
         cx.run_until_parked();
     }
 
@@ -293,7 +293,7 @@ fn embedded_image_rows_record_bounds() {
     });
     cx.simulate_resize(size(px(900.), px(900.)));
     for _ in 0..2 {
-        cx.update(|window, cx| window.draw(cx).clear());
+        cx.update(|window, cx| window.draw(cx).clear(cx));
         cx.run_until_parked();
     }
 
@@ -320,6 +320,140 @@ fn embedded_image_rows_record_bounds() {
         assert!(
             pair[1].top() >= pair[0].top(),
             "rows out of order: {:?} then {:?}",
+            pair[0],
+            pair[1]
+        );
+    }
+}
+
+/// EXP-520 (ex EXP-436): the block-hop width leak is fixed by Taffy 0.12.
+/// This host chain is the ORIGINAL failure shape — the embedded editor's
+/// percent width reaching a display-BLOCK `max_w + mx_auto` centered column
+/// inside a wide window. Under the old pinned taffy the percent resolved
+/// against the UNCLAMPED window width, so a paragraph that fits unwrapped at
+/// 1920px settled as one clipped line far past the column; the (now deleted)
+/// wrap-budget clamp in `BlockTextElement`'s measure closure papered over it.
+/// At the new pin the stretch resolves against the 640px column with no clamp.
+struct CenteredBlockHostHarness {
+    editor: Entity<Editor>,
+}
+
+impl Render for CenteredBlockHostHarness {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        // Deliberately display-BLOCK hops (no `.flex()`), mirroring the
+        // EXP-436 repro chain.
+        div().w_full().h_full().child(
+            div()
+                .max_w(px(640.))
+                .mx_auto()
+                .child(self.editor.clone()),
+        )
+    }
+}
+
+#[test]
+fn embedded_paragraph_wraps_at_a_centered_block_column_in_a_wide_window() {
+    let mut cx = TestAppContext::single();
+    cx.update(|cx| {
+        cx.bind_keys(crate::actions::default_key_bindings());
+    });
+    // Fits on ONE unwrapped line at 1920px, but must wrap inside 640px.
+    let markdown = concat!(
+        "the quick brown fox jumps over the lazy dog and keeps running ",
+        "until the centered column finally makes it wrap onto more lines.\n",
+    );
+    let (harness, cx) = cx.add_window_view(move |_window, cx| {
+        let editor = cx.new(|cx| {
+            let mut editor = Editor::with_environment(
+                markdown.to_string(),
+                MarkdownEditorEnvironment::default(),
+                cx,
+            );
+            editor.embedded = true;
+            editor
+        });
+        CenteredBlockHostHarness { editor }
+    });
+    cx.simulate_resize(size(px(1920.), px(900.)));
+    for _ in 0..4 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.run_until_parked();
+    }
+
+    let bounds = harness.read_with(cx, |harness, cx| {
+        let editor = harness.editor.read(cx);
+        let blocks = editor.document.visible_blocks();
+        assert_eq!(blocks.len(), 1);
+        blocks[0].entity.read(cx).last_bounds.expect("painted")
+    });
+    assert!(
+        bounds.size.width <= px(641.),
+        "the paragraph claimed more than the 640px centered column: {:?}",
+        bounds.size
+    );
+    assert!(
+        bounds.size.height > px(30.),
+        "the paragraph did not wrap at the column (the EXP-436 leak is back): {:?}",
+        bounds.size
+    );
+}
+
+/// EXP-520 (ex EXP-335): an image sized EXACTLY to the row's content width no
+/// longer trips the old taffy fit-content edge case that re-measured the whole
+/// host column at min-content width (~4× its real height). The 2px safety
+/// margin in `container_image_width_budget` is gone — this locks its absence:
+/// with a row-width image, neighbor paragraphs must still lay out one line
+/// tall (a min-content re-measure would stack them one word per line).
+#[test]
+fn embedded_row_width_image_does_not_collapse_neighbors_to_min_content() {
+    let mut cx = TestAppContext::single();
+    cx.update(|cx| {
+        cx.bind_keys(crate::actions::default_key_bindings());
+    });
+    let markdown =
+        "alpha words that fit on one line\n\n![wide](/missing/wide.png)\n\nbeta words that fit on one line\n";
+    let (harness, cx) = cx.add_window_view(move |_window, cx| {
+        let editor = cx.new(|cx| {
+            let environment = MarkdownEditorEnvironment {
+                image_source_resolver: Some(Arc::new(WideImageResolver)),
+                ..Default::default()
+            };
+            let mut editor = Editor::with_environment(markdown.to_string(), environment, cx);
+            editor.embedded = true;
+            editor
+        });
+        EmbeddedHostHarness { editor }
+    });
+    cx.simulate_resize(size(px(900.), px(900.)));
+    for _ in 0..6 {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.run_until_parked();
+    }
+
+    let bounds = harness.read_with(cx, |harness, cx| {
+        let editor = harness.editor.read(cx);
+        editor
+            .document
+            .visible_blocks()
+            .iter()
+            .map(|visible| visible.entity.read(cx).last_bounds.expect("painted"))
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(bounds.len(), 3);
+    // The paragraphs stay one line tall — a min-content collapse would make
+    // them several hundred px…
+    for index in [0usize, 2] {
+        assert!(
+            bounds[index].size.height <= px(30.),
+            "paragraph {index} collapsed toward min-content: {:?}",
+            bounds[index].size
+        );
+    }
+    // …and the rows stay vertically ordered below the image row.
+    for pair in bounds.windows(2) {
+        assert!(
+            pair[1].top() >= pair[0].bottom(),
+            "rows overlap: {:?} then {:?}",
             pair[0],
             pair[1]
         );

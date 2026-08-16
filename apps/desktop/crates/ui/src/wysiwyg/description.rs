@@ -1603,7 +1603,7 @@ mod tests {
 
         let draw_frames = |cx: &mut gpui::VisualTestContext| {
             for _ in 0..2 {
-                cx.update(|window, cx| window.draw(cx).clear());
+                cx.update(|window, cx| window.draw(cx).clear(cx));
                 cx.run_until_parked();
             }
         };

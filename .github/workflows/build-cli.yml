@@ -62,7 +62,7 @@ jobs:
         env:
           EXP_CLI_VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          cargo build --release --manifest-path apps/desktop/Cargo.toml \
+          cargo build --release --locked --manifest-path apps/desktop/Cargo.toml \
             -p exp-cli --target ${{ matrix.target }}
       - name: Stage asset
         shell: bash

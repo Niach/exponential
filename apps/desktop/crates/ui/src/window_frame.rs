@@ -204,9 +204,13 @@ impl RenderOnce for WindowFrame {
                                 }])
                             }),
                     })
-                    .on_mouse_move(|_e, _, cx| {
-                        cx.stop_propagation();
-                    })
+                    // EXP-521: NO blanket `on_mouse_move` + `stop_propagation`
+                    // here (it rode in with the Zed CSD example in EXP-269).
+                    // Our frame styles resize cursors via the dedicated
+                    // `resize_hit_zones` overlay, so the stopper protected
+                    // nothing — while starving every window-level bubble
+                    // listener of mouse moves, which is exactly what the
+                    // gpui-base TextSelection layer needs for pointer sweeps.
                     .bg(gpui::transparent_black())
                     .children(self.children),
             )

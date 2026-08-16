@@ -245,6 +245,9 @@ pub(crate) fn comment_row(
                 SharedString::from(format!("comment-body-{comment_id}")),
                 source,
             )
+            // EXP-521: comment bodies join the window selection layer —
+            // sweep-select and copy across comments like on the web.
+            .selectable(true)
             .images(props.images.clone());
             if let Some(team_id) = props.team_id {
                 let team = team_id.to_string();

@@ -1,10 +1,10 @@
 //! The lightweight mention-capable textarea (masterplan-v3 §4.2 comment
-//! composer / §4.6 autocomplete) — an `InputState` wrapper carrying the same
+//! composer / §4.6 autocomplete) — a `TextareaState` wrapper carrying the same
 //! caret-anchored `@`-member / `#`-issue completion the markdown editor has,
 //! **without** the block model, toolbar or image path (comments have none on
 //! web; this is explicitly "not the heavy block editor").
 //!
-//! The owner (the timeline) keeps holding the inner `Entity<InputState>` for
+//! The owner (the timeline) keeps holding the inner `Entity<TextareaState>` for
 //! value reads and its own submit subscription; this view only layers the
 //! completion overlay + keyboard capture (↑/↓ select, Enter/Tab accept, Esc
 //! dismiss) on top of the rendered input.
@@ -17,7 +17,7 @@ use gpui::{
     IntoElement, ParentElement as _, Pixels, Render, SharedString, Styled as _, Subscription,
     TextRun, Window,
 };
-use gpui_component::input::{self, Input, InputEvent, InputState};
+use gpui_component::input::{self, InputEvent, Textarea, TextareaState};
 use gpui_component::{h_flex, v_flex, ActiveTheme as _};
 
 use crate::markdown::{
@@ -31,10 +31,10 @@ struct ActiveCompletion {
 }
 
 /// A multi-line input with the §4.6 autocomplete layered on. Build with the
-/// owner's `InputState`; call [`MentionInput::set_source`] with a
+/// owner's `TextareaState`; call [`MentionInput::set_source`] with a
 /// team-scoped [`crate::markdown::store_completion_source`].
 pub struct MentionInput {
-    input: Entity<InputState>,
+    input: Entity<TextareaState>,
     bounds: Rc<Cell<Bounds<Pixels>>>,
     source: Option<Rc<dyn CompletionSource>>,
     completion: Option<ActiveCompletion>,
@@ -42,7 +42,7 @@ pub struct MentionInput {
 }
 
 impl MentionInput {
-    pub fn new(input: Entity<InputState>, cx: &mut gpui::Context<Self>) -> Self {
+    pub fn new(input: Entity<TextareaState>, cx: &mut gpui::Context<Self>) -> Self {
         let subscription = cx.subscribe(&input, |this, input, event: &InputEvent, cx| {
             match event {
                 InputEvent::Change => {
@@ -69,7 +69,7 @@ impl MentionInput {
         self.completion = None;
     }
 
-    fn refresh_completion(&mut self, input: &Entity<InputState>, cx: &mut gpui::Context<Self>) {
+    fn refresh_completion(&mut self, input: &Entity<TextareaState>, cx: &mut gpui::Context<Self>) {
         let Some(source) = self.source.clone() else {
             self.completion = None;
             return;
@@ -128,7 +128,7 @@ impl MentionInput {
         }
     }
 
-    // -- keyboard capture (runs BEFORE the InputState's own handlers) --------
+    // -- keyboard capture (runs BEFORE the input state's own handlers) --------
 
     fn on_move_up(&mut self, _: &input::MoveUp, _: &mut Window, cx: &mut gpui::Context<Self>) {
         if self.completion.is_some() {
@@ -304,7 +304,7 @@ impl Render for MentionInput {
             // wrapper is a flex ROW — without an explicit width an empty
             // input collapses to its content (the tiny comment composer,
             // EXP-67).
-            .child(Input::new(&self.input).w_full())
+            .child(Textarea::new(&self.input).w_full())
             .child(
                 canvas(
                     move |element_bounds, _, _| bounds.set(element_bounds),
