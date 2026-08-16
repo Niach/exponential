@@ -982,6 +982,11 @@ private struct QuestionCard: View {
     private static let clampChars = 600
     private static let clampLines = 6
     private static let clampHeight: CGFloat = 220
+    /// The relay's answer frame rejects `text` past 4000 UTF-16 units WHOLE
+    /// (steer-relay protocol.ts — dropped, not truncated), so an oversize
+    /// reply would silently fail at the 8s lock and retry could never
+    /// succeed. Web caps via maxLength=4000, Android via .take(4000).
+    private static let freeTextMaxUtf16 = 4000
 
     /// Plans are always fully rendered — never folded (EXP-197).
     private var clampable: Bool {
@@ -1153,6 +1158,9 @@ private struct QuestionCard: View {
                     .font(.caption)
                     .foregroundStyle(.white)
                     .focused($freeTextFocused)
+                    .onChange(of: freeTextValue) { _, newValue in
+                        freeTextValue = Self.capFreeText(newValue)
+                    }
                     .onSubmit { submitFreeText() }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
@@ -1248,9 +1256,22 @@ private struct QuestionCard: View {
         }
     }
 
+    /// Truncate to the relay's 4000-UTF-16-unit answer cap, backing off one
+    /// unit rather than splitting a surrogate pair (4001 units would still
+    /// be dropped whole — same convention as `sendMessage`'s chunker).
+    private static func capFreeText(_ text: String) -> String {
+        let units = Array(text.utf16)
+        guard units.count > freeTextMaxUtf16 else { return text }
+        var end = freeTextMaxUtf16
+        if UTF16.isLeadSurrogate(units[end - 1]) { end -= 1 }
+        return String(decoding: units[0..<end], as: UTF16.self)
+    }
+
     private func submitFreeText() {
         guard !locked, let key = freeTextKey else { return }
-        let text = freeTextValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = Self.capFreeText(
+            freeTextValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
         guard !text.isEmpty else { return }
         picked = [key]
         onAnswer([key], text)
