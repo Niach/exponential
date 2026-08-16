@@ -50,34 +50,74 @@ export function externalReferrer(req: Request): string | undefined {
 }
 
 // Best-effort crawler filter — visitor counts are directional, not exact.
+// whatsapp/facebookexternalhit are link unfurlers whose UAs otherwise look
+// browser-like (most other unfurlers already match bot|preview).
 const BOT_UA =
-  /bot|crawl|spider|slurp|preview|fetch|monitor|scrape|curl|wget|headless/i
+  /bot|crawl|spider|slurp|preview|fetch|monitor|scrape|curl|wget|headless|whatsapp|facebookexternalhit/i
 
-// Paths that are never a human "landing": APIs, widget assets, the helpdesk
-// magic-link surface (its URL is a credential), invite links (the token is a
-// team-join bearer secret and must never land in conversion_events —
-// invite_accepted is tracked separately), router internals.
-const EXCLUDED_PREFIXES = [`/api/`, `/widget/`, `/support`, `/invite/`, `/_`]
+// Acquisition entry surfaces (EXP-522): only the marketing-reachable front
+// door counts as a "landing". Deep app URLs (/t/..., dead route prefixes,
+// bot probes like /wp-json/) record nothing — they were the bulk of the
+// visitor noise in prod.
+const LANDING_PATHS = [`/`, `/auth`]
 
-// Document GETs from anonymous browsers only. The session-cookie substring
-// check matches better-auth's `session_token` cookie under any prefix
-// (`better-auth.session_token`, `__Secure-...`) — signed-in users are not
-// visitors.
-export function shouldCaptureLanding(req: Request): boolean {
+// Speculative navigations: Chrome's prefetch proxy (Sec-Purpose:
+// prefetch;anonymous-client-ip) strips cookies, so a signed-in owner's own
+// bookmark otherwise mints a fresh anonymous visitor (EXP-522).
+function isSpeculativeRequest(req: Request): boolean {
+  const purpose = `${req.headers.get(`sec-purpose`) ?? ``} ${
+    req.headers.get(`purpose`) ?? ``
+  } ${req.headers.get(`x-moz`) ?? ``}`
+  return /prefetch|prerender/i.test(purpose)
+}
+
+// The session-cookie substring check matches better-auth's `session_token`
+// cookie under any prefix (`better-auth.session_token`, `__Secure-...`).
+function hasSessionCookie(req: Request): boolean {
+  return (req.headers.get(`cookie`) ?? ``).includes(`session_token`)
+}
+
+// A real human browser navigating to a document: GET, HTML accept, not an
+// asset path or API, not a speculative prefetch, not a known crawler.
+function isDocumentNavigation(req: Request): boolean {
   if (req.method !== `GET`) return false
   const accept = req.headers.get(`accept`) ?? ``
   if (!accept.includes(`text/html`)) return false
   const { pathname } = new URL(req.url)
-  if (EXCLUDED_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
-    return false
-  }
+  if (pathname.startsWith(`/api/`) || pathname.startsWith(`/_`)) return false
   const lastSegment = pathname.split(`/`).pop() ?? ``
   if (lastSegment.includes(`.`)) return false
-  const cookies = req.headers.get(`cookie`) ?? ``
-  if (cookies.includes(`session_token`)) return false
+  if (isSpeculativeRequest(req)) return false
   const ua = req.headers.get(`user-agent`) ?? ``
   if (!ua || BOT_UA.test(ua)) return false
   return true
+}
+
+// Anonymous document GETs on an entry path only. Signed-in users are not
+// visitors — neither by cookie nor by token credential (native clients and
+// API keys are first-class auth, see lib/auth/resolve-bearer.ts).
+export function shouldCaptureLanding(req: Request): boolean {
+  if (!isDocumentNavigation(req)) return false
+  const { pathname } = new URL(req.url)
+  if (
+    !LANDING_PATHS.some(
+      (path) => pathname === path || pathname.startsWith(`${path}/`)
+    )
+  ) {
+    return false
+  }
+  if (hasSessionCookie(req)) return false
+  if (req.headers.get(`authorization`) || req.headers.get(`x-api-key`)) {
+    return false
+  }
+  return true
+}
+
+// Signed-in counterpart (EXP-522): any document navigation carrying a session
+// cookie is candidate signed-in activity — the caller still resolves the
+// session (the cookie may be stale) and dedupes to one row per user per day.
+export function shouldCaptureReturnVisit(req: Request): boolean {
+  return isDocumentNavigation(req) && hasSessionCookie(req)
 }
 
 export function truncateAttributionInput(args: {

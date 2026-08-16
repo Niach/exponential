@@ -60,18 +60,19 @@ export function initAttributionForwarding(): void {
   installed = true
   captureFromLocation()
   if (params.length === 0) return
-  // One capture-phase listener rewrites hrefs just-in-time — covers every
-  // CTA (including prerendered markup) without touching React rendering, so
-  // hydration never mismatches.
-  document.addEventListener(
-    `click`,
-    (event) => {
-      const target = event.target as Element | null
-      const anchor = target?.closest?.(`a[href]`)
-      if (!(anchor instanceof HTMLAnchorElement)) return
-      const rewritten = withAttributionParams(anchor.href)
-      if (rewritten !== anchor.href) anchor.href = rewritten
-    },
-    { capture: true }
-  )
+  // Capture-phase listeners rewrite hrefs just-in-time — covers every CTA
+  // (including prerendered markup) without touching React rendering, so
+  // hydration never mismatches. `click` alone misses middle-click (that's
+  // `auxclick`) and right-click → "open in new tab" (the browser reads the
+  // href at `contextmenu` time) — both dropped attribution in prod (EXP-522).
+  const rewriteEventTarget = (event: Event) => {
+    const target = event.target as Element | null
+    const anchor = target?.closest?.(`a[href]`)
+    if (!(anchor instanceof HTMLAnchorElement)) return
+    const rewritten = withAttributionParams(anchor.href)
+    if (rewritten !== anchor.href) anchor.href = rewritten
+  }
+  for (const type of [`click`, `auxclick`, `contextmenu`]) {
+    document.addEventListener(type, rewriteEventTarget, { capture: true })
+  }
 }

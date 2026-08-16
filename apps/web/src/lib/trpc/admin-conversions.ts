@@ -82,7 +82,10 @@ export const adminConversionsRouter = router({
       ] = await Promise.all([
         ctx.db
           .select({
-            visitors: sql<number>`count(distinct ${conversionEvents.anonymousId}) filter (where ${conversionEvents.name} = 'landing')::int`,
+            // The entry-path filter mirrors the capture-side allowlist
+            // (EXP-522) so pre-allowlist rows on deep app paths don't pollute
+            // the denominator until they age out of the window.
+            visitors: sql<number>`count(distinct ${conversionEvents.anonymousId}) filter (where ${conversionEvents.name} = 'landing' and (${conversionEvents.properties}->>'path' = '/' or ${conversionEvents.properties}->>'path' like '/auth/%'))::int`,
             signups: sql<number>`count(*) filter (where ${conversionEvents.name} = 'signup')::int`,
             activated: sql<number>`count(distinct ${conversionEvents.userId}) filter (where ${conversionEvents.name} in ('first_issue_created', 'invite_sent'))::int`,
             paid: sql<number>`count(*) filter (where ${conversionEvents.name} = 'subscription_first_active')::int`,
@@ -137,6 +140,7 @@ export const adminConversionsRouter = router({
           })
           .from(conversionEvents)
           .leftJoin(users, eq(users.id, conversionEvents.userId))
+          .where(sql`${conversionEvents.createdAt} >= ${windowStart}`)
           .orderBy(desc(conversionEvents.createdAt))
           .limit(50),
       ])

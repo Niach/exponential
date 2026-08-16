@@ -6,7 +6,8 @@ import { conversionEvents } from "@/db/schema"
 // insert with ON CONFLICT DO NOTHING and rely on these PARTIAL UNIQUE indexes
 // to define what "once" means (once per user for signup/first_issue_created,
 // once per subscription for the paid lifecycle, once per visitor-day for
-// landing — the cookieless anonymous id rotates daily). Silently dropping one
+// landing — the cookieless anonymous id rotates daily — and once per user-day
+// for return_visit). Silently dropping one
 // of them would double-count funnel stages on every webhook redelivery.
 
 describe(`conversion_events schema`, () => {
@@ -29,6 +30,13 @@ describe(`conversion_events schema`, () => {
 
   it(`has the landing-daily partial unique index`, () => {
     const idx = byName.get(`uniq_conversion_events_landing_daily`)
+    expect(idx).toBeDefined()
+    expect(idx!.unique).toBe(true)
+    expect(idx!.where).toBeDefined()
+  })
+
+  it(`has the return-visit-daily partial unique index (EXP-522)`, () => {
+    const idx = byName.get(`uniq_conversion_events_return_visit_daily`)
     expect(idx).toBeDefined()
     expect(idx!.unique).toBe(true)
     expect(idx!.where).toBeDefined()

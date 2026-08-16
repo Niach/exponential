@@ -9,6 +9,7 @@ import { conversionEvents } from "@/db/schema"
 // can't invent names.
 export type ConversionEventName =
   | `landing`
+  | `return_visit`
   | `signup`
   | `onboarding_completed`
   | `team_created`
@@ -34,7 +35,8 @@ export function conversionTrackingEnabled(): boolean {
 // Append one funnel event. Idempotency lives in the DATABASE: the partial
 // unique indexes on conversion_events define what "once" means (once per user
 // for signup/first_issue_created, once per subscription for the paid
-// lifecycle, once per visitor-day for landing) and the unconditional
+// lifecycle, once per visitor-day for landing, once per user-day for
+// return_visit) and the unconditional
 // onConflictDoNothing turns every re-fire into a free no-op — no
 // read-before-write on hot paths, race-proof against webhook redelivery.
 //

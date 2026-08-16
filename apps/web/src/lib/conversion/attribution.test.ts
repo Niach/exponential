@@ -4,6 +4,7 @@ import {
   extractAttributionParams,
   externalReferrer,
   shouldCaptureLanding,
+  shouldCaptureReturnVisit,
   truncateAttributionInput,
 } from "@/lib/conversion/attribution"
 
@@ -71,8 +72,12 @@ describe(`externalReferrer`, () => {
 })
 
 describe(`shouldCaptureLanding`, () => {
-  it(`accepts a plain document GET`, () => {
-    expect(shouldCaptureLanding(landingRequest())).toBe(true)
+  it(`accepts document GETs on the entry allowlist`, () => {
+    for (const path of [`/`, `/auth/login`, `/auth/signup`]) {
+      expect(shouldCaptureLanding(landingRequest(`https://x.test${path}`))).toBe(
+        true
+      )
+    }
   })
 
   it(`rejects non-GET`, () => {
@@ -90,10 +95,15 @@ describe(`shouldCaptureLanding`, () => {
     expect(shouldCaptureLanding(req)).toBe(false)
   })
 
-  it(`rejects excluded paths and assets`, () => {
+  it(`rejects everything off the entry allowlist (EXP-522)`, () => {
     for (const path of [
+      `/t/feedback/boards/exponential`,
+      `/w/feedback/projects/exponential`,
+      `/wp-json/`,
+      `/about`,
+      `/onboarding`,
       `/api/shapes/issues`,
-      `/widget/v1/loader.js`,
+      `/widget/v1/demo`,
       `/support/tok123`,
       `/invite/${`ab`.repeat(32)}`,
       `/favicon.ico`,
@@ -112,16 +122,95 @@ describe(`shouldCaptureLanding`, () => {
     expect(shouldCaptureLanding(req)).toBe(false)
   })
 
-  it(`rejects bot user agents and missing UA`, () => {
+  it(`rejects token-credentialed requests (EXP-522)`, () => {
     expect(
       shouldCaptureLanding(
-        landingRequest(`https://x.test/`, { "user-agent": `Googlebot/2.1` })
+        landingRequest(`https://x.test/`, { authorization: `Bearer tok` })
       )
     ).toBe(false)
+    expect(
+      shouldCaptureLanding(
+        landingRequest(`https://x.test/`, { "x-api-key": `expu_abc` })
+      )
+    ).toBe(false)
+  })
+
+  it(`rejects speculative prefetch/prerender navigations (EXP-522)`, () => {
+    expect(
+      shouldCaptureLanding(
+        landingRequest(`https://x.test/`, {
+          "sec-purpose": `prefetch;anonymous-client-ip`,
+        })
+      )
+    ).toBe(false)
+    expect(
+      shouldCaptureLanding(
+        landingRequest(`https://x.test/`, { purpose: `prefetch` })
+      )
+    ).toBe(false)
+  })
+
+  it(`rejects bot and unfurler user agents and missing UA`, () => {
+    for (const ua of [
+      `Googlebot/2.1`,
+      `WhatsApp/2.23.20.0`,
+      `facebookexternalhit/1.1`,
+    ]) {
+      expect(
+        shouldCaptureLanding(landingRequest(`https://x.test/`, { "user-agent": ua }))
+      ).toBe(false)
+    }
     const noUa = new Request(`https://x.test/`, {
       headers: { accept: `text/html` },
     })
     expect(shouldCaptureLanding(noUa)).toBe(false)
+  })
+})
+
+describe(`shouldCaptureReturnVisit`, () => {
+  const cookie = { cookie: `better-auth.session_token=abc` }
+
+  it(`accepts a signed-in document GET on any app path`, () => {
+    for (const path of [`/`, `/t/feedback/boards/exponential`, `/account`]) {
+      expect(
+        shouldCaptureReturnVisit(landingRequest(`https://x.test${path}`, cookie))
+      ).toBe(true)
+    }
+  })
+
+  it(`rejects without a session cookie`, () => {
+    expect(shouldCaptureReturnVisit(landingRequest(`https://x.test/`))).toBe(
+      false
+    )
+  })
+
+  it(`rejects prefetches, bots, APIs, and assets even with a cookie`, () => {
+    expect(
+      shouldCaptureReturnVisit(
+        landingRequest(`https://x.test/`, {
+          ...cookie,
+          "sec-purpose": `prefetch`,
+        })
+      )
+    ).toBe(false)
+    expect(
+      shouldCaptureReturnVisit(
+        landingRequest(`https://x.test/`, {
+          ...cookie,
+          "user-agent": `Googlebot/2.1`,
+        })
+      )
+    ).toBe(false)
+    expect(
+      shouldCaptureReturnVisit(
+        landingRequest(`https://x.test/api/shapes/issues`, cookie)
+      )
+    ).toBe(false)
+    expect(
+      shouldCaptureReturnVisit(
+        landingRequest(`https://x.test/favicon.ico`, cookie)
+      )
+    ).toBe(false)
   })
 })
 
