@@ -112,6 +112,10 @@ data class QuestionOption(
     val label: String,
     val key: String,
     val description: String? = null,
+    /** EXP-513: claude's synthetic free-text row ("Type something.") —
+     *  selecting it reveals an inline input and the typed reply rides the
+     *  answer frame's `text`. Absent from older desktops. */
+    val freeText: Boolean = false,
 )
 
 /** This client's send state for one question card (EXP-249): the card locks
@@ -647,7 +651,12 @@ fun ActivityFeedState.applyActivityEvent(
                 val option = raw as? JsonObject ?: return@mapNotNull null
                 val label = option.str("label") ?: return@mapNotNull null
                 val key = option.str("key") ?: return@mapNotNull null
-                QuestionOption(label, key, option.str("description")?.takeIf { it.isNotBlank() })
+                QuestionOption(
+                    label,
+                    key,
+                    option.str("description")?.takeIf { it.isNotBlank() },
+                    freeText = option.bool("freeText"),
+                )
             }
         }.getOrDefault(emptyList())
         if (text.isNullOrBlank() || options.isEmpty()) {
@@ -1331,7 +1340,13 @@ class AgentSessionViewModel @Inject constructor(
      * goes out (no double-tap) and unlocks only if nothing comes back within
      * [ANSWER_ACK_TIMEOUT_MS].
      */
-    fun sendQuestionAnswer(questionId: String, askId: String?, keys: List<String>) {
+    fun sendQuestionAnswer(
+        questionId: String,
+        askId: String?,
+        keys: List<String>,
+        /** EXP-513: the typed reply for a `freeText` option. */
+        text: String? = null,
+    ) {
         if (keys.isEmpty()) return
         if (_activity.value.answerLocks[questionId].locksCard()) return
         val socket = ws ?: return
@@ -1343,6 +1358,7 @@ class AgentSessionViewModel @Inject constructor(
                     put("questionId", questionId)
                     if (askId != null) put("askId", askId)
                     putJsonArray("keys") { keys.forEach { add(JsonPrimitive(it)) } }
+                    if (text != null) put("text", text)
                 }
                 socket.send(Frame.Text(json.encodeToString(JsonObject.serializer(), frame)))
             }

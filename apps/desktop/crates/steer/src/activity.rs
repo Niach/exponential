@@ -1447,6 +1447,9 @@ pub struct RemoteAnswer {
     pub question_id: String,
     pub ask_id: Option<String>,
     pub keys: Vec<String>,
+    /// EXP-513: the typed reply for a `freeText` option — selected with
+    /// `keys`, typed into the TUI's inline editor, submitted with Enter.
+    pub text: Option<String>,
 }
 
 /// The one-way seam between the publisher task (tokio) and the emitter thread
@@ -2104,6 +2107,12 @@ impl SteerState {
         }
         match event.kind {
             HookEventKind::PlanProposed { tool_use_id, plan } => {
+                // claude ≥2.1.233 fires a permission-flavoured Notification
+                // for its pickers too, and it can land BEFORE this
+                // registration — one TUI can't show a picker and a
+                // permission dialog at once, so the hold is the picker's own
+                // nudge, not a prompt (EXP-512).
+                self.pending_permission = None;
                 self.plan_seq += 1;
                 // EXP-483: a REAL tool_use id will reappear on the withheld
                 // twin entry — remember it so that entry's prose can anchor
@@ -2136,6 +2145,8 @@ impl SteerState {
                 tool_use_id,
                 questions,
             } => {
+                // Same picker-nudge race as `PlanProposed` above (EXP-512).
+                self.pending_permission = None;
                 let Some(ask_id) = tool_use_id else {
                     // Without an id there is nothing to answer against — the
                     // grid path publishes it the legacy way.
@@ -2559,6 +2570,17 @@ impl SteerState {
     /// dialog (claude's copy drifted past the anchors, or there is no term),
     /// so publish the legacy informational card rather than nothing.
     fn permission_timeout(&mut self, sender: &ActivitySender) {
+        // A pending ask/plan owns the screen story — its card is the
+        // answerable one, and a permission card would claim a block the
+        // steerer can't act on (the arming guard's condition, re-checked
+        // here because claude ≥2.1.233 sends the picker's own Notification
+        // BEFORE the hook registers the picker — EXP-512 saw the raced hold
+        // degrade into a phantom "Permission · Tool" card 10s into a
+        // perfectly answerable ask).
+        if self.ask.is_some() || self.plan.is_some() {
+            self.pending_permission = None;
+            return;
+        }
         let Some(pending) = &mut self.pending_permission else {
             return;
         };
@@ -2890,24 +2912,66 @@ impl SteerState {
                     let Some(key) = answer.keys.first() else {
                         return AnswerAttempt::Settled;
                     };
-                    if !snapshot.options.iter().any(|option| &option.key == key) {
+                    let Some(visible) = snapshot.options.iter().find(|option| &option.key == key)
+                    else {
                         // The tab that is up doesn't offer this key — likely a
                         // stale frame between tabs.
                         return AnswerAttempt::Retry;
-                    }
-                    write_input(key.as_bytes());
-                    // Classic ask pickers submit on the digit; a
-                    // PREVIEW-carrying question renders side-by-side and its
-                    // digit only MOVES the cursor — Enter activates the row
-                    // (EXP-394, the same digit-then-Enter probe the plan
-                    // picker needed in EXP-334). Never after a multiSelect
-                    // Tab: a trailing Enter there toggles/answers whatever
-                    // the cursor sits on next.
-                    if !settle_for(PLAN_SUBMIT_PROBE, step_moved) {
+                    };
+                    if visible.free_text {
+                        // EXP-513: claude's synthetic free-text row. Its digit
+                        // only MOVES the cursor; typed characters then fill
+                        // the row in place and Enter submits them as this
+                        // question's answer — while Enter on the still-EMPTY
+                        // row DECLINES the whole ask (observed v2.1.233). So:
+                        // without a reply there is nothing safe to inject —
+                        // refuse without an ack rather than nuke every answer
+                        // (the pre-EXP-513 blind digit-then-Enter did exactly
+                        // that).
+                        let text = answer
+                            .text
+                            .as_deref()
+                            .map(sanitize_answer_text)
+                            .filter(|text| !text.is_empty());
+                        let Some(text) = text else {
+                            return AnswerAttempt::Settled;
+                        };
+                        let key_number: Option<u32> = key.parse().ok();
+                        write_input(key.as_bytes());
+                        // Type only once the cursor verifiably sits on the
+                        // row — characters typed elsewhere are eaten and the
+                        // closing Enter would activate the highlighted row.
+                        // The move is a single repaint, so the short probe
+                        // window keeps the whole choreography inside the
+                        // clients' 8s ack budget (see ANSWER_RETRY_TTL docs).
+                        let on_row = || {
+                            question_picker::selected_option(&screen_lines(term)) == key_number
+                        };
+                        if key_number.is_none() || !settle_for(PLAN_SUBMIT_PROBE, on_row) {
+                            return AnswerAttempt::Settled; // digit injected — never twice
+                        }
+                        std::thread::sleep(KEYSTROKE_GAP);
+                        write_input(text.as_bytes());
+                        std::thread::sleep(KEYSTROKE_GAP);
                         write_input(b"\r");
-                    }
-                    if !settle(step_moved) {
-                        return AnswerAttempt::Settled; // injected — never twice
+                        if !settle(step_moved) {
+                            return AnswerAttempt::Settled; // injected — never twice
+                        }
+                    } else {
+                        write_input(key.as_bytes());
+                        // Classic ask pickers submit on the digit; a
+                        // PREVIEW-carrying question renders side-by-side and
+                        // its digit only MOVES the cursor — Enter activates
+                        // the row (EXP-394, the same digit-then-Enter probe
+                        // the plan picker needed in EXP-334). Never after a
+                        // multiSelect Tab: a trailing Enter there
+                        // toggles/answers whatever the cursor sits on next.
+                        if !settle_for(PLAN_SUBMIT_PROBE, step_moved) {
+                            write_input(b"\r");
+                        }
+                        if !settle(step_moved) {
+                            return AnswerAttempt::Settled; // injected — never twice
+                        }
                     }
                 }
             }
@@ -2951,6 +3015,29 @@ pub(crate) fn settle_for(window: Duration, mut done: impl FnMut() -> bool) -> bo
     }
 }
 
+/// Cap on a free-text reply typed into the TUI (EXP-513) — belt-and-braces
+/// behind the relay schema's own 4000-char bound.
+const ANSWER_TEXT_MAX: usize = 4000;
+
+/// One safe LINE out of a steerer's free-text reply (EXP-513): the TUI's
+/// inline editor is single-line and every control byte is a potential
+/// keystroke — newlines/tabs would submit or navigate mid-reply, an ESC
+/// would dismiss the picker.
+fn sanitize_answer_text(text: &str) -> String {
+    let mut out: String = text
+        .chars()
+        .filter_map(|c| match c {
+            '\n' | '\r' | '\t' => Some(' '),
+            c if c.is_control() => None,
+            c => Some(c),
+        })
+        .collect();
+    if out.chars().count() > ANSWER_TEXT_MAX {
+        out = out.chars().take(ANSWER_TEXT_MAX).collect();
+    }
+    out.trim().to_string()
+}
+
 /// A hook question's options → wire options, keyed by the TUI's digit
 /// positions (the picker numbers its rows in the order the tool declared).
 fn hook_options(question: &HookQuestion, redactor: &Redactor) -> Vec<QuestionOption> {
@@ -2966,6 +3053,8 @@ fn hook_options(question: &HookQuestion, redactor: &Redactor) -> Vec<QuestionOpt
                 .description
                 .as_ref()
                 .map(|d| truncate(&redactor.redact(d), OPTION_DESCRIPTION_MAX)),
+            // Synthetic rows are grid-only — a hook option is never one.
+            free_text: false,
         })
         .collect()
 }
@@ -2993,11 +3082,13 @@ fn grid_options(snapshot: &QuestionSnapshot, redactor: &Redactor) -> Vec<Questio
         .options
         .iter()
         .take(QUESTION_OPTIONS_MAX)
-        .map(|option| {
-            QuestionOption::new(
-                truncate(&redactor.redact(&option.label), OPTION_LABEL_MAX),
-                option.key.clone(),
-            )
+        .map(|option| QuestionOption {
+            label: truncate(&redactor.redact(&option.label), OPTION_LABEL_MAX),
+            key: option.key.clone(),
+            description: None,
+            // EXP-513: the picker marks the synthetic free-text row — keep
+            // the flag on the wire so clients collect a reply first.
+            free_text: option.free_text,
         })
         .collect()
 }
@@ -6136,6 +6227,57 @@ mod tests {
     }
 
     #[test]
+    fn a_picker_registration_drops_a_raced_permission_hold() {
+        // claude ≥2.1.233 fires the picker's own permission-flavoured
+        // Notification, and it can land BEFORE the PreToolUse registration —
+        // the raced hold must never degrade into a phantom card next to the
+        // answerable ask (EXP-512).
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(
+            hook(HookEventKind::PermissionPrompt {
+                message: "Session paused".to_string(),
+                tool: None,
+            }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        assert!(steer.pending_permission.is_some());
+        steer.apply_hook(
+            hook(HookEventKind::QuestionsAsked {
+                tool_use_id: Some("toolu_ask".to_string()),
+                questions: vec![HookQuestion {
+                    question: "Favorite color?".to_string(),
+                    ..Default::default()
+                }],
+            }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        assert!(
+            steer.pending_permission.is_none(),
+            "the ask owns the screen story"
+        );
+        drained(&rx);
+        // And a hold that somehow survives past the confirm window while an
+        // ask is pending is dropped at the timeout instead of publishing.
+        steer.apply_hook(permission_hook(), &sender, &redactor, &mut transcript);
+        steer.pending_permission = Some(PendingPermission {
+            tool: "Tool".to_string(),
+            detail: Some("Session paused".to_string()),
+            seen: Instant::now() - PERMISSION_GRID_CONFIRM,
+            degraded: false,
+        });
+        steer.permission_timeout(&sender);
+        assert!(drained(&rx).is_empty(), "no phantom informational card");
+        assert!(steer.pending_permission.is_none());
+    }
+
+    #[test]
     fn a_fresh_notification_rearms_a_degraded_hold() {
         // EXP-458: with grid detection missing every dialog, nothing retires
         // a degraded hold before turn end — a further Notification must
@@ -6215,6 +6357,7 @@ mod tests {
                 question_id: "permission:1".to_string(),
                 ask_id: None,
                 keys: vec!["1".to_string()],
+                text: None,
             },
             &term,
             &write_input,
@@ -6233,6 +6376,7 @@ mod tests {
                 question_id: "permission:1".to_string(),
                 ask_id: None,
                 keys: vec!["1".to_string()],
+                text: None,
             },
             &term,
             &write_input,
@@ -6263,6 +6407,7 @@ mod tests {
                 question_id: "permission:1".to_string(),
                 ask_id: None,
                 keys: vec!["1".to_string()],
+                text: None,
             },
             &term,
             &write_input,
@@ -6361,6 +6506,151 @@ mod tests {
         (hook, keys)
     }
 
+    /// The single-select Size tab with claude's synthetic free-text row
+    /// (EXP-513). `cursor_on` places the `❯`.
+    fn size_rows(cursor_on: u32, free_text_label: &str) -> Vec<String> {
+        [
+            "──────────────────────────────────────────",
+            "←  ☒ Toppings  ☐ Size  ✔ Submit  →",
+            "",
+            "Which size?",
+            "",
+            &format!("{} 1. Small", if cursor_on == 1 { "❯" } else { " " }),
+            &format!("{} 2. Large", if cursor_on == 2 { "❯" } else { " " }),
+            &format!("{} 3. {free_text_label}", if cursor_on == 3 { "❯" } else { " " }),
+            "──────────────────────────────────────────",
+            "  4. Chat about this",
+            "",
+            "Enter to select · Tab/Arrow keys to navigate · Esc to cancel",
+        ]
+        .iter()
+        .map(|r| r.to_string())
+        .collect()
+    }
+
+    #[test]
+    fn a_free_text_answer_types_the_reply_into_the_row() {
+        let emulator = terminal::Emulator::new(100, 30);
+        let term = emulator.term();
+        paint(&term, &size_rows(1, "Type something."));
+
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(ask_hook(), &sender, &redactor, &mut transcript);
+        let snapshot = question_picker::detect(&screen_lines(&term)).expect("picker");
+        steer.confirm_question_from_grid(&snapshot, &sender, &redactor);
+        // The grid augmentation re-published the Size question with the
+        // flagged free-text row.
+        let flagged = drained(&rx).iter().any(|event| {
+            matches!(event, ActivityEvent::Question { id, options, .. }
+                if id.as_deref() == Some("toolu_01#1")
+                    && options.iter().any(|o| o.label == "Type something." && o.free_text))
+        });
+        assert!(flagged, "the free-text row reaches the wire flagged");
+
+        // digit → cursor onto the row → typed reply fills it → Enter submits.
+        let keys = Arc::new(Mutex::new(Vec::new()));
+        let write_input: InputHook = {
+            let term = term.clone();
+            let keys = keys.clone();
+            Arc::new(move |bytes| {
+                let key = String::from_utf8_lossy(bytes).to_string();
+                match key.as_str() {
+                    "3" => paint(&term, &size_rows(3, "Type something.")),
+                    "medium please" => paint(&term, &size_rows(3, "medium please")),
+                    "\r" => paint(&term, &review_rows()),
+                    _ => {}
+                }
+                keys.lock().unwrap().push(key);
+            })
+        };
+        let outcome = steer.handle_answer(
+            &RemoteAnswer {
+                question_id: "toolu_01#1".to_string(),
+                ask_id: Some("toolu_01".to_string()),
+                keys: vec!["3".to_string()],
+                text: Some("medium\nplease".to_string()), // sanitized to one line
+            },
+            &term,
+            &write_input,
+            &sender,
+        );
+        assert_eq!(outcome, AnswerAttempt::Settled);
+        assert_eq!(*keys.lock().unwrap(), vec!["3", "medium please", "\r"]);
+        match &drained(&rx)[..] {
+            [ActivityEvent::AnswerAck { id, .. }] => assert_eq!(id, "toolu_01#1"),
+            other => panic!("expected an answer_ack, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_text_less_tap_on_the_free_text_row_is_refused() {
+        // Enter on the still-EMPTY free-text row declines the WHOLE ask
+        // (observed live on v2.1.233) — a keys-only answer for it (old
+        // client) must inject nothing rather than run the blind
+        // digit-then-Enter (EXP-513's original failure).
+        let emulator = terminal::Emulator::new(100, 30);
+        let term = emulator.term();
+        paint(&term, &size_rows(1, "Type something."));
+
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(ask_hook(), &sender, &redactor, &mut transcript);
+        let snapshot = question_picker::detect(&screen_lines(&term)).expect("picker");
+        steer.confirm_question_from_grid(&snapshot, &sender, &redactor);
+        drained(&rx);
+
+        for text in [None, Some("   ".to_string())] {
+            let (write_input, keys) = recording_input(term.clone(), None, "never");
+            let outcome = steer.handle_answer(
+                &RemoteAnswer {
+                    question_id: "toolu_01#1".to_string(),
+                    ask_id: Some("toolu_01".to_string()),
+                    keys: vec!["3".to_string()],
+                    text,
+                },
+                &term,
+                &write_input,
+                &sender,
+            );
+            assert_eq!(outcome, AnswerAttempt::Settled);
+            assert!(keys.lock().unwrap().is_empty(), "nothing injected");
+            assert!(drained(&rx).is_empty(), "no ack — the card stays answerable");
+        }
+        // An ordinary option on the same tab still answers normally.
+        let (write_input, keys) = recording_input(term.clone(), Some(review_rows()), "1");
+        let outcome = steer.handle_answer(
+            &RemoteAnswer {
+                question_id: "toolu_01#1".to_string(),
+                ask_id: Some("toolu_01".to_string()),
+                keys: vec!["1".to_string()],
+                text: None,
+            },
+            &term,
+            &write_input,
+            &sender,
+        );
+        assert_eq!(outcome, AnswerAttempt::Settled);
+        assert_eq!(*keys.lock().unwrap(), vec!["1"]);
+        match &drained(&rx)[..] {
+            [ActivityEvent::AnswerAck { id, .. }] => assert_eq!(id, "toolu_01#1"),
+            other => panic!("expected an answer_ack, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn sanitize_answer_text_flattens_and_bounds() {
+        assert_eq!(sanitize_answer_text("a\nb\tc\r\n"), "a b c");
+        assert_eq!(sanitize_answer_text("esc\x1b[2Jseq\x07"), "esc[2Jseq");
+        assert_eq!(sanitize_answer_text("  padded  "), "padded");
+        let long = "x".repeat(ANSWER_TEXT_MAX + 100);
+        assert_eq!(sanitize_answer_text(&long).chars().count(), ANSWER_TEXT_MAX);
+    }
+
     #[test]
     fn a_remote_answer_is_injected_once_and_acked_when_the_grid_moves() {
         let emulator = terminal::Emulator::new(100, 30);
@@ -6384,6 +6674,7 @@ mod tests {
                 question_id: "toolu_01#0".to_string(),
                 ask_id: Some("toolu_01".to_string()),
                 keys: vec!["2".to_string(), "3".to_string()],
+                text: None,
             },
             &term,
             &write_input,
@@ -6408,6 +6699,7 @@ mod tests {
                 question_id: "toolu_01#0".to_string(),
                 ask_id: Some("toolu_01".to_string()),
                 keys: vec!["2".to_string()],
+                text: None,
             },
             &term,
             &write_input,
@@ -6446,6 +6738,7 @@ mod tests {
                 question_id: "toolu_01#1".to_string(),
                 ask_id: Some("toolu_01".to_string()),
                 keys: vec!["2".to_string()],
+                text: None,
             },
             &term,
             &write_input,
@@ -6461,6 +6754,7 @@ mod tests {
                 question_id: "toolu_99#0".to_string(),
                 ask_id: None,
                 keys: vec!["1".to_string()],
+                text: None,
             },
             &term,
             &write_input,
@@ -6507,6 +6801,7 @@ mod tests {
                 question_id: "toolu_01#1".to_string(),
                 ask_id: Some("toolu_01".to_string()),
                 keys: vec!["2".to_string()],
+                text: None,
             },
             &term,
             &write_input,
@@ -6650,6 +6945,7 @@ mod tests {
                 question_id: "toolu_01#submit".to_string(),
                 ask_id: Some("toolu_01".to_string()),
                 keys: vec!["1".to_string()],
+                text: None,
             },
             &term,
             &write_input,
@@ -6718,6 +7014,7 @@ mod tests {
                 question_id: "toolu_01#submit".to_string(),
                 ask_id: Some("toolu_01".to_string()),
                 keys: vec!["1".to_string()],
+                text: None,
             },
             &term,
             &write_input,
@@ -6795,6 +7092,7 @@ mod tests {
                 question_id: "toolu_plan".to_string(),
                 ask_id: None,
                 keys: vec!["2".to_string()],
+                text: None,
             },
             &term,
             &write_input,
@@ -6826,6 +7124,7 @@ mod tests {
                 question_id: "toolu_plan".to_string(),
                 ask_id: None,
                 keys: vec!["1".to_string()],
+                text: None,
             },
             &term,
             &write_input,
@@ -6860,6 +7159,7 @@ mod tests {
             question_id: "toolu_01#0".to_string(),
             ask_id: Some("toolu_01".to_string()),
             keys: vec!["1".to_string()],
+            text: None,
         };
         let (write_input, keys) = recording_input(term.clone(), Some(review_rows()), "\t");
         let outcome = steer.handle_answer(&answer, &term, &write_input, &sender);
@@ -6927,6 +7227,7 @@ mod tests {
                 question_id: "toolu_01#0".to_string(),
                 ask_id: Some("toolu_01".to_string()),
                 keys: vec!["2".to_string()],
+                text: None,
             },
             &term,
             &write_input,
@@ -7456,6 +7757,7 @@ mod tests {
                 question_id: id.clone(),
                 ask_id: None,
                 keys: vec!["1".to_string()],
+                text: None,
             },
             &term,
             &write_input,
@@ -7477,6 +7779,7 @@ mod tests {
                 question_id: id.clone(),
                 ask_id: None,
                 keys: vec!["1".to_string()],
+                text: None,
             },
             &term,
             &write_input,
@@ -7516,6 +7819,7 @@ mod tests {
                 question_id: id,
                 ask_id: None,
                 keys: vec!["1".to_string()],
+                text: None,
             },
             &term,
             &write_input,
@@ -7545,6 +7849,7 @@ mod tests {
                 question_id: id,
                 ask_id: None,
                 keys: vec!["3".to_string()],
+                text: None,
             },
             &term,
             &write_input,

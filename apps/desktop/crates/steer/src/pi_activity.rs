@@ -524,6 +524,7 @@ mod tests {
             question_id: "call-2".into(),
             ask_id: None,
             keys: vec!["1".into()],
+            text: None,
         };
         handle_plan_answer(&answer, &mut plan, &hook, &sender);
         assert_eq!(keys.lock().unwrap().as_slice(), b"\r");
@@ -558,6 +559,7 @@ mod tests {
                 question_id: "call-3".into(),
                 ask_id: None,
                 keys: vec!["2".into()],
+                text: None,
             },
             &mut plan,
             &hook,
@@ -581,6 +583,7 @@ mod tests {
                 question_id: "other".into(),
                 ask_id: None,
                 keys: vec!["1".into()],
+                text: None,
             },
             &mut plan,
             &hook,
@@ -591,6 +594,7 @@ mod tests {
                 question_id: "call-4".into(),
                 ask_id: None,
                 keys: vec!["9".into()],
+                text: None,
             },
             &mut plan,
             &hook,

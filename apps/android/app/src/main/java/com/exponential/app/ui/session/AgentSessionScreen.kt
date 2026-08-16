@@ -284,10 +284,10 @@ fun AgentSessionScreen(
                             // One place decides semantic vs legacy: a card with a
                             // wire id answers through the `answer` frame, one
                             // without falls back to raw keystrokes (EXP-249).
-                            onAnswer = { question, keys ->
+                            onAnswer = { question, keys, text ->
                                 val wireId = question.wireId
                                 if (wireId != null) {
-                                    viewModel.sendQuestionAnswer(wireId, question.askId, keys)
+                                    viewModel.sendQuestionAnswer(wireId, question.askId, keys, text)
                                 } else {
                                     keys.forEach {
                                         viewModel.sendLegacyAnswer(
@@ -542,9 +542,10 @@ private fun ActivityFeed(
     working: Boolean,
     answerEnabled: Boolean,
     answerStates: Map<String, AnswerState>,
-    /** (question, keys) — the option keys chosen on that card; a multi-select
-     *  step sends all of them at once. */
-    onAnswer: (AgentFeedItem.Question, List<String>) -> Unit,
+    /** (question, keys, text) — the option keys chosen on that card (a
+     *  multi-select step sends all of them at once); `text` is the typed
+     *  reply for a `freeText` option (EXP-513), else null. */
+    onAnswer: (AgentFeedItem.Question, List<String>, String?) -> Unit,
     /** Advances a LEGACY multi-select picker (Tab) — semantic cards submit
      *  through [onAnswer] instead. */
     onSubmit: () -> Unit,
@@ -689,7 +690,7 @@ private fun ActivityFeed(
                             answerEnabled = answerEnabled,
                             state = answerStates[questionLockKey(item)],
                             stepLabel = null,
-                            onAnswer = { keys -> onAnswer(item, keys) },
+                            onAnswer = { keys, text -> onAnswer(item, keys, text) },
                             onSubmit = onSubmit,
                         )
                     }
@@ -935,7 +936,7 @@ private fun QuestionStepperCard(
     activeQuestionIds: Set<Long>,
     answerEnabled: Boolean,
     answerStates: Map<String, AnswerState>,
-    onAnswer: (AgentFeedItem.Question, List<String>) -> Unit,
+    onAnswer: (AgentFeedItem.Question, List<String>, String?) -> Unit,
     onSubmit: () -> Unit,
 ) {
     val current = remember(steps, answered) { currentStepperStep(steps, answered) }
@@ -954,7 +955,7 @@ private fun QuestionStepperCard(
             // No index: the ask's final review step.
             else -> "Review your answers"
         },
-        onAnswer = { keys -> onAnswer(current, keys) },
+        onAnswer = { keys, text -> onAnswer(current, keys, text) },
         onSubmit = onSubmit,
     )
 }
@@ -1036,7 +1037,7 @@ private fun QuestionCard(
     state: AnswerState?,
     /** "Question 2 of 3" when the card is one step of a stepper. */
     stepLabel: String?,
-    onAnswer: (List<String>) -> Unit,
+    onAnswer: (List<String>, String?) -> Unit,
     onSubmit: () -> Unit,
 ) {
     // Both keyed on the card id: the stepper reuses ONE card slot across the
@@ -1044,6 +1045,9 @@ private fun QuestionCard(
     // step onto the next one (EXP-274).
     var expanded by remember(item.id) { mutableStateOf(false) }
     var picked by remember(item.id) { mutableStateOf(emptySet<String>()) }
+    // EXP-513: the freeText option whose inline input is open (its key).
+    var freeTextKey by remember(item.id) { mutableStateOf<String?>(null) }
+    var freeTextValue by remember(item.id) { mutableStateOf("") }
     // A Failed state does NOT lock (EXP-334) — the card is answerable again
     // and renders the retry hint below instead of the sent row.
     val locked = state.locksCard()
@@ -1103,7 +1107,7 @@ private fun QuestionCard(
                     // The wire's first option of a plan is the primary approve
                     // action ("Approve — auto-accept edits") — promote it.
                     val primary = item.planMode && index == 0
-                    val selected = option.key in picked
+                    val selected = option.key in picked || freeTextKey == option.key
                     val interactive = answerable || locked
                     Row(
                         modifier = Modifier
@@ -1130,10 +1134,15 @@ private fun QuestionCard(
                                             // A legacy picker toggles with the
                                             // raw digit as you tap; a semantic
                                             // one submits every key at once.
-                                            if (!semantic) onAnswer(listOf(option.key))
+                                            if (!semantic) onAnswer(listOf(option.key), null)
+                                        } else if (option.freeText && semantic) {
+                                            // EXP-513: collect the reply first —
+                                            // nothing is sent until it submits.
+                                            freeTextKey =
+                                                if (freeTextKey == option.key) null else option.key
                                         } else {
                                             picked = setOf(option.key)
-                                            onAnswer(listOf(option.key))
+                                            onAnswer(listOf(option.key), null)
                                         }
                                     }
                                 } else {
@@ -1154,6 +1163,62 @@ private fun QuestionCard(
                         )
                     }
                 }
+                if (answerable && freeTextKey != null) {
+                    // EXP-513: the inline reply for the selected freeText row.
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        TextField(
+                            value = freeTextValue,
+                            onValueChange = { freeTextValue = it.take(4000) },
+                            modifier = Modifier.weight(1f),
+                            placeholder = {
+                                Text(
+                                    "Type your answer…",
+                                    color = MaterialTheme.colorScheme.onSurface
+                                        .copy(alpha = TextEmphasis.Tertiary),
+                                )
+                            },
+                            maxLines = 3,
+                            shape = RoundedCornerShape(12.dp),
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = GlassTokens.RowFill,
+                                unfocusedContainerColor = GlassTokens.RowFill,
+                                disabledContainerColor = GlassTokens.RowFill,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent,
+                                disabledIndicatorColor = Color.Transparent,
+                            ),
+                        )
+                        val canSend = freeTextValue.isNotBlank()
+                        IconButton(
+                            onClick = {
+                                val key = freeTextKey
+                                val text = freeTextValue.trim()
+                                if (key != null && text.isNotEmpty()) {
+                                    picked = setOf(key)
+                                    onAnswer(listOf(key), text)
+                                    freeTextKey = null
+                                    freeTextValue = ""
+                                }
+                            },
+                            enabled = canSend,
+                        ) {
+                            Icon(
+                                ExpIcons.uiSend,
+                                contentDescription = "Send answer",
+                                tint = if (canSend) {
+                                    MaterialTheme.colorScheme.onSurface
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                        .copy(alpha = TextEmphasis.Quaternary)
+                                },
+                            )
+                        }
+                    }
+                }
                 if (item.multiSelect && (answerable || locked)) {
                     // Semantic: one frame carrying every picked key. Legacy:
                     // Tab, which advances the TUI picker to its next step.
@@ -1166,7 +1231,7 @@ private fun QuestionCard(
                             .alpha(if (enabled) 1f else 0.5f)
                             .glassButton(active = true)
                             .clickable(enabled = enabled) {
-                                if (semantic) onAnswer(picked.toList()) else onSubmit()
+                                if (semantic) onAnswer(picked.toList(), null) else onSubmit()
                             }
                             .padding(horizontal = 10.dp, vertical = 6.dp),
                     )

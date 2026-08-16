@@ -363,11 +363,13 @@ final class AgentSessionModel {
     /// frame carrying every chosen key — the desktop owns the keystroke
     /// mapping and confirms the injection with `answer_ack`. The card locks
     /// the moment the frame goes out, so a double tap can never answer twice.
-    func sendAnswer(questionId: String, askId: String?, keys: [String]) {
+    func sendAnswer(questionId: String, askId: String?, keys: [String], text: String? = nil) {
         guard !questionId.isEmpty, !keys.isEmpty, connected else { return }
         guard !answerTracker.isLocked(questionId) else { return }
         var frame: [String: Any] = ["t": "answer", "questionId": questionId, "keys": keys]
         if let askId, !askId.isEmpty { frame["askId"] = askId }
+        // EXP-513: the typed reply for a freeText option.
+        if let text, !text.isEmpty { frame["text"] = text }
         if let data = try? JSONSerialization.data(withJSONObject: frame),
            let json = String(data: data, encoding: .utf8) {
             sendText(json)
@@ -747,7 +749,8 @@ final class AgentSessionModel {
             guard let label = o["label"] as? String, let key = o["key"] as? String,
                   !key.isEmpty else { return nil }
             return AgentQuestionOption(
-                label: label, key: key, description: Self.trimmedField(o["description"])
+                label: label, key: key, description: Self.trimmedField(o["description"]),
+                freeText: o["freeText"] as? Bool ?? false
             )
         }
         guard !options.isEmpty else { return nil }

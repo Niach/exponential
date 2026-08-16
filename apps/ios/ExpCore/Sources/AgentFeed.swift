@@ -15,11 +15,16 @@ public struct AgentQuestionOption: Equatable, Sendable {
     public let key: String
     /// Per-option help text (protocol v2, optional on the wire).
     public let description: String?
+    /// EXP-513: claude's synthetic free-text row ("Type something.") —
+    /// selecting it reveals an inline input and the typed reply rides the
+    /// answer frame's `text`. Absent from older desktops.
+    public let freeText: Bool
 
-    public init(label: String, key: String, description: String? = nil) {
+    public init(label: String, key: String, description: String? = nil, freeText: Bool = false) {
         self.label = label
         self.key = key
         self.description = description
+        self.freeText = freeText
     }
 }
 

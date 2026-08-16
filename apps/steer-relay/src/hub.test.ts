@@ -846,6 +846,8 @@ describe(`activity event kinds`, () => {
     options: [
       { label: `Red`, key: `1`, description: `warm` },
       { label: `Blue`, key: `2` },
+      // EXP-513: the synthetic free-text row must survive re-serialization.
+      { label: `Type something.`, key: `3`, freeText: true },
     ],
     multiSelect: true,
     id: `toolu_1#0`,
@@ -1012,6 +1014,42 @@ describe(`semantic answers (EXP-249)`, () => {
 
     // Answers are never echoed to the audience.
     expect(steerer.framesOf(`answer`).length).toBe(0)
+  })
+
+  test(`a free-text answer rides its typed reply to the publisher (EXP-513)`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const steerer = connectMember(hub, { sub: `s` })
+
+    hub.onMessage(
+      steerer,
+      JSON.stringify({
+        t: `answer`,
+        questionId: `toolu_1#0`,
+        askId: `toolu_1`,
+        keys: [`4`],
+        text: `purple`,
+      })
+    )
+    expect(pub.lastFrame(`answer`)).toEqual({
+      t: `answer`,
+      questionId: `toolu_1#0`,
+      askId: `toolu_1`,
+      keys: [`4`],
+      text: `purple`,
+    })
+
+    // Oversized replies are dropped by the schema, not truncated.
+    hub.onMessage(
+      steerer,
+      JSON.stringify({
+        t: `answer`,
+        questionId: `toolu_1#0`,
+        keys: [`4`],
+        text: `x`.repeat(4001),
+      })
+    )
+    expect(pub.framesOf(`answer`).length).toBe(1)
   })
 
   test(`answers from every joined socket flow — no single operator`, () => {

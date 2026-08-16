@@ -373,6 +373,7 @@ export class Hub {
             questionId: msg.questionId,
             ...(msg.askId !== undefined ? { askId: msg.askId } : {}),
             keys: msg.keys,
+            ...(msg.text !== undefined ? { text: msg.text } : {}),
           })
         )
         return
