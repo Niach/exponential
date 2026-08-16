@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "uniq_conversion_events_return_visit_daily" ON "conversion_events" USING btree ("user_id",(properties->>'day')) WHERE name = 'return_visit';

@@ -1438,8 +1438,8 @@ export const conversionEvents = pgTable(
       onDelete: `set null`,
     }),
     anonymousId: varchar(`anonymous_id`, { length: 64 }),
-    // landing|signup|onboarding_completed|team_created|invite_sent|
-    // invite_accepted|first_issue_created|checkout_started|
+    // landing|return_visit|signup|onboarding_completed|team_created|
+    // invite_sent|invite_accepted|first_issue_created|checkout_started|
     // subscription_first_active|seats_updated|plan_changed|cancel_scheduled|
     // subscription_resumed|subscription_canceled — documented varchar (typed
     // union in lib/conversion/events.ts), not a pg enum, so new names never
@@ -1469,6 +1469,12 @@ export const conversionEvents = pgTable(
     uniqueIndex(`uniq_conversion_events_landing_daily`)
       .on(table.name, table.anonymousId)
       .where(sql`name = 'landing'`),
+    // return_visit dedupes to once per signed-in user per UTC day; the day
+    // string rides properties (writer: lib/conversion/capture.ts) because a
+    // created_at date expression would need an AT TIME ZONE cast here.
+    uniqueIndex(`uniq_conversion_events_return_visit_daily`)
+      .on(table.userId, sql`(properties->>'day')`)
+      .where(sql`name = 'return_visit'`),
   ]
 )
 

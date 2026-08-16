@@ -103,6 +103,8 @@ function AdminConversions() {
 
   const signupRows = dayRows(overview.eventsByDay, [`signup`])
   const landingRows = dayRows(overview.eventsByDay, [`landing`])
+  // One return_visit per user per UTC day, so the count IS active users.
+  const returnRows = dayRows(overview.eventsByDay, [`return_visit`])
   const activationRows = dayRows(overview.eventsByDay, [
     `first_issue_created`,
     `invite_sent`,
@@ -180,6 +182,12 @@ function AdminConversions() {
           rows={paidRows}
           days={days}
           unit="subscription"
+        />
+        <ChartCard
+          title={`Active users (last ${days} days)`}
+          rows={returnRows}
+          days={days}
+          unit="active user-day"
         />
       </div>
 
@@ -279,7 +287,7 @@ function AdminConversions() {
         <CardHeader>
           <CardTitle className="text-sm">Recent events</CardTitle>
           <CardDescription className="text-xs">
-            Latest 50 conversion events across all names.
+            Latest 50 conversion events in the window, across all names.
           </CardDescription>
         </CardHeader>
         <CardContent>

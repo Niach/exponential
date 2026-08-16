@@ -1,9 +1,11 @@
 import { db } from "@/db/connection"
+import { auth } from "@/lib/auth"
 import { dailyAnonymousId } from "@/lib/conversion/anonymous"
 import {
   extractAttributionParams,
   externalReferrer,
   shouldCaptureLanding,
+  shouldCaptureReturnVisit,
 } from "@/lib/conversion/attribution"
 import {
   conversionTrackingEnabled,
@@ -62,5 +64,49 @@ export function captureLanding(req: Request): void {
     })
   } catch (err) {
     console.error(`[conversion] landing capture failed:`, err)
+  }
+}
+
+// In-process dedupe so a user's page loads after the first of the day cost
+// neither a session lookup nor an insert round-trip. The partial unique
+// index (uniq_conversion_events_return_visit_daily) is the real guarantee
+// across restarts and replicas; this map only saves round-trips. Cleared on
+// UTC day rollover so it stays bounded by the day's active users.
+const returnVisitSeen = new Map<string, string>()
+let returnVisitDay = ``
+
+// Signed-in daily-activity counterpart to captureLanding (EXP-522): one
+// `return_visit` row per user per UTC day, recorded fire-and-forget from the
+// same server-bun tap. Session resolution (a DB lookup) runs only on document
+// GETs that carry a session cookie — SPA shell loads, not API traffic.
+export function captureReturnVisit(req: Request): void {
+  try {
+    // Cloud-only (EXP-362): self-hosted instances collect no analytics.
+    if (!conversionTrackingEnabled()) return
+    if (!shouldCaptureReturnVisit(req)) return
+    const day = new Date().toISOString().slice(0, 10)
+    if (day !== returnVisitDay) {
+      returnVisitDay = day
+      returnVisitSeen.clear()
+    }
+    const path = new URL(req.url).pathname
+    void (async () => {
+      const session = await auth.api.getSession({ headers: req.headers })
+      const userId = session?.user.id
+      if (!userId || returnVisitSeen.get(userId) === day) return
+      returnVisitSeen.set(userId, day)
+      // `day` rides properties so the partial unique index can key on it —
+      // created_at date expressions would need an AT TIME ZONE cast the
+      // existing index conventions avoid.
+      await recordConversionEvent(db, {
+        name: `return_visit`,
+        userId,
+        properties: { day, path },
+      })
+    })().catch((err) => {
+      console.error(`[conversion] return-visit capture failed:`, err)
+    })
+  } catch (err) {
+    console.error(`[conversion] return-visit capture failed:`, err)
   }
 }

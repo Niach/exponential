@@ -44,7 +44,10 @@ import { startDeviceCodeSweepScheduler } from "@/lib/device-code-sweep"
 import { startEmailDigestScheduler } from "@/lib/notification-email-digest"
 import { startBoardTrashScheduler } from "@/lib/board-trash"
 import { startCodingSessionSweepScheduler } from "@/lib/coding-session-sweep"
-import { captureLanding } from "@/lib/conversion/capture"
+import {
+  captureLanding,
+  captureReturnVisit,
+} from "@/lib/conversion/capture"
 import { MAX_REQUEST_BODY_BYTES } from "@/lib/request-body-limit"
 
 // Fire-and-forget: apply the custom trigger SQL and promote initial admins.
@@ -209,6 +212,7 @@ function ensureNativeResponse(res: Response): Response {
 
 let _fetch: (req: Request) => Response | Promise<Response> = async (req) => {
   captureLanding(req)
+  captureReturnVisit(req)
   return withNoindexHeader(
     withSecurityHeaders(
       withSupportPageHeaders(
@@ -238,6 +242,7 @@ if (hasWebSocket && ws) {
       return upgraded as Response | Promise<Response>
     }
     captureLanding(req)
+    captureReturnVisit(req)
     return withNoindexHeader(
       withSecurityHeaders(
         withSupportPageHeaders(
