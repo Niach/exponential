@@ -10,7 +10,10 @@
 //! **Best-effort and non-blocking** (§8.4): if the relay is disabled or
 //! unreachable the coding session runs fine locally — the publisher never
 //! gates the terminal. Control frames and activity events ride ONE unbounded
-//! channel that is never dropped or reordered.
+//! channel that is never dropped or reordered. Remote `input` frames ride a
+//! second ordered channel to a dedicated task (EXP-514), so their
+//! choreography — sleeps, EXP-511 image downloads — never stalls the pump
+//! loop's ping tick past the relay's idle-publisher timeout.
 //!
 //! Steering is seamless and owner-only (EXP-312): there is no operator claim
 //! and no perm tier, viewer tickets are minted only for the session owner,
@@ -99,15 +102,16 @@ pub enum KillSignal {
 pub type InputHook = Arc<dyn Fn(&[u8]) + Send + Sync>;
 
 /// EXP-511: attachment id → the local file the agent should read. BLOCKING
-/// (HTTP + a disk write); the pump calls it from `spawn_blocking`. `Err` is a
-/// human-readable reason for the log — the embed then stays as it arrived.
+/// (HTTP + a disk write); the input task calls it from `spawn_blocking`.
+/// `Err` is a human-readable reason for the log — the embed then stays as it
+/// arrived.
 pub type AttachmentHook = Arc<dyn Fn(&str) -> Result<PathBuf, String> + Send + Sync>;
 
 /// The seam back into the app (§8.9). Every hook is invoked on the steer
 /// runtime — implementations marshal to the gpui foreground themselves where
 /// needed. Cheap-and-non-blocking applies to all of them EXCEPT
-/// [`PublisherHooks::attachments`], which the pump deliberately runs on a
-/// blocking task.
+/// [`PublisherHooks::attachments`], which runs on a blocking task off the
+/// dedicated input task (EXP-514) — never on the pump loop.
 pub struct PublisherHooks {
     /// Remote `input` frames → the ONE shared PTY writer (§6.5). Build with
     /// [`pty_writer_input_hook`] over `Terminal::writer()`.
@@ -406,9 +410,13 @@ async fn run_publisher_loop(
     cmd_rx: flume::Receiver<PublisherCmd>,
     running: Arc<AtomicBool>,
 ) {
+    let hooks = Arc::new(hooks);
     // EXP-511: the session's localized image embeds — filled by the input
     // path, read by the activity path, and shared across reconnects.
     let embeds: ImageEmbedMap = Arc::new(Mutex::new(Vec::new()));
+    // EXP-514: remote input is handled on its own session-lived task, fed in
+    // order over this channel — the pump loop must never await a download.
+    let input_tx = spawn_input_pump(hooks.clone(), embeds.clone());
     // EXP-249: the session's full published history. Every connection starts
     // with `activity_reset` + this journal, so a viewer joining a resumed room
     // (or after a relay restart) sees the session from its first event.
@@ -526,7 +534,8 @@ async fn run_publisher_loop(
         }
 
         let end =
-            pump_connection(&mut ws, &hooks, &cmd_rx, &mut journal, &embeds, &running).await;
+            pump_connection(&mut ws, &hooks, &input_tx, &cmd_rx, &mut journal, &embeds, &running)
+                .await;
 
         match end {
             LoopEnd::Clean => {
@@ -578,27 +587,239 @@ async fn run_publisher_loop(
     }
 }
 
-/// One connection's select loop (§8.4's pseudocode, made real).
+// ---------------------------------------------------------------------------
+// Remote input (EXP-514: its own ordered task, off the pump loop)
+// ---------------------------------------------------------------------------
+
+// EXP-72: when a steerer's Enter (a bare `\r` frame) chases their message
+// text this closely, the child can read text+`\r` as ONE chunk and the
+// `claude` TUI's paste heuristic inserts a newline instead of submitting.
+// Hold the `\r` back until the child has had a beat to drain the text.
+// Ordering is safe — the input task is the only remote-input writer.
+const ENTER_SEPARATION: Duration = Duration::from_millis(150);
+// EXP-249 belt-and-braces: a pre-v2 client answers a picker by sending the
+// option digit and then a bare `\r`. The digit ALONE already submits (and
+// auto-advances a multi-question ask), so the trailing Enter would answer
+// the NEXT question with whatever it is sitting on. Swallow it while an
+// ask is pending.
+const ENTER_CASCADE_WINDOW: Duration = Duration::from_millis(500);
+// EXP-334: a free-text message arriving while a plan/ask picker owns the
+// keyboard would be EATEN by the picker — and its trailing Enter would
+// activate the highlighted row (observed: a note typed on a plan approval
+// silently approved the plan and the note was lost). Esc dismisses the
+// picker first (plan mode stays on; claude reads the next message as plan
+// feedback / a free-form reply), after a short pause for the TUI to drop
+// the picker before the text lands.
+const PICKER_DISMISS_PAUSE: Duration = Duration::from_millis(350);
+// EXP-347: the emitter publishes the grid-picker flag once per ~1s poll
+// tick, so a `true` read here can be stale — the desktop user may have
+// just answered the picker locally, and Escing then CANCELS the turn
+// claude already started. Hold the message this long (> the emitter's 1s
+// POLL_INTERVAL, so at least one fresh grid look lands in between) and
+// re-read before committing to the Esc. Only the reroute path pays the
+// latency, and there the agent is parked on a picker anyway.
+const PICKER_REVALIDATE_DEFER: Duration = Duration::from_millis(1250);
+// One Esc per message: later chunks of the same (≤4 KiB-chunked) message
+// must not re-fire while the emitter's grid flag lags the dismissal.
+const ESC_REROUTE_WINDOW: Duration = Duration::from_secs(3);
+// EXP-383: composer-message chunk tracking. A message arrives as ≤4 KiB
+// text chunks closed by a bare `\r`; the FIRST chunk is where codex's
+// leading-sigil guard applies and where pi's sink buffer opens. A chunk
+// this stale without its `\r` is a dead message (client gone mid-send) —
+// the next text chunk counts as a fresh composer open again.
+const MESSAGE_STALENESS: Duration = Duration::from_secs(5);
+
+/// The choreography state one remote `input` frame threads to the next.
+/// Session-lived (like the journal): a reconnect changes the socket, not the
+/// composer the steerer is typing into.
+#[derive(Default)]
+struct InputState {
+    last_input_at: Option<Instant>,
+    last_digit_at: Option<Instant>,
+    esc_routed_at: Option<Instant>,
+    message_chunk_at: Option<Instant>,
+    /// EXP-444: the previous frame was a login-refused message — its trailing
+    /// Enter (the paste's submit) is swallowed too; any other input clears it.
+    login_refused_message: bool,
+    /// EXP-383 (pi): text chunks buffered for `text_sink` until the `\r`.
+    sink_buffer: String,
+}
+
+/// EXP-514: remote `input` frames are handled on this dedicated session-lived
+/// task, fed strictly in order over an unbounded channel. EXP-511 embed
+/// localization downloads sequentially with a 60s per-blob timeout, so a
+/// multi-image message against a slow app server can stall for minutes —
+/// awaited inline in the pump's select loop (which also owns the 30s ping
+/// tick) that silence tripped the relay's 90s idle-publisher detector and
+/// closed the room. Off-loop, pings and activity keep flowing while the
+/// downloads run, and the single-task ordering preserves the composer
+/// choreography (text chunks, then the submitting `\r`). The task drains what
+/// was queued and ends when the last sender drops (publisher teardown).
+fn spawn_input_pump(hooks: Arc<PublisherHooks>, embeds: ImageEmbedMap) -> flume::Sender<String> {
+    let (input_tx, input_rx) = flume::unbounded::<String>();
+    tokio::spawn(async move {
+        let mut state = InputState::default();
+        while let Ok(data) = input_rx.recv_async().await {
+            handle_input(data, &hooks, &embeds, &mut state).await;
+        }
+    });
+    input_tx
+}
+
+/// One remote `input` frame's full choreography. Runs only on the input task
+/// (see [`spawn_input_pump`]) — free to sleep and download.
+async fn handle_input(
+    mut data: String,
+    hooks: &PublisherHooks,
+    embeds: &ImageEmbedMap,
+    state: &mut InputState,
+) {
+    // EXP-511: localize the message's image embeds
+    // FIRST, so every consumer below (the pi sink, the
+    // codex sigil guard, the PTY write) sees the paths
+    // the agent can actually read. A localized message
+    // may now START with `/` — the codex guard's space
+    // prefix is then exactly right, so it stays.
+    if is_message_text(&data) {
+        if let Some(localize) = &hooks.attachments {
+            data = localize_image_embeds(data, localize, embeds).await;
+        }
+    }
+    // EXP-383 (pi): with a text sink, whole composer
+    // messages route to the observer extension — pi's own
+    // `sendUserMessage` submits them, so the trailing
+    // `\r` is swallowed too. Single keystrokes (digits,
+    // Esc, arrows) still land raw on the PTY: local
+    // parity for everything that is not a message.
+    if let Some(sink) = &hooks.text_sink {
+        let stale = state
+            .message_chunk_at
+            .is_none_or(|at| at.elapsed() >= MESSAGE_STALENESS);
+        if stale && !state.sink_buffer.is_empty() {
+            state.sink_buffer.clear();
+        }
+        if is_message_text(&data) {
+            state.sink_buffer.push_str(&data);
+            state.message_chunk_at = Some(Instant::now());
+            return;
+        }
+        if data == "\r" && !state.sink_buffer.is_empty() {
+            sink(std::mem::take(&mut state.sink_buffer));
+            state.message_chunk_at = None;
+            return;
+        }
+    }
+    // EXP-444: a login screen that solicited the OAuth
+    // code closed before this text arrived (local Esc,
+    // OAuth timeout) — writing it now would submit the
+    // code as an ordinary prompt, publish it as a
+    // UserMessage and journal it to every viewer. Refuse
+    // the message (one-shot — the emitter narrates that
+    // nothing was sent) and swallow its trailing Enter.
+    // Single keystrokes pass untouched.
+    if is_message_text(&data)
+        && hooks
+            .answers
+            .as_ref()
+            .is_some_and(|answers| answers.login_refusal_active())
+    {
+        if let Some(answers) = &hooks.answers {
+            answers.note_login_refusal();
+        }
+        state.login_refused_message = true;
+        return;
+    }
+    if std::mem::take(&mut state.login_refused_message) && data == "\r" {
+        return;
+    }
+    let ask_pending = hooks
+        .answers
+        .as_ref()
+        .is_some_and(|answers| answers.ask_pending());
+    if data == "\r" {
+        let cascade = ask_pending
+            && state
+                .last_digit_at
+                .is_some_and(|at| at.elapsed() < ENTER_CASCADE_WINDOW);
+        if cascade {
+            state.last_digit_at = None;
+            return;
+        }
+        if let Some(at) = state.last_input_at {
+            let elapsed = at.elapsed();
+            if elapsed < ENTER_SEPARATION {
+                tokio::time::sleep(ENTER_SEPARATION - elapsed).await;
+            }
+        }
+    }
+    // EXP-334: message text while a picker is on the grid
+    // → Esc the picker away first, or it eats the text and
+    // the trailing Enter answers it with the highlighted
+    // row. Single keystrokes (digits, Tab, Esc, arrow
+    // sequences) stay verbatim — they ARE picker input.
+    if is_message_text(&data) {
+        let picker = || {
+            hooks
+                .answers
+                .as_ref()
+                .is_some_and(|answers| answers.grid_picker_pending())
+        };
+        let routed = state
+            .esc_routed_at
+            .is_some_and(|at| at.elapsed() < ESC_REROUTE_WINDOW);
+        if picker() && !routed {
+            // EXP-347: the flag may be a stale tick — defer
+            // past one emitter poll and re-confirm before
+            // the Esc, which would cancel a live turn if
+            // the picker was in fact just answered.
+            tokio::time::sleep(PICKER_REVALIDATE_DEFER).await;
+            if picker() {
+                state.esc_routed_at = Some(Instant::now());
+                (hooks.write_input)(b"\x1b");
+                tokio::time::sleep(PICKER_DISMISS_PAUSE).await;
+            }
+        }
+    }
+    if is_message_text(&data) {
+        // EXP-383: the codex composer hijacks a leading
+        // `/` (slash popup), `!` (bash mode) or `@` (file
+        // search) — Enter then accepts a completion
+        // instead of submitting. A space prefix defuses
+        // all three; only the chunk that OPENS the
+        // composer needs it.
+        let opens_composer = state
+            .message_chunk_at
+            .is_none_or(|at| at.elapsed() >= MESSAGE_STALENESS);
+        if hooks.agent == SessionAgent::Codex
+            && opens_composer
+            && data.starts_with(['/', '!', '@'])
+        {
+            (hooks.write_input)(b" ");
+        }
+        state.message_chunk_at = Some(Instant::now());
+    } else if data == "\r" {
+        state.message_chunk_at = None;
+    }
+    if data.len() == 1 && data.as_bytes()[0].is_ascii_digit() {
+        state.last_digit_at = Some(Instant::now());
+    }
+    state.last_input_at = Some(Instant::now());
+    (hooks.write_input)(data.as_bytes())
+}
+
+/// One connection's select loop (§8.4's pseudocode, made real). Remote
+/// `input` frames are FORWARDED to the session's input task (EXP-514), never
+/// handled here — their choreography sleeps and downloads, and this loop owns
+/// the ping tick the relay's idle detector watches.
 async fn pump_connection(
     ws: &mut WsStream,
     hooks: &PublisherHooks,
+    input_tx: &flume::Sender<String>,
     cmd_rx: &flume::Receiver<PublisherCmd>,
     journal: &mut ActivityJournal,
     embeds: &ImageEmbedMap,
     running: &Arc<AtomicBool>,
 ) -> LoopEnd {
-    // EXP-72: when a steerer's Enter (a bare `\r` frame) chases their message
-    // text this closely, the child can read text+`\r` as ONE chunk and the
-    // `claude` TUI's paste heuristic inserts a newline instead of submitting.
-    // Hold the `\r` back until the child has had a beat to drain the text.
-    // Ordering is safe — this task is the only remote-input writer.
-    const ENTER_SEPARATION: Duration = Duration::from_millis(150);
-    // EXP-249 belt-and-braces: a pre-v2 client answers a picker by sending the
-    // option digit and then a bare `\r`. The digit ALONE already submits (and
-    // auto-advances a multi-question ask), so the trailing Enter would answer
-    // the NEXT question with whatever it is sitting on. Swallow it while an
-    // ask is pending.
-    const ENTER_CASCADE_WINDOW: Duration = Duration::from_millis(500);
     // REV2-X: Send periodic pings so the relay can detect dead publishers.
     // During plan mode (or any idle period), the desktop sends no activity,
     // and without pings, a dropped connection can sit undetected while UIs retry
@@ -613,40 +834,6 @@ async fn pump_connection(
     // looks live locally while remote view/steer is dead until TCP gives up.
     // Dropping here reconnects promptly: re-mint, re-hello, journal replay.
     const LIVENESS_TIMEOUT: Duration = Duration::from_secs(90);
-    // EXP-334: a free-text message arriving while a plan/ask picker owns the
-    // keyboard would be EATEN by the picker — and its trailing Enter would
-    // activate the highlighted row (observed: a note typed on a plan approval
-    // silently approved the plan and the note was lost). Esc dismisses the
-    // picker first (plan mode stays on; claude reads the next message as plan
-    // feedback / a free-form reply), after a short pause for the TUI to drop
-    // the picker before the text lands.
-    const PICKER_DISMISS_PAUSE: Duration = Duration::from_millis(350);
-    // EXP-347: the emitter publishes the grid-picker flag once per ~1s poll
-    // tick, so a `true` read here can be stale — the desktop user may have
-    // just answered the picker locally, and Escing then CANCELS the turn
-    // claude already started. Hold the message this long (> the emitter's 1s
-    // POLL_INTERVAL, so at least one fresh grid look lands in between) and
-    // re-read before committing to the Esc. Only the reroute path pays the
-    // latency, and there the agent is parked on a picker anyway.
-    const PICKER_REVALIDATE_DEFER: Duration = Duration::from_millis(1250);
-    // One Esc per message: later chunks of the same (≤4 KiB-chunked) message
-    // must not re-fire while the emitter's grid flag lags the dismissal.
-    const ESC_REROUTE_WINDOW: Duration = Duration::from_secs(3);
-    // EXP-383: composer-message chunk tracking. A message arrives as ≤4 KiB
-    // text chunks closed by a bare `\r`; the FIRST chunk is where codex's
-    // leading-sigil guard applies and where pi's sink buffer opens. A chunk
-    // this stale without its `\r` is a dead message (client gone mid-send) —
-    // the next text chunk counts as a fresh composer open again.
-    const MESSAGE_STALENESS: Duration = Duration::from_secs(5);
-    let mut last_input_at: Option<Instant> = None;
-    let mut last_digit_at: Option<Instant> = None;
-    let mut esc_routed_at: Option<Instant> = None;
-    let mut message_chunk_at: Option<Instant> = None;
-    // EXP-444: the previous frame was a login-refused message — its trailing
-    // Enter (the paste's submit) is swallowed too; any other input clears it.
-    let mut login_refused_message = false;
-    // EXP-383 (pi): text chunks buffered for `text_sink` until the `\r`.
-    let mut sink_buffer = String::new();
     let mut ping_interval = tokio::time::interval(PING_INTERVAL);
     ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     // REV-41: any inbound frame (the relay's pongs to our pings included —
@@ -686,134 +873,15 @@ async fn pump_connection(
                 }
                 match msg {
                     Some(Ok(Message::Text(text))) => match ServerFrame::parse(&text) {
-                        Some(ServerFrame::Input { mut data }) => {
-                            // EXP-511: localize the message's image embeds
-                            // FIRST, so every consumer below (the pi sink, the
-                            // codex sigil guard, the PTY write) sees the paths
-                            // the agent can actually read. A localized message
-                            // may now START with `/` — the codex guard's space
-                            // prefix is then exactly right, so it stays.
-                            if is_message_text(&data) {
-                                if let Some(localize) = &hooks.attachments {
-                                    data = localize_image_embeds(data, localize, embeds).await;
-                                }
-                            }
-                            // EXP-383 (pi): with a text sink, whole composer
-                            // messages route to the observer extension — pi's own
-                            // `sendUserMessage` submits them, so the trailing
-                            // `\r` is swallowed too. Single keystrokes (digits,
-                            // Esc, arrows) still land raw on the PTY: local
-                            // parity for everything that is not a message.
-                            if let Some(sink) = &hooks.text_sink {
-                                let stale = message_chunk_at
-                                    .is_none_or(|at| at.elapsed() >= MESSAGE_STALENESS);
-                                if stale && !sink_buffer.is_empty() {
-                                    sink_buffer.clear();
-                                }
-                                if is_message_text(&data) {
-                                    sink_buffer.push_str(&data);
-                                    message_chunk_at = Some(Instant::now());
-                                    continue;
-                                }
-                                if data == "\r" && !sink_buffer.is_empty() {
-                                    sink(std::mem::take(&mut sink_buffer));
-                                    message_chunk_at = None;
-                                    continue;
-                                }
-                            }
-                            // EXP-444: a login screen that solicited the OAuth
-                            // code closed before this text arrived (local Esc,
-                            // OAuth timeout) — writing it now would submit the
-                            // code as an ordinary prompt, publish it as a
-                            // UserMessage and journal it to every viewer. Refuse
-                            // the message (one-shot — the emitter narrates that
-                            // nothing was sent) and swallow its trailing Enter.
-                            // Single keystrokes pass untouched.
-                            if is_message_text(&data)
-                                && hooks
-                                    .answers
-                                    .as_ref()
-                                    .is_some_and(|answers| answers.login_refusal_active())
-                            {
-                                if let Some(answers) = &hooks.answers {
-                                    answers.note_login_refusal();
-                                }
-                                login_refused_message = true;
-                                continue;
-                            }
-                            if std::mem::take(&mut login_refused_message) && data == "\r" {
-                                continue;
-                            }
-                            let ask_pending = hooks
-                                .answers
-                                .as_ref()
-                                .is_some_and(|answers| answers.ask_pending());
-                            if data == "\r" {
-                                let cascade = ask_pending
-                                    && last_digit_at
-                                        .is_some_and(|at| at.elapsed() < ENTER_CASCADE_WINDOW);
-                                if cascade {
-                                    last_digit_at = None;
-                                    continue;
-                                }
-                                if let Some(at) = last_input_at {
-                                    let elapsed = at.elapsed();
-                                    if elapsed < ENTER_SEPARATION {
-                                        tokio::time::sleep(ENTER_SEPARATION - elapsed).await;
-                                    }
-                                }
-                            }
-                            // EXP-334: message text while a picker is on the grid
-                            // → Esc the picker away first, or it eats the text and
-                            // the trailing Enter answers it with the highlighted
-                            // row. Single keystrokes (digits, Tab, Esc, arrow
-                            // sequences) stay verbatim — they ARE picker input.
-                            if is_message_text(&data) {
-                                let picker = || {
-                                    hooks
-                                        .answers
-                                        .as_ref()
-                                        .is_some_and(|answers| answers.grid_picker_pending())
-                                };
-                                let routed = esc_routed_at
-                                    .is_some_and(|at| at.elapsed() < ESC_REROUTE_WINDOW);
-                                if picker() && !routed {
-                                    // EXP-347: the flag may be a stale tick — defer
-                                    // past one emitter poll and re-confirm before
-                                    // the Esc, which would cancel a live turn if
-                                    // the picker was in fact just answered.
-                                    tokio::time::sleep(PICKER_REVALIDATE_DEFER).await;
-                                    if picker() {
-                                        esc_routed_at = Some(Instant::now());
-                                        (hooks.write_input)(b"\x1b");
-                                        tokio::time::sleep(PICKER_DISMISS_PAUSE).await;
-                                    }
-                                }
-                            }
-                            if is_message_text(&data) {
-                                // EXP-383: the codex composer hijacks a leading
-                                // `/` (slash popup), `!` (bash mode) or `@` (file
-                                // search) — Enter then accepts a completion
-                                // instead of submitting. A space prefix defuses
-                                // all three; only the chunk that OPENS the
-                                // composer needs it.
-                                let opens_composer = message_chunk_at
-                                    .is_none_or(|at| at.elapsed() >= MESSAGE_STALENESS);
-                                if hooks.agent == SessionAgent::Codex
-                                    && opens_composer
-                                    && data.starts_with(['/', '!', '@'])
-                                {
-                                    (hooks.write_input)(b" ");
-                                }
-                                message_chunk_at = Some(Instant::now());
-                            } else if data == "\r" {
-                                message_chunk_at = None;
-                            }
-                            if data.len() == 1 && data.as_bytes()[0].is_ascii_digit() {
-                                last_digit_at = Some(Instant::now());
-                            }
-                            last_input_at = Some(Instant::now());
-                            (hooks.write_input)(data.as_bytes())
+                        Some(ServerFrame::Input { data }) => {
+                            // EXP-514: input choreography sleeps (Enter
+                            // separation, picker revalidation) and downloads
+                            // (EXP-511 embed localization — up to 60s per
+                            // blob) — inline it starved the ping tick and the
+                            // relay's 90s idle detector closed the room. The
+                            // input task processes frames strictly in order;
+                            // a send after teardown is a harmless no-op.
+                            let _ = input_tx.send(data);
                         }
                         // EXP-249: the semantic answer path — the emitter owns
                         // question identity + the TUI key choreography, so the
@@ -1539,6 +1607,77 @@ mod tests {
             .unwrap();
         wait_for(|| !recorded.inputs.lock().unwrap().is_empty());
         assert_eq!(recorded.inputs.lock().unwrap()[0], EMBED.as_bytes());
+        handle.shutdown(None);
+    }
+
+    #[test]
+    fn a_hung_image_download_never_stalls_the_pump_loop() {
+        // EXP-514: localization runs on the dedicated input task. A slow
+        // download (up to 60s per blob, sequential) used to run inline in the
+        // pump's select loop — silencing the 30s ping tick and the activity
+        // flush until the relay's 90s idle detector closed the room. The hook
+        // below parks until released: activity published meanwhile must still
+        // reach the relay, and the message (with its chased Enter) must land
+        // afterwards, localized and in order.
+        let runtime = SteerRuntime::new().unwrap();
+        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
+        let recorded = Arc::new(Recorded::default());
+        let release = Arc::new(AtomicBool::new(false));
+        let gate = release.clone();
+        let local = image_dir("slow").join("11111111-2222-3333-4444-555555555555.png");
+        let localized = local.clone();
+        let mut hooks = recording_hooks(recorded.clone());
+        hooks.attachments = Some(Arc::new(move |_id| {
+            while !gate.load(Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Ok(localized.clone())
+        }));
+        let handle = publish(
+            &runtime,
+            PublishSpec {
+                session_id: "sess-img-slow".to_string(),
+                issue_id: None,
+            },
+            Arc::new(FakeTickets {
+                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
+            }),
+            hooks,
+        );
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
+
+        inject_tx
+            .send(Message::Text(format!(
+                r#"{{"t":"input","data":{}}}"#,
+                serde_json::to_string(&format!("look at {EMBED}")).unwrap()
+            )))
+            .unwrap();
+        inject_tx
+            .send(Message::Text(r#"{"t":"input","data":"\r"}"#.to_string()))
+            .unwrap();
+
+        // The download is parked — the pump must still flush activity.
+        handle
+            .activity_sender()
+            .send(ActivityEvent::narration("still alive"));
+        let event = seen_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(event.contains(r#""text":"still alive""#), "{event}");
+        assert!(
+            recorded.inputs.lock().unwrap().is_empty(),
+            "the input waits on its download"
+        );
+
+        // Released, the message lands localized, then its Enter.
+        release.store(true, Ordering::SeqCst);
+        wait_for(|| recorded.inputs.lock().unwrap().len() >= 2);
+        assert_eq!(
+            recorded.inputs.lock().unwrap().as_slice(),
+            &[
+                format!("look at {}", local.display()).into_bytes(),
+                b"\r".to_vec()
+            ]
+        );
         handle.shutdown(None);
     }
 
