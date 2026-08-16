@@ -329,6 +329,56 @@ impl ActivityEvent {
         }
     }
 
+    /// Every FREE-TEXT field of the event, mutably (EXP-511: the publisher
+    /// walks them to put a localized image path back to the embed token the
+    /// steerer sent — a local path must never reach the published feed,
+    /// whichever kind ends up quoting it). Deliberately excludes the machine
+    /// fields — ids, `QuestionOption::key` (raw keystrokes) — which no rewrite
+    /// may touch.
+    pub fn text_fields_mut(&mut self) -> Vec<&mut String> {
+        match self {
+            ActivityEvent::Narration { text, .. } | ActivityEvent::UserMessage { text, .. } => {
+                vec![text]
+            }
+            ActivityEvent::Tool { name, detail, .. } => {
+                let mut fields = vec![name];
+                fields.extend(detail.as_mut());
+                fields
+            }
+            ActivityEvent::Diff { diff, .. } => vec![diff],
+            ActivityEvent::Question {
+                text,
+                options,
+                header,
+                ..
+            } => {
+                let mut fields = vec![text];
+                for option in options {
+                    fields.push(&mut option.label);
+                    fields.extend(option.description.as_mut());
+                }
+                fields.extend(header.as_mut());
+                fields
+            }
+            ActivityEvent::QuestionResolved { answers, .. } => {
+                answers.iter_mut().flatten().collect()
+            }
+            ActivityEvent::AnswerAck { .. } => Vec::new(),
+            ActivityEvent::Subagent {
+                agent_type, detail, ..
+            } => {
+                let mut fields = vec![agent_type];
+                fields.extend(detail.as_mut());
+                fields
+            }
+            ActivityEvent::Permission { tool, detail, .. } => {
+                let mut fields = vec![tool];
+                fields.extend(detail.as_mut());
+                fields
+            }
+        }
+    }
+
     /// The event's `at` slot — the history buffer stamps events here so a
     /// re-publish keeps the original timeline.
     pub fn at_mut(&mut self) -> &mut Option<i64> {

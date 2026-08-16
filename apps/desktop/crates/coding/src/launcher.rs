@@ -67,6 +67,28 @@ use crate::settings::Settings;
 pub const SESSION_HEARTBEAT_INTERVAL: std::time::Duration =
     std::time::Duration::from_secs(30 * 60);
 
+/// EXP-511: the per-worktree scratch dir the steer publisher downloads a
+/// steered message's image attachments into, so the agent reads a FILE instead
+/// of an auth-gated URL. `coding` never talks to the relay (§3.1) — it only
+/// owns the name and the git exclusion; the hosts (`ui`/`cli`) hand the path to
+/// the publisher.
+pub const STEER_IMAGES_DIR: &str = ".exp-steer-images";
+
+/// The launcher's never-committed seed files + scratch dirs, appended to the
+/// clone's shared `.git/info/exclude`. Best-effort coverage only: the
+/// secret-carrying `.exp-mcp.json` has its own HARD, verified guard at the
+/// write site ([`wire_agent_mcp`] via [`crate::git_worktree::ensure_ignored`],
+/// EXP-474), and the PROMPT.md exclude rides
+/// [`crate::prompt::deliver_prompt_file`].
+const LOCAL_EXCLUDES: &[&str] = &[
+    crate::mcp_json::MCP_JSON_FILE,
+    crate::pi_bridge::PI_BRIDGE_FILE,
+    crate::pi_bridge::PI_OBSERVER_FILE,
+    crate::pi_bridge::PI_PLAN_FILE,
+    crate::worktree_agents::AGENTS_FILE,
+    STEER_IMAGES_DIR,
+];
+
 /// Where the launch came from (§7.1). Both origins run the SAME sequence —
 /// the variant exists for the session's audit surface, not for branching.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -295,22 +317,10 @@ impl WorktreeProvider for GitWorktrees {
         let _ = fetch_base(&clone, default_branch, url);
         let worktree =
             create_worktree(&clone, branch, &format!("origin/{default_branch}"), url)?;
-        // Best-effort exclude coverage for the launcher's seed files, via
-        // the shared, never-committed `.git/info/exclude` (the PROMPT.md
-        // exclude rides [`crate::prompt::deliver_prompt_file`]). The
-        // secret-carrying `.exp-mcp.json` no longer relies on this list: its
-        // hard, verified guard runs at the write site (EXP-474 —
-        // [`wire_agent_mcp`] via [`crate::git_worktree::ensure_ignored`]).
-        let _ = crate::git_worktree::ensure_local_excludes(
-            &clone,
-            &[
-                crate::mcp_json::MCP_JSON_FILE,
-                crate::pi_bridge::PI_BRIDGE_FILE,
-                crate::pi_bridge::PI_OBSERVER_FILE,
-                crate::pi_bridge::PI_PLAN_FILE,
-                crate::worktree_agents::AGENTS_FILE,
-            ],
-        );
+        // Best-effort exclude coverage for the launcher's local-only files
+        // ([`LOCAL_EXCLUDES`]), via the shared, never-committed
+        // `.git/info/exclude`.
+        let _ = crate::git_worktree::ensure_local_excludes(&clone, LOCAL_EXCLUDES);
         Ok(worktree)
     }
 }
@@ -1355,20 +1365,9 @@ fn prepare_action(
             // launch; the action runs on whatever state the trunk is in and
             // the trunk-sync engine keeps surfacing it.
             let _ = crate::clone_manager::auto_sync(&clone, &url);
-            // Same best-effort seed-file exclude coverage as a session
-            // worktree (the action's agent may be codex/pi since EXP-257, so
-            // the pi bridge needs excluding too; `.exp-mcp.json` gets its
-            // hard EXP-474 guard in [`wire_agent_mcp`] regardless).
-            let _ = crate::git_worktree::ensure_local_excludes(
-                &clone,
-                &[
-                    crate::mcp_json::MCP_JSON_FILE,
-                    crate::pi_bridge::PI_BRIDGE_FILE,
-                    crate::pi_bridge::PI_OBSERVER_FILE,
-                    crate::pi_bridge::PI_PLAN_FILE,
-                    crate::worktree_agents::AGENTS_FILE,
-                ],
-            );
+            // Same best-effort [`LOCAL_EXCLUDES`] coverage as a session
+            // worktree — the action's agent may be codex/pi since EXP-257.
+            let _ = crate::git_worktree::ensure_local_excludes(&clone, LOCAL_EXCLUDES);
             let cwd = match &req.kind {
                 // EXP-259: the fix-conflicts run works on the PR branch, not
                 // the trunk — fetch the branch (it may only exist on origin;
@@ -1693,19 +1692,10 @@ pub fn prepare_agent_shell(
     let clone = ensure_clone(&repos_root, url.full_name(), &url)?;
     git_credentials::ensure(&clone, &url, minted.expires_at.as_deref())?;
     let _ = crate::clone_manager::auto_sync(&clone, &url);
-    // Best-effort exclude coverage for the non-secret seed files;
-    // `.exp-mcp.json` gets its hard EXP-474 guard in [`wire_agent_mcp`],
-    // resolved from the actual cwd (which may be an EXP-369 worktree).
-    let _ = crate::git_worktree::ensure_local_excludes(
-        &clone,
-        &[
-            crate::mcp_json::MCP_JSON_FILE,
-            crate::pi_bridge::PI_BRIDGE_FILE,
-            crate::pi_bridge::PI_OBSERVER_FILE,
-            crate::pi_bridge::PI_PLAN_FILE,
-            crate::worktree_agents::AGENTS_FILE,
-        ],
-    );
+    // Best-effort [`LOCAL_EXCLUDES`] coverage; `.exp-mcp.json` gets its hard
+    // EXP-474 guard in [`wire_agent_mcp`], resolved from the actual cwd
+    // (which may be an EXP-369 worktree).
+    let _ = crate::git_worktree::ensure_local_excludes(&clone, LOCAL_EXCLUDES);
 
     // EXP-369: the agent runs in the pinned worktree when the caller gave
     // one — the MCP config file has to land in the SAME dir (claude/pi read

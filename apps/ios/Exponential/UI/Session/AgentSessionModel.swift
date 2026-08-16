@@ -52,6 +52,12 @@ final class AgentSessionModel {
     /// on each attempt. Success needs no local state: the synced row flips to
     /// `ended` and the view already reacts.
     private(set) var killError: String?
+    /// An image-carrying steer message is uploading (EXP-511) — the composer
+    /// dims its send button until the whole batch is out.
+    private(set) var steerSending = false
+    /// Why the last image-carrying send failed, shown under the thumbnail
+    /// strip; cleared on the next attempt.
+    var steerImageError: String?
 
     /// Over as far as this client can tell: an explicitly `ended` row, or a
     /// row that VANISHED. The model is always constructed with a real row, so
@@ -109,6 +115,7 @@ final class AgentSessionModel {
     private let codingSessionId: String
     private let currentUserId: String?
     private let steerApi: SteerApi
+    private let issueImagesApi: IssueImagesApi
     private let db: DatabaseManager
 
     private var task: URLSessionWebSocketTask?
@@ -172,12 +179,14 @@ final class AgentSessionModel {
         session: CodingSessionEntity,
         currentUserId: String?,
         steerApi: SteerApi,
+        issueImagesApi: IssueImagesApi,
         db: DatabaseManager
     ) {
         self.accountId = accountId
         self.codingSessionId = session.id
         self.currentUserId = currentUserId
         self.steerApi = steerApi
+        self.issueImagesApi = issueImagesApi
         self.db = db
         self.session = session
     }
@@ -300,6 +309,54 @@ final class AgentSessionModel {
             recentEchoes.removeFirst(recentEchoes.count - Self.echoCap)
         }
         append(.userMessage(id: takeEventId(), text: text))
+    }
+
+    /// Send a steer message carrying attached images (EXP-511): upload every
+    /// not-yet-uploaded image to the session's issue, then send ONE message
+    /// composed of the text plus a markdown embed per attachment (the host
+    /// device downloads each embed and hands the agent a local file path).
+    ///
+    /// Returns nil once the message is out; on failure it returns the images
+    /// with whatever ids were already stamped, so the caller can keep the strip
+    /// and a retry re-uploads only the rest.
+    func sendSteerImages(_ text: String, images: [PendingSteerImage]) async -> [PendingSteerImage]? {
+        guard let issueId = session?.issueId, !issueId.isEmpty else {
+            steerImageError = "Images can only be attached to an issue's session."
+            return images
+        }
+        guard connected else {
+            steerImageError = "Not connected. Wait for the session to reconnect."
+            return images
+        }
+        steerSending = true
+        steerImageError = nil
+        defer { steerSending = false }
+        var pending = images
+        for index in pending.indices where pending[index].uploadedId == nil {
+            do {
+                let uploaded = try await issueImagesApi.upload(
+                    accountId: accountId,
+                    issueId: issueId,
+                    data: pending[index].data,
+                    filename: pending[index].filename,
+                    contentType: pending[index].contentType
+                )
+                pending[index].uploadedId = uploaded.id
+            } catch {
+                steerImageError = error.localizedDescription
+                return pending
+            }
+        }
+        // The socket can drop across the uploads; sendMessage would silently
+        // no-op and the composer would clear with nothing sent.
+        guard connected else {
+            steerImageError = "Not connected. Wait for the session to reconnect."
+            return pending
+        }
+        sendMessage(SteerImageMessage.build(
+            text: text, attachmentIds: pending.compactMap(\.uploadedId)
+        ))
+        return nil
     }
 
     /// Answer a protocol-v2 question card (EXP-249): ONE semantic `answer`
@@ -824,4 +881,18 @@ final class AgentSessionModel {
         task.send(.string(text)) { _ in }
     }
 
+}
+
+/// An image picked for the steer composer but not sent yet (EXP-511). Held by
+/// the view (the strip is composer state, not session state) and handed back to
+/// `sendSteerImages`; `uploadedId` is stamped on a successful upload so a retry
+/// after a mid-batch failure never uploads the same file twice. A top-level
+/// type, not nested in the @MainActor model, so it stays free of actor
+/// isolation.
+struct PendingSteerImage: Identifiable, Equatable, Sendable {
+    let id = UUID()
+    let data: Data
+    let filename: String
+    let contentType: String
+    var uploadedId: String?
 }

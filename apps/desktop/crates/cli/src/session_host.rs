@@ -240,6 +240,12 @@ pub fn launch(
             text_sink: pi_steer.map(|handle| {
                 Arc::new(move |text: String| handle.push(text)) as Arc<dyn Fn(String) + Send + Sync>
             }),
+            // EXP-511 (attach_publisher parity): image embeds in a steered
+            // message become local files the agent can read.
+            attachments: Some(steer::image_localizer(
+                Arc::clone(&env.ctx.trpc),
+                worktree.join(coding::launcher::STEER_IMAGES_DIR),
+            )),
         };
         let tickets: Arc<dyn PublisherTickets> = Arc::new(TrpcPublisherTickets {
             trpc: Arc::clone(&env.ctx.trpc),

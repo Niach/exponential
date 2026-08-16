@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-steering-images`,
+    date: `2026-08-16`,
+    title: `Send images while steering`,
+    summary: `Attach screenshots to a live coding session from web, iOS, and Android; the agent reads them directly and they render in the session feed.`,
+    body: `- **Images in steering**: the session composer now takes up to four images per message via the new attach button (or paste, on web). The machine running the session hands them to the agent as local files, so it sees exactly what you see, and they render inline in the session feed on every app.
+- **Leaner web composer**: the Esc button is gone; killing the session remains available from the session header.`,
+  },
+  {
     id: `2026-08-review-hardening-wave`,
     date: `2026-08-15`,
     title: `Stability wave: 40+ fixes across every app`,

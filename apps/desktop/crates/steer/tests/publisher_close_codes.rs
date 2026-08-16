@@ -132,6 +132,7 @@ fn idle_close_4001_reconnects_and_never_fires_the_kill_hook() {
             answers: None,
             agent: steer::activity::SessionAgent::Claude,
             text_sink: None,
+            attachments: None,
         },
     );
 

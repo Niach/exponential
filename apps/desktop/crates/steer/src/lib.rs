@@ -82,8 +82,8 @@ pub use hooks::{
 };
 pub use journal::{ActivityJournal, JOURNAL_BYTE_CAP, JOURNAL_EVENT_CAP};
 pub use publisher::{
-    publish, ActivitySender, KillSignal, PublishSpec, PublisherHandle, PublisherHooks,
-    PublisherTickets, TrpcPublisherTickets,
+    image_localizer, publish, ActivitySender, AttachmentHook, KillSignal, PublishSpec,
+    PublisherHandle, PublisherHooks, PublisherTickets, TrpcPublisherTickets,
 };
 
 // ---------------------------------------------------------------------------
