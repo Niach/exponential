@@ -71,6 +71,7 @@ import {
 import { splitUnifiedDiff } from "@/lib/unified-diff"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import {
   Collapsible,
@@ -143,6 +144,10 @@ interface QuestionOption {
   key: string
   /** Claude's per-option blurb (protocol v2), rendered under the label. */
   description?: string
+  /** EXP-513: claude's synthetic free-text row ("Type something.") —
+   *  selecting it reveals an inline input and the typed reply rides the
+   *  answer frame's `text`. Absent from older desktops. */
+  freeText?: boolean
 }
 
 type ActivityEvent =
@@ -767,11 +772,12 @@ export function AgentSessionView({
   const sendAnswerFrame = (
     questionId: string,
     askId: string | undefined,
-    keys: string[]
+    keys: string[],
+    text?: string
   ): boolean => {
     const sock = wsRef.current
     if (sock?.readyState !== WebSocket.OPEN) return false
-    sock.send(JSON.stringify({ t: `answer`, questionId, askId, keys }))
+    sock.send(JSON.stringify({ t: `answer`, questionId, askId, keys, text }))
     return true
   }
 
@@ -782,12 +788,13 @@ export function AgentSessionView({
   const answerQuestion = (
     item: QuestionItem,
     keys: string[],
-    labels: string[]
+    labels: string[],
+    text?: string
   ) => {
     const key = answerKey(item)
     if (isAnswerLocked(answerStates[key]) || item.resolved === true) return
     const sent = item.questionId
-      ? sendAnswerFrame(item.questionId, item.askId, keys)
+      ? sendAnswerFrame(item.questionId, item.askId, keys, text)
       : sendKeystrokes(keys)
     if (!sent) return
     setAnswerStates((prev) => beginAnswer(prev, key, keys, labels))
@@ -1485,7 +1492,9 @@ const UserMessageBubble = memo(function UserMessageBubble({
 type AnswerHandler = (
   item: QuestionItem,
   keys: string[],
-  labels: string[]
+  labels: string[],
+  /** EXP-513: the typed reply for a `freeText` option. */
+  text?: string
 ) => void
 
 /** The interactive half of a question card: the options, the immediate lock
@@ -1517,6 +1526,9 @@ function QuestionPrompt({
   variant?: `default` | `plan` | `submit`
 }) {
   const [picked, setPicked] = useState<string[]>([])
+  /** EXP-513: the `freeText` option whose inline input is open (its key). */
+  const [freeTextKey, setFreeTextKey] = useState<string | null>(null)
+  const [freeTextValue, setFreeTextValue] = useState(``)
   const locked = isAnswerLocked(answerState)
   const semantic = item.questionId !== undefined
   const answerable = active && canAnswer && !locked && item.resolved !== true
@@ -1556,12 +1568,27 @@ function QuestionPrompt({
       )
       return
     }
+    // EXP-513: a free-text row collects the reply first — nothing is sent
+    // until the input submits (the desktop types it into the TUI row).
+    if (option.freeText === true && semantic) {
+      setFreeTextKey((prev) => (prev === option.key ? null : option.key))
+      return
+    }
     onAnswer(item, [option.key], [option.label])
   }
 
   const submitPicked = () => {
     if (!answerable) return
     onAnswer(item, semantic ? picked : [`\t`], labelsFor(picked))
+  }
+
+  const submitFreeText = () => {
+    if (!answerable || freeTextKey === null) return
+    const text = freeTextValue.trim()
+    if (text.length === 0) return
+    onAnswer(item, [freeTextKey], [text], text)
+    setFreeTextKey(null)
+    setFreeTextValue(``)
   }
 
   return (
@@ -1582,7 +1609,7 @@ function QuestionPrompt({
               size="sm"
               className={cn(
                 `h-auto min-h-7 justify-start whitespace-normal py-1 text-left text-xs`,
-                picked.includes(option.key) &&
+                (picked.includes(option.key) || freeTextKey === option.key) &&
                   (variant === `default`
                     ? `border-amber-500/60 bg-amber-500/15`
                     : `border-primary/60 bg-primary/15`)
@@ -1615,6 +1642,36 @@ function QuestionPrompt({
           )
         )}
       </div>
+      {answerable && freeTextKey !== null && (
+        <div className="mt-2 flex w-full items-center gap-1.5">
+          <Input
+            autoFocus
+            value={freeTextValue}
+            maxLength={4000}
+            placeholder="Type your answer…"
+            className="h-7 flex-1 text-xs"
+            onChange={(e) => setFreeTextValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === `Enter`) {
+                e.preventDefault()
+                submitFreeText()
+              } else if (e.key === `Escape`) {
+                e.preventDefault()
+                setFreeTextKey(null)
+              }
+            }}
+          />
+          <Button
+            variant="secondary"
+            size="sm"
+            className="h-7 text-xs"
+            disabled={freeTextValue.trim().length === 0}
+            onClick={submitFreeText}
+          >
+            Answer
+          </Button>
+        </div>
+      )}
       {answerable && item.multiSelect && (
         <Button
           variant="secondary"
