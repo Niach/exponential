@@ -25,12 +25,15 @@
 //! the drain's `Unauthorized` handling).
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, SystemTime};
 
 use gpui::{App, AppContext as _, AsyncApp, Entity, Global, Subscription};
 use serde_json::{Map, Value};
 
 use crate::client::{ShapeDelta, UnauthorizedFn, UpgradeRequiredFn};
+use crate::health::{AccountHealth, SyncHealth, FAILURE_STREAK_GRACE};
 use crate::manager::{AccountSyncConfig, SyncManager};
 use crate::protocol::RowKey;
 use crate::shapes::{shape_by_name, ShapeSpec};
@@ -85,6 +88,41 @@ pub struct SharedState {
     pub windows_open: usize,
     /// The §5 session state machine.
     pub session: SessionPhase,
+    /// EXP-501: per-account poll health (keyed like iOS `accountHealth` —
+    /// background accounts keep truthful entries, but only the ACTIVE
+    /// account's entry may drive the offline banner).
+    pub sync_health: HashMap<String, AccountHealth>,
+    /// The last derived active-account health that was `cx.notify`'d. Dedupes
+    /// notifies: the shape threads heartbeat `Applied` roughly per minute
+    /// each, and re-rendering every `SharedState` observer on each would be
+    /// pure churn — observers wake only on an Ok ⇄ Offline transition.
+    pub published_health: SyncHealth,
+}
+
+/// The active account's sync health, snapshot for render paths.
+#[derive(Clone, Debug, Default)]
+pub struct ActiveSyncStatus {
+    pub health: SyncHealth,
+    pub last_success_at: Option<SystemTime>,
+    pub last_error: Option<String>,
+}
+
+/// EXP-501: derive the banner-driving health for the CURRENT session. Only a
+/// `Synced` session can be `Offline`: `AuthExpired` routes to login (which
+/// owns the 401 story — the banner must never double-report it),
+/// `SignedOut`/`SigningIn` have no pipeline, and the 426 update gate replaces
+/// the whole window before any banner could render.
+pub fn derive_active_health(
+    session: &SessionPhase,
+    health: &HashMap<String, AccountHealth>,
+    now: SystemTime,
+) -> SyncHealth {
+    match session {
+        SessionPhase::Synced { account_id } => health
+            .get(account_id)
+            .map_or(SyncHealth::Ok, |h| h.health(now)),
+        _ => SyncHealth::Ok,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -698,6 +736,9 @@ pub struct Store {
     state: Entity<SharedState>,
     collections: Collections,
     manager: Arc<SyncManager>,
+    /// EXP-501: CAS guard so at most one grace-expiry recheck timer is in
+    /// flight (see [`Store::record_sync`]).
+    health_recheck_pending: Arc<AtomicBool>,
 }
 
 impl Global for Store {}
@@ -720,6 +761,8 @@ impl Store {
         let state = cx.new(|_| SharedState {
             windows_open: 0,
             session: SessionPhase::SignedOut,
+            sync_health: HashMap::new(),
+            published_health: SyncHealth::Ok,
         });
         let collections = Collections::new(cx);
         let mut manager = SyncManager::new();
@@ -733,6 +776,7 @@ impl Store {
             state,
             collections,
             manager: Arc::new(manager),
+            health_recheck_pending: Arc::new(AtomicBool::new(false)),
         };
         store.spawn_delta_drain(cx);
         store
@@ -800,6 +844,12 @@ impl Store {
         if let Some(sqlite) = self.manager.store(&account_id) {
             self.collections.hydrate_all(&sqlite, cx);
         }
+        // EXP-501: a (re-)connecting account starts with fresh health — a
+        // warm re-login must get a fresh failure-streak grace, not inherit a
+        // pre-logout streak that would flash the offline banner instantly.
+        self.state.update(cx, |state, _| {
+            state.sync_health.remove(&account_id);
+        });
         self.set_session(SessionPhase::Synced { account_id }, cx);
         Ok(())
     }
@@ -820,16 +870,48 @@ impl Store {
     pub fn sign_out(&self, account_id: &str, cx: &mut App) {
         self.manager.stop_account(account_id);
         self.collections.clear_all(cx);
+        // EXP-501: drop all health — a stale failure streak must not survive
+        // into the next sign-in (`set_session` republishes below).
+        self.state.update(cx, |state, _| {
+            state.sync_health.clear();
+        });
         self.set_session(SessionPhase::SignedOut, cx);
     }
 
     fn set_session(&self, session: SessionPhase, cx: &mut App) {
         self.state.update(cx, |state, cx| {
+            let mut changed = false;
             if state.session != session {
                 state.session = session;
+                changed = true;
+            }
+            // EXP-501: the banner-driving health is a function of the session
+            // (account switch / sign-out flips it without any new delta).
+            let derived =
+                derive_active_health(&state.session, &state.sync_health, SystemTime::now());
+            if state.published_health != derived {
+                state.published_health = derived;
+                changed = true;
+            }
+            if changed {
                 cx.notify();
             }
         });
+    }
+
+    /// EXP-501: the active account's sync health, derived fresh — render
+    /// paths call this per frame (pure read, mirrors iOS `health()`).
+    pub fn sync_status(&self, cx: &App) -> ActiveSyncStatus {
+        let state = self.state.read(cx);
+        let SessionPhase::Synced { account_id } = &state.session else {
+            return ActiveSyncStatus::default();
+        };
+        let health = state.sync_health.get(account_id);
+        ActiveSyncStatus {
+            health: health.map_or(SyncHealth::Ok, |h| h.health(SystemTime::now())),
+            last_success_at: health.and_then(|h| h.last_success_at),
+            last_error: health.and_then(|h| h.last_error.clone()),
+        }
     }
 
     // -- the single foreground drain (§5.8 / §3.5) ---------------------------
@@ -861,10 +943,22 @@ impl Store {
                 // AuthExpired{wrong account} would mislabel it.
                 self.manager.stop_account(&account_id);
                 self.state.update(cx, |state, cx| {
+                    // EXP-501: drop the dead account's health so an offline
+                    // banner can never race / shadow the login routing.
+                    state.sync_health.remove(&account_id);
                     if state.session.account_id() == Some(account_id.as_str())
                         && !matches!(state.session, SessionPhase::AuthExpired { .. })
                     {
                         state.session = SessionPhase::AuthExpired { account_id };
+                        cx.notify();
+                    }
+                    let derived = derive_active_health(
+                        &state.session,
+                        &state.sync_health,
+                        SystemTime::now(),
+                    );
+                    if state.published_health != derived {
+                        state.published_health = derived;
                         cx.notify();
                     }
                 });
@@ -876,6 +970,11 @@ impl Store {
                 full_replace,
                 up_to_date: _,
             } => {
+                // EXP-501: every Applied delta — row batch or idle
+                // `up-to-date` heartbeat — is a 2xx poll. Recorded BEFORE the
+                // active-account guard so background accounts' health stays
+                // truthful too.
+                self.record_sync(&account_id, Ok(()), cx);
                 // Only the active account's deltas feed the collections
                 // (background accounts still sync to their own SQLite).
                 let active = self
@@ -890,6 +989,63 @@ impl Store {
                 self.collections
                     .apply(shape, &keys, full_replace, &sqlite, cx);
             }
+            ShapeDelta::PollFailed {
+                account_id,
+                shape: _,
+                error,
+            } => {
+                self.record_sync(&account_id, Err(error), cx);
+            }
+        }
+    }
+
+    /// EXP-501: fold one poll outcome into the account's health, publishing
+    /// the derived active-account health only when it flips (Ok ⇄ Offline) —
+    /// the per-minute heartbeats of every shape thread must not wake every
+    /// `SharedState` observer.
+    fn record_sync(&self, account_id: &str, outcome: Result<(), String>, cx: &mut AsyncApp) {
+        let now = SystemTime::now();
+        let failed = outcome.is_err();
+        self.state.update(cx, |state, cx| {
+            let health = state.sync_health.entry(account_id.to_string()).or_default();
+            match outcome {
+                Ok(()) => health.record_success(now),
+                Err(error) => health.record_failure(now, error),
+            }
+            let derived = derive_active_health(&state.session, &state.sync_health, now);
+            // While Offline persists, failure deltas (≤30s apart under the
+            // backoff cap) still notify so the banner's "last synced" ago-
+            // label keeps ticking; successes dedupe as before.
+            if state.published_health != derived || (failed && derived == SyncHealth::Offline) {
+                state.published_health = derived;
+                cx.notify();
+            }
+        });
+        // A failure inside the grace window still derives Ok — schedule ONE
+        // recheck just past the grace so the banner appears at ~12s instead
+        // of whenever the next (backoff-capped, up to 30s) failure delta
+        // happens to land. Offline → Ok needs no timer: the first successful
+        // poll emits `Applied` immediately.
+        if failed && !self.health_recheck_pending.swap(true, Ordering::SeqCst) {
+            let store = self.clone();
+            cx.spawn(async move |cx| {
+                cx.background_executor()
+                    .timer(FAILURE_STREAK_GRACE + Duration::from_millis(500))
+                    .await;
+                store.health_recheck_pending.store(false, Ordering::SeqCst);
+                store.state.update(cx, |state, cx| {
+                    let derived = derive_active_health(
+                        &state.session,
+                        &state.sync_health,
+                        SystemTime::now(),
+                    );
+                    if state.published_health != derived {
+                        state.published_health = derived;
+                        cx.notify();
+                    }
+                });
+            })
+            .detach();
         }
     }
 }
@@ -904,6 +1060,48 @@ mod tests {
             Value::Object(map) => map,
             _ => panic!("expected object"),
         }
+    }
+
+    // EXP-501: an account whose failure streak long outlived the grace —
+    // alarming on its own, so any Ok below proves the SESSION gate.
+    fn alarming_health(account_id: &str, now: SystemTime) -> HashMap<String, AccountHealth> {
+        let mut health = AccountHealth::default();
+        health.record_failure(now - Duration::from_secs(60), "http 500".into());
+        health.record_failure(now - Duration::from_secs(1), "http 500".into());
+        assert_eq!(health.health(now), SyncHealth::Offline);
+        HashMap::from([(account_id.to_string(), health)])
+    }
+
+    #[test]
+    fn only_a_synced_session_can_be_offline() {
+        let now = SystemTime::now();
+        let map = alarming_health("acct-1", now);
+        // AuthExpired routes to login (owns the 401 story), SignedOut /
+        // SigningIn have no pipeline — none of them may alarm.
+        for session in [
+            SessionPhase::SignedOut,
+            SessionPhase::SigningIn,
+            SessionPhase::AuthExpired {
+                account_id: "acct-1".into(),
+            },
+        ] {
+            assert_eq!(derive_active_health(&session, &map, now), SyncHealth::Ok);
+        }
+        let synced = SessionPhase::Synced {
+            account_id: "acct-1".into(),
+        };
+        assert_eq!(derive_active_health(&synced, &map, now), SyncHealth::Offline);
+    }
+
+    #[test]
+    fn background_account_outage_never_alarms_the_active_one() {
+        let now = SystemTime::now();
+        let map = alarming_health("acct-background", now);
+        let synced = SessionPhase::Synced {
+            account_id: "acct-active".into(),
+        };
+        // The active account has no entry at all → healthy.
+        assert_eq!(derive_active_health(&synced, &map, now), SyncHealth::Ok);
     }
 
     #[test]

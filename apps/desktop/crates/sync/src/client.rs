@@ -240,6 +240,16 @@ pub enum ShapeDelta {
     /// The UI must route this account to the login screen — never render an
     /// empty board, never retry anonymously.
     Unauthorized { account_id: String },
+    /// A poll failed transiently (transport / non-2xx HTTP / store) and the
+    /// loop is backing off — feeds the EXP-501 offline health tracker. NOT
+    /// emitted for 401s (the EXP-229 grace / [`ShapeDelta::Unauthorized`] own
+    /// that story) nor 426 (the EXP-104 update gate owns the whole window).
+    PollFailed {
+        account_id: String,
+        shape: &'static str,
+        /// The [`ShapeError`] display string, for diagnostics.
+        error: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -407,6 +417,7 @@ impl ShapeClient {
                         self.cfg.account_id,
                         self.cfg.spec.name
                     );
+                    self.emit_poll_failed(&err);
                     unauthorized_since = None; // a non-401 outcome breaks the streak
                     sleep_with_stop(stop, backoff);
                     backoff = (backoff * 2).min(BACKOFF_CAP); // cap 30s (§5.3)
@@ -587,6 +598,14 @@ impl ShapeClient {
             keys,
             full_replace,
             up_to_date,
+        });
+    }
+
+    fn emit_poll_failed(&self, err: &ShapeError) {
+        let _ = self.cfg.deltas.send(ShapeDelta::PollFailed {
+            account_id: self.cfg.account_id.clone(),
+            shape: self.cfg.spec.name,
+            error: err.to_string(),
         });
     }
 

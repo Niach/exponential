@@ -878,11 +878,17 @@ fn transient_401_recovers_without_logout() {
     assert_eq!(issue_ids(&store), HashSet::from(["a".into(), "b".into()]));
 
     // No logout signal of any kind: no Unauthorized delta, flag untouched.
+    // And no PollFailed either (EXP-501): an in-grace 401 is the auth story's
+    // to resolve — it must not double-report as "offline".
     assert!(!unauthorized_reported.load(Ordering::SeqCst));
     while let Ok(delta) = harness.deltas.try_recv() {
         assert!(
             !matches!(delta, ShapeDelta::Unauthorized { .. }),
             "a transient 401 within the grace must never surface Unauthorized"
+        );
+        assert!(
+            !matches!(delta, ShapeDelta::PollFailed { .. }),
+            "a transient 401 within the grace must never surface PollFailed"
         );
     }
 
@@ -891,6 +897,51 @@ fn transient_401_recovers_without_logout() {
     assert!(wait_until(Duration::from_secs(5), || {
         server.requests().len() > polls
     }));
+
+    harness.stop();
+}
+
+// ---------------------------------------------------------------------------
+// EXP-501: a transient non-2xx surfaces a PollFailed delta (the offline
+// health tracker's input), then the loop recovers and Applied resumes.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn http_500_emits_poll_failed_then_recovers() {
+    let server = MockShapeServer::start(live_idle("h-1", "0_0", Duration::from_millis(100)));
+    server.push(MockResponse::new(500, json!({"message": "boom"})));
+    server.push(snapshot("h-1", "0_0", &[("a", "A")]));
+
+    let dir = TempDir::new("500-transient");
+    let store = Arc::new(ShapeStore::open(&dir.db_path()).unwrap());
+    let mut harness = ClientHarness::spawn(&server, Arc::clone(&store), "issues");
+
+    // The 500 surfaces as PollFailed for this account+shape…
+    let delta = harness.deltas.recv_timeout(Duration::from_secs(5)).unwrap();
+    match delta {
+        ShapeDelta::PollFailed {
+            ref account_id,
+            shape,
+            ref error,
+        } => {
+            assert_eq!(account_id, "acct-1");
+            assert_eq!(shape, "issues");
+            assert!(error.contains("500"), "error should name the status: {error}");
+        }
+        other => panic!("expected PollFailed, got {other:?}"),
+    }
+
+    // …and the loop keeps going: after the backoff the snapshot lands as a
+    // normal Applied (the health tracker's success signal).
+    let delta = harness.deltas.recv_timeout(Duration::from_secs(5)).unwrap();
+    match delta {
+        ShapeDelta::Applied { shape, ref keys, .. } => {
+            assert_eq!(shape, "issues");
+            assert_eq!(keys.len(), 1);
+        }
+        other => panic!("expected Applied after recovery, got {other:?}"),
+    }
+    assert_eq!(issue_ids(&store), HashSet::from(["a".into()]));
 
     harness.stop();
 }

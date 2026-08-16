@@ -1024,6 +1024,7 @@ impl Render for Shell {
                         body.child(crate::app_title_bar::chrome_only_title_bar())
                     })
                     .children(self.render_update_banner(cx))
+                    .children(self.render_offline_banner(cx))
                     .child(div().flex_1().min_h_0().child(self.onboarding.clone()))
                     .into_any_element()
             }
@@ -1092,6 +1093,7 @@ impl Render for Shell {
                                     crate::window_frame::frame_radii(window).bottom_right,
                                 )
                                 .children(self.render_update_banner(cx))
+                                .children(self.render_offline_banner(cx))
                                 .child(div().flex_1().min_h_0().child(self.dock_area.clone())),
                         ),
                 )
@@ -1269,6 +1271,59 @@ impl Shell {
         }
 
         Some(banner.into_any_element())
+    }
+
+    /// EXP-501: the offline strip — the sync engine's failure streak outlived
+    /// its grace window, so the boards are showing cached data. Amber (the
+    /// update banner is info-blue), not dismissible: it clears itself on the
+    /// first successful poll. iOS copy parity (`AppNavigator.healthBanner`).
+    /// Only rendered in the Synced layouts — `Store::sync_status` returns Ok
+    /// for every other session phase, and the 426 gate replaces the whole
+    /// window before this could paint.
+    fn render_offline_banner(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        let status = Store::global(cx).sync_status(cx);
+        if status.health != sync::SyncHealth::Offline {
+            return None;
+        }
+        let ago: Option<SharedString> = status.last_success_at.and_then(|t| {
+            let elapsed = std::time::SystemTime::now().duration_since(t).ok()?;
+            Some(crate::trunk_sync::synced_ago_labels(elapsed).1)
+        });
+        Some(
+            h_flex()
+                .h(px(34.))
+                .w_full()
+                .flex_shrink_0()
+                .items_center()
+                .gap_2()
+                .px_3()
+                .border_b_1()
+                .border_color(cx.theme().border)
+                .bg(cx.theme().warning.opacity(0.14))
+                .child(
+                    Icon::new(registry::UI_OFFLINE)
+                        .size_4()
+                        .text_color(cx.theme().warning),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .text_sm()
+                        .child("Can't reach the server, showing cached data"),
+                )
+                .when_some(ago, |banner, ago| {
+                    banner.child(div().text_sm().text_color(cx.theme().muted_foreground).child(ago))
+                })
+                .child(Button::new("sync-retry").ghost().small().label("Retry").on_click(
+                    move |_: &ClickEvent, _, cx| {
+                        // Restart the account pipeline: parked backoffs and
+                        // held long-polls re-poll immediately (EXP-470 rails).
+                        let store = Store::global(cx).clone();
+                        store.resync_active(cx);
+                    },
+                ))
+                .into_any_element(),
+        )
     }
 
     /// The EXP-104 blocking "Update required" surface: a full-window centered
