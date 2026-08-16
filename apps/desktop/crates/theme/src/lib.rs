@@ -278,8 +278,9 @@ pub fn exponential_dark() -> ThemeColor {
     c.caret = fg;
 
     // ---- Remaining component surfaces (dark formulas, token-locked) ---------
+    // (accordion_hover was dropped upstream in the EXP-519 pin bump — hover now
+    // derives from the base accordion color inside the component.)
     c.accordion = bg;
-    c.accordion_hover = accent.opacity(0.8);
     c.group_box = bg.blend(secondary.opacity(0.3));
     c.group_box_foreground = fg;
     c.description_list_label = bg.blend(border.opacity(0.2));

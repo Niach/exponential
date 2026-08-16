@@ -26,7 +26,7 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
-    input::{Input, InputEvent, InputState},
+    input::{InputEvent, Textarea, TextareaState},
     menu::{DropdownMenu as _, PopupMenuItem},
     scroll::ScrollableElement as _,
     skeleton::Skeleton,
@@ -91,7 +91,7 @@ pub struct SupportThreadView {
     fetch_seq: u64,
     /// Bumped per poll spawn — a superseded loop sees the mismatch and dies.
     poll_seq: u64,
-    composer: Entity<InputState>,
+    composer: Entity<TextareaState>,
     /// `true` = the composer submits an internal note instead of a reply.
     note_mode: bool,
     sending: bool,
@@ -110,7 +110,7 @@ impl SupportThreadView {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let nav = nav_for_window(window, cx);
         let composer = cx.new(|cx| {
-            InputState::new(window, cx)
+            TextareaState::new(window, cx)
                 .auto_grow(1, 8)
                 .placeholder(REPLY_PLACEHOLDER)
         });
@@ -822,7 +822,7 @@ impl Render for SupportThreadView {
                     .w_full()
                     .gap_2()
                     .items_end()
-                    .child(div().flex_1().min_w_0().child(Input::new(&self.composer).w_full()))
+                    .child(div().flex_1().min_w_0().child(Textarea::new(&self.composer).w_full()))
                     .child(
                         Button::new("support-send")
                             .primary()

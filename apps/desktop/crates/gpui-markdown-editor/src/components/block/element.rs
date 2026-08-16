@@ -1199,16 +1199,15 @@ impl Element for BlockTextElement {
         let runs = Rc::new(runs);
         let measure_runs = runs.clone();
         let measure_text = display_text.clone();
-        // EXP-436: the honest wrap ceiling for this block (see
-        // `effective_text_wrap_budget`) — available space arriving through
-        // display-BLOCK ancestors is unclamped by the centered column under
-        // the pinned taffy.
-        let wrap_budget = super::render::effective_text_wrap_budget(
-            input,
-            f32::from(window.viewport_size().width.max(px(1.0))),
-            &theme.dimensions,
-        )
-        .map(px);
+        // EXP-520: the EXP-436 wrap-budget clamp that used to cap Definite/
+        // MaxContent widths here is GONE. Taffy 0.12 (zed cc053a4a) resolves
+        // percent widths through display-BLOCK hops against the clamped
+        // ancestor, so the available space arriving here IS the centered
+        // column — and keeping the clamp actively broke layout: taffy 0.12
+        // mixes known-width and available-space measure results for the same
+        // node, and answering them differently (576px unclamped vs a 528px
+        // budget) stacked rows with one height while sizing them with the
+        // other (rows overlapped by exactly the clamp delta).
 
         let mut layout_style = Style::default();
         layout_style.size.width = relative(1.).into();
@@ -1218,15 +1217,8 @@ impl Element for BlockTextElement {
         let layout_id = window.request_measured_layout(
             layout_style,
             move |known_dimensions, available_space, window, _cx| {
-                // EXP-436: a width the parent KNOWS is trusted as-is (table
-                // cells get explicit column widths); free available space is
-                // clamped by the block's honest wrap budget.
-                let clamp = |width: Pixels| match wrap_budget {
-                    Some(budget) => width.min(budget),
-                    None => width,
-                };
                 let wrap_width = known_dimensions.width.or(match available_space.width {
-                    AvailableSpace::Definite(x) => Some(clamp(x)),
+                    AvailableSpace::Definite(x) => Some(x),
                     AvailableSpace::MinContent => Some(px(1.0)),
                     // EXP-421 soft wrap: MaxContent used to resolve to the
                     // VIEWPORT width, so an unbroken run reported a
@@ -1240,11 +1232,11 @@ impl Element for BlockTextElement {
                         let recorded = f32::from_bits(
                             layout_width.load(std::sync::atomic::Ordering::Relaxed),
                         );
-                        Some(clamp(if recorded > 1.0 {
+                        Some(if recorded > 1.0 {
                             px(recorded).min(viewport)
                         } else {
                             viewport
-                        }))
+                        })
                     }
                 });
                 let text_wrap_width =
@@ -2442,7 +2434,7 @@ mod chip_tests {
             block
         });
         cx.update(|window, cx| {
-            window.draw(cx).clear();
+            window.draw(cx).clear(cx);
         });
         cx.run_until_parked();
         block.read_with(cx, |block, _cx| {
@@ -2490,7 +2482,7 @@ mod chip_tests {
         });
         for _ in 0..2 {
             cx.update(|window, cx| {
-                window.draw(cx).clear();
+                window.draw(cx).clear(cx);
             });
             cx.run_until_parked();
         }

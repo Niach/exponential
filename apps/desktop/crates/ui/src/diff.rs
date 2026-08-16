@@ -38,7 +38,7 @@ use std::sync::Arc;
 use std::cell::RefCell;
 
 use gpui::{
-    div, point, px, size, AnyElement, App, FocusHandle, Focusable, HighlightStyle,
+    div, point, px, size, AnyElement, App, Bounds, FocusHandle, Focusable, HighlightStyle,
     InteractiveElement as _, IntoElement, ParentElement, Pixels, Point, Render, ScrollStrategy,
     ScrollWheelEvent, SharedString, Size, Styled, StyledText, Window,
 };
@@ -197,8 +197,9 @@ struct SharedHScrollState {
     x: Pixels,
     /// Full two-column content width (both cell contents + gutters + divider).
     content_w: Pixels,
-    /// The pane width as of the last prepaint (clamp input).
-    viewport_w: Pixels,
+    /// The pane bounds as of the last prepaint (clamp input; the width, plus
+    /// the full bounds the EXP-519 `ScrollbarHandle::viewport_bounds` needs).
+    viewport: Bounds<Pixels>,
 }
 
 impl SharedHScroll {
@@ -215,8 +216,8 @@ impl SharedHScroll {
         }
     }
 
-    fn set_viewport_width(&self, width: Pixels) {
-        self.inner.borrow_mut().viewport_w = width;
+    fn set_viewport_bounds(&self, bounds: Bounds<Pixels>) {
+        self.inner.borrow_mut().viewport = bounds;
         self.clamp();
     }
 
@@ -227,12 +228,16 @@ impl SharedHScroll {
 
     fn clamp(&self) {
         let mut state = self.inner.borrow_mut();
-        let min = (state.viewport_w - state.content_w).min(px(0.));
+        let min = (state.viewport.size.width - state.content_w).min(px(0.));
         state.x = state.x.clamp(min, px(0.));
     }
 }
 
 impl ScrollbarHandle for SharedHScroll {
+    fn viewport_bounds(&self) -> Bounds<Pixels> {
+        self.inner.borrow().viewport
+    }
+
     fn offset(&self) -> Point<Pixels> {
         point(self.inner.borrow().x, px(0.))
     }
@@ -606,7 +611,7 @@ impl Render for DiffView {
                     .size_full()
                     // Track the pane width so the shared offset clamps right.
                     .on_prepaint(move |bounds, _, _| {
-                        prepaint_scroll.set_viewport_width(bounds.size.width);
+                        prepaint_scroll.set_viewport_bounds(bounds);
                     })
                     // Horizontal wheel / shift-wheel drives the shared offset
                     // (vertical deltas fall through to the virtual list).

@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-selectable-desktop-text`,
+    date: `2026-08-16`,
+    title: `Selectable text in the desktop IDE`,
+    summary: `Select and copy read-only text anywhere in the desktop app, riding a major rendering engine upgrade.`,
+    body: `- **Select and copy**: issue descriptions, comments, and file previews in the desktop IDE are now selectable, with sweeps that run across several comments at once. Copying a selected description yields its markdown source, ready to paste anywhere markdown goes.
+- **Rendering engine upgrade**: the desktop app moved to the newest UI framework release, bringing correct orientation for photos straight off a phone, IME composition fixes for CJK input, smoother scrolling, and a fix for a class of text layout glitches at very wide windows.`,
+  },
+  {
     id: `2026-08-steering-images`,
     date: `2026-08-16`,
     title: `Steering images and archivable boards`,

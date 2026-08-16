@@ -32,7 +32,8 @@ use gpui::{
     StatefulInteractiveElement as _, StrikethroughStyle, Styled as _, StyledImage as _, StyledText,
     Subscription, TextRun, UnderlineStyle, WeakEntity, Window,
 };
-use gpui_component::input::{self, Input, InputEvent, InputState, Position};
+use gpui_base::{TextSelectionHandle, TextSelectionRegistration, TextSelectionRun};
+use gpui_component::input::{self, InputEvent, InputState, Position, Textarea, TextareaState};
 use gpui_component::notification::Notification;
 use gpui_component::text::TextView;
 use gpui_component::{
@@ -745,7 +746,7 @@ pub(crate) fn placeholder_box(label: &str, cx: &App) -> gpui::AnyElement {
 enum EditorBlock {
     Text {
         id: u64,
-        input: Entity<InputState>,
+        input: Entity<TextareaState>,
         bounds: Rc<std::cell::Cell<Bounds<Pixels>>>,
         _sub: Subscription,
     },
@@ -1065,7 +1066,7 @@ impl MarkdownEditor {
         let id = super::blocks::next_block_id();
         let source = source.to_string();
         let input = cx.new(|cx| {
-            let mut state = InputState::new(window, cx)
+            let mut state = TextareaState::new(window, cx)
                 .auto_grow(1, 200)
                 .default_value(source);
             if let Some(placeholder) = placeholder {
@@ -1084,7 +1085,7 @@ impl MarkdownEditor {
         }
     }
 
-    fn text_input(&self, block_id: u64) -> Option<Entity<InputState>> {
+    fn text_input(&self, block_id: u64) -> Option<Entity<TextareaState>> {
         self.blocks.iter().find_map(|block| match block {
             EditorBlock::Text { id, input, .. } if *id == block_id => Some(input.clone()),
             _ => None,
@@ -1106,7 +1107,7 @@ impl MarkdownEditor {
     fn on_input_event(
         &mut self,
         block_id: u64,
-        input: Entity<InputState>,
+        input: Entity<TextareaState>,
         event: &InputEvent,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -1161,7 +1162,7 @@ impl MarkdownEditor {
     fn refresh_completion(
         &mut self,
         block_id: u64,
-        input: &Entity<InputState>,
+        input: &Entity<TextareaState>,
         cx: &mut Context<Self>,
     ) {
         let Some(source) = self.completion_source.clone() else {
@@ -1793,7 +1794,7 @@ impl MarkdownEditor {
                             .relative()
                             .w_full()
                             .child(
-                                Input::new(input)
+                                Textarea::new(input)
                                     .appearance(false)
                                     // Chrome-less (detail description): drop
                                     // the widget's built-in 12px input_px so
@@ -2018,6 +2019,9 @@ pub struct MarkdownView {
     images: Option<Entity<ImageCache>>,
     on_open_issue: Option<OpenIssueCallback>,
     on_source_edit: Option<SourceEditCallback>,
+    /// EXP-521: join the window-level TextSelection layer (gpui-base #2730).
+    /// Opt-in: the blurred editor preview keeps click-to-edit un-selectable.
+    selectable: bool,
 }
 
 impl MarkdownView {
@@ -2029,6 +2033,7 @@ impl MarkdownView {
             images: None,
             on_open_issue: None,
             on_source_edit: None,
+            selectable: false,
         }
     }
 
@@ -2049,6 +2054,16 @@ impl MarkdownView {
         on_open_issue: impl Fn(&str, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_open_issue = Some(Rc::new(on_open_issue));
+        self
+    }
+
+    /// EXP-521: register every rendered line with the window TextSelection
+    /// layer — pointer sweeps, shift/double/triple-click and Cmd/Ctrl+C work
+    /// across lines and across neighboring selectable views. Copy yields the
+    /// DISPLAY text (what the reader sees, pills' titles included) — the same
+    /// thing a browser copy of the rendered web comment produces.
+    pub fn selectable(mut self, selectable: bool) -> Self {
+        self.selectable = selectable;
         self
     }
 
@@ -2130,13 +2145,19 @@ impl gpui::RenderOnce for MarkdownView {
                             children.push(
                                 div()
                                     .w_full()
-                                    .child(TextView::markdown(
-                                        ElementId::from(SharedString::from(format!(
-                                            "{}-code-{block_index}-{start}",
-                                            self.id
-                                        ))),
-                                        fenced,
-                                    ))
+                                    .child(
+                                        TextView::markdown(
+                                            ElementId::from(SharedString::from(format!(
+                                                "{}-code-{block_index}-{start}",
+                                                self.id
+                                            ))),
+                                            fenced,
+                                        )
+                                        // EXP-521: code blocks join the window
+                                        // selection layer like the prose lines
+                                        // around them (plain copy = the code).
+                                        .selectable(true),
+                                    )
                                     .into_any_element(),
                             );
                             continue;
@@ -2183,6 +2204,14 @@ impl gpui::RenderOnce for MarkdownView {
         // The canvas overlay records the real column width each frame and
         // schedules one refresh when it changes (first frame and resizes lag
         // one frame, which is invisible in practice).
+        //
+        // EXP-520 re-verification at the Taffy-0.12 pin (zed cc053a4a, which
+        // includes the #61107 fix): STILL NEEDED. The overlap manifestation
+        // is gone upstream, but with the fixed width disabled the view's
+        // fit-content width still feeds back into the detail column split —
+        // at a 980px window the whole detail pane collapsed to roughly a
+        // third of its correct width (counterfactual screenshots, headless
+        // Xvfb A/B). Do not delete without re-running that A/B.
         let content = v_flex().w_full().gap_1p5().children(children);
         let key = (window.window_handle().window_id(), self.id.clone());
         let known_width = view_widths()
@@ -2273,8 +2302,10 @@ fn render_view_line(
         .with_highlights(display.highlights.clone())
         .with_font_family_overrides(mono_overrides);
     // The layout handle shares state with the element — after prepaint it
-    // yields the pixel bounds the chip pills are painted from (EXP-381).
+    // yields the pixel bounds the chip pills are painted from (EXP-381) and
+    // the selection quads project through (EXP-521).
     let text_layout = styled.layout().clone();
+    let text_layout_for_selection = text_layout.clone();
 
     let text_element: gpui::AnyElement = if display.targets.is_empty() {
         styled.into_any_element()
@@ -2325,6 +2356,25 @@ fn render_view_line(
             border: theme.border,
         }
         .into_any_element()
+    };
+
+    // EXP-521: wrap the finished text element as a window-selection
+    // participant. The pill wrapper (if any) stays INSIDE so highlight quads
+    // paint over the pills and under the glyphs.
+    let text_element: gpui::AnyElement = if view.selectable {
+        SelectableLineText {
+            id: ElementId::from(SharedString::from(format!(
+                "{}-sel-{block_index}-{line_index}",
+                view.id
+            ))),
+            child: text_element,
+            layout: text_layout_for_selection,
+            text: SharedString::from(display.text.clone()),
+            highlight: theme.selection,
+        }
+        .into_any_element()
+    } else {
+        text_element
     };
 
     // Wrap with block-level styling + list gutter.
@@ -2563,6 +2613,145 @@ impl gpui::Element for PillText {
 /// soft-wrapped row (a chip that wraps gets one pill per row, like web's
 /// wrapped inline pill and iOS's `enumerateEnclosingRects`). Rendered view
 /// lines contain no hard `\n`, so the layout holds a single wrapped line.
+// ---------------------------------------------------------------------------
+// SelectableLineText — window-selection participant per rendered line (EXP-521)
+// ---------------------------------------------------------------------------
+
+/// Wraps one rendered [`MarkdownView`] line as a participant of gpui-base's
+/// window-level TextSelection layer (mounted by gpui-component's `Root`):
+/// prepaint registers the line's hitbox/bounds/document order, paint submits
+/// the shaped run and fills the projected byte ranges with the theme's
+/// selection color BEFORE the glyphs paint. The layer owns pointer sweeps,
+/// shift-click, double/triple-click, cross-element ordering, auto-scroll,
+/// scope isolation (Root/Sheet apply scopes to modal layers) and copy — the
+/// submitted run text is what a copy of this line yields.
+struct SelectableLineText {
+    id: ElementId,
+    child: gpui::AnyElement,
+    /// Shared handle onto the child's [`StyledText`] layout — valid once the
+    /// child has prepainted; byte-compatible with `text` below.
+    layout: gpui::TextLayout,
+    /// The DISPLAY string the layout shaped (chips' titles included) — the
+    /// run text MUST byte-match the layout or the layer rejects the run.
+    text: SharedString,
+    highlight: gpui::Hsla,
+}
+
+/// EXP-521: STABLE geometry-derived document order — top-to-bottom, then
+/// left-to-right, quantized to 1/8 px. Participants with EQUAL document order
+/// do NOT reliably fall back to registration order, so per-view line indices
+/// are not enough across several MarkdownViews (a sweep across two comments
+/// concatenated them bottom-up). A per-frame monotonic counter is WORSE: the
+/// layer publishes snapshots after EVERY registration, so mid-frame the
+/// freshly re-registered line briefly out-orders its not-yet-re-registered
+/// successor, the published coverage flips, the refresh subscription redraws,
+/// and the flip repeats — an infinite refresh loop (hung the real-window
+/// test at 100% CPU). Geometry is identical across frames while layout is
+/// still, so re-registration publishes are no-ops.
+fn selection_document_order(bounds: &Bounds<Pixels>) -> u64 {
+    let quantize = |value: Pixels| (((f32::from(value) + 131_072.0).max(0.0)) * 8.0) as u64;
+    (quantize(bounds.origin.y) << 24) | (quantize(bounds.origin.x) & 0xFF_FFFF)
+}
+
+/// Per-line retained state: the participant handle plus the window-refresh
+/// subscription that repaints selection changes (dropped with the element).
+struct SelectableLineState {
+    selection: TextSelectionHandle,
+    _refresh: Subscription,
+}
+
+impl IntoElement for SelectableLineText {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+impl gpui::Element for SelectableLineText {
+    type RequestLayoutState = ();
+    type PrepaintState = TextSelectionHandle;
+
+    fn id(&self) -> Option<ElementId> {
+        Some(self.id.clone())
+    }
+
+    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _id: Option<&gpui::GlobalElementId>,
+        _inspector_id: Option<&gpui::InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (gpui::LayoutId, Self::RequestLayoutState) {
+        (self.child.request_layout(window, cx), ())
+    }
+
+    fn prepaint(
+        &mut self,
+        id: Option<&gpui::GlobalElementId>,
+        _inspector_id: Option<&gpui::InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _state: &mut Self::RequestLayoutState,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Self::PrepaintState {
+        self.child.prepaint(window, cx);
+        let selection = window.with_element_state::<SelectableLineState, _>(
+            id.expect("SelectableLineText has a stable element id"),
+            |retained, window| {
+                let state = retained.unwrap_or_else(|| {
+                    let selection = TextSelectionHandle::new(self.text.clone(), cx);
+                    let refresh = selection.refresh_window_on_change(window, cx);
+                    SelectableLineState {
+                        selection,
+                        _refresh: refresh,
+                    }
+                });
+                (state.selection.clone(), state)
+            },
+        );
+        let hitbox = window.insert_hitbox(bounds, gpui::HitboxBehavior::Normal);
+        let document_order = selection_document_order(&bounds);
+        selection.register(
+            TextSelectionRegistration::new(hitbox, bounds)
+                .with_document_order(document_order)
+                .with_text_bounds(vec![bounds]),
+            window,
+            cx,
+        );
+        selection
+    }
+
+    fn paint(
+        &mut self,
+        _id: Option<&gpui::GlobalElementId>,
+        _inspector_id: Option<&gpui::InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _request_layout: &mut Self::RequestLayoutState,
+        selection: &mut Self::PrepaintState,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let projection = selection.update_runs(
+            &[
+                TextSelectionRun::new(self.text.clone(), self.layout.clone(), bounds)
+                    .with_document_order(0),
+            ],
+            cx,
+        );
+        if let Some(Some(range)) = projection.ranges().first() {
+            for segment in pill_segment_bounds(&self.layout, range.clone()) {
+                window.paint_quad(gpui::fill(segment, self.highlight));
+            }
+        }
+        self.child.paint(window, cx);
+    }
+}
+
 fn pill_segment_bounds(layout: &gpui::TextLayout, range: Range<usize>) -> Vec<Bounds<Pixels>> {
     if range.start >= range.end {
         return Vec::new();
@@ -3228,8 +3417,93 @@ mod tests {
         });
         let (_view, cx) = cx.add_window_view(|_window, _cx| Host);
         for _ in 0..2 {
-            cx.update(|window, cx| window.draw(cx).clear());
+            cx.update(|window, cx| window.draw(cx).clear(cx));
             cx.run_until_parked();
         }
+    }
+
+    /// EXP-521: a pointer sweep across two selectable [`MarkdownView`]s
+    /// (mounted under `Root`, which owns the window TextSelection layer)
+    /// selects across both and copy yields both bodies in document order —
+    /// the desktop analog of sweeping across two comments on the web.
+    #[gpui::test]
+    async fn markdown_view_sweep_selects_across_views(cx: &mut gpui::TestAppContext) {
+        use gpui::{Modifiers, MouseButton, VisualTestContext};
+
+        struct Host;
+        impl Render for Host {
+            fn render(
+                &mut self,
+                _window: &mut Window,
+                _cx: &mut Context<Self>,
+            ) -> impl IntoElement {
+                div()
+                    .size_full()
+                    .child(MarkdownView::new(
+                        SharedString::from("sweep-view-a"),
+                        "alpha first comment body",
+                    ).selectable(true))
+                    .child(MarkdownView::new(
+                        SharedString::from("sweep-view-b"),
+                        "beta second comment body",
+                    ).selectable(true))
+            }
+        }
+
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+        });
+        let (_root, cx) = cx.add_window_view(|window, cx| {
+            let host = cx.new(|_| Host);
+            gpui_component::Root::new(host, window, cx)
+        });
+        let cx: &mut VisualTestContext = cx;
+        for _ in 0..2 {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            cx.run_until_parked();
+        }
+
+        // Sweep from inside the first line down past the second view's line.
+        cx.simulate_mouse_down(
+            gpui::point(px(1.), px(8.)),
+            MouseButton::Left,
+            Modifiers::default(),
+        );
+        cx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+        cx.simulate_mouse_move(
+            gpui::point(px(400.), px(60.)),
+            Some(MouseButton::Left),
+            Modifiers::default(),
+        );
+        cx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+        cx.simulate_mouse_up(
+            gpui::point(px(400.), px(60.)),
+            MouseButton::Left,
+            Modifiers::default(),
+        );
+        cx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+
+        let selected =
+            cx.update(|window, cx| gpui_base::TextSelection::selected_text(window, cx));
+        assert!(
+            selected.contains("alpha first comment body"),
+            "first view's text missing from the sweep: {selected:?}"
+        );
+        assert!(
+            selected.contains("beta second comment body"),
+            "second view's text missing from the sweep: {selected:?}"
+        );
+        // Document order: first view's text precedes the second's.
+        assert!(
+            selected.find("alpha").unwrap() < selected.find("beta").unwrap(),
+            "cross-view document order broken: {selected:?}"
+        );
     }
 }

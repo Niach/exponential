@@ -11,19 +11,26 @@ version = "0.14.13"
 license = "Apache-2.0"
 
 [workspace.dependencies]
-# gpui + backend selector + macros pinned to gpui-component's EXACT rev (LD-7,
-# masterplan-v3 §3.1) — verified against the pinned gpui-component workspace
-# Cargo.toml (it declares these same three at this same zed rev, with the same
-# gpui_platform feature set). Crate versions at this rev (Spike B): gpui 0.2.2,
-# gpui_platform 0.1.0, gpui_macros 0.1.0.
-gpui = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe" }
-gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe", features = [
+# gpui + backend selector + macros pinned to gpui-component's EXACT zed rev (LD-7,
+# masterplan-v3 §3.1). Since EXP-519 the pin lives in Cargo.lock, NOT here: upstream
+# gpui-component now FLOATS its zed git deps (their Cargo.lock is their only pin),
+# and cargo refuses both a rev mismatch (two gpui package ids splitting every gpui
+# type) and a same-URL [patch] — so these declarations float too, and the committed
+# Cargo.lock pins the exact commit. On every gpui-component bump: read the zed rev
+# out of THEIR Cargo.lock at the chosen rev, then
+#   cargo update gpui --precise <that zed rev>
+# (one git source = one rev for all zed crates). `pinned_revs.rs` in crates/app
+# gates the lock against drift; NEVER plain `cargo update`, it would float this to
+# zed main HEAD. Current pin: gpui-component da4f9369 → zed cc053a4a (2026-08-07).
+# Crate versions at this rev: gpui 0.2.2, gpui_platform 0.1.0, gpui_macros 0.1.0.
+gpui = { version = "0.2.2", git = "https://github.com/zed-industries/zed" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", features = [
     "font-kit",
     "x11",
     "wayland",
     "runtime_shaders",
 ] }
-gpui_macros = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe" }
+gpui_macros = { version = "0.1.0", git = "https://github.com/zed-industries/zed" }
 # gpui-component is pinned by GIT REV, never by crates.io version. WARNING: crates.io
 # hosts an unrelated/older registry `gpui 0.2.2` and a `gpui-component 0.5.1` that
 # depends on it — resolving either would pull a SECOND gpui package id alongside the
@@ -38,16 +45,21 @@ gpui_macros = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d
 # per-crate selections (`cargo test -p coding` etc.) resolve a SECOND,
 # featureless gpui-component — a full duplicate ~126MB rlib per target dir
 # (EXP-76). One workspace-level feature set ⇒ one build variant everywhere.
-gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "a9a7341c35b62f27ff512371c62419342264710c", features = ["tree-sitter-languages"] }
+gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "da4f93696dc2b2b4d91bcc42412b9053a3d24de8", features = ["tree-sitter-languages"] }
+# EXP-521: the window-level TextSelection layer lives in the new gpui-base
+# crate (gpui-component #2730) and is NOT re-exported by gpui-component —
+# MarkdownView registers as a selection participant directly. Same rev, same
+# workspace upstream; adds no new tree weight (already a gpui-component dep).
+gpui-base = { git = "https://github.com/longbridge/gpui-component", rev = "da4f93696dc2b2b4d91bcc42412b9053a3d24de8" }
 # Ships the 99 SVG icons gpui-component's `IconName` enum is generated from —
 # already a regular dependency of gpui-component itself (its build.rs publishes
 # the icons dir for the icon_named! macro), so this adds no new tree weight.
 # The app's AssetSource delegates icon lookups to it (§3.6 with_assets).
-gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", rev = "a9a7341c35b62f27ff512371c62419342264710c" }
+gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", rev = "da4f93696dc2b2b4d91bcc42412b9053a3d24de8" }
 # The `icon_named!` proc macro (same pinned rev) — generates the project-local
 # `ExpIcon` enum from `apps/desktop/assets/icons/` (masterplan-v3 §4.7: several
 # Lucide glyphs the option tables need are not in the bundled IconName set).
-gpui-component-macros = { git = "https://github.com/longbridge/gpui-component", rev = "a9a7341c35b62f27ff512371c62419342264710c" }
+gpui-component-macros = { git = "https://github.com/longbridge/gpui-component", rev = "da4f93696dc2b2b4d91bcc42412b9053a3d24de8" }
 
 alacritty_terminal = "0.26"                                            # UPSTREAM, Apache-2.0 — never Zed's GPL fork (resolves 0.26.0)
 portable-pty = "0.9"                                                   # resolves 0.9.0

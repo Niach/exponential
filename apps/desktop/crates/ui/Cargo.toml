@@ -29,6 +29,9 @@ gpui.workspace = true
 # WORKSPACE dependency (EXP-76: a feature requested here alone made per-crate
 # selections build a second, featureless gpui-component variant).
 gpui-component.workspace = true
+# EXP-521: direct dep for the window-level TextSelection layer types (see the
+# workspace Cargo.toml note) — MarkdownView is a selection participant.
+gpui-base.workspace = true
 # Same ropey the pinned gpui-component uses (its `SyntaxHighlighter::update`
 # takes `&ropey::Rope`; two ropey majors in the tree would not unify).
 ropey = "2.0.0-beta.1"

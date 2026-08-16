@@ -746,7 +746,7 @@ impl Shell {
                     .flex_shrink_0()
                     .child(self.settings_nav.clone()),
             );
-        let strip = gpui_component::animation::Transition::new(LEFT_COL_ANIM_DURATION)
+        let strip = gpui_component::animation::EffectTransition::new(LEFT_COL_ANIM_DURATION)
             .ease(gpui_component::animation::ease_in_out_cubic)
             .slide_x(left_from, left_to)
             .apply(
@@ -757,7 +757,7 @@ impl Shell {
                     f32::from(left_to),
                 ),
             );
-        gpui_component::animation::Transition::new(LEFT_COL_ANIM_DURATION)
+        gpui_component::animation::EffectTransition::new(LEFT_COL_ANIM_DURATION)
             .ease(gpui_component::animation::ease_in_out_cubic)
             .width(px(anim.from), px(anim.to))
             .apply(

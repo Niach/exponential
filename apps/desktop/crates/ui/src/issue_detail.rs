@@ -40,7 +40,7 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
-    input::{self, Input, InputEvent, InputState},
+    input::{self, Input, InputEvent, InputState, Textarea, TextareaState},
     notification::Notification,
     skeleton::Skeleton,
     text::TextView,
@@ -223,7 +223,7 @@ pub struct IssueDetailView {
     /// offset and the title sits above the viewport ("the title vanishes",
     /// EXP-67).
     body_scroll: gpui::ScrollHandle,
-    title_input: Entity<InputState>,
+    title_input: Entity<TextareaState>,
     /// Last title pushed from sync — guards the echo loop (web's
     /// title-sync effect).
     synced_title: String,
@@ -262,7 +262,7 @@ impl IssueDetailView {
         // of a newline, the render-side capture swallows Shift+Enter, and
         // `save_title` collapses pasted newlines.
         let title_input = cx.new(|cx| {
-            InputState::new(window, cx)
+            TextareaState::new(window, cx)
                 .placeholder("Issue title")
                 .auto_grow(1, 5)
                 .submit_on_enter(true)
@@ -769,9 +769,13 @@ impl IssueDetailView {
             .child(
                 // EXP-282: glass code blocks instead of the component's
                 // opaque `muted` panel.
+                // EXP-521: `Source` selection — copying from the rendered
+                // description yields the markdown source, ready to paste into
+                // a comment or another issue.
                 TextView::markdown("issue-description", SharedString::from(source))
                     .style(crate::surface::markdown_style())
-                    .selectable(true),
+                    .selectable(true)
+                    .selection_format(gpui_component::text::SelectionFormat::Source),
             )
             .into_any_element()
     }
@@ -1534,7 +1538,7 @@ impl IssueDetailView {
             // 1.25rem, which would clip 2xl glyphs, and h_auto releases the
             // fixed h_8 box.
             .child(
-                Input::new(&self.title_input)
+                Textarea::new(&self.title_input)
                     .appearance(false)
                     .text_2xl()
                     .font_weight(FontWeight::SEMIBOLD)

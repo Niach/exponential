@@ -20,7 +20,7 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
-    input::{Input, InputEvent, InputState},
+    input::{Input, InputEvent, InputState, Textarea, TextareaState},
     menu::{DropdownMenu as _, PopupMenuItem},
     v_flex, ActiveTheme as _, Disableable as _, Sizable as _,
 };
@@ -70,7 +70,7 @@ struct ActionEditorDialogView {
     /// `repositories.list` rows for the picker; `None` = still loading.
     repos: Option<Vec<crate::action_run::ActionRepoRow>>,
     /// The prompt — a plain multiline editor (web textarea parity).
-    body: gpui::Entity<InputState>,
+    body: gpui::Entity<TextareaState>,
     /// `actions.get` in flight — the prompt and Save stay disabled so a
     /// save can never blank the body.
     body_loading: bool,
@@ -100,8 +100,7 @@ impl ActionEditorDialogView {
             state.set_value(action.description.clone().unwrap_or_default(), window, cx);
         });
         let body = cx.new(|cx| {
-            InputState::new(window, cx)
-                .multi_line(true)
+            TextareaState::new(window, cx)
                 .placeholder("The markdown prompt the agent runs with…")
         });
 
@@ -360,7 +359,7 @@ impl Render for ActionEditorDialogView {
             .child(field_label(cx, "Prompt"))
             .child(
                 div().flex_1().min_h_0().child(
-                    Input::new(&self.body)
+                    Textarea::new(&self.body)
                         .h_full()
                         .font_family(theme::terminal::FONT_FAMILY)
                         .disabled(self.body_loading),
