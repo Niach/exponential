@@ -23,7 +23,10 @@
 //! colored lanes, curved merge connectors, hollow dots for unpushed
 //! commits) and a synthetic muted top row while the tree is dirty or local
 //! commits sit unpushed: clicking it shows the working-tree diff, its icon
-//! buttons push upstream / discard.
+//! buttons push upstream / discard. Since EXP-518 the window is the
+//! multi-ref [`coding::scm::log_graph`] walk (HEAD + remote-tracking refs),
+//! so kept squash-merged PR branches render as side lanes off the trunk —
+//! HEAD alone is single-parent all the way down and drew a straight line.
 //!
 //! Trunk resolution (§4.2 rule 1: trunk-only, no board/issue scope): the
 //! active team's clone. The team's first board (sidebar order)
@@ -1013,6 +1016,11 @@ pub struct HistoryList {
     /// Commits on HEAD not on origin (`git rev-list origin/<b>..HEAD`) —
     /// rendered hollow/muted (EXP-509).
     unpushed: HashSet<String>,
+    /// HEAD's hash as of the last `refresh` — the layout's trunk-lane seed
+    /// (EXP-518). Pinned per window: `load_more` reuses it rather than
+    /// re-resolving, so a HEAD moved mid-window can't re-lane the visible
+    /// prefix (the sync-triggered refresh reloads cleanly instead).
+    history_tip: Option<String>,
     history_skip: usize,
     history_has_more: bool,
     history_loading: bool,
@@ -1042,6 +1050,7 @@ impl HistoryList {
             history: Vec::new(),
             graph: Graph::default(),
             unpushed: HashSet::new(),
+            history_tip: None,
             history_skip: 0,
             history_has_more: false,
             history_loading: false,
@@ -1064,6 +1073,7 @@ impl HistoryList {
             self.history.clear();
             self.graph = Graph::default();
             self.unpushed.clear();
+            self.history_tip = None;
             self.history_skip = 0;
             self.history_has_more = false;
             self.generation += 1;
@@ -1099,17 +1109,19 @@ impl HistoryList {
         self.generation += 1;
         let generation = self.generation;
         cx.spawn(async move |this, cx| {
-            let (page, unpushed) = cx
+            let (page, unpushed, tip) = cx
                 .background_executor()
                 .spawn(async move {
-                    let page =
-                        scm::log_branch(&clone, None, 0, HISTORY_PAGE).unwrap_or_default();
+                    // Resolve HEAD before the log so the seed can only lag the
+                    // walk (a benign open tail lane), never lead it.
+                    let tip = scm::head_hash(&clone).ok();
+                    let page = scm::log_graph(&clone, 0, HISTORY_PAGE).unwrap_or_default();
                     let unpushed: HashSet<String> = unpushed_branch
                         .and_then(|branch| scm::unpushed_hashes(&clone, &branch).ok())
                         .unwrap_or_default()
                         .into_iter()
                         .collect();
-                    (page, unpushed)
+                    (page, unpushed, tip)
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
@@ -1119,7 +1131,8 @@ impl HistoryList {
                 this.history_skip = page.len();
                 this.history_has_more = page.len() == HISTORY_PAGE;
                 this.history = page;
-                this.graph = commit_graph::layout(&this.history);
+                this.history_tip = tip;
+                this.graph = commit_graph::layout(&this.history, this.history_tip.as_deref());
                 this.unpushed = unpushed;
                 cx.notify();
             });
@@ -1143,7 +1156,7 @@ impl HistoryList {
             let page = cx
                 .background_executor()
                 .spawn(async move {
-                    scm::log_branch(&clone, None, skip, HISTORY_PAGE).unwrap_or_default()
+                    scm::log_graph(&clone, skip, HISTORY_PAGE).unwrap_or_default()
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
@@ -1155,8 +1168,10 @@ impl HistoryList {
                 this.history_has_more = page.len() == HISTORY_PAGE;
                 this.history.extend(page);
                 // Whole-window recompute — deterministic over a prefix, so
-                // the already-visible rows keep their lanes and colors.
-                this.graph = commit_graph::layout(&this.history);
+                // the already-visible rows keep their lanes and colors (the
+                // seed reuses the tip pinned at refresh time for the same
+                // reason).
+                this.graph = commit_graph::layout(&this.history, this.history_tip.as_deref());
                 cx.notify();
             });
         })
@@ -1299,7 +1314,12 @@ impl HistoryList {
             parts.push(format!("{} ahead", trunk.ahead));
         }
         let meta = parts.join(" · ");
-        let head_lane = self.graph.rows.first().map(|row| row.lane).unwrap_or(0);
+        // The trunk (HEAD) lane is 0 by construction in every case — seeded
+        // (lane 0 reserved for the tip), unseeded tip-first (the fresh tip
+        // allocates lane 0), or empty history. Row 0 may be a newer BRANCH
+        // tip since EXP-518, so `rows.first()` would point the stub at the
+        // wrong lane.
+        let head_lane = 0;
         let muted = theme.muted_foreground;
         let gutter = gutter_cell(self.gutter_width(), move |bounds, window| {
             paint_uncommitted_stub(bounds, window, head_lane, muted);

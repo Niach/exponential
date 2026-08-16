@@ -174,20 +174,47 @@ pub fn log_branch(
     skip: usize,
     limit: usize,
 ) -> Result<Vec<CommitInfo>, GitError> {
+    run_log(repo, &[branch.unwrap_or("HEAD")], skip, limit)
+}
+
+/// The history pane's graph walk (EXP-518): HEAD plus every remote-tracking
+/// ref, so squash-merged PR branches (kept on origin after merge) render as
+/// side lanes instead of the trunk's straight line. The explicit `HEAD` keeps
+/// a remote-less repo walking; paging and wire format match [`log_branch`].
+pub fn log_graph(repo: &Path, skip: usize, limit: usize) -> Result<Vec<CommitInfo>, GitError> {
+    run_log(repo, &["HEAD", "--remotes"], skip, limit)
+}
+
+/// Shared `git log` body. `--date-order` turns the lane layout's
+/// children-before-parents assumption into a git guarantee ("no parents
+/// before all of its children") — the default reverse-chronological order
+/// only holds it accidentally and clock skew (rebases) can violate it.
+fn run_log(
+    repo: &Path,
+    revs: &[&str],
+    skip: usize,
+    limit: usize,
+) -> Result<Vec<CommitInfo>, GitError> {
     let skip_arg = format!("--skip={skip}");
     let max_arg = format!("--max-count={limit}");
     let mut args = vec![
         "log",
         "-z",
         "--format=%H%x1f%P%x1f%s%x1f%an%x1f%cr",
+        "--date-order",
         &skip_arg,
         &max_arg,
     ];
-    if let Some(branch) = branch {
-        args.push(branch);
-    }
+    args.extend_from_slice(revs);
     let raw = run_git(Some(repo), &args, None, "git log")?;
     Ok(parse_log(&raw))
+}
+
+/// HEAD's commit hash (`git rev-parse HEAD`) — seeds the graph layout's trunk
+/// lane (EXP-518). Errors on an unborn HEAD; callers treat that as "no seed".
+pub fn head_hash(repo: &Path) -> Result<String, GitError> {
+    let raw = run_git(Some(repo), &["rev-parse", "HEAD"], None, "git rev-parse")?;
+    Ok(raw.trim().to_string())
 }
 
 /// Working-tree diff of one path (`git diff [--cached] -- <path>`), parsed to
@@ -1254,6 +1281,73 @@ new file mode 100644
         assert!(unpushed_hashes(r, "main").unwrap().is_empty());
         let log = log_branch(r, None, 0, 10).unwrap();
         assert_eq!(log[0].subject, "local changes");
+    }
+
+    #[test]
+    fn log_graph_includes_remote_branch_commits() {
+        // A pushed feature branch (the kept PR branch shape, EXP-518): its
+        // commit is invisible to the HEAD-only walk but present in the graph
+        // walk via origin/feature.
+        let remote_dir = temp_dir("graph-remote");
+        let bare = remote_dir.0.join("origin.git");
+        fs::create_dir_all(&bare).unwrap();
+        git(&bare, &["init", "--quiet", "--bare", "-b", "main"]);
+
+        let d = temp_dir("graph-work");
+        let r = &d.0;
+        init_repo(r);
+        write(r, "f.txt", "one\n");
+        commit_all(r, "base");
+        git(r, &["remote", "add", "origin", bare.to_str().unwrap()]);
+        git(r, &["push", "--quiet", "-u", "origin", "main"]);
+        git(r, &["checkout", "--quiet", "-b", "feature"]);
+        write(r, "f.txt", "feature\n");
+        commit_all(r, "feature work");
+        git(r, &["push", "--quiet", "origin", "feature"]);
+        git(r, &["checkout", "--quiet", "main"]);
+        git(r, &["branch", "--quiet", "-D", "feature"]);
+        write(r, "g.txt", "trunk\n");
+        commit_all(r, "trunk work");
+
+        let head_only = log_branch(r, None, 0, 10).unwrap();
+        assert!(head_only.iter().all(|c| c.subject != "feature work"));
+
+        let graph = log_graph(r, 0, 10).unwrap();
+        assert_eq!(graph.len(), 3);
+        let feature = graph.iter().find(|c| c.subject == "feature work").unwrap();
+        let base = graph.iter().find(|c| c.subject == "base").unwrap();
+        assert_eq!(feature.parents, vec![base.hash.clone()]);
+        // The local-only trunk commit (never pushed) is walked via HEAD.
+        assert!(graph.iter().any(|c| c.subject == "trunk work"));
+
+        // Paging skips across the merged multi-ref stream.
+        let rest = log_graph(r, 1, 10).unwrap();
+        assert_eq!(rest.len(), 2);
+        assert_eq!(rest[1].subject, "base");
+    }
+
+    #[test]
+    fn log_graph_without_remotes_is_head_only() {
+        // The explicit HEAD rev keeps a remote-less repo walking.
+        let d = temp_dir("graph-plain");
+        let r = &d.0;
+        init_repo(r);
+        for msg in ["first", "second"] {
+            write(r, "f.txt", msg);
+            commit_all(r, msg);
+        }
+        assert_eq!(log_graph(r, 0, 10).unwrap(), log_branch(r, None, 0, 10).unwrap());
+    }
+
+    #[test]
+    fn head_hash_resolves_the_tip() {
+        let d = temp_dir("head-hash");
+        let r = &d.0;
+        init_repo(r);
+        write(r, "f.txt", "one\n");
+        commit_all(r, "init");
+        let head = head_hash(r).unwrap();
+        assert_eq!(head, log_branch(r, None, 0, 1).unwrap()[0].hash);
     }
 
     #[test]

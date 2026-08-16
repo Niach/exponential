@@ -6,6 +6,9 @@
 //! them. Deterministic over a prefix — appending a page (`Load more`) never
 //! re-lanes or recolors already-laid rows, so the caller recomputes over the
 //! full vec on every append. Deliberately gpui-free (unit-tested as data).
+//! Since EXP-518 the window is the multi-ref `scm::log_graph` walk (HEAD +
+//! remote-tracking refs) and an optional trunk-tip seed pins HEAD's line to
+//! lane 0 — squash-merged PR branches render as side lanes off the trunk.
 
 use coding::scm::CommitInfo;
 
@@ -74,14 +77,29 @@ struct Lane {
     color: usize,
 }
 
-/// Lay the loaded commit window out into lanes. `git log` always emits a
-/// child before its parents (parents are only reachable through children), so
-/// no topological pre-sort is needed.
-pub fn layout(commits: &[CommitInfo]) -> Graph {
+/// Lay the loaded commit window out into lanes. The walk runs `--date-order`,
+/// which guarantees a child is emitted before its parents, so no topological
+/// pre-sort is needed. `trunk_tip` is HEAD's hash at load time (EXP-518): it
+/// seeds lane 0 so the trunk keeps lane 0 / color 0 even when a remote branch
+/// tip is newer and rows above it exist.
+pub fn layout(commits: &[CommitInfo], trunk_tip: Option<&str>) -> Graph {
     let mut lanes: Vec<Option<Lane>> = Vec::new();
     let mut next_color: usize = 0;
     let mut max_lane: usize = 0;
     let mut rows: Vec<GraphRow> = Vec::with_capacity(commits.len());
+
+    // Seed lane 0 expecting the trunk tip — skipped when the tip IS the first
+    // row (the fresh-tip path already lands it on lane 0 / color 0 without a
+    // spurious top-edge stub, keeping the pre-seed output byte-identical).
+    // When the tip sits deeper (a branch row is newer), the seeded lane draws
+    // `Pass` through the rows above and a straight `IntoDot` at the tip; a tip
+    // beyond the window survives into `tail` as (0, 0). Stable under append:
+    // the condition depends only on `commits[0]` and the tip.
+    if let Some(tip) = trunk_tip {
+        if commits.first().is_some_and(|c| c.hash != tip) {
+            lanes.push(Some(Lane { expects: tip.to_string(), color: take_color(&mut next_color) }));
+        }
+    }
 
     for commit in commits {
         let mut edges: Vec<Edge> = Vec::new();
@@ -252,7 +270,7 @@ mod tests {
 
     #[test]
     fn linear_chain_stays_on_lane_zero() {
-        let graph = layout(&[commit("c", &["b"]), commit("b", &["a"]), commit("a", &[])]);
+        let graph = layout(&[commit("c", &["b"]), commit("b", &["a"]), commit("a", &[])], None);
         assert_eq!(graph.max_lane, 0);
         assert!(graph.tail.is_empty()); // root reached — nothing open
         for (ix, row) in graph.rows.iter().enumerate() {
@@ -280,7 +298,7 @@ mod tests {
             commit("f", &["a"]),
             commit("b", &["a"]),
             commit("a", &[]),
-        ]);
+        ], None);
         assert_eq!(graph.max_lane, 1);
 
         // Merge row: dot on lane 0, second parent branches out to lane 1
@@ -332,7 +350,7 @@ mod tests {
     #[test]
     fn branch_off_converges_both_children_at_the_shared_parent() {
         // Two heads inside the window sharing one parent: h1 → a, h2 → a.
-        let graph = layout(&[commit("h1", &["a"]), commit("h2", &["a"]), commit("a", &[])]);
+        let graph = layout(&[commit("h1", &["a"]), commit("h2", &["a"]), commit("a", &[])], None);
         // h2 is a fresh tip → new lane 1, new color, running parallel.
         let h2 = &graph.rows[1];
         assert_eq!((h2.lane, h2.color), (1, 1));
@@ -354,7 +372,7 @@ mod tests {
     #[test]
     fn truncated_window_leaves_open_lanes_in_the_tail() {
         // A merge whose parents are both beyond the window.
-        let graph = layout(&[commit("m", &["p0", "p1"]), commit("x", &["p2"])]);
+        let graph = layout(&[commit("m", &["p0", "p1"]), commit("x", &["p2"])], None);
         // m keeps lane 0 open (expects p0) and opened lane 1 (expects p1);
         // x is a fresh tip on lane 2 (expects p2).
         assert_eq!(graph.rows[1].lane, 2);
@@ -376,8 +394,8 @@ mod tests {
             commit("a", &["z"]),
             commit("z", &[]),
         ];
-        let prefix = layout(&full[..3]);
-        let whole = layout(&full);
+        let prefix = layout(&full[..3], None);
+        let whole = layout(&full, None);
         assert_eq!(prefix.rows[..], whole.rows[..3]);
     }
 
@@ -391,7 +409,7 @@ mod tests {
             commit("m1", &["b", "f"]),
             commit("f", &["b"]),
             commit("b", &[]),
-        ]);
+        ], None);
         assert_eq!(graph.max_lane, 1);
         let m1 = &graph.rows[2];
         // m1's merge parent f re-opens lane 1 with color 2 (0 = trunk,
@@ -403,4 +421,73 @@ mod tests {
             color: 2,
         }));
     }
+
+    #[test]
+    fn seeded_trunk_keeps_lane_zero_when_branch_tip_is_newer() {
+        // A branch tip ("bt") newer than the trunk tip ("mt"), both forking
+        // from "a" — the EXP-518 shape. The seed pins the trunk to lane 0 /
+        // color 0; the branch rides lane 1 with the next color.
+        let graph = layout(
+            &[commit("bt", &["a"]), commit("mt", &["a"]), commit("a", &[])],
+            Some("mt"),
+        );
+        let bt = &graph.rows[0];
+        assert_eq!((bt.lane, bt.color), (1, 1));
+        // The trunk's seeded lane passes the newer branch row by.
+        assert_eq!(edge(bt, EdgeKind::Pass), vec![Edge {
+            kind: EdgeKind::Pass,
+            lane_top: 0,
+            lane_bottom: 0,
+            color: 0,
+        }]);
+        // The trunk tip lands on the seeded lane with a straight IntoDot from
+        // the list's top edge.
+        let mt = &graph.rows[1];
+        assert_eq!((mt.lane, mt.color), (0, 0));
+        assert_eq!(edge(mt, EdgeKind::IntoDot), vec![Edge {
+            kind: EdgeKind::IntoDot,
+            lane_top: 0,
+            lane_bottom: 0,
+            color: 0,
+        }]);
+        // Both lines converge at the shared fork point.
+        let a = &graph.rows[2];
+        assert_eq!(a.lane, 0);
+        assert_eq!(edge(a, EdgeKind::IntoDot).len(), 2);
+    }
+
+    #[test]
+    fn seed_matching_first_row_is_a_noop() {
+        // The common case — the trunk tip IS the newest commit: seeding must
+        // not change the layout (no spurious top-edge stub into row 0).
+        let commits = [commit("c", &["b"]), commit("b", &["a"]), commit("a", &[])];
+        assert_eq!(layout(&commits, Some("c")), layout(&commits, None));
+    }
+
+    #[test]
+    fn seed_survives_in_tail_when_tip_is_beyond_the_window() {
+        // A window of branch-only commits with the trunk tip past its end —
+        // the seeded lane stays open and runs off the bottom.
+        let graph = layout(&[commit("bt", &["a"])], Some("mt"));
+        assert_eq!(graph.rows[0].lane, 1);
+        assert!(graph.tail.contains(&(0, 0)));
+    }
+
+    #[test]
+    fn seeded_prefix_is_stable_under_append() {
+        // The Load-more guarantee holds with a seed: the caller reuses the
+        // tip resolved at refresh time, so recomputing over an extended
+        // window never re-lanes the prefix.
+        let full = [
+            commit("bt", &["x"]),
+            commit("mt", &["a"]),
+            commit("x", &["a"]),
+            commit("a", &["z"]),
+            commit("z", &[]),
+        ];
+        let prefix = layout(&full[..2], Some("mt"));
+        let whole = layout(&full, Some("mt"));
+        assert_eq!(prefix.rows[..], whole.rows[..2]);
+    }
 }
+
