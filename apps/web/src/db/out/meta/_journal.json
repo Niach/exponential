@@ -519,6 +519,13 @@
       "when": 1786826730992,
       "tag": "0073_demonic_betty_brant",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1786884414181,
+      "tag": "0074_drop_stray_issue_labels_updated_at_trigger",
+      "breakpoints": true
     }
   ]
 }

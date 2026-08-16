@@ -307,12 +307,11 @@ export function registerExponentialTools(
         const rows = await db
           .select()
           .from(boards)
-          .where(inArray(boards.teamId, allowedTeamIds))
+          .where(and(inArray(boards.teamId, allowedTeamIds), boardVisible()))
           .orderBy(asc(boards.sortOrder), asc(boards.name))
 
-        const filtered = rows.filter(
-          (row) =>
-            isBoardGranted(access, row.id, row.teamId) && row.deletedAt == null
+        const filtered = rows.filter((row) =>
+          isBoardGranted(access, row.id, row.teamId)
         )
         return ok(filtered)
       } catch (e) {
