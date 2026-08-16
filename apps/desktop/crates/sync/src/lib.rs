@@ -23,6 +23,7 @@
 
 pub mod client;
 pub mod collections;
+pub mod health;
 pub mod kill_watch;
 pub mod manager;
 pub mod protocol;
@@ -34,8 +35,9 @@ pub use client::{
     HttpTransport, TransportError, TransportResponse, UnauthorizedFn, UpgradeRequiredFn,
 };
 pub use collections::{
-    cmp_identifiers, Collection, Collections, SessionPhase, ShapeRow, ShapeStatus, ShapeSyncPhase,
-    SharedState, Store,
+    cmp_identifiers, derive_active_health, ActiveSyncStatus, Collection, Collections, SessionPhase,
+    ShapeRow, ShapeStatus, ShapeSyncPhase, SharedState, Store,
 };
+pub use health::{AccountHealth, SyncHealth, ERROR_STALENESS_WINDOW, FAILURE_STREAK_GRACE};
 pub use kill_watch::{session_row_fires_kill, session_row_is_ended, KillWatch, OnSessionEnded};
 pub use manager::{AccountSyncConfig, SyncManager};

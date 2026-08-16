@@ -43,6 +43,31 @@ impl DebugBoardPanel {
         }
     }
 
+    /// EXP-501: the active account's aggregate sync health — the one-line
+    /// diagnostics view of what drives the shell's offline banner.
+    fn render_health_line(&self, cx: &App) -> impl IntoElement {
+        let status = Store::global(cx).sync_status(cx);
+        let ago = status
+            .last_success_at
+            .and_then(|t| std::time::SystemTime::now().duration_since(t).ok())
+            .map_or_else(|| "never".to_string(), |d| format!("{}s ago", d.as_secs()));
+        let (text, color): (SharedString, _) = match status.health {
+            sync::SyncHealth::Ok => (
+                format!("sync health: ok · last success {ago}").into(),
+                cx.theme().muted_foreground,
+            ),
+            sync::SyncHealth::Offline => (
+                format!(
+                    "sync health: OFFLINE · last success {ago} · {}",
+                    status.last_error.as_deref().unwrap_or("unknown error")
+                )
+                .into(),
+                cx.theme().warning,
+            ),
+        };
+        div().text_xs().text_color(color).child(text)
+    }
+
     /// The 16-shape status line — snapshot/live/refetching + row counts.
     fn render_status_line(&self, cx: &App) -> impl IntoElement {
         let statuses = Store::global(cx).shape_statuses(cx);
@@ -198,6 +223,7 @@ impl Render for DebugBoardPanel {
                     .text_color(cx.theme().muted_foreground)
                     .child("Debug board. Phase 3 replaces this with the real board view."),
             )
+            .child(self.render_health_line(cx))
             .child(self.render_status_line(cx))
             .child(
                 div()
