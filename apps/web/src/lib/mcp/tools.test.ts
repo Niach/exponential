@@ -476,6 +476,17 @@ describe(`exponential_notifications_list`, () => {
     // unreadOnly must add the read_at IS NULL predicate.
     expect(sql).toContain(`read_at`)
   })
+
+  it(`hides trashed and archived boards like the synced shape (EXP-517)`, async () => {
+    await tool(`exponential_notifications_list`)({
+      unreadOnly: false,
+      limit: 50,
+      offset: 0,
+    })
+    const { sql } = new PgDialect().sqlToQuery(state.capturedWhere as never)
+    expect(sql).toContain(`"board_deleted_at" is null`)
+    expect(sql).toContain(`"board_archived_at" is null`)
+  })
 })
 
 // ── teams_get (direct DB read, projected) ───────────────────────────────
