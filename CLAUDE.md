@@ -184,7 +184,7 @@ TWO virtual builtins are NOT DB rows: each client CONSTRUCTS them locally, so th
 
 ### Desktop IDE & mobile
 
-The desktop IDE is master-only + autopull: no branch switching (changes normally arrive via PRs; since EXP-509 the Source Control tool adds a history graph, working-tree diff, and a CONFIRMED commit-and-push of local trunk changes; escape hatch = Discard-and-reset, behind a confirm); the git bar became the headless `trunk_sync` engine with a rail status badge, and the trunk conflict banner keeps Open terminal / Abort / Discard & reset. Mobile ships full onboarding: server-gated first-run wizard (`onboardingCompletedAt`, `lib/auth/onboarding.ts`) — create-or-join team, then guided first board with optional repo picker + inline GitHub App connect; no account-level Integrations menu.
+The desktop IDE is master-only + autopull: no branch switch; changes land via PRs or Source Control's CONFIRMED commit-and-push; escape hatch = Discard-and-reset; the git bar became the headless `trunk_sync` engine with a rail status badge, and the trunk conflict banner keeps Open terminal / Abort / Discard & reset. Mobile ships full onboarding: server-gated first-run wizard (`onboardingCompletedAt`, `lib/auth/onboarding.ts`) — create-or-join team, then guided first board with optional repo picker + inline GitHub App connect; no account-level Integrations menu.
 
 ## Billing (per-seat, Creem — cloud only)
 
