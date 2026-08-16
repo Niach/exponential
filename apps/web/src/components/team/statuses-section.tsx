@@ -215,7 +215,9 @@ function StatusRow({
                 <StatusTile option={option} />
               </button>
             </PopoverTrigger>
-            <PopoverContent className="w-auto p-2" align="start">
+            {/* Bounded so the swatch grid WRAPS — `w-auto` let it stretch the
+                popover to one 20-swatch row wider than a phone screen. */}
+            <PopoverContent className="w-64 p-2" align="start">
               <ColorSwatchGrid
                 value={option.colorHex}
                 onChange={persistColor}
