@@ -637,7 +637,7 @@ impl TerminalDockPanel {
                                 .group_hover(TAB_GROUP, |style| style.visible())
                                 .child(
                                     Button::new(("undock-terminal-tab", ix))
-                                        .ghost()
+                                        .ghost().cursor_pointer()
                                         .xsmall()
                                         .icon(ExpIcon::ExternalLink)
                                         .tooltip("Open in new window")
@@ -659,7 +659,7 @@ impl TerminalDockPanel {
                         .when(!has_merge, |this| {
                             this.child(
                                 Button::new(("close-terminal-tab", ix))
-                                    .ghost()
+                                    .ghost().cursor_pointer()
                                     .xsmall()
                                     .icon(registry::UI_CLOSE)
                                     .on_click(cx.listener(
@@ -709,7 +709,7 @@ impl TerminalDockPanel {
                 .collect();
             let panel = cx.entity().downgrade();
             Button::new("terminal-tab-overflow")
-                .ghost()
+                .ghost().cursor_pointer()
                 .xsmall()
                 .label(format!("+{}", hidden_entries.len()))
                 .tooltip("More tabs")
@@ -803,7 +803,7 @@ impl TerminalDockPanel {
             )
             .child(
                 Button::new("collapse-terminal-dock")
-                    .ghost()
+                    .ghost().cursor_pointer()
                     .xsmall()
                     .icon(registry::UI_CHEVRON_DOWN)
                     .tooltip("Hide terminal")
@@ -844,15 +844,15 @@ impl TerminalDockPanel {
         let mut button = Button::new(("merge-terminal-tab", ix)).xsmall();
         if merging {
             button = button
-                .outline()
+                .outline().cursor_pointer()
                 .label("Merging…")
                 .loading(true)
                 .disabled(true);
         } else if armed {
-            button = button.outline().label("Confirm merge").danger();
+            button = button.outline().cursor_pointer().label("Confirm merge").danger().cursor_pointer();
         } else {
             button = button
-                .ghost()
+                .ghost().cursor_pointer()
                 .icon(ExpIcon::GitMerge)
                 .label("Merge")
                 .tooltip("Merge: completes every linked issue and closes this coding session");
@@ -899,7 +899,7 @@ impl TerminalDockPanel {
     fn new_tab_menu(&self, cx: &gpui::Context<Self>) -> impl IntoElement {
         let panel = cx.entity().downgrade();
         Button::new("new-terminal-tab")
-            .ghost()
+            .ghost().cursor_pointer()
             .xsmall()
             .icon(registry::UI_ADD)
             .tooltip("New session")
@@ -1365,7 +1365,7 @@ fn empty_dock_card(
     cx: &App,
 ) -> Button {
     Button::new(id)
-        .ghost()
+        .ghost().cursor_pointer()
         .w(px(104.))
         .h(px(88.))
         .border_1()

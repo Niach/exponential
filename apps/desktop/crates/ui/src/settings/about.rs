@@ -101,7 +101,7 @@ impl AboutPane {
 
     fn link_button(id: &'static str, label: &'static str, url: &'static str) -> Button {
         Button::new(id)
-            .outline()
+            .outline().cursor_pointer()
             .xsmall()
             .icon(Icon::new(registry::UI_EXTERNAL_LINK))
             .label(label)
@@ -142,7 +142,7 @@ impl AboutPane {
                     .child(card_header("Third-party licenses", LICENSES_BLURB, cx))
                     .child(
                         Button::new("about-notices-copy")
-                            .outline()
+                            .outline().cursor_pointer()
                             .xsmall()
                             .label("Copy")
                             .tooltip("Copy the full notice")

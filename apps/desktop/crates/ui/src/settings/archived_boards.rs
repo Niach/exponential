@@ -194,7 +194,7 @@ impl ArchivedBoardsPane {
             )
             .child(
                 Button::new(SharedString::from(format!("unarchive-{}", board.id)))
-                    .outline()
+                    .outline().cursor_pointer()
                     .xsmall()
                     .label(if pending { "Unarchiving\u{2026}" } else { "Unarchive" })
                     .disabled(pending)
@@ -225,7 +225,7 @@ impl Render for ArchivedBoardsPane {
         ));
 
         let refresh = Button::new("archived-boards-refresh")
-            .ghost()
+            .ghost().cursor_pointer()
             .xsmall()
             .label("Refresh")
             .loading(matches!(self.load, Load::Loading))

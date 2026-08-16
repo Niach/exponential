@@ -511,7 +511,7 @@ impl Render for RepositoriesPane {
                     .child(div().flex_1())
                     .child(
                         Button::new("repos-add")
-                            .primary()
+                            .primary().cursor_pointer()
                             .small()
                             .icon(registry::UI_ADD)
                             .label("Add repository")
@@ -630,7 +630,7 @@ fn github_status_line(status: Option<&GithubStatus>, cx: &gpui::App) -> impl Int
             .child("No GitHub account connected")
             .children(connect_url.map(|url| {
                 Button::new("gh-connect")
-                    .outline()
+                    .outline().cursor_pointer()
                     .xsmall()
                     .label("Connect GitHub")
                     .on_click(move |_, _, cx| open_url(cx, url.clone()))
@@ -667,7 +667,7 @@ fn github_status_line(status: Option<&GithubStatus>, cx: &gpui::App) -> impl Int
             ))
             .children(manage_url.map(|url| {
                 Button::new("gh-unsuspend")
-                    .outline()
+                    .outline().cursor_pointer()
                     .xsmall()
                     .label("Manage")
                     .on_click(move |_, _, cx| open_url(cx, url.clone()))
@@ -695,7 +695,7 @@ fn github_status_line(status: Option<&GithubStatus>, cx: &gpui::App) -> impl Int
             ))
             .children(connect_url.map(|url| {
                 Button::new("gh-reconnect")
-                    .ghost()
+                    .ghost().cursor_pointer()
                     .xsmall()
                     .label("Reconnect")
                     .on_click(move |_, _, cx| open_url(cx, url.clone()))
@@ -718,7 +718,7 @@ fn github_status_line(status: Option<&GithubStatus>, cx: &gpui::App) -> impl Int
     .child(label)
     .children(connect_url.map(|url| {
         Button::new("gh-manage")
-            .ghost()
+            .ghost().cursor_pointer()
             .xsmall()
             .label("Manage")
             .on_click(move |_, _, cx| open_url(cx, url.clone()))
@@ -763,7 +763,7 @@ impl RepositoriesPane {
             head = head.child(private_chip(cx));
         }
 
-        let remove = Button::new(("repo-remove", index)).ghost().xsmall().icon(
+        let remove = Button::new(("repo-remove", index)).ghost().cursor_pointer().xsmall().icon(
             Icon::new(registry::UI_DELETE)
                 .xsmall()
                 .text_color(cx.theme().muted_foreground),
@@ -842,7 +842,7 @@ impl RepositoriesPane {
         use gpui::{ElementId, InteractiveElement as _, StatefulInteractiveElement as _};
 
         let button = Button::new(("repo-branch", index))
-            .outline()
+            .outline().cursor_pointer()
             .xsmall()
             .max_w(px(240.))
             .label(SharedString::from(repo.default_branch.clone()))

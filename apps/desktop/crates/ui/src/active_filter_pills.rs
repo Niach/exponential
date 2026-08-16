@@ -113,7 +113,7 @@ impl RenderOnce for ActiveFilterPills {
         let on_clear = self.on_filters_change.clone();
         row.child(
             Button::new("filter-pills-clear-all")
-                .ghost()
+                .ghost().cursor_pointer()
                 .xsmall()
                 .text_color(cx.theme().muted_foreground)
                 .label("Clear all")

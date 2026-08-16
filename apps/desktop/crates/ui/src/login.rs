@@ -484,7 +484,7 @@ impl LoginView {
             let pending = self.pending_provider.as_deref() == Some("apple");
             section = section.child(
                 Button::new("login-apple")
-                    .outline()
+                    .outline().cursor_pointer()
                     .w_full()
                     // Apple's mark is monochrome by design — the standard
                     // tinted-Icon pipeline is exactly right (EXP-9).
@@ -507,7 +507,7 @@ impl LoginView {
             let provider_id = provider.id.clone();
             section = section.child(
                 Button::new(SharedString::from(format!("login-oidc-{}", provider.id)))
-                    .outline()
+                    .outline().cursor_pointer()
                     .w_full()
                     .label(SharedString::from(label))
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -519,7 +519,7 @@ impl LoginView {
             let pending = self.pending_provider.as_deref() == Some("google");
             section = section.child(
                 Button::new("login-google")
-                    .outline()
+                    .outline().cursor_pointer()
                     .w_full()
                     // The official multi-color "G" (EXP-9). `Button::icon`/
                     // gpui's `svg()` is an alpha-mask tinted with ONE color,
@@ -582,7 +582,7 @@ impl LoginView {
             )
             .child(
                 Button::new("login-copy-oauth-url")
-                    .outline()
+                    .outline().cursor_pointer()
                     .xsmall()
                     .label("Copy")
                     .on_click(cx.listener(move |_, _, _, cx| {
@@ -727,7 +727,7 @@ impl Render for LoginView {
                 ))
                 .child(
                     Button::new("login-submit")
-                        .primary()
+                        .primary().cursor_pointer()
                         .label(if signing_in { "Signing in…" } else { "Sign in" })
                         .loading(signing_in)
                         .disabled(signing_in)

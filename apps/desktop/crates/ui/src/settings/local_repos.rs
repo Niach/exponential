@@ -632,7 +632,7 @@ impl LocalReposPane {
                 let full_name = repo.full_name.clone();
                 meta.child(
                     Button::new(("repo-worktrees", ix))
-                        .ghost()
+                        .ghost().cursor_pointer()
                         .xsmall()
                         .icon(if expanded {
                             registry::UI_CHEVRON_DOWN
@@ -665,7 +665,7 @@ impl LocalReposPane {
             let full_name = repo.full_name.clone();
             let clone = repo.clone_path.clone();
             Button::new(("repo-prune", ix))
-                .outline()
+                .outline().cursor_pointer()
                 .xsmall()
                 .label("Prune merged worktrees")
                 .tooltip(
@@ -685,7 +685,7 @@ impl LocalReposPane {
             let full_name = repo.full_name.clone();
             let clone = repo.clone_path.clone();
             let mut button = Button::new(("repo-remove", ix))
-                .ghost()
+                .ghost().cursor_pointer()
                 .xsmall()
                 .icon(Icon::new(registry::UI_DELETE).text_color(if in_use {
                     cx.theme().muted_foreground
@@ -788,7 +788,7 @@ impl LocalReposPane {
             let full_name = repo.full_name.clone();
             let path = path.clone();
             Button::new((terminal_id, wt_ix))
-                .ghost()
+                .ghost().cursor_pointer()
                 .xsmall()
                 .icon(registry::NAV_TERMINAL)
                 .tooltip("Open a terminal in this worktree")
@@ -823,7 +823,7 @@ impl LocalReposPane {
             let clone = repo.clone_path.clone();
             let worktree = worktree.clone();
             let mut button = Button::new((remove_id, wt_ix))
-                .ghost()
+                .ghost().cursor_pointer()
                 .xsmall()
                 .icon(Icon::new(registry::UI_DELETE).text_color(if in_use {
                     cx.theme().muted_foreground
@@ -987,7 +987,7 @@ impl Render for LocalReposPane {
         body = body.child(
             h_flex().gap_2().child(
                 Button::new("local-repos-refresh")
-                    .ghost()
+                    .ghost().cursor_pointer()
                     .xsmall()
                     .label("Refresh")
                     .loading(self.scanning)

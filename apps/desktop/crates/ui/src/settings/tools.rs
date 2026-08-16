@@ -232,7 +232,7 @@ impl Render for ToolsPane {
         save_area = save_area.child(
             h_flex().justify_end().child(
                 Button::new("tools-save")
-                    .primary()
+                    .primary().cursor_pointer()
                     .small()
                     .label("Save changes")
                     .disabled(!dirty)
@@ -262,7 +262,7 @@ impl Render for ToolsPane {
                     )
                     .child(
                         Button::new("tools-reset-ide")
-                            .danger()
+                            .danger().cursor_pointer()
                             .small()
                             .label("Reset IDE data")
                             .on_click(cx.listener(|this, _, window, cx| {

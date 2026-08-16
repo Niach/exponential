@@ -615,7 +615,7 @@ impl SourceControlView {
                     )
                     .child(
                         Button::new("scm-abort")
-                            .danger()
+                            .danger().cursor_pointer()
                             .small()
                             .label(abort_label)
                             .disabled(self.busy.is_some())
@@ -1375,7 +1375,7 @@ impl HistoryList {
                     .pr_2()
                     .child(
                         Button::new("hist-push")
-                            .ghost()
+                            .ghost().cursor_pointer()
                             .xsmall()
                             .icon(registry::SC_PUSH)
                             .tooltip(if dirty {
@@ -1390,7 +1390,7 @@ impl HistoryList {
                     )
                     .child(
                         Button::new("hist-discard")
-                            .ghost()
+                            .ghost().cursor_pointer()
                             .xsmall()
                             .icon(registry::UI_DELETE)
                             .tooltip("Discard changes & reset…")
@@ -1500,7 +1500,7 @@ impl HistoryList {
             .child(gutter)
             .child(
                 Button::new("hist-more")
-                    .ghost()
+                    .ghost().cursor_pointer()
                     .xsmall()
                     .label(if self.history_loading {
                         "Loading…"

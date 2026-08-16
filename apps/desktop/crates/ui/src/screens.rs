@@ -275,20 +275,15 @@ impl ChipLead {
 }
 
 fn chip_content(screen: &Screen, cx: &App) -> ChipContent {
-    if let Screen::IssueDetail { issue_id } | Screen::PrDiff { issue_id } = screen {
+    if let Screen::IssueDetail { issue_id } = screen {
         let store = Store::global(cx);
         let issues = store.collections().issues.read(cx);
         if let Some(issue) = issues.get(issue_id) {
             let title = issue.title.trim();
-            // "· Diff" keeps the diff tab distinguishable from the same
-            // issue's detail tab (mirrors `screen_title`).
-            let title = match screen {
-                Screen::PrDiff { .. } if title.is_empty() => Some("Diff".into()),
-                Screen::PrDiff { .. } => {
-                    Some(gpui::SharedString::from(format!("{title} · Diff")))
-                }
-                _ if title.is_empty() => None,
-                _ => Some(gpui::SharedString::from(title.to_string())),
+            let title = if title.is_empty() {
+                None
+            } else {
+                Some(gpui::SharedString::from(title.to_string()))
             };
             let resolved = crate::queries::resolve_issue_status(cx, issue);
             return ChipContent {
@@ -360,6 +355,9 @@ impl ScreensPanel {
         let support_thread =
             cx.new(|cx| crate::support_thread::SupportThreadView::new(window, cx));
         let pr_diff = cx.new(|cx| crate::pr_diff::PrDiffView::new(window, cx));
+        // EXP-525: only the in-shell instance offers "open in new window" —
+        // `build_screen_content`'s undocked-window instances must not.
+        pr_diff.update(cx, |diff, _| diff.show_undock = true);
         let actions = cx.new(|cx| crate::actions_view::ActionsView::new(window, cx));
         let getting_started =
             cx.new(|cx| crate::getting_started::GettingStartedView::new(window, cx));
@@ -372,6 +370,9 @@ impl ScreensPanel {
         subscriptions.push(cx.observe_in(&nav, window, |this, _, window, cx| {
             this.sync_tabs(window, cx);
             this.sync_active_screen(cx);
+            // A go-back can land on a diff whose PR merged while the entry
+            // sat on the stack (EXP-525) — retire it immediately.
+            this.dismiss_stale_pr_diff(window, cx);
             cx.notify();
         }));
         // EXP-288: the rail drives the tab-less center — tool switches swap
@@ -397,6 +398,7 @@ impl ScreensPanel {
             window,
             |this, _, window, cx| {
                 this.prune_missing_issue_tabs(window, cx);
+                this.dismiss_stale_pr_diff(window, cx);
                 cx.notify();
             },
         ));
@@ -456,6 +458,13 @@ impl ScreensPanel {
         if entered_settings {
             self.settings
                 .update(cx, |settings, cx| settings.mark_personal_stale(cx));
+        }
+        // EXP-525: PrDiff is a transient (tab-less) center view — re-point
+        // the shared diff view here instead of in `sync_tabs`.
+        if let Some(Screen::PrDiff { issue_id }) = &self.active_screen {
+            let issue_id = issue_id.clone();
+            self.pr_diff
+                .update(cx, |diff, cx| diff.set_issue(issue_id, cx));
         }
     }
 
@@ -568,11 +577,10 @@ impl ScreensPanel {
                 self.support_thread
                     .update(cx, |thread, cx| thread.set_thread(thread_id, window, cx));
             }
-            Screen::PrDiff { issue_id } => {
-                self.pr_diff
-                    .update(cx, |diff, cx| diff.set_issue(issue_id, cx));
-            }
-            Screen::Actions | Screen::GettingStarted | Screen::Settings => {
+            Screen::PrDiff { .. }
+            | Screen::Actions
+            | Screen::GettingStarted
+            | Screen::Settings => {
                 unreachable!("filtered by is_detail")
             }
         }
@@ -588,7 +596,7 @@ impl ScreensPanel {
     /// chip over "Issue not found in this team". Only a READY collection may
     /// close anything (§4.1 — absence in an unsynced snapshot is "still
     /// syncing", never "deleted"); this mirrors the detail view's own
-    /// not-found condition. Covers issue detail AND PR diff tabs.
+    /// not-found condition.
     fn prune_missing_issue_tabs(
         &mut self,
         window: &mut Window,
@@ -603,7 +611,7 @@ impl ScreensPanel {
                 .iter()
                 .enumerate()
                 .filter_map(|(ix, tab)| match &tab.screen {
-                    Screen::IssueDetail { issue_id } | Screen::PrDiff { issue_id } => {
+                    Screen::IssueDetail { issue_id } => {
                         issues.get(issue_id).is_none().then_some(ix)
                     }
                     _ => None,
@@ -614,6 +622,40 @@ impl ScreensPanel {
         // active tab re-activates a neighbor safely mid-loop.
         for ix in missing.into_iter().rev() {
             self.close_tab(ix, window, cx);
+        }
+    }
+
+    /// EXP-525: review diffs are transient center views (no tab). The
+    /// moment the PR stops being reviewable — merged or closed, arriving as
+    /// the Electric echo flipping `pr_state` on every linked issue (batch
+    /// PRs included), or the issue disappearing outright — the diff view
+    /// retires itself: matching back-stack entries are purged so go-back
+    /// can't resurrect it, then the center falls back (go-back if possible,
+    /// else the Reviews tool's default content).
+    fn dismiss_stale_pr_diff(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let Some(Screen::PrDiff { issue_id }) = resolved_screen(&self.nav, cx) else {
+            return;
+        };
+        let stale = {
+            let issues = Store::global(cx).collections().issues.read(cx);
+            if !issues.is_ready() {
+                return;
+            }
+            match issues.get(&issue_id) {
+                Some(issue) => !crate::queries::is_reviewable(issue),
+                None => true,
+            }
+        };
+        if !stale {
+            return;
+        }
+        crate::navigation::purge_from_back_stack(window, cx, |screen| {
+            matches!(screen, Screen::PrDiff { issue_id: id } if *id == issue_id)
+        });
+        if self.nav.read(cx).can_go_back() {
+            crate::navigation::go_back(window, cx);
+        } else {
+            crate::navigation::set_screen(window, cx, None);
         }
     }
 
@@ -923,7 +965,7 @@ impl ScreensPanel {
                                         .group_hover(TAB_GROUP, |style| style.visible())
                                         .child(
                                             Button::new(("undock-center-tab", ix))
-                                                .ghost()
+                                                .ghost().cursor_pointer()
                                                 .xsmall()
                                                 .icon(ExpIcon::ExternalLink)
                                                 .tooltip("Open in new window")
@@ -938,7 +980,7 @@ impl ScreensPanel {
                             })
                             .child(
                                 Button::new(("close-center-tab", ix))
-                                    .ghost()
+                                    .ghost().cursor_pointer()
                                     .xsmall()
                                     .icon(registry::UI_CLOSE)
                                     .on_click(cx.listener(
@@ -982,7 +1024,7 @@ impl ScreensPanel {
             let panel = panel.clone();
             strip = strip.child(
                 Button::new("center-tab-overflow")
-                    .ghost()
+                    .ghost().cursor_pointer()
                     .xsmall()
                     .label(format!("+{}", hidden_entries.len()))
                     .tooltip("More tabs")
@@ -1067,7 +1109,7 @@ impl ScreensPanel {
                             .gap_2()
                             .child(
                                 Button::new("screens-create-team")
-                                    .primary()
+                                    .primary().cursor_pointer()
                                     .small()
                                     .label("Create team…")
                                     .on_click(|_, window, cx| {
@@ -1185,7 +1227,7 @@ impl ScreensPanel {
         if active_team.is_some() {
             column = column.child(
                 Button::new("screens-new-board")
-                    .primary()
+                    .primary().cursor_pointer()
                     .small()
                     .label("New board…")
                     .on_click(|_, window, cx| {

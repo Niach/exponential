@@ -44,6 +44,9 @@ pub struct IssueFilterBar {
     /// EXP-426: the list's inline bulk-action bar — replaces the Filter
     /// trigger while a selection exists.
     bulk: Option<AnyElement>,
+    /// EXP-525: the host renders the Filter trigger elsewhere (the Inbox
+    /// tool strip) — the control row only appears for the bulk bar.
+    external_trigger: bool,
 }
 
 impl IssueFilterBar {
@@ -67,7 +70,15 @@ impl IssueFilterBar {
             on_filters_change,
             on_view_change,
             bulk,
+            external_trigger: false,
         }
+    }
+
+    /// EXP-525: suppress the trigger-only control row (the host renders the
+    /// Filter trigger in its own strip); the bulk bar still gets its row.
+    pub fn external_trigger(mut self, external: bool) -> Self {
+        self.external_trigger = external;
+        self
     }
 }
 
@@ -77,37 +88,44 @@ impl RenderOnce for IssueFilterBar {
         // trigger. Fixed min-height keeps the swap jump-free; both clusters
         // wrap (`flex_wrap`) so a narrow panel never overlaps anything.
         let control_row = match self.bulk {
-            Some(bulk) => h_flex()
-                .py_2()
-                .min_h(px(CONTROL_ROW_MIN_H))
-                .items_center()
-                .justify_between()
-                .flex_wrap()
-                .gap_1()
-                .child(bulk),
-            None => h_flex()
-                .py_2()
-                .min_h(px(CONTROL_ROW_MIN_H))
-                .items_center()
-                .justify_end()
-                .flex_wrap()
-                .gap_1()
-                .child(IssueFilterPopover::new(
-                    self.filters.clone(),
-                    self.labels.clone(),
-                    self.statuses.clone(),
-                    self.popover_view,
-                    self.label_query.clone(),
-                    self.on_filters_change.clone(),
-                    self.on_view_change.clone(),
-                )),
+            Some(bulk) => Some(
+                h_flex()
+                    .py_2()
+                    .min_h(px(CONTROL_ROW_MIN_H))
+                    .items_center()
+                    .justify_between()
+                    .flex_wrap()
+                    .gap_1()
+                    .child(bulk),
+            ),
+            // EXP-525: with an external trigger the row vanishes entirely —
+            // the strip hosts the trigger, so an empty row is dead space.
+            None if self.external_trigger => None,
+            None => Some(
+                h_flex()
+                    .py_2()
+                    .min_h(px(CONTROL_ROW_MIN_H))
+                    .items_center()
+                    .justify_end()
+                    .flex_wrap()
+                    .gap_1()
+                    .child(IssueFilterPopover::new(
+                        self.filters.clone(),
+                        self.labels.clone(),
+                        self.statuses.clone(),
+                        self.popover_view,
+                        self.label_query.clone(),
+                        self.on_filters_change.clone(),
+                        self.on_view_change.clone(),
+                    )),
+            ),
         };
 
         v_flex()
             .w_full()
             .flex_shrink_0()
             .px_4()
-            .child(control_row)
+            .children(control_row)
             .when(has_active_filters(&self.filters), |bar| {
                 bar.child(ActiveFilterPills::new(
                     self.filters.clone(),

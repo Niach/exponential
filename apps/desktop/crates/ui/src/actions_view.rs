@@ -30,6 +30,7 @@ use gpui_component::{
     ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 
+use crate::controls::WebControl as _;
 use crate::icons::{registry, ExpIcon};
 use crate::navigation::{active_team_id, nav_for_window, Navigation};
 use crate::native_dialog::{self, AlertSpec};
@@ -251,7 +252,7 @@ impl ActionsView {
             title_row = title_row.child(
                 div().flex_shrink_0().child(
                     Button::new(("action-menu", index))
-                        .ghost()
+                        .ghost().cursor_pointer()
                         .xsmall()
                         .icon(Icon::from(registry::UI_MORE))
                         .dropdown_menu(move |menu, _window, _cx| {
@@ -341,8 +342,8 @@ impl ActionsView {
             .child(
                 gpui_component::h_flex().pt_1().child(
                     Button::new(("action-run", index))
-                        .outline()
-                        .small()
+                        .outline().cursor_pointer()
+                        .web_sm()
                         .icon(Icon::from(ExpIcon::Play))
                         .label("Run")
                         .tooltip(
@@ -451,8 +452,8 @@ impl Render for ActionsView {
             .flatten()
             .map(|new_team| {
                 Button::new("actions-new")
-                    .outline()
-                    .xsmall()
+                    .outline().cursor_pointer()
+                    .web_xs()
                     .icon(Icon::from(registry::ACTION_CREATE))
                     .label("New action")
                     .tooltip(no_agent.clone().unwrap_or_else(|| "New action".into()))

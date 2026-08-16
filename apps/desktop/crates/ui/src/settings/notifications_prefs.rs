@@ -292,7 +292,7 @@ impl Render for NotificationsPrefsPane {
                     .child(
                         h_flex().child(
                             Button::new("prefs-retry")
-                                .outline()
+                                .outline().cursor_pointer()
                                 .xsmall()
                                 .label("Retry")
                                 .on_click(cx.listener(|this, _, _, cx| {
@@ -360,7 +360,7 @@ impl Render for NotificationsPrefsPane {
                     div().text_sm().child("Delivery"),
                     "How often the digest goes out.",
                     Button::new("digest-select")
-                        .outline()
+                        .outline().cursor_pointer()
                         .small()
                         .label(digest_label)
                         .icon(registry::UI_CHEVRON_DOWN)
@@ -400,7 +400,7 @@ impl Render for NotificationsPrefsPane {
                         div().text_sm().child("Send time"),
                         "Full hours only, in your timezone.",
                         Button::new("digest-hour-select")
-                            .outline()
+                            .outline().cursor_pointer()
                             .small()
                             .label(SharedString::from(format!("{hour}:00")))
                             .icon(registry::UI_CHEVRON_DOWN)

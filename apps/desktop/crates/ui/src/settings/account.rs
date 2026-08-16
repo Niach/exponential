@@ -145,7 +145,7 @@ impl AccountPane {
                 .child(div().text_sm().text_color(value_color).child(value))
                 .child(
                     Button::new("use-system-timezone")
-                        .outline()
+                        .outline().cursor_pointer()
                         .small()
                         .label("Use system timezone")
                         .on_click(cx.listener(|this, _, _, cx| {

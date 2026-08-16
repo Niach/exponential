@@ -70,6 +70,7 @@ use gpui_component::{
     v_flex, ActiveTheme as _, Disableable as _, Icon, Root, Sizable as _,
 };
 use theme::tokens as t;
+use crate::controls::WebControl as _;
 use crate::icons::registry;
 
 const CONTEXT: &str = "NativeDialog";
@@ -808,7 +809,7 @@ impl Render for DialogShell {
                         .children(header_actions)
                         .child(
                             Button::new("native-dialog-close")
-                                .ghost()
+                                .ghost().cursor_pointer()
                                 .xsmall()
                                 .icon(
                                     Icon::new(registry::UI_CLOSE)
@@ -1065,15 +1066,15 @@ impl Render for AlertView {
                     .gap_2()
                     .child(
                         Button::new("native-alert-cancel")
-                            .outline()
-                            .small()
+                            .outline().cursor_pointer()
+                            .web_sm()
                             .label("Cancel")
                             .on_click(|_, window, cx| close_dialog_window(window, cx)),
                     )
                     .child(
                         Button::new("native-alert-ok")
                             .with_variant(self.spec.ok_variant)
-                            .small()
+                            .web_sm()
                             .label(self.spec.ok_text.clone())
                             .on_click(move |_, window, cx| {
                                 Self::confirm(&view, window, cx);

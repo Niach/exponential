@@ -325,7 +325,7 @@ impl GeneralPane {
                 body = body.child(
                     h_flex().child(
                         Button::new("billing-manage")
-                            .outline()
+                            .outline().cursor_pointer()
                             .small()
                             .icon(registry::UI_EXTERNAL_LINK)
                             .label("Manage billing on the web")
@@ -462,7 +462,7 @@ impl Render for GeneralPane {
         general = general.child(
             h_flex().justify_end().child(
                 Button::new("team-save")
-                    .primary()
+                    .primary().cursor_pointer()
                     .small()
                     .label(if saving { "Saving…" } else { "Save changes" })
                     .disabled(!owner || !dirty || saving)
@@ -517,7 +517,7 @@ impl Render for GeneralPane {
                     .child(
                         h_flex().child(
                             Button::new("team-delete")
-                                .danger()
+                                .danger().cursor_pointer()
                                 .small()
                                 .label("Delete team")
                                 .on_click(cx.listener(move |this, _, window, cx| {

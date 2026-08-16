@@ -258,7 +258,7 @@
     "ui-download": "download",
     "ui-attach": "paperclip",
 
-    "support-open": "mail-open",
+    "support-open": "circle-dot",
     "support-resolved": "circle-check"
   },
   "custom": {

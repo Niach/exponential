@@ -193,7 +193,7 @@ impl FileViewerView {
                         Button::new("file-viewer-open-file")
                             .icon(registry::UI_EXTERNAL_LINK)
                             .label("Open file")
-                            .ghost()
+                            .ghost().cursor_pointer()
                             .small()
                             .on_click(move |_, _window, cx| {
                                 if let Some(file) = &open_target {
@@ -205,7 +205,7 @@ impl FileViewerView {
                         Button::new("file-viewer-show-in-files")
                             .icon(registry::UI_FOLDER)
                             .label("Show in files")
-                            .ghost()
+                            .ghost().cursor_pointer()
                             .small()
                             .on_click(move |_, window, cx| {
                                 if let Some(file) = &reveal_target {
@@ -222,7 +222,7 @@ impl FileViewerView {
                         Button::new("file-viewer-open-terminal")
                             .icon(registry::NAV_TERMINAL)
                             .label("Open in terminal")
-                            .ghost()
+                            .ghost().cursor_pointer()
                             .small()
                             .on_click(move |_, window, cx| {
                                 if let Some(dir) = &dir {

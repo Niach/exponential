@@ -259,7 +259,7 @@ pub(crate) fn image_chip(
     if let Some((id, on_click)) = on_remove {
         row = row.child(
             Button::new(id)
-                .ghost()
+                .ghost().cursor_pointer()
                 .xsmall()
                 .icon(
                     Icon::new(registry::UI_CLOSE)
@@ -323,7 +323,7 @@ pub(crate) fn file_chip(
     if let Some((id, on_click)) = on_remove {
         row = row.child(
             Button::new(id)
-                .ghost()
+                .ghost().cursor_pointer()
                 .xsmall()
                 .icon(
                     Icon::new(registry::UI_CLOSE)

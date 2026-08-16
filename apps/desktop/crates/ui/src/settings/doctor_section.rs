@@ -278,7 +278,7 @@ impl DoctorPanel {
             .child(
                 h_flex().child(
                     Button::new(SharedString::from(format!("doctor-install-{}", tool.label())))
-                        .outline()
+                        .outline().cursor_pointer()
                         .xsmall()
                         .label("Install page")
                         .icon(registry::UI_EXTERNAL_LINK)
@@ -300,7 +300,7 @@ impl DoctorPanel {
                             "doctor-save-path-{}",
                             agent.id()
                         )))
-                        .outline()
+                        .outline().cursor_pointer()
                         .xsmall()
                         .label("Save path")
                         .on_click(cx.listener(move |this, _, _, cx| {
@@ -355,7 +355,7 @@ impl Render for DoctorPanel {
         body.child(
             h_flex().child(
                 Button::new("doctor-check")
-                    .outline()
+                    .outline().cursor_pointer()
                     .xsmall()
                     .label("Check tools")
                     .loading(running)

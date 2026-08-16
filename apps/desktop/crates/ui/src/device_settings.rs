@@ -937,7 +937,7 @@ impl DeviceSettingsView {
         body = body.child(
             h_flex().justify_end().child(
                 Button::new("device-defaults-save")
-                    .primary()
+                    .primary().cursor_pointer()
                     .small()
                     .label(if busy { "Saving…" } else { "Save defaults" })
                     .disabled(!self.defaults_dirty(cx) || busy)
@@ -964,7 +964,7 @@ impl DeviceSettingsView {
             .child(Self::section_title("Worktrees", cx))
             .child(
                 Button::new("device-worktrees-prune")
-                    .outline()
+                    .outline().cursor_pointer()
                     .xsmall()
                     .icon(registry::UI_CLEAN)
                     .label(if prune_pending {
@@ -1072,7 +1072,7 @@ impl DeviceSettingsView {
             let remove_branch = branch.clone();
             row = row.child(
                 Button::new(("device-worktree-remove", index))
-                    .ghost()
+                    .ghost().cursor_pointer()
                     .xsmall()
                     .icon(registry::UI_DELETE)
                     .disabled(busy || removing)
@@ -1130,7 +1130,7 @@ impl Render for DeviceSettingsView {
                     .child(div().flex_1().child(Input::new(&self.name_input).small()))
                     .child(
                         Button::new("device-name-save")
-                            .outline()
+                            .outline().cursor_pointer()
                             .small()
                             .label(if name_busy { "Saving…" } else { "Save" })
                             .disabled(name_busy)
@@ -1158,7 +1158,7 @@ impl Render for DeviceSettingsView {
                     .child(div().flex_1().child(Select::new(&self.share_select).small()))
                     .child(
                         Button::new("device-share-save")
-                            .outline()
+                            .outline().cursor_pointer()
                             .small()
                             .label(if sharing_busy { "Saving…" } else { "Save" })
                             .disabled(sharing_busy || self.share_teams.is_empty())

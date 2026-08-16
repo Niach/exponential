@@ -11,11 +11,14 @@
 use std::sync::Arc;
 
 use gpui::{
-    div, App, AppContext as _, Entity, FocusHandle, Focusable, InteractiveElement as _,
-    IntoElement, ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled,
-    Window,
+    div, prelude::FluentBuilder as _, App, AppContext as _, ClickEvent, Entity, FocusHandle,
+    Focusable, InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
+    StatefulInteractiveElement as _, Styled, Window,
 };
-use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
+use gpui_component::{
+    button::{Button, ButtonVariants as _},
+    h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _,
+};
 use sync::Store;
 
 use crate::diff::DiffView;
@@ -28,6 +31,12 @@ pub struct PrDiffView {
     focus_handle: FocusHandle,
     diff: Entity<DiffView>,
     issue_id: Option<String>,
+    /// EXP-525: the diff lost its tab chip (and with it the chip's undock
+    /// button), so the ScreensPanel-owned instance offers "open in new
+    /// window" in its own header. Stays `false` on the instances
+    /// `build_screen_content` creates — an undocked window must not offer
+    /// undocking itself.
+    pub(crate) show_undock: bool,
 }
 
 impl PrDiffView {
@@ -36,6 +45,7 @@ impl PrDiffView {
             focus_handle: cx.focus_handle(),
             diff: cx.new(|cx| DiffView::new(window, cx)),
             issue_id: None,
+            show_undock: false,
         }
     }
 
@@ -141,6 +151,26 @@ impl Render for PrDiffView {
                         .text_color(muted)
                         .child(SharedString::from(sub)),
                 )
+                .when(self.show_undock, |row| {
+                    let undock_id = issue.id.clone();
+                    row.child(
+                        Button::new("pr-diff-undock")
+                            .ghost().cursor_pointer()
+                            .xsmall()
+                            .icon(ExpIcon::ExternalLink)
+                            .tooltip("Open in new window")
+                            .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+                                crate::undock::open_undocked_screen(
+                                    Screen::PrDiff {
+                                        issue_id: undock_id.clone(),
+                                    },
+                                    window.window_handle(),
+                                    cx,
+                                );
+                                crate::navigation::set_screen(window, cx, None);
+                            })),
+                    )
+                })
         });
 
         // EXP-282: no fill — the screen floats on the page gradient (the

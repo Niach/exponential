@@ -312,7 +312,7 @@ fn member_actions_menu(
     i_am_owner: bool,
 ) -> impl IntoElement {
     Button::new(row_id("member-actions", &member_id))
-        .ghost()
+        .ghost().cursor_pointer()
         .xsmall()
         .icon(registry::UI_MORE)
         .dropdown_menu({
@@ -474,7 +474,7 @@ impl Render for MembersPane {
                     )
                     .child(
                         Button::new("invite-generate")
-                            .primary()
+                            .primary().cursor_pointer()
                             .small()
                             .label(if email_empty {
                                 "Generate invite link"
@@ -556,7 +556,7 @@ impl Render for MembersPane {
                             .child(invite_identity)
                             .child(
                                 Button::new(row_id("invite-revoke", &invite.id))
-                                    .ghost()
+                                    .ghost().cursor_pointer()
                                     .xsmall()
                                     .icon(registry::UI_DELETE)
                                     .on_click(move |_, _, cx| {

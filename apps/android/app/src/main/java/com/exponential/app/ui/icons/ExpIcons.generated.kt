@@ -3332,31 +3332,6 @@ public object ExpIcons {
         }.build()
     }
 
-    public val `mail-open`: ImageVector by lazy {
-        ImageVector.Builder(
-            name = "mail-open",
-            defaultWidth = 24.dp,
-            defaultHeight = 24.dp,
-            viewportWidth = 24f,
-            viewportHeight = 24f,
-        ).apply {
-            addPath(
-                addPathNodes("M21.2 8.4c.5.38.8.97.8 1.6v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V10a2 2 0 0 1 .8-1.6l8-6a2 2 0 0 1 2.4 0l8 6Z"),
-                stroke = SolidColor(Color.Black),
-                strokeLineWidth = 2f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round,
-            )
-            addPath(
-                addPathNodes("m22 10-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 10"),
-                stroke = SolidColor(Color.Black),
-                strokeLineWidth = 2f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round,
-            )
-        }.build()
-    }
-
     public val `map-pin`: ImageVector by lazy {
         ImageVector.Builder(
             name = "map-pin",
@@ -5810,7 +5785,6 @@ public object ExpIcons {
         "log-in" -> `log-in`
         "log-out" -> `log-out`
         "mail" -> `mail`
-        "mail-open" -> `mail-open`
         "map-pin" -> `map-pin`
         "megaphone" -> `megaphone`
         "message-circle" -> `message-circle`
@@ -6100,7 +6074,7 @@ public object ExpIcons {
     /** Concept `status-todo`. */
     public val statusTodo: ImageVector get() = `circle`
     /** Concept `support-open`. */
-    public val supportOpen: ImageVector get() = `mail-open`
+    public val supportOpen: ImageVector get() = `circle-dot`
     /** Concept `support-resolved`. */
     public val supportResolved: ImageVector get() = `circle-check`
     /** Concept `ui-add`. */

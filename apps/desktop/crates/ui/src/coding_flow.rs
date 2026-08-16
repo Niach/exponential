@@ -1466,7 +1466,7 @@ impl Render for StartCodingControl {
                 )
                 .child(
                     Button::new("stop-coding")
-                        .outline()
+                        .outline().cursor_pointer()
                         .small()
                         .icon(Icon::new(registry::CODING_STOP).text_color(cx.theme().danger))
                         .label("Stop")
@@ -1482,7 +1482,7 @@ impl Render for StartCodingControl {
         let disabled = self.disabled_reason(cx);
         let mut row = h_flex().gap_1().items_center();
         let button = Button::new("start-coding")
-            .primary()
+            .primary().cursor_pointer()
             .small()
             // The solid variant carries the emphasis now — a green glyph on
             // the primary fill only muddies it.
@@ -1500,7 +1500,7 @@ impl Render for StartCodingControl {
                 if matches!(self.probe, RepoProbe::Ready(None)) {
                     row = row.child(
                         Button::new("start-coding-retry")
-                            .ghost()
+                            .ghost().cursor_pointer()
                             .xsmall()
                             .icon(
                                 Icon::new(registry::UI_UNDO)

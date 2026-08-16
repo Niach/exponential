@@ -80,13 +80,14 @@ impl Screen {
     /// driven by the sidebar selection, never tabs. EXP-480: Actions is a
     /// tab-less full-page mode too — the rail stays (its Actions entry
     /// highlights like a tool window's) but the tool column unmounts, and
-    /// any rail-tool click or tab click leaves it.
+    /// any rail-tool click or tab click leaves it. EXP-525: PrDiff stopped
+    /// being a tab — review diffs are transient center views driven by the
+    /// Reviews tool (a merged PR used to leave a stale diff tab behind);
+    /// `ScreensPanel::dismiss_stale_pr_diff` retires them.
     pub(crate) fn is_detail(&self) -> bool {
         matches!(
             self,
-            Screen::IssueDetail { .. }
-                | Screen::SupportThread { .. }
-                | Screen::PrDiff { .. }
+            Screen::IssueDetail { .. } | Screen::SupportThread { .. }
         )
     }
 }
@@ -453,6 +454,25 @@ pub fn set_active_board(window: &Window, cx: &mut App, board_id: String) {
         let team_id = nav.read(cx).team_id.clone();
         persist_nav_state(cx, team_id, Some(board_id));
     }
+}
+
+/// Drop every back-stack entry matching `pred` (EXP-525: a dismissed stale
+/// PR diff must not be resurrectable via go-back).
+pub(crate) fn purge_from_back_stack(
+    window: &Window,
+    cx: &mut App,
+    pred: impl Fn(&Screen) -> bool,
+) {
+    let Some(nav) = nav_for_window_readonly(window, cx) else {
+        return;
+    };
+    nav.update(cx, |nav, cx| {
+        let before = nav.back_stack.len();
+        nav.back_stack.retain(|screen| !pred(screen));
+        if nav.back_stack.len() != before {
+            cx.notify();
+        }
+    });
 }
 
 /// Pop the back stack (issue detail → board, …).

@@ -403,7 +403,7 @@ impl GettingStartedView {
             let team = team_id.to_string();
             Some(match entry.key {
                 EntryKey::Github => Button::new(("gs-cta-github", index))
-                    .primary()
+                    .primary().cursor_pointer()
                     .small()
                     .label("Connect GitHub")
                     .on_click(|_, window, cx| {
@@ -420,7 +420,7 @@ impl GettingStartedView {
                     })
                     .into_any_element(),
                 EntryKey::Board => Button::new(("gs-cta-board", index))
-                    .primary()
+                    .primary().cursor_pointer()
                     .small()
                     .label("Create a board")
                     .on_click(move |_, window, cx| {
@@ -428,7 +428,7 @@ impl GettingStartedView {
                     })
                     .into_any_element(),
                 EntryKey::Coding => Button::new(("gs-cta-coding", index))
-                    .primary()
+                    .primary().cursor_pointer()
                     .small()
                     .label("Start coding")
                     .on_click(move |_, window, cx| {
@@ -442,7 +442,7 @@ impl GettingStartedView {
                     })
                     .into_any_element(),
                 EntryKey::Server => Button::new(("gs-cta-server", index))
-                    .primary()
+                    .primary().cursor_pointer()
                     .small()
                     .label("Add a server")
                     .on_click(|_, window, cx| {
@@ -450,7 +450,7 @@ impl GettingStartedView {
                     })
                     .into_any_element(),
                 EntryKey::Invite => Button::new(("gs-cta-invite", index))
-                    .primary()
+                    .primary().cursor_pointer()
                     .small()
                     .label("Invite in team settings")
                     .on_click(|_, window, cx| {
@@ -604,7 +604,7 @@ impl Render for GettingStartedView {
                                     .child(progress)
                                     .child(
                                         Button::new("gs-dismiss")
-                                            .ghost()
+                                            .ghost().cursor_pointer()
                                             .small()
                                             .label("Dismiss")
                                             .on_click(cx.listener(|this, _, window, cx| {

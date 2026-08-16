@@ -27,6 +27,7 @@ use gpui_component::{
 };
 use sync::Store;
 
+use crate::controls::WebControl as _;
 use crate::native_dialog::{self, DialogContent, DialogSpec};
 
 use crate::actions::CreateTeam;
@@ -203,7 +204,7 @@ impl Render for CreateTeamDialogView {
                         .text_color(cx.theme().muted_foreground)
                         .child("Name"),
                 )
-                .child(Input::new(&self.name).small()),
+                .child(Input::new(&self.name).web_input_sm()),
         );
 
         if let Some(error) = &self.error {
@@ -224,8 +225,8 @@ impl Render for CreateTeamDialogView {
             .when(!self.embedded, |row| {
                 row.child(
                     Button::new("create-team-cancel")
-                        .outline()
-                        .small()
+                        .outline().cursor_pointer()
+                        .web_sm()
                         .label("Cancel")
                         .disabled(!closable)
                         .on_click(cx.listener(|this, _, window, cx| {
@@ -238,8 +239,8 @@ impl Render for CreateTeamDialogView {
             })
             .child(
                 Button::new("create-team-submit")
-                    .primary()
-                    .small()
+                    .primary().cursor_pointer()
+                    .web_sm()
                     .label(if self.submitting {
                         "Creating..."
                     } else {

@@ -450,7 +450,7 @@ impl StoragePane {
             .child(status_chip(status, cx))
             .child(
                 Button::new(SharedString::from(format!("storage-delete-{}", row.id)))
-                    .ghost()
+                    .ghost().cursor_pointer()
                     .xsmall()
                     .icon(Icon::from(ExpIcon::Trash2).xsmall().text_color(muted))
                     .disabled(self.busy)
@@ -479,7 +479,7 @@ impl Render for StoragePane {
         // summary/sweep header row once the list is up, on its own row while
         // loading or after a failure.
         let refresh = Button::new("storage-refresh")
-            .ghost()
+            .ghost().cursor_pointer()
             .xsmall()
             .label("Refresh")
             .loading(matches!(self.load, Load::Loading))
@@ -562,7 +562,7 @@ impl Render for StoragePane {
                         .child(refresh)
                         .child(
                             Button::new("storage-sweep")
-                                .outline()
+                                .outline().cursor_pointer()
                                 .xsmall()
                                 .icon(Icon::from(ExpIcon::Trash2).xsmall())
                                 .label(SharedString::from(sweep_label))

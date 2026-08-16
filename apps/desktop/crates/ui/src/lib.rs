@@ -32,6 +32,7 @@ pub mod coding_flow;
 mod coding_selects;
 mod comments;
 mod commit_graph;
+mod controls;
 mod create_issue_dialog;
 mod create_board_dialog;
 mod create_team_dialog;

@@ -29,6 +29,8 @@ use gpui_component::{
 };
 use theme::tokens as t;
 
+use crate::controls::WebControl as _;
+
 use domain::options::ISSUE_PRIORITY_OPTIONS;
 use domain::rows::{Board, Label, User};
 use domain::statuses::{IssueStatusCategory, ResolvedStatus};
@@ -61,7 +63,9 @@ pub(crate) const PICKER_SEARCH_WIDTH: f32 = 260.;
 /// the issue/action headers — triggers through this ONE shape.
 pub(crate) fn chip_button(id: impl Into<ElementId>, cx: &App) -> Button {
     let _ = cx;
-    Button::new(id).ghost().xsmall()
+    // EXP-525: web `xs` chip metrics (h-6 capsule) + pointer cursor via the
+    // shared control layer.
+    Button::new(id).ghost().cursor_pointer().web_xs()
 }
 
 /// Cap on a chip's label before it ellipsizes (EXP-424): wide enough for a

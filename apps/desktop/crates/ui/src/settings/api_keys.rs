@@ -360,7 +360,7 @@ impl ApiKeysPane {
                     )
                     .child(
                         Button::new("api-key-copy")
-                            .outline()
+                            .outline().cursor_pointer()
                             .xsmall()
                             .label("Copy")
                             .on_click(move |_, _, cx| {
@@ -369,7 +369,7 @@ impl ApiKeysPane {
                     )
                     .child(
                         Button::new("api-key-dismiss")
-                            .ghost()
+                            .ghost().cursor_pointer()
                             .xsmall()
                             .label("Dismiss")
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -472,7 +472,7 @@ impl ApiKeysPane {
             )
             .child(
                 Button::new(SharedString::from(format!("api-key-revoke-{}", row.id)))
-                    .outline()
+                    .outline().cursor_pointer()
                     .xsmall()
                     .label("Revoke")
                     .disabled(self.busy)
@@ -500,7 +500,7 @@ impl Render for ApiKeysPane {
         }
 
         let new_key = Button::new("api-key-new")
-            .outline()
+            .outline().cursor_pointer()
             .xsmall()
             .label("New key")
             .disabled(self.busy || !matches!(self.load, Load::Ready(_)))
@@ -508,7 +508,7 @@ impl Render for ApiKeysPane {
                 this.open_mint_dialog(window, cx);
             }));
         let refresh = Button::new("api-keys-refresh")
-            .ghost()
+            .ghost().cursor_pointer()
             .xsmall()
             .label("Refresh")
             .loading(matches!(self.load, Load::Loading))

@@ -1053,14 +1053,27 @@ impl Render for Shell {
                         // rail (the review caught exactly that).
                         .when(client_chrome, |col| {
                             let tongue = traffic_tongue_visible(window, cx);
+                            // EXP-525: pin the decoration band to a COMPUTED
+                            // definite width (the same budget terms as
+                            // `app_title_bar`'s `strip_available`). Under
+                            // gpui's stray fit-content passes (the EXP-492
+                            // class — see `screens::pinned_panel_root`) a
+                            // `flex_1` band has no definite width and
+                            // collapses to fit-content: New Issue + the
+                            // window controls hug the rail. The tab-less
+                            // Actions page idles on exactly such a frame.
+                            let tongue_w = if tongue { TRAFFIC_TONGUE_TOTAL_W } else { 0. };
+                            let band_w = (window.viewport_size().width
+                                - crate::window_frame::frame_horizontal_chrome(window)
+                                - px(left_column_target_width(window, cx) + tongue_w))
+                            .max(px(160.));
                             col.child(
                                 h_flex()
                                     .flex_shrink_0()
                                     .when(tongue, |row| row.child(traffic_tongue()))
                                     .child(
                                         div()
-                                            .flex_1()
-                                            .min_w_0()
+                                            .w(band_w)
                                             // Flat sample of the content
                                             // ramp's top stop — the strip is
                                             // ~34px at the very top of the
@@ -1210,7 +1223,7 @@ impl Shell {
         match &phase {
             UpdatePhase::Available if info.plan.is_some() => {
                 banner = banner.child(
-                    Button::new("update-install").primary().small().label("Update").on_click(
+                    Button::new("update-install").primary().cursor_pointer().small().label("Update").on_click(
                         move |_: &ClickEvent, _, cx| {
                             update::start_update(cx);
                         },
@@ -1219,14 +1232,14 @@ impl Shell {
             }
             UpdatePhase::Available => {
                 banner =
-                    banner.child(download_button("update-download", "Download", url).primary());
+                    banner.child(download_button("update-download", "Download", url).primary().cursor_pointer());
             }
             UpdatePhase::Downloading { .. } | UpdatePhase::Installing => {}
             UpdatePhase::ReadyToRestart { restart_path } => {
                 let restart_path = restart_path.clone();
                 banner = banner.child(
                     Button::new("update-restart")
-                        .primary()
+                        .primary().cursor_pointer()
                         .small()
                         .label("Restart to update")
                         .on_click(move |_: &ClickEvent, _, cx| {
@@ -1240,7 +1253,7 @@ impl Shell {
             UpdatePhase::Failed { .. } => {
                 if info.plan.is_some() {
                     banner = banner.child(
-                        Button::new("update-retry").primary().small().label("Retry").on_click(
+                        Button::new("update-retry").primary().cursor_pointer().small().label("Retry").on_click(
                             move |_: &ClickEvent, _, cx| {
                                 update::start_update(cx);
                             },
@@ -1256,7 +1269,7 @@ impl Shell {
         if !matches!(phase, UpdatePhase::Downloading { .. } | UpdatePhase::Installing) {
             banner = banner.child(
                 Button::new("update-dismiss")
-                    .ghost()
+                    .ghost().cursor_pointer()
                     .small()
                     .icon(registry::UI_CLOSE)
                     .on_click(cx.listener(|_, _: &ClickEvent, _, cx| {
@@ -1314,7 +1327,7 @@ impl Shell {
                 .when_some(ago, |banner, ago| {
                     banner.child(div().text_sm().text_color(cx.theme().muted_foreground).child(ago))
                 })
-                .child(Button::new("sync-retry").ghost().small().label("Retry").on_click(
+                .child(Button::new("sync-retry").ghost().cursor_pointer().small().label("Retry").on_click(
                     move |_: &ClickEvent, _, cx| {
                         // Restart the account pipeline: parked backoffs and
                         // held long-polls re-poll immediately (EXP-470 rails).
@@ -1400,7 +1413,7 @@ impl Shell {
             UpdatePhase::Available if has_plan => {
                 actions = actions.child(
                     Button::new("update-required-install")
-                        .primary()
+                        .primary().cursor_pointer()
                         .w_full()
                         .label("Update now")
                         .on_click(move |_: &ClickEvent, _, cx| update::start_update(cx)),
@@ -1408,7 +1421,7 @@ impl Shell {
             }
             UpdatePhase::Available => {
                 actions =
-                    actions.child(download_button("update-required-download", "Download update", fallback_url.clone()).primary());
+                    actions.child(download_button("update-required-download", "Download update", fallback_url.clone()).primary().cursor_pointer());
             }
             UpdatePhase::Downloading { .. } | UpdatePhase::Installing => {
                 // No action — the status line shows progress; the pipeline is
@@ -1418,7 +1431,7 @@ impl Shell {
                 let restart_path = restart_path.clone();
                 actions = actions.child(
                     Button::new("update-required-restart")
-                        .primary()
+                        .primary().cursor_pointer()
                         .w_full()
                         .label("Restart to update")
                         .on_click(move |_: &ClickEvent, _, cx| {
@@ -1433,7 +1446,7 @@ impl Shell {
                 if has_plan {
                     actions = actions.child(
                         Button::new("update-required-retry")
-                            .primary()
+                            .primary().cursor_pointer()
                             .w_full()
                             .label("Retry")
                             .on_click(move |_: &ClickEvent, _, cx| update::start_update(cx)),
@@ -1558,6 +1571,10 @@ pub struct CenterPanel {
     /// default width.
     center_split: Entity<ResizableState>,
     nav: Entity<Navigation>,
+    /// EXP-525: last render's full-page mode — a structural flip (mount/
+    /// unmount of the center split) settles only on the NEXT frame, and the
+    /// app must not idle on the flip frame (the EXP-492 stray-pass class).
+    last_full_page: Option<bool>,
     _subscriptions: Vec<gpui::Subscription>,
 }
 
@@ -1577,6 +1594,7 @@ impl CenterPanel {
             screens: cx.new(|cx| ScreensPanel::new(window, cx)),
             center_split: cx.new(|_| ResizableState::default()),
             nav,
+            last_full_page: None,
             _subscriptions: subscriptions,
         }
     }
@@ -1611,7 +1629,7 @@ impl Focusable for CenterPanel {
 }
 
 impl Render for CenterPanel {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         // EXP-456: in settings the nav column lives in the Shell's LEFT
         // column (it replaces the rail), so the whole center is the settings
         // detail — no resizable split (the detail column caps itself), and
@@ -1622,6 +1640,15 @@ impl Render for CenterPanel {
             resolved_screen(&self.nav, cx),
             Some(Screen::Settings) | Some(Screen::Actions) | Some(Screen::GettingStarted)
         );
+        // EXP-525: a mount/unmount of the center split settles its layout on
+        // the FOLLOWING frame (gpui's stray fit-content passes, EXP-492 —
+        // the screens.rs layout tests draw twice per width for the same
+        // reason). Force that second frame so a static page (Actions) can't
+        // idle on the flip frame's collapsed decoration band.
+        if self.last_full_page != Some(full_page) {
+            self.last_full_page = Some(full_page);
+            window.request_animation_frame();
+        }
         if full_page {
             return div()
                 .size_full()

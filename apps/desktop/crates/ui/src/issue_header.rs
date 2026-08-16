@@ -44,6 +44,7 @@ use domain::board::format_short_date;
 use domain::options::get_issue_priority_config;
 use domain::rows::{Issue, Label, Board, User};
 
+use crate::controls::WebControl as _;
 use crate::coding_flow::{LocalSessions, StartCodingControl};
 use crate::icons::{option_icon, registry, ExpIcon};
 use crate::pickers::{chip_button, PICKER_MENU_MIN_WIDTH, PICKER_SEARCH_WIDTH};
@@ -497,7 +498,7 @@ impl IssueHeader {
             Rc::new(move |_window: &mut Window, cx: &mut App| {
                 let panel = panel.clone();
                 Button::new("prop-due-clear")
-                    .ghost()
+                    .ghost().cursor_pointer()
                     .xsmall()
                     .label("Clear due date")
                     .text_color(cx.theme().muted_foreground)
@@ -624,8 +625,8 @@ impl IssueHeader {
         // EXP-367: no agent CLI → disabled with the reason, never hidden.
         let no_agent = crate::coding_flow::no_agent_reason(cx);
         let mut button = Button::new("header-fix-conflicts")
-            .outline()
-            .small()
+            .outline().cursor_pointer()
+            .web_sm()
             .icon(Icon::from(ExpIcon::GitBranch).text_color(cx.theme().muted_foreground))
             .label(if fixing { "Fixing…" } else { "Fix conflicts" })
             .tooltip(
@@ -668,8 +669,8 @@ impl IssueHeader {
         let merging = merge_state.read(cx).merging(&issue.id);
         let issue_id = issue.id.clone();
         let mut button = Button::new("header-merge-pr")
-            .outline()
-            .small()
+            .outline().cursor_pointer()
+            .web_sm()
             .icon(Icon::from(ExpIcon::GitMerge).text_color(if armed {
                 cx.theme().danger
             } else {
@@ -851,7 +852,7 @@ impl IssueHeader {
                 )
                 .child(
                     Button::new("issue-switch-prev")
-                        .ghost()
+                        .ghost().cursor_pointer()
                         .xsmall()
                         .icon(
                             Icon::new(registry::UI_CHEVRON_UP)
@@ -865,7 +866,7 @@ impl IssueHeader {
                 )
                 .child(
                     Button::new("issue-switch-next")
-                        .ghost()
+                        .ghost().cursor_pointer()
                         .xsmall()
                         .icon(
                             Icon::new(registry::UI_CHEVRON_DOWN)
@@ -890,7 +891,7 @@ impl IssueHeader {
             Icon::from(ExpIcon::Link).text_color(cx.theme().muted_foreground)
         };
         Button::new("copy-issue-link")
-            .ghost()
+            .ghost().cursor_pointer()
             .xsmall()
             .icon(icon)
             .disabled(url.is_none())
@@ -940,7 +941,7 @@ impl IssueHeader {
             cx.theme().muted_foreground
         };
         Button::new("subscribe-toggle")
-            .ghost()
+            .ghost().cursor_pointer()
             .xsmall()
             .icon(Icon::from(icon).text_color(tint))
             .disabled(self.subscribe_busy || account.is_none())
@@ -967,7 +968,7 @@ impl IssueHeader {
         let issue_id = issue.id.clone();
         Some(
             Button::new("issue-actions")
-                .ghost()
+                .ghost().cursor_pointer()
                 .xsmall()
                 .icon(Icon::new(registry::UI_MORE).text_color(cx.theme().muted_foreground))
                 .dropdown_menu(move |menu, _window, _cx| {
@@ -994,7 +995,7 @@ impl IssueHeader {
     ) -> impl IntoElement {
         let issue_id = issue.id.clone();
         Button::new("issue-delete")
-            .ghost()
+            .ghost().cursor_pointer()
             .xsmall()
             .icon(Icon::new(registry::UI_DELETE).text_color(cx.theme().muted_foreground))
             .tooltip("Delete issue")

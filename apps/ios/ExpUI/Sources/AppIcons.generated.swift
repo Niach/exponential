@@ -192,7 +192,6 @@ public enum AppIcons {
         "log-in",
         "log-out",
         "mail",
-        "mail-open",
         "map-pin",
         "megaphone",
         "message-circle",
@@ -486,7 +485,7 @@ public enum AppIcons {
     /// Concept `status-todo`.
     public static let statusTodo: String = "circle"
     /// Concept `support-open`.
-    public static let supportOpen: String = "mail-open"
+    public static let supportOpen: String = "circle-dot"
     /// Concept `support-resolved`.
     public static let supportResolved: String = "circle-check"
     /// Concept `ui-add`.

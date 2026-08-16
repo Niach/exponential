@@ -296,7 +296,7 @@ pub(crate) fn set_rail_expanded_transient(window: &mut Window, cx: &mut App, exp
 /// Direct call (EXP-17): rail buttons must not dispatch App-global actions.
 pub(crate) fn rail_toggle_button(id: &'static str, expanded: bool) -> Button {
     Button::new(id)
-        .ghost()
+        .ghost().cursor_pointer()
         .small()
         .icon(if expanded {
             registry::NAV_RAIL_COLLAPSE
@@ -388,6 +388,8 @@ pub(crate) fn rail_shared_for_window(
     let file_tree = cx.new(|cx| crate::file_tree::FileTreeView::new(window, cx));
     let board_active = cx.new(|cx| BoardView::new(window, cx));
     let board_my = cx.new(|cx| BoardView::new(window, cx));
+    // EXP-525: My Issues hosts its Filter trigger in the Inbox tool strip.
+    board_my.update(cx, |board, _| board.set_external_filter(true));
     // EXP-282: the persisted rail state. Read through the coding hub — it
     // owns `settings.json`. EXP-285: absent = EXPANDED (the labelled rail is
     // the default look now); an explicit user collapse still sticks.
@@ -712,7 +714,7 @@ impl RailView {
             .relative()
             .child(
                 Button::new(id)
-                    .ghost()
+                    .ghost().cursor_pointer()
                     .small()
                     .icon(icon)
                     .selected(active)
@@ -775,7 +777,7 @@ impl RailView {
             .relative()
             .child(
                 Button::new("rail-actions")
-                    .ghost()
+                    .ghost().cursor_pointer()
                     .small()
                     .icon(icon)
                     .selected(active)
@@ -836,7 +838,7 @@ impl RailView {
             .relative()
             .child(
                 Button::new("rail-getting-started")
-                    .ghost()
+                    .ghost().cursor_pointer()
                     .small()
                     .icon(icon)
                     .selected(active)
@@ -920,7 +922,7 @@ impl RailView {
             .collect();
 
         Button::new("rail-account")
-            .ghost()
+            .ghost().cursor_pointer()
             .small()
             // EXP-282: expanded, the trigger becomes a full-width row — the
             // Button's own inner layout is centered and unreachable, so the
@@ -1051,7 +1053,7 @@ impl RailView {
                         .flex_shrink_0()
                         .child(
                             Button::new(("rail-board-settings", index))
-                                .ghost()
+                                .ghost().cursor_pointer()
                                 .xsmall()
                                 .icon(Icon::from(registry::NAV_SETTINGS))
                                 .tooltip("Board settings")
@@ -1075,7 +1077,7 @@ impl RailView {
             .relative()
             .child(
                 Button::new(("rail-board", index))
-                    .ghost()
+                    .ghost().cursor_pointer()
                     .small()
                     .icon(icon)
                     .selected(active)
@@ -1187,35 +1189,51 @@ impl Render for RailView {
             .enumerate()
             .map(|(index, board)| self.rail_board_icon(index, board, expanded, cx))
             .collect();
-        let new_board: Option<gpui::AnyElement> = active_team.clone().map(|team_id| {
-            if expanded {
-                return rail_row(
-                    "rail-new-board",
-                    Icon::new(registry::UI_ADD),
-                    "New board",
-                    false,
-                    accent,
-                    None,
-                    cx,
-                )
-                .text_color(cx.theme().muted_foreground)
-                .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-                    crate::create_board_dialog::open(window, cx, team_id.clone());
-                }))
-                .into_any_element();
-            }
-            Button::new("rail-new-board")
-                .ghost()
-                .small()
-                .icon(registry::UI_ADD)
-                .tooltip("New board")
-                // Direct call (EXP-17): rail buttons must not dispatch
-                // App-global actions.
-                .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-                    crate::create_board_dialog::open(window, cx, team_id.clone());
-                }))
-                .into_any_element()
-        });
+        // EXP-525: expanded, the section reads like the web sidebar — a
+        // "Boards" group label with a trailing `+` — instead of a "New
+        // board" row; collapsed keeps the `+` icon below the board icons.
+        let boards_header: Option<gpui::AnyElement> =
+            active_team.clone().filter(|_| expanded).map(|team_id| {
+                h_flex()
+                    .w_full()
+                    .h(px(24.))
+                    .pl_1p5()
+                    .pr_0p5()
+                    .items_center()
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_xs()
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(cx.theme().sidebar_foreground.opacity(0.5))
+                            .child("Boards"),
+                    )
+                    .child(
+                        Button::new("rail-new-board")
+                            .ghost().cursor_pointer()
+                            .xsmall()
+                            .icon(registry::UI_ADD)
+                            .tooltip("Create board")
+                            // Direct call (EXP-17): rail buttons must not
+                            // dispatch App-global actions.
+                            .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+                                crate::create_board_dialog::open(window, cx, team_id.clone());
+                            })),
+                    )
+                    .into_any_element()
+            });
+        let new_board: Option<gpui::AnyElement> =
+            active_team.clone().filter(|_| !expanded).map(|team_id| {
+                Button::new("rail-new-board")
+                    .ghost().cursor_pointer()
+                    .small()
+                    .icon(registry::UI_ADD)
+                    .tooltip("New board")
+                    .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+                        crate::create_board_dialog::open(window, cx, team_id.clone());
+                    }))
+                    .into_any_element()
+            });
 
         // Source Control badge (EXP-253 — the git bar is headless now, this
         // badge is its whole rail presence): attention (conflict / local
@@ -1362,7 +1380,7 @@ impl Render for RailView {
             .into_any_element()
         } else {
             Button::new("rail-search")
-                .ghost()
+                .ghost().cursor_pointer()
                 .small()
                 .icon(registry::NAV_SEARCH)
                 .tooltip("Search")
@@ -1379,7 +1397,7 @@ impl Render for RailView {
         // expanded it sits in the account row, hugging the rail's right edge,
         // instead of taking a full-width row of its own.
         let settings_entry = Button::new("rail-settings")
-            .ghost()
+            .ghost().cursor_pointer()
             .small()
             .icon(registry::NAV_SETTINGS)
             .selected(matches!(
@@ -1460,10 +1478,13 @@ impl Render for RailView {
                         expanded,
                         cx,
                     ))
-                    .children(support_icon)
+                    // EXP-525: Actions above Support (web sidebar order is
+                    // Inbox · Reviews · Agents · Support).
                     .child(self.rail_actions_entry(accent, expanded, cx))
+                    .children(support_icon)
                     .children(getting_started_icon)
                     .child(self.divider(expanded, cx))
+                    .children(boards_header)
                     .children(board_icons)
                     .children(new_board)
                     .child(self.divider(expanded, cx))
@@ -1690,11 +1711,11 @@ impl SidebarPanel {
             )
     }
 
-    /// EXP-282: the centered icon-tab strip that REPLACED the icon+title
-    /// header on the two tabbed tool windows (Inbox, Support). The title was
-    /// pure duplication next to the tabs; centering the chips matches the
-    /// EXP-277 center/terminal strips. Same height as [`Self::tool_header`]
-    /// so the lists below don't shift between tools.
+    /// EXP-282: the icon-tab strip that REPLACED the icon+title header on the
+    /// two tabbed tool windows (Inbox, Support). EXP-525: chips sit LEFT
+    /// (web parity — the inbox/support pills are left-aligned rows there);
+    /// trailing controls ride the strip's right edge absolutely. Same height
+    /// as [`Self::tool_header`] so the lists below don't shift between tools.
     fn tool_tab_strip(&self, tabs: Vec<gpui::AnyElement>) -> gpui::Div {
         h_flex()
             .relative()
@@ -1703,7 +1724,7 @@ impl SidebarPanel {
             .h(px(30.))
             .px_2()
             .items_center()
-            .justify_center()
+            .justify_start()
             .child(h_flex().gap_1().items_center().children(tabs))
     }
 
@@ -1783,6 +1804,21 @@ impl SidebarPanel {
         let header = self.tool_tab_strip(vec![inbox_tab, mine_tab]);
 
         if tab == InboxTab::MyIssues {
+            // EXP-525: the Filter trigger moved INTO the strip (web parity —
+            // no dedicated filter row above the list).
+            let trigger = self
+                .board_my
+                .update(cx, |board, cx| board.filter_trigger(cx));
+            let header = header.child(
+                div()
+                    .absolute()
+                    .right_2()
+                    .top_0()
+                    .bottom_0()
+                    .flex()
+                    .items_center()
+                    .child(trigger),
+            );
             return v_flex()
                 .flex_1()
                 .min_h_0()
@@ -1806,7 +1842,7 @@ impl SidebarPanel {
                     .items_center()
                     .child(
                         Button::new("inbox-mark-all-read")
-                            .ghost()
+                            .ghost().cursor_pointer()
                             .xsmall()
                             .icon(Icon::from(registry::NOTIFICATION_MARK_READ))
                             .tooltip("Mark all read")
@@ -2247,7 +2283,14 @@ impl SidebarPanel {
         let body: gpui::AnyElement = if !is_ready {
             self.list_skeleton(cx)
         } else if groups.is_empty() && pull_repos.is_empty() {
-            self.list_note("No open pull requests.", cx)
+            // EXP-525: the web `EmptyState` (icon disc + title + description).
+            crate::controls::empty_state(
+                Icon::from(ExpIcon::GitPullRequest),
+                "No open pull requests",
+                "Open pull requests in this team's repositories land here for review.",
+                cx,
+            )
+            .into_any_element()
         } else {
             let muted = cx.theme().muted_foreground;
             let mut children: Vec<gpui::AnyElement> = Vec::new();
@@ -2427,7 +2470,7 @@ impl SidebarPanel {
                 let mut button =
                     Button::new(SharedString::from(format!("review-fix-{}", issue.id)))
                         .xsmall()
-                        .outline();
+                        .outline().cursor_pointer();
                 if fixing {
                     button = button.label("Fixing…").disabled(true);
                 } else if let Some(reason) = crate::coding_flow::no_agent_reason(cx) {
@@ -2453,11 +2496,11 @@ impl SidebarPanel {
         let merge_button = {
             let mut button = Button::new(SharedString::from(format!("review-merge-{}", issue.id)))
                 .xsmall()
-                .outline();
+                .outline().cursor_pointer();
             if merging {
                 button = button.label("Merging…").loading(true).disabled(true);
             } else if armed {
-                button = button.label("Confirm merge").danger();
+                button = button.label("Confirm merge").danger().cursor_pointer();
             } else {
                 button = button.label("Merge").disabled(closing);
             }
@@ -2480,14 +2523,14 @@ impl SidebarPanel {
         let close_button = {
             let mut button = Button::new(SharedString::from(format!("review-close-{}", issue.id)))
                 .xsmall()
-                .ghost();
+                .ghost().cursor_pointer();
             if closing {
                 button = button
                     .icon(Icon::new(registry::UI_CLOSE))
                     .loading(true)
                     .disabled(true);
             } else if close_armed {
-                button = button.label("Close PR").danger();
+                button = button.label("Close PR").danger().cursor_pointer();
             } else {
                 button = button
                     .icon(Icon::new(registry::UI_CLOSE).text_color(muted))
@@ -2699,13 +2742,13 @@ impl SidebarPanel {
         let merge_button = {
             let mut button = Button::new(SharedString::from(format!("pull-merge-{key}")))
                 .xsmall()
-                .outline();
+                .outline().cursor_pointer();
             if merging {
                 button = button.label("Merging…").loading(true).disabled(true);
             } else if pull.draft {
                 button = button.label("Merge").disabled(true);
             } else if armed {
-                button = button.label("Confirm merge").danger();
+                button = button.label("Confirm merge").danger().cursor_pointer();
             } else {
                 button = button.label("Merge");
             }
@@ -2832,12 +2875,13 @@ impl SidebarPanel {
         }
         let filter = self.support_filter;
 
-        // EXP-282: the open/resolved filter IS the header now — centered icon
-        // tabs (same strip as the Inbox tool), no icon+title line.
+        // EXP-282: the open/resolved filter IS the header now — icon tabs
+        // (same strip as the Inbox tool), no icon+title line. EXP-525: the
+        // glyphs ride the shared support-open/support-resolved concepts.
         let open_tab = self
             .tool_tab(
                 "support-filter-open",
-                Icon::from(ExpIcon::CircleDot),
+                Icon::new(registry::SUPPORT_OPEN),
                 "Open",
                 filter == SupportFilter::Open,
                 cx,
@@ -2849,7 +2893,7 @@ impl SidebarPanel {
         let resolved_tab = self
             .tool_tab(
                 "support-filter-resolved",
-                Icon::from(ExpIcon::CircleCheck),
+                Icon::new(registry::SUPPORT_RESOLVED),
                 "Resolved",
                 filter == SupportFilter::Resolved,
                 cx,
@@ -2874,13 +2918,30 @@ impl SidebarPanel {
         } else {
             match threads {
                 None => self.list_skeleton(cx),
-                Some(threads) if threads.is_empty() => self.list_note(
-                    match filter {
-                        SupportFilter::Open => "No open tickets.",
-                        SupportFilter::Resolved => "No resolved tickets.",
-                    },
-                    cx,
-                ),
+                Some(threads) if threads.is_empty() => {
+                    // EXP-525: the web list empty state (LifeBuoy + wording).
+                    v_flex()
+                        .items_center()
+                        .gap_2()
+                        .px_4()
+                        .py_10()
+                        .text_center()
+                        .child(
+                            Icon::from(ExpIcon::LifeBuoy)
+                                .size_6()
+                                .text_color(cx.theme().muted_foreground),
+                        )
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(match filter {
+                                    SupportFilter::Open => "No open conversations.",
+                                    SupportFilter::Resolved => "No resolved conversations yet.",
+                                }),
+                        )
+                        .into_any_element()
+                }
                 Some(threads) => {
                     let rows: Vec<gpui::AnyElement> = threads
                         .iter()
@@ -2920,9 +2981,8 @@ impl SidebarPanel {
         // EXP-277: rows use the glass list fills (EXP-269 list_* tokens).
         let row_hover = theme.list_hover;
         let row_active = theme.list_active;
-        // The unread dot's indigo — the blue accent token (token-locked, not
-        // loose hex).
-        let unread_dot = theme::tokens::BLUE.to_hsla();
+        // The unread dot rides the brand accent (web `bg-brand`).
+        let unread_dot = theme::tokens::BRAND.to_hsla();
 
         let selected = matches!(
             resolved_screen(&self.nav, cx),
@@ -2944,17 +3004,20 @@ impl SidebarPanel {
             .into();
         // One-line latest-PUBLIC-message preview (web/iOS/Android row
         // parity); newlines collapse so `truncate` sees a single line.
-        // Absent/blank bodies render nothing.
-        let preview: Option<SharedString> = thread
+        // Blank bodies fall back to the thread subject.
+        let preview: SharedString = thread
             .last_message
             .as_ref()
             .and_then(|message| message.body.as_deref())
             .map(|body| body.split_whitespace().collect::<Vec<_>>().join(" "))
             .filter(|body| !body.is_empty())
-            .map(Into::into);
+            .unwrap_or_else(|| thread.title.clone())
+            .into();
         let nav_id = thread.id.clone();
         let nav_title = thread.title.clone();
 
+        // EXP-525: the web list row — reporter name + time + unread dot on
+        // line one, preview under (`support-inbox.tsx`).
         v_flex()
             .id(SharedString::from(format!("support-{}", thread.id)))
             .w_full()
@@ -2981,49 +3044,37 @@ impl SidebarPanel {
                     .w_full()
                     .items_center()
                     .gap_1p5()
+                    // `flex_1` + `min_w_0` — without the flex basis the
+                    // truncating div collapses and renders ONLY the "…"
+                    // (the EXP-175 definite-width chain, again).
                     .child(
                         div()
                             .flex_1()
                             .min_w_0()
-                            .text_xs()
+                            .text_sm()
                             .truncate()
                             .font_weight(FontWeight::MEDIUM)
-                            .text_color(if unread { fg } else { muted })
-                            .child(SharedString::from(thread.title.clone())),
+                            .text_color(fg)
+                            .child(reporter),
                     )
                     .child(
                         div()
-                            .size_2()
                             .flex_shrink_0()
-                            .rounded_full()
-                            .when(unread, |this| this.bg(unread_dot)),
-                    ),
+                            .text_xs()
+                            .text_color(muted)
+                            .child(time),
+                    )
+                    .when(unread, |this| {
+                        this.child(div().size_2().flex_shrink_0().rounded_full().bg(unread_dot))
+                    }),
             )
-            .when_some(preview, |this, preview| {
-                this.child(
-                    div()
-                        .w_full()
-                        .text_xs()
-                        .truncate()
-                        .text_color(muted)
-                        .child(preview),
-                )
-            })
             .child(
-                h_flex()
+                div()
                     .w_full()
-                    .gap_1()
                     .text_xs()
+                    .truncate()
                     .text_color(muted)
-                    // `flex_1` + `min_w_0` — without the flex basis the
-                    // truncating div collapses and renders ONLY the "…"
-                    // (the EXP-175 definite-width chain, again).
-                    .child(div().flex_1().min_w_0().truncate().child(reporter))
-                    .child(
-                        div()
-                            .flex_shrink_0()
-                            .child(SharedString::from(format!("\u{00B7} {time}"))),
-                    ),
+                    .child(preview),
             )
             .into_any_element()
     }
@@ -3141,7 +3192,7 @@ impl SidebarPanel {
             .child(
                 self.tool_header(Icon::new(registry::NAV_FILES), "Files", cx).child(
                     Button::new("files-refresh")
-                        .ghost()
+                        .ghost().cursor_pointer()
                         .xsmall()
                         .icon(Icon::from(ExpIcon::Repeat))
                         .tooltip("Refresh")
@@ -3166,7 +3217,7 @@ impl SidebarPanel {
             .tool_header(Icon::from(ExpIcon::GitMerge), "Source Control", cx)
             .child(
                 Button::new("history-refresh")
-                    .ghost()
+                    .ghost().cursor_pointer()
                     .xsmall()
                     .icon(Icon::from(ExpIcon::Repeat))
                     .tooltip("Check for updates")

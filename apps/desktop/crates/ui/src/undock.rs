@@ -393,7 +393,7 @@ impl Render for UndockedScreenWindow {
         }
 
         let reattach = Button::new("reattach-screen")
-            .ghost()
+            .ghost().cursor_pointer()
             .xsmall()
             .icon(crate::icons::ExpIcon::ExternalLinkIn)
             .tooltip("Move back into the main window")
@@ -405,8 +405,11 @@ impl Render for UndockedScreenWindow {
         // fallback the WM already provides both, so keep the plain strip
         // (Reattach must stay reachable either way).
         // EXP-426: the title needs the full EXP-175 ellipsis chain (stretched
-        // interactive wrapper + flex_1 min_w_0 text div) — a long issue title
-        // otherwise clips behind the window controls at the 480px minimum.
+        // wrapper + flex_1 min_w_0 text div) — a long issue title otherwise
+        // clips behind the window controls at the 480px minimum.
+        // EXP-525: only the reattach button is `interactive` — the stretched
+        // wrapper must NOT swallow mouse-downs or the TitleBar drag handler
+        // never fires and the window can't be moved.
         let title_text = |title: SharedString| {
             div()
                 .flex_1()
@@ -419,15 +422,16 @@ impl Render for UndockedScreenWindow {
         };
         let header: AnyElement = if crate::app_title_bar::client_chrome(window) {
             TitleBar::new()
-                .child(crate::app_title_bar::interactive_fill(
+                .child(
                     h_flex()
-                        .w_full()
+                        .flex_1()
                         .min_w_0()
+                        .overflow_hidden()
                         .items_center()
                         .gap_2()
-                        .child(reattach)
+                        .child(crate::app_title_bar::interactive(reattach))
                         .child(title_text(title)),
-                ))
+                )
                 .into_any_element()
         } else {
             h_flex()

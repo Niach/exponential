@@ -497,7 +497,7 @@ impl Render for AgentsPane {
         save_area = save_area.child(
             h_flex().justify_end().child(
                 Button::new("agents-save")
-                    .primary()
+                    .primary().cursor_pointer()
                     .small()
                     .label("Save changes")
                     .disabled(!dirty)

@@ -197,7 +197,6 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "log-in" => ExpIcon::LogIn,
         "log-out" => ExpIcon::LogOut,
         "mail" => ExpIcon::Mail,
-        "mail-open" => ExpIcon::MailOpen,
         "map-pin" => ExpIcon::MapPin,
         "megaphone" => ExpIcon::Megaphone,
         "message-circle" => ExpIcon::MessageCircle,
@@ -487,8 +486,8 @@ pub const STATUS_IN_PROGRESS: ExpIcon = ExpIcon::Progress24;
 pub const STATUS_IN_REVIEW: ExpIcon = ExpIcon::Progress34;
 /// Registry concept `status-todo` -> Lucide `circle`.
 pub const STATUS_TODO: ExpIcon = ExpIcon::Circle;
-/// Registry concept `support-open` -> Lucide `mail-open`.
-pub const SUPPORT_OPEN: ExpIcon = ExpIcon::MailOpen;
+/// Registry concept `support-open` -> Lucide `circle-dot`.
+pub const SUPPORT_OPEN: ExpIcon = ExpIcon::CircleDot;
 /// Registry concept `support-resolved` -> Lucide `circle-check`.
 pub const SUPPORT_RESOLVED: ExpIcon = ExpIcon::CircleCheck;
 /// Registry concept `ui-add` -> Lucide `plus`.

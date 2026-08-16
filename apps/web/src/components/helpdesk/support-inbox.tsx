@@ -38,6 +38,14 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
+import { conceptIcon } from "@/lib/icons.generated"
+
+// EXP-525: the Open/Resolved pills carry the shared registry's support glyphs,
+// so the tabs read the same here as in the desktop IDE.
+const TAB_ICON = {
+  open: conceptIcon(`support-open`),
+  resolved: conceptIcon(`support-resolved`),
+} as const
 
 type ThreadRow = Awaited<
   ReturnType<typeof trpc.helpdesk.listThreads.query>
@@ -166,21 +174,25 @@ export function SupportInbox({
         {/* EXP-449: no page title — the tabs sit left-aligned like the
             Inbox's. */}
         <div className="flex items-center gap-1 border-b px-3 py-2.5">
-          {([`open`, `resolved`] as const).map((tab) => (
-            <Button
-              key={tab}
-              variant="ghost"
-              size="sm"
-              onClick={() => setFilter(tab)}
-              className={`h-7 rounded-full px-3 text-xs capitalize ${
-                filter === tab
-                  ? `bg-accent font-medium text-foreground`
-                  : `text-muted-foreground hover:text-foreground`
-              }`}
-            >
-              {tab}
-            </Button>
-          ))}
+          {([`open`, `resolved`] as const).map((tab) => {
+            const TabIcon = TAB_ICON[tab]
+            return (
+              <Button
+                key={tab}
+                variant="ghost"
+                size="sm"
+                onClick={() => setFilter(tab)}
+                className={`h-7 gap-1.5 rounded-full px-3 text-xs capitalize ${
+                  filter === tab
+                    ? `bg-accent font-medium text-foreground`
+                    : `text-muted-foreground hover:text-foreground`
+                }`}
+              >
+                <TabIcon className="size-3 shrink-0" />
+                {tab}
+              </Button>
+            )
+          })}
         </div>
         <div className={`flex-1 overflow-y-auto ${TAB_BAR_CLEARANCE}`}>
           {threads === null ? (

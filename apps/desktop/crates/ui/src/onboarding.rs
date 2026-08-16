@@ -515,7 +515,7 @@ impl Render for OnboardingView {
             WizardStep::Syncing => None,
             WizardStep::Team => {
                 let skip = Button::new("onboarding-skip-team")
-                    .ghost()
+                    .ghost().cursor_pointer()
                     .small()
                     .label("Set up later")
                     .on_click(cx.listener(|this, _, _, cx| {
@@ -529,7 +529,7 @@ impl Render for OnboardingView {
                         .justify_between()
                         .child(
                             Button::new("onboarding-team-back")
-                                .ghost()
+                                .ghost().cursor_pointer()
                                 .small()
                                 .icon(registry::UI_BACK)
                                 .label("Back")
@@ -547,7 +547,7 @@ impl Render for OnboardingView {
                     .justify_end()
                     .child(
                         Button::new("onboarding-skip-board")
-                            .ghost()
+                            .ghost().cursor_pointer()
                             .small()
                             .label("Skip for now")
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -581,7 +581,7 @@ impl Render for OnboardingView {
                 Some(
                     row.child(if all_green {
                         Button::new("onboarding-tools-continue")
-                            .primary()
+                            .primary().cursor_pointer()
                             .small()
                             .label("Continue")
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -589,7 +589,7 @@ impl Render for OnboardingView {
                             }))
                     } else {
                         Button::new("onboarding-tools-continue")
-                            .outline()
+                            .outline().cursor_pointer()
                             .small()
                             .label("Set up later")
                             .disabled(!git_ok)

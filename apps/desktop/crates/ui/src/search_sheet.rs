@@ -39,11 +39,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::{
-    div, px, size, App, AppContext as _, Entity, FontWeight, IntoElement, KeyBinding,
-    ParentElement, Render, SharedString, Styled, Task, Window, WindowId,
+    div, prelude::FluentBuilder as _, px, size, App, AppContext as _, Entity, FontWeight,
+    InteractiveElement as _, IntoElement, KeyBinding, ParentElement, Render, SharedString, Styled,
+    Task, Window, WindowId,
 };
 use gpui_component::{
+    button::{Button, ButtonVariants as _},
     h_flex,
+    input::{Input, InputEvent, InputState},
     list::{List, ListDelegate, ListItem, ListState},
     v_flex, ActiveTheme as _, Icon, IndexPath, Sizable as _,
 };
@@ -52,7 +55,6 @@ use sync::{SessionPhase, Store};
 use crate::native_dialog::{self, DialogContent, DialogSpec};
 
 use coding::clone_path;
-use domain::IssueStatus;
 
 use crate::actions::OpenSearch;
 use crate::coding_flow::CodingHub;
@@ -98,9 +100,10 @@ const SERVER_SEARCH_LIMIT: u32 = 20;
 /// Web `sm:max-w-lg` (32rem).
 const DIALOG_WIDTH: f32 = 512.;
 
-/// Every result row is this tall (a two-line row). The List measures ONE item
-/// height for the whole virtualized list, so all three sections must share it.
-const ROW_HEIGHT: f32 = 44.;
+/// Every result row is this tall (a two-line row, web `px-4 py-3` scale).
+/// The List measures ONE item height for the whole virtualized list, so all
+/// three sections must share it.
+const ROW_HEIGHT: f32 = 54.;
 
 /// Section header height (kept uniform — the List measures section 0's header
 /// once and assumes the rest match).
@@ -155,45 +158,201 @@ pub fn open_search(window: &mut Window, cx: &mut App) {
     let window_id = window.window_handle().window_id();
 
     // Web caps at max-h-[60vh] but SHRINKS to content; a native window is a
-    // fixed box, so an uncapped 60vh reads as a mostly-empty tower on large
-    // screens (EXP-415) — bound it like the create-issue dialog does.
-    let height = (window.viewport_size().height * 0.6).min(px(420.));
+    // fixed box, so an uncapped 60vh reads as a mostly-empty tower on very
+    // large screens (EXP-415) — keep a generous web-proportioned cap.
+    let height = (window.viewport_size().height * 0.6).min(px(640.));
     // EXP-285: chromeless — macOS traffic lights would overlap the search
     // input of a palette.
     let spec = DialogSpec::new("Search", size(px(DIALOG_WIDTH), height)).chromeless();
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
+        // EXP-525: the List is NOT `searchable` — the web has no "Search"
+        // title row, a taller borderless input and no clear-✕, none of which
+        // the component's baked-in query strip can render. The view owns the
+        // input and drives the list through `set_query`.
         let list = cx.new(|cx| {
             ListState::new(
                 SearchDelegate::new(team_id, window_id, nav.clone(), repo_resolver),
                 window,
                 cx,
             )
-            .searchable(true)
         });
-        // Focus the query input (searchable list → input handle) so typing
-        // starts immediately, like the web autoFocus.
-        list.update(cx, |list, cx| list.focus(window, cx));
-        let view = cx.new(|_| SearchSheetView { list });
-        // EXP-415: the header's ✕ (+ drag region) is the only mouse dismissal
-        // a chromeless window has — without it the palette is a dead end for
-        // anyone who doesn't reach for Escape (image_preview precedent).
-        DialogContent::new(view).padless().chromeless_header("Search")
+        let input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Search issues and files…"));
+        // Focus the query input so typing starts immediately (web autoFocus).
+        input.update(cx, |state, cx| state.focus(window, cx));
+        let view = cx.new(|cx| SearchSheetView::new(list, input, window, cx));
+        DialogContent::new(view).padless()
     });
 }
 
-/// Slim window-content wrapper: the List fills the fixed dialog window.
+/// Window-content wrapper: the web `IssueSearchSheet` shell — an h-14-class
+/// borderless input row (search glyph prefix, in-row ✕ as the mouse
+/// dismissal a chromeless window needs, EXP-415) over the result list. Owns
+/// keyboard nav: ↑/↓ walk the flattened section rows, Enter confirms.
 struct SearchSheetView {
     list: Entity<ListState<SearchDelegate>>,
+    input: Entity<InputState>,
+    _input_subscription: gpui::Subscription,
+}
+
+impl SearchSheetView {
+    fn new(
+        list: Entity<ListState<SearchDelegate>>,
+        input: Entity<InputState>,
+        _window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> Self {
+        let subscription = cx.subscribe_in(
+            &input,
+            _window,
+            |this: &mut Self, state, event: &InputEvent, window, cx| match event {
+                InputEvent::Change => {
+                    let value = state.read(cx).value().to_string();
+                    this.list
+                        .update(cx, |list, cx| list.set_query(&value, window, cx));
+                }
+                InputEvent::PressEnter { .. } => this.confirm(window, cx),
+                _ => {}
+            },
+        );
+        Self {
+            list,
+            input,
+            _input_subscription: subscription,
+        }
+    }
+
+    /// Every selectable row, flattened across the delegate's sections in
+    /// display order (the component's own ↑/↓ walk is private to its
+    /// searchable strip).
+    fn flat_rows(&self, cx: &App) -> Vec<IndexPath> {
+        let list = self.list.read(cx);
+        let delegate = list.delegate();
+        let sections = delegate.sections_count(cx);
+        (0..sections)
+            .flat_map(|section| {
+                (0..delegate.items_count(section, cx)).map(move |row| IndexPath {
+                    section,
+                    row,
+                    column: 0,
+                })
+            })
+            .collect()
+    }
+
+    /// ↑/↓ from the input: move the list selection, clamped to the ends.
+    fn move_selection(&mut self, delta: isize, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let rows = self.flat_rows(cx);
+        if rows.is_empty() {
+            return;
+        }
+        let current = self
+            .list
+            .read(cx)
+            .selected_index()
+            .and_then(|selected| rows.iter().position(|ix| *ix == selected));
+        let next = match current {
+            Some(position) => position
+                .saturating_add_signed(delta)
+                .min(rows.len() - 1),
+            None => 0,
+        };
+        let target = rows[next];
+        self.list.update(cx, |list, cx| {
+            list.set_selected_index(Some(target), window, cx);
+            list.scroll_to_selected_item(window, cx);
+        });
+        cx.notify();
+    }
+
+    /// ↑/↓ arrive as the input's own `MoveUp`/`MoveDown` actions — a
+    /// single-line input no-ops them, so the wrapper CAPTURES them for list
+    /// navigation (the `MentionInput` pattern).
+    fn on_move_up(
+        &mut self,
+        _: &gpui_component::input::MoveUp,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self.move_selection(-1, window, cx);
+    }
+
+    fn on_move_down(
+        &mut self,
+        _: &gpui_component::input::MoveDown,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self.move_selection(1, window, cx);
+    }
+
+    /// Enter: confirm the selection (first row when nothing is selected yet —
+    /// web's cmdk does the same).
+    fn confirm(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.list.read(cx).selected_index().is_none() {
+            let rows = self.flat_rows(cx);
+            let Some(first) = rows.first().copied() else {
+                return;
+            };
+            self.list
+                .update(cx, |list, cx| list.set_selected_index(Some(first), window, cx));
+        }
+        self.list.update(cx, |list, cx| {
+            list.delegate_mut().confirm(false, window, cx);
+        });
+    }
 }
 
 impl Render for SearchSheetView {
-    fn render(&mut self, window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let max_h = window.viewport_size().height;
-        div().size_full().child(
-            List::new(&self.list)
-                .search_placeholder("Search issues and files…")
-                .max_h(max_h),
-        )
+        let muted = cx.theme().muted_foreground;
+        v_flex()
+            .size_full()
+            .capture_action(cx.listener(Self::on_move_up))
+            .capture_action(cx.listener(Self::on_move_down))
+            .child(
+                // Web: the cmdk input wrapper — h-14, borderless input with a
+                // leading search glyph, hairline below.
+                h_flex()
+                    .flex_shrink_0()
+                    .h(px(52.))
+                    .px_4()
+                    .gap_2()
+                    .items_center()
+                    .border_b_1()
+                    .border_color(cx.theme().border.opacity(0.5))
+                    .child(
+                        Icon::new(registry::NAV_SEARCH)
+                            .size_4()
+                            .flex_shrink_0()
+                            .text_color(muted),
+                    )
+                    .child(
+                        div().flex_1().min_w_0().text_size(px(14.)).child(
+                            Input::new(&self.input).appearance(false).p_0(),
+                        ),
+                    )
+                    .child(
+                        Button::new("search-sheet-close")
+                            .ghost().cursor_pointer()
+                            .xsmall()
+                            .icon(
+                                Icon::new(registry::UI_CLOSE)
+                                    .small()
+                                    .text_color(muted),
+                            )
+                            .on_click(|_, window, cx| {
+                                native_dialog::close_dialog_window(window, cx);
+                            }),
+                    ),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .child(List::new(&self.list).max_h(max_h)),
+            )
     }
 }
 
@@ -209,32 +368,9 @@ struct SearchHit {
     status: domain::statuses::ResolvedStatus,
     board_name: Option<String>,
     board_color: Option<String>,
-}
-
-/// EXP-314: resolve a NOT-locally-synced server hit — the same chain
-/// `resolve_status_sorted` walks, over the hit's own `status_id`/anchor pair.
-fn resolve_search_hit_status(
-    status_id: Option<&str>,
-    anchor: IssueStatus,
-    sorted: &[domain::rows::IssueStatusRow],
-) -> domain::statuses::ResolvedStatus {
-    if let Some(status_id) = status_id {
-        if let Some(index) = sorted.iter().position(|row| row.id == status_id) {
-            return domain::statuses::resolve_row(sorted, index);
-        }
-    }
-    // Unknown forward-compat anchors normalize to backlog before the lookup,
-    // so a hit still shows the team's real Backlog row.
-    let anchor = domain::statuses::normalized_anchor(anchor);
-    if let Some(wire) = anchor.as_wire() {
-        if let Some(index) = sorted
-            .iter()
-            .position(|row| row.builtin_key.as_deref() == Some(wire))
-        {
-            return domain::statuses::resolve_row(sorted, index);
-        }
-    }
-    domain::statuses::constructed_default(anchor)
+    /// EXP-525: the board's real glyph (web `BoardGlyph`) — the sub-line used
+    /// to show a bare color dot.
+    board_glyph: Option<crate::icons::ExpIcon>,
 }
 
 /// One `git grep` content hit.
@@ -343,6 +479,7 @@ impl SearchDelegate {
                     status,
                     board_name: board.map(|p| p.name.clone()),
                     board_color: board.and_then(|p| p.color.clone()),
+                    board_glyph: board.map(crate::icons::board_glyph),
                 }
             })
             .collect();
@@ -382,7 +519,11 @@ impl SearchDelegate {
                 None => (
                     hit.identifier,
                     hit.title,
-                    resolve_search_hit_status(hit.status_id.as_deref(), hit.status, &statuses),
+                    crate::queries::resolve_status_ref(
+                        hit.status_id.as_deref(),
+                        hit.status,
+                        &statuses,
+                    ),
                     hit.board_id,
                 ),
             };
@@ -394,6 +535,7 @@ impl SearchDelegate {
                 status,
                 board_name: board.map(|p| p.name.clone()),
                 board_color: board.and_then(|p| p.color.clone()),
+                board_glyph: board.map(crate::icons::board_glyph),
             });
         }
     }
@@ -550,7 +692,7 @@ impl SearchDelegate {
 
     fn render_issue_row(&self, ix: IndexPath, cx: &App) -> Option<ListItem> {
         let hit = self.issue_hits.get(ix.row)?;
-        let board_dot = hit
+        let board_tint = hit
             .board_color
             .as_deref()
             .and_then(parse_hex_color)
@@ -579,13 +721,16 @@ impl SearchDelegate {
                                         .items_center()
                                         .text_xs()
                                         .text_color(cx.theme().muted_foreground)
-                                        .child(
-                                            div()
-                                                .size_1p5()
-                                                .rounded_full()
-                                                .flex_shrink_0()
-                                                .bg(board_dot),
-                                        )
+                                        // Web `BoardGlyph size-3`: the board's
+                                        // real icon, tinted its color.
+                                        .when_some(hit.board_glyph.clone(), |row, glyph| {
+                                            row.child(
+                                                Icon::from(glyph)
+                                                    .size_3()
+                                                    .flex_shrink_0()
+                                                    .text_color(board_tint),
+                                            )
+                                        })
                                         .child(line_secondary(subtitle)),
                                 ),
                         ),
@@ -877,50 +1022,40 @@ impl ListDelegate for SearchDelegate {
         native_dialog::close_dialog_window(window, cx);
     }
 
-    /// Web: the pre-query hint.
-    fn render_initial(
-        &mut self,
-        _window: &mut Window,
-        cx: &mut gpui::Context<ListState<Self>>,
-    ) -> Option<gpui::AnyElement> {
-        let hint = if self.local_sections_visible() {
-            "Type to search issues and files"
-        } else {
-            "Type to search issues"
-        };
-        Some(
-            v_flex()
-                .items_center()
-                .justify_center()
-                .p_8()
-                .gap_2()
-                .text_color(cx.theme().muted_foreground)
-                .child(
-                    Icon::new(registry::NAV_SEARCH)
-                        .size_6()
-                        .text_color(cx.theme().muted_foreground.opacity(0.5)),
-                )
-                .child(div().text_sm().child(hint))
-                .into_any_element(),
-        )
-    }
-
-    /// Web: `No results for "{query}"`.
+    /// Web: the pre-query hint (empty query) or `No results for "{query}"`.
+    /// Both live here — the view owns the query input (EXP-525), so the
+    /// component's searchable-only `render_initial` never runs.
     fn render_empty(
         &mut self,
         _window: &mut Window,
         cx: &mut gpui::Context<ListState<Self>>,
     ) -> impl IntoElement {
-        v_flex()
+        let empty = v_flex()
             .items_center()
             .justify_center()
-            .p_8()
-            .text_color(cx.theme().muted_foreground)
-            .child(
+            .p_12()
+            .gap_3()
+            .text_color(cx.theme().muted_foreground);
+        if self.query.is_empty() {
+            let hint = if self.local_sections_visible() {
+                "Type to search issues and files"
+            } else {
+                "Type to search issues"
+            };
+            empty
+                .child(
+                    Icon::new(registry::NAV_SEARCH)
+                        .size(px(32.))
+                        .text_color(cx.theme().muted_foreground.opacity(0.5)),
+                )
+                .child(div().text_sm().child(hint))
+        } else {
+            empty.child(
                 div()
                     .text_sm()
                     .child(SharedString::from(format!("No results for \"{}\"", self.query))),
             )
+        }
     }
 }
 
@@ -931,7 +1066,7 @@ impl ListDelegate for SearchDelegate {
 fn two_line_row(id: impl Into<gpui::ElementId>, cx: &App) -> ListItem {
     ListItem::new(id)
         .h(px(ROW_HEIGHT))
-        .px_3()
+        .px_4()
         .border_b_1()
         .border_color(cx.theme().border.opacity(0.3))
 }

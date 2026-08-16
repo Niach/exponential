@@ -67,7 +67,7 @@ pub(crate) fn open_image_preview(
             content = content.chromeless_header_actions(move |_, cx| {
                 let open_url = open_url.clone();
                 Button::new("image-preview-open-browser")
-                    .ghost()
+                    .ghost().cursor_pointer()
                     .xsmall()
                     .icon(
                         Icon::from(ExpIcon::ArrowUpRight)

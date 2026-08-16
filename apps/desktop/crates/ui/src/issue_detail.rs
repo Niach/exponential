@@ -683,7 +683,7 @@ impl IssueDetailView {
                 )
                 .child(
                     Button::new("duplicate-of-link")
-                        .outline()
+                        .outline().cursor_pointer()
                         .xsmall()
                         .label(SharedString::from(format!("#{}", canonical.identifier)))
                         .on_click(cx.listener(move |_, _, window, cx| {
@@ -708,7 +708,7 @@ impl IssueDetailView {
                 )
                 .child(
                     Button::new("duplicate-unmark")
-                        .ghost()
+                        .ghost().cursor_pointer()
                         .xsmall()
                         .icon(Icon::new(registry::UI_UNDO).text_color(cx.theme().muted_foreground))
                         .label("Unmark")
@@ -791,6 +791,103 @@ impl IssueDetailView {
     /// markdown and the editor renders them. The section re-renders off the
     /// view's existing `attachments` collection observer, so an upload,
     /// a delete or another client's change lands without any refetch.
+    /// EXP-525: the web `PrRow` (`issue-coding-rows.tsx`) — the issue's linked
+    /// PR as a clickable row: state badge · `PR #N` · branch · chevron. An
+    /// OPEN PR opens the in-app diff; a merged/closed one opens GitHub (the
+    /// diff view retires itself for non-open PRs).
+    fn render_pr_row(&self, issue: &Issue, cx: &mut gpui::Context<Self>) -> Option<gpui::AnyElement> {
+        let pr_url = issue.pr_url.clone()?;
+        let number = issue.pr_number?;
+        let state = issue.pr_state.clone().unwrap_or_else(|| "open".to_string());
+        let theme = cx.theme();
+        let muted = theme.muted_foreground;
+        let (badge_label, badge_color) = match state.as_str() {
+            "open" => ("Open", theme::tokens::GREEN.to_hsla()),
+            "merged" => ("Merged", theme.link),
+            "closed" => ("Closed", theme::tokens::RED.to_hsla()),
+            other => (other, muted),
+        };
+        let badge_label = SharedString::from(badge_label.to_string());
+        let is_open = state == "open";
+        let issue_id = issue.id.clone();
+        Some(
+            h_flex()
+                .id("issue-pr-row")
+                .w_full()
+                .min_w_0()
+                .items_center()
+                .gap_2()
+                .border_t_1()
+                .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+                .px_1()
+                .py_3()
+                .text_sm()
+                .cursor_pointer()
+                .hover(|style| style.bg(theme.list_hover))
+                .rounded(px(theme::tokens::radius::SM))
+                .on_click(cx.listener(move |_, _, window, cx| {
+                    if is_open {
+                        navigate(
+                            window,
+                            cx,
+                            Screen::PrDiff {
+                                issue_id: issue_id.clone(),
+                            },
+                        );
+                    } else if let Err(error) = api::opener::open_in_browser(&pr_url) {
+                        log::warn!("[ui] issue detail: open PR link failed: {error}");
+                    }
+                }))
+                .child(
+                    Icon::from(ExpIcon::GitPullRequest)
+                        .small()
+                        .flex_shrink_0()
+                        .text_color(muted),
+                )
+                .child(
+                    // Web `PrStateBadge`: outline chip, state-tinted.
+                    div()
+                        .flex_shrink_0()
+                        .h(px(20.))
+                        .px_1p5()
+                        .flex()
+                        .items_center()
+                        .rounded_full()
+                        .border_1()
+                        .border_color(badge_color.opacity(0.4))
+                        .text_color(badge_color)
+                        .text_xs()
+                        .child(badge_label),
+                )
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .font_family(theme::terminal::FONT_FAMILY)
+                        .child(SharedString::from(format!("PR #{number}"))),
+                )
+                .children(issue.branch.clone().map(|branch| {
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .text_xs()
+                        .text_color(muted)
+                        .font_family(theme::terminal::FONT_FAMILY)
+                        .child(SharedString::from(branch))
+                }))
+                .child(
+                    h_flex().flex_1().flex_shrink_0().justify_end().child(
+                        Icon::from(ExpIcon::ChevronRight)
+                            .small()
+                            .text_color(muted),
+                    ),
+                )
+                .into_any_element(),
+        )
+    }
+
     fn render_files_section(
         &mut self,
         issue: &Issue,
@@ -825,7 +922,7 @@ impl IssueDetailView {
         let issue_id = issue.id.clone();
         // EXP-316: icon-only attach button (tooltip carries the wording).
         let attach_button = Button::new("issue-files-attach")
-            .ghost()
+            .ghost().cursor_pointer()
             .xsmall()
             .icon(Icon::from(ExpIcon::Paperclip).xsmall())
             .tooltip("Attach file")
@@ -1054,7 +1151,7 @@ impl IssueDetailView {
             .child({
                 let (id, label) = (id.clone(), label.clone());
                 Button::new(SharedString::from(format!("issue-file-open-{id}")))
-                    .ghost()
+                    .ghost().cursor_pointer()
                     .xsmall()
                     .disabled(busy)
                     .icon(Icon::from(ExpIcon::ExternalLink).xsmall())
@@ -1066,7 +1163,7 @@ impl IssueDetailView {
             .child({
                 let (id, label) = (id.clone(), label.clone());
                 Button::new(SharedString::from(format!("issue-file-save-{id}")))
-                    .ghost()
+                    .ghost().cursor_pointer()
                     .xsmall()
                     .disabled(busy)
                     .icon(Icon::from(ExpIcon::Download).xsmall())
@@ -1078,7 +1175,7 @@ impl IssueDetailView {
             .child({
                 let (id, label) = (id.clone(), label.clone());
                 Button::new(SharedString::from(format!("issue-file-delete-{id}")))
-                    .ghost()
+                    .ghost().cursor_pointer()
                     .xsmall()
                     .disabled(busy)
                     .icon(
@@ -1144,7 +1241,7 @@ impl IssueDetailView {
             .when(failed, |row| {
                 row.child(
                     Button::new(SharedString::from(format!("issue-file-dismiss-{key}")))
-                        .ghost()
+                        .ghost().cursor_pointer()
                         .xsmall()
                         .icon(Icon::new(registry::UI_CLOSE).xsmall())
                         .tooltip("Dismiss")
@@ -1563,6 +1660,8 @@ impl IssueDetailView {
             // EXP-297: the files rail sits under the description and above
             // the timeline — inline images stay in the description itself.
             .child(self.render_files_section(issue, cx))
+            // EXP-525: the web `PrRow` — state badge + PR number + branch.
+            .children(self.render_pr_row(issue, cx))
             // EXP-496: widget/agent submission metadata, right above the
             // timeline (web mounts it after the PR row, before the timeline).
             .child(self.render_widget_submission_card(issue, cx));

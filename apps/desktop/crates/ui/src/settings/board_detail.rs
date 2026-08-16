@@ -363,7 +363,7 @@ impl BoardDetailPane {
         };
 
         let button = Button::new(row_id("board-detail-repo", &board.id))
-            .outline()
+            .outline().cursor_pointer()
             .small()
             .max_w(px(320.))
             .icon(registry::UI_GITHUB)
@@ -577,7 +577,7 @@ impl Render for BoardDetailPane {
                 )
                 .child(
                     Button::new(row_id("board-detail-trash", &board.id))
-                        .danger()
+                        .danger().cursor_pointer()
                         .small()
                         .icon(registry::UI_DELETE)
                         .label("Move to trash")

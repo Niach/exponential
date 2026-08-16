@@ -502,7 +502,7 @@ impl StatusesPane {
             // the fixed box; here it ellipsizes inside the definite-width
             // chain (button → `size_full` inner row → `w_full` child).
             let trigger = Button::new(id)
-                .outline()
+                .outline().cursor_pointer()
                 .small()
                 .w(px(PR_PICKER_WIDTH))
                 .child(
@@ -634,7 +634,7 @@ impl StatusesPane {
                 Popover::new(row_id("status-color", &status_id))
                     .trigger(
                         Button::new(row_id("status-color-trigger", &status_id))
-                            .ghost()
+                            .ghost().cursor_pointer()
                             .xsmall()
                             .child(glyph.clone().small()),
                     )
@@ -712,7 +712,7 @@ impl StatusesPane {
         line = line
             .child(
                 Button::new(row_id("status-up", &status_id))
-                    .ghost()
+                    .ghost().cursor_pointer()
                     .xsmall()
                     .icon(registry::UI_CHEVRON_UP)
                     .tooltip("Move up")
@@ -723,7 +723,7 @@ impl StatusesPane {
             )
             .child(
                 Button::new(row_id("status-down", &status_id))
-                    .ghost()
+                    .ghost().cursor_pointer()
                     .xsmall()
                     .icon(registry::UI_CHEVRON_DOWN)
                     .tooltip("Move down")
@@ -753,7 +753,7 @@ impl StatusesPane {
             let del_name = row.name.clone();
             line = line.child(
                 Button::new(row_id("status-delete", &status_id))
-                    .ghost()
+                    .ghost().cursor_pointer()
                     .xsmall()
                     .icon(registry::UI_DELETE)
                     .tooltip("Delete status")
@@ -850,7 +850,7 @@ impl StatusesPane {
                     .gap_2()
                     .child(
                         Button::new(category_id("status-create", category))
-                            .primary()
+                            .primary().cursor_pointer()
                             .xsmall()
                             .label(if self.submitting {
                                 "Creating…"
@@ -863,7 +863,7 @@ impl StatusesPane {
                     )
                     .child(
                         Button::new(category_id("status-create-cancel", category))
-                            .ghost()
+                            .ghost().cursor_pointer()
                             .xsmall()
                             .label("Cancel")
                             .disabled(self.submitting)
@@ -947,7 +947,7 @@ impl Render for StatusesPane {
                             .items_center()
                             .child(
                                 Button::new(category_id("status-new", category))
-                                    .outline()
+                                    .outline().cursor_pointer()
                                     .xsmall()
                                     .icon(registry::UI_ADD)
                                     .label("Add status")
@@ -1043,7 +1043,7 @@ impl Render for DeleteStatusContent {
                     .child(div().text_sm().child("Move issues to"))
                     .child(
                         Button::new("status-delete-reassign-target")
-                            .outline()
+                            .outline().cursor_pointer()
                             .small()
                             .label(selected_name)
                             .dropdown_menu(move |mut menu, _window, _cx| {

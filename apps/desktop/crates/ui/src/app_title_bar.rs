@@ -117,24 +117,6 @@ pub(crate) fn interactive(children: impl IntoElement) -> impl IntoElement {
         .child(children)
 }
 
-/// [`interactive`], stretched: the wrapper itself joins the bar's flex as a
-/// shrinkable `flex_1 min_w_0` item so an ellipsizing child (the undocked
-/// window's title) gets a definite width to truncate against (EXP-175 chain —
-/// `interactive` alone is fit-content and would just clip). Kept separate
-/// because `interactive`'s other call sites are content-sized button
-/// clusters that must NOT stretch.
-pub(crate) fn interactive_fill(children: impl IntoElement) -> impl IntoElement {
-    h_flex()
-        .flex_1()
-        .min_w_0()
-        .overflow_hidden()
-        .items_center()
-        .gap_2()
-        .on_mouse_down(MouseButton::Left, |_, _, cx: &mut App| cx.stop_propagation())
-        .on_mouse_down(MouseButton::Right, |_, _, cx: &mut App| cx.stop_propagation())
-        .child(children)
-}
-
 /// The chrome-only titlebar: the same 34px drag strip and window controls as
 /// [`AppTitleBar`], with no tab strip and no hairline beneath it.
 ///

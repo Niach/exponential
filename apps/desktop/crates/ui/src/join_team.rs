@@ -446,7 +446,7 @@ impl Render for JoinTeamView {
             .when(!self.embedded, |row| {
                 row.child(
                     Button::new("join-team-cancel")
-                        .outline()
+                        .outline().cursor_pointer()
                         .small()
                         .label("Cancel")
                         .disabled(self.accepting)
@@ -460,7 +460,7 @@ impl Render for JoinTeamView {
             })
             .child(
                 Button::new("join-team-primary")
-                    .primary()
+                    .primary().cursor_pointer()
                     .small()
                     .label(primary_label)
                     .disabled(primary_disabled)

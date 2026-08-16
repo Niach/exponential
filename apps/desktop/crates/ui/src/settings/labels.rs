@@ -313,7 +313,7 @@ impl LabelsPane {
                 Popover::new(row_id("label-color", &label.id))
                     .trigger(
                         Button::new(row_id("label-color-trigger", &label.id))
-                            .ghost()
+                            .ghost().cursor_pointer()
                             .xsmall()
                             .child(
                                 div()
@@ -386,7 +386,7 @@ impl LabelsPane {
                     )
                     .child(
                         Button::new(row_id("label-delete-confirm", &label.id))
-                            .ghost()
+                            .ghost().cursor_pointer()
                             .xsmall()
                             .icon(Icon::new(registry::UI_CHECK).text_color(cx.theme().danger))
                             .on_click(cx.listener(move |this, _, _, cx| {
@@ -401,7 +401,7 @@ impl LabelsPane {
                     )
                     .child(
                         Button::new(row_id("label-delete-cancel", &label.id))
-                            .ghost()
+                            .ghost().cursor_pointer()
                             .xsmall()
                             .icon(registry::UI_CLOSE)
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -414,7 +414,7 @@ impl LabelsPane {
             let confirm_id = label_id.clone();
             row = row.child(
                 Button::new(row_id("label-delete", &label.id))
-                    .ghost()
+                    .ghost().cursor_pointer()
                     .xsmall()
                     .icon(registry::UI_DELETE)
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -526,7 +526,7 @@ impl Render for LabelsPane {
                             .gap_2()
                             .child(
                                 Button::new("label-create")
-                                    .primary()
+                                    .primary().cursor_pointer()
                                     .xsmall()
                                     .label(if self.submitting {
                                         "Creating…"
@@ -539,7 +539,7 @@ impl Render for LabelsPane {
                             )
                             .child(
                                 Button::new("label-create-cancel")
-                                    .ghost()
+                                    .ghost().cursor_pointer()
                                     .xsmall()
                                     .label("Cancel")
                                     .disabled(self.submitting)
@@ -558,7 +558,7 @@ impl Render for LabelsPane {
             body = body.child(
                 h_flex().child(
                     Button::new("label-new")
-                        .outline()
+                        .outline().cursor_pointer()
                         .small()
                         .icon(registry::UI_ADD)
                         .label("New label")

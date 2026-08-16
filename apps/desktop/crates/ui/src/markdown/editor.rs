@@ -524,7 +524,7 @@ fn render_image_remove_button(hooks: &EditorImageHooks) -> impl IntoElement {
     let block_id = hooks.block_id;
     div().absolute().top_1().right_1().child(
         Button::new(ElementId::from(("md-image-remove", block_id as usize)))
-            .ghost()
+            .ghost().cursor_pointer()
             .xsmall()
             .icon(Icon::new(registry::UI_CLOSE))
             .tooltip("Remove image")

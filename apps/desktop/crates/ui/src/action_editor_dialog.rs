@@ -25,6 +25,7 @@ use gpui_component::{
     v_flex, ActiveTheme as _, Disableable as _, Sizable as _,
 };
 
+use crate::controls::WebControl as _;
 use crate::native_dialog::{self, DialogContent, DialogSpec};
 use crate::queries;
 
@@ -301,7 +302,7 @@ impl Render for ActionEditorDialogView {
         let mut name_field = v_flex()
             .gap_2()
             .child(field_label(cx, "Name"))
-            .child(Input::new(&self.name).small());
+            .child(Input::new(&self.name).web_input_sm());
         if let Some(name_error) = self.name_error.clone() {
             name_field = name_field.child(div().text_xs().text_color(danger).child(name_error));
         }
@@ -312,7 +313,7 @@ impl Render for ActionEditorDialogView {
                 v_flex()
                     .gap_2()
                     .child(field_label(cx, "Description (optional)"))
-                    .child(Input::new(&self.description).small()),
+                    .child(Input::new(&self.description).web_input_sm()),
             )
             .child(
                 v_flex().gap_2().child(field_label(cx, "Icon")).child(
@@ -372,16 +373,16 @@ impl Render for ActionEditorDialogView {
             .gap_2()
             .child(
                 Button::new("action-edit-cancel")
-                    .ghost()
-                    .small()
+                    .ghost().cursor_pointer()
+                    .web_sm()
                     .label("Cancel")
                     .disabled(self.submitting)
                     .on_click(|_, window, cx| native_dialog::close_dialog_window(window, cx)),
             )
             .child(
                 Button::new("action-edit-save")
-                    .primary()
-                    .small()
+                    .primary().cursor_pointer()
+                    .web_sm()
                     .label(if self.submitting {
                         "Saving…"
                     } else {
@@ -424,8 +425,8 @@ impl ActionEditorDialogView {
             (Some(_), None) => "None".into(),
         };
         let trigger = Button::new("action-edit-repo")
-            .outline()
-            .small()
+            .outline().cursor_pointer()
+            .web_input_sm()
             .label(label)
             .w_full()
             .disabled(self.repos.is_none());

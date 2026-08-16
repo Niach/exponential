@@ -165,12 +165,17 @@ pub fn action_icon(icon: Option<&str>) -> Icon {
 /// known, otherwise the attribute-derived fallback (the repo column drives
 /// behavior; the glyph is cosmetic).
 pub fn board_icon(board: &Board) -> Icon {
+    Icon::from(board_glyph(board))
+}
+
+/// [`board_icon`]'s raw `ExpIcon` — for call sites that snapshot the glyph
+/// (the search sheet denormalizes hits at search time, EXP-525).
+pub fn board_glyph(board: &Board) -> ExpIcon {
     board
         .icon
         .as_deref()
         .and_then(board_icon_glyph)
-        .map(Icon::from)
-        .unwrap_or_else(|| Icon::from(board_fallback_glyph(board)))
+        .unwrap_or_else(|| board_fallback_glyph(board))
 }
 
 #[cfg(test)]

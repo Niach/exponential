@@ -138,7 +138,7 @@ impl RenderOnce for IssueFilterPopover {
         // 20px → 24px) so the title row's two controls stay comfortably
         // hittable next to the floating bulk bar.
         let trigger = Button::new("issue-filter-trigger")
-            .ghost()
+            .ghost().cursor_pointer()
             .small()
             .text_color(cx.theme().muted_foreground)
             .icon(
@@ -419,7 +419,7 @@ fn labels_view(
         .items_center()
         .child(
             Button::new("filter-labels-back")
-                .ghost()
+                .ghost().cursor_pointer()
                 .xsmall()
                 .icon(Icon::new(registry::UI_BACK).size_3p5())
                 .on_click({
