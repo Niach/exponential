@@ -22,7 +22,11 @@
 //!
 //! Anchors were captured live from claude v2.0.42 (`Bash` and `Write`
 //! dialogs; the option run tolerates the wrapped labels long "don't ask
-//! again for … in <cwd>" rows produce).
+//! again for … in <cwd>" rows produce) and re-verified against v2.1.233
+//! (EXP-512), whose dialogs add a "This command requires approval" line
+//! between the context and the question and frame file previews with `╌`
+//! rules instead of a bordered box — the header walk skips interior rules
+//! so the tool headline still resolves.
 
 use crate::frames::QuestionOption;
 use crate::{login_picker, plan_picker, question_picker};
@@ -199,26 +203,37 @@ fn strip_borders(line: &str) -> &str {
         .trim_matches(|c: char| c == '─' || c.is_whitespace())
 }
 
-/// A horizontal-rule row — the dialog's top separator.
+/// A horizontal-rule row — the dialog's top separator or (light variants) an
+/// interior frame line.
 fn is_rule(line: &str) -> bool {
     let t = line.trim();
     t.chars().count() >= 10 && t.chars().all(|c| matches!(c, '─' | '═' | '╌' | '┄'))
 }
 
+/// A SOLID rule — the dialog's own top separator. The v2.1.233 file preview
+/// frames its body with light `╌` rules; those are interior and must never
+/// anchor the headline walk.
+fn is_heavy_rule(line: &str) -> bool {
+    let t = line.trim();
+    t.chars().count() >= 10 && t.chars().all(|c| matches!(c, '─' | '═'))
+}
+
 /// Best-effort headline + context: the first non-empty row below the nearest
-/// rule above the question is the tool headline ("Bash command"); everything
-/// between it and the question is context (borders stripped, frame rows
-/// dropped, capped). No rule in reach ⇒ neither.
+/// HEAVY rule above the question is the tool headline ("Bash command");
+/// everything between it and the question is context (borders stripped,
+/// frame rows and interior light rules dropped, capped). No heavy rule in
+/// reach ⇒ neither.
 fn header_and_context(above: &[String]) -> (Option<String>, Vec<String>) {
     let floor = above.len().saturating_sub(HEADER_WINDOW);
-    let Some(rule_idx) = (floor..above.len()).rev().find(|&idx| is_rule(&above[idx])) else {
+    let Some(rule_idx) = (floor..above.len()).rev().find(|&idx| is_heavy_rule(&above[idx]))
+    else {
         return (None, Vec::new());
     };
     let mut header = None;
     let mut context = Vec::new();
     for line in &above[rule_idx + 1..] {
         let t = strip_borders(line);
-        if t.is_empty() {
+        if t.is_empty() || is_rule(line) {
             continue;
         }
         if header.is_none() {
@@ -362,6 +377,144 @@ mod tests {
             "   2. Yes, allow all edits during this session (shift+tab)",
             "   3. No, and tell Claude what to do differently (esc)",
         ])
+    }
+
+    /// The Bash dialog as captured live on claude v2.1.233 (EXP-512) — a
+    /// "This command requires approval" line now sits between the context
+    /// and the question, and the don't-ask-again label carries the command.
+    fn bash_permission_screen_v2_1_233() -> Vec<String> {
+        screen(&[
+            "❯ Run exactly this with the Bash tool: curl -s https://example.com/ | head -c 100",
+            "",
+            "● Fetching example.com and printing first 100 bytes",
+            "  ⎿  $ curl -s https://example.com/ | head -c 100",
+            "",
+            "──────────────────────────────────────────────────────────────────────────────────────────",
+            " Bash command",
+            "",
+            "   curl -s https://example.com/ | head -c 100",
+            "   Fetch example.com and print first 100 bytes",
+            "",
+            " This command requires approval",
+            "",
+            " Do you want to proceed?",
+            " ❯ 1. Yes",
+            "   2. Yes, and don’t ask again for: curl -s https://example.com/",
+            "   3. No",
+            "",
+            " Esc to cancel · Tab to amend · ctrl+e to explain",
+        ])
+    }
+
+    /// The same dialog raised by a subagent (claude v2.1.233): the headline
+    /// gains a "· from the …" suffix, nothing else moves.
+    fn subagent_permission_screen_v2_1_233() -> Vec<String> {
+        screen(&[
+            "✻ Waiting for 2 background agents to finish",
+            "",
+            "──────────────────────────────────────────────────────────────────────────────────────────",
+            " Bash command · from the general-purpose agent",
+            "",
+            "   curl -s https://ifconfig.me",
+            "   Fetch public IP address",
+            "",
+            " This command requires approval",
+            "",
+            " Do you want to proceed?",
+            " ❯ 1. Yes",
+            "   2. Yes, and don’t ask again for: curl *",
+            "   3. No",
+            "",
+            " Esc to cancel · Tab to amend · ctrl+e to explain",
+        ])
+    }
+
+    /// The Write dialog as captured live on claude v2.1.233: the file
+    /// preview rides between `╌` rules instead of a bordered box.
+    fn write_permission_screen_v2_1_233() -> Vec<String> {
+        screen(&[
+            "● Write(notes.txt)",
+            "",
+            "──────────────────────────────────────────────────────────────────────────────────────────",
+            " Create file",
+            " notes.txt",
+            "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+            "  1 hello notes",
+            "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+            " Do you want to create notes.txt?",
+            " ❯ 1. Yes",
+            "   2. Yes, allow all edits during this session (shift+tab)",
+            "   3. No",
+            "",
+            " Esc to cancel · Tab to amend",
+        ])
+    }
+
+    #[test]
+    fn detects_the_v2_1_233_bash_dialog() {
+        let snap = detect(&bash_permission_screen_v2_1_233()).expect("dialog detected");
+        assert_eq!(snap.header.as_deref(), Some("Bash command"));
+        assert_eq!(
+            snap.context,
+            vec![
+                "curl -s https://example.com/ | head -c 100",
+                "Fetch example.com and print first 100 bytes",
+                "This command requires approval",
+            ]
+        );
+        assert_eq!(snap.question, "Do you want to proceed?");
+        assert_eq!(
+            snap.options
+                .iter()
+                .map(|o| (o.key.as_str(), o.label.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("1", "Yes"),
+                ("2", "Yes, and don’t ask again for: curl -s https://example.com/"),
+                ("3", "No"),
+            ]
+        );
+    }
+
+    #[test]
+    fn detects_the_v2_1_233_subagent_dialog() {
+        let snap = detect(&subagent_permission_screen_v2_1_233()).expect("dialog detected");
+        assert_eq!(
+            snap.header.as_deref(),
+            Some("Bash command · from the general-purpose agent")
+        );
+        assert_eq!(snap.options.len(), 3);
+    }
+
+    #[test]
+    fn detects_the_v2_1_233_write_dialog_through_the_ruled_preview() {
+        let snap = detect(&write_permission_screen_v2_1_233()).expect("dialog detected");
+        // The nearest rule above the question closes the preview and yields
+        // no headline — the walk must settle on the outer rule instead.
+        assert_eq!(snap.header.as_deref(), Some("Create file"));
+        assert_eq!(snap.context, vec!["notes.txt", "1 hello notes"]);
+        assert_eq!(snap.question, "Do you want to create notes.txt?");
+        assert_eq!(snap.options.len(), 3);
+    }
+
+    #[test]
+    fn anchor_less_setup_dialogs_stay_undetected() {
+        // v2.1.233's "Set up auto mode?" prompt has numbered rows and a ❯
+        // marker but no "Do you want to" question — it is NOT a permission
+        // dialog and must never publish as one.
+        let lines = screen(&[
+            "──────────────────────────────────────────────────────────────────────────────────────────",
+            "  Set up auto mode for your environment?",
+            "",
+            "  Auto mode lets Claude act without asking first.",
+            "",
+            "  ❯ 1. Set it up",
+            "    2. Not now",
+            "    3. Don't show again",
+            "",
+            "  Enter to confirm · Esc to cancel",
+        ]);
+        assert_eq!(detect(&lines), None);
     }
 
     #[test]

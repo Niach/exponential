@@ -299,13 +299,24 @@ fn parse_notification(value: &Value) -> HookEventKind {
         .to_ascii_lowercase();
     let lowered = message.to_ascii_lowercase();
     if type_ish.contains("permission") || lowered.contains("permission") {
-        HookEventKind::PermissionPrompt {
-            message,
-            tool: string_field(value, "tool_name"),
-        }
+        // claude ≤2.0.x sent `tool_name`; ≥2.1.233 sends only a message,
+        // sometimes still naming the tool ("Claude needs your permission to
+        // use Bash"), usually not ("Claude needs your permission",
+        // "Session paused") — fall back to parsing the message so the
+        // degraded card can at least name what is blocked (EXP-512).
+        let tool = string_field(value, "tool_name").or_else(|| tool_from_message(&message));
+        HookEventKind::PermissionPrompt { message, tool }
     } else {
         HookEventKind::Idle { message }
     }
+}
+
+/// Best-effort tool name out of a permission Notification's message — the
+/// word(s) after "to use", trimmed of trailing punctuation. Empty ⇒ `None`.
+fn tool_from_message(message: &str) -> Option<String> {
+    let (_, rest) = message.split_once(" to use ")?;
+    let tool = rest.trim().trim_end_matches(['.', '!']).trim();
+    (!tool.is_empty()).then(|| tool.to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -840,6 +851,31 @@ mod tests {
                 tool: None,
             }
         );
+        // claude ≥2.1.233 drops `tool_name` — the message names the tool
+        // when anything does (EXP-512).
+        assert_eq!(
+            parse(
+                r#"{"session_id":"s","hook_event_name":"Notification","message":"Claude needs your permission to use Bash","notification_type":"permission_prompt"}"#
+            )
+            .kind,
+            HookEventKind::PermissionPrompt {
+                message: "Claude needs your permission to use Bash".into(),
+                tool: Some("Bash".into()),
+            }
+        );
+        // …and the generic / paused variants carry no tool at all.
+        for message in ["Claude needs your permission", "Session paused"] {
+            assert_eq!(
+                parse(&format!(
+                    r#"{{"session_id":"s","hook_event_name":"Notification","message":"{message}","notification_type":"permission_prompt"}}"#
+                ))
+                .kind,
+                HookEventKind::PermissionPrompt {
+                    message: message.into(),
+                    tool: None,
+                }
+            );
+        }
     }
 
     #[test]

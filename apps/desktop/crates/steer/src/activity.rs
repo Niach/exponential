@@ -2104,6 +2104,12 @@ impl SteerState {
         }
         match event.kind {
             HookEventKind::PlanProposed { tool_use_id, plan } => {
+                // claude ≥2.1.233 fires a permission-flavoured Notification
+                // for its pickers too, and it can land BEFORE this
+                // registration — one TUI can't show a picker and a
+                // permission dialog at once, so the hold is the picker's own
+                // nudge, not a prompt (EXP-512).
+                self.pending_permission = None;
                 self.plan_seq += 1;
                 // EXP-483: a REAL tool_use id will reappear on the withheld
                 // twin entry — remember it so that entry's prose can anchor
@@ -2136,6 +2142,8 @@ impl SteerState {
                 tool_use_id,
                 questions,
             } => {
+                // Same picker-nudge race as `PlanProposed` above (EXP-512).
+                self.pending_permission = None;
                 let Some(ask_id) = tool_use_id else {
                     // Without an id there is nothing to answer against — the
                     // grid path publishes it the legacy way.
@@ -2559,6 +2567,17 @@ impl SteerState {
     /// dialog (claude's copy drifted past the anchors, or there is no term),
     /// so publish the legacy informational card rather than nothing.
     fn permission_timeout(&mut self, sender: &ActivitySender) {
+        // A pending ask/plan owns the screen story — its card is the
+        // answerable one, and a permission card would claim a block the
+        // steerer can't act on (the arming guard's condition, re-checked
+        // here because claude ≥2.1.233 sends the picker's own Notification
+        // BEFORE the hook registers the picker — EXP-512 saw the raced hold
+        // degrade into a phantom "Permission · Tool" card 10s into a
+        // perfectly answerable ask).
+        if self.ask.is_some() || self.plan.is_some() {
+            self.pending_permission = None;
+            return;
+        }
         let Some(pending) = &mut self.pending_permission else {
             return;
         };
@@ -6133,6 +6152,57 @@ mod tests {
         // Once only.
         steer.permission_timeout(&sender);
         assert!(drained(&rx).is_empty());
+    }
+
+    #[test]
+    fn a_picker_registration_drops_a_raced_permission_hold() {
+        // claude ≥2.1.233 fires the picker's own permission-flavoured
+        // Notification, and it can land BEFORE the PreToolUse registration —
+        // the raced hold must never degrade into a phantom card next to the
+        // answerable ask (EXP-512).
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(
+            hook(HookEventKind::PermissionPrompt {
+                message: "Session paused".to_string(),
+                tool: None,
+            }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        assert!(steer.pending_permission.is_some());
+        steer.apply_hook(
+            hook(HookEventKind::QuestionsAsked {
+                tool_use_id: Some("toolu_ask".to_string()),
+                questions: vec![HookQuestion {
+                    question: "Favorite color?".to_string(),
+                    ..Default::default()
+                }],
+            }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        assert!(
+            steer.pending_permission.is_none(),
+            "the ask owns the screen story"
+        );
+        drained(&rx);
+        // And a hold that somehow survives past the confirm window while an
+        // ask is pending is dropped at the timeout instead of publishing.
+        steer.apply_hook(permission_hook(), &sender, &redactor, &mut transcript);
+        steer.pending_permission = Some(PendingPermission {
+            tool: "Tool".to_string(),
+            detail: Some("Session paused".to_string()),
+            seen: Instant::now() - PERMISSION_GRID_CONFIRM,
+            degraded: false,
+        });
+        steer.permission_timeout(&sender);
+        assert!(drained(&rx).is_empty(), "no phantom informational card");
+        assert!(steer.pending_permission.is_none());
     }
 
     #[test]
