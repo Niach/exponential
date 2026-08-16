@@ -1461,7 +1461,14 @@ export function registerExponentialTools(
     },
     async ({ unreadOnly, limit, offset }) => {
       try {
-        const conditions = [eq(notifications.userId, user.id)]
+        // Mirror the synced notifications shape: rows from trashed or
+        // archived boards are hidden via the trigger-maintained mirrors
+        // (issue-less rows keep NULL mirrors and always pass).
+        const conditions = [
+          eq(notifications.userId, user.id),
+          isNull(notifications.boardDeletedAt),
+          isNull(notifications.boardArchivedAt),
+        ]
         if (unreadOnly) conditions.push(isNull(notifications.readAt))
         if (access.full) {
           const rows = await db
