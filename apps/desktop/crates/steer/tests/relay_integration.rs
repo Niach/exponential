@@ -613,6 +613,7 @@ fn full_protocol_flow_against_the_real_relay() {
             question_id: "toolu_1#0".to_string(),
             ask_id: Some("toolu_1".to_string()),
             keys: vec!["2".to_string()],
+            text: None,
         }
     );
     assert_eq!(
