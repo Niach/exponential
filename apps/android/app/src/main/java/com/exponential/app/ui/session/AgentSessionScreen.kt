@@ -1,10 +1,16 @@
 package com.exponential.app.ui.session
 
+import android.graphics.BitmapFactory
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.scrollBy
@@ -53,13 +59,18 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -78,6 +89,7 @@ import com.exponential.app.ui.issue.DiffAddColor
 import com.exponential.app.ui.issue.DiffDelColor
 import com.exponential.app.ui.markdown.LocalAttachmentDims
 import com.exponential.app.ui.markdown.LocalMarkdownAutolink
+import com.exponential.app.ui.markdown.MarkdownMediaUtils
 import com.exponential.app.ui.markdown.MarkdownView
 import com.exponential.app.ui.markdown.MdStyle
 import com.exponential.app.ui.theme.DesignTokens
@@ -86,7 +98,10 @@ import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.theme.glassRow
 import com.exponential.app.ui.theme.glassSection
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 // The "Agent session" screen (EXP-32) — a chat-style view of a live coding
 // session over the relay's scrubbed activity channel. NO terminal rendering:
@@ -116,6 +131,36 @@ fun AgentSessionScreen(
     val killError by viewModel.killError.collectAsStateWithLifecycle()
     val attachmentDims by viewModel.attachmentDims.collectAsStateWithLifecycle()
     val answerStates = activity.answerLocks
+    val pendingImages by viewModel.pendingImages.collectAsStateWithLifecycle()
+    val steerSending by viewModel.steerSending.collectAsStateWithLifecycle()
+    val steerImageError by viewModel.steerImageError.collectAsStateWithLifecycle()
+
+    // Steer image attach (EXP-511) — the system photo picker feeds the VM's
+    // pending list; batch and action runs have no issue to upload to.
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val imagePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia(MAX_STEER_IMAGES),
+    ) { uris: List<Uri> ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        scope.launch {
+            uris.forEach { uri ->
+                // ContentResolver reads can stream from a cloud-backed provider —
+                // never on the main thread.
+                val picked = withContext(Dispatchers.IO) {
+                    val bytes = MarkdownMediaUtils.readBytes(context, uri)
+                        ?: return@withContext null
+                    PendingSteerImage(
+                        uri = uri,
+                        bytes = bytes,
+                        filename = MarkdownMediaUtils.guessFilename(context, uri),
+                        mime = MarkdownMediaUtils.guessMimeType(context, uri),
+                    )
+                } ?: return@forEach
+                viewModel.addPendingImage(picked.uri, picked.bytes, picked.filename, picked.mime)
+            }
+        }
+    }
 
     LaunchedEffect(Unit) { viewModel.connectIfIdle() }
     // Returning from the background (EXP-243): the socket rarely survives it —
@@ -361,11 +406,41 @@ fun AgentSessionScreen(
                 }
             }
 
+            // A rejected pick or a failed image upload (EXP-511) — the text and
+            // the thumbnails survive, so the send is retryable.
+            val imageFailure = steerImageError
+            if (imageFailure != null) {
+                BannerRow {
+                    Text(
+                        imageFailure,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+
             // ── Steering input — fully seamless (EXP-312): no captions, no
             // operator state; live implies ownership, input just sends.
             val inputVisible = phase == AgentPhase.Live && !sessionEnded
             if (inputVisible) {
-                MessageInputRow(onSend = viewModel::sendMessage)
+                if (pendingImages.isNotEmpty()) {
+                    PendingImageStrip(
+                        images = pendingImages,
+                        enabled = !steerSending,
+                        onRemove = viewModel::removePendingImage,
+                    )
+                }
+                MessageInputRow(
+                    canAttach = session?.issueId != null,
+                    sending = steerSending,
+                    hasPendingImages = pendingImages.isNotEmpty(),
+                    onPickImages = {
+                        imagePicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                        )
+                    },
+                    onSend = viewModel::sendMessageWithImages,
+                )
             }
             Spacer(Modifier.height(8.dp))
         }
@@ -1428,14 +1503,88 @@ private fun middleTruncate(s: String, max: Int = 72): String {
 
 // ── Steering input ───────────────────────────────────────────────────────────
 
+/** Thumbnails of the images attached to the next message (EXP-511). */
 @Composable
-private fun MessageInputRow(onSend: (String) -> Unit) {
+private fun PendingImageStrip(
+    images: List<PendingSteerImage>,
+    enabled: Boolean,
+    onRemove: (Int) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(bottom = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        images.forEachIndexed { index, image ->
+            val bitmap = remember(image.uri, image.bytes) {
+                BitmapFactory.decodeByteArray(image.bytes, 0, image.bytes.size)?.asImageBitmap()
+            }
+            Box(modifier = Modifier.size(64.dp)) {
+                if (bitmap != null) {
+                    Image(
+                        bitmap = bitmap,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(8.dp)),
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(GlassTokens.RowFill),
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(2.dp)
+                        .size(18.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.55f))
+                        .clickable(enabled = enabled) { onRemove(index) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        ExpIcons.uiClose,
+                        contentDescription = "Remove image",
+                        modifier = Modifier.size(12.dp),
+                        tint = Color.White,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MessageInputRow(
+    canAttach: Boolean,
+    sending: Boolean,
+    hasPendingImages: Boolean,
+    onPickImages: () -> Unit,
+    onSend: (String) -> Unit,
+) {
     var field by remember { mutableStateOf("") }
+    val canSend = (field.isNotBlank() || hasPendingImages) && !sending
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.Bottom,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
+        if (canAttach) {
+            IconButton(onClick = onPickImages, enabled = !sending) {
+                Icon(
+                    ExpIcons.uiAdd,
+                    contentDescription = "Attach image",
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                )
+            }
+        }
         TextField(
             value = field,
             onValueChange = { field = it },
@@ -1459,22 +1608,30 @@ private fun MessageInputRow(onSend: (String) -> Unit) {
         )
         IconButton(
             onClick = {
-                if (field.isNotBlank()) {
+                if (canSend) {
                     onSend(field)
                     field = ""
                 }
             },
-            enabled = field.isNotBlank(),
+            enabled = canSend,
         ) {
-            Icon(
-                ExpIcons.uiSend,
-                contentDescription = "Send",
-                tint = if (field.isNotBlank()) {
-                    MaterialTheme.colorScheme.onSurface
-                } else {
-                    MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Quaternary)
-                },
-            )
+            if (sending) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            } else {
+                Icon(
+                    ExpIcons.uiSend,
+                    contentDescription = "Send",
+                    tint = if (canSend) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Quaternary)
+                    },
+                )
+            }
         }
     }
 }

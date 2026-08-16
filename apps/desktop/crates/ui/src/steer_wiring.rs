@@ -1185,6 +1185,13 @@ pub fn attach_publisher(
         text_sink: pi_steer.map(|handle| {
             Arc::new(move |text: String| handle.push(text)) as Arc<dyn Fn(String) + Send + Sync>
         }),
+        // EXP-511: a steered message's image embeds are downloaded with this
+        // account's own auth into the worktree and handed to the agent as
+        // plain file paths.
+        attachments: Some(steer::image_localizer(
+            trpc.clone(),
+            worktree.join(coding::launcher::STEER_IMAGES_DIR),
+        )),
     };
 
     // EXP-214: the needs-input forwarder's own handle — cloned before the

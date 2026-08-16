@@ -173,6 +173,7 @@ fn main() {
         answers: Some(answer_link.clone()),
         agent: steer::activity::SessionAgent::Claude,
         text_sink: None,
+        attachments: None,
     };
     let handle = publish(
         &runtime,

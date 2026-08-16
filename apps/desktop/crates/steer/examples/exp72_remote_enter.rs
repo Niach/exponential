@@ -148,6 +148,7 @@ fn main() {
         answers: None,
         agent: steer::activity::SessionAgent::Claude,
         text_sink: None,
+        attachments: None,
     };
     let handle = publish(
         &runtime,

@@ -28,6 +28,7 @@
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::time::Duration;
 
 use domain::client_version::{client_version_header_value, CLIENT_VERSION_HEADER};
 
@@ -36,6 +37,11 @@ use crate::error::{read_body, status_error_authed, transport_error, ApiError};
 use crate::http;
 use crate::login::normalize_instance_url;
 use crate::TokenProvider;
+
+/// Whole-request budget for [`TrpcClient::get_bytes`]: a blob is megabytes on
+/// a slow link, where the shared 30 s JSON budget aborts it (same reasoning as
+/// `ui::markdown::image_paste`'s attachment timeout).
+const BLOB_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Deserialize)]
 struct Envelope<T> {
@@ -127,6 +133,34 @@ impl TrpcClient {
         self.send(request, path)
     }
 
+    /// GET raw bytes from a NON-tRPC route on the same instance (`path` starts
+    /// with `/`), carrying the same call-time bearer — EXP-511: attachment
+    /// blobs live on `/api/attachments/{id}`, and the response
+    /// `Content-Type` is the only place their type is stated, so it comes
+    /// back alongside the body. Blocking; background executor only (§3.5).
+    pub fn get_bytes(&self, path: &str) -> Result<(Vec<u8>, Option<String>), ApiError> {
+        let url = format!("{}{path}", self.base_url);
+        let response = self
+            .authorize(self.client.get(&url))
+            .timeout(BLOB_TIMEOUT)
+            .send()
+            .map_err(transport_error)?;
+        let status = response.status().as_u16();
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
+        if !(200..300).contains(&status) {
+            let body = read_body(response)?;
+            return Err(status_error_authed(status, &body));
+        }
+        Ok((
+            response.bytes().map_err(transport_error)?.to_vec(),
+            content_type,
+        ))
+    }
+
     /// Attach the bearer read **at call time** (§5.7). No token → the request
     /// goes out unauthenticated and the server answers 401 for authed procs —
     /// which correctly surfaces as [`ApiError::Unauthorized`].
@@ -181,6 +215,17 @@ pub(crate) mod tests {
         status: u16,
         body: &'static str,
     ) -> (String, flume::Receiver<String>) {
+        one_shot_server_typed(status, "application/json", body)
+    }
+
+    /// [`one_shot_server`] with an explicit response `Content-Type` — the
+    /// EXP-511 blob GET reads the type off the response, so its tests need to
+    /// serve something other than JSON.
+    pub(crate) fn one_shot_server_typed(
+        status: u16,
+        content_type: &'static str,
+        body: &'static str,
+    ) -> (String, flume::Receiver<String>) {
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let port = listener.local_addr().unwrap().port();
         let (tx, rx) = flume::bounded::<String>(1);
@@ -219,7 +264,7 @@ pub(crate) mod tests {
                 }
             }
             let response = format!(
-                "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                "HTTP/1.1 {status} X\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                 body.len()
             );
             stream.write_all(response.as_bytes()).unwrap();
@@ -364,6 +409,26 @@ pub(crate) mod tests {
         let (base, _captured) = one_shot_server(200, r#"{"data":{"id":"w1","count":3}}"#);
         let result: Result<Widget, ApiError> = client(&base).query("widgets.get");
         assert!(matches!(result, Err(ApiError::Decode(_))));
+    }
+
+    #[test]
+    fn get_bytes_returns_the_body_and_content_type() {
+        // EXP-511: the attachment blob GET is a plain authenticated GET on a
+        // non-tRPC path — no envelope, and the type rides the response header.
+        let (base, captured) = one_shot_server_typed(200, "image/png", "PNGBYTES");
+        let (bytes, content_type) = client(&base).get_bytes("/api/attachments/att-1").unwrap();
+        assert_eq!(bytes, b"PNGBYTES");
+        assert_eq!(content_type.as_deref(), Some("image/png"));
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("GET /api/attachments/att-1 HTTP/1.1"));
+        assert!(has_header(&request, "Authorization: Bearer tok-1"));
+    }
+
+    #[test]
+    fn get_bytes_maps_a_dead_session_to_unauthorized() {
+        let (base, _captured) = one_shot_server(401, r#"{"message":"Unauthorized"}"#);
+        let result = client(&base).get_bytes("/api/attachments/att-1");
+        assert!(matches!(result, Err(ApiError::Unauthorized)));
     }
 
     #[test]

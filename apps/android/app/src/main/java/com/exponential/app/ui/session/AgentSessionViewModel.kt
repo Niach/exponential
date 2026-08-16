@@ -1,8 +1,10 @@
 package com.exponential.app.ui.session
 
+import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.TrpcException
 import com.exponential.app.data.api.trpcErrorMessage
@@ -13,6 +15,8 @@ import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.INLINE_IMAGE_CONTENT_TYPES
+import com.exponential.app.domain.canonicalContentType
 import com.exponential.app.ui.markdown.AttachmentDims
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.ktor.client.HttpClient
@@ -96,6 +100,10 @@ private const val SESSION_GONE_DETAIL = "This session is no longer available."
  *  message sent much later. */
 private const val ECHO_CAP = 8
 private const val ECHO_TTL_MS = 300_000L
+
+/** The server's image cap (`maxImageUploadBytes`) — refuse locally rather than
+ *  push megabytes over a mobile uplink only to be rejected. */
+private const val MAX_STEER_IMAGE_BYTES = 10L * 1024 * 1024
 
 /** One answer choice of a [AgentFeedItem.Question] — `key` is the raw
  *  keystroke that selects it in the desktop TUI picker (mapped desktop-side)
@@ -791,12 +799,42 @@ sealed interface AgentPhase {
     data class Closed(val detail: String? = null, val reconnecting: Boolean = false) : AgentPhase
 }
 
+/**
+ * An image attached to the next steer message (EXP-511). [uploadedId] is set
+ * once the upload succeeded, so a retry after a mid-batch failure never
+ * re-uploads what already landed.
+ */
+data class PendingSteerImage(
+    val uri: Uri,
+    val bytes: ByteArray,
+    val filename: String,
+    val mime: String,
+    val uploadedId: String? = null,
+) {
+    // ByteArray breaks data-class equality; compare by the scalar fields only.
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is PendingSteerImage) return false
+        return uri == other.uri && filename == other.filename &&
+            mime == other.mime && uploadedId == other.uploadedId
+    }
+
+    override fun hashCode(): Int {
+        var result = uri.hashCode()
+        result = 31 * result + filename.hashCode()
+        result = 31 * result + mime.hashCode()
+        result = 31 * result + (uploadedId?.hashCode() ?: 0)
+        return result
+    }
+}
+
 @HiltViewModel
 class AgentSessionViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     holder: DatabaseHolder,
     private val auth: AuthRepository,
     private val steerApi: SteerApi,
+    private val issueImagesApi: IssueImagesApi,
     private val client: HttpClient,
     private val json: Json,
 ) : ViewModel() {
@@ -852,6 +890,19 @@ class AgentSessionViewModel @Inject constructor(
     /** A failed [killSession] call's message (EXP-268) — rendered as a banner. */
     private val _killError = MutableStateFlow<String?>(null)
     val killError: StateFlow<String?> = _killError
+
+    /** Images picked for the next steer message (EXP-511), capped at
+     *  [MAX_STEER_IMAGES]; uploaded to the session's issue on send. */
+    private val _pendingImages = MutableStateFlow<List<PendingSteerImage>>(emptyList())
+    val pendingImages: StateFlow<List<PendingSteerImage>> = _pendingImages
+
+    /** True while the pending images upload — the composer disables sending. */
+    private val _steerSending = MutableStateFlow(false)
+    val steerSending: StateFlow<Boolean> = _steerSending
+
+    /** A rejected pick or a failed upload — rendered as a banner. */
+    private val _steerImageError = MutableStateFlow<String?>(null)
+    val steerImageError: StateFlow<String?> = _steerImageError
 
     /** Pending ack deadlines, one per locked card. */
     private val ackTimeouts = mutableMapOf<String, Job>()
@@ -1180,6 +1231,95 @@ class AgentSessionViewModel @Inject constructor(
                     i += INPUT_CHUNK_CHARS
                 }
                 socket.send(Frame.Text("""{"t":"input","data":"\r"}"""))
+            }
+        }
+    }
+
+    /** Attach a picked image to the next steer message (EXP-511). Rejects
+     *  anything the server would refuse and silently drops picks past the cap. */
+    fun addPendingImage(uri: Uri, bytes: ByteArray, filename: String, mime: String) {
+        val contentType = canonicalContentType(mime)
+        if (contentType !in INLINE_IMAGE_CONTENT_TYPES) {
+            _steerImageError.value = "That file type can't be attached"
+            return
+        }
+        if (bytes.size > MAX_STEER_IMAGE_BYTES) {
+            _steerImageError.value =
+                "Images must be ${MAX_STEER_IMAGE_BYTES / (1024 * 1024)} MB or smaller"
+            return
+        }
+        if (_pendingImages.value.size >= MAX_STEER_IMAGES) return
+        _steerImageError.value = null
+        _pendingImages.value = _pendingImages.value +
+            PendingSteerImage(uri, bytes, filename, contentType)
+    }
+
+    fun removePendingImage(index: Int) {
+        val current = _pendingImages.value
+        if (index !in current.indices) return
+        _pendingImages.value = current.filterIndexed { i, _ -> i != index }
+    }
+
+    /**
+     * Send a steer message with the pending images (EXP-511): upload each to
+     * the session's issue, then send ONE message whose text carries an
+     * `![image](/api/attachments/…)` embed per upload — the host swaps those
+     * for local file paths so the agent reads the file directly.
+     *
+     * A failed upload keeps the text AND the thumbnails: already-uploaded
+     * entries hold their id, so retrying uploads only what is left.
+     */
+    fun sendMessageWithImages(text: String) {
+        val images = _pendingImages.value
+        if (images.isEmpty()) {
+            sendMessage(text)
+            return
+        }
+        if (_steerSending.value) return
+        viewModelScope.launch {
+            val issueId = session.value?.issueId
+            if (ws == null || issueId == null) {
+                // Batch and action runs have no issue to attach to, and the
+                // composer hides the attach button for them — so this only
+                // guards a session that ended mid-compose.
+                _steerImageError.value = "Images can't be sent right now"
+                return@launch
+            }
+            val accountId = auth.activeAccountId.value
+            if (accountId == null) {
+                _steerImageError.value = "You are signed out"
+                return@launch
+            }
+            _steerSending.value = true
+            _steerImageError.value = null
+            try {
+                for ((index, image) in images.withIndex()) {
+                    if (image.uploadedId != null) continue
+                    val uploaded = try {
+                        issueImagesApi.upload(
+                            accountId,
+                            issueId,
+                            image.bytes,
+                            image.filename,
+                            image.mime,
+                        )
+                    } catch (cancel: CancellationException) {
+                        throw cancel
+                    } catch (t: Throwable) {
+                        // The 412 body's billing copy never reaches the UI —
+                        // the API already replaced it (EXP-216).
+                        _steerImageError.value = trpcErrorMessage(t, "The image could not be uploaded")
+                        return@launch
+                    }
+                    _pendingImages.value = _pendingImages.value.mapIndexed { i, entry ->
+                        if (i == index) entry.copy(uploadedId = uploaded.id) else entry
+                    }
+                }
+                val ids = _pendingImages.value.mapNotNull { it.uploadedId }
+                sendMessage(buildSteerImageMessage(text, ids))
+                _pendingImages.value = emptyList()
+            } finally {
+                _steerSending.value = false
             }
         }
     }

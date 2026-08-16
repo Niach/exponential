@@ -17,8 +17,9 @@
 //! and the LOCAL user is never gated — their keystrokes go straight to the
 //! PTY while the relay forwards the joined viewer's input.
 
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use api::error::ApiError;
@@ -97,9 +98,16 @@ pub enum KillSignal {
 /// `&[u8]`-taking `Fn` type stays under clippy's `type_complexity` bar.
 pub type InputHook = Arc<dyn Fn(&[u8]) + Send + Sync>;
 
+/// EXP-511: attachment id → the local file the agent should read. BLOCKING
+/// (HTTP + a disk write); the pump calls it from `spawn_blocking`. `Err` is a
+/// human-readable reason for the log — the embed then stays as it arrived.
+pub type AttachmentHook = Arc<dyn Fn(&str) -> Result<PathBuf, String> + Send + Sync>;
+
 /// The seam back into the app (§8.9). Every hook is invoked on the steer
 /// runtime — implementations marshal to the gpui foreground themselves where
-/// needed. Cheap-and-non-blocking applies to all of them.
+/// needed. Cheap-and-non-blocking applies to all of them EXCEPT
+/// [`PublisherHooks::attachments`], which the pump deliberately runs on a
+/// blocking task.
 pub struct PublisherHooks {
     /// Remote `input` frames → the ONE shared PTY writer (§6.5). Build with
     /// [`pty_writer_input_hook`] over `Terminal::writer()`.
@@ -124,6 +132,13 @@ pub struct PublisherHooks {
     /// `sendUserMessage` queue semantics) instead of the PTY; single
     /// keystrokes still land raw. `None` (claude/codex) keeps the PTY path.
     pub text_sink: Option<Arc<dyn Fn(String) + Send + Sync>>,
+    /// EXP-511: localizes the image embeds of a steered message — every
+    /// `![image](/api/attachments/{id})` token is downloaded with this
+    /// device's own API auth and replaced by the local file path, so the
+    /// agent just reads the file. `None` (no account, tests) leaves the
+    /// tokens alone: the agent then sees the URL and can still fetch it over
+    /// MCP. Build with [`image_localizer`].
+    pub attachments: Option<AttachmentHook>,
 }
 
 /// Keystroke frames (`\r` submit, `\x1b` interrupt / CSI sequences, any lone
@@ -160,6 +175,106 @@ pub fn pty_writer_input_hook(
             let _ = w.flush();
         }
     })
+}
+
+/// [`PublisherHooks::attachments`] over an account's tRPC client (EXP-511):
+/// downloads into `dest_dir` — `<worktree>/.exp-steer-images`, which the
+/// launcher git-excludes so a steerer's screenshots never reach the PR diff.
+pub fn image_localizer(trpc: Arc<TrpcClient>, dest_dir: PathBuf) -> AttachmentHook {
+    Arc::new(move |attachment_id| {
+        api::attachments::download_image(&trpc, attachment_id, &dest_dir)
+            .map_err(|err| err.to_string())
+    })
+}
+
+/// The embed token a steering client sends for an attached image (the shared
+/// `buildSteerImageMessage` template, byte-identical on web/iOS/Android). The
+/// id is UUID-shaped so nothing else in a message can be mistaken for one.
+fn image_embed_pattern() -> &'static regex::Regex {
+    static PATTERN: OnceLock<regex::Regex> = OnceLock::new();
+    PATTERN.get_or_init(|| {
+        regex::Regex::new(
+            r"(?i)!\[image\]\(/api/attachments/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\)",
+        )
+        .expect("the image embed pattern is a valid regex")
+    })
+}
+
+/// EXP-511: `(local path, the embed token it replaced)` for every image
+/// localized on this session. Created in [`publish`] and shared across
+/// reconnects — `pump_connection` is re-entered per connection, but the
+/// journal it replays outlives them.
+type ImageEmbedMap = Arc<Mutex<Vec<(String, String)>>>;
+
+/// Replace every image embed in a steered message with the local file the
+/// agent should read, recording the substitution for the reverse rewrite.
+/// A download that fails leaves its token untouched — the agent then sees the
+/// URL, which is the pre-EXP-511 behavior and still fetchable over MCP.
+async fn localize_image_embeds(
+    data: String,
+    hook: &AttachmentHook,
+    embeds: &ImageEmbedMap,
+) -> String {
+    let mut tokens: Vec<(String, String)> = Vec::new();
+    for captures in image_embed_pattern().captures_iter(&data) {
+        let token = captures[0].to_string();
+        if !tokens.iter().any(|(existing, _)| existing == &token) {
+            tokens.push((token, captures[1].to_string()));
+        }
+    }
+    let mut data = data;
+    for (token, id) in tokens {
+        let hook = hook.clone();
+        let requested = id.clone();
+        match tokio::task::spawn_blocking(move || hook(&requested)).await {
+            Ok(Ok(path)) => {
+                let path = path.display().to_string();
+                data = data.replace(&token, &path);
+                if let Ok(mut embeds) = embeds.lock() {
+                    if !embeds.iter().any(|(known, _)| known == &path) {
+                        embeds.push((path, token));
+                    }
+                }
+            }
+            Ok(Err(reason)) => {
+                log::warn!("steer publisher: attachment {id} not localized ({reason})");
+            }
+            Err(join_err) => {
+                log::warn!("steer publisher: attachment {id} download panicked: {join_err}");
+            }
+        }
+    }
+    data
+}
+
+/// The reverse of [`localize_image_embeds`], applied to every text field of an
+/// activity event before it is journaled or published: the agent's transcript
+/// echoes the LOCAL path we substituted, and a viewer's echo-dedupe (and its
+/// image rendering) only work against the token they sent. Local paths must
+/// never reach the published feed at all, hence every field, not just
+/// `user_message`.
+fn restore_image_embeds(event: &mut ActivityEvent, embeds: &ImageEmbedMap) {
+    let Ok(embeds) = embeds.lock() else { return };
+    if embeds.is_empty() {
+        return; // the overwhelmingly common case — no allocation, no walk
+    }
+    for field in event.text_fields_mut() {
+        for (path, token) in embeds.iter() {
+            if field.contains(path.as_str()) {
+                *field = field.replace(path.as_str(), token);
+            }
+        }
+    }
+}
+
+/// Everything an activity event needs before it enters the journal: the §8.4
+/// stamp (a re-publish replays the ORIGINAL timeline) and the EXP-511 reverse
+/// rewrite.
+fn prepare_for_journal(event: &mut ActivityEvent, embeds: &ImageEmbedMap) {
+    if event.at_mut().is_none() {
+        *event.at_mut() = Some(now_millis());
+    }
+    restore_image_embeds(event, embeds);
 }
 
 // ---------------------------------------------------------------------------
@@ -291,6 +406,9 @@ async fn run_publisher_loop(
     cmd_rx: flume::Receiver<PublisherCmd>,
     running: Arc<AtomicBool>,
 ) {
+    // EXP-511: the session's localized image embeds — filled by the input
+    // path, read by the activity path, and shared across reconnects.
+    let embeds: ImageEmbedMap = Arc::new(Mutex::new(Vec::new()));
     // EXP-249: the session's full published history. Every connection starts
     // with `activity_reset` + this journal, so a viewer joining a resumed room
     // (or after a relay restart) sees the session from its first event.
@@ -332,7 +450,10 @@ async fn run_publisher_loop(
             }
             Err(err) => {
                 log::debug!("steer publisher: mint failed: {err}");
-                if sleep_or_shutdown(backoff.next_delay(), &cmd_rx, &mut journal, &running).await.is_break() {
+                if sleep_or_shutdown(backoff.next_delay(), &cmd_rx, &mut journal, &embeds, &running)
+                    .await
+                    .is_break()
+                {
                     return;
                 }
                 continue 'reconnect;
@@ -354,7 +475,10 @@ async fn run_publisher_loop(
             }
             Err(DialError::Other(reason)) => {
                 log::debug!("steer publisher: connect failed: {reason}");
-                if sleep_or_shutdown(backoff.next_delay(), &cmd_rx, &mut journal, &running).await.is_break() {
+                if sleep_or_shutdown(backoff.next_delay(), &cmd_rx, &mut journal, &embeds, &running)
+                    .await
+                    .is_break()
+                {
                     return;
                 }
                 continue 'reconnect;
@@ -375,7 +499,10 @@ async fn run_publisher_loop(
         .to_json();
         if let Err(err) = ws.send(Message::Text(hello)).await {
             log::debug!("steer publisher: hello failed: {err}");
-            if sleep_or_shutdown(backoff.next_delay(), &cmd_rx, &mut journal, &running).await.is_break() {
+            if sleep_or_shutdown(backoff.next_delay(), &cmd_rx, &mut journal, &embeds, &running)
+                .await
+                .is_break()
+            {
                 return;
             }
             continue 'reconnect;
@@ -389,13 +516,17 @@ async fn run_publisher_loop(
         // the ONE deliberate place a feed is rebuilt.
         if !republish_history(&mut ws, &journal).await {
             log::debug!("steer publisher: history replay failed; reconnecting");
-            if sleep_or_shutdown(backoff.next_delay(), &cmd_rx, &mut journal, &running).await.is_break() {
+            if sleep_or_shutdown(backoff.next_delay(), &cmd_rx, &mut journal, &embeds, &running)
+                .await
+                .is_break()
+            {
                 return;
             }
             continue 'reconnect;
         }
 
-        let end = pump_connection(&mut ws, &hooks, &cmd_rx, &mut journal, &running).await;
+        let end =
+            pump_connection(&mut ws, &hooks, &cmd_rx, &mut journal, &embeds, &running).await;
 
         match end {
             LoopEnd::Clean => {
@@ -436,7 +567,10 @@ async fn run_publisher_loop(
                     return;
                 }
                 log::debug!("steer publisher: dropped; reconnecting");
-                if sleep_or_shutdown(backoff.next_delay(), &cmd_rx, &mut journal, &running).await.is_break() {
+                if sleep_or_shutdown(backoff.next_delay(), &cmd_rx, &mut journal, &embeds, &running)
+                    .await
+                    .is_break()
+                {
                     return;
                 }
             }
@@ -450,6 +584,7 @@ async fn pump_connection(
     hooks: &PublisherHooks,
     cmd_rx: &flume::Receiver<PublisherCmd>,
     journal: &mut ActivityJournal,
+    embeds: &ImageEmbedMap,
     running: &Arc<AtomicBool>,
 ) -> LoopEnd {
     // EXP-72: when a steerer's Enter (a bare `\r` frame) chases their message
@@ -527,11 +662,10 @@ async fn pump_connection(
                     PublisherCmd::Activity(mut event) => {
                         // §P7: publish one already-redacted activity event.
                         // The relay fans it to the member activity audience.
-                        // Stamp it first: the journal replays the ORIGINAL
-                        // timeline after a reconnect.
-                        if event.at_mut().is_none() {
-                            *event.at_mut() = Some(now_millis());
-                        }
+                        // Stamp it first (the journal replays the ORIGINAL
+                        // timeline after a reconnect) and put any localized
+                        // image path back to the token the steerer sent.
+                        prepare_for_journal(&mut event, embeds);
                         journal.push(event.clone());
                         if !send_activity(ws, event).await {
                             return LoopEnd::Dropped;
@@ -552,7 +686,18 @@ async fn pump_connection(
                 }
                 match msg {
                     Some(Ok(Message::Text(text))) => match ServerFrame::parse(&text) {
-                        Some(ServerFrame::Input { data }) => {
+                        Some(ServerFrame::Input { mut data }) => {
+                            // EXP-511: localize the message's image embeds
+                            // FIRST, so every consumer below (the pi sink, the
+                            // codex sigil guard, the PTY write) sees the paths
+                            // the agent can actually read. A localized message
+                            // may now START with `/` — the codex guard's space
+                            // prefix is then exactly right, so it stays.
+                            if is_message_text(&data) {
+                                if let Some(localize) = &hooks.attachments {
+                                    data = localize_image_embeds(data, localize, embeds).await;
+                                }
+                            }
                             // EXP-383 (pi): with a text sink, whole composer
                             // messages route to the observer extension — pi's own
                             // `sendUserMessage` submits them, so the trailing
@@ -802,6 +947,7 @@ async fn sleep_or_shutdown(
     delay: Duration,
     cmd_rx: &flume::Receiver<PublisherCmd>,
     journal: &mut ActivityJournal,
+    embeds: &ImageEmbedMap,
     running: &Arc<AtomicBool>,
 ) -> std::ops::ControlFlow<()> {
     let deadline = tokio::time::Instant::now() + delay;
@@ -817,9 +963,7 @@ async fn sleep_or_shutdown(
                     return std::ops::ControlFlow::Break(());
                 }
                 Ok(PublisherCmd::Activity(mut event)) => {
-                    if event.at_mut().is_none() {
-                        *event.at_mut() = Some(now_millis());
-                    }
+                    prepare_for_journal(&mut event, embeds);
                     journal.push(event);
                 }
             }
@@ -830,6 +974,7 @@ async fn sleep_or_shutdown(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::frames::QuestionOption;
     use std::sync::Mutex;
 
     // ── Control path (§8.4): never dropped, never reordered ────────────────
@@ -991,6 +1136,7 @@ mod tests {
             answers,
             agent: SessionAgent::Claude,
             text_sink: None,
+            attachments: None,
         }
     }
 
@@ -1291,6 +1437,195 @@ mod tests {
         );
         assert_eq!(sunk.lock().unwrap().len(), 1);
         handle.shutdown(None);
+    }
+
+    // ── EXP-511: steered image embeds → local files → tokens again ─────────
+
+    /// The exact token shape the shared `buildSteerImageMessage` template
+    /// emits on web/iOS/Android.
+    const EMBED: &str = "![image](/api/attachments/11111111-2222-3333-4444-555555555555)";
+
+    /// A scratch dir for the fake localizer's paths (nothing is written — the
+    /// publisher only ever handles the path string).
+    fn image_dir(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("exp-steer-images-{tag}-{}", std::process::id()))
+    }
+
+    #[test]
+    fn image_embeds_become_local_paths_and_echo_back_as_the_token() {
+        let runtime = SteerRuntime::new().unwrap();
+        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
+        let recorded = Arc::new(Recorded::default());
+        let local = image_dir("rewrite").join("11111111-2222-3333-4444-555555555555.png");
+        let localized = local.clone();
+        let mut hooks = recording_hooks(recorded.clone());
+        hooks.attachments = Some(Arc::new(move |id| {
+            assert_eq!(id, "11111111-2222-3333-4444-555555555555");
+            Ok(localized.clone())
+        }));
+        let handle = publish(
+            &runtime,
+            PublishSpec {
+                session_id: "sess-img".to_string(),
+                issue_id: None,
+            },
+            Arc::new(FakeTickets {
+                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
+            }),
+            hooks,
+        );
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
+
+        let path = local.display().to_string();
+        inject_tx
+            .send(Message::Text(format!(
+                r#"{{"t":"input","data":{}}}"#,
+                serde_json::to_string(&format!("look at {EMBED} please")).unwrap()
+            )))
+            .unwrap();
+        wait_for(|| !recorded.inputs.lock().unwrap().is_empty());
+        assert_eq!(
+            recorded.inputs.lock().unwrap()[0],
+            format!("look at {path} please").into_bytes(),
+            "the agent gets a file to read, not an auth-gated URL"
+        );
+
+        // The transcript echoes the LOCAL path — the published event must
+        // carry the token the steerer sent, or echo-dedupe misses and the
+        // feed renders a path instead of the image.
+        handle
+            .activity_sender()
+            .send(ActivityEvent::user_message(format!("look at {path} please")));
+        let event = seen_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(event.contains(r#""kind":"user_message""#), "{event}");
+        assert!(!event.contains(&path), "a local path leaked to the feed: {event}");
+        assert!(
+            event.contains(r#"![image](/api/attachments/11111111-2222-3333-4444-555555555555)"#),
+            "{event}"
+        );
+        handle.shutdown(None);
+    }
+
+    #[test]
+    fn a_failed_image_download_leaves_the_embed_untouched() {
+        // Benign degradation: the agent sees the URL and can still fetch it
+        // over MCP; the echo then matches trivially.
+        let runtime = SteerRuntime::new().unwrap();
+        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
+        let recorded = Arc::new(Recorded::default());
+        let mut hooks = recording_hooks(recorded.clone());
+        hooks.attachments = Some(Arc::new(|_id| Err("offline".to_string())));
+        let handle = publish(
+            &runtime,
+            PublishSpec {
+                session_id: "sess-img-err".to_string(),
+                issue_id: None,
+            },
+            Arc::new(FakeTickets {
+                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
+            }),
+            hooks,
+        );
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
+
+        inject_tx
+            .send(Message::Text(format!(
+                r#"{{"t":"input","data":{}}}"#,
+                serde_json::to_string(EMBED).unwrap()
+            )))
+            .unwrap();
+        wait_for(|| !recorded.inputs.lock().unwrap().is_empty());
+        assert_eq!(recorded.inputs.lock().unwrap()[0], EMBED.as_bytes());
+        handle.shutdown(None);
+    }
+
+    #[test]
+    fn a_pi_text_sink_receives_the_localized_message() {
+        // The rewrite happens BEFORE the sink buffer opens, so pi's observer
+        // extension injects paths too.
+        let runtime = SteerRuntime::new().unwrap();
+        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
+        let recorded = Arc::new(Recorded::default());
+        let sunk: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let local = image_dir("pi").join("11111111-2222-3333-4444-555555555555.png");
+        let localized = local.clone();
+        let mut hooks = recording_hooks(recorded);
+        hooks.agent = SessionAgent::Pi;
+        let sink = sunk.clone();
+        hooks.text_sink = Some(Arc::new(move |text| sink.lock().unwrap().push(text)));
+        hooks.attachments = Some(Arc::new(move |_id| Ok(localized.clone())));
+        let handle = publish(
+            &runtime,
+            PublishSpec {
+                session_id: "sess-img-pi".to_string(),
+                issue_id: None,
+            },
+            Arc::new(FakeTickets {
+                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
+            }),
+            hooks,
+        );
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
+
+        inject_tx
+            .send(Message::Text(format!(
+                r#"{{"t":"input","data":{}}}"#,
+                serde_json::to_string(&format!("crop this\n\n{EMBED}")).unwrap()
+            )))
+            .unwrap();
+        inject_tx
+            .send(Message::Text(r#"{"t":"input","data":"\r"}"#.to_string()))
+            .unwrap();
+        wait_for(|| !sunk.lock().unwrap().is_empty());
+        assert_eq!(
+            sunk.lock().unwrap().as_slice(),
+            &[format!("crop this\n\n{}", local.display())]
+        );
+        handle.shutdown(None);
+    }
+
+    #[test]
+    fn only_uuid_embeds_are_localized_and_every_text_field_is_restored() {
+        // The token contract: fixed `image` alt, an attachments URL, a
+        // UUID id. Anything else in a message is left alone.
+        let pattern = image_embed_pattern();
+        assert!(pattern.is_match(EMBED));
+        assert!(!pattern.is_match("![image](/api/attachments/not-a-uuid)"));
+        assert!(!pattern.is_match("![image](https://evil.example/api/attachments/x)"));
+        assert!(!pattern.is_match("/api/attachments/11111111-2222-3333-4444-555555555555"));
+
+        // The reverse rewrite covers every text field an agent could quote a
+        // path into, never the machine fields (ids, option keys).
+        let embeds: ImageEmbedMap = Arc::new(Mutex::new(vec![(
+            "/tmp/w/.exp-steer-images/img.png".to_string(),
+            EMBED.to_string(),
+        )]));
+        let mut tool = ActivityEvent::tool("Read", Some("/tmp/w/.exp-steer-images/img.png".into()));
+        restore_image_embeds(&mut tool, &embeds);
+        assert_eq!(tool, ActivityEvent::tool("Read", Some(EMBED.to_string())));
+        let mut question = ActivityEvent::Question {
+            text: "Use /tmp/w/.exp-steer-images/img.png?".into(),
+            options: vec![QuestionOption::new("Yes", "1")],
+            multi_select: None,
+            plan_mode: None,
+            id: Some("/tmp/w/.exp-steer-images/img.png".into()),
+            ask_id: None,
+            index: None,
+            total: None,
+            header: None,
+            at: None,
+        };
+        restore_image_embeds(&mut question, &embeds);
+        match question {
+            ActivityEvent::Question { text, id, .. } => {
+                assert_eq!(text, format!("Use {EMBED}?"));
+                assert_eq!(id.as_deref(), Some("/tmp/w/.exp-steer-images/img.png"));
+            }
+            other => panic!("expected Question, got {other:?}"),
+        }
     }
 
     #[test]

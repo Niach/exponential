@@ -249,6 +249,7 @@ fn recording_hooks_with(
         answers,
         agent: steer::activity::SessionAgent::Claude,
         text_sink: None,
+        attachments: None,
     }
 }
 

@@ -3,7 +3,9 @@
 //! The attachment BYTES move over plain HTTP (multipart upload to
 //! `POST /api/issues/{id}/files`, bearer GET on `/api/attachments/{id}` —
 //! both in `ui::markdown::image_paste`); this module carries the tRPC
-//! mutations the files rail and the settings Storage pane need.
+//! mutations the files rail and the settings Storage pane need, plus the ONE
+//! byte path the gpui-free hosts share ([`download_image`], EXP-511 — the CLI
+//! daemon cannot reach into `ui`).
 //!
 //! Wire shapes verified against `apps/web/src/lib/trpc/attachments.ts`:
 //!
@@ -33,10 +35,84 @@
 //! in the team references any more (a 24h upload grace window keeps images
 //! that may still sit in an unsaved draft; plain files are never swept).
 
+use std::path::{Path, PathBuf};
+
 use serde::{Deserialize, Serialize};
 
 use crate::error::ApiError;
 use crate::trpc::TrpcClient;
+
+/// EXP-511: the image content types a steered message may embed, mapped to the
+/// extension the local copy is written with. Anything else is REFUSED — the
+/// localizer exists so the agent can read an image, and pointing it at an
+/// arbitrary blob is worse than leaving the URL in the message.
+const IMAGE_EXTENSIONS: &[(&str, &str)] = &[
+    ("image/png", "png"),
+    ("image/jpeg", "jpg"),
+    ("image/webp", "webp"),
+    ("image/gif", "gif"),
+    ("image/avif", "avif"),
+];
+
+/// The local file extension for an attachment `Content-Type` (parameters like
+/// `; charset=` are ignored), or `None` for a non-image type.
+pub fn image_extension(content_type: &str) -> Option<&'static str> {
+    let base = content_type
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    IMAGE_EXTENSIONS
+        .iter()
+        .find(|(mime, _)| *mime == base)
+        .map(|(_, extension)| *extension)
+}
+
+/// EXP-511 steer-image localization: download attachment `attachment_id` into
+/// `dest_dir` as `{id}.{ext}` and return its path, so the publisher can hand
+/// the agent a file to read instead of a URL to fetch. Auth is the device's
+/// own bearer, so the server's membership ACL applies unchanged.
+///
+/// Attachment blobs are immutable, so an already-present `{id}.{ext}` short
+/// circuits the round trip. Blocking; background executor only (§3.5).
+pub fn download_image(
+    trpc: &TrpcClient,
+    attachment_id: &str,
+    dest_dir: &Path,
+) -> Result<PathBuf, ApiError> {
+    // The id becomes a FILENAME — anything but the server's id alphabet could
+    // escape `dest_dir` (the publisher only ever passes matched UUIDs, but
+    // this function is public).
+    if attachment_id.is_empty()
+        || !attachment_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-')
+    {
+        return Err(ApiError::InvalidUrl(format!(
+            "not an attachment id: {attachment_id:?}"
+        )));
+    }
+    for (_, extension) in IMAGE_EXTENSIONS {
+        let existing = dest_dir.join(format!("{attachment_id}.{extension}"));
+        if existing.is_file() {
+            return Ok(existing);
+        }
+    }
+    let (bytes, content_type) = trpc.get_bytes(&format!("/api/attachments/{attachment_id}"))?;
+    let content_type = content_type.unwrap_or_default();
+    let Some(extension) = image_extension(&content_type) else {
+        return Err(ApiError::Decode(format!(
+            "attachment {attachment_id} is not an image ({content_type})"
+        )));
+    };
+    std::fs::create_dir_all(dest_dir)
+        .map_err(|err| ApiError::Io(format!("{}: {err}", dest_dir.display())))?;
+    let path = dest_dir.join(format!("{attachment_id}.{extension}"));
+    std::fs::write(&path, &bytes)
+        .map_err(|err| ApiError::Io(format!("{}: {err}", path.display())))?;
+    Ok(path)
+}
 
 /// Output of `attachments.delete` — the Postgres txid for the §4.1
 /// `awaitTxId` gate (the desktop reads through sync and ignores it).
@@ -139,10 +215,31 @@ pub fn attachments_sweep_unreferenced_images(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::trpc::tests::{has_header, one_shot_server};
+    use crate::trpc::tests::{has_header, one_shot_server, one_shot_server_typed};
     use crate::StaticToken;
     use std::sync::Arc;
     use std::time::Duration;
+
+    /// A scratch directory that removes itself — the EXP-511 download writes
+    /// real files.
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new(tag: &str) -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "exp-attachments-{tag}-{}",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&path);
+            Self(path)
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
 
     fn client(base: &str) -> TrpcClient {
         TrpcClient::new(base, Arc::new(StaticToken("tok-1".to_string())))
@@ -227,6 +324,61 @@ mod tests {
         );
         assert!(request.ends_with(r#"{"teamId":"ws-1"}"#));
         assert!(has_header(&request, "Authorization: Bearer tok-1"));
+    }
+
+    // ── EXP-511: steer-image localization ───────────────────────────────────
+
+    #[test]
+    fn image_extension_maps_the_accepted_types_only() {
+        assert_eq!(image_extension("image/png"), Some("png"));
+        assert_eq!(image_extension("image/jpeg"), Some("jpg"));
+        assert_eq!(image_extension("image/webp"), Some("webp"));
+        assert_eq!(image_extension("image/gif"), Some("gif"));
+        assert_eq!(image_extension("image/avif"), Some("avif"));
+        // Servers append parameters and vary the case.
+        assert_eq!(image_extension("IMAGE/PNG; charset=binary"), Some("png"));
+        // Everything else is refused — the agent gets the URL instead.
+        assert_eq!(image_extension("application/pdf"), None);
+        assert_eq!(image_extension(""), None);
+    }
+
+    #[test]
+    fn download_image_writes_the_blob_under_its_id() {
+        let dir = TempDir::new("download");
+        let (base, captured) = one_shot_server_typed(200, "image/png", "PNGBYTES");
+        let path = download_image(&client(&base), "att-1", &dir.0).unwrap();
+        assert_eq!(path, dir.0.join("att-1.png"));
+        assert_eq!(std::fs::read(&path).unwrap(), b"PNGBYTES");
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("GET /api/attachments/att-1 HTTP/1.1"));
+        assert!(has_header(&request, "Authorization: Bearer tok-1"));
+    }
+
+    #[test]
+    fn download_image_skips_the_round_trip_when_the_file_is_there() {
+        // Blobs are immutable, so a present `{id}.{ext}` is authoritative —
+        // asserted against a base URL nothing is listening on.
+        let dir = TempDir::new("cached");
+        std::fs::create_dir_all(&dir.0).unwrap();
+        std::fs::write(dir.0.join("att-2.webp"), b"cached").unwrap();
+        let path = download_image(&client("http://127.0.0.1:1"), "att-2", &dir.0).unwrap();
+        assert_eq!(path, dir.0.join("att-2.webp"));
+    }
+
+    #[test]
+    fn download_image_refuses_non_images_and_non_ids() {
+        let dir = TempDir::new("refused");
+        let (base, _captured) = one_shot_server_typed(200, "application/pdf", "%PDF");
+        match download_image(&client(&base), "att-3", &dir.0) {
+            Err(ApiError::Decode(message)) => assert!(message.contains("not an image")),
+            other => panic!("expected Decode, got {other:?}"),
+        }
+        assert!(!dir.0.join("att-3.png").exists());
+        // A traversal-shaped id never reaches the network or the disk.
+        match download_image(&client("http://127.0.0.1:1"), "../etc/passwd", &dir.0) {
+            Err(ApiError::InvalidUrl(_)) => {}
+            other => panic!("expected InvalidUrl, got {other:?}"),
+        }
     }
 
     #[test]

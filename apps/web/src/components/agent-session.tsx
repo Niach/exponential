@@ -18,6 +18,7 @@ import {
   ChevronRight,
   Maximize2,
   Minimize2,
+  Plus,
   X,
 } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
@@ -57,6 +58,16 @@ import {
   type SubagentSummary,
 } from "@/lib/agent-feed"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
+import {
+  acceptedImageContentTypes,
+  isAcceptedImageContentType,
+  maxImageUploadBytes,
+} from "@/lib/storage/issue-attachments"
+import { uploadIssueImageFile } from "@/lib/storage/issue-image-upload"
+import {
+  buildSteerImageMessage,
+  MAX_STEER_IMAGES,
+} from "@/lib/steer-image-message"
 import { splitUnifiedDiff } from "@/lib/unified-diff"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -725,8 +736,8 @@ export function AgentSessionView({
    * local feed immediately (EXP-78); its transcript-derived `user_message`
    * event is deduped against the echo FIFO when it arrives.
    */
-  const sendMessage = (text: string) => {
-    if (!text || !sendInput(text)) return
+  const sendMessage = (text: string): boolean => {
+    if (!text || !sendInput(text)) return false
     wsRef.current?.send(JSON.stringify({ t: `input`, data: `\r` }))
     pushEcho(recentEchoesRef.current, text, Date.now())
     setFeed((prev) =>
@@ -735,6 +746,7 @@ export function AgentSessionView({
         { id: nextIdRef.current++, kind: `user_message` as const, text },
       ].slice(-FEED_CAP)
     )
+    return true
   }
 
   /** Legacy answer path (a desktop that publishes no question ids): raw
@@ -793,11 +805,6 @@ export function AgentSessionView({
    *  only submitted by Continue. */
   const toggleLegacyOption = (key: string) => {
     sendKeystrokes([key])
-  }
-
-  /** Escape interrupts whatever the agent is currently doing. */
-  const sendEscape = () => {
-    sendInput(`\u001b`)
   }
 
   const kill = async () => {
@@ -1218,7 +1225,7 @@ export function AgentSessionView({
               captions, no operator state; live implies ownership. */}
           {composerVisible && (
             <div className="border-t border-border p-2">
-              <MessageComposer onSend={sendMessage} onEscape={sendEscape} />
+              <MessageComposer onSend={sendMessage} issueId={session.issueId} />
             </div>
           )}
       </div>
@@ -2087,58 +2094,183 @@ function ToolGroupRow({
   )
 }
 
+/** An image picked into the composer but not yet part of a sent message.
+ *  `uploadedId` survives a failed send so a retry never re-uploads. */
+type PendingSteerImage = {
+  file: File
+  url: string
+  uploadedId?: string
+}
+
 function MessageComposer({
   onSend,
-  onEscape,
+  issueId,
 }: {
-  onSend: (text: string) => void
-  onEscape: () => void
+  onSend: (text: string) => boolean
+  issueId: string | null
 }) {
   const [text, setText] = useState(``)
+  const [pending, setPending] = useState<PendingSteerImage[]>([])
+  const [sending, setSending] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const send = () => {
-    if (!text.trim()) return
-    onSend(text)
-    setText(``)
+  const pendingRef = useRef(pending)
+  pendingRef.current = pending
+  useEffect(
+    () => () => {
+      for (const image of pendingRef.current) URL.revokeObjectURL(image.url)
+    },
+    []
+  )
+
+  const addFiles = (files: File[]) => {
+    const accepted = files.filter(
+      (file) =>
+        isAcceptedImageContentType(file.type) &&
+        file.size <= maxImageUploadBytes
+    )
+    if (accepted.length < files.length) {
+      toast.error(`Only images up to 10 MB can be attached`)
+    }
+    const taking = accepted.slice(0, Math.max(0, MAX_STEER_IMAGES - pending.length))
+    if (taking.length < accepted.length) {
+      toast.error(`Up to ${MAX_STEER_IMAGES} images per message`)
+    }
+    if (taking.length === 0) return
+    setPending([
+      ...pending,
+      ...taking.map((file) => ({ file, url: URL.createObjectURL(file) })),
+    ])
+  }
+
+  const removeImage = (url: string) => {
+    URL.revokeObjectURL(url)
+    setPending((prev) => prev.filter((image) => image.url !== url))
+  }
+
+  const send = async () => {
+    if (sending) return
+    if (!text.trim() && pending.length === 0) return
+    if (pending.length === 0 || !issueId) {
+      if (onSend(text)) setText(``)
+      return
+    }
+    setSending(true)
+    try {
+      // Upload sequentially, persisting each id as it lands — a mid-batch
+      // failure keeps the composer intact and a retry only uploads the rest.
+      const images = [...pending]
+      const ids: string[] = []
+      for (let i = 0; i < images.length; i++) {
+        if (!images[i].uploadedId) {
+          const uploaded = await uploadIssueImageFile(issueId, images[i].file)
+          images[i] = { ...images[i], uploadedId: uploaded.id }
+          const image = images[i]
+          setPending((prev) =>
+            prev.map((p) => (p.url === image.url ? image : p))
+          )
+        }
+        ids.push(images[i].uploadedId!)
+      }
+      if (!onSend(buildSteerImageMessage(text, ids))) {
+        toast.error(`The session is no longer connected`)
+        return
+      }
+      setText(``)
+      for (const image of images) URL.revokeObjectURL(image.url)
+      setPending([])
+    } catch (error) {
+      toast.error(`Couldn't upload image`, {
+        description: error instanceof Error ? error.message : undefined,
+      })
+    } finally {
+      setSending(false)
+    }
   }
 
   return (
-    <div className="flex items-end gap-1.5">
-      <Textarea
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === `Enter` && !e.shiftKey) {
-            e.preventDefault()
-            send()
-          }
-        }}
-        placeholder="Message the agent…"
-        rows={1}
-        className={cn(
-          `max-h-32 min-h-9 flex-1 resize-none border-none shadow-none focus-visible:ring-0`,
-          // dark: variant included so it beats the base dark:bg-input/30.
-          `bg-muted/40 dark:bg-muted/40`
+    <div className="flex flex-col gap-1.5">
+      {pending.length > 0 && (
+        <div className="flex flex-wrap gap-2 px-1 pt-1">
+          {pending.map((image) => (
+            <div key={image.url} className="relative">
+              <img
+                src={image.url}
+                alt=""
+                className="size-16 rounded-md border border-border/60 object-cover"
+              />
+              <button
+                type="button"
+                aria-label="Remove image"
+                disabled={sending}
+                onClick={() => removeImage(image.url)}
+                className="absolute -right-1.5 -top-1.5 rounded-full border border-border bg-background p-0.5 text-muted-foreground hover:text-foreground"
+              >
+                <X className="size-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="flex items-end gap-1.5">
+        {issueId !== null && (
+          <>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept={acceptedImageContentTypes.join(`,`)}
+              className="hidden"
+              onChange={(e) => {
+                if (e.target.files) addFiles(Array.from(e.target.files))
+                e.target.value = ``
+              }}
+            />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="shrink-0 text-muted-foreground"
+              aria-label="Attach image"
+              title="Attach image"
+              disabled={sending}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Plus />
+            </Button>
+          </>
         )}
-      />
-      <Button
-        variant="outline"
-        size="sm"
-        className="h-9 shrink-0 px-2.5 font-mono text-xs text-muted-foreground"
-        title="Send Escape to interrupt what the agent is doing"
-        onClick={onEscape}
-      >
-        Esc
-      </Button>
-      <Button
-        size="icon"
-        className="shrink-0"
-        aria-label="Send"
-        disabled={!text.trim()}
-        onClick={send}
-      >
-        <ArrowUp />
-      </Button>
+        <Textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === `Enter` && !e.shiftKey) {
+              e.preventDefault()
+              void send()
+            }
+          }}
+          onPaste={(e) => {
+            if (!issueId || e.clipboardData.files.length === 0) return
+            e.preventDefault()
+            addFiles(Array.from(e.clipboardData.files))
+          }}
+          placeholder="Message the agent…"
+          rows={1}
+          className={cn(
+            `max-h-32 min-h-9 flex-1 resize-none border-none shadow-none focus-visible:ring-0`,
+            // dark: variant included so it beats the base dark:bg-input/30.
+            `bg-muted/40 dark:bg-muted/40`
+          )}
+        />
+        <Button
+          size="icon"
+          className="shrink-0"
+          aria-label="Send"
+          disabled={sending || (!text.trim() && pending.length === 0)}
+          onClick={() => void send()}
+        >
+          <ArrowUp />
+        </Button>
+      </div>
     </div>
   )
 }

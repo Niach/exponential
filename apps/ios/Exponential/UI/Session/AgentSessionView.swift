@@ -1,7 +1,10 @@
 import ExpCore
 import ExpUI
 import GRDB
+import PhotosUI
 import SwiftUI
+import UIKit
+import UniformTypeIdentifiers
 
 /// Resolves an AppRoute.agentSession's synced coding_sessions row and hosts
 /// AgentSessionView as a pushed navigation destination (EXP-221) — pushed,
@@ -63,12 +66,20 @@ struct AgentSessionView: View {
     /// subagent id focuses that agent's stream. Falls back to Main whenever
     /// the id vanishes from the feed (an `activity_reset` replay).
     @State private var agentTab: String?
+    /// EXP-511: images picked for the next steer message, shown as a strip
+    /// above the input row until they are sent or removed.
+    @State private var pendingImages: [PendingSteerImage] = []
+    @State private var photoItems: [PhotosPickerItem] = []
+    @State private var showPhotoPicker = false
     @FocusState private var inputFocused: Bool
 
     private static let bottomAnchor = "feed-bottom"
     private static let feedCoordSpace = "feed-scroll"
     /// Within this many points of the bottom still counts as pinned.
     private static let followSlack: CGFloat = 32
+    /// The server's `maxImageUploadBytes` (10 MB) — checked here so an oversize
+    /// pick fails instantly instead of after a long upload.
+    private static let maxImageBytes = 10 * 1024 * 1024
 
     var body: some View {
         ZStack {
@@ -121,6 +132,16 @@ struct AgentSessionView: View {
         } message: {
             Text("This force-terminates the agent's terminal on the desktop and ends the session.")
         }
+        .photosPicker(
+            isPresented: $showPhotoPicker,
+            selection: $photoItems,
+            maxSelectionCount: SteerImageMessage.maxImages,
+            matching: .images
+        )
+        .onChange(of: photoItems) { _, newItems in
+            guard !newItems.isEmpty else { return }
+            Task { await ingestPhotos(newItems) }
+        }
         .onChange(of: scenePhase) { _, newPhase in
             // Returning from the background (EXP-243): the socket rarely
             // survives suspension — reconnect automatically instead of
@@ -140,6 +161,7 @@ struct AgentSessionView: View {
                     session: session,
                     currentUserId: deps.auth.userId,
                     steerApi: deps.steerApi,
+                    issueImagesApi: deps.issueImagesApi,
                     db: deps.db
                 )
                 model = m
@@ -597,6 +619,14 @@ struct AgentSessionView: View {
                     diffChip(diff)
                 }
                 if inputVisible {
+                    if !pendingImages.isEmpty {
+                        pendingImageStrip
+                    }
+                    if let imageError = model.steerImageError {
+                        Text(imageError)
+                            .font(.caption)
+                            .foregroundStyle(DesignTokens.Semantic.red)
+                    }
                     // Steering is fully seamless (EXP-312) — no captions, no
                     // operator state; input just sends.
                     inputRow(model)
@@ -643,8 +673,60 @@ struct AgentSessionView: View {
         inputText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// The images queued for the next steer message (EXP-511) — 64pt tiles with
+    /// a remove overlay, mirroring the share composer's strip.
+    private var pendingImageStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(pendingImages) { image in
+                    if let uiImage = UIImage(data: image.data) {
+                        ZStack(alignment: .topTrailing) {
+                            Image(uiImage: uiImage)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 64, height: 64)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                            Button {
+                                pendingImages.removeAll { $0.id == image.id }
+                            } label: {
+                                AppIcon(AppIcons.uiClose, size: 10, weight: .semibold)
+                                    .foregroundStyle(.white)
+                                    .frame(width: 20, height: 20)
+                                    .background(Circle().fill(Color.black.opacity(0.6)))
+                            }
+                            .buttonStyle(.plain)
+                            .padding(2)
+                            .accessibilityLabel("Remove image")
+                        }
+                    }
+                }
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
     private func inputRow(_ model: AgentSessionModel) -> some View {
-        HStack(alignment: .bottom, spacing: 8) {
+        // Images attach to the session's ISSUE, so a batch or action run has
+        // nowhere to put them (EXP-511).
+        let canAttach = model.session?.issueId != nil
+        let attachFull = pendingImages.count >= SteerImageMessage.maxImages
+        let canSend = !trimmedInput.isEmpty || !pendingImages.isEmpty
+        let sendDisabled = !canSend || model.steerSending
+        return HStack(alignment: .bottom, spacing: 8) {
+            if canAttach {
+                Button {
+                    showPhotoPicker = true
+                } label: {
+                    AppIcon(AppIcons.uiAdd, size: 15, weight: .semibold)
+                        .foregroundStyle(.white)
+                        .padding(9)
+                }
+                .glassButton()
+                .buttonStyle(.plain)
+                .disabled(attachFull || model.steerSending)
+                .opacity(attachFull || model.steerSending ? 0.5 : 1)
+                .accessibilityLabel("Attach image")
+            }
             TextField("Message the agent…", text: $inputText, axis: .vertical)
                 .textFieldStyle(.plain)
                 .lineLimit(1...4)
@@ -666,18 +748,72 @@ struct AgentSessionView: View {
                     .foregroundStyle(.white)
                     .padding(9)
             }
-            .glassButton(isActive: !trimmedInput.isEmpty)
+            .glassButton(isActive: !sendDisabled)
             .buttonStyle(.plain)
-            .disabled(trimmedInput.isEmpty)
-            .opacity(trimmedInput.isEmpty ? 0.5 : 1)
+            .disabled(sendDisabled)
+            .opacity(sendDisabled ? 0.5 : 1)
             .accessibilityLabel("Send")
         }
     }
 
     private func sendMessage(_ model: AgentSessionModel) {
-        guard !trimmedInput.isEmpty else { return }
-        model.sendMessage(inputText)
-        inputText = ""
+        guard !pendingImages.isEmpty else {
+            guard !trimmedInput.isEmpty else { return }
+            model.sendMessage(inputText)
+            inputText = ""
+            return
+        }
+        guard !model.steerSending else { return }
+        Task { await sendWithImages(model) }
+    }
+
+    /// Upload the pending images and send ONE composed message (EXP-511). A
+    /// failure keeps the draft and the strip — the model hands back the images
+    /// with their already-uploaded ids so a retry only uploads the rest.
+    private func sendWithImages(_ model: AgentSessionModel) async {
+        if let remaining = await model.sendSteerImages(inputText, images: pendingImages) {
+            pendingImages = remaining
+        } else {
+            inputText = ""
+            pendingImages = []
+        }
+    }
+
+    /// Turn a photo pick into pending images: transcode anything the server's
+    /// inline-image pipeline doesn't accept (notably HEIC) to JPEG, exactly as
+    /// the share extension does, and cap the strip at four.
+    private func ingestPhotos(_ items: [PhotosPickerItem]) async {
+        defer { photoItems = [] }
+        model?.steerImageError = nil
+        for item in items {
+            guard pendingImages.count < SteerImageMessage.maxImages else { break }
+            guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
+            let type = item.supportedContentTypes.first
+            let contentType = AttachmentFiles.canonicalContentType(
+                type?.preferredMIMEType ?? "image/jpeg"
+            )
+            let normalized: (data: Data, filename: String, contentType: String)
+            if AttachmentFiles.isInlineImage(contentType: contentType) {
+                let ext = type?.preferredFilenameExtension ?? "jpg"
+                normalized = (data, "image-\(Int(Date().timeIntervalSince1970)).\(ext)", contentType)
+            } else if let image = UIImage(data: data),
+                      let jpeg = image.jpegData(compressionQuality: 0.9) {
+                normalized = (jpeg, "image-\(Int(Date().timeIntervalSince1970)).jpg", "image/jpeg")
+            } else {
+                model?.steerImageError = "That image type isn't supported."
+                continue
+            }
+            guard normalized.data.count <= Self.maxImageBytes else {
+                model?.steerImageError = "That image is too large."
+                continue
+            }
+            pendingImages.append(PendingSteerImage(
+                data: normalized.data,
+                filename: normalized.filename,
+                contentType: normalized.contentType,
+                uploadedId: nil
+            ))
+        }
     }
 }
 

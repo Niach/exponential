@@ -30,6 +30,10 @@ pub enum ApiError {
     Decode(String),
     /// A request URL could not be built from the inputs.
     InvalidUrl(String),
+    /// A LOCAL filesystem write failed while materializing a downloaded body
+    /// (EXP-511 steer-image localization). Nothing server-side to retry — the
+    /// caller degrades locally.
+    Io(String),
     /// Secret storage failed (the 0600-file store).
     TokenStore(String),
 }
@@ -45,6 +49,7 @@ impl fmt::Display for ApiError {
             ApiError::Transport(msg) => write!(f, "transport error: {msg}"),
             ApiError::Decode(msg) => write!(f, "decode error: {msg}"),
             ApiError::InvalidUrl(msg) => write!(f, "invalid URL: {msg}"),
+            ApiError::Io(msg) => write!(f, "local file error: {msg}"),
             ApiError::TokenStore(msg) => write!(f, "token store error: {msg}"),
         }
     }
