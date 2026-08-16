@@ -1,4 +1,4 @@
-- Merging a PR now wraps up its coding session on every path
-- Faster, leak-free issue lists and inbox
-- Sharing images into the app no longer stutters
+- Archive boards to hide finished work without deleting it
+- Attach images to steering messages, the agent sees exactly what you see
+- Permission prompts from the newest agent CLIs answer reliably again, including typed replies
 - Smaller fixes and polish

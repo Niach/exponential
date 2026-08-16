@@ -27,9 +27,12 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     id: `2026-08-steering-images`,
     date: `2026-08-16`,
-    title: `Send images while steering`,
-    summary: `Attach screenshots to a live coding session from web, iOS, and Android; the agent reads them directly and they render in the session feed.`,
+    title: `Steering images and archivable boards`,
+    summary: `Attach screenshots to a live coding session, archive boards you are done with, and steer the newest agent CLIs reliably again.`,
     body: `- **Images in steering**: the session composer now takes up to four images per message via the new attach button (or paste, on web). The machine running the session hands them to the agent as local files, so it sees exactly what you see, and they render inline in the session feed on every app.
+- **Archive boards**: owners can archive a board from its settings on web and desktop. An archived board and its whole history disappear from every app until you unarchive it, and nothing is deleted.
+- **Steering fixes**: permission prompts from the newest Claude Code versions are answerable again from your phone, including questions that take a typed reply.
+- **Offline banner in the IDE**: the desktop app now says when it can't reach the server and is showing cached data, with a one-tap retry.
 - **Leaner web composer**: the Esc button is gone; killing the session remains available from the session header.`,
   },
   {

@@ -1,0 +1,4 @@
+- Archive boards to hide finished work without deleting it
+- Attach images to steering messages
+- Permission prompts from the newest agent CLIs answer reliably again
+- Smaller fixes and polish
