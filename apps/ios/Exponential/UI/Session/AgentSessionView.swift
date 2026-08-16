@@ -497,7 +497,7 @@ struct AgentSessionView: View {
             locked: model?.isAnswerLocked(question.lockKey) ?? false,
             pending: model?.isAnswerPending(question.lockKey) ?? false,
             failed: model?.isAnswerFailed(question.lockKey) ?? false,
-            onAnswer: { keys in sendAnswer(question, keys: keys) },
+            onAnswer: { keys, text in sendAnswer(question, keys: keys, text: text) },
             onLegacyToggle: { key in model?.sendLegacyKey(key) },
             onLegacyAnswer: { key in model?.sendLegacyKey(key, lockKey: question.lockKey) },
             onLegacySubmit: { model?.sendLegacyAdvance(lockKey: question.lockKey) },
@@ -527,7 +527,7 @@ struct AgentSessionView: View {
                 locked: model?.isAnswerLocked(question.lockKey) ?? false,
                 pending: model?.isAnswerPending(question.lockKey) ?? false,
                 failed: model?.isAnswerFailed(question.lockKey) ?? false,
-                onAnswer: { keys in sendAnswer(question, keys: keys) },
+                onAnswer: { keys, text in sendAnswer(question, keys: keys, text: text) },
                 onLegacyToggle: { _ in },
                 onLegacyAnswer: { _ in },
                 onLegacySubmit: {},
@@ -545,9 +545,9 @@ struct AgentSessionView: View {
         return total > 1 ? "Question \(index) of \(total)" : nil
     }
 
-    private func sendAnswer(_ question: AgentQuestion, keys: [String]) {
+    private func sendAnswer(_ question: AgentQuestion, keys: [String], text: String? = nil) {
         guard let wireId = question.wireId else { return }
-        model?.sendAnswer(questionId: wireId, askId: question.askId, keys: keys)
+        model?.sendAnswer(questionId: wireId, askId: question.askId, keys: keys, text: text)
     }
 
     /// Whether this client may answer questions at all — a question card is
@@ -959,8 +959,9 @@ private struct QuestionCard: View {
     /// The last answer expired unconfirmed — answerable again, with a retry
     /// hint so the rollback isn't a silent mystery (EXP-334, web parity).
     let failed: Bool
-    /// Protocol v2: one semantic frame carrying every chosen key.
-    let onAnswer: ([String]) -> Void
+    /// Protocol v2: one semantic frame carrying every chosen key; the second
+    /// argument is the typed reply for a `freeText` option (EXP-513).
+    let onAnswer: ([String], String?) -> Void
     /// Legacy multi-select: the raw digit that TOGGLES an option.
     let onLegacyToggle: (String) -> Void
     /// Legacy single-select: the raw digit that answers (and locks).
@@ -973,6 +974,10 @@ private struct QuestionCard: View {
     @State private var expanded = false
     /// Tap order is the submit order of the semantic answer frame.
     @State private var picked: [String] = []
+    /// EXP-513: the freeText option whose inline input is open (its key).
+    @State private var freeTextKey: String?
+    @State private var freeTextValue = ""
+    @FocusState private var freeTextFocused: Bool
 
     private static let clampChars = 600
     private static let clampLines = 6
@@ -1124,7 +1129,10 @@ private struct QuestionCard: View {
                     // glassRow, not glassButton: the capsule's height-derived
                     // radius clipped multi-line option descriptions into an
                     // ellipse (EXP-274).
-                    .glassRow(isActive: primary || picked.contains(option.key))
+                    .glassRow(
+                        isActive: primary || picked.contains(option.key)
+                            || freeTextKey == option.key
+                    )
                     .buttonStyle(.plain)
                     .disabled(locked)
                     .opacity(locked ? 0.5 : 1)
@@ -1137,6 +1145,34 @@ private struct QuestionCard: View {
 
     @ViewBuilder
     private var trailingActions: some View {
+        if answerable, freeTextKey != nil {
+            // EXP-513: the inline reply for the selected freeText row.
+            HStack(spacing: 6) {
+                TextField("Type your answer…", text: $freeTextValue)
+                    .textFieldStyle(.plain)
+                    .font(.caption)
+                    .foregroundStyle(.white)
+                    .focused($freeTextFocused)
+                    .onSubmit { submitFreeText() }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .glassRow(isActive: true)
+                let disabled = freeTextValue
+                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                Button {
+                    submitFreeText()
+                } label: {
+                    AppIcon(AppIcons.uiSend, size: 13)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                }
+                .glassButton(isActive: !disabled)
+                .buttonStyle(.plain)
+                .disabled(disabled)
+                .opacity(disabled ? 0.5 : 1)
+            }
+        }
         if answerable, needsExplicitSubmit {
             // Semantic multi-select submits every picked key at once; a legacy
             // picker already toggled each digit and only needs the Tab.
@@ -1197,19 +1233,36 @@ private struct QuestionCard: View {
             if !question.isSemantic { onLegacyToggle(option.key) }
             return
         }
+        if option.freeText, question.isSemantic {
+            // EXP-513: collect the reply first — nothing is sent until it
+            // submits (the desktop types it into the TUI row).
+            freeTextKey = freeTextKey == option.key ? nil : option.key
+            freeTextFocused = freeTextKey != nil
+            return
+        }
         picked = [option.key]
         if question.isSemantic {
-            onAnswer([option.key])
+            onAnswer([option.key], nil)
         } else {
             onLegacyAnswer(option.key)
         }
+    }
+
+    private func submitFreeText() {
+        guard !locked, let key = freeTextKey else { return }
+        let text = freeTextValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        picked = [key]
+        onAnswer([key], text)
+        freeTextKey = nil
+        freeTextValue = ""
     }
 
     private func submit() {
         guard !locked else { return }
         if question.isSemantic {
             guard !picked.isEmpty else { return }
-            onAnswer(picked)
+            onAnswer(picked, nil)
         } else {
             onLegacySubmit()
         }

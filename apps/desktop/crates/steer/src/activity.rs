@@ -2941,10 +2941,13 @@ impl SteerState {
                         // Type only once the cursor verifiably sits on the
                         // row — characters typed elsewhere are eaten and the
                         // closing Enter would activate the highlighted row.
+                        // The move is a single repaint, so the short probe
+                        // window keeps the whole choreography inside the
+                        // clients' 8s ack budget (see ANSWER_RETRY_TTL docs).
                         let on_row = || {
                             question_picker::selected_option(&screen_lines(term)) == key_number
                         };
-                        if key_number.is_none() || !settle(on_row) {
+                        if key_number.is_none() || !settle_for(PLAN_SUBMIT_PROBE, on_row) {
                             return AnswerAttempt::Settled; // digit injected — never twice
                         }
                         std::thread::sleep(KEYSTROKE_GAP);
