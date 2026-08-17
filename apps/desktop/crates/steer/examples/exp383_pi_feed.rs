@@ -235,6 +235,7 @@ fn main() {
             hooks: None,
             steering: None,
             bypass_permissions: true,
+            plan_mode: false,
             claude_session_id: None,
             codex_originator: None,
             codex_resume_id: None,

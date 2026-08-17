@@ -171,7 +171,10 @@ pub(crate) fn run_emitter(config: EmitterConfig, sender: ActivitySender, active:
     exact_secrets.extend(config.extra_secrets.iter().cloned());
     let redactor = Redactor::new(exact_secrets);
 
-    sender.send(ActivityEvent::narration("Session started"));
+    sender.send(ActivityEvent::narration(crate::activity::launch_narration(
+        config.bypass_permissions,
+        config.plan_mode,
+    )));
 
     let mut idle = false;
     let mut plan = PiPlanState::default();

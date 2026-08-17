@@ -111,6 +111,18 @@ final class AgentSessionModel {
     /// for a human answer, not stuck (EXP-97).
     var awaitingInput: Bool { phase == .live && !activeQuestionIds.isEmpty }
 
+    /// A plan-approval card is up (EXP-529) — the composer IS the "tell
+    /// Claude what to change" path (the desktop Esc's the picker and types
+    /// the message), so the input row advertises it via its placeholder.
+    var awaitingPlanApproval: Bool {
+        guard phase == .live else { return false }
+        let active = activeQuestionIds
+        return feed.contains { item in
+            guard let question = item.question else { return false }
+            return question.planMode && active.contains(question.id)
+        }
+    }
+
     private let accountId: String
     private let codingSessionId: String
     private let currentUserId: String?

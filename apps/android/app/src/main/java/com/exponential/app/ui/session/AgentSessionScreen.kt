@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -174,6 +175,19 @@ fun AgentSessionScreen(
     // header flips to "Needs your input" so it never looks silently stuck.
     val awaitingInput = phase == AgentPhase.Live &&
         remember(feed) { activeQuestionIds(feed) }.isNotEmpty()
+    // EXP-529 batch: while a plan-approval card awaits the human, the composer
+    // IS the "tell Claude what to change" path (the desktop Escs the picker
+    // and types the message) — its placeholder says so instead of offering a
+    // dead picker row.
+    val planAwaitingApproval = phase == AgentPhase.Live &&
+        remember(feed, answerStates) {
+            val active = activeQuestionIds(feed)
+            feed.any { item ->
+                item is AgentFeedItem.Question && item.planMode && !item.resolved &&
+                    item.id in active &&
+                    answerStates[questionLockKey(item)]?.locksCard() != true
+            }
+        }
 
     var diffSheetOpen by remember { mutableStateOf(false) }
     var killDialogOpen by remember { mutableStateOf(false) }
@@ -434,6 +448,7 @@ fun AgentSessionScreen(
                     canAttach = session?.issueId != null,
                     sending = steerSending,
                     hasPendingImages = pendingImages.isNotEmpty(),
+                    planPending = planAwaitingApproval,
                     onPickImages = {
                         imagePicker.launch(
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
@@ -575,11 +590,17 @@ private fun ActivityFeed(
     }
 
     // Only user drags flip follow-mode; programmatic scrolls keep it.
-    LaunchedEffect(listState) {
-        snapshotFlow { listState.isScrollInProgress to listState.canScrollForward }
+    // EXP-529 batch: "at the bottom" carries ~96dp of slack — the pixel-exact
+    // canScrollForward check dropped follow-mode (and surfaced the "Jump to
+    // bottom" chip) while the list sat a few px shy of the true bottom, which
+    // visually IS the bottom. Near-bottom counts as bottom, so the chip only
+    // appears after a real scroll-up and hides again within the same slack.
+    val followSlackPx = with(LocalDensity.current) { 96.dp.toPx() }
+    LaunchedEffect(listState, followSlackPx) {
+        snapshotFlow { listState.isScrollInProgress to listState.isNearBottom(followSlackPx) }
             .distinctUntilChanged()
-            .collect { (dragging, canForward) ->
-                if (dragging) follow = !canForward
+            .collect { (dragging, nearBottom) ->
+                if (dragging) follow = nearBottom
             }
     }
     // Keyed on feed.size (not rows.size) — a growing trailing tool run adds
@@ -669,7 +690,13 @@ private fun ActivityFeed(
                         is AgentFeedItem.Narration -> NarrationBubble(item.text)
                         is AgentFeedItem.Tool -> ToolRow(item.name, item.detail)
                         is AgentFeedItem.UserMessage -> UserMessageBubble(item.text)
-                        is AgentFeedItem.Permission -> PermissionRow(item.tool, item.detail)
+                        is AgentFeedItem.Permission -> PermissionRow(
+                            tool = item.tool,
+                            detail = item.detail,
+                            // The reply-to-continue hint only while the prompt
+                            // is plausibly still up: live session, trailing row.
+                            showHint = live && row.id == rows.last().id,
+                        )
                         // Unreachable in practice — groupFeedRows folds every
                         // subagent marker into a SubagentRun — kept for `when`
                         // exhaustiveness.
@@ -720,6 +747,17 @@ private fun ActivityFeed(
         }
         }
     }
+}
+
+/** Visually-at-the-bottom, with slack: the last item's bottom edge sits within
+ *  [slackPx] of the viewport end (an empty list counts as bottom). A last item
+ *  taller than the slack correctly reads as NOT near while its tail is off
+ *  screen. */
+private fun LazyListState.isNearBottom(slackPx: Float): Boolean {
+    val info = layoutInfo
+    val last = info.visibleItemsInfo.lastOrNull() ?: return true
+    if (last.index < info.totalItemsCount - 1) return false
+    return last.offset + last.size - info.viewportEndOffset <= slackPx
 }
 
 /** EXP-356: conversation tabs — Main plus one chip per RUNNING subagent
@@ -1357,36 +1395,50 @@ private fun RowScope.QuestionOptionLabel(
     }
 }
 
-// A permission prompt the agent hit (EXP-249) — informational: it is answered
-// on the desktop, never from here.
+// A permission prompt the agent hit (EXP-249) — the card itself has nothing to
+// press (the desktop TUI owns the decision), but a reply typed below reaches
+// the same prompt, so say so instead of dead-ending the viewer (EXP-529).
 @Composable
-private fun PermissionRow(tool: String, detail: String?) {
-    Row(
+private fun PermissionRow(tool: String, detail: String?, showHint: Boolean) {
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Icon(
-            ExpIcons.uiPrivate,
-            contentDescription = null,
-            modifier = Modifier.size(12.dp),
-            tint = ConnectingYellow,
-        )
-        Text(
-            "Permission · $tool",
-            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        if (!detail.isNullOrBlank()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                ExpIcons.uiPrivate,
+                contentDescription = null,
+                modifier = Modifier.size(12.dp),
+                tint = ConnectingYellow,
+            )
             Text(
-                remember(detail) { middleTruncate(detail) },
-                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                "Permission · $tool",
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            if (!detail.isNullOrBlank()) {
+                Text(
+                    remember(detail) { middleTruncate(detail) },
+                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+        if (showHint) {
+            Text(
+                "Approve on the desktop, or reply below to continue.",
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.padding(start = 20.dp),
             )
         }
     }
@@ -1631,6 +1683,9 @@ private fun MessageInputRow(
     canAttach: Boolean,
     sending: Boolean,
     hasPendingImages: Boolean,
+    /** A plan-approval card is awaiting the human — the composer doubles as
+     *  the "tell Claude what to change" path (EXP-529 batch). */
+    planPending: Boolean,
     onPickImages: () -> Unit,
     onSend: (String) -> Unit,
 ) {
@@ -1656,7 +1711,7 @@ private fun MessageInputRow(
             modifier = Modifier.weight(1f),
             placeholder = {
                 Text(
-                    "Message the agent…",
+                    if (planPending) "Tell Claude what to change…" else "Message the agent…",
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                 )
             },

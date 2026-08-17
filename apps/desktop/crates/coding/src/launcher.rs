@@ -469,6 +469,12 @@ pub struct PreparedLaunch {
     /// this). The activity emitter uses it to keep permission-flavored
     /// notifications from becoming "blocked on approval" cards.
     pub bypass_permissions: bool,
+    /// EXP-529: the spawn launched into plan mode (claude `--permission-mode
+    /// plan` / pi's plan extension) — mutually exclusive with
+    /// `bypass_permissions` by the derivation above. The activity emitter
+    /// stamps it into the launch narration so remote viewers can tell the
+    /// run's effective permission posture.
+    pub plan_mode: bool,
     /// EXP-383: which agent CLI the spawn runs. The steer wiring picks the
     /// matching activity emitter (claude transcript tail / codex rollout
     /// tail / pi observer) — every steer-room launch path flows through
@@ -1226,6 +1232,7 @@ pub fn prepare_with_hooks(
         heartbeat_scope,
         tab_kind: TabKind::Claude,
         bypass_permissions: options.skip_permissions && !options.plan_mode,
+        plan_mode: options.plan_mode,
         agent,
         claude_session_id,
         codex_originator,
@@ -1587,6 +1594,7 @@ fn prepare_action(
         },
         tab_kind: TabKind::Action(req.action_id.clone()),
         bypass_permissions: options.skip_permissions && !options.plan_mode,
+        plan_mode: options.plan_mode,
         agent,
         claude_session_id,
         codex_originator,

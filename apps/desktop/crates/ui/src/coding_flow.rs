@@ -1071,6 +1071,7 @@ pub fn spawn_into_window(
     // EXP-443 identities, EXP-432 requester), snapshotted the same way.
     let steer_info = crate::steer_wiring::SteerSessionInfo {
         bypass_permissions: prepared.bypass_permissions,
+        plan_mode: prepared.plan_mode,
         agent: prepared.agent,
         claude_session_id: prepared.claude_session_id.clone(),
         codex_originator: prepared.codex_originator.clone(),

@@ -1066,6 +1066,9 @@ pub struct SteerSessionInfo {
     /// notifications from becoming "blocked on approval" cards in bypass
     /// mode.
     pub bypass_permissions: bool,
+    /// EXP-529: the launch started in plan mode — stamped into the emitter's
+    /// launch narration so remote viewers can tell the run's posture.
+    pub plan_mode: bool,
     /// EXP-383: which agent CLI the session runs — selects the activity
     /// emitter and gates the claude-only hook/answer machinery off for
     /// codex/pi.
@@ -1099,6 +1102,7 @@ pub fn attach_publisher(
 ) {
     let SteerSessionInfo {
         bypass_permissions,
+        plan_mode,
         agent,
         claude_session_id,
         codex_originator,
@@ -1297,6 +1301,7 @@ pub fn attach_publisher(
                 write_input,
             }),
             bypass_permissions,
+            plan_mode,
             pi_events,
             claude_session_id,
             codex_originator,

@@ -727,7 +727,15 @@ struct AgentSessionView: View {
                 .opacity(attachFull || model.steerSending ? 0.5 : 1)
                 .accessibilityLabel("Attach image")
             }
-            TextField("Message the agent…", text: $inputText, axis: .vertical)
+            TextField(
+                // A pending plan approval routes free text into the plan
+                // feedback flow (the desktop Esc's the picker and types the
+                // message) — say so instead of the generic prompt (EXP-529).
+                model.awaitingPlanApproval
+                    ? "Tell Claude what to change…" : "Message the agent…",
+                text: $inputText,
+                axis: .vertical
+            )
                 .textFieldStyle(.plain)
                 .lineLimit(1...4)
                 .font(.subheadline)
@@ -1133,10 +1141,15 @@ private struct QuestionCard: View {
                     Button {
                         pick(option)
                     } label: {
-                        optionLabel(option, showKey: showsKeyBadge(option))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
+                        optionLabel(
+                            option,
+                            showKey: showsKeyBadge(option),
+                            checked: question.multiSelect
+                                ? picked.contains(option.key) : nil
+                        )
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
                     }
                     // glassRow, not glassButton: the capsule's height-derived
                     // radius clipped multi-line option descriptions into an
@@ -1149,7 +1162,11 @@ private struct QuestionCard: View {
                     .disabled(locked)
                     .opacity(locked ? 0.5 : 1)
                 } else {
-                    optionLabel(option, showKey: showsKeyBadge(option))
+                    optionLabel(
+                        option,
+                        showKey: showsKeyBadge(option),
+                        checked: question.multiSelect ? false : nil
+                    )
                 }
             }
         }
@@ -1298,10 +1315,20 @@ private struct QuestionCard: View {
 
     private func optionLabel(
         _ option: AgentQuestionOption,
-        showKey: Bool = true
+        showKey: Bool = true,
+        checked: Bool? = nil
     ) -> some View {
         HStack(alignment: .top, spacing: 6) {
-            if showKey {
+            if let checked {
+                // Multi-select rows carry an explicit checkbox (EXP-529) —
+                // the glassRow tint alone was too subtle to read the picked
+                // set off the card. Android parity (QuestionOptionLabel).
+                AppIcon(checked ? AppIcons.uiSelected : AppIcons.uiUnselected, size: 13)
+                    .foregroundStyle(
+                        .white.opacity(checked ? TextOpacity.primary : TextOpacity.tertiary)
+                    )
+                    .padding(.top, 1)
+            } else if showKey {
                 Text(option.key)
                     .font(.caption2.monospaced())
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
@@ -1580,7 +1607,7 @@ private struct PermissionRow: View {
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .lineLimit(2)
                 }
-                Text("Approve it on the desktop.")
+                Text("Approve on the desktop, or reply below to continue.")
                     .font(.caption2)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
