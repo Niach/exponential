@@ -5,13 +5,16 @@ import Foundation
 /// (merged → the run is done, review otherwise, matching the issue-status
 /// palette: review green, done blue), and the desktop-written `needs_input`
 /// attention flag (agent parked on a plan-approval / AskUserQuestion picker)
-/// overrides everything still actionable as an amber "Needs input". Callers
+/// marks a still-RUNNING session as an amber "Needs input". Callers
 /// pass only sessions that already passed CodingSessionLiveness.
 /// EXP-358: the server now says it outright — a PR merge flips the live session
 /// to the `merged` status instead of ending it, so that status is the state,
 /// checked before anything else (like the old PR-derived `done`, it also
 /// outranks the needs-input flag). The `in_review` + merged-PR fallback stays
 /// for rows written by older servers/desktops.
+/// EXP-531: `in_review` also outranks the needs-input flag — once the PR is
+/// open the run is done coding, and claude's idle-nudge notification (which
+/// the desktop forwards as needs_input) must not mask "Ready for review".
 public enum CodingSessionDisplayState {
     case running
     case needsInput
@@ -25,10 +28,10 @@ public enum CodingSessionDisplayState {
     ) -> CodingSessionDisplayState {
         if session.status == DomainContract.codingSessionStatusMerged { return .merged }
         let merged = prState == DomainContract.prStateMerged
-        if session.needsInput && !merged { return .needsInput }
         if session.status == DomainContract.codingSessionStatusInReview {
             return merged ? .done : .review
         }
+        if session.needsInput && !merged { return .needsInput }
         return .running
     }
 }

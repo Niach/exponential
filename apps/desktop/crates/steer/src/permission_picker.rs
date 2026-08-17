@@ -90,6 +90,23 @@ pub enum Transition {
 /// rejected outright — an `AskUserQuestion` whose text contains "Do you want
 /// to …" must keep its own (hook-identified) card, never a duplicate.
 pub fn detect(lines: &[String]) -> Option<PermissionSnapshot> {
+    detect_impl(lines, false)
+}
+
+/// [`detect`] minus the [`ANCHOR`] requirement (EXP-529): claude re-words its
+/// dialogs faster than we capture them ("Session paused" prompts carry no "Do
+/// you want to" line at all), and an anchor miss used to dead-end the session
+/// in the informational card. Only ever called while the hooks sidecar has
+/// independently said a permission prompt is up (or its published question is
+/// still live) — the hook IS the anchor then, so a `❯`-marked numbered run is
+/// trusted without the question line. Anchored screens detect byte-identically
+/// in both modes, keeping the watcher's snapshot identity stable across a
+/// leniency flip.
+pub fn detect_lenient(lines: &[String]) -> Option<PermissionSnapshot> {
+    detect_impl(lines, true)
+}
+
+fn detect_impl(lines: &[String], lenient: bool) -> Option<PermissionSnapshot> {
     if plan_picker::detect(lines).is_some()
         || question_picker::detect(lines).is_some()
         || login_picker::detect(lines).is_some()
@@ -158,11 +175,23 @@ pub fn detect(lines: &[String]) -> Option<PermissionSnapshot> {
         return None;
     }
 
-    // The question must sit directly above the options.
+    // The question must sit directly above the options. Lenient mode tries
+    // the anchor first (identical output when it is present), then falls back
+    // to the nearest prose line above the run — "This command requires
+    // approval" on the v2.1.233 layout — and tolerates finding nothing at all
+    // (the publisher substitutes the hook's own message then).
     let anchor_floor = first_idx.saturating_sub(ANCHOR_WINDOW);
-    let anchor_idx = (anchor_floor..first_idx)
+    let anchored_idx = (anchor_floor..first_idx)
         .rev()
-        .find(|&idx| lines[idx].contains(ANCHOR))?;
+        .find(|&idx| lines[idx].contains(ANCHOR));
+    let anchor_idx = match anchored_idx {
+        Some(idx) => idx,
+        None if lenient => (anchor_floor..first_idx)
+            .rev()
+            .find(|&idx| !strip_borders(&lines[idx]).is_empty() && !is_rule(&lines[idx]))
+            .unwrap_or(first_idx),
+        None => return None,
+    };
     let question = lines[anchor_idx..first_idx]
         .iter()
         .map(|line| strip_borders(line))
@@ -283,12 +312,21 @@ impl PermissionPickerWatcher {
     }
 
     /// Feed one poll tick. `display_offset > 0` (viewport scrolled into
-    /// history) freezes the machine entirely.
-    pub fn tick(&mut self, lines: &[String], display_offset: usize) -> Option<Transition> {
+    /// history) freezes the machine entirely. `lenient` switches to
+    /// [`detect_lenient`] — the emitter passes it while the hooks sidecar
+    /// holds an unconfirmed permission prompt or its published question is
+    /// still live (EXP-529); the caller keeps it on across the whole
+    /// Show→Resolved arc so an anchorless dialog's absence still resolves.
+    pub fn tick(
+        &mut self,
+        lines: &[String],
+        display_offset: usize,
+        lenient: bool,
+    ) -> Option<Transition> {
         if display_offset > 0 {
             return None;
         }
-        match detect(lines) {
+        match detect_impl(lines, lenient) {
             Some(snapshot) => {
                 self.absent_streak = 0;
                 if self.pending.as_ref() == Some(&snapshot) {
@@ -660,21 +698,21 @@ mod tests {
         let blank = screen(&["$ claude", "✳ Deliberating…"]);
         let mut w = PermissionPickerWatcher::new();
 
-        assert_eq!(w.tick(&blank, 0), None);
-        assert_eq!(w.tick(&dialog, 0), None);
-        match w.tick(&dialog, 0) {
+        assert_eq!(w.tick(&blank, 0, false), None);
+        assert_eq!(w.tick(&dialog, 0, false), None);
+        match w.tick(&dialog, 0, false) {
             Some(Transition::Show(snap)) => assert_eq!(snap.options.len(), 3),
             other => panic!("expected Show, got {other:?}"),
         }
         assert!(w.is_pending());
         // Steady state: silent.
-        assert_eq!(w.tick(&dialog, 0), None);
+        assert_eq!(w.tick(&dialog, 0, false), None);
         // One absent frame: still pending (debounce).
-        assert_eq!(w.tick(&blank, 0), None);
+        assert_eq!(w.tick(&blank, 0, false), None);
         assert!(w.is_pending());
-        assert_eq!(w.tick(&blank, 0), Some(Transition::Resolved));
+        assert_eq!(w.tick(&blank, 0, false), Some(Transition::Resolved));
         assert!(!w.is_pending());
-        assert_eq!(w.tick(&blank, 0), None);
+        assert_eq!(w.tick(&blank, 0, false), None);
     }
 
     #[test]
@@ -682,13 +720,13 @@ mod tests {
         // Back-to-back prompts: approve the Bash one locally, the Write one
         // paints in its place — the new dialog gets a fresh Show.
         let mut w = PermissionPickerWatcher::new();
-        w.tick(&bash_permission_screen(), 0);
+        w.tick(&bash_permission_screen(), 0, false);
         assert!(matches!(
-            w.tick(&bash_permission_screen(), 0),
+            w.tick(&bash_permission_screen(), 0, false),
             Some(Transition::Show(_))
         ));
-        assert_eq!(w.tick(&write_permission_screen(), 0), None);
-        match w.tick(&write_permission_screen(), 0) {
+        assert_eq!(w.tick(&write_permission_screen(), 0, false), None);
+        match w.tick(&write_permission_screen(), 0, false) {
             Some(Transition::Show(snap)) => {
                 assert_eq!(snap.header.as_deref(), Some("Create file"))
             }
@@ -706,20 +744,20 @@ mod tests {
         let blank = screen(&["$ claude", "✳ Deliberating…"]);
         let mut w = PermissionPickerWatcher::new();
 
-        w.tick(&dialog, 0);
-        assert!(matches!(w.tick(&dialog, 0), Some(Transition::Show(_))));
+        w.tick(&dialog, 0, false);
+        assert!(matches!(w.tick(&dialog, 0, false), Some(Transition::Show(_))));
         w.unlatch();
         assert!(!w.is_pending());
         // The steady dialog re-fires after the usual debounce.
-        assert_eq!(w.tick(&dialog, 0), None);
-        assert!(matches!(w.tick(&dialog, 0), Some(Transition::Show(_))));
+        assert_eq!(w.tick(&dialog, 0, false), None);
+        assert!(matches!(w.tick(&dialog, 0, false), Some(Transition::Show(_))));
         assert!(w.is_pending());
 
         // And an unlatched dialog leaving the grid never emits a phantom
         // Resolved for the Show nobody published.
         w.unlatch();
-        assert_eq!(w.tick(&blank, 0), None);
-        assert_eq!(w.tick(&blank, 0), None);
+        assert_eq!(w.tick(&blank, 0, false), None);
+        assert_eq!(w.tick(&blank, 0, false), None);
         assert!(!w.is_pending());
     }
 
@@ -730,17 +768,17 @@ mod tests {
         let mut w = PermissionPickerWatcher::new();
 
         // A dialog seen only in scrolled-back history never Shows.
-        assert_eq!(w.tick(&dialog, 3), None);
-        assert_eq!(w.tick(&dialog, 3), None);
-        assert_eq!(w.tick(&blank, 0), None);
+        assert_eq!(w.tick(&dialog, 3, false), None);
+        assert_eq!(w.tick(&dialog, 3, false), None);
+        assert_eq!(w.tick(&blank, 0, false), None);
 
         // A pending dialog scrolled out of view never Resolves.
-        w.tick(&dialog, 0);
-        assert!(matches!(w.tick(&dialog, 0), Some(Transition::Show(_))));
-        assert_eq!(w.tick(&blank, 5), None);
-        assert_eq!(w.tick(&blank, 5), None);
+        w.tick(&dialog, 0, false);
+        assert!(matches!(w.tick(&dialog, 0, false), Some(Transition::Show(_))));
+        assert_eq!(w.tick(&blank, 5, false), None);
+        assert_eq!(w.tick(&blank, 5, false), None);
         assert!(w.is_pending());
-        assert_eq!(w.tick(&dialog, 0), None);
+        assert_eq!(w.tick(&dialog, 0, false), None);
     }
 
     #[test]
@@ -748,11 +786,151 @@ mod tests {
         let mut w = PermissionPickerWatcher::new();
         let mut half = bash_permission_screen();
         half.truncate(12); // options cut mid-run
-        assert_eq!(w.tick(&half, 0), None);
-        assert_eq!(w.tick(&bash_permission_screen(), 0), None);
+        assert_eq!(w.tick(&half, 0, false), None);
+        assert_eq!(w.tick(&bash_permission_screen(), 0, false), None);
         assert!(matches!(
-            w.tick(&bash_permission_screen(), 0),
+            w.tick(&bash_permission_screen(), 0, false),
             Some(Transition::Show(_))
         ));
+    }
+
+    /// An EXP-529-style prompt: claude paused on approval but the dialog
+    /// carries no "Do you want to" question line — only prose, then options.
+    fn paused_permission_screen() -> Vec<String> {
+        screen(&[
+            "● ToolSearch(select:WebFetch)",
+            "",
+            "──────────────────────────────────────────────────────────────────────",
+            " Bash command",
+            "",
+            "   curl -s https://example.com/",
+            "   Fetch content from example.com",
+            "",
+            " This command requires approval",
+            "",
+            " ❯ 1. Yes",
+            "   2. No",
+            "",
+            " Esc to cancel",
+        ])
+    }
+
+    #[test]
+    fn lenient_detection_accepts_an_anchorless_dialog() {
+        // Strict stays blind (the informational-card status quo)…
+        assert_eq!(detect(&paused_permission_screen()), None);
+        // …lenient trusts the hook-armed run and takes the nearest prose
+        // line as the question.
+        let snap = detect_lenient(&paused_permission_screen()).expect("dialog detected");
+        assert_eq!(snap.question, "This command requires approval");
+        assert_eq!(snap.header.as_deref(), Some("Bash command"));
+        assert_eq!(
+            snap.context,
+            vec!["curl -s https://example.com/", "Fetch content from example.com"]
+        );
+        assert_eq!(
+            snap.options
+                .iter()
+                .map(|o| (o.key.as_str(), o.label.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("1", "Yes"), ("2", "No")]
+        );
+    }
+
+    #[test]
+    fn lenient_detection_with_no_prose_above_yields_an_empty_question() {
+        // Nothing but blank rows and rules above the options: the question
+        // comes back empty and the publisher substitutes the hook detail.
+        let lines = screen(&[
+            "──────────────────────────────────────────────────────────────────────",
+            "",
+            "",
+            "",
+            "",
+            "",
+            " ❯ 1. Yes",
+            "   2. No",
+        ]);
+        assert_eq!(detect(&lines), None);
+        let snap = detect_lenient(&lines).expect("dialog detected");
+        assert_eq!(snap.question, "");
+        assert_eq!(snap.options.len(), 2);
+    }
+
+    #[test]
+    fn lenient_detection_still_rejects_other_pickers() {
+        // The other grid owners keep their screens even in lenient mode — a
+        // permission Notification racing a plan/ask/login paint must never
+        // double-publish their pickers as a permission dialog.
+        let plan = screen(&[
+            " Claude has written up a plan and is ready to execute. Would you like to",
+            " proceed?",
+            "",
+            " ❯ 1. Yes, auto-accept edits",
+            "   2. Yes, manually approve edits",
+        ]);
+        assert!(plan_picker::detect(&plan).is_some());
+        assert_eq!(detect_lenient(&plan), None);
+
+        let ask = screen(&[
+            "←  ☐ Approach  →",
+            "",
+            "Do you want to keep the legacy path?",
+            "",
+            "❯ 1. Yes",
+            "  2. No",
+            "",
+            "Enter to select · Tab/Arrow keys to navigate · Esc to cancel",
+        ]);
+        assert!(question_picker::detect(&ask).is_some());
+        assert_eq!(detect_lenient(&ask), None);
+
+        let login = screen(&[
+            "   Select login method:",
+            "",
+            "   ❯ 1. Claude account with subscription · Pro, Max, Team, or Enterprise",
+            "     2. Anthropic Console account · API usage billing",
+        ]);
+        assert!(login_picker::detect(&login).is_some());
+        assert_eq!(detect_lenient(&login), None);
+    }
+
+    #[test]
+    fn an_anchored_dialog_detects_identically_in_both_modes() {
+        // Leniency must never change what an anchored screen parses to —
+        // the watcher's snapshot identity has to survive a leniency flip
+        // mid-arc without faking a change.
+        for lines in [
+            bash_permission_screen(),
+            write_permission_screen(),
+            bash_permission_screen_v2_1_233(),
+            write_permission_screen_v2_1_233(),
+        ] {
+            assert_eq!(detect(&lines), detect_lenient(&lines));
+        }
+    }
+
+    #[test]
+    fn watcher_confirms_an_anchorless_dialog_only_while_lenient() {
+        let dialog = paused_permission_screen();
+        let blank = screen(&["$ claude", "✳ Deliberating…"]);
+
+        // Strict ticks: silent forever.
+        let mut w = PermissionPickerWatcher::new();
+        assert_eq!(w.tick(&dialog, 0, false), None);
+        assert_eq!(w.tick(&dialog, 0, false), None);
+        assert!(!w.is_pending());
+
+        // Lenient ticks: Show after the debounce, Resolved on absence.
+        let mut w = PermissionPickerWatcher::new();
+        assert_eq!(w.tick(&dialog, 0, true), None);
+        match w.tick(&dialog, 0, true) {
+            Some(Transition::Show(snap)) => assert_eq!(snap.options.len(), 2),
+            other => panic!("expected Show, got {other:?}"),
+        }
+        assert!(w.is_pending());
+        assert_eq!(w.tick(&blank, 0, true), None);
+        assert_eq!(w.tick(&blank, 0, true), Some(Transition::Resolved));
+        assert!(!w.is_pending());
     }
 }

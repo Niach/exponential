@@ -200,6 +200,7 @@ fn main() {
                 write_input,
             }),
             bypass_permissions: true,
+            plan_mode: false,
             claude_session_id: None,
             codex_originator: None,
             codex_resume_id: None,

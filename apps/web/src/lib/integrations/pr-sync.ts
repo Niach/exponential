@@ -228,10 +228,13 @@ export async function applyPrLifecycleStatusInTx(
     // `ended` row is never resurrected. updatedAt stamped explicitly (no
     // $onUpdate on this table) so the review badge starts with a full
     // staleness window. Merge ENDS the session — see applyPrMergeState
-    // (EXP-498; `ended` stays the desktop kill-switch).
+    // (EXP-498; `ended` stays the desktop kill-switch). needsInput resets
+    // with the flip (EXP-531): the flag belongs to the coding phase, and the
+    // desktop's post-turn idle nudge must not leave a reviewed session
+    // reading "Needs input".
     await tx
       .update(codingSessions)
-      .set({ status: `in_review`, updatedAt: new Date() })
+      .set({ status: `in_review`, needsInput: false, updatedAt: new Date() })
       .where(
         and(
           eq(codingSessions.issueId, opts.issueId),

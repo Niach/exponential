@@ -119,6 +119,14 @@ const PLAN_GRID_CONFIRM: Duration = Duration::from_secs(10);
 /// (EXP-455) — same posture as [`PLAN_GRID_CONFIRM`]: it only fires when
 /// detection missed a re-worded dialog (or the emitter runs term-less).
 const PERMISSION_GRID_CONFIRM: Duration = Duration::from_secs(10);
+
+/// How recently a tool headline must have been published for the degraded
+/// permission card to name it when the Notification carries no tool of its
+/// own (EXP-529 — claude ≥2.1.233's "Session paused" payload): the blocking
+/// call's own `tool_use` entry flushes just before the Notification, so a
+/// fresh headline almost certainly IS the blocked tool, while a minutes-old
+/// one is a different call entirely.
+const PERMISSION_TOOL_RECENCY: Duration = Duration::from_secs(30);
 /// Bounded wait for the TUI to move on after injected answer keystrokes. No
 /// transition inside this window = no `answer_ack` (the steerer's card stays
 /// answerable rather than silently locking).
@@ -186,6 +194,16 @@ pub const PLAN_RESOLVED_NARRATION: &str = "Plan approval answered.";
 /// claude.ai instead of approving/refining locally, which is not a safe
 /// thing for a remote steerer to trigger blind.
 const ULTRAPLAN_WEB_OPTION: &str = "Claude Code on the web";
+
+/// Substring identifying claude's "Tell Claude what to change" plan-picker
+/// option (key "4" on v2.1.211+). Stripped from the remotely-offered
+/// plan-approval options (EXP-529): pressing it remotely only parks the TUI
+/// in an inline-feedback editor no remote viewer can see — a dead button
+/// that "submits but does nothing". The composer already IS that affordance
+/// (free text steered at a pending picker Escs it and lands as feedback),
+/// and clients swap their composer placeholder to say so while a plan card
+/// is up; same stance as [`ULTRAPLAN_WEB_OPTION`].
+const PLAN_FEEDBACK_OPTION: &str = "Tell Claude what to change";
 
 /// Substring identifying the login method picker's "3rd-party platform ·
 /// Amazon Bedrock, Microsoft Foundry, or Vertex AI" option (key "3" on
@@ -1988,6 +2006,13 @@ struct SteerState {
     /// anchor-drift diagnostic narrates if no recognizable login phase
     /// follows within [`LOGIN_DRIFT_WINDOW`]. Cleared by every login `Show`.
     login_injected_at: Option<Instant>,
+    /// EXP-529: the last tool headline the transcript published — the
+    /// degraded permission card's tool-name fallback when the Notification
+    /// carries none (claude's "Session paused" payload). MAIN transcript
+    /// only: sidechain tool headlines bypass [`Self::observe_published`], so
+    /// a subagent-raised prompt still falls back to the main transcript's
+    /// last tool or the literal "Tool" — no worse than before.
+    last_tool: Option<(String, Instant)>,
 }
 
 /// EXP-444: how long after an injected login answer the emitter waits for a
@@ -2022,6 +2047,32 @@ impl SteerState {
     /// for the grid-born permission dialog, a question is live).
     fn has_pending_question(&self) -> bool {
         self.plan.is_some() || self.ask.is_some() || self.permission.is_some()
+    }
+
+    /// EXP-529: whether the permission grid detection may drop its "Do you
+    /// want to" anchor. True while the hooks sidecar holds an unconfirmed
+    /// permission prompt — the hook is the anchor then — and while a
+    /// published permission question is still live: `publish_permission_
+    /// question` consumes the hold, so without the second half the very next
+    /// tick would run strict detect, miss the anchorless dialog, and fire a
+    /// phantom `Resolved` that retires the fresh card.
+    fn permission_grid_leniency(&self) -> bool {
+        self.permission.is_some()
+            || self
+                .pending_permission
+                .as_ref()
+                .is_some_and(|pending| !pending.degraded)
+    }
+
+    /// The tool-name fallback for a Notification that names none: the last
+    /// tool headline the main transcript published, if recent enough to
+    /// plausibly be the blocking call ([`PERMISSION_TOOL_RECENCY`] — claude
+    /// writes the `tool_use` entry just before the Notification fires).
+    fn recent_tool(&self) -> Option<String> {
+        self.last_tool
+            .as_ref()
+            .filter(|(_, at)| at.elapsed() <= PERMISSION_TOOL_RECENCY)
+            .map(|(name, _)| name.clone())
     }
 
     /// EXP-347: whether a resolution was learned since the last call — a
@@ -2318,8 +2369,16 @@ impl SteerState {
                     .as_ref()
                     .is_none_or(|pending| pending.degraded);
                 if self.permission.is_none() && armable {
+                    // EXP-529: a tool-less Notification ("Session paused")
+                    // borrows the freshest transcript tool headline — the
+                    // blocking call's own `tool_use` entry flushes just
+                    // before the nudge — over the literal "Tool".
+                    let tool = tool
+                        .or_else(|| self.recent_tool())
+                        .map(|tool| truncate(&tool, ID_MAX))
+                        .unwrap_or_else(|| "Tool".to_string());
                     self.pending_permission = Some(PendingPermission {
-                        tool: truncate(tool.as_deref().unwrap_or("Tool"), ID_MAX),
+                        tool,
                         detail: Some(truncate(&redactor.redact(&message), TOOL_DETAIL_MAX)),
                         seen: Instant::now(),
                         degraded: false,
@@ -2504,8 +2563,10 @@ impl SteerState {
         redactor: &Redactor,
     ) {
         // Consume the hook hold BEFORE the resolve pass clears it — its tool
-        // name is the header fallback for a headline-less dialog.
-        let hook_tool = self.pending_permission.take().map(|pending| pending.tool);
+        // name is the header fallback for a headline-less dialog, and its
+        // detail stands in for the question a leniently-detected dialog
+        // (EXP-529) may not carry.
+        let hook_hold = self.pending_permission.take();
         self.resolve_permission(sender);
         self.permission_seq += 1;
         let id = format!("permission:{}", self.permission_seq);
@@ -2513,9 +2574,17 @@ impl SteerState {
         let header = snapshot
             .header
             .map(|header| truncate(&redactor.redact(&header), QUESTION_HEADER_MAX))
-            .or(hook_tool)
+            .or_else(|| hook_hold.as_ref().map(|hold| hold.tool.clone()))
             .unwrap_or_else(|| "Permission required".to_string());
         let mut text = snapshot.question;
+        if text.is_empty() {
+            // An anchorless dialog parsed no question line — say what the
+            // hook said ("Session paused", already redacted/truncated at arm
+            // time) rather than shipping an empty card body.
+            text = hook_hold
+                .and_then(|hold| hold.detail)
+                .unwrap_or_else(|| "Approval required".to_string());
+        }
         if !snapshot.context.is_empty() {
             text.push_str("\n\n");
             text.push_str(&snapshot.context.join("\n"));
@@ -2699,6 +2768,11 @@ impl SteerState {
     /// Watch what the transcript published: an ask resolution retires its
     /// cards, and any progress at all clears a stale attention flag.
     fn observe_published(&mut self, event: &ActivityEvent) {
+        // EXP-529: remember the freshest tool headline — the tool-less
+        // Notification's name fallback (see [`Self::recent_tool`]).
+        if let ActivityEvent::Tool { name, .. } = event {
+            self.last_tool = Some((name.clone(), Instant::now()));
+        }
         if let ActivityEvent::QuestionResolved { ask_id, .. } = event {
             self.resolution_seen = true;
             if let Some(ask_id) = ask_id {
@@ -2824,8 +2898,11 @@ impl SteerState {
             QuestionKind::Permission => {
                 // Only answerable while a permission dialog is actually
                 // visible — a tap that lands after a local answer must not
-                // type into whatever replaced it.
-                let Some(visible) = permission_picker::detect(&lines) else {
+                // type into whatever replaced it. Lenient always (EXP-529):
+                // a leniently published card would otherwise Retry forever,
+                // and lenient is a strict superset gated by a live Permission
+                // card plus the key checks below.
+                let Some(visible) = permission_picker::detect_lenient(&lines) else {
                     return AnswerAttempt::Retry;
                 };
                 let Some(key) = answer.keys.first() else {
@@ -2842,7 +2919,7 @@ impl SteerState {
                 // prompt can paint the next dialog in its place within the
                 // probe window, and an Enter fired at that new dialog would
                 // activate its highlighted row.
-                let moved = || match permission_picker::detect(&screen_lines(term)) {
+                let moved = || match permission_picker::detect_lenient(&screen_lines(term)) {
                     None => true,
                     Some(next) => next != visible,
                 };
@@ -3077,6 +3154,29 @@ fn flush_forced_subagent_completions(subagents: &mut Subagents, sender: &Activit
     }
 }
 
+/// The plan picker's remotely-offered options. Two rows are dropped from the
+/// wire (their keys stay real, so a keystroke still lands on the right TUI
+/// row): the "refine with Ultraplan on Claude Code on the web" hand-off —
+/// not something a remote steerer should trigger blind, same stance the
+/// transcript fallback (`parse_exit_plan_mode`) takes by construction — and
+/// "Tell Claude what to change" (EXP-529), which remotely only parks the TUI
+/// in an inline-feedback editor no viewer can see; the composer already IS
+/// that affordance (free text steered at a pending picker Escs it and lands
+/// as feedback).
+fn plan_publish_options(
+    options: Vec<QuestionOption>,
+    redactor: &Redactor,
+) -> Vec<QuestionOption> {
+    options
+        .into_iter()
+        .filter(|o| {
+            !o.label.contains(ULTRAPLAN_WEB_OPTION) && !o.label.contains(PLAN_FEEDBACK_OPTION)
+        })
+        .take(QUESTION_OPTIONS_MAX)
+        .map(|o| QuestionOption::new(truncate(&redactor.redact(&o.label), OPTION_LABEL_MAX), o.key))
+        .collect()
+}
+
 fn grid_options(snapshot: &QuestionSnapshot, redactor: &Redactor) -> Vec<QuestionOption> {
     snapshot
         .options
@@ -3152,6 +3252,12 @@ pub struct EmitterConfig {
     /// (`--dangerously-skip-permissions` / codex bypass) — permission-flavored
     /// Notifications then never become "blocked on approval" cards.
     pub bypass_permissions: bool,
+    /// EXP-529: the session launched into plan mode (claude
+    /// `--permission-mode plan` / pi's plan extension) — mutually exclusive
+    /// with `bypass_permissions` (the launcher derives bypass as
+    /// `skip && !plan`). Only feeds the launch narration, so a remote viewer
+    /// can tell WHICH posture a run actually started with.
+    pub plan_mode: bool,
     /// EXP-443: the launcher-minted claude session id (`--session-id`) — the
     /// transcript pin is seeded with it BEFORE the first tick, so discovery
     /// never runs unpinned on a fresh session. `None` on resume (the
@@ -3263,6 +3369,20 @@ impl NeedsInputForwarder {
     }
 }
 
+/// The session-announcement narration, carrying the run's effective
+/// permission posture (EXP-529): the user in the incident could not tell
+/// whether their run actually skipped permissions — the suffix (or its
+/// absence) answers that from any client, with no wire or client changes
+/// (static strings, no Redactor pass needed; the only client-matched
+/// narrations are the PLAN_RESOLVED/QUESTION_* constants).
+pub(crate) fn launch_narration(bypass_permissions: bool, plan_mode: bool) -> &'static str {
+    match (bypass_permissions, plan_mode) {
+        (true, _) => "Session started · permissions skipped",
+        (false, true) => "Session started · plan mode",
+        (false, false) => "Session started",
+    }
+}
+
 fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<AtomicBool>) {
     let mut exact_secrets = secrets_from_worktree(&config.worktree);
     exact_secrets.extend(config.extra_secrets.iter().cloned());
@@ -3270,7 +3390,10 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
 
     // Announce the session (the viewer shows this immediately, before any
     // transcript line lands).
-    sender.send(ActivityEvent::narration("Session started"));
+    sender.send(ActivityEvent::narration(launch_narration(
+        config.bypass_permissions,
+        config.plan_mode,
+    )));
 
     let spawn_time = SystemTime::now();
     let transcript_dir =
@@ -3402,25 +3525,7 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
             let grid_offset = display_offset(term);
             match picker_watcher.tick(&lines, grid_offset) {
                 Some(Transition::Show(snapshot)) => {
-                    // Drop the "refine with Ultraplan on Claude Code on the
-                    // web" option (key "3" on claude v2.1.211+): it bounces
-                    // planning to claude.ai and is not something we want a
-                    // remote steerer to trigger — same stance the transcript
-                    // fallback (`parse_exit_plan_mode`) already takes. The
-                    // remaining options keep their real key numbers, so the
-                    // keystroke sent to the PTY still lands on the right row.
-                    let options: Vec<QuestionOption> = snapshot
-                        .options
-                        .into_iter()
-                        .filter(|o| !o.label.contains(ULTRAPLAN_WEB_OPTION))
-                        .take(QUESTION_OPTIONS_MAX)
-                        .map(|o| {
-                            QuestionOption::new(
-                                truncate(&redactor.redact(&o.label), OPTION_LABEL_MAX),
-                                o.key,
-                            )
-                        })
-                        .collect();
+                    let options = plan_publish_options(snapshot.options, &redactor);
                     if !steer.confirm_plan_from_grid(options.clone(), &sender) {
                         // No hook knows this plan (an old claude, or a sidecar
                         // that never came up): an id-less card with a headline
@@ -3474,10 +3579,17 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
                 // Esc lands on "No, and tell Claude what to do differently"
                 // and the steered text then arrives as exactly that feedback
                 // — typed INTO the dialog it would be eaten and its trailing
-                // Enter would activate the highlighted row.
+                // Enter would activate the highlighted row. Leniency-aware
+                // (EXP-529): free text steered at an anchorless dialog must
+                // reroute exactly like at an anchored one.
                 grid_picker_visible = question_detection.is_some()
                     || plan_picker::detect(&lines).is_some()
-                    || permission_picker::detect(&lines).is_some()
+                    || (if steer.permission_grid_leniency() {
+                        permission_picker::detect_lenient(&lines)
+                    } else {
+                        permission_picker::detect(&lines)
+                    })
+                    .is_some()
                     || matches!(
                         login_picker::detect(&lines),
                         Some(LoginPhase::MethodPicker { .. })
@@ -3645,8 +3757,12 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
             // bypass-permissions parks on them, and remote viewers used to
             // get only the informational card — the dialog becomes an
             // answerable question instead. Runs after the other watchers
-            // (the detector rejects their screens outright).
-            match permission_watcher.tick(&lines, grid_offset) {
+            // (the detector rejects their screens outright). Lenient while
+            // the hooks hold an unconfirmed prompt or the published question
+            // is live (EXP-529) — the hook drain in step 2 already ran, so a
+            // hold armed this tick is visible here.
+            let permission_lenient = steer.permission_grid_leniency();
+            match permission_watcher.tick(&lines, grid_offset, permission_lenient) {
                 Some(permission_picker::Transition::Show(snapshot)) => {
                     // A pending ask/plan owns the screen story; their own
                     // "needs permission" nudge is already suppressed in
@@ -6416,6 +6532,229 @@ mod tests {
         assert_eq!(outcome, AnswerAttempt::Retry);
         assert!(keys.lock().unwrap().is_empty(), "nothing may be injected");
         assert!(drained(&rx).is_empty(), "and nothing is acked");
+    }
+
+    /// An EXP-529-style dialog: options on screen, but no "Do you want to"
+    /// anchor line — mirrors the `permission_picker` fixture.
+    fn paused_dialog_rows() -> Vec<String> {
+        [
+            "────────────────────────────────────────────────────────────────",
+            " Bash command",
+            "",
+            "   curl -s https://example.com/",
+            "   Fetch content from example.com",
+            "",
+            " This command requires approval",
+            "",
+            " ❯ 1. Yes",
+            "   2. No",
+        ]
+        .iter()
+        .map(|r| r.to_string())
+        .collect()
+    }
+
+    #[test]
+    fn a_hook_armed_anchorless_dialog_becomes_an_answerable_question() {
+        // EXP-529: the hook says a prompt is up, the dialog carries no
+        // anchor — lenient detection still yields an answerable card
+        // instead of the dead-end informational one.
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(
+            hook(HookEventKind::PermissionPrompt {
+                message: "Session paused".to_string(),
+                tool: None,
+            }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        assert!(steer.permission_grid_leniency(), "the hold arms leniency");
+        assert!(drained(&rx).is_empty());
+
+        let snapshot = crate::permission_picker::detect_lenient(&paused_dialog_rows())
+            .expect("lenient detection");
+        steer.publish_permission_question(snapshot, &sender, &redactor);
+        match &drained(&rx)[..] {
+            [ActivityEvent::Question {
+                id, header, text, options, ..
+            }] => {
+                assert_eq!(id.as_deref(), Some("permission:1"));
+                assert_eq!(header.as_deref(), Some("Bash command"));
+                assert!(text.starts_with("This command requires approval"));
+                assert_eq!(options.len(), 2);
+            }
+            other => panic!("expected a permission question, got {other:?}"),
+        }
+        // The published question keeps leniency on — the very next strict
+        // miss must not fake a Resolved (the consumed hold is gone).
+        assert!(steer.permission_grid_leniency());
+
+        // A question-less snapshot (nothing but options on the grid) says
+        // what the hook said instead of shipping an empty body.
+        steer.resolve_permission(&sender);
+        drained(&rx);
+        steer.apply_hook(
+            hook(HookEventKind::PermissionPrompt {
+                message: "Session paused".to_string(),
+                tool: None,
+            }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        let bare = crate::permission_picker::PermissionSnapshot {
+            header: None,
+            context: vec![],
+            question: String::new(),
+            options: vec![
+                QuestionOption::new("Yes", "1"),
+                QuestionOption::new("No", "2"),
+            ],
+        };
+        steer.publish_permission_question(bare, &sender, &redactor);
+        match &drained(&rx)[..] {
+            [ActivityEvent::Question { text, header, .. }] => {
+                assert_eq!(text, "Session paused");
+                assert_eq!(header.as_deref(), Some("Tool"));
+            }
+            other => panic!("expected a question, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_remote_answer_lands_on_a_leniently_detected_dialog() {
+        let emulator = terminal::Emulator::new(100, 30);
+        let term = emulator.term();
+        paint(&term, &paused_dialog_rows());
+
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let snapshot = crate::permission_picker::detect_lenient(&screen_lines(&term))
+            .expect("lenient detection");
+        steer.publish_permission_question(snapshot, &sender, &redactor);
+        drained(&rx);
+
+        // The answer path re-detects leniently too — a strict re-detect
+        // would Retry forever against the anchorless dialog (EXP-529).
+        let (write_input, keys) = recording_input(term.clone(), None, "1");
+        let outcome = steer.handle_answer(
+            &RemoteAnswer {
+                question_id: "permission:1".to_string(),
+                ask_id: None,
+                keys: vec!["1".to_string()],
+                text: None,
+            },
+            &term,
+            &write_input,
+            &sender,
+        );
+        assert_eq!(outcome, AnswerAttempt::Settled);
+        assert_eq!(*keys.lock().unwrap(), vec!["1"]);
+        match &drained(&rx)[..] {
+            [ActivityEvent::AnswerAck { id, .. }] => assert_eq!(id, "permission:1"),
+            other => panic!("expected an answer_ack, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_toolless_permission_hook_names_the_last_tool_headline() {
+        // EXP-529: "Session paused" names no tool — the freshest published
+        // tool headline stands in, so the degraded card reads
+        // "Permission · ToolSearch" instead of "Permission · Tool".
+        let (sender, rx) = ActivitySender::test_pair();
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.observe_published(&ActivityEvent::tool("ToolSearch", None));
+        steer.apply_hook(
+            hook(HookEventKind::PermissionPrompt {
+                message: "Session paused".to_string(),
+                tool: None,
+            }),
+            &sender,
+            &Redactor::new(vec![]),
+            &mut transcript,
+        );
+        steer.pending_permission.as_mut().unwrap().seen =
+            Instant::now() - PERMISSION_GRID_CONFIRM;
+        steer.permission_timeout(&sender);
+        match &drained(&rx)[..] {
+            [ActivityEvent::Permission { tool, detail, .. }] => {
+                assert_eq!(tool, "ToolSearch");
+                assert_eq!(detail.as_deref(), Some("Session paused"));
+            }
+            other => panic!("expected the informational card, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_stale_tool_headline_never_names_the_degraded_card() {
+        // A minutes-old headline is a different call entirely — the literal
+        // fallback is more honest than a wrong name.
+        let (sender, rx) = ActivitySender::test_pair();
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.last_tool = Some((
+            "ToolSearch".to_string(),
+            Instant::now() - PERMISSION_TOOL_RECENCY - Duration::from_secs(1),
+        ));
+        steer.apply_hook(
+            hook(HookEventKind::PermissionPrompt {
+                message: "Session paused".to_string(),
+                tool: None,
+            }),
+            &sender,
+            &Redactor::new(vec![]),
+            &mut transcript,
+        );
+        steer.pending_permission.as_mut().unwrap().seen =
+            Instant::now() - PERMISSION_GRID_CONFIRM;
+        steer.permission_timeout(&sender);
+        match &drained(&rx)[..] {
+            [ActivityEvent::Permission { tool, .. }] => assert_eq!(tool, "Tool"),
+            other => panic!("expected the informational card, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn launch_narration_names_the_effective_permission_mode() {
+        assert_eq!(
+            launch_narration(true, false),
+            "Session started · permissions skipped"
+        );
+        assert_eq!(launch_narration(false, true), "Session started · plan mode");
+        assert_eq!(launch_narration(false, false), "Session started");
+    }
+
+    #[test]
+    fn the_published_plan_options_drop_the_feedback_row() {
+        // EXP-529: "Tell Claude what to change" remotely only opens an
+        // invisible inline editor — the composer is the feedback path, so
+        // the row never rides the wire. Keys stay real for the survivors.
+        let redactor = Redactor::new(vec![]);
+        let options = plan_publish_options(
+            vec![
+                QuestionOption::new("Yes, auto-accept edits", "1"),
+                QuestionOption::new("Yes, manually approve edits", "2"),
+                QuestionOption::new("No, refine with Ultraplan on Claude Code on the web", "3"),
+                QuestionOption::new("Tell Claude what to change", "4"),
+            ],
+            &redactor,
+        );
+        assert_eq!(
+            options
+                .iter()
+                .map(|o| (o.key.as_str(), o.label.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("1", "Yes, auto-accept edits"),
+                ("2", "Yes, manually approve edits"),
+            ]
+        );
     }
 
     #[test]

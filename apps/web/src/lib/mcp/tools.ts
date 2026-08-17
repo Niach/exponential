@@ -1198,7 +1198,9 @@ export function registerExponentialTools(
           if (issueIds?.length) {
             await tx
               .update(codingSessions)
-              .set({ status: `in_review`, updatedAt: new Date() })
+              // needsInput resets with the flip, like the per-issue path
+              // (EXP-531).
+              .set({ status: `in_review`, needsInput: false, updatedAt: new Date() })
               .where(
                 and(
                   or(

@@ -63,6 +63,18 @@ final class CodingSessionDisplayTests: XCTestCase {
         )
     }
 
+    func testInReviewOutranksNeedsInput() {
+        // EXP-531: the PR is open — the run is done coding. A stale
+        // needs_input (claude's idle nudge, forwarded by the desktop after
+        // the turn ended) must not mask "Ready for review".
+        XCTAssertEqual(
+            CodingSessionDisplayState.of(
+                session: session(status: "in_review", needsInput: true), prState: "open"
+            ),
+            .review
+        )
+    }
+
     func testNeedsInputAndRunning() {
         XCTAssertEqual(
             CodingSessionDisplayState.of(

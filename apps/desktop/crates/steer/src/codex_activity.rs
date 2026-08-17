@@ -893,7 +893,10 @@ fn run_emitter_with_root(
     exact_secrets.extend(config.extra_secrets.iter().cloned());
     let redactor = Redactor::new(exact_secrets);
 
-    sender.send(ActivityEvent::narration("Session started"));
+    sender.send(ActivityEvent::narration(crate::activity::launch_narration(
+        config.bypass_permissions,
+        config.plan_mode,
+    )));
 
     let spawn_time = SystemTime::now();
     let mut current: Option<PathBuf> = None;

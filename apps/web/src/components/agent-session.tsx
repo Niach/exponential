@@ -99,6 +99,10 @@ const UiHelpIcon = conceptIcon(`ui-help`)
 const UiLoadingIcon = conceptIcon(`ui-loading`)
 const UiPermissionIcon = conceptIcon(`ui-permission`)
 const UiRefreshIcon = conceptIcon(`ui-refresh`)
+// EXP-529: multi-select options carry an explicit checkbox state (Android
+// parity) — the amber tint alone read as "nothing selected".
+const UiSelectedIcon = conceptIcon(`ui-selected`)
+const UiUnselectedIcon = conceptIcon(`ui-unselected`)
 
 // The custom-rendered agent-session viewer (EXP-63 — the web port of the
 // mobile "Agent session" chat view, EXP-32). NO terminal rendering: the
@@ -967,6 +971,20 @@ export function AgentSessionView({
   /** A trailing question/plan means the session is blocked on a human — the
    *  header flips to "Needs your input" so it never looks silently stuck. */
   const awaitingInput = live && questionIds.size > 0
+  /** An active plan-approval card: the composer's free text IS the "tell
+   *  Claude what to change" path (the desktop Escs the picker and types the
+   *  message), so the placeholder says so instead of a dead option button. */
+  const planPending = useMemo(
+    () =>
+      live &&
+      feed.some(
+        (item) =>
+          item.kind === `question` &&
+          item.planMode === true &&
+          questionIds.has(item.id)
+      ),
+    [live, feed, questionIds]
+  )
   /** EXP-389: the agent is actively working — live and nothing waiting on
    *  the user (no active question card, synced needs_input clear; all three
    *  agents drive the flag). Mobile parity. */
@@ -1143,6 +1161,9 @@ export function AgentSessionView({
                             key={item.id}
                             tool={item.tool}
                             detail={item.detail}
+                            active={
+                              live && item.id === feed[feed.length - 1]?.id
+                            }
                           />
                         )
                       case `subagent`:
@@ -1232,7 +1253,13 @@ export function AgentSessionView({
               captions, no operator state; live implies ownership. */}
           {composerVisible && (
             <div className="border-t border-border p-2">
-              <MessageComposer onSend={sendMessage} issueId={session.issueId} />
+              <MessageComposer
+                onSend={sendMessage}
+                issueId={session.issueId}
+                placeholder={
+                  planPending ? `Tell Claude what to change…` : undefined
+                }
+              />
             </div>
           )}
       </div>
@@ -1616,11 +1643,18 @@ function QuestionPrompt({
               )}
               onClick={() => choose(option)}
             >
-              {variant === `default` && (
-                <span className="font-mono text-muted-foreground">
-                  {option.key}
-                </span>
-              )}
+              {variant === `default` &&
+                (item.multiSelect ? (
+                  picked.includes(option.key) ? (
+                    <UiSelectedIcon className="size-3.5 shrink-0 text-foreground" />
+                  ) : (
+                    <UiUnselectedIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                  )
+                ) : (
+                  <span className="font-mono text-muted-foreground">
+                    {option.key}
+                  </span>
+                ))}
               <span className="flex min-w-0 flex-col items-start gap-0.5">
                 <span>
                   {variant === `submit` && index === 0
@@ -1933,22 +1967,40 @@ function AnsweredStepRow({
   )
 }
 
-/** A permission prompt the agent raised (protocol v2) — informational only:
- *  the decision lives in the desktop TUI, there is nothing to answer here. */
-function PermissionRow({ tool, detail }: { tool: string; detail?: string }) {
+/** A permission prompt the agent raised (protocol v2) — informational: the
+ *  decision lives in the desktop TUI (a grid-confirmed dialog publishes an
+ *  answerable question card instead, EXP-455/529). While it is the live
+ *  trailing event, point at the working escape hatch — a composer message
+ *  reaches the paused TUI — instead of dead-ending the viewer. */
+function PermissionRow({
+  tool,
+  detail,
+  active = false,
+}: {
+  tool: string
+  detail?: string
+  active?: boolean
+}) {
   return (
-    <div className="flex min-w-0 items-center gap-2 py-0.5 pl-0.5">
-      <UiPermissionIcon className="size-3 shrink-0 text-amber-400/70" />
-      <span className="shrink-0 text-xs font-medium text-amber-400/90">
-        Permission · {tool}
-      </span>
-      {detail && (
-        <span
-          className="truncate font-mono text-[0.6875rem] text-muted-foreground"
-          title={detail}
-        >
-          {detail}
+    <div className="min-w-0 py-0.5 pl-0.5">
+      <div className="flex min-w-0 items-center gap-2">
+        <UiPermissionIcon className="size-3 shrink-0 text-amber-400/70" />
+        <span className="shrink-0 text-xs font-medium text-amber-400/90">
+          Permission · {tool}
         </span>
+        {detail && (
+          <span
+            className="truncate font-mono text-[0.6875rem] text-muted-foreground"
+            title={detail}
+          >
+            {detail}
+          </span>
+        )}
+      </div>
+      {active && (
+        <div className="pl-5 text-[0.6875rem] text-muted-foreground">
+          Approve on the desktop, or reply below to continue.
+        </div>
       )}
     </div>
   )
@@ -2162,9 +2214,13 @@ type PendingSteerImage = {
 function MessageComposer({
   onSend,
   issueId,
+  placeholder,
 }: {
   onSend: (text: string) => boolean
   issueId: string | null
+  /** Context-aware hint (e.g. the plan-approval "Tell Claude what to
+   *  change…"); the default stays the generic prompt. */
+  placeholder?: string
 }) {
   const [text, setText] = useState(``)
   const [pending, setPending] = useState<PendingSteerImage[]>([])
@@ -2310,7 +2366,7 @@ function MessageComposer({
             e.preventDefault()
             addFiles(Array.from(e.clipboardData.files))
           }}
-          placeholder="Message the agent…"
+          placeholder={placeholder ?? `Message the agent…`}
           rows={1}
           className={cn(
             `max-h-32 min-h-9 flex-1 resize-none border-none shadow-none focus-visible:ring-0`,

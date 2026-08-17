@@ -487,7 +487,13 @@ export const codingSessionsRouter = router({
   // resolves. Deliberately a separate boolean, not a status — running/
   // in_review stay server-owned and a ping can never race the PR-open flip.
   // Fire-and-forget on the client like heartbeat: failures are never thrown
-  // into the terminal path.
+  // into the terminal path. EXP-531: `true` is accepted only while the row
+  // is still `running` — once the PR-open flip parks it in `in_review`, the
+  // desktop's post-turn idle nudge (which fires AFTER open_pr, so the flip's
+  // own needsInput reset can't absorb it) must not resurrect the amber
+  // badge. `false` still clears on every live status, and a refused write is
+  // a silent no-op (`updated: false`) the desktop forwarder treats as
+  // delivered — never an error it would retry.
   setNeedsInput: authedProcedure
     .input(z.object({ id: z.string().uuid(), needsInput: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
@@ -513,14 +519,20 @@ export const codingSessionsRouter = router({
       }
 
       // Status-conditioned like heartbeat: an ended row stays final and
-      // never re-surfaces as "needs input".
+      // never re-surfaces as "needs input", and a reviewed/merged row only
+      // ever accepts the CLEAR (EXP-531).
       const updated = await ctx.db
         .update(codingSessions)
         .set({ needsInput: input.needsInput })
         .where(
           and(
             eq(codingSessions.id, input.id),
-            inArray(codingSessions.status, [`running`, `in_review`, `merged`])
+            inArray(
+              codingSessions.status,
+              input.needsInput
+                ? [`running`]
+                : [`running`, `in_review`, `merged`]
+            )
           )
         )
         .returning({ id: codingSessions.id })
