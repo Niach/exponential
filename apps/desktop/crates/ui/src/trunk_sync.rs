@@ -338,6 +338,12 @@ impl TrunkSync {
             .map(|repo| repo.clone.clone())
     }
 
+    /// The resolved repo's `owner/name` (`None` while unresolved) — the
+    /// history graph matches synced PR urls against it (EXP-537).
+    pub(crate) fn repo_full_name(&self) -> Option<String> {
+        self.repo.as_ref().map(|repo| repo.full_name.clone())
+    }
+
     /// Freshness fetch + trunk re-read (the Source Control refresh button).
     /// While an Action tab is alive on this repo's clone the
     /// pass degrades to fetch-only — the ff working-tree update is held off

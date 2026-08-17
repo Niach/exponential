@@ -42,7 +42,7 @@
 //! git invocations are argv-only through [`coding::scm`] — never `gh`, never
 //! a library (DNR L5).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -63,7 +63,7 @@ use sync::Store;
 use coding::scm::{self, CommitInfo, ConflictKind, ConflictState};
 
 use crate::coding_flow::{self, CodingHub};
-use crate::commit_graph::{self, EdgeKind, Graph, GraphRow, MAX_LANES};
+use crate::commit_graph::{self, EdgeKind, Graph, GraphRow, SquashLink, MAX_LANES};
 use crate::controls::WebControl as _;
 use crate::diff::{build_scm_diff, DiffView};
 use crate::icons::registry;
@@ -1022,6 +1022,12 @@ pub struct HistoryList {
     /// re-resolving, so a HEAD moved mid-window can't re-lane the visible
     /// prefix (the sync-triggered refresh reloads cleanly instead).
     history_tip: Option<String>,
+    /// PR number → the merged PR branch's kept remote tip (EXP-537): synced
+    /// merged-PR rows joined with `scm::remote_branch_tips`. Feeds
+    /// [`squash_links`], which closes squash-merged lanes back into the
+    /// trunk. Pinned per window like `history_tip` (`load_more` reuses it),
+    /// so appends never re-lane the visible prefix.
+    merged_pr_tips: HashMap<i64, String>,
     history_skip: usize,
     history_has_more: bool,
     history_loading: bool,
@@ -1052,6 +1058,7 @@ impl HistoryList {
             graph: Graph::default(),
             unpushed: HashSet::new(),
             history_tip: None,
+            merged_pr_tips: HashMap::new(),
             history_skip: 0,
             history_has_more: false,
             history_loading: false,
@@ -1075,6 +1082,7 @@ impl HistoryList {
             self.graph = Graph::default();
             self.unpushed.clear();
             self.history_tip = None;
+            self.merged_pr_tips.clear();
             self.history_skip = 0;
             self.history_has_more = false;
             self.generation += 1;
@@ -1107,10 +1115,17 @@ impl HistoryList {
                 && !trunk.branch.starts_with('('))
             .then(|| trunk.branch.clone())
         };
+        // The store side of the squash links (EXP-537): pr number → branch
+        // for every synced merged PR on this repo; the git side (branch →
+        // remote tip hash) joins in on the background executor.
+        let merged_branches = {
+            let full_name = self.rail.read(cx).trunk_sync().read(cx).repo_full_name();
+            merged_pr_branches(cx, full_name.as_deref())
+        };
         self.generation += 1;
         let generation = self.generation;
         cx.spawn(async move |this, cx| {
-            let (page, unpushed, tip) = cx
+            let (page, unpushed, tip, merged_tips) = cx
                 .background_executor()
                 .spawn(async move {
                     // Resolve HEAD before the log so the seed can only lag the
@@ -1122,7 +1137,17 @@ impl HistoryList {
                         .unwrap_or_default()
                         .into_iter()
                         .collect();
-                    (page, unpushed, tip)
+                    let tips: HashMap<String, String> = scm::remote_branch_tips(&clone)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .collect();
+                    let merged_tips: HashMap<i64, String> = merged_branches
+                        .into_iter()
+                        .filter_map(|(number, branch)| {
+                            tips.get(&branch).map(|hash| (number, hash.clone()))
+                        })
+                        .collect();
+                    (page, unpushed, tip, merged_tips)
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
@@ -1133,12 +1158,21 @@ impl HistoryList {
                 this.history_has_more = page.len() == HISTORY_PAGE;
                 this.history = page;
                 this.history_tip = tip;
-                this.graph = commit_graph::layout(&this.history, this.history_tip.as_deref());
+                this.merged_pr_tips = merged_tips;
+                this.relayout();
                 this.unpushed = unpushed;
                 cx.notify();
             });
         })
         .detach();
+    }
+
+    /// Recompute the lane layout over the loaded window: squash links first
+    /// (derived from the window + the pinned merged-PR tips), then the
+    /// EXP-509 lane pass.
+    fn relayout(&mut self) {
+        let links = squash_links(&self.history, &self.merged_pr_tips);
+        self.graph = commit_graph::layout(&self.history, self.history_tip.as_deref(), &links);
     }
 
     /// History "Load more" (§4.4): append the next page.
@@ -1170,9 +1204,9 @@ impl HistoryList {
                 this.history.extend(page);
                 // Whole-window recompute — deterministic over a prefix, so
                 // the already-visible rows keep their lanes and colors (the
-                // seed reuses the tip pinned at refresh time for the same
-                // reason).
-                this.graph = commit_graph::layout(&this.history, this.history_tip.as_deref());
+                // seed and the merged-PR tips reuse the values pinned at
+                // refresh time for the same reason).
+                this.relayout();
                 cx.notify();
             });
         })
@@ -1517,6 +1551,78 @@ impl HistoryList {
 }
 
 // ---------------------------------------------------------------------------
+// EXP-537 squash links — closing merged PR lanes back into the trunk
+// ---------------------------------------------------------------------------
+
+/// PR number → branch for every synced MERGED PR on `full_name` — the store
+/// side of the squash-link join (the git side is `scm::remote_branch_tips`).
+/// Matching rides the `pr_url` (`…/{owner}/{name}/pull/{n}`), so only PRs of
+/// THIS repo qualify no matter how many teams/boards are synced.
+fn merged_pr_branches(cx: &App, full_name: Option<&str>) -> Vec<(i64, String)> {
+    let Some(full_name) = full_name else {
+        return Vec::new();
+    };
+    let marker = format!("/{}/pull/", full_name.to_ascii_lowercase());
+    let collections = Store::global(cx).collections().clone();
+    let issues = collections.issues.read(cx);
+    issues
+        .iter()
+        .filter(|issue| issue.pr_state.as_deref() == Some("merged"))
+        .filter(|issue| {
+            issue
+                .pr_url
+                .as_deref()
+                .is_some_and(|url| url.to_ascii_lowercase().contains(&marker))
+        })
+        .filter_map(|issue| Some((issue.pr_number?, issue.branch.clone()?)))
+        .collect()
+}
+
+/// The trailing GitHub squash-merge marker of a commit subject — `(#N)`,
+/// exactly at the end.
+fn squash_pr_number(subject: &str) -> Option<i64> {
+    let (_, digits) = subject.trim_end().strip_suffix(')')?.rsplit_once("(#")?;
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    digits.parse().ok()
+}
+
+/// Derive the loaded window's [`SquashLink`]s: a single-parent commit whose
+/// subject ends in `(#N)` is the squash of merged PR N — link it to the PR
+/// branch's kept remote tip. A tip already emitted ABOVE its squash commit
+/// (a reused branch with newer work) is skipped: the synthetic lane could
+/// never resolve and would dangle open forever. Deterministic over a window
+/// prefix, so `Load more` appends never re-lane visible rows.
+fn squash_links(
+    history: &[CommitInfo],
+    merged_pr_tips: &HashMap<i64, String>,
+) -> Vec<SquashLink> {
+    let mut links = Vec::new();
+    let mut linked: HashSet<&str> = HashSet::new();
+    let mut seen: HashSet<&str> = HashSet::new();
+    for commit in history {
+        seen.insert(commit.hash.as_str());
+        if commit.parents.len() != 1 {
+            continue; // a true merge commit already draws its branch line
+        }
+        let Some(tip) = squash_pr_number(&commit.subject)
+            .and_then(|number| merged_pr_tips.get(&number))
+        else {
+            continue;
+        };
+        // `seen` also covers tip == commit hash; `linked` dedupes a tip
+        // claimed twice (batch PRs collapse to one map entry already, but a
+        // cherry-picked squash subject could re-claim it).
+        if seen.contains(tip.as_str()) || !linked.insert(tip.as_str()) {
+            continue;
+        }
+        links.push(SquashLink { commit: commit.hash.clone(), tip: tip.clone() });
+    }
+    links
+}
+
+// ---------------------------------------------------------------------------
 // EXP-509 graph gutter painting (canvas + PathBuilder — the shell.rs notch is
 // the precedent; PathBuilder, never the raw scene Path)
 // ---------------------------------------------------------------------------
@@ -1556,9 +1662,38 @@ fn lane_x(bounds: &Bounds<Pixels>, lane: usize) -> Pixels {
         + px(GRAPH_LEFT_PAD + lane.min(MAX_LANES - 1) as f32 * GRAPH_LANE_PITCH)
 }
 
-/// A vertical lane segment as a cheap quad.
-fn paint_lane_segment(window: &mut Window, x: Pixels, top: Pixels, bottom: Pixels, color: Hsla) {
+/// A stroked lane path builder — dashed for synthetic (squash link) edges,
+/// with the uncommitted stub's dash pattern: squash links are merges by
+/// patch, not ancestry, so they never read as solid history.
+fn lane_stroke(dashed: bool) -> gpui::PathBuilder {
+    let builder = gpui::PathBuilder::stroke(px(GRAPH_LINE_WIDTH));
+    if dashed {
+        builder.dash_array(&[px(2.), px(3.)])
+    } else {
+        builder
+    }
+}
+
+/// A vertical lane segment — a cheap quad, or a dashed path for synthetic
+/// edges.
+fn paint_lane_segment(
+    window: &mut Window,
+    x: Pixels,
+    top: Pixels,
+    bottom: Pixels,
+    color: Hsla,
+    dashed: bool,
+) {
     if bottom <= top {
+        return;
+    }
+    if dashed {
+        let mut path = lane_stroke(true);
+        path.move_to(point(x, top));
+        path.line_to(point(x, bottom));
+        if let Ok(path) = path.build() {
+            window.paint_path(path, color);
+        }
         return;
     }
     window.paint_quad(gpui::fill(
@@ -1571,7 +1706,8 @@ fn paint_lane_segment(window: &mut Window, x: Pixels, top: Pixels, bottom: Pixel
 }
 
 /// One commit row's gutter: pass-throughs, curved connectors, and the dot
-/// (hollow when the commit is not on origin yet).
+/// (hollow when the commit is not on origin yet). Synthetic (squash link)
+/// edges draw dashed.
 fn paint_graph_row(
     bounds: Bounds<Pixels>,
     window: &mut Window,
@@ -1588,16 +1724,17 @@ fn paint_graph_row(
         let color = lane_color(edge.color);
         match edge.kind {
             EdgeKind::Pass => {
-                paint_lane_segment(window, lane_x(&bounds, edge.lane_top), top, bottom, color);
+                let x = lane_x(&bounds, edge.lane_top);
+                paint_lane_segment(window, x, top, bottom, color, edge.synthetic);
             }
             EdgeKind::IntoDot => {
                 let from_x = lane_x(&bounds, edge.lane_top);
                 if edge.lane_top == row.lane {
                     // Straight from the row top into the dot.
-                    paint_lane_segment(window, from_x, top, mid - dot_gap, color);
+                    paint_lane_segment(window, from_x, top, mid - dot_gap, color, edge.synthetic);
                 } else {
                     // Curved: down from the top edge, bending into the dot.
-                    let mut path = gpui::PathBuilder::stroke(px(GRAPH_LINE_WIDTH));
+                    let mut path = lane_stroke(edge.synthetic);
                     path.move_to(point(from_x, top));
                     path.curve_to(point(dot_x, mid), point(from_x, mid));
                     if let Ok(path) = path.build() {
@@ -1609,11 +1746,11 @@ fn paint_graph_row(
                 let to_x = lane_x(&bounds, edge.lane_bottom);
                 if edge.lane_bottom == row.lane {
                     // Straight from the dot to the row bottom.
-                    paint_lane_segment(window, to_x, mid + dot_gap, bottom, color);
+                    paint_lane_segment(window, to_x, mid + dot_gap, bottom, color, edge.synthetic);
                 } else {
                     // Curved: out of the dot toward the target lane, then
                     // down to the row bottom.
-                    let mut path = gpui::PathBuilder::stroke(px(GRAPH_LINE_WIDTH));
+                    let mut path = lane_stroke(edge.synthetic);
                     path.move_to(point(dot_x, mid));
                     path.curve_to(point(to_x, bottom), point(to_x, mid));
                     if let Ok(path) = path.build() {
@@ -1627,12 +1764,13 @@ fn paint_graph_row(
     paint_dot(window, dot_x, mid, lane_color(row.color), !unpushed);
 }
 
-/// The "Load more" row's gutter: every still-open lane passes through.
-fn paint_lane_tail(bounds: Bounds<Pixels>, window: &mut Window, tail: &[(usize, usize)]) {
+/// The "Load more" row's gutter: every still-open lane passes through
+/// (dashed while a squash link's tip is still beyond the window).
+fn paint_lane_tail(bounds: Bounds<Pixels>, window: &mut Window, tail: &[(usize, usize, bool)]) {
     let top = bounds.origin.y;
     let bottom = top + bounds.size.height;
-    for &(lane, color) in tail {
-        paint_lane_segment(window, lane_x(&bounds, lane), top, bottom, lane_color(color));
+    for &(lane, color, synthetic) in tail {
+        paint_lane_segment(window, lane_x(&bounds, lane), top, bottom, lane_color(color), synthetic);
     }
 }
 
@@ -1780,6 +1918,56 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+
+    fn commit_info(hash: &str, parents: &[&str], subject: &str) -> CommitInfo {
+        CommitInfo {
+            hash: hash.to_string(),
+            parents: parents.iter().map(|p| p.to_string()).collect(),
+            subject: subject.to_string(),
+            author: "t".to_string(),
+            relative_time: "now".to_string(),
+        }
+    }
+
+    #[test]
+    fn squash_pr_number_matches_only_the_trailing_marker() {
+        assert_eq!(squash_pr_number("EXP-534: android markdown refinements (#451)"), Some(451));
+        assert_eq!(squash_pr_number("fix (#7)  "), Some(7)); // trailing whitespace
+        assert_eq!(squash_pr_number("no marker"), None);
+        assert_eq!(squash_pr_number("mid (#12) mention"), None); // not trailing
+        assert_eq!(squash_pr_number("Revert \"fix (#12)\""), None); // quoted
+        assert_eq!(squash_pr_number("weird (#)"), None);
+        assert_eq!(squash_pr_number("weird (#1a)"), None);
+    }
+
+    #[test]
+    fn squash_links_join_squash_commits_to_their_branch_tips() {
+        // s squashed PR 9 (branch tip t); the (#N) of an unmerged/unknown PR
+        // and a true merge commit yield nothing.
+        let history = [
+            commit_info("s", &["b"], "EXP-1: feature (#9)"),
+            commit_info("m", &["b", "x"], "old merge (#3)"),
+            commit_info("u", &["b"], "unknown (#4)"),
+            commit_info("t", &["a"], "feature work"),
+        ];
+        let tips = HashMap::from([(9, "t".to_string()), (3, "x".to_string())]);
+        assert_eq!(
+            squash_links(&history, &tips),
+            vec![SquashLink { commit: "s".to_string(), tip: "t".to_string() }]
+        );
+    }
+
+    #[test]
+    fn squash_links_skip_a_tip_that_sits_above_its_squash_commit() {
+        // The branch grew new commits after the merge: its tip is NEWER than
+        // the squash commit, so a synthetic lane could never resolve — skip.
+        let history = [
+            commit_info("t2", &["t"], "more work on the reused branch"),
+            commit_info("s", &["b"], "EXP-1: feature (#9)"),
+        ];
+        let tips = HashMap::from([(9, "t2".to_string())]);
+        assert_eq!(squash_links(&history, &tips), Vec::new());
     }
 
     #[test]
