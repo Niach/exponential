@@ -35,6 +35,58 @@ fn pump_until(term: &mut Terminal, timeout: Duration, pred: impl Fn(&Terminal) -
     }
 }
 
+/// Kill the child and pump until its exit is reaped, or fail with diagnostics.
+///
+/// EXP-527: `Terminal::kill` is portable-pty's unix killer — a single SIGHUP,
+/// which a shell may defer (readline mid-redisplay) or which a loaded CI
+/// runner can leave unacted-on past any reasonable deadline; the plain
+/// `kill(); pump_until(exit)` form flaked at 60s on a runner under full
+/// workspace-test load. So: keep re-sending the kill (idempotent) while
+/// pumping, and after `escalate_after` fall back to an unignorable SIGKILL —
+/// the wait thread is parked in `child.wait()`, so once the process dies the
+/// reap is immediate. A failure past that names the child's actual process
+/// state instead of just "kill never reaped".
+fn kill_until_reaped(term: &mut Terminal, escalate_after: Duration) -> Result<(), String> {
+    let pid = term.process_id();
+    let wake = term.wake_rx();
+    let deadline = Instant::now() + LONG;
+    let escalate_at = Instant::now() + escalate_after;
+    let mut escalated = false;
+    term.kill();
+    loop {
+        term.pump();
+        if term.exit().is_some() {
+            return Ok(());
+        }
+        let now = Instant::now();
+        if now >= deadline {
+            break;
+        }
+        if !escalated && now >= escalate_at {
+            escalated = true;
+            if let Some(pid) = pid {
+                let _ = std::process::Command::new("kill")
+                    .args(["-KILL", &pid.to_string()])
+                    .status();
+            }
+        } else if !escalated {
+            term.kill(); // re-send SIGHUP in case the first delivery was lost
+        }
+        let _ = wake.recv_timeout(Duration::from_millis(50));
+    }
+    let state = pid.and_then(|pid| {
+        std::process::Command::new("ps")
+            .args(["-o", "state=", "-p", &pid.to_string()])
+            .output()
+            .ok()
+            .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+    });
+    Err(format!(
+        "kill never reaped within {LONG:?} (pid {pid:?}, ps state {state:?}, \
+         escalated to SIGKILL: {escalated})"
+    ))
+}
+
 fn grid_contains(term: &Terminal, needle: &str) -> bool {
     term.screen_lines().iter().any(|line| line.contains(needle))
 }
@@ -207,8 +259,7 @@ fn kill_ends_a_running_child() {
         dump(&term)
     );
     assert!(term.is_running());
-    term.kill();
-    assert!(pump_until(&mut term, LONG, |t| t.exit().is_some()), "kill never reaped");
+    kill_until_reaped(&mut term, Duration::from_secs(5)).unwrap();
     let exit = term.exit().expect("exit state");
     assert!(!exit.success);
     assert!(exit.signal.is_some(), "expected signal-kill, got {exit:?}");
@@ -256,8 +307,7 @@ fn claude_tui_renders_a_styled_grid_headlessly() {
     assert!(term.is_running(), "claude exited before the TUI settled:\n{}", dump(&term));
 
     // Kill cleanly and confirm the exit edge is captured (bounded teardown).
-    term.kill();
-    assert!(pump_until(&mut term, LONG, |t| t.exit().is_some()), "claude kill never reaped");
+    kill_until_reaped(&mut term, Duration::from_secs(5)).unwrap();
     assert!(!term.is_running());
 }
 
