@@ -217,6 +217,34 @@ pub fn head_hash(repo: &Path) -> Result<String, GitError> {
     Ok(raw.trim().to_string())
 }
 
+/// Every remote-tracking branch tip as `(branch name, commit hash)` — the
+/// branch name WITHOUT its remote prefix (`origin/exp/EXP-7` → `exp/EXP-7`),
+/// symbolic `<remote>/HEAD` entries skipped. Feeds the history graph's
+/// squash-merge links (EXP-537): the tips are matched against synced PR
+/// branches to close merged lanes back into the trunk.
+pub fn remote_branch_tips(repo: &Path) -> Result<Vec<(String, String)>, GitError> {
+    // NB: for-each-ref hex escapes are `%1f`, not the pretty-format `%x1f`.
+    let raw = run_git(
+        Some(repo),
+        &["for-each-ref", "--format=%(refname:short)%1f%(objectname)", "refs/remotes"],
+        None,
+        "git for-each-ref",
+    )?;
+    Ok(raw
+        .lines()
+        .filter_map(|line| {
+            let (name, hash) = line.trim().split_once('\x1f')?;
+            // Drop the remote segment; a bare remote name (the `origin/HEAD`
+            // symref shortens to `origin`) or an explicit HEAD is skipped.
+            let branch = name.split_once('/').map(|(_, rest)| rest)?;
+            if branch.is_empty() || branch == "HEAD" || hash.is_empty() {
+                return None;
+            }
+            Some((branch.to_string(), hash.to_string()))
+        })
+        .collect())
+}
+
 /// Working-tree diff of one path (`git diff [--cached] -- <path>`), parsed to
 /// the shared [`DiffFile`] model. An empty diff (path clean on the requested
 /// side) yields a zero-hunk [`DiffFile`] rather than an error.
@@ -1420,6 +1448,42 @@ new file mode 100644
         let rest = log_graph(r, 1, 10).unwrap();
         assert_eq!(rest.len(), 2);
         assert_eq!(rest[1].subject, "base");
+    }
+
+    #[test]
+    fn remote_branch_tips_lists_tips_without_the_remote_prefix() {
+        let remote_dir = temp_dir("tips-remote");
+        let bare = remote_dir.0.join("origin.git");
+        fs::create_dir_all(&bare).unwrap();
+        git(&bare, &["init", "--quiet", "--bare", "-b", "main"]);
+
+        let d = temp_dir("tips-work");
+        let r = &d.0;
+        init_repo(r);
+        write(r, "f.txt", "one\n");
+        commit_all(r, "base");
+        git(r, &["remote", "add", "origin", bare.to_str().unwrap()]);
+        git(r, &["push", "--quiet", "-u", "origin", "main"]);
+        git(r, &["checkout", "--quiet", "-b", "exp/EXP-7"]);
+        write(r, "f.txt", "feature\n");
+        commit_all(r, "feature work");
+        git(r, &["push", "--quiet", "origin", "exp/EXP-7"]);
+        let feature_tip = head_hash(r).unwrap();
+        git(r, &["checkout", "--quiet", "main"]);
+        git(r, &["branch", "--quiet", "-D", "exp/EXP-7"]);
+        let main_tip = head_hash(r).unwrap();
+
+        let tips = remote_branch_tips(r).unwrap();
+        assert!(tips.contains(&("exp/EXP-7".to_string(), feature_tip)));
+        assert!(tips.contains(&("main".to_string(), main_tip)));
+        assert!(tips.iter().all(|(branch, _)| !branch.starts_with("origin/")));
+
+        // A remote-less repo has no tips (and no error).
+        let plain = temp_dir("tips-plain");
+        init_repo(&plain.0);
+        write(&plain.0, "f.txt", "x\n");
+        commit_all(&plain.0, "init");
+        assert!(remote_branch_tips(&plain.0).unwrap().is_empty());
     }
 
     #[test]

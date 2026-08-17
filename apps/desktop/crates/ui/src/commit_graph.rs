@@ -9,6 +9,11 @@
 //! Since EXP-518 the window is the multi-ref `scm::log_graph` walk (HEAD +
 //! remote-tracking refs) and an optional trunk-tip seed pins HEAD's line to
 //! lane 0 — squash-merged PR branches render as side lanes off the trunk.
+//! EXP-537 closes those lanes at the top: a [`SquashLink`] declares "this
+//! trunk commit squashed that branch tip", and the layout routes a SYNTHETIC
+//! second parent from the squash commit's dot into the branch lane — drawn
+//! dashed (the merge is by patch, not by ancestry) until the tip's own dot,
+//! where the branch's real history continues solid.
 
 use coding::scm::CommitInfo;
 
@@ -45,6 +50,23 @@ pub struct Edge {
     pub lane_bottom: usize,
     /// Palette index (stable per lane run — a branch keeps its color).
     pub color: usize,
+    /// A [`SquashLink`] connector segment (EXP-537) — drawn dashed: the
+    /// stretch from the squash commit's dot down to the squashed tip's dot,
+    /// where the branch's real ancestry takes over solid.
+    pub synthetic: bool,
+}
+
+/// EXP-537: "trunk commit `commit` squash-merged the branch whose tip is
+/// `tip`" — provider knowledge (PR data), not git ancestry. The layout routes
+/// `tip` like an extra merge parent of `commit`, marked [`Edge::synthetic`],
+/// so a squash-merged branch's lane closes into the trunk instead of
+/// dangling at its tip.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SquashLink {
+    /// The single-parent squash commit on the trunk.
+    pub commit: String,
+    /// The squashed branch's (kept) remote tip.
+    pub tip: String,
 }
 
 /// One commit row's graph geometry.
@@ -64,8 +86,9 @@ pub struct Graph {
     pub rows: Vec<GraphRow>,
     /// Lanes still open after the last row — parents beyond the loaded
     /// window. The "Load more" row paints these as pass-throughs so lanes
-    /// visually run off the bottom. `(lane, color)`.
-    pub tail: Vec<(usize, usize)>,
+    /// visually run off the bottom. `(lane, color, synthetic)` — synthetic
+    /// lanes (a squash link whose tip is beyond the window) stay dashed.
+    pub tail: Vec<(usize, usize, bool)>,
     /// Highest occupied lane over the window (gutter width driver).
     pub max_lane: usize,
 }
@@ -75,14 +98,20 @@ pub struct Graph {
 struct Lane {
     expects: String,
     color: usize,
+    /// Opened by a [`SquashLink`] and not yet resolved at the tip's dot —
+    /// every segment it draws is dashed.
+    synthetic: bool,
 }
 
 /// Lay the loaded commit window out into lanes. The walk runs `--date-order`,
 /// which guarantees a child is emitted before its parents, so no topological
 /// pre-sort is needed. `trunk_tip` is HEAD's hash at load time (EXP-518): it
 /// seeds lane 0 so the trunk keeps lane 0 / color 0 even when a remote branch
-/// tip is newer and rows above it exist.
-pub fn layout(commits: &[CommitInfo], trunk_tip: Option<&str>) -> Graph {
+/// tip is newer and rows above it exist. `links` are the window's squash
+/// merges (EXP-537): each routes its tip like an extra, synthetic merge
+/// parent of the squash commit — the caller guarantees a linked tip never
+/// sits ABOVE its squash commit (else the lane would dangle open forever).
+pub fn layout(commits: &[CommitInfo], trunk_tip: Option<&str>, links: &[SquashLink]) -> Graph {
     let mut lanes: Vec<Option<Lane>> = Vec::new();
     let mut next_color: usize = 0;
     let mut max_lane: usize = 0;
@@ -97,7 +126,11 @@ pub fn layout(commits: &[CommitInfo], trunk_tip: Option<&str>) -> Graph {
     // the condition depends only on `commits[0]` and the tip.
     if let Some(tip) = trunk_tip {
         if commits.first().is_some_and(|c| c.hash != tip) {
-            lanes.push(Some(Lane { expects: tip.to_string(), color: take_color(&mut next_color) }));
+            lanes.push(Some(Lane {
+                expects: tip.to_string(),
+                color: take_color(&mut next_color),
+                synthetic: false,
+            }));
         }
     }
 
@@ -120,7 +153,11 @@ pub fn layout(commits: &[CommitInfo], trunk_tip: Option<&str>) -> Graph {
             Some(&lane) => lane,
             None => {
                 let lane = alloc_lane(&mut lanes);
-                lanes[lane] = Some(Lane { expects: String::new(), color: take_color(&mut next_color) });
+                lanes[lane] = Some(Lane {
+                    expects: String::new(),
+                    color: take_color(&mut next_color),
+                    synthetic: false,
+                });
                 lane
             }
         };
@@ -128,17 +165,23 @@ pub fn layout(commits: &[CommitInfo], trunk_tip: Option<&str>) -> Graph {
 
         // Top halves: every incoming lane draws into the dot (the non-dot
         // ones curve — that child branched off here — and close); every other
-        // occupied lane passes through.
+        // occupied lane passes through. A synthetic lane resolving at its
+        // tip's dot draws its last dashed segment here — below the dot the
+        // branch's real history continues solid.
         for &ix in &incoming {
             edges.push(Edge {
                 kind: EdgeKind::IntoDot,
                 lane_top: ix,
                 lane_bottom: dot_lane,
                 color: lanes[ix].as_ref().map(|l| l.color).unwrap_or(dot_color),
+                synthetic: lanes[ix].as_ref().is_some_and(|l| l.synthetic),
             });
             if ix != dot_lane {
                 lanes[ix] = None;
             }
+        }
+        if let Some(lane) = lanes[dot_lane].as_mut() {
+            lane.synthetic = false;
         }
         for (ix, lane) in lanes.iter().enumerate() {
             if let Some(lane) = lane {
@@ -148,6 +191,7 @@ pub fn layout(commits: &[CommitInfo], trunk_tip: Option<&str>) -> Graph {
                         lane_top: ix,
                         lane_bottom: ix,
                         color: lane.color,
+                        synthetic: lane.synthetic,
                     });
                 }
             }
@@ -174,6 +218,7 @@ pub fn layout(commits: &[CommitInfo], trunk_tip: Option<&str>) -> Graph {
                     lane_top: dot_lane,
                     lane_bottom: dot_lane,
                     color: dot_color,
+                    synthetic: false,
                 });
             }
         }
@@ -188,17 +233,54 @@ pub fn layout(commits: &[CommitInfo], trunk_tip: Option<&str>) -> Graph {
                         lane_top: dot_lane,
                         lane_bottom: join,
                         color,
+                        synthetic: false,
                     });
                 }
                 None => {
                     let lane = alloc_lane(&mut lanes);
                     let color = take_color(&mut next_color);
-                    lanes[lane] = Some(Lane { expects: parent.clone(), color });
+                    lanes[lane] =
+                        Some(Lane { expects: parent.clone(), color, synthetic: false });
                     edges.push(Edge {
                         kind: EdgeKind::OutOfDot,
                         lane_top: dot_lane,
                         lane_bottom: lane,
                         color,
+                        synthetic: false,
+                    });
+                }
+            }
+        }
+
+        // Squash links (EXP-537): route each linked tip exactly like a merge
+        // parent — dashed, on a synthetic lane that resolves at the tip's
+        // dot. A tip that is also a real parent needs no synthetic line.
+        for link in links.iter().filter(|l| l.commit == commit.hash) {
+            if commit.parents.contains(&link.tip) {
+                continue;
+            }
+            match expecting_lane(&lanes, &link.tip) {
+                Some(join) => {
+                    let color = lanes[join].as_ref().map(|l| l.color).unwrap_or(dot_color);
+                    edges.push(Edge {
+                        kind: EdgeKind::OutOfDot,
+                        lane_top: dot_lane,
+                        lane_bottom: join,
+                        color,
+                        synthetic: true,
+                    });
+                }
+                None => {
+                    let lane = alloc_lane(&mut lanes);
+                    let color = take_color(&mut next_color);
+                    lanes[lane] =
+                        Some(Lane { expects: link.tip.clone(), color, synthetic: true });
+                    edges.push(Edge {
+                        kind: EdgeKind::OutOfDot,
+                        lane_top: dot_lane,
+                        lane_bottom: lane,
+                        color,
+                        synthetic: true,
                     });
                 }
             }
@@ -220,7 +302,7 @@ pub fn layout(commits: &[CommitInfo], trunk_tip: Option<&str>) -> Graph {
     let tail = lanes
         .iter()
         .enumerate()
-        .filter_map(|(ix, lane)| lane.as_ref().map(|l| (ix, l.color)))
+        .filter_map(|(ix, lane)| lane.as_ref().map(|l| (ix, l.color, l.synthetic)))
         .collect();
     Graph { rows, tail, max_lane }
 }
@@ -264,13 +346,18 @@ mod tests {
         }
     }
 
+    fn link(commit: &str, tip: &str) -> SquashLink {
+        SquashLink { commit: commit.to_string(), tip: tip.to_string() }
+    }
+
     fn edge(row: &GraphRow, kind: EdgeKind) -> Vec<Edge> {
         row.edges.iter().copied().filter(|e| e.kind == kind).collect()
     }
 
     #[test]
     fn linear_chain_stays_on_lane_zero() {
-        let graph = layout(&[commit("c", &["b"]), commit("b", &["a"]), commit("a", &[])], None);
+        let graph =
+            layout(&[commit("c", &["b"]), commit("b", &["a"]), commit("a", &[])], None, &[]);
         assert_eq!(graph.max_lane, 0);
         assert!(graph.tail.is_empty()); // root reached — nothing open
         for (ix, row) in graph.rows.iter().enumerate() {
@@ -286,6 +373,7 @@ mod tests {
             lane_top: 0,
             lane_bottom: 0,
             color: 0,
+            synthetic: false,
         }]);
         assert!(edge(&graph.rows[2], EdgeKind::OutOfDot).is_empty());
     }
@@ -298,7 +386,7 @@ mod tests {
             commit("f", &["a"]),
             commit("b", &["a"]),
             commit("a", &[]),
-        ], None);
+        ], None, &[]);
         assert_eq!(graph.max_lane, 1);
 
         // Merge row: dot on lane 0, second parent branches out to lane 1
@@ -306,8 +394,8 @@ mod tests {
         let m = &graph.rows[0];
         assert_eq!(m.lane, 0);
         let out: Vec<Edge> = edge(m, EdgeKind::OutOfDot);
-        assert!(out.contains(&Edge { kind: EdgeKind::OutOfDot, lane_top: 0, lane_bottom: 0, color: 0 }));
-        assert!(out.contains(&Edge { kind: EdgeKind::OutOfDot, lane_top: 0, lane_bottom: 1, color: 1 }));
+        assert!(out.contains(&Edge { kind: EdgeKind::OutOfDot, lane_top: 0, lane_bottom: 0, color: 0, synthetic: false }));
+        assert!(out.contains(&Edge { kind: EdgeKind::OutOfDot, lane_top: 0, lane_bottom: 1, color: 1, synthetic: false }));
 
         // f sits on lane 1 and continues straight down toward "a"; the trunk
         // line passes it by.
@@ -318,12 +406,14 @@ mod tests {
             lane_top: 1,
             lane_bottom: 1,
             color: 1,
+            synthetic: false,
         }]);
         assert_eq!(edge(f, EdgeKind::Pass), vec![Edge {
             kind: EdgeKind::Pass,
             lane_top: 0,
             lane_bottom: 0,
             color: 0,
+            synthetic: false,
         }]);
 
         // b continues on lane 0; f's line (also expecting "a") passes by.
@@ -335,6 +425,7 @@ mod tests {
             lane_top: 1,
             lane_bottom: 1,
             color: 1,
+            synthetic: false,
         }]);
 
         // Both lines converge at the fork point "a": a straight IntoDot from
@@ -342,15 +433,16 @@ mod tests {
         let a = &graph.rows[3];
         assert_eq!(a.lane, 0);
         let into: Vec<Edge> = edge(a, EdgeKind::IntoDot);
-        assert!(into.contains(&Edge { kind: EdgeKind::IntoDot, lane_top: 0, lane_bottom: 0, color: 0 }));
-        assert!(into.contains(&Edge { kind: EdgeKind::IntoDot, lane_top: 1, lane_bottom: 0, color: 1 }));
+        assert!(into.contains(&Edge { kind: EdgeKind::IntoDot, lane_top: 0, lane_bottom: 0, color: 0, synthetic: false }));
+        assert!(into.contains(&Edge { kind: EdgeKind::IntoDot, lane_top: 1, lane_bottom: 0, color: 1, synthetic: false }));
         assert!(graph.tail.is_empty());
     }
 
     #[test]
     fn branch_off_converges_both_children_at_the_shared_parent() {
         // Two heads inside the window sharing one parent: h1 → a, h2 → a.
-        let graph = layout(&[commit("h1", &["a"]), commit("h2", &["a"]), commit("a", &[])], None);
+        let graph =
+            layout(&[commit("h1", &["a"]), commit("h2", &["a"]), commit("a", &[])], None, &[]);
         // h2 is a fresh tip → new lane 1, new color, running parallel.
         let h2 = &graph.rows[1];
         assert_eq!((h2.lane, h2.color), (1, 1));
@@ -359,27 +451,28 @@ mod tests {
             lane_top: 1,
             lane_bottom: 1,
             color: 1,
+            synthetic: false,
         }]);
         // Both lines converge at the shared parent's dot.
         let a = &graph.rows[2];
         assert_eq!(a.lane, 0);
         let into: Vec<Edge> = edge(a, EdgeKind::IntoDot);
         assert_eq!(into.len(), 2);
-        assert!(into.contains(&Edge { kind: EdgeKind::IntoDot, lane_top: 1, lane_bottom: 0, color: 1 }));
+        assert!(into.contains(&Edge { kind: EdgeKind::IntoDot, lane_top: 1, lane_bottom: 0, color: 1, synthetic: false }));
         assert!(graph.tail.is_empty());
     }
 
     #[test]
     fn truncated_window_leaves_open_lanes_in_the_tail() {
         // A merge whose parents are both beyond the window.
-        let graph = layout(&[commit("m", &["p0", "p1"]), commit("x", &["p2"])], None);
+        let graph = layout(&[commit("m", &["p0", "p1"]), commit("x", &["p2"])], None, &[]);
         // m keeps lane 0 open (expects p0) and opened lane 1 (expects p1);
         // x is a fresh tip on lane 2 (expects p2).
         assert_eq!(graph.rows[1].lane, 2);
         assert_eq!(graph.tail.len(), 3);
-        assert_eq!(graph.tail[0], (0, 0));
-        assert_eq!(graph.tail[1], (1, 1));
-        assert_eq!(graph.tail[2], (2, 2));
+        assert_eq!(graph.tail[0], (0, 0, false));
+        assert_eq!(graph.tail[1], (1, 1, false));
+        assert_eq!(graph.tail[2], (2, 2, false));
         assert_eq!(graph.max_lane, 2);
     }
 
@@ -394,8 +487,8 @@ mod tests {
             commit("a", &["z"]),
             commit("z", &[]),
         ];
-        let prefix = layout(&full[..3], None);
-        let whole = layout(&full, None);
+        let prefix = layout(&full[..3], None, &[]);
+        let whole = layout(&full, None, &[]);
         assert_eq!(prefix.rows[..], whole.rows[..3]);
     }
 
@@ -409,7 +502,7 @@ mod tests {
             commit("m1", &["b", "f"]),
             commit("f", &["b"]),
             commit("b", &[]),
-        ], None);
+        ], None, &[]);
         assert_eq!(graph.max_lane, 1);
         let m1 = &graph.rows[2];
         // m1's merge parent f re-opens lane 1 with color 2 (0 = trunk,
@@ -419,6 +512,7 @@ mod tests {
             lane_top: 0,
             lane_bottom: 1,
             color: 2,
+            synthetic: false,
         }));
     }
 
@@ -430,6 +524,7 @@ mod tests {
         let graph = layout(
             &[commit("bt", &["a"]), commit("mt", &["a"]), commit("a", &[])],
             Some("mt"),
+            &[],
         );
         let bt = &graph.rows[0];
         assert_eq!((bt.lane, bt.color), (1, 1));
@@ -439,6 +534,7 @@ mod tests {
             lane_top: 0,
             lane_bottom: 0,
             color: 0,
+            synthetic: false,
         }]);
         // The trunk tip lands on the seeded lane with a straight IntoDot from
         // the list's top edge.
@@ -449,6 +545,7 @@ mod tests {
             lane_top: 0,
             lane_bottom: 0,
             color: 0,
+            synthetic: false,
         }]);
         // Both lines converge at the shared fork point.
         let a = &graph.rows[2];
@@ -461,16 +558,16 @@ mod tests {
         // The common case — the trunk tip IS the newest commit: seeding must
         // not change the layout (no spurious top-edge stub into row 0).
         let commits = [commit("c", &["b"]), commit("b", &["a"]), commit("a", &[])];
-        assert_eq!(layout(&commits, Some("c")), layout(&commits, None));
+        assert_eq!(layout(&commits, Some("c"), &[]), layout(&commits, None, &[]));
     }
 
     #[test]
     fn seed_survives_in_tail_when_tip_is_beyond_the_window() {
         // A window of branch-only commits with the trunk tip past its end —
         // the seeded lane stays open and runs off the bottom.
-        let graph = layout(&[commit("bt", &["a"])], Some("mt"));
+        let graph = layout(&[commit("bt", &["a"])], Some("mt"), &[]);
         assert_eq!(graph.rows[0].lane, 1);
-        assert!(graph.tail.contains(&(0, 0)));
+        assert!(graph.tail.contains(&(0, 0, false)));
     }
 
     #[test]
@@ -485,8 +582,137 @@ mod tests {
             commit("a", &["z"]),
             commit("z", &[]),
         ];
-        let prefix = layout(&full[..2], Some("mt"));
-        let whole = layout(&full, Some("mt"));
+        let prefix = layout(&full[..2], Some("mt"), &[]);
+        let whole = layout(&full, Some("mt"), &[]);
+        assert_eq!(prefix.rows[..], whole.rows[..2]);
+    }
+
+    #[test]
+    fn squash_link_closes_the_branch_lane_into_the_trunk() {
+        // EXP-537: s squash-merged the branch whose kept tip is t (s has ONE
+        // real parent b). The link draws a dashed merge-back: s's dot → the
+        // branch lane → t's dot; below t the branch's real history is solid.
+        let graph = layout(
+            &[
+                commit("s", &["b"]),
+                commit("t", &["a"]),
+                commit("b", &["a"]),
+                commit("a", &[]),
+            ],
+            None,
+            &[link("s", "t")],
+        );
+        assert_eq!(graph.max_lane, 1);
+
+        // The squash row branches a dashed connector out to lane 1 with a
+        // fresh color, alongside its real (solid) trunk continuation.
+        let s = &graph.rows[0];
+        assert_eq!(s.lane, 0);
+        let out = edge(s, EdgeKind::OutOfDot);
+        assert!(out.contains(&Edge { kind: EdgeKind::OutOfDot, lane_top: 0, lane_bottom: 0, color: 0, synthetic: false }));
+        assert!(out.contains(&Edge { kind: EdgeKind::OutOfDot, lane_top: 0, lane_bottom: 1, color: 1, synthetic: true }));
+
+        // The tip lands on the synthetic lane: dashed above the dot, solid
+        // real ancestry below it.
+        let t = &graph.rows[1];
+        assert_eq!((t.lane, t.color), (1, 1));
+        assert_eq!(edge(t, EdgeKind::IntoDot), vec![Edge {
+            kind: EdgeKind::IntoDot,
+            lane_top: 1,
+            lane_bottom: 1,
+            color: 1,
+            synthetic: true,
+        }]);
+        assert_eq!(edge(t, EdgeKind::OutOfDot), vec![Edge {
+            kind: EdgeKind::OutOfDot,
+            lane_top: 1,
+            lane_bottom: 1,
+            color: 1,
+            synthetic: false,
+        }]);
+
+        // The branch lane passing b is solid (real history now) and both
+        // lines converge solid at the fork point a.
+        let b = &graph.rows[2];
+        assert_eq!(edge(b, EdgeKind::Pass), vec![Edge {
+            kind: EdgeKind::Pass,
+            lane_top: 1,
+            lane_bottom: 1,
+            color: 1,
+            synthetic: false,
+        }]);
+        let a = &graph.rows[3];
+        assert!(edge(a, EdgeKind::IntoDot).contains(&Edge {
+            kind: EdgeKind::IntoDot,
+            lane_top: 1,
+            lane_bottom: 0,
+            color: 1,
+            synthetic: false,
+        }));
+        assert!(graph.tail.is_empty());
+    }
+
+    #[test]
+    fn squash_link_lane_stays_dashed_while_passing_rows() {
+        // A trunk commit between the squash and the tip: the not-yet-resolved
+        // synthetic lane passes it DASHED.
+        let graph = layout(
+            &[
+                commit("s", &["m"]),
+                commit("m", &["b"]),
+                commit("t", &["a"]),
+                commit("b", &["a"]),
+                commit("a", &[]),
+            ],
+            None,
+            &[link("s", "t")],
+        );
+        let m = &graph.rows[1];
+        assert_eq!(edge(m, EdgeKind::Pass), vec![Edge {
+            kind: EdgeKind::Pass,
+            lane_top: 1,
+            lane_bottom: 1,
+            color: 1,
+            synthetic: true,
+        }]);
+    }
+
+    #[test]
+    fn squash_link_tip_beyond_the_window_rides_the_tail_dashed() {
+        // The linked tip is past the loaded window: the synthetic lane runs
+        // off the bottom dashed, exactly like other open lanes.
+        let graph = layout(&[commit("s", &["b"]), commit("b", &["a"])], None, &[link("s", "t")]);
+        assert_eq!(graph.tail, vec![(0, 0, false), (1, 1, true)]);
+    }
+
+    #[test]
+    fn squash_link_matching_a_real_parent_is_a_noop() {
+        // A true merge commit needs no synthetic line — ancestry already
+        // draws it.
+        let commits = [
+            commit("m", &["b", "t"]),
+            commit("t", &["a"]),
+            commit("b", &["a"]),
+            commit("a", &[]),
+        ];
+        assert_eq!(layout(&commits, None, &[link("m", "t")]), layout(&commits, None, &[]));
+    }
+
+    #[test]
+    fn squash_linked_prefix_is_stable_under_append() {
+        // Links derived from pinned data only ever ADD lanes at or below
+        // their squash row, so recomputing over an extended window keeps the
+        // visible prefix byte-identical.
+        let full = [
+            commit("s2", &["s1"]),
+            commit("t2", &["s1"]),
+            commit("s1", &["b"]),
+            commit("t1", &["b"]),
+            commit("b", &[]),
+        ];
+        let links = [link("s2", "t2"), link("s1", "t1")];
+        let prefix = layout(&full[..2], None, &links);
+        let whole = layout(&full, None, &links);
         assert_eq!(prefix.rows[..], whole.rows[..2]);
     }
 }
