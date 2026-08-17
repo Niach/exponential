@@ -168,15 +168,36 @@ fn handle_connection(
     fallback: &Mutex<MockResponse>,
     shutdown: &AtomicBool,
 ) -> std::io::Result<()> {
-    stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+    // EXP-527: on macOS/BSD an accepted stream INHERITS the listener's
+    // non-blocking flag — a read racing the client's request write then
+    // returned `WouldBlock`, aborted this handler, and dropped the connection
+    // with no response: the "mock-server transport error" flake under
+    // parallel-test load (the client surfaced it as PollFailed and the 401
+    // teardown tests died on it). Force blocking mode and ride out retryable
+    // read errors until the request or a hard deadline arrives.
+    stream.set_nonblocking(false)?;
+    stream.set_read_timeout(Some(Duration::from_millis(200)))?;
+    let deadline = Instant::now() + Duration::from_secs(5);
     let mut buf = Vec::new();
     let mut chunk = [0u8; 1024];
     while !buf.windows(4).any(|w| w == b"\r\n\r\n") {
-        let n = stream.read(&mut chunk)?;
-        if n == 0 {
-            return Ok(()); // closed before a full request — ignore
+        match stream.read(&mut chunk) {
+            Ok(0) => return Ok(()), // closed before a full request — ignore
+            Ok(n) => buf.extend_from_slice(&chunk[..n]),
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock
+                        | std::io::ErrorKind::TimedOut
+                        | std::io::ErrorKind::Interrupted
+                ) =>
+            {
+                if Instant::now() >= deadline || shutdown.load(Ordering::Relaxed) {
+                    return Ok(()); // no full request in time — ignore
+                }
+            }
+            Err(e) => return Err(e),
         }
-        buf.extend_from_slice(&chunk[..n]);
     }
     let text = String::from_utf8_lossy(&buf);
     let mut lines = text.split("\r\n");
@@ -291,6 +312,20 @@ fn upgrade_required_426() -> MockResponse {
 // ---------------------------------------------------------------------------
 // Harness
 // ---------------------------------------------------------------------------
+
+/// EXP-527: every test here runs a real socket server plus real client
+/// threads (the manager tests spawn a full 16-shape pipeline each) and
+/// asserts on timing — poll pacing, backoff-vs-grace ordering, "no polls
+/// after teardown". Under `cargo test`'s default in-binary parallelism that
+/// combined load flaked the 401-teardown tests; the servers are already
+/// port-isolated (each binds `127.0.0.1:0`), so cross-talk isn't the issue —
+/// contention is. Each test holds this lock for its whole body.
+static SERIAL: Mutex<()> = Mutex::new(());
+
+fn serial() -> std::sync::MutexGuard<'static, ()> {
+    // A poisoned lock just means an earlier test failed — don't cascade.
+    SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 struct TempDir {
     path: PathBuf,
@@ -413,6 +448,7 @@ fn issue_ids(store: &ShapeStore) -> HashSet<String> {
 
 #[test]
 fn snapshot_then_live_then_warm_start_resumes_cursor() {
+    let _serial = serial();
     let server = MockShapeServer::start(live_idle("h-1", "0_5", Duration::from_millis(150)));
     server.push(snapshot("h-1", "0_0", &[("a", "A"), ("b", "B")]));
 
@@ -501,6 +537,7 @@ fn snapshot_then_live_then_warm_start_resumes_cursor() {
 
 #[test]
 fn conflict_409_refetches_atomically_with_no_empty_state() {
+    let _serial = serial();
     let server = MockShapeServer::start(live_idle("h-2", "0_7", Duration::from_millis(200)));
     server.push(snapshot("h-1", "0_0", &[("a", "A"), ("b", "B")]));
     server.push(conflict_409("h-2").hold(Duration::from_millis(50)));
@@ -581,6 +618,7 @@ fn conflict_409_refetches_atomically_with_no_empty_state() {
 /// durable empty board (the vanished-issues symptom).
 #[test]
 fn empty_refetch_response_keeps_stale_rows_and_marker() {
+    let _serial = serial();
     // Fallback: the pathological refetch answer — 200, valid electric
     // headers, zero-message body — served forever.
     let server = MockShapeServer::start(
@@ -630,6 +668,7 @@ fn empty_refetch_response_keeps_stale_rows_and_marker() {
 /// were stuck hammering `offset=-1` forever after a forced 409.)
 #[test]
 fn empty_snapshot_refetch_completes_via_snapshot_end() {
+    let _serial = serial();
     let server = MockShapeServer::start(live_idle("h-2", "0_0", Duration::from_millis(50)));
     server.push(snapshot("h-1", "0_0", &[("a", "A"), ("b", "B")]));
     server.push(conflict_409("h-2"));
@@ -681,6 +720,7 @@ fn empty_snapshot_refetch_completes_via_snapshot_end() {
 
 #[test]
 fn dead_token_surfaces_unauthorized_once_and_tears_down() {
+    let _serial = serial();
     let server = MockShapeServer::start(unauthorized_401());
 
     let dir = TempDir::new("401");
@@ -747,6 +787,7 @@ fn dead_token_surfaces_unauthorized_once_and_tears_down() {
 
 #[test]
 fn restart_account_rebuilds_a_live_pipeline() {
+    let _serial = serial();
     let server = MockShapeServer::start(live_idle("h-1", "0_0", Duration::from_millis(50)));
 
     let dir = TempDir::new("restart");
@@ -790,6 +831,7 @@ fn restart_account_rebuilds_a_live_pipeline() {
 
 #[test]
 fn consecutive_401s_past_grace_tear_down() {
+    let _serial = serial();
     let server = MockShapeServer::start(unauthorized_401());
 
     let dir = TempDir::new("401-grace");
@@ -850,6 +892,7 @@ fn consecutive_401s_past_grace_tear_down() {
 
 #[test]
 fn transient_401_recovers_without_logout() {
+    let _serial = serial();
     let server = MockShapeServer::start(live_idle("h-1", "0_0", Duration::from_millis(100)));
     // Two 401s (the deploy blip), then the healed server answers normally.
     server.push(unauthorized_401());
@@ -908,6 +951,7 @@ fn transient_401_recovers_without_logout() {
 
 #[test]
 fn http_500_emits_poll_failed_then_recovers() {
+    let _serial = serial();
     let server = MockShapeServer::start(live_idle("h-1", "0_0", Duration::from_millis(100)));
     server.push(MockResponse::new(500, json!({"message": "boom"})));
     server.push(snapshot("h-1", "0_0", &[("a", "A")]));
@@ -953,6 +997,7 @@ fn http_500_emits_poll_failed_then_recovers() {
 
 #[test]
 fn stale_client_surfaces_upgrade_required_once_and_tears_down() {
+    let _serial = serial();
     let server = MockShapeServer::start(upgrade_required_426());
 
     let dir = TempDir::new("426");
@@ -1009,6 +1054,7 @@ fn stale_client_surfaces_upgrade_required_once_and_tears_down() {
 
 #[test]
 fn idle_live_loop_never_repolls_under_one_second() {
+    let _serial = serial();
     // Pathological server: answers live long-polls INSTANTLY with a bare
     // up-to-date instead of holding ~60s. Without the repeat guard the loop
     // would degrade into a tight short-poll spin.
@@ -1055,6 +1101,7 @@ fn idle_live_loop_never_repolls_under_one_second() {
 
 #[test]
 fn manager_runs_all_15_shapes_and_stops_cleanly() {
+    let _serial = serial();
     let server = MockShapeServer::start(live_idle("h-1", "0_0", Duration::from_millis(30)));
 
     let dir = TempDir::new("mgr");
