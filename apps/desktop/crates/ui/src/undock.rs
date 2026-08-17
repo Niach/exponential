@@ -557,11 +557,9 @@ pub(crate) fn restore_tab_in_owner(
                 .and_then(|root| root.read(cx).view().clone().downcast::<Shell>().ok())
             {
                 let dock_area = team.read(cx).dock_area().clone();
-                if let Some(dock) = dock_area.read(cx).bottom_dock().cloned() {
-                    if !dock.read(cx).is_open() {
-                        dock.update(cx, |dock, cx| dock.set_open(true, window, cx));
-                    }
-                }
+                // EXP-523: through the panel, so a re-dock slides like every
+                // other way the dock opens instead of snapping.
+                crate::terminal_dock::expand_terminal_dock(&dock_area, window, cx);
             }
             manager.update(cx, |manager, cx| {
                 if let Some(ix) = manager.tabs().iter().position(|tab| tab.id == tab_id) {
