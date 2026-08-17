@@ -6,6 +6,7 @@ import {
 } from "@/lib/collections"
 import type { CodingSession, Board } from "@/db/schema"
 import { isCodingSessionStale } from "@exp/db-schema/domain"
+import { sessionDisplayState } from "@/lib/coding-session-display"
 import { useNow } from "@/hooks/use-now"
 
 // Shared nav-count hooks for the sidebar badges (desktop) and the mobile
@@ -80,6 +81,8 @@ export function useAgentsRunningCount(
   )
   return {
     count: live.length,
-    needsInput: live.some((s) => s.needsInput),
+    needsInput: live.some(
+      (s) => sessionDisplayState(s, null) === `needs_input`
+    ),
   }
 }
