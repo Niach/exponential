@@ -60,7 +60,7 @@ fun MarkdownToolbar(
     modifier: Modifier = Modifier,
 ) {
     val activeRowId = model.activeRowId
-    val attrs = activeRowId?.let { model.attrsFor(it) }
+    val attrs = model.attrsAtCaret()
     var attachMenuOpen by remember { mutableStateOf(false) }
 
     Column(modifier = modifier.fillMaxWidth()) {

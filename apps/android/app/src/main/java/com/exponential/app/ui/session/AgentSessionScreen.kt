@@ -846,13 +846,12 @@ private fun NarrationBubble(text: String) {
             modifier = Modifier.size(13.dp).padding(top = 1.dp),
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
         )
-        SelectionContainer(modifier = Modifier.weight(1f)) {
-            // EXP-440: narration is GFM — the agents emit lists, code fences,
-            // links and embedded images. Never folded: it is the feed's
-            // conversation. Bare URLs stay tappable (EXP-430) through the
-            // feed's LocalMarkdownAutolink.
-            MarkdownView(text, softBreaksAsNewlines = true)
-        }
+        // EXP-440: narration is GFM — the agents emit lists, code fences,
+        // links and embedded images. Never folded: it is the feed's
+        // conversation. Bare URLs stay tappable (EXP-430) through the
+        // feed's LocalMarkdownAutolink. MarkdownView brings its own
+        // SelectionContainer (EXP-534).
+        MarkdownView(text, softBreaksAsNewlines = true, modifier = Modifier.weight(1f))
     }
 }
 
@@ -921,17 +920,16 @@ private fun FoldableMarkdown(
 ) {
     val folds = remember(text) { clampable(text) }
     val clampHeight = with(LocalDensity.current) { (MdStyle.lineHeight * CLAMP_LINES).toDp() }
-    SelectionContainer {
-        MarkdownView(
-            text,
-            modifier = if (folds && !expanded) {
-                Modifier.heightIn(max = clampHeight).clipToBounds()
-            } else {
-                Modifier
-            },
-            softBreaksAsNewlines = softBreaks,
-        )
-    }
+    // MarkdownView brings its own SelectionContainer (EXP-534).
+    MarkdownView(
+        text,
+        modifier = if (folds && !expanded) {
+            Modifier.heightIn(max = clampHeight).clipToBounds()
+        } else {
+            Modifier
+        },
+        softBreaksAsNewlines = softBreaks,
+    )
     if (folds) {
         ShowMoreToggle(expanded, onToggle)
     }

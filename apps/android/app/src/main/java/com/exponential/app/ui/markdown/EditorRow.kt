@@ -7,25 +7,32 @@ import com.exponential.app.ui.markdown.model.RichText
 import java.util.UUID
 
 /**
- * An editing-friendly boardion of the block document: a flat, ordered list of
- * single-line paragraphs and images. Each [Para] is exactly one editable line
- * (no embedded `'\n'`), which lets every paragraph be its own `BasicTextField`
- * with independent per-paragraph styling (heading / list glyph / quote / code)
- * — the cleanest mapping onto Compose's text field.
+ * An editing-friendly projection of the block document: a flat, ordered list of
+ * multi-line text runs and images. Each [TextRun] is one run of '\n'-separated
+ * paragraphs between two images, backed by ONE multi-line `BasicTextField` —
+ * the iOS architecture (one `UITextView` per run), which is what lets text
+ * selection span paragraphs, headings, list items, quotes and code fences
+ * (EXP-534). Per-paragraph styling rides the parallel [TextRun.paragraphs]
+ * list; only images split the document into separate fields.
  *
- * Rows convert losslessly to/from [ContentBlock]: consecutive [Para] rows form
- * one [ContentBlock.TextBlock] (joined by `'\n'`), and images split blocks, so
- * the round-trip reconstructs the exact block grouping the serializer expects.
+ * Rows convert losslessly to/from [ContentBlock]: a [TextRun] IS a
+ * [ContentBlock.TextBlock]'s [RichText] plus a stable row id.
  */
 sealed interface EditorRow {
     val id: String
 
-    data class Para(
+    data class TextRun(
         override val id: String = UUID.randomUUID().toString(),
+        /** Multi-line, '\n'-separated. */
         val text: String,
-        val attrs: ParagraphAttrs,
+        /** Invariant: `text.split("\n").size == paragraphs.size`. */
+        val paragraphs: List<ParagraphAttrs>,
+        /** Offsets are text-global (same coordinates as [RichText.marks]). */
         val marks: List<InlineMark>,
-    ) : EditorRow
+    ) : EditorRow {
+        /** The '\n'-delimited lines; always at least one entry. */
+        val lines: List<String> get() = if (text.isEmpty()) listOf("") else text.split("\n")
+    }
 
     data class Image(
         override val id: String = UUID.randomUUID().toString(),
@@ -36,7 +43,10 @@ sealed interface EditorRow {
 
 object EditorRows {
 
-    /** Flatten blocks → rows, splitting each text block's lines into [EditorRow.Para]s. */
+    internal fun emptyRun(): EditorRow.TextRun =
+        EditorRow.TextRun(text = "", paragraphs = listOf(ParagraphAttrs.PLAIN), marks = emptyList())
+
+    /** Blocks → rows: a text block becomes one [EditorRow.TextRun] verbatim. */
     fun fromBlocks(blocks: List<ContentBlock>): List<EditorRow> {
         val rows = mutableListOf<EditorRow>()
         for (block in blocks) {
@@ -45,51 +55,50 @@ object EditorRows {
                 is ContentBlock.TextBlock -> {
                     val rich = block.content
                     val lines = rich.lines
-                    var charStart = 0
-                    for ((i, line) in lines.withIndex()) {
-                        val lineStart = charStart
-                        val lineEnd = charStart + line.length
-                        val local = rich.marks.mapNotNull { m ->
-                            val s = maxOf(m.start, lineStart)
-                            val e = minOf(m.end, lineEnd)
-                            if (e > s) m.copy(start = s - lineStart, end = e - lineStart) else null
-                        }
-                        rows.add(
-                            EditorRow.Para(
-                                text = line,
-                                attrs = rich.paragraphs.getOrElse(i) { ParagraphAttrs.PLAIN },
-                                marks = local,
-                            ),
-                        )
-                        charStart = lineEnd + 1
-                    }
+                    rows.add(
+                        EditorRow.TextRun(
+                            text = rich.text,
+                            // Defensive padding — RichText guarantees the sizes
+                            // match, but a drifted list must not brick editing.
+                            paragraphs = List(lines.size) {
+                                rich.paragraphs.getOrElse(it) { ParagraphAttrs.PLAIN }
+                            },
+                            marks = rich.marks,
+                        ),
+                    )
                 }
             }
         }
         return normalize(rows)
     }
 
-    /** Unflatten rows → blocks, grouping consecutive [EditorRow.Para]s into one text block. */
+    /** Rows → blocks. Consecutive runs (transient states only) join on '\n'. */
     fun toBlocks(rows: List<EditorRow>): List<ContentBlock> {
         val blocks = mutableListOf<ContentBlock>()
-        var paraRun = mutableListOf<EditorRow.Para>()
+        var run: EditorRow.TextRun? = null
         fun flush() {
-            if (paraRun.isEmpty()) return
-            val text = paraRun.joinToString("\n") { it.text }
-            val attrs = paraRun.map { it.attrs }
-            val marks = mutableListOf<InlineMark>()
-            var offset = 0
-            for ((i, p) in paraRun.withIndex()) {
-                for (m in p.marks) marks.add(m.copy(start = m.start + offset, end = m.end + offset))
-                offset += p.text.length
-                if (i < paraRun.size - 1) offset += 1 // '\n'
-            }
-            blocks.add(ContentBlock.TextBlock(content = RichText(text = text, paragraphs = attrs, marks = marks)))
-            paraRun = mutableListOf()
+            val r = run ?: return
+            blocks.add(
+                ContentBlock.TextBlock(
+                    content = RichText(text = r.text, paragraphs = r.paragraphs, marks = r.marks),
+                ),
+            )
+            run = null
         }
         for (row in rows) {
             when (row) {
-                is EditorRow.Para -> paraRun.add(row)
+                is EditorRow.TextRun -> {
+                    val prev = run
+                    run = if (prev == null) {
+                        row
+                    } else {
+                        prev.copy(
+                            text = prev.text + "\n" + row.text,
+                            paragraphs = prev.paragraphs + row.paragraphs,
+                            marks = prev.marks + MarkOps.offset(row.marks, prev.text.length + 1),
+                        )
+                    }
+                }
                 is EditorRow.Image -> {
                     flush()
                     blocks.add(ContentBlock.ImageBlock(url = row.url, alt = row.alt))
@@ -106,19 +115,19 @@ object EditorRows {
     fun normalize(rows: List<EditorRow>): List<EditorRow> {
         val out = rows.toMutableList()
         if (out.isEmpty()) {
-            out.add(EditorRow.Para(text = "", attrs = ParagraphAttrs.PLAIN, marks = emptyList()))
+            out.add(emptyRun())
             return out
         }
         if (out.first() is EditorRow.Image) {
-            out.add(0, EditorRow.Para(text = "", attrs = ParagraphAttrs.PLAIN, marks = emptyList()))
+            out.add(0, emptyRun())
         }
         if (out.last() is EditorRow.Image) {
-            out.add(EditorRow.Para(text = "", attrs = ParagraphAttrs.PLAIN, marks = emptyList()))
+            out.add(emptyRun())
         }
         var i = 1
         while (i < out.size) {
             if (out[i] is EditorRow.Image && out[i - 1] is EditorRow.Image) {
-                out.add(i, EditorRow.Para(text = "", attrs = ParagraphAttrs.PLAIN, marks = emptyList()))
+                out.add(i, emptyRun())
             }
             i++
         }

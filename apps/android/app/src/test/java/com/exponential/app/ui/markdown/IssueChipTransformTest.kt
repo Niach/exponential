@@ -1,7 +1,9 @@
 package com.exponential.app.ui.markdown
 
+import com.exponential.app.ui.markdown.model.BlockKind
 import com.exponential.app.ui.markdown.model.InlineKind
 import com.exponential.app.ui.markdown.model.InlineMark
+import com.exponential.app.ui.markdown.model.ParagraphAttrs
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
@@ -27,8 +29,9 @@ class IssueChipTransformTest {
         source: String,
         marks: List<InlineMark> = emptyList(),
         handler: IssueRefHandler? = refs("EXP-238" to "mobile chips broken"),
-        enabled: Boolean = true,
-    ) = IssueChipTransform.build(source, marks, handler, enabled)
+        paragraphs: List<ParagraphAttrs> =
+            List(ParaRemap.lineCount(source)) { ParagraphAttrs.PLAIN },
+    ) = IssueChipTransform.build(source, marks, handler, paragraphs)
 
     // --- identity cases -----------------------------------------------------
 
@@ -61,8 +64,22 @@ class IssueChipTransformTest {
     }
 
     @Test
-    fun disabledRowIsIdentity() {
-        assertTrue(build("see #EXP-238", enabled = false).isIdentity)
+    fun tokenOnACodeLineIsIdentity() {
+        val codeLine = ParagraphAttrs(kind = BlockKind.CodeBlock)
+        assertTrue(build("see #EXP-238", paragraphs = listOf(codeLine)).isIdentity)
+    }
+
+    /** Multi-line runs (EXP-534): gating is per LINE, not per field. */
+    @Test
+    fun codeLineGatingLeavesOtherLinesChipping() {
+        val source = "see #EXP-238\n#EXP-238 literal"
+        val t = build(
+            source,
+            paragraphs = listOf(ParagraphAttrs.PLAIN, ParagraphAttrs(kind = BlockKind.CodeBlock)),
+        )
+        assertEquals(1, t.chips.size)
+        assertEquals(4, t.chips.single().sourceStart)
+        assertEquals("see #EXP-238 mobile chips broken\n#EXP-238 literal", t.display)
     }
 
     @Test

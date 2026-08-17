@@ -46,9 +46,16 @@ object MdStyle {
 
     val mono = body.copy(fontFamily = FontFamily.Monospace, fontSize = bodySize * 0.9f)
 
-    // List indentation (iOS headIndent = depth*20 + 24).
+    // List indentation (iOS headIndent = depth*20 + 24). The glyph (bullet /
+    // number / checkbox) occupies a [listGlyphWidth] column starting at the
+    // indent; the text begins after it (EXP-534: as a TextIndent inside the
+    // run's one multi-line field, with the glyph painted into the margin).
     val listIndentBase = 24.dp
     val listIndentPerDepth = 20.dp
+    val listGlyphWidth = 24.dp
+
+    // Code block left inset (the old per-row decoration's horizontal padding).
+    val codeInsetX = 8.dp
 
     // Blockquote geometry (EXP-246, Linear-style): a vertical left bar with the
     // quoted text indented beside it.
