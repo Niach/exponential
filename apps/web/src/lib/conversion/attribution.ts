@@ -77,6 +77,12 @@ function hasSessionCookie(req: Request): boolean {
   return (req.headers.get(`cookie`) ?? ``).includes(`session_token`)
 }
 
+// Paths no capture may ever record: APIs, widget assets, the helpdesk
+// magic-link surface (its URL is a credential), invite links (the token is a
+// team-join bearer secret and must never land in conversion_events —
+// invite_accepted is tracked separately), router internals.
+const EXCLUDED_PREFIXES = [`/api/`, `/widget/`, `/support`, `/invite/`, `/_`]
+
 // A real human browser navigating to a document: GET, HTML accept, not an
 // asset path or API, not a speculative prefetch, not a known crawler.
 function isDocumentNavigation(req: Request): boolean {
@@ -84,7 +90,9 @@ function isDocumentNavigation(req: Request): boolean {
   const accept = req.headers.get(`accept`) ?? ``
   if (!accept.includes(`text/html`)) return false
   const { pathname } = new URL(req.url)
-  if (pathname.startsWith(`/api/`) || pathname.startsWith(`/_`)) return false
+  if (EXCLUDED_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
+    return false
+  }
   const lastSegment = pathname.split(`/`).pop() ?? ``
   if (lastSegment.includes(`.`)) return false
   if (isSpeculativeRequest(req)) return false

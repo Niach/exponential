@@ -212,6 +212,14 @@ describe(`shouldCaptureReturnVisit`, () => {
       )
     ).toBe(false)
   })
+
+  it(`rejects credential-bearing paths — the token must never land in conversion_events`, () => {
+    for (const path of [`/invite/${`ab`.repeat(32)}`, `/support/tok123`]) {
+      expect(
+        shouldCaptureReturnVisit(landingRequest(`https://x.test${path}`, cookie))
+      ).toBe(false)
+    }
+  })
 })
 
 describe(`truncateAttributionInput`, () => {
