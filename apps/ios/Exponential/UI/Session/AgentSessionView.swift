@@ -852,7 +852,7 @@ private struct NarrationBubble: View {
 /// the user — without it a feed that ends in tool rows gives no cue whether
 /// the agent is still going. Static under Reduce Motion.
 private struct WorkingIndicatorRow: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motion) private var motion
     @State private var pulsing = false
 
     var body: some View {
@@ -866,8 +866,15 @@ private struct WorkingIndicatorRow: View {
         .padding(.vertical, 5)
         .opacity(pulsing ? 0.4 : 1)
         .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+            // EXP-523: ambient loops keep their own periods — a different
+            // design axis from the shared duration tokens — but read the
+            // Reduce Motion decision from `motion` rather than the raw
+            // environment key. The flag must STAY false there: `pulsing`
+            // drives the resting opacity too, so flipping it with a nil
+            // animation would pin the row at 0.4 instead of leaving it
+            // static.
+            guard !motion.reduceMotion else { return }
+            withAnimation(motion.pulse(duration: 0.9)) {
                 pulsing = true
             }
         }
@@ -1593,7 +1600,7 @@ private struct StatusDot: View {
     /// answer, not stuck (EXP-97).
     var awaiting: Bool = false
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motion) private var motion
     @State private var pulsing = false
 
     private var connecting: Bool {
@@ -1618,12 +1625,13 @@ private struct StatusDot: View {
             // Value-bound so the repeat dies with the flag — an open-ended
             // withAnimation(.repeatForever) here kept driving the render loop
             // after the phase moved on (EXP-70).
-            .animation(
-                pulsing ? .easeInOut(duration: 0.65).repeatForever(autoreverses: true) : nil,
-                value: pulsing
-            )
-            .onAppear { pulsing = connecting && !reduceMotion }
-            .onChange(of: connecting) { _, now in pulsing = now && !reduceMotion }
+            .animation(pulsing ? motion.pulse(duration: 0.65) : nil, value: pulsing)
+            // EXP-523: the Reduce Motion decision comes from `motion` now, but
+            // it still has to gate the FLAG, not just the animation — `pulsing`
+            // also drives the resting opacity, so setting it with no animation
+            // would leave the dot permanently dimmed to 0.35.
+            .onAppear { pulsing = connecting && !motion.reduceMotion }
+            .onChange(of: connecting) { _, now in pulsing = now && !motion.reduceMotion }
     }
 }
 

@@ -16,6 +16,7 @@ struct IssueListView: View {
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
+    @Environment(\.motion) private var motion
     @State private var viewModel: IssueListViewModel?
     @State private var showFilterSheet = false
     // Multi-select mode (EXP-239): long-press a row to enter, tap toggles,
@@ -239,6 +240,11 @@ struct IssueListView: View {
                         }
                     }
                 }
+                // EXP-523: rows move when the list's shape changes — a
+                // status swipe, a filter, an incoming sync — instead of
+                // snapping. Keyed on the view model's cheap layout signature
+                // rather than on the sorted rows themselves.
+                .animation(motion.standard, value: vm.layoutSignature)
                 .listStyle(.plain)
                 // Zero the List's own default horizontal content margins so the
                 // 16pt listRowInsets alone govern the gutter (Android parity) — the
@@ -600,7 +606,7 @@ struct IssueListView: View {
 
     private func enterSelection(with issueId: String, vm: IssueListViewModel) {
         guard !selectionActive else { return }
-        withAnimation(.snappy(duration: 0.2)) {
+        withAnimation(motion.standard) {
             selectionActive = true
             selectedIds = [issueId]
         }
@@ -626,7 +632,7 @@ struct IssueListView: View {
     }
 
     private func exitSelection() {
-        withAnimation(.snappy(duration: 0.2)) {
+        withAnimation(motion.standard) {
             selectionActive = false
             selectedIds = []
         }
@@ -977,12 +983,12 @@ struct IssueListView: View {
     }
 
     private func showNotice(_ message: String, isError: Bool) {
-        withAnimation(.snappy(duration: 0.2)) {
+        withAnimation(motion.standard) {
             startNotice = StartNotice(message: message, isError: isError)
         }
         Task {
             try? await Task.sleep(for: .seconds(6))
-            withAnimation(.snappy(duration: 0.2)) {
+            withAnimation(motion.standard) {
                 if startNotice?.message == message {
                     startNotice = nil
                 }

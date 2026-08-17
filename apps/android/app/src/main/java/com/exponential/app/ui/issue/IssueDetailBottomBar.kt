@@ -4,7 +4,6 @@ import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -54,6 +53,8 @@ import com.exponential.app.ui.markdown.MarkdownEditor
 import com.exponential.app.ui.markdown.MentionMember
 import com.exponential.app.ui.markdown.hasDraftImages
 import com.exponential.app.ui.markdown.rememberMarkdownImagePicker
+import com.exponential.app.ui.theme.LocalReduceMotion
+import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.AccentIndigo
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -71,7 +72,6 @@ sealed interface StartButtonUi {
 }
 
 private val BarStroke = Color.White.copy(alpha = 0.12f)
-private const val ExpandMs = 280
 
 /**
  * The floating three-element bottom bar of the issue detail (EXP-240), cloning
@@ -132,10 +132,16 @@ fun IssueDetailBottomBar(
         }
     }
 
+    // EXP-523: `transitionSpec` is a plain lambda, not a composable one, so the
+    // reduce-motion flag is read here and captured.
+    val reduceMotion = LocalReduceMotion.current
     AnimatedContent(
         targetState = expanded,
         transitionSpec = {
-            (fadeIn(tween(ExpandMs)) togetherWith fadeOut(tween(ExpandMs)))
+            // The shared `slow` token replaces the local ExpandMs (same
+            // 280ms), and reduce-motion now collapses it to `snap()`.
+            val spec = Motion.slow<Float>(reduceMotion)
+            (fadeIn(spec) togetherWith fadeOut(spec))
                 .using(SizeTransform(clip = false))
         },
         label = "issue-bottom-bar",

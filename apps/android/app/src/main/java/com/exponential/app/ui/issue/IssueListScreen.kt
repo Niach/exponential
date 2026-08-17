@@ -698,12 +698,15 @@ private fun IssueListContent(
                 state.groups.forEach { group ->
                     val isCollapsed = group.status.id in collapsed
                     item(key = "header-${group.status.id}") {
-                        StatusHeader(
-                            status = group.status,
-                            count = group.issues.size,
-                            collapsed = isCollapsed,
-                            onToggle = { onToggleCollapsed(group.status.id, isCollapsed) },
-                        )
+                        // EXP-523: headers ride the same reflow as their rows.
+                        Box(Modifier.animateItem()) {
+                            StatusHeader(
+                                status = group.status,
+                                count = group.issues.size,
+                                collapsed = isCollapsed,
+                                onToggle = { onToggleCollapsed(group.status.id, isCollapsed) },
+                            )
+                        }
                     }
                     if (!isCollapsed) {
                         items(group.issues, key = { it.issue.id }) { entry ->
@@ -753,6 +756,11 @@ private fun IssueListContent(
                                 } else {
                                     null
                                 },
+                                // EXP-523: a status change moves an issue to
+                                // another group, and a filter change drops
+                                // rows out. Without this they teleport; with
+                                // it the row slides to where it landed.
+                                modifier = Modifier.animateItem(),
                             )
                         }
                     }
@@ -891,12 +899,16 @@ internal fun IssueRow(
     // leave it null and get the anchor-enum glyph, which is correct for the
     // builtins and never wrong-team.
     resolvedStatus: ResolvedIssueStatus? = null,
+    // EXP-523: lets a LazyColumn caller pass `Modifier.animateItem()` so rows
+    // slide when the list reorders. Every call site names its arguments, so
+    // this sits at the end without breaking any of them.
+    modifier: Modifier = Modifier,
 ) {
     val status = IssueStatus.fromWire(issue.status)
     val priority = IssuePriority.fromWire(issue.priority)
     val rowShape = RoundedCornerShape(GlassTokens.RowRadius)
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .glassRow()
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)

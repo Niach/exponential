@@ -1,7 +1,6 @@
 package com.exponential.app.ui.issue
 
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -44,6 +43,7 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.MentionMember
+import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.fullBleed
@@ -119,7 +119,9 @@ fun CommentThread(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 12.dp)
-            .animateContentSize(tween(280)),
+            // EXP-523: the shared `slow` token (280ms, unchanged) — and
+            // now `snap()` when the OS has animations off.
+            .animateContentSize(Motion.slow()),
     ) {
         HorizontalDivider(
             modifier = Modifier.fullBleed(hostPadding),

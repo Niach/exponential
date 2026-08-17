@@ -69,10 +69,11 @@ internal fun animationsDisabled(resolver: ContentResolver): Boolean =
  * reach for these. Every spec collapses to [snap] when the OS has animations
  * off, which is the Compose equivalent of iOS's nil `Animation`.
  *
- * Two flavours of each: a `@Composable` one that reads [LocalReduceMotion]
- * itself, and a plain one taking the flag, for the non-composable lambdas
- * (NavHost's enter/exitTransition) — read `LocalReduceMotion.current` above the
- * NavHost and pass it down.
+ * Two flavours of each: a zero-arg `@Composable` one that reads
+ * [LocalReduceMotion] itself, and an explicit one taking the flag, for the
+ * lambdas that are NOT composable — `AnimatedContent`'s `transitionSpec` and
+ * `NavHost`'s enter/exit transitions. In those, read `LocalReduceMotion.current`
+ * in the enclosing composable and pass it down.
  */
 object Motion {
     fun <T> fast(
@@ -90,17 +91,18 @@ object Motion {
         easing: Easing = DesignTokens.Motion.Ease.Standard,
     ): FiniteAnimationSpec<T> = spec(DesignTokens.Motion.Duration.Slow, easing, reduceMotion)
 
+    // The composable forms take NO arguments on purpose: a zero-arg overload
+    // beside a `(Boolean, Easing = …)` one can never be ambiguous, and nothing
+    // yet needs a non-default curve from composable scope. If something does,
+    // reach for the explicit form above rather than adding a default here.
     @Composable
-    fun <T> fast(easing: Easing = DesignTokens.Motion.Ease.Standard): FiniteAnimationSpec<T> =
-        fast(LocalReduceMotion.current, easing)
+    fun <T> fast(): FiniteAnimationSpec<T> = fast(LocalReduceMotion.current)
 
     @Composable
-    fun <T> standard(easing: Easing = DesignTokens.Motion.Ease.Standard): FiniteAnimationSpec<T> =
-        standard(LocalReduceMotion.current, easing)
+    fun <T> standard(): FiniteAnimationSpec<T> = standard(LocalReduceMotion.current)
 
     @Composable
-    fun <T> slow(easing: Easing = DesignTokens.Motion.Ease.Standard): FiniteAnimationSpec<T> =
-        slow(LocalReduceMotion.current, easing)
+    fun <T> slow(): FiniteAnimationSpec<T> = slow(LocalReduceMotion.current)
 
     private fun <T> spec(
         durationMs: Int,

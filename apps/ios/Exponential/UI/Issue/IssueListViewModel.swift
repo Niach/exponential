@@ -226,6 +226,25 @@ final class IssueListViewModel {
         )
     }
 
+    /// EXP-523: a cheap value that changes exactly when the list's SHAPE does
+    /// — which issues are visible, and which group each one lands in. Bound to
+    /// the List's `.animation(_:value:)` so a status change, a filter change or
+    /// an incoming sync MOVES rows instead of teleporting them.
+    ///
+    /// Deliberately a hash rather than the rows themselves: `issues(forGroup:)`
+    /// sorts each group, and re-deriving all of that just to compare would
+    /// double the list's cost on every render. This is one O(n) pass with no
+    /// allocation.
+    var layoutSignature: Int {
+        let team = teamStatuses
+        var hasher = Hasher()
+        for issue in filteredIssues {
+            hasher.combine(issue.id)
+            hasher.combine(IssueStatusResolver.resolve(issue, team: team).id)
+        }
+        return hasher.finalize()
+    }
+
     func labelsFor(issueId: String) -> [LabelEntity] {
         let labelIds = issueLabels.filter { $0.issueId == issueId }.map(\.labelId)
         return labels.filter { labelIds.contains($0.id) }

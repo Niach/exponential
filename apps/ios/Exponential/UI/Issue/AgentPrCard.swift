@@ -224,7 +224,7 @@ struct AgentPrCard: View {
 /// the "Coding now" green, animated. Static under Reduce Motion. Shared by the
 /// issue-detail card, the bottom bar's start circle, and the Agents tab.
 struct PulsingLiveDot: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motion) private var motion
     @State private var pulsing = false
 
     var body: some View {
@@ -238,8 +238,16 @@ struct PulsingLiveDot: View {
                     .opacity(pulsing ? 0 : 0.8)
             )
             .onAppear {
-                guard !reduceMotion else { return }
-                withAnimation(.easeOut(duration: 1.4).repeatForever(autoreverses: false)) {
+                // EXP-523: the period and the outward-only curve stay this
+                // indicator's own; only the Reduce Motion decision moves into
+                // the shared helper. The guard stays because `pulsing` drives
+                // the ring's resting scale/opacity too — flipping it with no
+                // animation would snap the ring to scale 2.2 at opacity 0,
+                // i.e. delete it, instead of leaving a static ring.
+                guard !motion.reduceMotion else { return }
+                withAnimation(
+                    motion.pulse(duration: 1.4, autoreverses: false, curve: .easeOut)
+                ) {
                     pulsing = true
                 }
             }

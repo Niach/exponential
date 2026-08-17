@@ -45,11 +45,11 @@ public struct Motion: Sendable {
     }
 
     /// Hover / opacity micro-feedback.
-    public var fast: Animation? { curve(DesignTokens.Motion.Duration.fast) }
+    public var fast: Animation? { timing(DesignTokens.Motion.Duration.fast) }
     /// The default: enter/exit, expand/collapse, position changes.
-    public var standard: Animation? { curve(DesignTokens.Motion.Duration.standard) }
+    public var standard: Animation? { timing(DesignTokens.Motion.Duration.standard) }
     /// Large surfaces — sheets, full-screen pushes, docks.
-    public var slow: Animation? { curve(DesignTokens.Motion.Duration.slow) }
+    public var slow: Animation? { timing(DesignTokens.Motion.Duration.slow) }
 
     /// For things arriving on screen (enter-only transitions).
     public func decelerate(
@@ -65,18 +65,36 @@ public struct Motion: Sendable {
         reduceMotion ? nil : DesignTokens.Motion.Ease.accelerate.animation(duration: duration)
     }
 
-    /// Ambient status loops (the "working…" pulses). Their periods are NOT
-    /// tokenised — each indicator picks its own — but they route through here
-    /// so Reduce Motion is honoured in one place, and so an open-ended repeat
-    /// never drives the render loop when the user has asked for stillness
-    /// (EXP-70).
-    public func pulse(duration: TimeInterval, autoreverses: Bool = true) -> Animation? {
-        reduceMotion
-            ? nil
-            : .easeInOut(duration: duration).repeatForever(autoreverses: autoreverses)
+    /// Shape of an ambient loop. A breathing opacity wants to ease at both
+    /// ends; a ring expanding outward from a dot wants to decelerate only.
+    public enum PulseCurve: Sendable {
+        case easeInOut
+        case easeOut
     }
 
-    private func curve(_ duration: TimeInterval) -> Animation? {
+    /// Ambient status loops (the "working…" pulses). Their periods and curves
+    /// are NOT tokenised — each indicator picks its own, they are a different
+    /// design axis from the shared enter/exit durations — but they route
+    /// through here so Reduce Motion is honoured in ONE place, and so an
+    /// open-ended repeat never drives the render loop when the user has asked
+    /// for stillness (EXP-70).
+    public func pulse(
+        duration: TimeInterval,
+        autoreverses: Bool = true,
+        curve: PulseCurve = .easeInOut
+    ) -> Animation? {
+        guard !reduceMotion else { return nil }
+        let base: Animation
+        switch curve {
+        case .easeInOut: base = Animation.easeInOut(duration: duration)
+        case .easeOut: base = Animation.easeOut(duration: duration)
+        }
+        return base.repeatForever(autoreverses: autoreverses)
+    }
+
+    /// The default curve at an arbitrary duration. Named `timing` rather than
+    /// `curve` so it does not read as shadowed by `pulse`'s `curve:` label.
+    private func timing(_ duration: TimeInterval) -> Animation? {
         reduceMotion ? nil : DesignTokens.Motion.Ease.standard.animation(duration: duration)
     }
 }
