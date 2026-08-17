@@ -1,4 +1,4 @@
-- Archive boards to hide finished work without deleting it
-- Attach images to steering messages, the agent sees exactly what you see
-- Permission prompts from the newest agent CLIs answer reliably again, including typed replies
+- Everything moves: screens, lists, and tabs animate with one shared timing, and Reduce Motion switches it all off
+- Start multi-issue batch coding runs from your phone and land right on the live session
+- Clearer session states: once a PR is open the run reads Ready for review instead of a stale Needs input
 - Smaller fixes and polish
