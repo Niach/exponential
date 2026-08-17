@@ -92,14 +92,15 @@ final class IssueDetailViewModel {
     /// The caller's online desktops; nil until presence resolves.
     var steerDevices: [SteerDevice]?
     /// True from "start sent" until the desktop's session row lands (or the
-    /// 30s grace elapses) — renders the circle as a spinner. Single-issue
-    /// starts only; batch runs get `batchStartNotice` instead.
+    /// watch deadline elapses) — renders the circle as a spinner. EXP-536:
+    /// batch runs use it too; their row is issue-LESS so it never syncs into
+    /// this issue's `runningSessions`, but the watcher below recognizes it and
+    /// the screen pushes straight into the session.
     var startPending = false
-    /// Transient confirmation after a BATCH start (2+ issues): the batch
-    /// session row is issue-LESS (issue_id NULL), so it never syncs into this
-    /// issue's `runningSessions` and the start circle can't reflect it —
-    /// surface explicit "follow it in the Agents tab" feedback instead.
-    var batchStartNotice: String?
+    /// EXP-536: the post-send session watch, shared with every other start
+    /// surface — it resolves the run's row and hands its id to the view's
+    /// navigation exactly once.
+    let startWatcher = StartedRunWatcher()
 
     /// EXP-496: the widget/agent submission metadata behind this issue
     /// (`widgets.submissionForIssue`, server-only). `nil` = loading, fetch
@@ -552,28 +553,24 @@ final class IssueDetailViewModel {
     }
 
     /// Remote-start on the chosen desktop (ported from AgentPrCard.start):
-    /// 1 issue → single session, 2+ → batch. The desktop inserts the
-    /// coding_sessions row when the launcher spins up, which flips the circle
-    /// to the session dot via sync; re-enable after a 30s grace window in
-    /// case it never does.
+    /// 1 issue → single session, 2+ → batch. EXP-536: both spin the start
+    /// circle until the desktop's coding_sessions row syncs in, and the screen
+    /// then PUSHES that session — a batch row is issue-LESS, so it never lands
+    /// in this issue's `runningSessions` and used to be reduced to a "follow
+    /// it in the Agents tab" alert.
     func startCoding(on device: SteerDevice, issueIds: [String], options: SteerStartOptions) {
-        guard !issueIds.isEmpty else { return }
-        let isBatch = issueIds.count > 1
-        // A batch run's session row is issue-less and never lands in this
-        // issue's runningSessions — a spinner would just time out silently,
-        // so only single-issue starts show the pending state.
-        startPending = !isBatch
+        guard let key = StartedRunKey.forIssues(issueIds) else { return }
+        startPending = true
+        startWatcher.sending()
         Task {
             do {
-                if isBatch {
+                if issueIds.count > 1 {
                     try await steerApi.startSession(
                         accountId: accountId,
                         issueIds: issueIds,
                         deviceId: device.deviceId,
                         options: options
                     )
-                    let label = device.deviceLabel.isEmpty ? "your desktop" : device.deviceLabel
-                    batchStartNotice = "Batch start sent to \(label). Follow it in the Agents tab."
                 } else {
                     try await steerApi.startSession(
                         accountId: accountId,
@@ -581,13 +578,24 @@ final class IssueDetailViewModel {
                         deviceId: device.deviceId,
                         options: options
                     )
-                    Task {
-                        try? await Task.sleep(for: .seconds(30))
-                        startPending = false
-                    }
+                }
+                startWatcher.begin(
+                    key: key,
+                    userId: auth.userId,
+                    device: device,
+                    db: db,
+                    accountId: accountId
+                )
+                // The spinner and the watch share a deadline: one that died
+                // first would strand a late push with no explanation, one that
+                // outlived it would spin forever.
+                Task {
+                    try? await Task.sleep(for: .seconds(StartedRunMatch.deadline))
+                    startPending = false
                 }
             } catch {
                 startPending = false
+                startWatcher.failed(error.localizedDescription)
                 self.error = error.localizedDescription
             }
         }

@@ -240,20 +240,23 @@ fun IssueDetailScreen(
         }
     }
 
-    // Remote-start feedback (EXP-240 — the inline captions left with the card's
-    // start strip): failures surface as a snackbar; a batch send points at the
-    // Agents tab (the single-issue send keeps spinning in the start circle
-    // until the session row syncs in).
+    // Remote-start feedback (EXP-240 — the inline captions left with the
+    // card's start strip): failures surface as a snackbar. EXP-536: a
+    // successful send says nothing — single and batch alike keep spinning in
+    // the start circle until the session row syncs in, and the screen then
+    // opens the live session below.
     LaunchedEffect(startState) {
-        when (val s = startState) {
-            is SteerStartState.Failed -> snackbarHostState.showSnackbar(s.message)
-            is SteerStartState.Sent ->
-                if (s.isBatch) {
-                    snackbarHostState.showSnackbar(
-                        "Batch start sent to ${s.deviceLabel}. Follow it in the Agents tab.",
-                    )
-                }
-            else -> Unit
+        (startState as? SteerStartState.Failed)?.let {
+            snackbarHostState.showSnackbar(it.message)
+        }
+    }
+
+    // The desktop picked the start up — open the live session ONCE (EXP-536).
+    val startedSessionId by viewModel.startedSessionId.collectAsStateWithLifecycle()
+    LaunchedEffect(startedSessionId) {
+        startedSessionId?.let {
+            viewModel.consumeStartedSession()
+            onOpenSteer(it)
         }
     }
 

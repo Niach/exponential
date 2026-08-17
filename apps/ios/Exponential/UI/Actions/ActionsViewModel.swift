@@ -5,19 +5,12 @@ import GRDB
 /// Backs the Actions surface (EXP-253, mobile = view + run only): the active
 /// team's action prompts LIVE from the synced local store (EXP-268 — actions
 /// became the 15th Electric shape, minus `body`, which nothing here needs)
-/// plus the remote-run flow. After the server accepts a start,
-/// the model watches the synced `coding_sessions` table for the row the
-/// desktop inserts (this action's NAME snapshot + the caller's own userId + a
-/// recent startedAt — never the action id: the builtin "Create action" run's
-/// row carries `action_id` NULL, EXP-257) and surfaces it exactly once as
-/// `startedSession` so the view can jump into the existing live steer screen.
+/// plus the remote-run flow. EXP-536: after the server accepts ANY start —
+/// an action run or an issue/batch run off the sheet's Issues tab — the shared
+/// `StartedRunWatcher` waits for the row the desktop inserts and surfaces it
+/// exactly once, so the view jumps into the live steer screen.
 @MainActor @Observable
 final class ActionsViewModel {
-    /// The freshly-started run's session — consumed once by the view's
-    /// navigation push.
-    struct StartedSession: Hashable {
-        let sessionId: String
-    }
 
     var actions: [ActionDto] = []
     var isLoading = false
@@ -29,12 +22,11 @@ final class ActionsViewModel {
     // the read lands after presentation.
     var startCandidates: [StartCodingSheet.IssueOption] = []
 
-    // Run feedback (the AgentsView split): success caption (informational,
-    // tertiary) vs failure (red) — a start error must read as an error and a
-    // fresh attempt supersedes both.
-    var sentCaption: String?
-    var startError: String?
-    var startedSession: StartedSession?
+    // Run feedback (the AgentsView split): an informational "waiting for the
+    // desktop" caption vs a red failure — a start error must read as an error
+    // and a fresh attempt supersedes both. EXP-536: both live on the watcher
+    // now, alongside the one-shot navigation target it resolves.
+    let startWatcher = StartedRunWatcher()
 
     private let accountId: String
     private let db: DatabaseManager
@@ -42,8 +34,6 @@ final class ActionsViewModel {
 
     private var loadedTeamId: String?
     private var actionsObservationTask: Task<Void, Never>?
-    private var watchTask: Task<Void, Never>?
-    private var watchDeadlineTask: Task<Void, Never>?
 
     init(accountId: String, db: DatabaseManager, steerApi: SteerApi) {
         self.accountId = accountId
@@ -109,10 +99,7 @@ final class ActionsViewModel {
         inputs: [String: String],
         userId: String?
     ) {
-        // A fresh attempt supersedes the previous outcome (success or error).
-        sentCaption = nil
-        startError = nil
-        let label = device.deviceLabel.isEmpty ? device.deviceId : device.deviceLabel
+        startWatcher.sending()
         Task {
             do {
                 try await steerApi.startSession(
@@ -123,10 +110,15 @@ final class ActionsViewModel {
                     options: options,
                     inputs: inputs.isEmpty ? nil : inputs
                 )
-                sentCaption = "Start sent to \(label). Waiting for the desktop…"
-                watchForStartedRun(actionName: action.name, userId: userId)
+                startWatcher.begin(
+                    key: .action(name: action.name),
+                    userId: userId,
+                    device: device,
+                    db: db,
+                    accountId: accountId
+                )
             } catch {
-                startError = error.localizedDescription
+                startWatcher.failed(error.localizedDescription)
             }
         }
     }
@@ -144,18 +136,20 @@ final class ActionsViewModel {
 
     /// Remote-start issues from the unified sheet's Issues tab (the
     /// AgentsView.start twin, surfaced through the same captions): 1 id
-    /// launches a plain single-issue session, 2+ a batch. No session watch —
-    /// the run surfaces on the Agents tab via sync like any desktop start.
-    func startCoding(device: SteerDevice, issueIds: [String], options: SteerStartOptions) {
-        guard !issueIds.isEmpty else { return }
-        // A fresh attempt supersedes the previous outcome (success or error).
-        sentCaption = nil
-        startError = nil
-        let isBatch = issueIds.count > 1
-        let label = device.deviceLabel.isEmpty ? device.deviceId : device.deviceLabel
+    /// launches a plain single-issue session, 2+ a batch. EXP-536: both wait
+    /// for the desktop's row and push the live session, exactly like an
+    /// action run.
+    func startCoding(
+        device: SteerDevice,
+        issueIds: [String],
+        options: SteerStartOptions,
+        userId: String?
+    ) {
+        guard let key = StartedRunKey.forIssues(issueIds) else { return }
+        startWatcher.sending()
         Task {
             do {
-                if isBatch {
+                if issueIds.count > 1 {
                     try await steerApi.startSession(
                         accountId: accountId,
                         issueIds: issueIds,
@@ -170,72 +164,20 @@ final class ActionsViewModel {
                         options: options
                     )
                 }
-                let sent = isBatch
-                    ? "Batch start sent to \(label). It'll appear on the Agents tab when it spins up."
-                    : "Start sent to \(label). It'll appear on the Agents tab when it spins up."
-                sentCaption = sent
-                // The informational caption clears after a grace window; a
-                // newer attempt's caption must not be clobbered (errors
-                // persist until the next attempt so they can't be missed).
-                try? await Task.sleep(for: .seconds(30))
-                if sentCaption == sent {
-                    sentCaption = nil
-                }
+                startWatcher.begin(
+                    key: key,
+                    userId: userId,
+                    device: device,
+                    db: db,
+                    accountId: accountId
+                )
             } catch {
-                startError = error.localizedDescription
+                startWatcher.failed(error.localizedDescription)
             }
         }
     }
 
     func stopWatching() {
-        watchTask?.cancel()
-        watchTask = nil
-        watchDeadlineTask?.cancel()
-        watchDeadlineTask = nil
-    }
-
-    /// Observe the synced coding_sessions table (the AgentsViewModel
-    /// mechanism) until the desktop's row for THIS start appears: matching
-    /// action NAME (the `action_name` display snapshot — the builtin "Create
-    /// action" row carries `action_id` NULL, so the id can never match,
-    /// EXP-257), the caller's own userId, and a startedAt after the send (with
-    /// clock-skew slack) — an old run of the same action must never re-trigger
-    /// navigation. A wall-clock deadline task gives up INDEPENDENTLY of DB
-    /// emissions (with no coding_sessions writes the observation never fires,
-    /// so an emission-gated check alone would show the caption forever) and
-    /// clears the caption so the send doesn't read as still-pending.
-    private func watchForStartedRun(actionName: String, userId: String?) {
-        stopWatching()
-        guard let userId, let pool = try? db.pool(forAccountId: accountId) else { return }
-        let cutoff = Date().addingTimeInterval(-120)
-        let observation = ValueObservation.tracking { db in
-            try CodingSessionEntity
-                .filter(Column("action_name") == actionName)
-                .fetchAll(db)
-        }
-        watchTask = Task { [weak self] in
-            do {
-                for try await sessions in observation.values(in: pool) {
-                    guard let self, !Task.isCancelled else { return }
-                    let match = sessions.first { session in
-                        session.userId == userId
-                            && CodingSessionLiveness.parseIso(session.startedAt)
-                                .map { $0 >= cutoff } ?? false
-                    }
-                    if let match {
-                        self.stopWatching()
-                        self.sentCaption = nil
-                        self.startedSession = StartedSession(sessionId: match.id)
-                        return
-                    }
-                }
-            } catch {}
-        }
-        watchDeadlineTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 180 * 1_000_000_000)
-            guard let self, !Task.isCancelled else { return }
-            self.stopWatching()
-            self.sentCaption = nil
-        }
+        startWatcher.stop()
     }
 }

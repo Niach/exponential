@@ -122,6 +122,9 @@ fun IssueListScreen(
     // Root zero-team empty state's "Join team" (EXP-188): hands the extracted
     // invite token to the existing invite/{token} route.
     onOpenInvite: (String) -> Unit = {},
+    // EXP-536: a remote start jumps straight into the live session once the
+    // desktop's row syncs in, instead of parking a chip pointing at Agents.
+    onOpenSteer: (codingSessionId: String) -> Unit = {},
     viewModel: IssueListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -153,6 +156,15 @@ fun IssueListScreen(
     val steerDevices by viewModel.devices.collectAsStateWithLifecycle()
     val startState by viewModel.startState.collectAsStateWithLifecycle()
     val startCandidates by viewModel.startCandidates.collectAsStateWithLifecycle()
+
+    // The desktop picked the start up — open the live session ONCE (EXP-536).
+    val startedSessionId by viewModel.startedSessionId.collectAsStateWithLifecycle()
+    LaunchedEffect(startedSessionId) {
+        startedSessionId?.let {
+            viewModel.consumeStartedSession()
+            onOpenSteer(it)
+        }
+    }
 
     // Selected rows resolved back to their entries — drives the selection
     // bar's shared status/priority glyphs and the bulk property sheets. A
@@ -365,10 +377,13 @@ fun IssueListScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 when (val sent = startState) {
+                    // EXP-536: a pure WAITING caption — the screen opens the
+                    // session itself once the desktop's row syncs in, so
+                    // nothing points at the Agents tab any more.
                     is SteerStartState.Sent -> NoticeChip(
-                        text = (if (sent.isBatch) "Batch start sent to " else "Start sent to ") +
+                        text = "Start sent to " +
                             sent.deviceLabel.ifEmpty { "your desktop" } +
-                            ". Watch it in Agents.",
+                            ". Waiting for the desktop…",
                         isError = false,
                         onClick = null,
                     )

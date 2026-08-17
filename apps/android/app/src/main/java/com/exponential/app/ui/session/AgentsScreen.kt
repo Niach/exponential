@@ -25,6 +25,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -111,6 +112,16 @@ fun AgentsScreen(
 
     val steerOn = state.steerEnabled == true
 
+    // EXP-536: the desktop picked the start up — open the live session ONCE,
+    // for a single-issue run, a batch and an action run alike.
+    val startedSessionId by viewModel.startedSessionId.collectAsStateWithLifecycle()
+    LaunchedEffect(startedSessionId) {
+        startedSessionId?.let {
+            viewModel.consumeStartedSession()
+            onOpenSteer(it)
+        }
+    }
+
     Scaffold(containerColor = Color.Transparent) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             Row(
@@ -194,7 +205,14 @@ fun AgentsScreen(
                         val caption = startStateCaption(startState)
                         if (caption != null) {
                             item(key = "__start_state__") {
-                                StartStateCaptionRow(caption = caption, showSpinner = startState is SteerStartState.Sending)
+                                // EXP-536: the spinner spans the whole wait —
+                                // Sent means "waiting for the desktop" now,
+                                // not "it'll show up below eventually".
+                                StartStateCaptionRow(
+                                    caption = caption,
+                                    showSpinner = startState is SteerStartState.Sending ||
+                                        startState is SteerStartState.Sent,
+                                )
                             }
                         }
                         item(key = "__running_header__") { SectionHeader("Running") }
@@ -628,12 +646,10 @@ private data class StartCaption(val text: String, val isError: Boolean)
 private fun startStateCaption(state: SteerStartState): StartCaption? = when (state) {
     is SteerStartState.Idle -> null
     is SteerStartState.Sending -> StartCaption("Sending start command…", false)
+    // EXP-536: single and batch read the same — the screen opens the session
+    // itself the moment the desktop's row syncs in.
     is SteerStartState.Sent ->
-        if (state.isBatch) {
-            StartCaption("Batch start sent to ${state.deviceLabel}. It'll appear below when the desktop picks up.", false)
-        } else {
-            StartCaption("Start sent to ${state.deviceLabel}. Waiting for the desktop…", false)
-        }
+        StartCaption("Start sent to ${state.deviceLabel}. Waiting for the desktop…", false)
     is SteerStartState.Failed -> StartCaption(state.message, true)
 }
 

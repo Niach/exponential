@@ -51,11 +51,13 @@ import com.exponential.app.ui.theme.glassButton
 // session, a PR, or a pushed branch.
 
 // The remote-start progress state — relocated here from the deleted SteerPanel.
-// `isBatch` drives the "follow it in the Agents tab" caption for a 2+ run.
+// EXP-536: `Sent` is a pure WAITING state now (single and batch alike) — the
+// surface jumps into the live session as soon as the desktop's row syncs in,
+// so nothing points at the Agents tab any more.
 sealed interface SteerStartState {
     data object Idle : SteerStartState
     data object Sending : SteerStartState
-    data class Sent(val deviceLabel: String, val isBatch: Boolean) : SteerStartState
+    data class Sent(val deviceLabel: String) : SteerStartState
     data class Failed(val message: String) : SteerStartState
 }
 

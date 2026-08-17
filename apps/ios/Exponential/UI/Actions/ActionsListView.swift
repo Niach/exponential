@@ -22,7 +22,7 @@ struct ActionsListView: View {
     /// to the create builtin, presented as a creation flow.
     @State private var createMode = false
     /// Consumed-once navigation target (the SettingsView pendingTeam idiom).
-    @State private var sessionTarget: ActionsViewModel.StartedSession?
+    @State private var sessionTarget: StartedRunWatcher.StartedSession?
 
     var body: some View {
         ZStack {
@@ -85,7 +85,12 @@ struct ActionsListView: View {
                 preselectedActionId: action.id,
                 createActionMode: createMode,
                 onStart: { device, issueIds, options in
-                    viewModel?.startCoding(device: device, issueIds: issueIds, options: options)
+                    viewModel?.startCoding(
+                        device: device,
+                        issueIds: issueIds,
+                        options: options,
+                        userId: deps.auth.userId
+                    )
                 },
                 onRunAction: { device, chosen, options, inputs in
                     viewModel?.run(
@@ -100,9 +105,9 @@ struct ActionsListView: View {
         }
         // The desktop picked the start up — jump into the live steer screen
         // ONCE (the same destination the .agentSession route arm builds).
-        .onChange(of: viewModel?.startedSession) { _, started in
+        .onChange(of: viewModel?.startWatcher.startedSession) { _, started in
             if let started {
-                viewModel?.startedSession = nil
+                viewModel?.startWatcher.startedSession = nil
                 sessionTarget = started
             }
         }
@@ -150,7 +155,7 @@ struct ActionsListView: View {
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
-                    if let sentCaption = vm.sentCaption {
+                    if let sentCaption = vm.startWatcher.sentCaption {
                         HStack(spacing: 6) {
                             ProgressView().controlSize(.small).tint(.white)
                             Text(sentCaption)
@@ -160,7 +165,7 @@ struct ActionsListView: View {
                         .padding(.horizontal, 4)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    if let startError = vm.startError {
+                    if let startError = vm.startWatcher.failure {
                         Text(startError)
                             .font(.caption2)
                             .foregroundStyle(DesignTokens.Semantic.red)

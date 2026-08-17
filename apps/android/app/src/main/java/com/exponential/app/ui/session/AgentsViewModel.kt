@@ -23,13 +23,14 @@ import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.StartedRunKey
+import com.exponential.app.domain.StartedRunMatch
 import com.exponential.app.domain.toSteerDevice
 import com.exponential.app.ui.issue.StartIssueOption
 import com.exponential.app.ui.issue.SteerStartState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -114,14 +115,23 @@ class AgentsViewModel @Inject constructor(
     private val _startState = MutableStateFlow<SteerStartState>(SteerStartState.Idle)
     val startState: StateFlow<SteerStartState> = _startState
 
+    // EXP-536: the freshly-started run's session id — consumed exactly once
+    // by the screen, which opens the live viewer on it.
+    private val _startedSessionId = MutableStateFlow<String?>(null)
+    val startedSessionId: StateFlow<String?> = _startedSessionId
+
+    // The live rows the post-send watch scans (the same DAO flow the list
+    // renders from — a start is only a command; the desktop writes the row).
+    private val liveSessionRows = dbFlow.scopedQuery(emptyList()) {
+        it.codingSessionDao().observeByStatuses(CodingSessionLiveness.liveStatuses)
+    }
+
     // Bundled up front: the typed `combine` overloads stop at five flows, and
     // the state below already needs seven. Boards ride along for the batch-PR
     // resolution (EXP-535) — issues don't sync team_id, so team scoping goes
     // through their board.
     private val liveSessionsIssuesAndBoards = combine(
-        dbFlow.scopedQuery(emptyList()) {
-            it.codingSessionDao().observeByStatuses(CodingSessionLiveness.liveStatuses)
-        },
+        liveSessionRows,
         dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
         dbFlow.scopedQuery(emptyList()) { it.boardDao().observeAll() },
     ) { sessions, issues, boards -> Triple(sessions, issues, boards) }
@@ -215,6 +225,11 @@ class AgentsViewModel @Inject constructor(
         }
     }
 
+    /** Clears the one-shot navigation signal once the screen has acted on it. */
+    fun consumeStartedSession() {
+        _startedSessionId.value = null
+    }
+
     /** Rename a machine (its registry label wins over the relay's). */
     fun renameDevice(deviceId: String, label: String) =
         mutateDevice(deviceId) { accountId -> devicesApi.rename(accountId, deviceId, label.trim()) }
@@ -244,27 +259,22 @@ class AgentsViewModel @Inject constructor(
 
     /**
      * Remote-start on a picked desktop (EXP-156): [issueIds] of size 1 launches
-     * a plain single session, 2+ a batch. Sent state re-enables after a grace
-     * window in case the desktop never picks up (the coding_sessions row would
-     * otherwise swap the list via Electric).
+     * a plain single session, 2+ a batch. EXP-536: both then WAIT for the
+     * desktop's coding_sessions row and surface it as [startedSessionId], so
+     * the screen opens the live session instead of listing it.
      */
     fun startCoding(device: SteerDevice, issueIds: List<String>, options: SteerStartOptions) {
-        if (issueIds.isEmpty()) return
+        val key = StartedRunKey.forIssues(issueIds) ?: return
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
-            val isBatch = issueIds.size >= 2
             _startState.value = SteerStartState.Sending
             try {
-                if (isBatch) {
+                if (issueIds.size >= 2) {
                     steerApi.startSession(accountId, issueIds, device.deviceId, options)
                 } else {
                     steerApi.startSession(accountId, issueIds.first(), device.deviceId, options)
                 }
-                _startState.value = SteerStartState.Sent(device.deviceLabel, isBatch)
-                delay(30_000)
-                if (_startState.value is SteerStartState.Sent) {
-                    _startState.value = SteerStartState.Idle
-                }
+                awaitStartedRun(key, device)
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
                 _startState.value = SteerStartState.Failed(
@@ -301,17 +311,40 @@ class AgentsViewModel @Inject constructor(
                     teamId = action.teamId.takeIf { action.isBuiltin },
                     inputs = inputs.takeIf { it.isNotEmpty() },
                 )
-                _startState.value = SteerStartState.Sent(device.deviceLabel, isBatch = false)
-                delay(30_000)
-                if (_startState.value is SteerStartState.Sent) {
-                    _startState.value = SteerStartState.Idle
-                }
+                awaitStartedRun(StartedRunKey.Action(action.name), device)
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
                 _startState.value = SteerStartState.Failed(
                     trpcErrorMessage(t, "The start command could not be delivered"),
                 )
             }
+        }
+    }
+
+    /**
+     * EXP-536: hold a "waiting for the desktop" caption until the run's
+     * synced row appears (then hand it to the screen's navigation), or until
+     * the deadline passes — a start the desktop REFUSED (conflicted worktree,
+     * failed doctor) would otherwise just leave the caption hanging forever,
+     * which is exactly the chip-never-disappears bug.
+     */
+    private suspend fun awaitStartedRun(key: StartedRunKey, device: SteerDevice) {
+        val label = device.deviceLabel.ifBlank { device.deviceId }
+        _startState.value = SteerStartState.Sent(label)
+        val userId = auth.userId.value
+        val sessionId = if (userId == null) {
+            null
+        } else {
+            StartedRunMatch.await(liveSessionRows, key, userId)
+        }
+        if (sessionId != null) {
+            _startState.value = SteerStartState.Idle
+            _startedSessionId.value = sessionId
+        } else {
+            _startState.value = SteerStartState.Failed(
+                "$label never started this run. Open the Exponential desktop app " +
+                    "there to see why.",
+            )
         }
     }
 
