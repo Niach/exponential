@@ -645,7 +645,7 @@ export function IssueList({
                     className="h-8 w-8 md:h-5 md:w-5 p-0 text-muted-foreground"
                   >
                     <ChevronRight
-                      className={`size-3 transition-transform duration-200 ${isOpen ? `rotate-90` : ``}`}
+                      className={`size-3 transition-transform duration-fast ease-standard motion-reduce:transition-none ${isOpen ? `rotate-90` : ``}`}
                     />
                   </Button>
                 </CollapsiblePrimitive.Trigger>

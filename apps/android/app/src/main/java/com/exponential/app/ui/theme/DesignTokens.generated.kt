@@ -3,6 +3,8 @@
 
 package com.exponential.app.ui.theme
 
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.Easing
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -79,5 +81,23 @@ object DesignTokens {
         val ControlSm: Dp = 24.dp
         val InputHeight: Dp = 36.dp
         val RowHeight: Dp = 32.dp
+    }
+
+    // Motion (EXP-523) — durations in MILLISECONDS (Compose's `tween` unit),
+    // easings as CSS cubic-bezier control points. Read these through
+    // ui/theme/Motion.kt, which collapses them to `snap()` when the OS has
+    // animations turned off; never call `tween(…)` with a literal.
+    object Motion {
+        object Duration {
+            const val Fast: Int = 120
+            const val Standard: Int = 180
+            const val Slow: Int = 280
+        }
+
+        object Ease {
+            val Standard: Easing = CubicBezierEasing(0.2f, 0.0f, 0.0f, 1.0f)
+            val Decelerate: Easing = CubicBezierEasing(0.0f, 0.0f, 0.2f, 1.0f)
+            val Accelerate: Easing = CubicBezierEasing(0.3f, 0.0f, 1.0f, 1.0f)
+        }
     }
 }

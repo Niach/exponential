@@ -16,6 +16,8 @@ import {
   readAgentDockHeight,
   writeAgentDockHeight,
 } from "@/lib/agent-dock-height"
+import { MOTION_DURATION_MS } from "@/lib/motion"
+import { useExitPresence } from "@/hooks/use-exit-presence"
 
 // The global agent-coding dock (EXP-106) — an IDE-style bottom strip of the
 // current user's OWN running sessions (EXP-312: live sessions are owner-only;
@@ -27,6 +29,12 @@ import {
 // opened session takes over the viewport like the native apps' pushed
 // Agent-session screen, and running sessions are reached from the Agents tab
 // (green dot) or the issue's Watch button instead.
+// EXP-523: the panel SLIDES. Opening and collapsing used to be a bare
+// mount/unmount, so the whole page jumped by the panel height in one frame.
+// `useExitPresence` keeps the outgoing row mounted for one `standard`
+// duration while the height animates back to 0 (mobile: while the takeover
+// slides off the bottom), and the enter runs from the closed state on the
+// frame after mount.
 
 function RunningDot() {
   return (
@@ -127,8 +135,8 @@ export function AgentDock({
   )
   const needsIssueJoin = Boolean(
     expandedSession &&
-      expandedSession.issueId &&
-      !runningById.has(expandedSession.id)
+    expandedSession.issueId &&
+    !runningById.has(expandedSession.id)
   )
   const { data: expandedIssueRows } = useLiveQuery(
     (query) =>
@@ -147,9 +155,7 @@ export function AgentDock({
     const issue = expandedSession.issueId
       ? ((expandedIssueRows ?? [])[0] as Issue | undefined)
       : undefined
-    const board = issue
-      ? boards.find((p) => p.id === issue.boardId)
-      : undefined
+    const board = issue ? boards.find((p) => p.id === issue.boardId) : undefined
     return { session: expandedSession, issue, board, user: undefined }
   }, [expandedSession, runningById, expandedIssueRows, boards])
 
@@ -160,7 +166,16 @@ export function AgentDock({
     }
   }, [expandedId, expandedRows, expandedSession])
 
-  if (running.length === 0 && !expandedRow) return null
+  // EXP-523: `panelRow` is `expandedRow` while open, then the OUTGOING row for
+  // one exit animation; `panelOpen` is what the CSS reads. Keyed on the
+  // session id because `expandedRow` is a fresh object every render.
+  const { value: panelRow, open: panelOpen } = useExitPresence(
+    expandedRow,
+    expandedRow?.session.id ?? null,
+    MOTION_DURATION_MS.standard
+  )
+
+  if (running.length === 0 && !panelRow) return null
 
   // Mobile (EXP-193): no IDE-style bottom terminal strip. An opened session
   // is a full-viewport takeover (native Agent-session parity) — its collapse
@@ -168,14 +183,26 @@ export function AgentDock({
   // while no session is open. z-40 covers the z-[35] floating tab bar while
   // staying under every z-50 overlay (kill-confirm dialog etc.).
   if (isMobile) {
-    if (!expandedRow) return null
+    if (!panelRow) return null
     return (
-      <div className="fixed inset-0 z-40 bg-app-gradient pb-[env(safe-area-inset-bottom)]">
+      <div
+        className={cn(
+          `fixed inset-0 z-40 bg-app-gradient pb-[env(safe-area-inset-bottom)]`,
+          // EXP-523: the takeover rises from the bottom edge it was opened
+          // from and leaves the same way — the native apps' pushed-screen
+          // gesture, without a navigation controller. `fill-mode-forwards`
+          // pins the exit at its end state so the panel cannot flash back to
+          // full opacity between the animation ending and the unmount.
+          panelOpen
+            ? `motion-safe:animate-in motion-safe:slide-in-from-bottom motion-safe:fade-in-0 duration-standard ease-decelerate`
+            : `motion-safe:animate-out motion-safe:slide-out-to-bottom motion-safe:fade-out-0 duration-standard ease-accelerate fill-mode-forwards`
+        )}
+      >
         <AgentSessionView
-          key={expandedRow.session.id}
-          session={expandedRow.session}
+          key={panelRow.session.id}
+          session={panelRow.session}
           currentUserId={currentUserId}
-          title={<SessionTitle row={expandedRow} teamSlug={teamSlug} />}
+          title={<SessionTitle row={panelRow} teamSlug={teamSlug} />}
           onCollapse={() => dock?.collapseDock()}
         />
       </div>
@@ -183,8 +210,8 @@ export function AgentDock({
   }
 
   const tabs =
-    expandedRow && !runningById.has(expandedRow.session.id)
-      ? [...running, expandedRow]
+    panelRow && !runningById.has(panelRow.session.id)
+      ? [...running, panelRow]
       : running
 
   return (
@@ -194,19 +221,32 @@ export function AgentDock({
         // (dialogs, dropdowns) so kill-confirm etc. still stack above.
         // Fullscreen takeover repaints the gradient (opaque); the docked bar
         // is a blurred glass strip over whatever scrolls beneath it.
-        fullscreen && expandedRow
+        fullscreen && panelRow
           ? `fixed inset-0 z-40 flex flex-col bg-app-gradient border-border`
-          : `sticky bottom-0 z-30 border-t border-border/60 glass-chrome-bottom`
+          : `sticky bottom-0 z-30 border-t border-border/60 glass-chrome-bottom`,
+        // EXP-523: the strip itself only exists once there IS a session, so it
+        // appears mid-session out of nowhere. Run once on mount (the class is
+        // static, so toggling fullscreen cannot restart it).
+        `motion-safe:animate-in motion-safe:slide-in-from-bottom-2 motion-safe:fade-in-0 duration-standard ease-decelerate`
       )}
     >
-      {expandedRow && (
+      {panelRow && (
         <div
-          className={
-            fullscreen ? `min-h-0 flex-1` : `relative max-h-[85vh] min-h-40`
+          className={cn(
+            fullscreen ? `min-h-0 flex-1` : `relative max-h-[85vh]`,
+            // EXP-523: the height IS the animation. It must be off while the
+            // user drags the grabber — that writes `height` on every
+            // pointermove, and a transition would lag the pointer by a whole
+            // duration. Fullscreen is flex-sized, so nothing to animate there.
+            !fullscreen &&
+              !resizing &&
+              `overflow-hidden transition-[height] duration-standard ease-standard motion-reduce:transition-none`
+          )}
+          style={
+            fullscreen ? undefined : { height: panelOpen ? panelHeight : 0 }
           }
-          style={fullscreen ? undefined : { height: panelHeight }}
         >
-          {!fullscreen && (
+          {!fullscreen && panelOpen && (
             <div
               className="group absolute inset-x-0 -top-1 z-10 h-2 cursor-row-resize touch-none"
               role="separator"
@@ -225,18 +265,26 @@ export function AgentDock({
               />
             </div>
           )}
-          <AgentSessionView
-            key={expandedRow.session.id}
-            session={expandedRow.session}
-            currentUserId={currentUserId}
-            title={<SessionTitle row={expandedRow} teamSlug={teamSlug} />}
-            onCollapse={() => {
-              setFullscreen(false)
-              dock?.collapseDock()
-            }}
-            isFullscreen={fullscreen}
-            onToggleFullscreen={() => setFullscreen((f) => !f)}
-          />
+          {/* Pinned to the panel's RESTING height so the session view's own
+              layout (and its virtualised feed) is not re-measured on every
+              frame of the slide — the wrapper clips it instead. */}
+          <div
+            className="h-full"
+            style={fullscreen ? undefined : { height: panelHeight }}
+          >
+            <AgentSessionView
+              key={panelRow.session.id}
+              session={panelRow.session}
+              currentUserId={currentUserId}
+              title={<SessionTitle row={panelRow} teamSlug={teamSlug} />}
+              onCollapse={() => {
+                setFullscreen(false)
+                dock?.collapseDock()
+              }}
+              isFullscreen={fullscreen}
+              onToggleFullscreen={() => setFullscreen((f) => !f)}
+            />
+          </div>
         </div>
       )}
       <div className="flex h-9 items-center overflow-x-auto">
@@ -290,7 +338,9 @@ function SessionTitle({
       <span className="font-mono">Batch</span>
     )
   }
-  return <span className="font-mono">{issue?.identifier ?? `Issue syncing…`}</span>
+  return (
+    <span className="font-mono">{issue?.identifier ?? `Issue syncing…`}</span>
+  )
 }
 
 function DockTab({

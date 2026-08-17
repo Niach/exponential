@@ -131,9 +131,11 @@ pub(crate) fn left_column_target_width(window: &mut Window, cx: &mut App) -> f32
     }
 }
 
-/// EXP-456: duration of the rail ⇄ settings-nav swap (matches upstream
-/// gpui-component's sidebar transition).
-const LEFT_COL_ANIM_DURATION: Duration = Duration::from_millis(200);
+/// EXP-456: duration of the rail ⇄ settings-nav swap and (EXP-523) of the
+/// rail's own expand/collapse. The shared `standard` motion token — every
+/// client's default duration — rather than the 200ms it was hand-set to when
+/// this was the app's only animation.
+const LEFT_COL_ANIM_DURATION: Duration = theme::motion::STANDARD;
 
 /// EXP-456: pure state machine for the rail ⇄ settings-nav swap — the
 /// upstream `Sidebar` recipe (`gpui_component::sidebar`'s animation state)
@@ -151,6 +153,10 @@ struct LeftColumnAnim {
     settings: bool,
     /// Both children stay mounted while the swap transition runs.
     swapping: bool,
+    /// EXP-523: a same-occupant WIDTH animation is in flight — the rail
+    /// expanding or collapsing. Distinct from `swapping`, which mounts BOTH
+    /// children; here the single child just rides a morphing clip.
+    width_only: bool,
     /// Guards the unmount timer against retargets (upstream `hide_request`).
     epoch: u64,
 }
@@ -163,6 +169,7 @@ impl LeftColumnAnim {
             rail_w,
             settings,
             swapping: false,
+            width_only: false,
             epoch: 0,
         }
     }
@@ -171,15 +178,30 @@ impl LeftColumnAnim {
     /// STARTED and the caller must spawn the settle timer.
     fn retarget(&mut self, settings: bool, target: f32, rail_w: f32) -> Option<u64> {
         if self.settings == settings {
-            // Same occupant (rail expand/collapse, or no change): SNAP —
-            // only the settings swap animates, preserving today's instant
-            // rail toggle.
-            if !self.swapping {
-                self.from = target;
-                self.rail_w = rail_w;
+            // Same occupant: the rail expanding or collapsing (or no change).
+            // EXP-523 animates it — the child keeps its TARGET width and the
+            // column's `overflow_hidden` clip morphs around it, so the labels
+            // are revealed by a wipe and nothing inside the rail re-layouts
+            // mid-flight. A width change arriving while a settings SWAP is in
+            // flight is still absorbed: retargeting there would restart the
+            // swap from the wrong geometry.
+            if self.swapping {
+                self.to = target;
+                return None;
             }
+            if (target - self.to).abs() <= 0.5 {
+                // No actual change (this runs on every render).
+                self.from = target;
+                self.to = target;
+                self.rail_w = rail_w;
+                return None;
+            }
+            self.from = if self.width_only { self.to } else { self.from };
             self.to = target;
-            return None;
+            self.rail_w = rail_w;
+            self.width_only = true;
+            self.epoch += 1;
+            return Some(self.epoch);
         }
         // Mid-flight reversal jumps from the previous TARGET (upstream has
         // the same limitation) — acceptable over 200ms.
@@ -188,14 +210,16 @@ impl LeftColumnAnim {
         self.rail_w = rail_w;
         self.settings = settings;
         self.swapping = true;
+        self.width_only = false;
         self.epoch += 1;
         Some(self.epoch)
     }
 
     /// Timer callback. True = the swap this epoch belongs to just settled.
     fn finish(&mut self, epoch: u64) -> bool {
-        if self.swapping && self.epoch == epoch {
+        if (self.swapping || self.width_only) && self.epoch == epoch {
             self.swapping = false;
+            self.width_only = false;
             self.from = self.to;
             true
         } else {
@@ -655,9 +679,12 @@ impl Shell {
                     }
                 });
             }));
-        } else if !in_settings && !self.left_anim.swapping {
+        } else if !in_settings && !self.left_anim.swapping && !self.left_anim.width_only {
             // Settings closed without a swap animation (session surface
-            // change, races) — restore the preference immediately.
+            // change, races) — restore the preference immediately. EXP-523:
+            // also skipped while a rail WIDTH animation runs, or a toggle
+            // started on the way out of settings would recollapse the rail
+            // underneath its own animation.
             self.restore_rail_after_settings(window, cx);
         }
     }
@@ -715,7 +742,30 @@ impl Shell {
             } else {
                 self.rail.clone().into_any_element()
             };
-            return column.w(px(anim.to)).child(child).into_any_element();
+            if !anim.width_only {
+                return column.w(px(anim.to)).child(child).into_any_element();
+            }
+            // EXP-523: the rail expanding/collapsing. The child is pinned at
+            // its TARGET width (`sidebar.rs` sizes it from the same flag) and
+            // the column's clip morphs around it — a wipe, not a reflow, so
+            // no label re-wraps or icon re-centers mid-flight.
+            return gpui_component::animation::EffectTransition::new(LEFT_COL_ANIM_DURATION)
+                .ease(theme::motion::standard())
+                .width(px(anim.from), px(anim.to))
+                .apply(
+                    column
+                        .child(
+                            div()
+                                .absolute()
+                                .top_0()
+                                .bottom_0()
+                                .left_0()
+                                .w(px(anim.to))
+                                .child(child),
+                        ),
+                    left_anim_id("shell-leftcol-rail-width", anim.from, anim.to),
+                )
+                .into_any_element();
         }
 
         // Swap in flight: BOTH children ride an absolute [rail | nav] strip
@@ -747,7 +797,7 @@ impl Shell {
                     .child(self.settings_nav.clone()),
             );
         let strip = gpui_component::animation::EffectTransition::new(LEFT_COL_ANIM_DURATION)
-            .ease(gpui_component::animation::ease_in_out_cubic)
+            .ease(theme::motion::standard())
             .slide_x(left_from, left_to)
             .apply(
                 strip,
@@ -758,7 +808,7 @@ impl Shell {
                 ),
             );
         gpui_component::animation::EffectTransition::new(LEFT_COL_ANIM_DURATION)
-            .ease(gpui_component::animation::ease_in_out_cubic)
+            .ease(theme::motion::standard())
             .width(px(anim.from), px(anim.to))
             .apply(
                 column.child(strip),
@@ -1719,15 +1769,51 @@ mod tests {
     }
 
     #[test]
-    fn same_occupant_snaps_without_a_swap() {
-        // The rail expand/collapse toggle stays instant (EXP-456 only
-        // animates the settings swap).
+    fn same_occupant_animates_the_width_without_swapping() {
+        // EXP-523: the rail expand/collapse toggle animates too now — a
+        // WIDTH animation, not a swap, so only one child is ever mounted.
         let mut anim = LeftColumnAnim::new(false, RAIL_W, RAIL_W);
-        assert_eq!(anim.retarget(false, RAIL_EXPANDED_W, RAIL_EXPANDED_W), None);
-        assert!(!anim.swapping);
-        assert_eq!(anim.from, RAIL_EXPANDED_W);
+        assert_eq!(anim.retarget(false, RAIL_EXPANDED_W, RAIL_EXPANDED_W), Some(1));
+        assert!(!anim.swapping, "same occupant must not mount both children");
+        assert!(anim.width_only);
+        assert_eq!(anim.from, RAIL_W, "it must start where the rail actually was");
         assert_eq!(anim.to, RAIL_EXPANDED_W);
         assert_eq!(anim.rail_w, RAIL_EXPANDED_W);
+
+        // `sync_left_column` runs `retarget` on EVERY render — an unchanged
+        // target must stay a no-op, or the animation restarts every frame and
+        // the rail never arrives.
+        assert_eq!(anim.retarget(false, RAIL_EXPANDED_W, RAIL_EXPANDED_W), None);
+        assert_eq!(anim.epoch, 1);
+
+        assert!(anim.finish(1));
+        assert!(!anim.width_only);
+        assert_eq!(anim.from, anim.to);
+    }
+
+    #[test]
+    fn a_rail_toggle_during_a_settings_swap_is_absorbed() {
+        // Retargeting here would restart the swap from the wrong geometry —
+        // the strip is mid-slide with both children mounted.
+        let mut anim = LeftColumnAnim::new(false, RAIL_EXPANDED_W, RAIL_EXPANDED_W);
+        let epoch = anim.retarget(true, SETTINGS_NAV_WIDTH, RAIL_EXPANDED_W).unwrap();
+        assert_eq!(anim.retarget(true, SETTINGS_NAV_WIDTH, RAIL_W), None);
+        assert!(anim.swapping);
+        assert!(!anim.width_only);
+        assert!(anim.finish(epoch));
+    }
+
+    #[test]
+    fn a_reversed_rail_toggle_restarts_from_the_previous_target() {
+        // Same bounded-jump rule as the swap: the id encodes from -> to, so a
+        // mid-flight reversal restarts cleanly rather than accumulating.
+        let mut anim = LeftColumnAnim::new(false, RAIL_W, RAIL_W);
+        anim.retarget(false, RAIL_EXPANDED_W, RAIL_EXPANDED_W).unwrap();
+        let second = anim.retarget(false, RAIL_W, RAIL_W).unwrap();
+        assert_eq!(anim.from, RAIL_EXPANDED_W);
+        assert_eq!(anim.to, RAIL_W);
+        assert!(anim.width_only);
+        assert_eq!(second, 2);
     }
 
     #[test]

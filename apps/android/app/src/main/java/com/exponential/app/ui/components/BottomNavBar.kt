@@ -1,5 +1,6 @@
 package com.exponential.app.ui.components
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -28,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
+import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.TextEmphasis
 
 // Linear-style floating bottom navigation: a dark pill with the top-level
@@ -194,6 +197,22 @@ private fun TabItem(
     dotColor: Color? = null,
     onClick: () -> Unit,
 ) {
+    // EXP-523: the pill and the glyph fade between states instead of cutting.
+    // A travelling pill (iOS uses matchedGeometryEffect) would need
+    // SharedTransitionLayout and per-tab position measurement for a bar whose
+    // tab COUNT changes with the helpdesk flag — a cross-fade reads as
+    // deliberate here and costs one animated float per tab. Both collapse to
+    // an instant change when the OS has animations off (Motion -> snap()).
+    val pillAlpha by animateFloatAsState(
+        targetValue = if (active) 0.12f else 0f,
+        animationSpec = Motion.standard(),
+        label = "nav-tab-pill",
+    )
+    val glyphAlpha by animateFloatAsState(
+        targetValue = if (active) 1f else TextEmphasis.Secondary,
+        animationSpec = Motion.standard(),
+        label = "nav-tab-glyph",
+    )
     Box(
         modifier = Modifier
             // 48dp (Material minimum touch width) instead of the old 56dp —
@@ -202,7 +221,7 @@ private fun TabItem(
             .width(width)
             .height(42.dp)
             .clip(RoundedCornerShape(percent = 50))
-            .background(if (active) Color.White.copy(alpha = 0.12f) else Color.Transparent)
+            .background(Color.White.copy(alpha = pillAlpha))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -210,7 +229,7 @@ private fun TabItem(
             icon,
             contentDescription = contentDescription,
             modifier = Modifier.size(20.dp),
-            tint = Color.White.copy(alpha = if (active) 1f else TextEmphasis.Secondary),
+            tint = Color.White.copy(alpha = glyphAlpha),
         )
         if (showDot) {
             Box(

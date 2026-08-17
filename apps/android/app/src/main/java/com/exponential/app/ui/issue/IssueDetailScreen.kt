@@ -2,7 +2,6 @@ package com.exponential.app.ui.issue
 
 import android.content.Intent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.clickable
@@ -87,6 +86,7 @@ import com.exponential.app.ui.markdown.ProvideMarkdownToolbar
 import com.exponential.app.ui.markdown.appendPickedImage
 import com.exponential.app.ui.markdown.extractDescriptionMarkdown
 import com.exponential.app.ui.markdown.stripDraftImages
+import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.theme.glassRow
@@ -725,8 +725,9 @@ fun IssueDetailScreen(
             ) {
                 AnimatedVisibility(
                     visible = barVisible,
-                    enter = fadeIn(tween(180)),
-                    exit = fadeOut(tween(180)),
+                    // EXP-523: the shared `standard` token (180ms, unchanged).
+                    enter = fadeIn(Motion.standard()),
+                    exit = fadeOut(Motion.standard()),
                 ) {
                     IssueDetailBottomBar(
                         expanded = composerExpanded,

@@ -1,7 +1,6 @@
 package com.exponential.app.navigation
 
 import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -25,6 +24,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -70,6 +70,8 @@ import com.exponential.app.ui.support.SupportScreen
 import com.exponential.app.ui.support.SupportThreadScreen
 import com.exponential.app.ui.theme.AppBackground
 import com.exponential.app.ui.theme.DesignTokens
+import com.exponential.app.ui.theme.LocalReduceMotion
+import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.update.UpdateRequiredScreen
@@ -330,15 +332,22 @@ private fun AuthenticatedNav(
         else -> null
     }
 
+    // EXP-523: the four transitions below are plain lambdas, not composable
+    // ones, so the reduce-motion flag is read here and captured. `Motion.slow`
+    // is the shared 280ms token these were already hand-set to — the only
+    // behaviour change is that a user who turned animations off now gets none.
+    val reduceMotion = LocalReduceMotion.current
+    val pushSpec = Motion.slow<IntOffset>(reduceMotion)
+
     Box(modifier = Modifier.fillMaxSize()) {
     NavHost(
         navController = navController,
         startDestination = if (needsOnboarding) "onboarding" else "home",
         // iOS-style horizontal push/pop transitions.
-        enterTransition = { slideIntoContainer(SlideDirection.Start, tween(280)) },
-        exitTransition = { slideOutOfContainer(SlideDirection.Start, tween(280)) },
-        popEnterTransition = { slideIntoContainer(SlideDirection.End, tween(280)) },
-        popExitTransition = { slideOutOfContainer(SlideDirection.End, tween(280)) },
+        enterTransition = { slideIntoContainer(SlideDirection.Start, pushSpec) },
+        exitTransition = { slideOutOfContainer(SlideDirection.Start, pushSpec) },
+        popEnterTransition = { slideIntoContainer(SlideDirection.End, pushSpec) },
+        popExitTransition = { slideOutOfContainer(SlideDirection.End, pushSpec) },
     ) {
         composable("onboarding") {
             OnboardingScreen(

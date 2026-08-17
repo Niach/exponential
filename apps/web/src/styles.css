@@ -69,6 +69,13 @@ html {
   --color-glass-stroke-card: var(--glass-stroke-card);
   --color-glass-stroke-strong: var(--glass-stroke-strong);
   --color-glass-stroke-active: var(--glass-stroke-active);
+  /* EXP-523 — Tailwind v4's `--ease-*` theme namespace, so `ease-standard`,
+     `ease-decelerate` and `ease-accelerate` exist as utilities. Same
+     var-indirection shape as --color-brand above; the raw vars carry the
+     --motion- prefix precisely so this is not a self-referential cycle. */
+  --ease-standard: var(--motion-ease-standard);
+  --ease-decelerate: var(--motion-ease-decelerate);
+  --ease-accelerate: var(--motion-ease-accelerate);
 }
 
 :root {
@@ -141,6 +148,18 @@ html {
   --glass-stroke-card: oklch(1 0 0 / 10%);
   --glass-stroke-strong: oklch(1 0 0 / 12%);
   --glass-stroke-active: oklch(1 0 0 / 20%);
+  /* EXP-523 motion tokens. THEME-INVARIANT, so unlike --brand/--glass-* these
+     live in :root ONLY and are never duplicated into .dark. Values mirror
+     packages/design-tokens/tokens.json `motion` (the source the three native
+     clients are generated from); design-tokens.test.ts guards the parity.
+     Keep them FLAT declarations — parseBlockVars there reads this block with
+     `[^}]*`, so a nested at-rule here would silently truncate the parse. */
+  --motion-duration-fast: 120ms;
+  --motion-duration-standard: 180ms;
+  --motion-duration-slow: 280ms;
+  --motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --motion-ease-decelerate: cubic-bezier(0, 0, 0.2, 1);
+  --motion-ease-accelerate: cubic-bezier(0.3, 0, 1, 1);
 }
 
 .dark {
@@ -265,6 +284,31 @@ html {
    only the -webkit- form and shipped menus rendered with no blur at all
    (the "too see-through" bug). Prefix-first survives minification with both
    forms emitted. */
+/* EXP-523 — Tailwind v4 has no `--duration-*` theme namespace (`duration-<n>`
+   is a bare numeric utility), so the three shared durations get explicit
+   named utilities. Each sets BOTH `transition-duration` and `--tw-duration`,
+   exactly like core's `duration-*`: tw-animate-css's `animate-in`/`animate-out`
+   read `--tw-duration` for their keyframe length, so without it these names
+   would silently do nothing on an enter/exit animation. The matching
+   `ease-standard`/`ease-decelerate`/`ease-accelerate` come free from the
+   `--ease-*` theme namespace above (core's `ease-*` sets `--tw-ease`, which
+   tw-animate-css reads the same way). Always pair with
+   `motion-reduce:transition-none` (or `motion-safe:` on the animation). */
+@utility duration-fast {
+  --tw-duration: var(--motion-duration-fast);
+  transition-duration: var(--motion-duration-fast);
+}
+
+@utility duration-standard {
+  --tw-duration: var(--motion-duration-standard);
+  transition-duration: var(--motion-duration-standard);
+}
+
+@utility duration-slow {
+  --tw-duration: var(--motion-duration-slow);
+  transition-duration: var(--motion-duration-slow);
+}
+
 @utility glass-panel {
   border: 1px solid var(--glass-stroke-card);
   background: color-mix(in oklab, var(--popover) 95%, transparent);
@@ -741,12 +785,13 @@ html {
   opacity: 0;
   pointer-events: none;
   transform: translateY(-4px) scale(0.96);
+  /* EXP-523: the shared `fast` duration + `standard` curve. */
   transition:
-    opacity 120ms ease,
-    transform 120ms ease,
-    color 120ms ease,
-    background 120ms ease,
-    border-color 120ms ease;
+    opacity var(--motion-duration-fast) var(--motion-ease-standard),
+    transform var(--motion-duration-fast) var(--motion-ease-standard),
+    color var(--motion-duration-fast) var(--motion-ease-standard),
+    background var(--motion-duration-fast) var(--motion-ease-standard),
+    border-color var(--motion-duration-fast) var(--motion-ease-standard);
 }
 
 .editor-image-node:hover .editor-image-menu-trigger,
@@ -781,7 +826,7 @@ html {
   touch-action: none;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 120ms ease;
+  transition: opacity var(--motion-duration-fast) var(--motion-ease-standard);
 }
 
 .editor-image-handle.is-left {
@@ -831,8 +876,8 @@ html {
   color: var(--muted-foreground);
   cursor: pointer;
   transition:
-    color 100ms,
-    background 100ms;
+    color var(--motion-duration-fast) var(--motion-ease-standard),
+    background var(--motion-duration-fast) var(--motion-ease-standard);
   flex-shrink: 0;
 }
 

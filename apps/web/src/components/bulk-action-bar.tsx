@@ -170,108 +170,41 @@ export function BulkActionBar({
   const isSolo = users.length === 1
 
   return (
-    <div
-      // On md+ the bar sits in-flow inside the fixed-height filter row; below
-      // md it floats centered above the mobile tab bar (z-[35]) like the
-      // native selection pill (EXP-405/FEED-12). Bottom offset = the tab
-      // bar's own bottom padding + its 3.25rem pill height + a 0.5rem gap.
-      className="glass-panel flex items-center gap-1 rounded-lg px-2 py-1.5 max-md:fixed max-md:bottom-[calc(max(1rem,env(safe-area-inset-bottom))+3.75rem)] max-md:left-1/2 max-md:z-40 max-md:max-w-[calc(100vw-2rem)] max-md:-translate-x-1/2 max-md:shadow-lg max-md:shadow-black/40"
-      data-testid="bulk-action-bar"
-    >
-      <span className="px-1.5 text-xs font-medium whitespace-nowrap">
-        {issues.length}
-        <span className="hidden lg:inline"> selected</span>
-      </span>
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        className="text-muted-foreground"
-        aria-label="Clear selection"
-        onClick={onClear}
+    // POSITIONING ONLY. On md+ this wrapper is `display: contents`, so the bar
+    // stays a direct child of the filter row exactly as before; below md it is
+    // the fixed, centered box. The split exists because EXP-523's enter
+    // animation writes `transform` (tw-animate-css's keyframes replace it
+    // wholesale), which would cancel the `-translate-x-1/2` centering and snap
+    // the bar half its width to the right on every phone selection.
+    <div className="md:contents max-md:fixed max-md:bottom-[calc(max(1rem,env(safe-area-inset-bottom))+3.75rem)] max-md:left-1/2 max-md:z-40 max-md:max-w-[calc(100vw-2rem)] max-md:-translate-x-1/2">
+      <div
+        // On md+ the bar sits in-flow inside the fixed-height filter row; below
+        // md it floats centered above the mobile tab bar (z-[35]) like the
+        // native selection pill (EXP-405/FEED-12). Bottom offset (on the
+        // wrapper) = the tab bar's own bottom padding + its 3.25rem pill height
+        // + a 0.5rem gap.
+        // EXP-523: enter-only. Clearing a selection is a deliberate action and
+        // reads fine instantly, and an exit would mean threading presence state
+        // through both call sites (board view + my-issues) for no real gain.
+        className="glass-panel flex items-center gap-1 rounded-lg px-2 py-1.5 motion-safe:animate-in motion-safe:slide-in-from-bottom-1 motion-safe:fade-in-0 motion-safe:zoom-in-95 duration-fast ease-decelerate max-md:shadow-lg max-md:shadow-black/40"
+        data-testid="bulk-action-bar"
       >
-        <X className="size-3.5" />
-      </Button>
-
-      <Separator orientation="vertical" className="mx-1 h-4!" />
-
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-muted-foreground"
-            disabled={busy}
-            aria-label="Set status"
-          >
-            <ListTodo className="size-4" />
-            <span className="hidden lg:inline">Status</span>
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          side="bottom"
-          align="start"
-          collisionPadding={12}
-          className="w-[11rem]"
+        <span className="px-1.5 text-xs font-medium whitespace-nowrap">
+          {issues.length}
+          <span className="hidden lg:inline"> selected</span>
+        </span>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          className="text-muted-foreground"
+          aria-label="Clear selection"
+          onClick={onClear}
         >
-          {/* No duplicate-CATEGORY row here: bulk marking has no
-              canonical-issue picker, and status='duplicate' without
-              duplicateOfId breaks the pairing invariant (single-issue paths
-              intercept via the picker). */}
-          {creatableStatusOptions(teamStatusOptions).map((option) => {
-            const Icon = ICON_COMPONENTS[option.icon]
-            return (
-              <DropdownMenuItem
-                key={option.id}
-                onSelect={() => void applyStatus(option)}
-              >
-                <Icon
-                  className={`size-4 ${statusColorClass(option)}`}
-                  style={statusColorStyle(option)}
-                />
-                {option.name}
-              </DropdownMenuItem>
-            )
-          })}
-        </DropdownMenuContent>
-      </DropdownMenu>
+          <X className="size-3.5" />
+        </Button>
 
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-muted-foreground"
-            disabled={busy}
-            aria-label="Set priority"
-          >
-            <Flag className="size-4" />
-            <span className="hidden lg:inline">Priority</span>
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          side="bottom"
-          align="start"
-          collisionPadding={12}
-          className="w-[11rem]"
-        >
-          {issuePriorityOptions.map((option) => {
-            const Icon = option.icon
-            return (
-              <DropdownMenuItem
-                key={option.value}
-                onSelect={() => void applyPriority(option.value)}
-              >
-                <Icon className={`size-4 ${option.color}`} />
-                {option.label}
-              </DropdownMenuItem>
-            )
-          })}
-        </DropdownMenuContent>
-      </DropdownMenu>
+        <Separator orientation="vertical" className="mx-1 h-4!" />
 
-      {/* Hidden on solo teams (nothing to reassign); length 0 = still
-          loading, also hidden. */}
-      {!isSolo && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -279,10 +212,134 @@ export function BulkActionBar({
               size="sm"
               className="text-muted-foreground"
               disabled={busy}
-              aria-label="Set assignee"
+              aria-label="Set status"
             >
-              <CircleUser className="size-4" />
-              <span className="hidden lg:inline">Assignee</span>
+              <ListTodo className="size-4" />
+              <span className="hidden lg:inline">Status</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            side="bottom"
+            align="start"
+            collisionPadding={12}
+            className="w-[11rem]"
+          >
+            {/* No duplicate-CATEGORY row here: bulk marking has no
+              canonical-issue picker, and status='duplicate' without
+              duplicateOfId breaks the pairing invariant (single-issue paths
+              intercept via the picker). */}
+            {creatableStatusOptions(teamStatusOptions).map((option) => {
+              const Icon = ICON_COMPONENTS[option.icon]
+              return (
+                <DropdownMenuItem
+                  key={option.id}
+                  onSelect={() => void applyStatus(option)}
+                >
+                  <Icon
+                    className={`size-4 ${statusColorClass(option)}`}
+                    style={statusColorStyle(option)}
+                  />
+                  {option.name}
+                </DropdownMenuItem>
+              )
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground"
+              disabled={busy}
+              aria-label="Set priority"
+            >
+              <Flag className="size-4" />
+              <span className="hidden lg:inline">Priority</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            side="bottom"
+            align="start"
+            collisionPadding={12}
+            className="w-[11rem]"
+          >
+            {issuePriorityOptions.map((option) => {
+              const Icon = option.icon
+              return (
+                <DropdownMenuItem
+                  key={option.value}
+                  onSelect={() => void applyPriority(option.value)}
+                >
+                  <Icon className={`size-4 ${option.color}`} />
+                  {option.label}
+                </DropdownMenuItem>
+              )
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* Hidden on solo teams (nothing to reassign); length 0 = still
+          loading, also hidden. */}
+        {!isSolo && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground"
+                disabled={busy}
+                aria-label="Set assignee"
+              >
+                <CircleUser className="size-4" />
+                <span className="hidden lg:inline">Assignee</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              side="bottom"
+              align="start"
+              collisionPadding={12}
+              className="w-[13rem]"
+            >
+              <DropdownMenuItem onSelect={() => void applyAssignee(null)}>
+                <X className="size-4 text-muted-foreground" />
+                Unassigned
+              </DropdownMenuItem>
+              {orderedUsers.map((user) => {
+                const name = displayUserName(user, user.id)
+                return (
+                  <DropdownMenuItem
+                    key={user.id}
+                    onSelect={() => void applyAssignee(user.id)}
+                  >
+                    <Avatar className="size-5">
+                      {user.image && (
+                        <AvatarImage src={user.image} alt={name} />
+                      )}
+                      <AvatarFallback className="text-[0.5625rem]">
+                        {getInitials(name)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="truncate">{name}</span>
+                  </DropdownMenuItem>
+                )
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground"
+              disabled={busy}
+              aria-label="Set labels"
+            >
+              <Tag className="size-4" />
+              <span className="hidden lg:inline">Labels</span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
@@ -291,116 +348,73 @@ export function BulkActionBar({
             collisionPadding={12}
             className="w-[13rem]"
           >
-            <DropdownMenuItem onSelect={() => void applyAssignee(null)}>
-              <X className="size-4 text-muted-foreground" />
-              Unassigned
-            </DropdownMenuItem>
-            {orderedUsers.map((user) => {
-              const name = displayUserName(user, user.id)
-              return (
-                <DropdownMenuItem
-                  key={user.id}
-                  onSelect={() => void applyAssignee(user.id)}
-                >
-                  <Avatar className="size-5">
-                    {user.image && <AvatarImage src={user.image} alt={name} />}
-                    <AvatarFallback className="text-[0.5625rem]">
-                      {getInitials(name)}
-                    </AvatarFallback>
-                  </Avatar>
-                  <span className="truncate">{name}</span>
-                </DropdownMenuItem>
-              )
-            })}
+            {labels.length === 0 ? (
+              <DropdownMenuItem disabled>No labels yet</DropdownMenuItem>
+            ) : (
+              labels.map((label) => {
+                const state = labelState(label)
+                return (
+                  <DropdownMenuItem
+                    key={label.id}
+                    // preventDefault keeps the menu open across toggles so a
+                    // multi-label sweep is one visit.
+                    onSelect={(event) => {
+                      event.preventDefault()
+                      void toggleLabel(label)
+                    }}
+                  >
+                    <span className="flex size-4 shrink-0 items-center justify-center">
+                      {state === `all` ? (
+                        <Check className="size-4" />
+                      ) : state === `some` ? (
+                        <Minus className="size-4 text-muted-foreground" />
+                      ) : null}
+                    </span>
+                    <div
+                      className="size-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: label.color }}
+                    />
+                    <span className="truncate">{label.name}</span>
+                  </DropdownMenuItem>
+                )
+              })
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
-      )}
 
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-muted-foreground"
-            disabled={busy}
-            aria-label="Set labels"
-          >
-            <Tag className="size-4" />
-            <span className="hidden lg:inline">Labels</span>
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          side="bottom"
-          align="start"
-          collisionPadding={12}
-          className="w-[13rem]"
-        >
-          {labels.length === 0 ? (
-            <DropdownMenuItem disabled>No labels yet</DropdownMenuItem>
-          ) : (
-            labels.map((label) => {
-              const state = labelState(label)
-              return (
-                <DropdownMenuItem
-                  key={label.id}
-                  // preventDefault keeps the menu open across toggles so a
-                  // multi-label sweep is one visit.
-                  onSelect={(event) => {
-                    event.preventDefault()
-                    void toggleLabel(label)
-                  }}
-                >
-                  <span className="flex size-4 shrink-0 items-center justify-center">
-                    {state === `all` ? (
-                      <Check className="size-4" />
-                    ) : state === `some` ? (
-                      <Minus className="size-4 text-muted-foreground" />
-                    ) : null}
-                  </span>
-                  <div
-                    className="size-2.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: label.color }}
-                  />
-                  <span className="truncate">{label.name}</span>
-                </DropdownMenuItem>
-              )
-            })
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
+        <Separator orientation="vertical" className="mx-1 h-4!" />
 
-      <Separator orientation="vertical" className="mx-1 h-4!" />
-
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-destructive hover:text-destructive"
-            disabled={busy}
-            aria-label="Delete selected"
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-destructive hover:text-destructive"
+              disabled={busy}
+              aria-label="Delete selected"
+            >
+              <Trash2 className="size-4" />
+              <span className="hidden lg:inline">Delete</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            side="bottom"
+            align="end"
+            collisionPadding={12}
+            className="w-[14rem]"
           >
-            <Trash2 className="size-4" />
-            <span className="hidden lg:inline">Delete</span>
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          side="bottom"
-          align="end"
-          collisionPadding={12}
-          className="w-[14rem]"
-        >
-          <DropdownMenuItem
-            variant="destructive"
-            onSelect={() => void deleteSelected()}
-          >
-            <Trash2 className="size-4" />
-            {issues.length === 1
-              ? `Confirm delete 1 issue`
-              : `Confirm delete ${issues.length} issues`}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+            <DropdownMenuItem
+              variant="destructive"
+              onSelect={() => void deleteSelected()}
+            >
+              <Trash2 className="size-4" />
+              {issues.length === 1
+                ? `Confirm delete 1 issue`
+                : `Confirm delete ${issues.length} issues`}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
     </div>
   )
 }

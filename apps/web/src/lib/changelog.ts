@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-motion-pass`,
+    date: `2026-08-17`,
+    title: `Everything moves`,
+    summary: `Panels slide, lists reorder, and tabs travel, on all four apps and in one shared timing.`,
+    body: `- **Panels slide**: the coding panel on web and the terminal dock in the desktop IDE now open and close with a slide instead of jumping the page. The IDE's left rail expands and collapses the same way, and dragging either one to resize still tracks your pointer exactly.
+- **Lists that reorder**: changing an issue's status or a filter now moves rows to where they landed on iOS and Android, instead of having them appear somewhere else.
+- **Navigation with direction**: the bottom tab bar's selection travels between tabs, and the first-run setup steps slide forward and back on both phones.
+- **One shared timing**: every app now animates on the same three durations and curves, so the same action feels the same everywhere.
+- **Respects your settings**: turning on Reduce Motion (iOS), Remove animations (Android) or the browser's reduced-motion preference now switches these off. Android had no such handling before.`,
+  },
+  {
     id: `2026-08-git-history-view`,
     date: `2026-08-17`,
     title: `Git history in the desktop IDE`,

@@ -58,8 +58,10 @@ use gpui_component::{
     spinner::Spinner,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
 };
+use gpui::Task;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 use terminal::{TabId, TabKind, TerminalManager, TerminalManagerEvent, TerminalView};
 
 use crate::coding_flow::{CodingHub, TokenRefreshers};
@@ -73,6 +75,133 @@ pub const PANEL_NAME: &str = "TerminalDock";
 /// Per-tab hover group (EXP-65): reveals the undock button, mirroring the
 /// center tabs' `TAB_GROUP` idiom.
 const TAB_GROUP: &str = "terminal-tab";
+
+/// EXP-523: the bottom dock slides open and shut instead of snapping. The
+/// duration is the shared `standard` motion token, the same one the left
+/// column's rail-to-settings swap uses.
+const DOCK_SLIDE_DURATION: Duration = theme::motion::STANDARD;
+
+/// Upstream `Dock::render`'s CLOSED height — the toggle strip it keeps when
+/// `open == false`. The slide's closed endpoint.
+const DOCK_STRIP_H: f32 = 29.;
+
+/// Slide tick. ~120Hz, so the animation is smooth on high-refresh displays
+/// and the cost is ~24 `set_size` calls over a whole open — trivial next to
+/// the per-frame layout it triggers, and it never touches the PTY (see
+/// [`DockSlide`]).
+const DOCK_SLIDE_FRAME: Duration = Duration::from_millis(8);
+
+/// The bottom dock's open/close animation (EXP-523).
+///
+/// # Why not just animate `Dock::set_size` and let the terminal follow
+///
+/// `TerminalView` derives `(cols, rows)` from its element bounds on every
+/// prepaint and calls `session.resize`, which dedupes only on an INTEGER cell
+/// change — there is no debounce. At a 17px line height a 29 -> 240px open
+/// crosses ~12 row values, i.e. ~12 `TIOCSWINSZ` calls and ~12 SIGWINCHes to
+/// the child in 180ms. Every shell reprints its prompt and every TUI does a
+/// full-screen redraw per signal, and this happens at exactly the moment a
+/// fresh agent is starting up. So the panel PINS its content to the slide's
+/// resting height and lets the shrinking dock clip it: the grid's bounds never
+/// move, and the PTY reshapes at most once per open (on the first frame, which
+/// is strictly better than today's reshape after the snap).
+///
+/// # Why the content also needs a vertical offset
+///
+/// `Dock::set_size` clamps to upstream's `PANEL_MIN_SIZE` (100px), so heights
+/// between the 29px strip and that floor are not addressable — a naive
+/// animation would snap the last ~71px at the slow end of the easing curve,
+/// where the eye is most sensitive. Each tick therefore READS BACK what
+/// `set_size` actually stored and pushes the content down by the difference,
+/// so the panel's visible top edge tracks the virtual height continuously
+/// through the clamped region. The band this exposes above it is the same
+/// `theme::background_gradient()` quad the center already paints, so it reads
+/// as the center growing, not as a hole. Reading the clamp back rather than
+/// hardcoding it also keeps this correct if upstream ever changes the floor.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct DockSlide {
+    /// Virtual height at the start of this leg. May be below the clamp floor.
+    from: f32,
+    /// Virtual height to land on: [`DOCK_STRIP_H`] closing, `rest_height`
+    /// opening.
+    to: f32,
+    /// The user's dock height — the height the content is PINNED to for the
+    /// whole flight, and the value re-asserted into `set_size` on settle so a
+    /// close cannot persist a clamped intermediate.
+    rest_height: f32,
+    opening: bool,
+    /// Guards a settle against a leg that has since been retargeted
+    /// (`LeftColumnAnim::epoch`).
+    epoch: u64,
+    started: Instant,
+    /// What our last `set_size` actually produced. Both the clamp-offset
+    /// source and the "someone else owns the height now" detector.
+    applied: f32,
+    /// The virtual height that produced [`Self::applied`] — the pair is what
+    /// makes the clamp offset a readback rather than a hardcoded 100px.
+    requested: f32,
+}
+
+impl DockSlide {
+    fn new(from: f32, to: f32, rest_height: f32, opening: bool, now: Instant) -> Self {
+        Self {
+            from,
+            to,
+            rest_height,
+            opening,
+            epoch: 0,
+            started: now,
+            applied: from,
+            requested: from,
+        }
+    }
+
+    /// Record what `set_size(requested)` actually stored.
+    fn record_apply(&mut self, requested: f32, applied: f32) {
+        self.requested = requested;
+        self.applied = applied;
+    }
+
+    /// Eased 0..=1.
+    fn progress(&self, now: Instant) -> f32 {
+        let elapsed = now.saturating_duration_since(self.started).as_secs_f32();
+        let total = DOCK_SLIDE_DURATION.as_secs_f32();
+        let linear = if total <= 0.0 {
+            1.0
+        } else {
+            (elapsed / total).clamp(0.0, 1.0)
+        };
+        theme::motion::standard()(linear)
+    }
+
+    fn done(&self, now: Instant) -> bool {
+        now.saturating_duration_since(self.started) >= DOCK_SLIDE_DURATION
+    }
+
+    /// The height the dock WANTS this frame — not necessarily what it gets.
+    fn virtual_height(&self, now: Instant) -> f32 {
+        let t = self.progress(now);
+        self.from + (self.to - self.from) * t
+    }
+
+    /// How far to push the content down so the visible top edge sits at the
+    /// virtual height even while `set_size` is clamping.
+    fn content_offset(&self) -> f32 {
+        (self.applied - self.requested).max(0.)
+    }
+
+    /// Reverse mid-flight. Unlike `LeftColumnAnim`, which jumps to its
+    /// previous target, this restarts from the CURRENT virtual height — the
+    /// value is a real scalar here, so the reversal is continuous.
+    fn retarget(&mut self, now: Instant, to: f32, opening: bool) -> u64 {
+        self.from = self.virtual_height(now);
+        self.to = to;
+        self.opening = opening;
+        self.started = now;
+        self.epoch += 1;
+        self.epoch
+    }
+}
 
 /// Keymap scope for the dock-local bindings — an ancestor of the focused
 /// terminal view in the dispatch path, so the chords work while typing in
@@ -92,6 +221,30 @@ actions!(
         PrevTerminalTab,
     ]
 );
+
+/// EXP-523: open this dock area's bottom dock through the SLIDE, from outside
+/// the panel. `undock`'s re-dock path used to poke `Dock::set_open` directly,
+/// which would have been the one entry point that still snapped. Degrades to
+/// the raw open if the panel cannot be resolved.
+pub(crate) fn expand_terminal_dock(
+    dock_area: &Entity<DockArea>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let Some(dock) = dock_area.read(cx).bottom_dock().cloned() else {
+        return;
+    };
+    let panel = crate::coding_flow::find_terminal_dock(dock.read(cx).panel());
+    match panel {
+        Some(panel) => {
+            panel.update(cx, |panel, cx| panel.expand_dock(window, cx));
+        }
+        None if !dock.read(cx).is_open() => {
+            dock.update(cx, |dock, cx| dock.set_open(true, window, cx));
+        }
+        None => {}
+    }
+}
 
 /// Register the panel + bind the dock-scoped keys. Called once from
 /// [`crate::init`].
@@ -152,6 +305,11 @@ pub struct TerminalDockPanel {
     /// a progress line; cleared when the tab opens or the attempt fails (the
     /// cards come back).
     pending_launch: Option<SharedString>,
+    /// EXP-523: the open/close slide, `None` at rest. See [`DockSlide`].
+    dock_slide: Option<DockSlide>,
+    /// Dropping the task cancels the slide — same cancellation semantics as
+    /// `Shell::_left_anim_task`.
+    _dock_slide_task: Option<Task<()>>,
     _subscription: Subscription,
 }
 
@@ -262,6 +420,8 @@ impl TerminalDockPanel {
             agent_shell_holds: HashMap::new(),
             chips_slot_width: None,
             pending_launch: None,
+            dock_slide: None,
+            _dock_slide_task: None,
             _subscription: subscription,
         }
     }
@@ -277,31 +437,201 @@ impl TerminalDockPanel {
             .is_some_and(|dock| !dock.read(cx).is_open())
     }
 
-    /// Open the bottom dock if it is collapsed (§4 dock open/close).
-    fn expand_dock(&self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let Some(dock_area) = self.dock_area.upgrade() else {
+    /// This window's bottom `Dock`, if it still exists.
+    fn bottom_dock(&self, cx: &App) -> Option<Entity<gpui_component::dock::Dock>> {
+        self.dock_area
+            .upgrade()
+            .and_then(|dock_area| dock_area.read(cx).bottom_dock().cloned())
+    }
+
+    /// Open the bottom dock if it is collapsed (§4 dock open/close), sliding
+    /// it up (EXP-523).
+    fn expand_dock(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let Some(dock) = self.bottom_dock(cx) else {
             return;
         };
-        let Some(dock) = dock_area.read(cx).bottom_dock().cloned() else {
+        let now = Instant::now();
+
+        // Reversing a close: the dock never actually shut, so just retarget —
+        // no `set_open`, no restart from the strip height.
+        if let Some(slide) = self.dock_slide.as_mut() {
+            if !slide.opening {
+                let rest = slide.rest_height;
+                let epoch = slide.retarget(now, rest, true);
+                self.spawn_slide_task(epoch, window, cx);
+            }
             return;
-        };
-        if !dock.read(cx).is_open() {
-            dock.update(cx, |dock, cx| dock.set_open(true, window, cx));
         }
+        if dock.read(cx).is_open() {
+            return;
+        }
+
+        // Drop to the strip height and open in ONE update, so the first frame
+        // is already the closed height — never a full-height flash.
+        let rest = f32::from(dock.read(cx).size()).max(DOCK_STRIP_H);
+        let applied = dock.update(cx, |dock, cx| {
+            dock.set_size(px(DOCK_STRIP_H), window, cx);
+            dock.set_open(true, window, cx);
+            f32::from(dock.size())
+        });
+        let mut slide = DockSlide::new(DOCK_STRIP_H, rest, rest, true, now);
+        slide.record_apply(DOCK_STRIP_H, applied);
+        self.dock_slide = Some(slide);
+        let epoch = 0;
+        self.spawn_slide_task(epoch, window, cx);
+        cx.notify();
     }
 
     /// Collapse the bottom dock if it is open (§8.8b: the last tab closed) —
-    /// the Dock keeps its 29px toggle strip so the user can re-open it.
-    fn collapse_dock(&self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let Some(dock_area) = self.dock_area.upgrade() else {
+    /// the Dock keeps its 29px toggle strip so the user can re-open it. The
+    /// dock slides down first; `set_open(false)` lands only on settle
+    /// (EXP-523), which is what keeps the content rendered for the whole
+    /// animation instead of swapping to the strip on frame 1.
+    fn collapse_dock(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let Some(dock) = self.bottom_dock(cx) else {
             return;
         };
-        let Some(dock) = dock_area.read(cx).bottom_dock().cloned() else {
+        let now = Instant::now();
+
+        if let Some(slide) = self.dock_slide.as_mut() {
+            if slide.opening {
+                let epoch = slide.retarget(now, DOCK_STRIP_H, false);
+                self.spawn_slide_task(epoch, window, cx);
+            }
             return;
-        };
-        if dock.read(cx).is_open() {
-            dock.update(cx, |dock, cx| dock.set_open(false, window, cx));
         }
+        if !dock.read(cx).is_open() {
+            return;
+        }
+
+        let rest = f32::from(dock.read(cx).size());
+        let mut slide = DockSlide::new(rest, DOCK_STRIP_H, rest, false, now);
+        slide.record_apply(rest, rest);
+        self.dock_slide = Some(slide);
+        self.spawn_slide_task(0, window, cx);
+        cx.notify();
+    }
+
+    /// Drive the slide from a timer loop rather than from `render`.
+    ///
+    /// The animated value has to be PUSHED into a foreign entity (`Dock`), so
+    /// `gpui::Animation` / `EffectTransition` are out — their delta is only
+    /// available inside an element closure with no `&mut App`. And
+    /// `window.request_animation_frame()` is `on_next_frame(notify)`, so a
+    /// write driven from `render` would land a frame late and make `render`
+    /// impure. This is the same shape as the terminal's cursor-blink task and
+    /// `Shell::sync_left_column`'s settle timer.
+    fn spawn_slide_task(
+        &mut self,
+        epoch: u64,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self._dock_slide_task = Some(cx.spawn_in(window, async move |this, window| {
+            loop {
+                window
+                    .background_executor()
+                    .timer(DOCK_SLIDE_FRAME)
+                    .await;
+                let Ok(done) = this.update_in(window, |this, window, cx| {
+                    this.tick_slide(epoch, window, cx)
+                }) else {
+                    return; // panel gone with its window
+                };
+                if done {
+                    return;
+                }
+            }
+        }));
+    }
+
+    /// One slide frame. Returns true when this leg is finished (settled, or
+    /// abandoned because something else took over the height).
+    fn tick_slide(
+        &mut self,
+        epoch: u64,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> bool {
+        let Some(slide) = self.dock_slide else {
+            return true;
+        };
+        // A retarget spawned a newer loop; this one is stale.
+        if slide.epoch != epoch {
+            return true;
+        }
+        let Some(dock) = self.bottom_dock(cx) else {
+            self.dock_slide = None;
+            return true;
+        };
+
+        // Upstream's `resizing` flag is private, so detect the collision
+        // instead: if the dock's height is not what our last `set_size`
+        // stored, the user is dragging the resize handle (or some future
+        // upstream writer owns it). Abandon the slide and keep THEIR value.
+        if (f32::from(dock.read(cx).size()) - slide.applied).abs() > 0.5 {
+            self.dock_slide = None;
+            cx.notify();
+            return true;
+        }
+
+        let now = Instant::now();
+        if slide.done(now) {
+            self.settle_slide(&dock, window, cx);
+            return true;
+        }
+
+        let requested = slide.virtual_height(now);
+        let applied = dock.update(cx, |dock, cx| {
+            dock.set_size(px(requested), window, cx);
+            f32::from(dock.size())
+        });
+        if let Some(slide) = self.dock_slide.as_mut() {
+            slide.record_apply(requested, applied);
+        }
+        cx.notify();
+        false
+    }
+
+    /// Mid-slide the content is PINNED to the resting height and pushed down
+    /// by the clamp offset, inside the panel's `overflow_hidden` root: the
+    /// terminal grid's bounds never move (so the PTY reshapes at most once per
+    /// open), and the visible top edge tracks the virtual height continuously
+    /// through `Dock::set_size`'s `PANEL_MIN_SIZE` floor. At rest it is just
+    /// `size_full`, exactly as before.
+    fn pin_content<E: Styled>(&self, content: E) -> E {
+        match self.dock_slide {
+            Some(slide) => content
+                .absolute()
+                .left_0()
+                .right_0()
+                .top(px(slide.content_offset()))
+                .h(px(slide.rest_height)),
+            None => content.size_full(),
+        }
+    }
+
+    /// End of the slide: land the real open state and restore the user's
+    /// height. The height restore is what stops a close from persisting a
+    /// clamped intermediate (the layout save reads `Dock::size`), and it is
+    /// invisible either way — a closed dock renders its 29px strip whatever
+    /// its stored size is.
+    fn settle_slide(
+        &mut self,
+        dock: &Entity<gpui_component::dock::Dock>,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let Some(slide) = self.dock_slide.take() else {
+            return;
+        };
+        dock.update(cx, |dock, cx| {
+            if !slide.opening {
+                dock.set_open(false, window, cx);
+            }
+            dock.set_size(px(slide.rest_height), window, cx);
+        });
+        cx.notify();
     }
 
     /// Focus follows the active tab (§6.13 "each tab hosting the terminal
@@ -1709,21 +2039,31 @@ impl Render for TerminalDockPanel {
         };
         let tab_count = self.manager.read(cx).len();
 
+        let outer = div()
+            .id("terminal-dock-clip")
+            .relative()
+            .size_full()
+            .overflow_hidden();
         let root = v_flex()
-            .id("terminal-dock")
             .key_context(KEY_CONTEXT)
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::on_new_tab))
             .on_action(cx.listener(Self::on_close_tab))
             .on_action(cx.listener(Self::on_next_tab))
-            .on_action(cx.listener(Self::on_prev_tab))
-            .size_full()
-            .overflow_hidden();
+            .on_action(cx.listener(Self::on_prev_tab));
 
         // Collapsed dock: only the compact strip — never the full
         // content squeezed/clipped into the 29px band.
-        if self.dock_collapsed(cx) {
-            return root.child(self.render_collapsed_strip(metas.len(), cx));
+        // EXP-523: `dock_slide.is_none()` holds this back while a CLOSE
+        // animation runs. `collapse_dock` deliberately does not flip
+        // `set_open` until it settles, so the content stays rendered for the
+        // whole slide and the swap lands on a near-identical frame (the 29px
+        // tab strip replaced by the 29px collapsed strip). On open the flip
+        // happens up front, so this branch is already false on frame 1.
+        if self.dock_collapsed(cx) && self.dock_slide.is_none() {
+            return outer.child(root.size_full().child(
+                self.render_collapsed_strip(metas.len(), cx),
+            ));
         }
 
         let Some(active_view) = active_view else {
@@ -1731,28 +2071,35 @@ impl Render for TerminalDockPanel {
                 // Tabs exist but none is visible/active here — every one is
                 // undocked (or the active tab just popped out mid-frame).
                 // Keep the bar (the `+` stays reachable) over a hint.
-                return root
-                    .child(self.render_tab_bar(&metas, 0, window, cx))
-                    .child(self.render_undocked_hint(cx));
+                return outer.child(self.pin_content(
+                    root.child(self.render_tab_bar(&metas, 0, window, cx))
+                        .child(self.render_undocked_hint(cx)),
+                ));
             }
             // EXP-369: an expanded, empty dock offers its launch cards — the
             // bar stays (the `+` / collapse chevron keep working) and nothing
             // spawns until the user picks something.
-            return root
-                .child(self.render_tab_bar(&metas, 0, window, cx))
-                .child(self.render_empty_dock_options(window, cx));
+            return outer.child(self.pin_content(
+                root.child(self.render_tab_bar(&metas, 0, window, cx))
+                    .child(self.render_empty_dock_options(window, cx)),
+            ));
         };
 
         let selected_ix = active_id
             .and_then(|id| metas.iter().position(|meta| meta.id == id))
             .unwrap_or(0);
-        root.child(self.render_tab_bar(&metas, selected_ix, window, cx))
-            // min_h(0) so the flex child can shrink with the dock; the grid
-            // element itself guards the 0-height collapsed case (§6.9).
-            .child(div().flex_1().min_h_0().child(active_view))
-            .when_some(active_exit, |this, code| {
-                this.child(exit_strip(code, cx))
-            })
+        outer.child(
+            self.pin_content(
+                root.child(self.render_tab_bar(&metas, selected_ix, window, cx))
+                    // min_h(0) so the flex child can shrink with the dock; the
+                    // grid element itself guards the 0-height collapsed case
+                    // (§6.9).
+                    .child(div().flex_1().min_h_0().child(active_view))
+                    .when_some(active_exit, |this, code| {
+                        this.child(exit_strip(code, cx))
+                    }),
+            ),
+        )
     }
 }
 
@@ -1865,5 +2212,126 @@ mod tests {
                 assert_eq!(dumped.info, PanelInfo::Panel(serde_json::Value::Null));
             })
             .expect("window update");
+    }
+
+    // ── EXP-523: the bottom dock's open/close slide ─────────────────────────
+    //
+    // Pure state-machine tests, like `shell.rs`'s `LeftColumnAnim` ones: no
+    // gpui context, synthetic `Instant`s. `Instant::now()` is real under the
+    // test executor, so the timer loop itself is not driveable — the contract
+    // that matters is the arithmetic these pin down.
+
+    fn slide_at(offset_ms: u64, base: Instant) -> Instant {
+        base + Duration::from_millis(offset_ms)
+    }
+
+    #[test]
+    fn slide_progress_clamps_at_both_ends_and_settles() {
+        let t0 = Instant::now();
+        let slide = DockSlide::new(DOCK_STRIP_H, 240., 240., true, t0);
+
+        assert_eq!(slide.virtual_height(t0), DOCK_STRIP_H);
+        assert!(!slide.done(t0));
+
+        let end = slide_at(DOCK_SLIDE_DURATION.as_millis() as u64, t0);
+        assert!(slide.done(end));
+        assert!((slide.virtual_height(end) - 240.).abs() < 0.01);
+        // Past the end it pins rather than overshooting.
+        let past = slide_at(DOCK_SLIDE_DURATION.as_millis() as u64 + 500, t0);
+        assert!((slide.virtual_height(past) - 240.).abs() < 0.01);
+    }
+
+    #[test]
+    fn slide_stays_inside_its_endpoints_the_whole_way() {
+        let t0 = Instant::now();
+        let slide = DockSlide::new(240., DOCK_STRIP_H, 240., false, t0);
+        let total = DOCK_SLIDE_DURATION.as_millis() as u64;
+        let mut previous = slide.virtual_height(t0);
+        for step in 1..=20u64 {
+            let v = slide.virtual_height(slide_at(total * step / 20, t0));
+            assert!(v <= previous + 0.01, "a close must never grow: {previous} -> {v}");
+            assert!((DOCK_STRIP_H - 0.01..=240.01).contains(&v), "out of range: {v}");
+            previous = v;
+        }
+    }
+
+    // The clamp offset is what keeps the panel's visible edge moving through
+    // the region `Dock::set_size` refuses to store (PANEL_MIN_SIZE).
+    #[test]
+    fn content_offset_is_zero_above_the_clamp_floor_and_covers_it_below() {
+        let t0 = Instant::now();
+        let mut slide = DockSlide::new(240., DOCK_STRIP_H, 240., false, t0);
+
+        slide.record_apply(180., 180.);
+        assert_eq!(slide.content_offset(), 0., "no clamp above the floor");
+
+        // Asked for 29, upstream stored 100 — the content must drop by 71 so
+        // the visible top edge is still where 29 would put it.
+        slide.record_apply(DOCK_STRIP_H, 100.);
+        assert!((slide.content_offset() - (100. - DOCK_STRIP_H)).abs() < 0.01);
+
+        // Never negative, whatever upstream does.
+        slide.record_apply(300., 240.);
+        assert_eq!(slide.content_offset(), 0.);
+    }
+
+    // `LeftColumnAnim` jumps to its previous target on a mid-flight reversal
+    // (documented upstream limitation). This one has a real scalar, so it can
+    // do better — and must, or reopening a half-closed dock visibly snaps.
+    #[test]
+    fn retarget_restarts_from_the_current_height_not_the_old_target() {
+        let t0 = Instant::now();
+        let mut slide = DockSlide::new(DOCK_STRIP_H, 240., 240., true, t0);
+        let half = slide_at(DOCK_SLIDE_DURATION.as_millis() as u64 / 2, t0);
+        let mid = slide.virtual_height(half);
+        assert!(mid > DOCK_STRIP_H && mid < 240., "midpoint should be in flight: {mid}");
+
+        let epoch = slide.retarget(half, DOCK_STRIP_H, false);
+        assert_eq!(epoch, 1, "a retarget must bump the epoch");
+        assert!(!slide.opening);
+        assert!(
+            (slide.virtual_height(half) - mid).abs() < 0.01,
+            "the reversal must start where the curve actually was"
+        );
+        assert_eq!(slide.to, DOCK_STRIP_H);
+    }
+
+    // The regression this guards: `settle` restoring `to` instead of
+    // `rest_height` would persist the 29px (or the clamped 100px) as the
+    // user's dock height, silently shrinking every future open.
+    #[test]
+    fn a_close_keeps_the_users_resting_height() {
+        let t0 = Instant::now();
+        let mut slide = DockSlide::new(312., DOCK_STRIP_H, 312., false, t0);
+        slide.retarget(slide_at(40, t0), DOCK_STRIP_H, false);
+        assert_eq!(slide.rest_height, 312.);
+        assert_eq!(slide.to, DOCK_STRIP_H);
+    }
+
+    // A stale timer loop from a superseded leg must not drive the new one.
+    #[test]
+    fn epochs_identify_the_leg_a_tick_belongs_to() {
+        let t0 = Instant::now();
+        let mut slide = DockSlide::new(DOCK_STRIP_H, 240., 240., true, t0);
+        assert_eq!(slide.epoch, 0);
+        let first = slide.retarget(slide_at(20, t0), DOCK_STRIP_H, false);
+        let second = slide.retarget(slide_at(40, t0), 240., true);
+        assert_eq!((first, second), (1, 2));
+        assert_ne!(slide.epoch, first, "the older loop's epoch is now stale");
+    }
+
+    // Drag detection: upstream's `resizing` flag is private, so the slide
+    // notices the user grabbing the handle by the dock's height no longer
+    // matching what its own last `set_size` stored.
+    #[test]
+    fn an_external_height_write_is_detectable_from_the_readback() {
+        let t0 = Instant::now();
+        let mut slide = DockSlide::new(240., DOCK_STRIP_H, 240., false, t0);
+        slide.record_apply(200., 200.);
+
+        let ours = 200.;
+        assert!((ours - slide.applied).abs() <= 0.5, "our own write is not a collision");
+        let dragged = 264.;
+        assert!((dragged - slide.applied).abs() > 0.5, "a drag must be detected");
     }
 }

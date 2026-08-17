@@ -152,6 +152,7 @@ struct StartCodingSheet: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.motion) private var motion
 
     /// Sentinel for the blank "CLI default" choice (omit --effort; for
     /// codex/pi also the omit-model default — claude is explicit-always).
@@ -620,7 +621,7 @@ struct StartCodingSheet: View {
     }
 
     private func toggle(_ id: String) {
-        withAnimation(.snappy(duration: 0.18)) {
+        withAnimation(motion.standard) {
             // Both results discarded explicitly: a lone `if` is if-expression
             // eligible, and its branches here have mismatched non-Void types
             // (String? vs the insert tuple), which is exactly the shape that
@@ -857,7 +858,7 @@ struct StartCodingSheet: View {
 
     private func selectAction(_ action: ActionDto) {
         guard action.id != selectedActionId else { return }
-        withAnimation(.snappy(duration: 0.18)) {
+        withAnimation(motion.standard) {
             selectedActionId = action.id
         }
         // Values are keyed per-def — a different action's defs must start clean.

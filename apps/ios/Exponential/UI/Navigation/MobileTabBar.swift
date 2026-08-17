@@ -32,6 +32,27 @@ struct MobileTabBar: View {
     let onSupport: () -> Void
     let onCompose: () -> Void
 
+    // EXP-523: the active pill SLIDES between tabs instead of cutting. One
+    // capsule holds the geometry id at a time (the standard matched-geometry
+    // pattern), and the animation is driven from `activeKey` on the row —
+    // the per-tab `active` booleans change together, so animating each tab
+    // independently would cross-fade two pills instead of moving one.
+    @Namespace private var tabPill
+    @Environment(\.motion) private var motion
+
+    /// Which tab currently owns the pill. `none` is reachable (a pushed
+    /// detail surface can leave every tab inactive), and simply leaves the
+    /// pill unmounted.
+    private var activeKey: String {
+        if issuesActive { return "issues" }
+        if myWorkActive { return "mywork" }
+        if supportActive { return "support" }
+        if agentsActive { return "agents" }
+        if reviewsActive { return "reviews" }
+        if searchActive { return "search" }
+        return "none"
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             // Six tabs (helpdesk on) must still fit a 375pt screen (SE/mini)
@@ -93,6 +114,7 @@ struct MobileTabBar: View {
                 tab(glyph: AppIcons.navSearch, label: "Search", active: searchActive, action: onSearch)
                     .accessibilityIdentifier("tab-search")
             }
+            .animation(motion.standard, value: activeKey)
             .padding(5)
             .background(.ultraThinMaterial, in: Capsule())
             .overlay(
@@ -146,7 +168,15 @@ struct MobileTabBar: View {
                             .offset(x: -8, y: 8)
                     }
                 }
-                .background(active ? Color.white.opacity(0.12) : .clear, in: Capsule())
+                .background {
+                    // Only the ACTIVE tab renders the capsule, and it carries
+                    // the shared geometry id — that is what makes it travel.
+                    if active {
+                        Capsule()
+                            .fill(Color.white.opacity(0.12))
+                            .matchedGeometryEffect(id: "tab-pill", in: tabPill)
+                    }
+                }
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)

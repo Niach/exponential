@@ -1,6 +1,7 @@
 package com.exponential.app.ui.onboarding
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -37,10 +38,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.theme.LocalReduceMotion
+import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassCard
 
@@ -69,6 +73,9 @@ fun OnboardingScreen(
     val teamError by viewModel.teamError.collectAsStateWithLifecycle()
 
     var step by remember { mutableIntStateOf(0) }
+    // EXP-523: `transitionSpec` is a plain lambda, not a composable one, so the
+    // reduce-motion flag is read here and captured.
+    val reduceMotion = LocalReduceMotion.current
 
     LaunchedEffect(Unit) {
         viewModel.reconcile()
@@ -93,7 +100,25 @@ fun OnboardingScreen(
         ) {
             AnimatedContent(
                 targetState = step,
-                transitionSpec = { fadeIn() togetherWith fadeOut() },
+                // EXP-523: steps push in from the trailing edge and leave to
+                // the leading one — the same direction AppNavHost pushes, and
+                // iOS parity. Was an untuned default-duration cross-fade,
+                // which gave no sense that the wizard had moved forward.
+                transitionSpec = {
+                    val forward = targetState >= initialState
+                    val direction = if (forward) {
+                        AnimatedContentTransitionScope.SlideDirection.Start
+                    } else {
+                        AnimatedContentTransitionScope.SlideDirection.End
+                    }
+                    val spec = Motion.standard<IntOffset>(reduceMotion)
+                    slideIntoContainer(direction, spec)
+                        .plus(fadeIn(Motion.standard(reduceMotion)))
+                        .togetherWith(
+                            slideOutOfContainer(direction, spec)
+                                .plus(fadeOut(Motion.standard(reduceMotion)))
+                        )
+                },
                 label = "onboarding-step",
             ) { current ->
                 when (current) {

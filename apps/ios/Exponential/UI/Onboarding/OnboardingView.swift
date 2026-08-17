@@ -16,6 +16,7 @@ import SwiftUI
 /// self-heals via reconcileWithServer before the user ever creates anything.
 struct OnboardingView: View {
     @Environment(AppDependencies.self) private var deps
+    @Environment(\.motion) private var motion
 
     @State private var page = 0
     @State private var teamId: String?
@@ -30,16 +31,32 @@ struct OnboardingView: View {
 
             ScrollView {
                 VStack(spacing: 0) {
-                    switch page {
-                    case 0: welcomePage
-                    case 1: teamPage
-                    case 2: boardPage
-                    default: donePage
+                    // EXP-523: steps push in from the trailing edge and leave
+                    // to the leading one, the same direction the app's own
+                    // navigation pushes — the wizard used to cut between
+                    // pages with no indication it had moved forward.
+                    // `.id(page)` is what makes SwiftUI treat each step as a
+                    // distinct view so the transition has something to run on.
+                    Group {
+                        switch page {
+                        case 0: welcomePage
+                        case 1: teamPage
+                        case 2: boardPage
+                        default: donePage
+                        }
                     }
+                    .id(page)
+                    .transition(
+                        .asymmetric(
+                            insertion: .move(edge: .trailing).combined(with: .opacity),
+                            removal: .move(edge: .leading).combined(with: .opacity)
+                        )
+                    )
                 }
                 .padding(.horizontal, 32)
                 .padding(.vertical, 48)
                 .frame(maxWidth: .infinity)
+                .animation(motion.standard, value: page)
             }
         }
         .task { await reconcileWithServer() }
@@ -66,7 +83,7 @@ struct OnboardingView: View {
             Spacer().frame(height: 48)
 
             primaryButton("Get started", enabled: true) {
-                page = 1
+                withAnimation(motion.standard) { page = 1 }
             }
         }
     }
@@ -121,7 +138,7 @@ struct OnboardingView: View {
                     TeamSetupView(
                         onCreated: { team in
                             teamId = team.id
-                            page = 2
+                            withAnimation(motion.standard) { page = 2 }
                         },
                         onJoined: {
                             // teamInvites.accept stamps onboardingCompletedAt
@@ -162,7 +179,7 @@ struct OnboardingView: View {
                     accountId: deps.auth.activeAccountId ?? "",
                     teamId: teamId,
                     minimal: true,
-                    onCreated: { _ in page = 3 }
+                    onCreated: { _ in withAnimation(motion.standard) { page = 3 } }
                 )
                 .padding(24)
                 .glassCard()
@@ -281,7 +298,7 @@ struct OnboardingView: View {
         do {
             if let team = try await deps.teamsApi.getDefault(accountId: accountId) {
                 teamId = team.id
-                page = 2
+                withAnimation(motion.standard) { page = 2 }
             }
         } catch {
             teamError = error.trpcUserMessage

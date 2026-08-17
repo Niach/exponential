@@ -42,7 +42,7 @@ struct IssueDetailBottomBar: View {
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motion) private var motion
 
     @State private var composerEditor = IssueEditorModel()
     @State private var expanded = false
@@ -79,7 +79,7 @@ struct IssueDetailBottomBar: View {
                 Color.clear.frame(height: 0)
             }
         }
-        .animation(reduceMotion ? nil : .snappy(duration: 0.18), value: expanded)
+        .animation(motion.standard, value: expanded)
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
             keyboardVisible = true
         }
@@ -306,7 +306,7 @@ struct IssueDetailBottomBar: View {
     // MARK: - Expand / collapse
 
     private func expand() {
-        withAnimation(reduceMotion ? nil : .snappy(duration: 0.18)) { expanded = true }
+        withAnimation(motion.standard) { expanded = true }
         // Programmatic focus needs the text view mounted — one runloop hop,
         // with a 150ms retry in case the first lands before layout.
         DispatchQueue.main.async {
@@ -320,7 +320,7 @@ struct IssueDetailBottomBar: View {
     }
 
     private func collapse() {
-        withAnimation(reduceMotion ? nil : .snappy(duration: 0.18)) { expanded = false }
+        withAnimation(motion.standard) { expanded = false }
     }
 
     // MARK: - Composer plumbing (ported from the old CommentThreadView composer)

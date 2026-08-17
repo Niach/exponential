@@ -21,7 +21,7 @@ struct CommentThreadView: View {
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motion) private var motion
     @State private var comments: [CommentEntity] = []
     @State private var events: [IssueEventEntity] = []
     @State private var users: [String: UserEntity] = [:]
@@ -173,12 +173,11 @@ struct CommentThreadView: View {
             }
         ) {
             Button {
-                if reduceMotion {
-                    expandedRuns.insert(key)
-                } else {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        _ = expandedRuns.insert(key)
-                    }
+                // EXP-523: `motion.standard` is nil under Reduce Motion and
+                // `withAnimation(nil)` applies the change instantly, so the
+                // explicit branch this used to carry is gone.
+                withAnimation(motion.standard) {
+                    _ = expandedRuns.insert(key)
                 }
             } label: {
                 Text("Show \(events.count) activity items")
