@@ -67,9 +67,9 @@ import {
 // shared options cluster, the web twin of the desktop IDE's launcher.
 // Issues tab (EXP-106): a searchable multi-issue picker — 1 checked issue
 // starts a plain single-issue session; 2+ start a BATCH session on one pushed
-// branch. While the user hasn't touched a Checkbox / Select, crossing to a
-// batch flips ultracode ON / plan OFF, and dropping back restores the
-// device's defaults. Actions tab (EXP-253/EXP-257): a single-select action
+// branch. EXP-532: batch runs take the same device-advertised defaults as
+// single-issue runs — no per-mode override on the 1↔2 crossing anymore.
+// Actions tab (EXP-253/EXP-257): a single-select action
 // list (the builtin "Fix merge conflicts" pinned first; "Create action"
 // lives in its own dedicated dialog since EXP-431) plus the action's typed
 // input fields; action runs take the FULL option set on any agent the device
@@ -172,9 +172,6 @@ export function LaunchDialog({
   // eligible (reset on open); a manual toggle simply sticks, since nothing
   // ever re-sets it after open.
   const [resume, setResume] = useState(true)
-  // Set once the user overrides any Switch / Select — freezes the per-mode
-  // defaults so a later selection-count crossing won't stomp their choice.
-  const touchedRef = useRef(false)
   // EXP-437: the deviceId whose launch defaults last seeded the options —
   // the 15s devices re-poll must not stomp in-dialog edits, but an actual
   // device change (explicit switch, or a re-settle after the picked machine
@@ -359,7 +356,6 @@ export function LaunchDialog({
     seededRepoActionId.current = null
     setDeviceId(initialDeviceId ?? null)
     setResume(true)
-    touchedRef.current = false
     // Static contract defaults until a device settles — the device-seed
     // effect below overlays the selected machine's advertised defaults
     // (EXP-437; its latch is reset here so a reopen reseeds).
@@ -369,15 +365,8 @@ export function LaunchDialog({
     setModel(seed.model)
     setEffortValue(CLI_DEFAULT_EFFORT)
     setSkipPermissions(seed.skipPermissions)
-    // A pre-checked batch (2+) opens with the batch defaults (ultracode ON /
-    // plan OFF).
-    if (initial.size >= 2) {
-      setUltracode(agentSupportsUltracode(DEFAULT_LAUNCH_AGENT))
-      setPlanMode(false)
-    } else {
-      setUltracode(seed.ultracode)
-      setPlanMode(seed.planMode)
-    }
+    setUltracode(seed.ultracode)
+    setPlanMode(seed.planMode)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
@@ -439,10 +428,6 @@ export function LaunchDialog({
     )
   }, [open, candidateDevices])
 
-  const markTouched = () => {
-    touchedRef.current = true
-  }
-
   const device =
     candidateDevices.find((candidate) => candidate.deviceId === deviceId) ??
     candidateDevices[0]
@@ -452,20 +437,6 @@ export function LaunchDialog({
     if (next.has(id)) next.delete(id)
     else next.add(id)
     setSelected(next)
-    // Apply per-mode defaults on a 1↔2 crossing, but only while untouched.
-    const wasBatch = selected.size >= 2
-    const isBatch = next.size >= 2
-    if (wasBatch !== isBatch && !touchedRef.current) {
-      if (isBatch) {
-        setUltracode(agentSupportsUltracode(agent))
-        setPlanMode(false)
-      } else {
-        // Back to a single issue: restore the device's defaults (EXP-437).
-        const seed = agentSeed(agent, deviceAgentLaunchDefaults(device, agent))
-        setUltracode(seed.ultracode)
-        setPlanMode(seed.planMode)
-      }
-    }
   }
 
   const selectAction = (actionId: string) => {
@@ -481,20 +452,13 @@ export function LaunchDialog({
   // none), capability-clamped — the same reseed the desktop dialog does.
   const switchAgent = (next: string) => {
     if (next === agent) return
-    markTouched()
     setAgent(next)
     const seed = agentSeed(next, deviceAgentLaunchDefaults(device, next))
     setModel(seed.model)
     setEffortValue(seed.effort === `` ? CLI_DEFAULT_EFFORT : seed.effort)
     setSkipPermissions(seed.skipPermissions)
-    // The batch posture survives an agent switch (ultracode ON / plan OFF).
-    if (selected.size >= 2) {
-      setUltracode(agentSupportsUltracode(next))
-      setPlanMode(false)
-    } else {
-      setUltracode(seed.ultracode)
-      setPlanMode(seed.planMode)
-    }
+    setUltracode(seed.ultracode)
+    setPlanMode(seed.planMode)
   }
 
   // EXP-437: seed the launch options from the selected device's advertised
@@ -515,14 +479,8 @@ export function LaunchDialog({
     setModel(seed.model)
     setEffortValue(seed.effort === `` ? CLI_DEFAULT_EFFORT : seed.effort)
     setSkipPermissions(seed.skipPermissions)
-    // The batch override still wins over the device defaults (mirrors open).
-    if (selected.size >= 2) {
-      setUltracode(agentSupportsUltracode(next))
-      setPlanMode(false)
-    } else {
-      setUltracode(seed.ultracode)
-      setPlanMode(seed.planMode)
-    }
+    setUltracode(seed.ultracode)
+    setPlanMode(seed.planMode)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, device?.deviceId])
 
@@ -681,31 +639,16 @@ export function LaunchDialog({
             availableAgents={availableAgents}
             onAgentChange={switchAgent}
             model={model}
-            onModelChange={(value) => {
-              markTouched()
-              setModel(value)
-            }}
+            onModelChange={setModel}
             effortValue={effortValue}
-            onEffortChange={(value) => {
-              markTouched()
-              setEffortValue(value)
-            }}
+            onEffortChange={setEffortValue}
             ultracode={ultracode}
-            onUltracodeChange={(value) => {
-              markTouched()
-              setUltracode(value)
-            }}
+            onUltracodeChange={setUltracode}
             planMode={planMode}
-            onPlanModeChange={(value) => {
-              markTouched()
-              setPlanMode(value)
-            }}
+            onPlanModeChange={setPlanMode}
             planModeHidden={resumeActive}
             skipPermissions={skipPermissions}
-            onSkipPermissionsChange={(value) => {
-              markTouched()
-              setSkipPermissions(value)
-            }}
+            onSkipPermissionsChange={setSkipPermissions}
             resumeRow={
               resumeCandidate
                 ? {

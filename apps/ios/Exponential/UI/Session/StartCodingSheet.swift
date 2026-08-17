@@ -51,7 +51,9 @@ import SwiftUI
 // switch. A desktop that advertises none (an older build) falls back to the
 // static contract defaults, and every advertised value is validated against
 // today's contract lists + the agent's capabilities before it can be shown or
-// sent. The 2+-issue batch override (ultracode on / plan off) still runs last.
+// sent. The old 2+-issue batch override (ultracode on / plan off) is GONE
+// (EXP-532): a batch run seeds from the machine's advertised defaults exactly
+// like a single-issue one.
 
 struct StartCodingSheet: View {
     /// One eligible issue offered in the picker. `repositoryId` drives the
@@ -201,9 +203,6 @@ struct StartCodingSheet: View {
     /// one reseeds from its defaults; anything that re-resolves to the same
     /// machine (a device re-poll, a reselect) must leave the user's edits alone.
     @State private var lastSeededDeviceId: String?
-    // Set by any manual Model/Effort/ultracode/plan interaction — once true the
-    // auto batch-mode defaults stop overriding the user's explicit choices.
-    @State private var touchedToggles = false
 
     init(
         devices: [SteerDevice],
@@ -328,12 +327,12 @@ struct StartCodingSheet: View {
                 // a standalone clear Section pads its lone row to the 44pt list
                 // minimum, which read as a bigger gap than listSectionSpacing.
                 Section {
-                    Picker("Model", selection: modelBinding) {
+                    Picker("Model", selection: $model) {
                         ForEach(modelValues, id: \.self) { value in
                             Text(Self.modelLabel(value)).tag(value)
                         }
                     }
-                    Picker(effortTitle, selection: effortBinding) {
+                    Picker(effortTitle, selection: $effort) {
                         Text("CLI default").tag(Self.cliDefault)
                         ForEach(effortValues, id: \.self) { value in
                             Text(Self.effortLabel(value)).tag(value)
@@ -355,15 +354,15 @@ struct StartCodingSheet: View {
                         Toggle("Resume previous session", isOn: $resume)
                     }
                     if agent == "claude" {
-                        Toggle("Ultracode", isOn: ultracodeBinding)
+                        Toggle("Ultracode", isOn: $ultracode)
                     }
                     // A resume never re-enters plan mode (the machine clamps
                     // it too) — hide the toggle while one is active.
                     if Self.supportsPlanMode(agent), !resumeActive {
-                        Toggle("Plan mode", isOn: planModeBinding)
+                        Toggle("Plan mode", isOn: $planMode)
                     }
                     if agent != "pi" {
-                        Toggle("Skip permissions", isOn: skipPermissionsBinding)
+                        Toggle("Skip permissions", isOn: $skipPermissions)
                     }
                 } footer: {
                     if resumeActive, let candidate = resumeCandidate {
@@ -406,25 +405,6 @@ struct StartCodingSheet: View {
             // gracefully on staleness anyway.
             guard worktrees == nil else { return }
             loadedWorktrees = await DeviceQueries.worktrees(db: deps.db, accountId: accountId)
-        }
-        // Crossing into/out of batch flips the mode defaults — unless the user
-        // has already touched the option controls, and only for the agents
-        // whose toggles the crossing changes (claude's ultracode/plan, pi's
-        // plan since EXP-441). Tracks the IN-POOL count so a stray preselected
-        // id can't be mistaken for a real second issue.
-        .onChange(of: effectiveChecked.count) { oldCount, newCount in
-            guard subjectTab == .issues, !touchedToggles, Self.supportsPlanMode(agent)
-            else { return }
-            if oldCount < 2, newCount >= 2 {
-                ultracode = agent == "claude"
-                planMode = false
-            } else if oldCount >= 2, newCount < 2 {
-                // Back to single: restore what the MACHINE advertises for the
-                // agent (EXP-437), which is off unless it says otherwise.
-                let advertised = device?.agentDefaults(for: agent)
-                ultracode = agent == "claude" && (advertised?.ultracode ?? false)
-                planMode = advertised?.planMode ?? false
-            }
         }
         // The candidate device pool changes with the tab (Actions filters to
         // capable desktops) and with the selection (inputs-carrying/builtin
@@ -1043,8 +1023,8 @@ struct StartCodingSheet: View {
     // MARK: - Agent tab strip (EXP-208)
 
     /// Horizontal centered pill tab strip with brand icons — the iOS twin of
-    /// the desktop dialog's `agent_tabs`. Selection goes through `agentBinding`
-    /// so it keeps the exact selectAgent + touchedToggles side effects.
+    /// the desktop dialog's `agent_tabs`. Selection goes through `selectAgent`
+    /// so a switch reseeds the options from the machine's per-agent defaults.
     private var agentTabStrip: some View {
         HStack(spacing: 8) {
             ForEach(availableAgents, id: \.self) { value in
@@ -1057,10 +1037,10 @@ struct StartCodingSheet: View {
     private func agentTab(_ value: String) -> some View {
         let selected = value == agent
         return Button {
-            // Same no-op-on-reselect semantics as the old segmented Picker:
-            // only a CHANGE goes through the binding (and marks touched).
+            // Same no-op-on-reselect semantics as the old segmented Picker
+            // (`selectAgent` guards it too — a reselect keeps the edits).
             guard value != agent else { return }
-            agentBinding.wrappedValue = value
+            selectAgent(value)
         } label: {
             HStack(spacing: 6) {
                 Image("agent-\(value)")
@@ -1079,7 +1059,7 @@ struct StartCodingSheet: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - Bindings (touch tracking)
+    // MARK: - Bindings
 
     private var deviceBinding: Binding<String> {
         Binding(
@@ -1094,32 +1074,6 @@ struct StartCodingSheet: View {
                 if switched { applyDeviceDefaults() }
             }
         )
-    }
-
-    private var agentBinding: Binding<String> {
-        Binding(get: { agent }, set: { selectAgent($0); touchedToggles = true })
-    }
-
-    // Manual interaction goes through these setters (programmatic seed / auto
-    // batch defaults write the @State directly, so they don't mark touched).
-    private var modelBinding: Binding<String> {
-        Binding(get: { model }, set: { model = $0; touchedToggles = true })
-    }
-
-    private var effortBinding: Binding<String> {
-        Binding(get: { effort }, set: { effort = $0; touchedToggles = true })
-    }
-
-    private var ultracodeBinding: Binding<Bool> {
-        Binding(get: { ultracode }, set: { ultracode = $0; touchedToggles = true })
-    }
-
-    private var planModeBinding: Binding<Bool> {
-        Binding(get: { planMode }, set: { planMode = $0; touchedToggles = true })
-    }
-
-    private var skipPermissionsBinding: Binding<Bool> {
-        Binding(get: { skipPermissions }, set: { skipPermissions = $0; touchedToggles = true })
     }
 
     // MARK: - Agent-dependent option lists (EXP-201)
@@ -1209,12 +1163,6 @@ struct StartCodingSheet: View {
         guard !seeded else { return }
         seeded = true
         applyDeviceDefaults()
-        // Opening already in batch (2+ in-pool preselected) applies the batch
-        // defaults — LAST, so they win over the machine's.
-        if effectiveChecked.count >= 2 {
-            if agent == "claude" { ultracode = true }
-            planMode = false
-        }
     }
 
     /// Reseed agent + every option from the resolved machine's advertised
