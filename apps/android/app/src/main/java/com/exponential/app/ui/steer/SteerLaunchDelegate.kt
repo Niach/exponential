@@ -13,23 +13,20 @@ import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.StartedRunKey
+import com.exponential.app.domain.StartedRunMatch
 import com.exponential.app.ui.issue.StartIssueOption
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 
 // Remote-start plumbing shared by the screens that host the unified
 // StartCodingSheet without owning an agents surface of their own (EXP-323:
@@ -80,7 +77,12 @@ class SteerLaunchDelegate @Inject constructor(
     val startedSessionId: StateFlow<String?> = _startedSessionId
 
     private var scope: CoroutineScope? = null
-    private var watchJob: Job? = null
+
+    // The live rows the post-send watch scans — a start is only a command;
+    // the desktop writes the coding_sessions row a moment later.
+    private val liveSessionRows = dbFlow.scopedQuery(emptyList()) {
+        it.codingSessionDao().observeByStatuses(CodingSessionLiveness.liveStatuses)
+    }
 
     private val noCandidates = MutableStateFlow<List<StartIssueOption>>(emptyList())
     private var _startCandidates: StateFlow<List<StartIssueOption>>? = null
@@ -213,25 +215,7 @@ class SteerLaunchDelegate @Inject constructor(
                     teamId = action.teamId.takeIf { action.isBuiltin },
                     inputs = inputs.takeIf { it.isNotEmpty() },
                 )
-                val label = device.deviceLabel.ifBlank { device.deviceId }
-                _runState.value = ActionRunState.Sent(label)
-                watchForStartedRun(action.name, auth.userId.value)
-                // Keep the Sent caption for the whole watch deadline — a slow
-                // desktop pickup can still navigate late, and a captionless
-                // late jump reads as a glitch.
-                delay(WATCH_DEADLINE_MS)
-                if (_runState.value is ActionRunState.Sent) {
-                    // The deadline passed with no session row (EXP-357). This
-                    // used to fall back to Idle, so a run the desktop REFUSED
-                    // — a conflicted worktree, a doctor failure — was
-                    // indistinguishable from one still starting: the caption
-                    // just vanished and nothing ever appeared. The desktop
-                    // holds the reason (it notifies there); say so.
-                    _runState.value = ActionRunState.Failed(
-                        "$label never started this run. Open the Exponential desktop app " +
-                            "there to see why.",
-                    )
-                }
+                awaitStartedRun(StartedRunKey.Action(action.name), device)
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
                 _runState.value = ActionRunState.Failed(
@@ -241,9 +225,13 @@ class SteerLaunchDelegate @Inject constructor(
         }
     }
 
-    /** Remote-start issues from the sheet's Issues tab: 1 id plain, 2+ a batch. */
+    /**
+     * Remote-start issues from the sheet's Issues tab: 1 id plain, 2+ a
+     * batch. EXP-536: both then wait for the desktop's row and surface it as
+     * [startedSessionId], so the host screen opens the live session.
+     */
     fun startCoding(device: SteerDevice, issueIds: List<String>, options: SteerStartOptions) {
-        if (issueIds.isEmpty()) return
+        val key = StartedRunKey.forIssues(issueIds) ?: return
         val scope = scope ?: return
         scope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
@@ -254,11 +242,7 @@ class SteerLaunchDelegate @Inject constructor(
                 } else {
                     steerApi.startSession(accountId, issueIds.first(), device.deviceId, options)
                 }
-                _runState.value = ActionRunState.Sent(device.deviceLabel.ifBlank { device.deviceId })
-                delay(30_000)
-                if (_runState.value is ActionRunState.Sent) {
-                    _runState.value = ActionRunState.Idle
-                }
+                awaitStartedRun(key, device)
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
                 _runState.value = ActionRunState.Failed(
@@ -268,40 +252,35 @@ class SteerLaunchDelegate @Inject constructor(
         }
     }
 
-    // Wait for the desktop-inserted session row of THIS start: matching
-    // action_name (builtin rows carry action_id NULL, so the name snapshot is
-    // the only stable key), the caller's own userId, and a startedAt after the
-    // send (with clock-skew slack). Gives up silently after a deadline.
-    private fun watchForStartedRun(actionName: String, userId: String?) {
-        watchJob?.cancel()
-        val scope = scope ?: return
-        if (userId == null) return
-        val cutoffMs = System.currentTimeMillis() - 120_000
-        watchJob = scope.launch {
-            val match = withTimeoutOrNull(WATCH_DEADLINE_MS) {
-                dbFlow.scopedQuery(emptyList()) {
-                    it.codingSessionDao().observeByStatuses(CodingSessionLiveness.liveStatuses)
-                }.mapNotNull { sessions ->
-                    sessions.firstOrNull { session ->
-                        session.actionName == actionName &&
-                            session.userId == userId &&
-                            (CodingSessionLiveness.parseEpochMs(session.startedAt) ?: 0L) >= cutoffMs
-                    }
-                }.first()
-            }
-            if (match != null) {
-                _runState.value = ActionRunState.Idle
-                _startedSessionId.value = match.id
-            }
+    /**
+     * Hold the "waiting for the desktop" caption until the run's synced
+     * coding_sessions row appears (then hand it to the host screen's
+     * navigation), or until the deadline passes. The deadline is NOT a silent
+     * fall back to Idle: a run the desktop REFUSED — a conflicted worktree, a
+     * doctor failure — would be indistinguishable from one still starting,
+     * the caption would just vanish and nothing would ever appear (EXP-357).
+     * The desktop holds the reason (it notifies there); say so.
+     */
+    private suspend fun awaitStartedRun(key: StartedRunKey, device: SteerDevice) {
+        val label = device.deviceLabel.ifBlank { device.deviceId }
+        _runState.value = ActionRunState.Sent(label)
+        val userId = auth.userId.value
+        val sessionId = if (userId == null) {
+            null
+        } else {
+            StartedRunMatch.await(liveSessionRows, key, userId)
+        }
+        if (sessionId != null) {
+            _runState.value = ActionRunState.Idle
+            _startedSessionId.value = sessionId
+        } else {
+            _runState.value = ActionRunState.Failed(
+                "$label never started this run. Open the Exponential desktop app " +
+                    "there to see why.",
+            )
         }
     }
 }
 
 // Terminal issue statuses ineligible to start a new coding run.
 private val TERMINAL_ISSUE_STATUSES = setOf("done", "cancelled", "duplicate")
-
-// How long a remote action run may take to surface its coding_sessions row
-// before the caption calls it dead. The session watch and the caption share
-// it — a caption that outlives the watch would keep spinning forever, one
-// that dies first would strand a late navigation with no explanation.
-private const val WATCH_DEADLINE_MS = 180_000L

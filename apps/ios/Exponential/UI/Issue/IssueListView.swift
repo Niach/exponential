@@ -38,6 +38,11 @@ struct IssueListView: View {
     // no desktop online. Auto-clears (errors included — the bar is modal
     // enough that a sticky error would just block the list).
     @State private var startNotice: StartNotice?
+    // EXP-536: a remote start pushes the live session once the desktop's row
+    // syncs in, instead of pointing at the Agents tab. The watcher owns the
+    // "waiting for the desktop" caption and the one-shot navigation target.
+    @State private var startWatcher = StartedRunWatcher()
+    @State private var sessionTarget: StartedRunWatcher.StartedSession?
     /// Identifier column floor — fits "EXP-999" in .caption.monospaced at
     /// default Dynamic Type and scales with the user's text size (EXP-24).
     @ScaledMetric(relativeTo: .caption) private var identifierMinWidth: CGFloat = 60
@@ -78,6 +83,12 @@ struct IssueListView: View {
         // entering multi-select never reflows the list).
         .overlay(alignment: .bottom) {
             VStack(spacing: 8) {
+                if let caption = startWatcher.sentCaption {
+                    noticeCapsule(StartNotice(message: caption, isError: false))
+                }
+                if let failure = startWatcher.failure {
+                    noticeCapsule(StartNotice(message: failure, isError: true))
+                }
                 if let notice = startNotice {
                     noticeCapsule(notice)
                 }
@@ -154,6 +165,19 @@ struct IssueListView: View {
         }
         .onDisappear {
             viewModel?.stopObserving()
+            startWatcher.stop()
+        }
+        // The desktop picked the start up — push the live steer screen ONCE
+        // (the same destination the .agentSession route arm builds).
+        .onChange(of: startWatcher.startedSession) { _, started in
+            if let started {
+                startWatcher.startedSession = nil
+                sessionTarget = started
+            }
+        }
+        .navigationDestination(item: $sessionTarget) { target in
+            AgentSessionRouteView(sessionId: target.sessionId)
+                .environment(\.accountId, accountId)
         }
     }
 
@@ -947,15 +971,17 @@ struct IssueListView: View {
     }
 
     /// Mirror of AgentsView.start — single vs batch overloads of
-    /// steer.startSession, with the outcome surfaced as a transient notice.
+    /// steer.startSession. EXP-536: neither points at the Agents tab any
+    /// more; the watcher holds a "waiting for the desktop" caption until the
+    /// run's synced row lands, then the screen pushes into it.
     private func startCoding(on device: SteerDevice, issueIds: [String], options: SteerStartOptions) {
-        guard !issueIds.isEmpty else { return }
-        let isBatch = issueIds.count > 1
-        let label = device.deviceLabel.isEmpty ? "your desktop" : device.deviceLabel
+        guard let key = StartedRunKey.forIssues(issueIds) else { return }
         exitSelection()
+        startNotice = nil
+        startWatcher.sending()
         Task {
             do {
-                if isBatch {
+                if issueIds.count > 1 {
                     try await deps.steerApi.startSession(
                         accountId: accountId,
                         issueIds: issueIds,
@@ -970,14 +996,15 @@ struct IssueListView: View {
                         options: options
                     )
                 }
-                showNotice(
-                    isBatch
-                        ? "Batch start sent to \(label). Watch it in the Agents tab."
-                        : "Start sent to \(label). Watch it in the Agents tab.",
-                    isError: false
+                startWatcher.begin(
+                    key: key,
+                    userId: deps.auth.userId,
+                    device: device,
+                    db: deps.db,
+                    accountId: accountId
                 )
             } catch {
-                showNotice(error.localizedDescription, isError: true)
+                startWatcher.failed(error.localizedDescription)
             }
         }
     }

@@ -29,7 +29,10 @@ import com.exponential.app.data.electric.SyncManager
 import com.exponential.app.data.electric.SyncStats
 import com.exponential.app.data.electric.elapsedTicker
 import com.exponential.app.data.electric.isCatchingUp
+import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.StartedRunKey
+import com.exponential.app.domain.StartedRunMatch
 import com.exponential.app.domain.MAX_FILE_UPLOAD_BYTES
 import com.exponential.app.domain.IssueFilters
 import com.exponential.app.domain.IssuePriority
@@ -51,7 +54,6 @@ import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -411,6 +413,17 @@ class IssueListViewModel @Inject constructor(
     private val _startState = MutableStateFlow<SteerStartState>(SteerStartState.Idle)
     val startState: StateFlow<SteerStartState> = _startState
 
+    // EXP-536: the freshly-started run's session id — consumed exactly once
+    // by the screen, which opens the live viewer on it.
+    private val _startedSessionId = MutableStateFlow<String?>(null)
+    val startedSessionId: StateFlow<String?> = _startedSessionId
+
+    // The live rows the post-send watch scans — a start is only a command;
+    // the desktop writes the coding_sessions row a moment later.
+    private val liveSessionRows = dbFlow.scopedQuery(emptyList()) {
+        it.codingSessionDao().observeByStatuses(CodingSessionLiveness.liveStatuses)
+    }
+
     private var steerLoadedForAccount: String? = null
 
     /**
@@ -479,27 +492,23 @@ class IssueListViewModel @Inject constructor(
 
     /**
      * Remote-start on a picked desktop (AgentsViewModel.startCoding's twin):
-     * [issueIds] of size 1 launches a plain single session, 2+ a batch. Sent
-     * state re-enables after a grace window in case the desktop never picks
-     * up (the coding_sessions row would otherwise surface via Electric).
+     * [issueIds] of size 1 launches a plain single session, 2+ a batch.
+     * EXP-536: both then wait for the desktop's coding_sessions row and
+     * surface it as [startedSessionId], so the screen opens the live session
+     * instead of leaving a "watch it in Agents" chip behind.
      */
     fun startCoding(device: SteerDevice, issueIds: List<String>, options: SteerStartOptions) {
-        if (issueIds.isEmpty()) return
+        val key = StartedRunKey.forIssues(issueIds) ?: return
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
-            val isBatch = issueIds.size >= 2
             _startState.value = SteerStartState.Sending
             try {
-                if (isBatch) {
+                if (issueIds.size >= 2) {
                     steerApi.startSession(accountId, issueIds, device.deviceId, options)
                 } else {
                     steerApi.startSession(accountId, issueIds.first(), device.deviceId, options)
                 }
-                _startState.value = SteerStartState.Sent(device.deviceLabel, isBatch)
-                delay(30_000)
-                if (_startState.value is SteerStartState.Sent) {
-                    _startState.value = SteerStartState.Idle
-                }
+                awaitStartedRun(key, device)
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
                 _startState.value = SteerStartState.Failed(
@@ -536,11 +545,7 @@ class IssueListViewModel @Inject constructor(
                     teamId = action.teamId.takeIf { action.isBuiltin },
                     inputs = inputs.takeIf { it.isNotEmpty() },
                 )
-                _startState.value = SteerStartState.Sent(device.deviceLabel, isBatch = false)
-                delay(30_000)
-                if (_startState.value is SteerStartState.Sent) {
-                    _startState.value = SteerStartState.Idle
-                }
+                awaitStartedRun(StartedRunKey.Action(action.name), device)
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
                 _startState.value = SteerStartState.Failed(
@@ -548,6 +553,37 @@ class IssueListViewModel @Inject constructor(
                 )
             }
         }
+    }
+
+    /**
+     * EXP-536: hold a "waiting for the desktop" caption until the run's
+     * synced row appears (then hand it to the screen's navigation), or until
+     * the deadline passes. The old grace window silently fell back to Idle,
+     * so a run the desktop REFUSED read the same as one still starting.
+     */
+    private suspend fun awaitStartedRun(key: StartedRunKey, device: SteerDevice) {
+        val label = device.deviceLabel.ifBlank { device.deviceId }
+        _startState.value = SteerStartState.Sent(label)
+        val userId = auth.userId.value
+        val sessionId = if (userId == null) {
+            null
+        } else {
+            StartedRunMatch.await(liveSessionRows, key, userId)
+        }
+        if (sessionId != null) {
+            _startState.value = SteerStartState.Idle
+            _startedSessionId.value = sessionId
+        } else {
+            _startState.value = SteerStartState.Failed(
+                "$label never started this run. Open the Exponential desktop app " +
+                    "there to see why.",
+            )
+        }
+    }
+
+    /** Clears the one-shot navigation signal once the screen has acted on it. */
+    fun consumeStartedSession() {
+        _startedSessionId.value = null
     }
 
     /** Tap-to-dismiss for a lingering Failed chip (Sent auto-clears). */

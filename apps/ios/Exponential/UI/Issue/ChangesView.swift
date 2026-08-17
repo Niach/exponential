@@ -201,8 +201,11 @@ struct ChangesView: View {
     @State private var steerEnabled = false
     @State private var devices: [SteerDevice]?
     @State private var startCandidates: [StartCodingSheet.IssueOption] = []
-    @State private var runCaption: String?
-    @State private var runError: String?
+    // EXP-536: a remote start pushes the live session once the desktop's row
+    // syncs in, instead of pointing at Agents. The watcher owns the "waiting
+    // for the desktop" caption, the failure and the navigation target.
+    @State private var startWatcher = StartedRunWatcher()
+    @State private var sessionTarget: StartedRunWatcher.StartedSession?
 
     var body: some View {
         ZStack {
@@ -264,6 +267,19 @@ struct ChangesView: View {
         }
         .onDisappear {
             viewModel?.stopObserving()
+            startWatcher.stop()
+        }
+        // The desktop picked the start up — push the live steer screen ONCE
+        // (the same destination the .agentSession route arm builds).
+        .onChange(of: startWatcher.startedSession) { _, started in
+            if let started {
+                startWatcher.startedSession = nil
+                sessionTarget = started
+            }
+        }
+        .navigationDestination(item: $sessionTarget) { target in
+            AgentSessionRouteView(sessionId: target.sessionId)
+                .environment(\.accountId, accountId)
         }
         // Squash-merge (EXP-131) — confirm-gated like the Reviews list.
         .alert("Merge pull request?", isPresented: $mergeConfirm) {
@@ -441,13 +457,13 @@ struct ChangesView: View {
                             .buttonStyle(.plain)
                         }
 
-                        if let runCaption {
+                        if let runCaption = startWatcher.sentCaption {
                             Text(runCaption)
                                 .font(.caption)
                                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                                 .multilineTextAlignment(.center)
                         }
-                        if let runError {
+                        if let runError = startWatcher.failure {
                             Text(runError)
                                 .font(.caption)
                                 .foregroundStyle(DesignTokens.Semantic.red)
@@ -551,9 +567,7 @@ struct ChangesView: View {
         options: SteerStartOptions,
         inputs: [String: String]
     ) {
-        runCaption = nil
-        runError = nil
-        let label = device.deviceLabel
+        startWatcher.sending()
         Task {
             do {
                 try await deps.steerApi.startSession(
@@ -564,23 +578,23 @@ struct ChangesView: View {
                     options: options,
                     inputs: inputs.isEmpty ? nil : inputs
                 )
-                runCaption = "Run sent to \(label). It'll appear under Agents when it spins up."
-                Task {
-                    try? await Task.sleep(for: .seconds(30))
-                    runCaption = nil
-                }
+                startWatcher.begin(
+                    key: .action(name: action.name),
+                    userId: deps.auth.userId,
+                    device: device,
+                    db: deps.db,
+                    accountId: accountId
+                )
             } catch {
-                runError = error.localizedDescription
+                startWatcher.failed(error.localizedDescription)
             }
         }
     }
 
     /// Issues-tab launch from the same sheet (flipping tabs must not dead-end).
     private func start(on device: SteerDevice, issueIds: [String], options: SteerStartOptions) {
-        guard !issueIds.isEmpty else { return }
-        runCaption = nil
-        runError = nil
-        let label = device.deviceLabel
+        guard let key = StartedRunKey.forIssues(issueIds) else { return }
+        startWatcher.sending()
         Task {
             do {
                 if issueIds.count > 1 {
@@ -598,13 +612,15 @@ struct ChangesView: View {
                         options: options
                     )
                 }
-                runCaption = "Start sent to \(label). It'll appear under Agents when it spins up."
-                Task {
-                    try? await Task.sleep(for: .seconds(30))
-                    runCaption = nil
-                }
+                startWatcher.begin(
+                    key: key,
+                    userId: deps.auth.userId,
+                    device: device,
+                    db: deps.db,
+                    accountId: accountId
+                )
             } catch {
-                runError = error.localizedDescription
+                startWatcher.failed(error.localizedDescription)
             }
         }
     }

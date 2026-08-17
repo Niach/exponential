@@ -17,14 +17,14 @@ import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.StartedRunKey
+import com.exponential.app.domain.StartedRunMatch
 import com.exponential.app.ui.issue.StartIssueOption
 import com.exponential.app.ui.steer.ActionRunState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -34,24 +34,20 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 
 // The Actions surface (EXP-253, mobile = view + run only): the selected
 // team's action prompts LIVE from the synced actions shape (EXP-268 — the
 // local Room flow, body-less by design; the virtual "Fix merge conflicts"
 // builtin is prepended client-side, while "Create action" hides behind the
-// screen's "New action" button since EXP-431) plus the remote-run
-// flow. After the server
-// accepts a start,
-// the model watches the synced coding_sessions DAO flow for the row the
-// desktop inserts (this action's NAME + the caller's own userId + a recent
-// startedAt — never the action id: the builtin "Create action" run's row
-// carries action_id NULL, EXP-257) and surfaces its id exactly once so the
-// screen can jump into the existing agent session viewer.
+// screen's "New action" button since EXP-431) plus the remote-run flow.
+// After the server accepts ANY start — an action run or an issue/batch run
+// off the sheet's Issues tab (EXP-536) — the model watches the synced
+// coding_sessions DAO flow for the row the desktop inserts (StartedRunMatch
+// owns the matching rules) and surfaces its id exactly once so the screen can
+// jump into the existing agent session viewer.
 
 data class ActionsState(
     val actions: List<ActionDto> = emptyList(),
@@ -89,7 +85,11 @@ class ActionsViewModel @Inject constructor(
     private val _startedSessionId = MutableStateFlow<String?>(null)
     val startedSessionId: StateFlow<String?> = _startedSessionId
 
-    private var watchJob: Job? = null
+    // The live rows the post-send watch scans — a start is only a command;
+    // the desktop writes the coding_sessions row a moment later.
+    private val liveSessionRows = dbFlow.scopedQuery(emptyList()) {
+        it.codingSessionDao().observeByStatuses(CodingSessionLiveness.liveStatuses)
+    }
 
     // The selected team, for the screen's "New action" entry point (EXP-431).
     val selectedTeamId: StateFlow<String?> = selection.selectedId
@@ -241,15 +241,7 @@ class ActionsViewModel @Inject constructor(
                     teamId = action.teamId.takeIf { action.isBuiltin },
                     inputs = inputs.takeIf { it.isNotEmpty() },
                 )
-                _runState.value = ActionRunState.Sent(device.deviceLabel.ifBlank { device.deviceId })
-                watchForStartedRun(action.name, auth.userId.value)
-                // Keep the Sent caption for the whole watch deadline (iOS
-                // parity) — a slow desktop pickup can still navigate late,
-                // and a captionless late jump reads as a glitch.
-                delay(180_000)
-                if (_runState.value is ActionRunState.Sent) {
-                    _runState.value = ActionRunState.Idle
-                }
+                awaitStartedRun(StartedRunKey.Action(action.name), device)
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
                 _runState.value = ActionRunState.Failed(
@@ -262,10 +254,11 @@ class ActionsViewModel @Inject constructor(
     /**
      * Remote-start issues from the unified sheet's Issues tab (the
      * AgentsViewModel.startCoding twin, surfaced through the run captions):
-     * 1 id launches a plain single session, 2+ a batch.
+     * 1 id launches a plain single session, 2+ a batch. EXP-536: both wait
+     * for the desktop's row and jump into it, exactly like an action run.
      */
     fun startCoding(device: SteerDevice, issueIds: List<String>, options: SteerStartOptions) {
-        if (issueIds.isEmpty()) return
+        val key = StartedRunKey.forIssues(issueIds) ?: return
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             _runState.value = ActionRunState.Sending
@@ -275,11 +268,7 @@ class ActionsViewModel @Inject constructor(
                 } else {
                     steerApi.startSession(accountId, issueIds.first(), device.deviceId, options)
                 }
-                _runState.value = ActionRunState.Sent(device.deviceLabel.ifBlank { device.deviceId })
-                delay(30_000)
-                if (_runState.value is ActionRunState.Sent) {
-                    _runState.value = ActionRunState.Idle
-                }
+                awaitStartedRun(key, device)
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
                 _runState.value = ActionRunState.Failed(
@@ -289,32 +278,30 @@ class ActionsViewModel @Inject constructor(
         }
     }
 
-    // Wait for the desktop-inserted session row of THIS start: matching
-    // action_name (builtin rows carry action_id NULL, so the name snapshot is
-    // the only stable key — EXP-257), the caller's own userId, and a
-    // startedAt after the send (with clock-skew slack) — an old run of the
-    // same action must never re-trigger navigation. Gives up silently after a
-    // deadline.
-    private fun watchForStartedRun(actionName: String, userId: String?) {
-        watchJob?.cancel()
-        if (userId == null) return
-        val cutoffMs = System.currentTimeMillis() - 120_000
-        watchJob = viewModelScope.launch {
-            val match = withTimeoutOrNull(180_000) {
-                dbFlow.scopedQuery(emptyList()) {
-                    it.codingSessionDao().observeByStatuses(CodingSessionLiveness.liveStatuses)
-                }.mapNotNull { sessions ->
-                    sessions.firstOrNull { session ->
-                        session.actionName == actionName &&
-                            session.userId == userId &&
-                            (CodingSessionLiveness.parseEpochMs(session.startedAt) ?: 0L) >= cutoffMs
-                    }
-                }.first()
-            }
-            if (match != null) {
-                _runState.value = ActionRunState.Idle
-                _startedSessionId.value = match.id
-            }
+    /**
+     * Hold the "waiting for the desktop" caption until the run's synced
+     * coding_sessions row appears (then hand it to the screen's navigation),
+     * or until the deadline passes. A start the desktop REFUSED — conflicted
+     * worktree, failed doctor — would otherwise leave the caption up forever
+     * (EXP-536); the desktop holds the reason, so say where to look.
+     */
+    private suspend fun awaitStartedRun(key: StartedRunKey, device: SteerDevice) {
+        val label = device.deviceLabel.ifBlank { device.deviceId }
+        _runState.value = ActionRunState.Sent(label)
+        val userId = auth.userId.value
+        val sessionId = if (userId == null) {
+            null
+        } else {
+            StartedRunMatch.await(liveSessionRows, key, userId)
+        }
+        if (sessionId != null) {
+            _runState.value = ActionRunState.Idle
+            _startedSessionId.value = sessionId
+        } else {
+            _runState.value = ActionRunState.Failed(
+                "$label never started this run. Open the Exponential desktop app " +
+                    "there to see why.",
+            )
         }
     }
 }

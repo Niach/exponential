@@ -34,6 +34,10 @@ struct IssueDetailView: View {
     // The board picked in the move sheet, pending confirmation (EXP-57) —
     // non-nil drives the "Move issue" alert.
     @State private var moveTarget: BoardEntity?
+    /// EXP-536: consumed-once push into the run this screen just started —
+    /// single AND batch (a batch row is issue-less, so the start circle can
+    /// never reflect it).
+    @State private var sessionTarget: StartedRunWatcher.StartedSession?
     @FocusState private var titleFocused: Bool
 
     // Shown while team membership is still syncing, so a signed-in viewer
@@ -287,22 +291,6 @@ struct IssueDetailView: View {
                 .onChange(of: activeSheet) { _, newSheet in
                     if newSheet != nil { UIApplication.endEditing() }
                 }
-                // Batch starts insert an issue-LESS session row that never
-                // syncs into this issue's runningSessions, so the start circle
-                // can't reflect them — confirm explicitly instead (parity with
-                // Android's batch-Sent snackbar).
-                .alert(
-                    "Batch start sent",
-                    isPresented: Binding(
-                        get: { vm.batchStartNotice != nil },
-                        set: { if !$0 { vm.batchStartNotice = nil } }
-                    ),
-                    presenting: vm.batchStartNotice
-                ) { _ in
-                    Button("OK", role: .cancel) {}
-                } message: { notice in
-                    Text(notice)
-                }
                 .alert(
                     "Move issue",
                     isPresented: Binding(
@@ -442,11 +430,25 @@ struct IssueDetailView: View {
                 // Stop synchronously: deferring it behind the async saves
                 // could cancel the observers a quick pop-back just re-armed.
                 vm.stopObserving()
+                vm.startWatcher.stop()
                 Task {
                     await vm.saveTitle()
                     await vm.commitDescription()
                 }
             }
+        }
+        // The desktop picked the start up — push the live steer screen ONCE
+        // (the same destination the .agentSession route arm builds).
+        .onChange(of: viewModel?.startWatcher.startedSession) { _, started in
+            if let started {
+                viewModel?.startWatcher.startedSession = nil
+                viewModel?.startPending = false
+                sessionTarget = started
+            }
+        }
+        .navigationDestination(item: $sessionTarget) { target in
+            AgentSessionRouteView(sessionId: target.sessionId)
+                .environment(\.accountId, accountId)
         }
     }
 

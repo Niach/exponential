@@ -35,6 +35,8 @@ import com.exponential.app.data.electric.SyncManager
 import com.exponential.app.data.electric.SyncStats
 import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.StartedRunKey
+import com.exponential.app.domain.StartedRunMatch
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.MAX_FILE_UPLOAD_BYTES
@@ -355,6 +357,17 @@ class IssueDetailViewModel @Inject constructor(
     private val _startState = MutableStateFlow<SteerStartState>(SteerStartState.Idle)
     val startState: StateFlow<SteerStartState> = _startState
 
+    // EXP-536: the freshly-started run's session id — consumed exactly once
+    // by the screen, which opens the live viewer on it.
+    private val _startedSessionId = MutableStateFlow<String?>(null)
+    val startedSessionId: StateFlow<String?> = _startedSessionId
+
+    // The live rows the post-send watch scans — a start is only a command;
+    // the desktop writes the coding_sessions row a moment later.
+    private val liveSessionRows = dbFlow.scopedQuery(emptyList()) {
+        it.codingSessionDao().observeByStatuses(CodingSessionLiveness.liveStatuses)
+    }
+
     /**
      * Issues the Start-coding sheet can queue (EXP-156). Regular candidates need
      * a repo-backed, live board and to be open (status not
@@ -412,27 +425,23 @@ class IssueDetailViewModel @Inject constructor(
     /**
      * Remote-start on the user's own desktop (EXP-156): [issueIds] of size 1
      * launches a plain single session, 2+ a batch (one Claude on one
-     * `exp/batch-<id8>` branch spanning them). The desktop inserts the
-     * coding_sessions row, which swaps the card via Electric; the Sent state
-     * re-enables after a grace window in case the desktop never picks up.
+     * `exp/batch-<id8>` branch spanning them). EXP-536: both then wait for
+     * the desktop's coding_sessions row and surface it as [startedSessionId]
+     * — the screen opens the live session rather than telling the user where
+     * to find it.
      */
     fun startOnDesktop(device: SteerDevice, issueIds: List<String>, options: SteerStartOptions) {
-        if (issueIds.isEmpty()) return
+        val key = StartedRunKey.forIssues(issueIds) ?: return
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
-            val isBatch = issueIds.size >= 2
             _startState.value = SteerStartState.Sending
             try {
-                if (isBatch) {
+                if (issueIds.size >= 2) {
                     steerApi.startSession(accountId, issueIds, device.deviceId, options)
                 } else {
                     steerApi.startSession(accountId, issueIds.first(), device.deviceId, options)
                 }
-                _startState.value = SteerStartState.Sent(device.deviceLabel, isBatch)
-                delay(30_000)
-                if (_startState.value is SteerStartState.Sent) {
-                    _startState.value = SteerStartState.Idle
-                }
+                awaitStartedRun(key, device)
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
                 // Surfaces PRECONDITION_FAILED reasons (device offline, no
@@ -471,11 +480,7 @@ class IssueDetailViewModel @Inject constructor(
                     teamId = action.teamId.takeIf { action.isBuiltin },
                     inputs = inputs.takeIf { it.isNotEmpty() },
                 )
-                _startState.value = SteerStartState.Sent(device.deviceLabel, isBatch = false)
-                delay(30_000)
-                if (_startState.value is SteerStartState.Sent) {
-                    _startState.value = SteerStartState.Idle
-                }
+                awaitStartedRun(StartedRunKey.Action(action.name), device)
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
                 _startState.value = SteerStartState.Failed(
@@ -483,6 +488,38 @@ class IssueDetailViewModel @Inject constructor(
                 )
             }
         }
+    }
+
+    /**
+     * EXP-536: hold a "waiting for the desktop" caption (the start circle's
+     * spinner) until the run's synced row appears, then hand it to the
+     * screen's navigation. The deadline surfaces as an error rather than a
+     * silent fall back to Idle — a run the desktop REFUSED must not read the
+     * same as one still starting.
+     */
+    private suspend fun awaitStartedRun(key: StartedRunKey, device: SteerDevice) {
+        val label = device.deviceLabel.ifBlank { device.deviceId }
+        _startState.value = SteerStartState.Sent(label)
+        val userId = auth.userId.value
+        val sessionId = if (userId == null) {
+            null
+        } else {
+            StartedRunMatch.await(liveSessionRows, key, userId)
+        }
+        if (sessionId != null) {
+            _startState.value = SteerStartState.Idle
+            _startedSessionId.value = sessionId
+        } else {
+            _startState.value = SteerStartState.Failed(
+                "$label never started this run. Open the Exponential desktop app " +
+                    "there to see why.",
+            )
+        }
+    }
+
+    /** Clears the one-shot navigation signal once the screen has acted on it. */
+    fun consumeStartedSession() {
+        _startedSessionId.value = null
     }
 
     // ── Duplicate-of (masterplan §5e) ─────────────────────────────────────────

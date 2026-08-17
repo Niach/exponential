@@ -39,8 +39,12 @@ struct AgentsView: View {
     @State private var deviceError: String?
     // Success feedback (informational, tertiary) vs. failure (red) are kept
     // separate: a start error must read as an error and not persist forever.
-    @State private var sentCaption: String?
-    @State private var startError: String?
+    // EXP-536: a remote start pushes the live session once the desktop's row
+    // syncs in, instead of saying it'll show up in the list below. The watcher
+    // owns the "waiting for the desktop" caption, the failure and the one-shot
+    // navigation target.
+    @State private var startWatcher = StartedRunWatcher()
+    @State private var sessionTarget: StartedRunWatcher.StartedSession?
     // Merge (EXP-498: merging always closes the session), keyed by row id:
     // the confirm target, the in-flight rows, and the per-row failure caption
     // (inline like the Reviews rows, EXP-323 — never a modal the tab bar can
@@ -137,6 +141,19 @@ struct AgentsView: View {
         }
         .onDisappear {
             viewModel?.stopObserving()
+            startWatcher.stop()
+        }
+        // The desktop picked the start up — push the live steer screen ONCE
+        // (the same destination the .agentSession route arm builds).
+        .onChange(of: startWatcher.startedSession) { _, started in
+            if let started {
+                startWatcher.startedSession = nil
+                sessionTarget = started
+            }
+        }
+        .navigationDestination(item: $sessionTarget) { target in
+            AgentSessionRouteView(sessionId: target.sessionId)
+                .environment(\.accountId, accountId)
         }
         .sheet(item: $startSheetDevice) { device in
             // EXP-257: wiring teamId + onRunAction gives the sheet its
@@ -256,14 +273,14 @@ struct AgentsView: View {
                         .padding(.horizontal, 4)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                if let sentCaption {
+                if let sentCaption = startWatcher.sentCaption {
                     Text(sentCaption)
                         .font(.caption2)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .padding(.horizontal, 4)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                if let startError {
+                if let startError = startWatcher.failure {
                     Text(startError)
                         .font(.caption2)
                         .foregroundStyle(DesignTokens.Semantic.red)
@@ -866,15 +883,11 @@ struct AgentsView: View {
     // MARK: - Remote start
 
     private func start(on device: SteerDevice, issueIds: [String], options: SteerStartOptions) {
-        guard !issueIds.isEmpty else { return }
-        // A fresh attempt supersedes the previous outcome (success or error).
-        sentCaption = nil
-        startError = nil
-        let isBatch = issueIds.count > 1
-        let label = device.deviceLabel
+        guard let key = StartedRunKey.forIssues(issueIds) else { return }
+        startWatcher.sending()
         Task {
             do {
-                if isBatch {
+                if issueIds.count > 1 {
                     try await deps.steerApi.startSession(
                         accountId: accountId,
                         issueIds: issueIds,
@@ -889,37 +902,30 @@ struct AgentsView: View {
                         options: options
                     )
                 }
-                sentCaption = isBatch
-                    ? "Batch start sent to \(label). It'll appear here when it spins up."
-                    : "Start sent to \(label). It'll appear here when it spins up."
-                // The desktop inserts the coding_sessions row when the launcher
-                // spins up, which surfaces in the Running list via sync. Clear
-                // the informational caption after a grace window (errors persist
-                // until the next attempt so they can't be missed).
-                Task {
-                    try? await Task.sleep(for: .seconds(30))
-                    sentCaption = nil
-                }
+                startWatcher.begin(
+                    key: key,
+                    userId: deps.auth.userId,
+                    device: device,
+                    db: deps.db,
+                    accountId: accountId
+                )
             } catch {
-                startError = error.localizedDescription
+                startWatcher.failed(error.localizedDescription)
             }
         }
     }
 
     /// Actions-mode launch from the unified sheet (EXP-257): full option set,
     /// typed input values, `teamId` only for the builtin "Create action" (its
-    /// virtual row has no server-resolvable id). The run surfaces in the
-    /// Running list via sync like any other session.
+    /// virtual row has no server-resolvable id). EXP-536: like an issue start,
+    /// the run is pushed as soon as its synced row lands.
     private func runAction(
         on device: SteerDevice,
         action: ActionDto,
         options: SteerStartOptions,
         inputs: [String: String]
     ) {
-        // A fresh attempt supersedes the previous outcome (success or error).
-        sentCaption = nil
-        startError = nil
-        let label = device.deviceLabel
+        startWatcher.sending()
         Task {
             do {
                 try await deps.steerApi.startSession(
@@ -930,13 +936,15 @@ struct AgentsView: View {
                     options: options,
                     inputs: inputs.isEmpty ? nil : inputs
                 )
-                sentCaption = "Run sent to \(label). It'll appear here when it spins up."
-                Task {
-                    try? await Task.sleep(for: .seconds(30))
-                    sentCaption = nil
-                }
+                startWatcher.begin(
+                    key: .action(name: action.name),
+                    userId: deps.auth.userId,
+                    device: device,
+                    db: deps.db,
+                    accountId: accountId
+                )
             } catch {
-                startError = error.localizedDescription
+                startWatcher.failed(error.localizedDescription)
             }
         }
     }

@@ -376,6 +376,7 @@ private fun AuthenticatedNav(
                 onOpenInvite = { token ->
                     navController.navigate("invite/$token") { launchSingleTop = true }
                 },
+                onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
             )
         }
         composable("search") {
@@ -519,6 +520,7 @@ private fun AuthenticatedNav(
                 mode = IssueListMode.Pushed,
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onBack = { navController.popBackStack() },
+                onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
             )
         }
         composable("board/{boardId}/new") {
