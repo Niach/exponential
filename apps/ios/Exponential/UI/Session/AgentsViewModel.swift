@@ -13,6 +13,11 @@ final class AgentsViewModel {
     struct Row: Identifiable {
         let session: CodingSessionEntity
         let issue: IssueEntity?
+        /// EXP-535: a batch session's resolved open PR, as a representative
+        /// linked issue (merging through it merges the ONE batch PR — Reviews
+        /// pattern). Set only on issueless batch rows in review with an
+        /// UNAMBIGUOUS match.
+        let batchPrIssue: IssueEntity?
         var id: String { session.id }
     }
 
@@ -56,7 +61,8 @@ final class AgentsViewModel {
     private var sessions: [CodingSessionEntity] = []
     private var issues: [IssueEntity] = []
     // Observed so the Start-coding picker can resolve repo-backed boards
-    // (EXP-156) — not used by the running-session list itself.
+    // (EXP-156) and so the batch-PR resolution can scope issues to the
+    // active team (EXP-535 — issues don't sync team_id).
     private var boards: [BoardEntity] = []
     // EXP-481: raw synced rows behind `devices` (users resolve shared-row
     // owner names — a sharing owner is always inside the users shape).
@@ -106,8 +112,9 @@ final class AgentsViewModel {
             } catch {}
         }
 
-        // Boards back the Start-coding picker's eligibility filter — the
-        // running-session list doesn't rebuild on these.
+        // Boards back the Start-coding picker's eligibility filter AND scope
+        // the batch-PR resolution (EXP-535: issues don't sync team_id), so
+        // the running-session list rebuilds on these too.
         let boardObservation = ValueObservation.tracking { db in
             try BoardEntity.fetchAll(db)
         }
@@ -115,6 +122,7 @@ final class AgentsViewModel {
             do {
                 for try await boards in boardObservation.values(in: pool) {
                     self?.boards = boards
+                    self?.rebuild()
                 }
             } catch {}
         }
@@ -241,6 +249,13 @@ final class AgentsViewModel {
 
     private func rebuild() {
         let issuesById = Dictionary(issues.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        // EXP-535: the active team's sole open batch PR, resolved once per
+        // rebuild — batch sessions carry no issue/PR linkage, so their Merge
+        // shortcut rides this representative issue (see BatchPrResolution).
+        let teamBoardIds = Set(boards.filter { $0.teamId == activeTeamId }.map(\.id))
+        let batchPrIssue = BatchPrResolution.soleOpenBatchPr(
+            issues: issues, teamBoardIds: teamBoardIds
+        )
         rows = sessions
             // Own runs in the active team only: a teammate's session can't be
             // opened or steered (EXP-312), so listing it only read as "computer
@@ -252,8 +267,20 @@ final class AgentsViewModel {
             // Heartbeat-stale rows render as absent (EXP-153).
             .filter { CodingSessionLiveness.isLive($0) }
             .sorted { $0.startedAt > $1.startedAt }
-            // issueId is nil for a desktop batch (multi-issue) run's session
-            // — those rows render without an issue link.
-            .map { Row(session: $0, issue: $0.issueId.flatMap { issuesById[$0] }) }
+            // issueId is nil for a desktop batch (multi-issue) run's session —
+            // those rows render without an issue link, but an issueless,
+            // actionless batch run whose PR is open (status in_review —
+            // flipped in the pr_open transaction) gets the resolved batch PR
+            // for its Merge button (EXP-535).
+            .map { session in
+                let isBatch = session.issueId == nil && session.actionName == nil
+                return Row(
+                    session: session,
+                    issue: session.issueId.flatMap { issuesById[$0] },
+                    batchPrIssue: isBatch
+                        && session.status == DomainContract.codingSessionStatusInReview
+                        ? batchPrIssue : nil
+                )
+            }
     }
 }

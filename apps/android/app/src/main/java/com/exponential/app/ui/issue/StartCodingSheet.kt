@@ -174,9 +174,8 @@ fun StartCodingSheet(
     // The set of queue-able issue ids (the pool). ALL derived state operates on
     // the intersection of `checked` with this — a preselected id that isn't in
     // the pool (e.g. a repo-less current issue) must never be counted, or it
-    // corrupts the 1↔2+ batch seeding, the button, the validation and submit.
+    // corrupts the button, the validation and submit.
     val poolIds = remember(issues) { issues.mapTo(HashSet()) { it.id } }
-    val initialInPoolCount = remember { preselectedIds.count { it in poolIds } }
 
     // Only ONLINE machines can take a start — the relay refuses the rest with
     // device_offline. The Agents tab feeds this sheet the whole EXP-403
@@ -199,26 +198,13 @@ fun StartCodingSheet(
     var agent by remember { mutableStateOf(initialAgent) }
     var model by remember { mutableStateOf(initialSeed.model) }
     var effort by remember { mutableStateOf(initialSeed.effort) }
-    // A run seeded with 2+ in-pool issues starts as a batch (ultracode ON, plan
-    // OFF) until the user touches a toggle; ≤1 uses the device's defaults.
-    // Ultracode is claude-only; the plan-off batch seed also applies to pi
-    // (EXP-441 — pi plans via the injected extension).
-    var ultracode by remember {
-        mutableStateOf(
-            if (initialAgent == DEFAULT_AGENT && initialInPoolCount >= 2) true else initialSeed.ultracode,
-        )
-    }
-    var planMode by remember {
-        mutableStateOf(
-            if (supportsPlanMode(initialAgent) && initialInPoolCount >= 2) false else initialSeed.planMode,
-        )
-    }
+    // EXP-532: batch runs take the same device-advertised defaults as
+    // single-issue runs — no per-mode override on the 1↔2+ crossing anymore.
+    var ultracode by remember { mutableStateOf(initialSeed.ultracode) }
+    var planMode by remember { mutableStateOf(initialSeed.planMode) }
     var skipPermissions by remember { mutableStateOf(initialSeed.skipPermissions) }
     // Seed only with in-pool preselected ids — never carry a phantom id.
     var checked by remember { mutableStateOf(preselectedIds intersect poolIds) }
-    // Set by any Model/Effort/ultracode/plan interaction: once the user takes
-    // control, crossing the 1↔2+ boundary stops auto-seeding ultracode/plan.
-    var touchedToggles by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
 
     // ── Actions-tab state (EXP-257) ──────────────────────────────────────────
@@ -359,34 +345,10 @@ fun StartCodingSheet(
         }
         seededDeviceId = settled.deviceId
         applyAgentSeed(defaultAgentFor(settled))
-        // The batch override outranks a seeded single-run toggle, exactly as
-        // it does when the 1↔2+ boundary is crossed by checking issues.
-        if (!touchedToggles && supportsPlanMode(agent) && checked.count { it in poolIds } >= 2) {
-            ultracode = agent == DEFAULT_AGENT
-            planMode = false
-        }
     }
 
     fun toggleIssue(id: String) {
-        // Count only in-pool ids so a lingering phantom (a checked id that fell
-        // out of the pool mid-session) can't skew the 1↔2+ crossing.
-        val before = checked.count { it in poolIds }
         checked = if (id in checked) checked - id else checked + id
-        val after = checked.count { it in poolIds }
-        // Batch defaults (ultracode ON for claude, plan OFF) exist for the
-        // plan-capable agents — claude and, since EXP-441, pi.
-        if (!touchedToggles && supportsPlanMode(agent)) {
-            if (before <= 1 && after >= 2) {
-                ultracode = agent == DEFAULT_AGENT
-                planMode = false
-            } else if (before >= 2 && after <= 1) {
-                // Back to a single run: the machine's own per-agent defaults
-                // (both false when it advertises none).
-                val seed = agentSeed(device, agent)
-                ultracode = seed.ultracode
-                planMode = seed.planMode
-            }
-        }
     }
 
     // Preselected rows pinned first (in candidate order), then the
@@ -928,10 +890,7 @@ fun StartCodingSheet(
                         options = modelOptions,
                         selected = model,
                         optionLabel = ::modelLabel,
-                        onSelect = {
-                            model = it
-                            touchedToggles = true
-                        },
+                        onSelect = { model = it },
                     )
                     GroupDivider()
                     PickerRow(
@@ -946,10 +905,7 @@ fun StartCodingSheet(
                         optionLabel = ::effortLabel,
                         // Ultracode IS `--effort ultracode` — it owns the row.
                         enabled = !ultracode,
-                        onSelect = {
-                            effort = it
-                            touchedToggles = true
-                        },
+                        onSelect = { effort = it },
                     )
                 }
                 Spacer(Modifier.height(4.dp))
@@ -989,10 +945,7 @@ fun StartCodingSheet(
                         SwitchRow(
                             title = "Ultracode",
                             checked = ultracode,
-                            onCheckedChange = {
-                                ultracode = it
-                                touchedToggles = true
-                            },
+                            onCheckedChange = { ultracode = it },
                         )
                         GroupDivider()
                     }
@@ -1002,10 +955,7 @@ fun StartCodingSheet(
                         SwitchRow(
                             title = "Plan mode",
                             checked = planMode,
-                            onCheckedChange = {
-                                planMode = it
-                                touchedToggles = true
-                            },
+                            onCheckedChange = { planMode = it },
                         )
                         if (agent != "pi") {
                             GroupDivider()
@@ -1015,10 +965,7 @@ fun StartCodingSheet(
                         SwitchRow(
                             title = "Skip permissions",
                             checked = skipPermissions,
-                            onCheckedChange = {
-                                skipPermissions = it
-                                touchedToggles = true
-                            },
+                            onCheckedChange = { skipPermissions = it },
                         )
                     }
                 }

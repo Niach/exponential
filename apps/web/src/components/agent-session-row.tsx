@@ -188,6 +188,9 @@ export function SessionRow({
   const { session, issue, board, user } = row
   const isAction = session.actionName != null
   const isBatch = !session.issueId
+  // EXP-535: batch rows merge through their resolved PR's representative
+  // issue (use-agents-data) — same button, same server call as issue rows.
+  const prIssue = issue ?? row.batchPrIssue
   const displayState = sessionDisplayState(session, issue?.prState)
 
   return (
@@ -256,11 +259,11 @@ export function SessionRow({
         </div>
       </div>
       <div className="flex items-center gap-2">
-        {issue && (
+        {prIssue && (
           <SessionMergeButton
-            prState={issue.prState}
-            prNumber={issue.prNumber}
-            issueId={issue.id}
+            prState={prIssue.prState}
+            prNumber={prIssue.prNumber}
+            issueId={prIssue.id}
           />
         )}
         {canWatch && (

@@ -156,7 +156,13 @@ export function AgentDock({
       ? ((expandedIssueRows ?? [])[0] as Issue | undefined)
       : undefined
     const board = issue ? boards.find((p) => p.id === issue.boardId) : undefined
-    return { session: expandedSession, issue, board, user: undefined }
+    return {
+      session: expandedSession,
+      issue,
+      board,
+      user: undefined,
+      batchPrIssue: undefined,
+    }
   }, [expandedSession, runningById, expandedIssueRows, boards])
 
   // The expanded row vanished entirely (hard-deleted) — auto-collapse.

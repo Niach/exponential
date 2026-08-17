@@ -653,10 +653,15 @@ struct AgentsView: View {
             }
 
             // Merge shortcut — merging always closes the run too (EXP-498),
-            // so it only shows while there IS an open PR to merge.
-            if let issue = row.issue, issue.prState == DomainContract.prStateOpen {
+            // so it only shows while there IS an open PR to merge. EXP-535:
+            // batch rows merge through their resolved PR's representative
+            // issue — same button, same server call (the server resolves a
+            // batch PR to EVERY linked issue by exact pr_url).
+            if let prIssue = row.issue ?? row.batchPrIssue,
+                prIssue.prState == DomainContract.prStateOpen
+            {
                 Button {
-                    mergeTarget = MergeTarget(rowId: row.id, issueId: issue.id)
+                    mergeTarget = MergeTarget(rowId: row.id, issueId: prIssue.id)
                 } label: {
                     Group {
                         if merging.contains(row.id) {
@@ -699,7 +704,10 @@ struct AgentsView: View {
                 .foregroundStyle(DesignTokens.Semantic.red)
                 .fixedSize(horizontal: false, vertical: true)
 
-            if let issue = row.issue, canFixConflicts(issue) {
+            // EXP-535: a batch row's refused merge recovers through the same
+            // representative issue its Merge button used — the sheet's PR
+            // picker normalizes any linked issue id to its option.
+            if let issue = row.issue ?? row.batchPrIssue, canFixConflicts(issue) {
                 Button {
                     fixTarget = FixConflictsTarget(rowId: row.id, issueId: issue.id)
                 } label: {
