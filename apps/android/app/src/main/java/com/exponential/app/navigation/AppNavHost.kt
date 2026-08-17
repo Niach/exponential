@@ -108,12 +108,21 @@ fun AppNavHost() {
         // received before login resumes once the token lands (token is a key).
         if (state.token == null) return@LaunchedEffect
         when (target) {
+            // A real push, never launchSingleTop (EXP-528): single top REPLACES
+            // the top entry and the replacement keeps its id, so its
+            // ViewModelStore — and an IssueDetailViewModel that read issueId
+            // once from SavedStateHandle — survived, and a tap that arrived
+            // while ANOTHER issue was open re-showed that issue. navigateDeepLink
+            // keeps the only thing single top bought us: a re-tap for what is
+            // already on screen stays a no-op.
             is DeepLinkBus.Target.Issue ->
-                navController.navigate("issue/${target.id}") { launchSingleTop = true }
+                navController.navigateDeepLink("issue/${target.id}")
             is DeepLinkBus.Target.Invite ->
-                navController.navigate("invite/${target.token}") { launchSingleTop = true }
+                navController.navigateDeepLink("invite/${target.token}")
+            // Same snapshot hazard as the issue route: SupportThreadViewModel
+            // reads threadId from SavedStateHandle once.
             is DeepLinkBus.Target.SupportThread ->
-                navController.navigate("support/${target.id}") { launchSingleTop = true }
+                navController.navigateDeepLink("support/${target.id}")
             is DeepLinkBus.Target.WebIssueRef ->
                 // Verified App Link (EXP-92): resolve slug+identifier against
                 // the local DB of the account matching the link's host (brief
@@ -127,9 +136,7 @@ fun AppNavHost() {
                             // switch first; IssueDetail re-scopes reactively.
                             viewModel.switchAccount(resolution.accountId)
                         }
-                        navController.navigate("issue/${resolution.issueId}") {
-                            launchSingleTop = true
-                        }
+                        navController.navigateDeepLink("issue/${resolution.issueId}")
                     }
                     WebLinkResolver.Resolution.NotFound ->
                         CustomTabsIntent.Builder().build().launchUrl(context, target.uri)
