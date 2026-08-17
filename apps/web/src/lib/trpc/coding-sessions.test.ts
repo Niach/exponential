@@ -42,6 +42,10 @@ const ACTION_ID = `44444444-4444-4444-8444-444444444444`
 
 const inserts: { table: unknown; values: Record<string, unknown> }[] = []
 const updates: { table: unknown; values: Record<string, unknown> }[] = []
+// Every update's where clause, in call order — the fake db can't execute the
+// status fence, so tests assert its SHAPE instead (EXP-531: a needs_input
+// `true` write is fenced to `running` rows only).
+const updateWheres: unknown[] = []
 // Queued results for successive db.select(...).limit(1) calls (heartbeat
 // reads the session row, then — on the issue-scoped re-create — the issue).
 const selectResults: unknown[][] = []
@@ -93,9 +97,10 @@ const fakeDb = {
   }),
   update: (table: unknown) => ({
     set: (values: Record<string, unknown>) => ({
-      where: () => ({
+      where: (cond: unknown) => ({
         returning: async () => {
           updates.push({ table, values })
+          updateWheres.push(cond)
           return [{ id: SESSION_ID }]
         },
       }),
@@ -119,6 +124,7 @@ async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
 beforeEach(() => {
   inserts.length = 0
   updates.length = 0
+  updateWheres.length = 0
   selectResults.length = 0
   selectWheres.length = 0
   h.assertTeamMember.mockClear()
@@ -605,17 +611,38 @@ describe(`codingSessions.setNeedsInput — attention flag (EXP-214)`, () => {
     expect(updates[0]!.values).toEqual({ needsInput: true })
   })
 
-  it(`writes needs_input on a legacy merged row (still live)`, async () => {
+  it(`fences a true write to running rows (EXP-531)`, async () => {
+    // The fake db can't evaluate the where clause — assert its shape: the
+    // desktop's post-turn idle nudge lands AFTER the PR-open flip, and the
+    // fence is what keeps it from resurrecting "needs input" on a reviewed
+    // row.
+    selectResults.push([{ userId: `actor`, status: `running` }])
+
+    await caller.setNeedsInput({ id: SESSION_ID, needsInput: true })
+
+    const shape = whereShape(updateWheres[0]).flat()
+    expect(shape).toContain(`running`)
+    expect(shape).not.toContain(`in_review`)
+    expect(shape).not.toContain(`merged`)
+  })
+
+  it(`clears needs_input on every live status (EXP-531)`, async () => {
+    // Legacy `merged` rows included — false still lands anywhere live, so a
+    // stale flag can always be retired.
     selectResults.push([{ userId: `actor`, status: `merged` }])
 
     const result = await caller.setNeedsInput({
       id: SESSION_ID,
-      needsInput: true,
+      needsInput: false,
     })
 
     expect(result).toEqual({ updated: true })
     expect(updates).toHaveLength(1)
-    expect(updates[0]!.values).toEqual({ needsInput: true })
+    expect(updates[0]!.values).toEqual({ needsInput: false })
+    const shape = whereShape(updateWheres[0]).flat()
+    expect(shape).toContain(`running`)
+    expect(shape).toContain(`in_review`)
+    expect(shape).toContain(`merged`)
   })
 
   it(`reports a swept row without writing`, async () => {

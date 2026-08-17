@@ -86,31 +86,15 @@ function RunningPing() {
   )
 }
 
-/** How a live session should render (EXP-214) — the session status alone is
- * not the whole story: `in_review` splits on the linked issue's PR outcome
- * (merged → the run is done, green review otherwise, matching the issue-status
- * palette), and a desktop-reported pending picker (plan approval /
- * AskUserQuestion) overrides everything visible as "needs input". The real
- * `merged` status (EXP-358 — the server parks sessions there on PR merge
- * instead of killing them) wins outright; the in_review+prState fallback
- * stays for rows written by pre-358 servers. */
-export type SessionDisplayState =
-  | `needs_input`
-  | `running`
-  | `review`
-  | `merged`
-  | `done`
+// The display-state derivation lives in a plain lib module so it can be
+// unit-tested without dragging the component graph in (EXP-531); re-exported
+// here for the existing importers.
+import {
+  sessionDisplayState,
+  type SessionDisplayState,
+} from "@/lib/coding-session-display"
 
-export function sessionDisplayState(
-  session: Pick<CodingSession, `status` | `needsInput`>,
-  prState: string | null | undefined
-): SessionDisplayState {
-  if (session.status === `merged`) return `merged`
-  const merged = prState === `merged`
-  if (session.needsInput && !merged) return `needs_input`
-  if (session.status === `in_review`) return merged ? `done` : `review`
-  return `running`
-}
+export { sessionDisplayState, type SessionDisplayState }
 
 /** Static counterpart of RunningPing for the parked states (EXP-194/EXP-214):
  * review green (matches the in_review issue status), done blue (matches the

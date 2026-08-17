@@ -838,8 +838,15 @@ pub(crate) fn live_session_device<'a>(
 /// (merged → the run is done, review otherwise, matching the issue-status
 /// palette: review green, done blue), and the desktop-written `needs_input`
 /// attention flag (agent parked on a plan-approval / AskUserQuestion picker)
-/// overrides everything still actionable as an amber "needs input". Callers
-/// pass only sessions that already passed [`coding_session_is_live`].
+/// renders a RUNNING session as an amber "needs input". Callers pass only
+/// sessions that already passed [`coding_session_is_live`].
+///
+/// EXP-531: `in_review` beats `needs_input` — once the PR is open the run is
+/// done coding, and the flag remaining true is idle noise (claude's
+/// "waiting for your input" nudge lands AFTER `open_pr` flips the row, and
+/// old desktops keep writing it). The server refuses `needs_input = true` on
+/// non-running rows for the same reason; this ordering also heals rows the
+/// noise already stamped.
 ///
 /// EXP-358: the server now flips a merged run's session to its own `merged`
 /// status (the session survives the merge), so that status decides directly —
@@ -862,15 +869,15 @@ pub(crate) fn coding_session_display(
     if session.status.as_deref() == Some(domain::contract::CODING_SESSION_STATUS_MERGED) {
         return CodingSessionDisplay::Merged;
     }
-    if session.needs_input.unwrap_or(false) && !merged {
-        return CodingSessionDisplay::NeedsInput;
-    }
     if session.status.as_deref() == Some(domain::contract::CODING_SESSION_STATUS_IN_REVIEW) {
         return if merged {
             CodingSessionDisplay::Done
         } else {
             CodingSessionDisplay::Review
         };
+    }
+    if session.needs_input.unwrap_or(false) && !merged {
+        return CodingSessionDisplay::NeedsInput;
     }
     CodingSessionDisplay::Running
 }
@@ -1017,6 +1024,35 @@ mod tests {
             coding_session_display(&legacy, Some(domain::contract::PR_STATE_OPEN))
                 == CodingSessionDisplay::Review
         );
+    }
+
+    #[test]
+    fn coding_session_display_in_review_beats_needs_input() {
+        // EXP-531: claude's idle nudge lands AFTER open_pr flips the row to
+        // in_review, and the stamped flag used to mask "review" as an amber
+        // "needs input" for the rest of the session. A running row keeps the
+        // flag's meaning.
+        let flagged: domain::rows::CodingSession = serde_json::from_value(json!({
+            "id": "sess-1",
+            "issue_id": "issue-1",
+            "status": "in_review",
+            "updated_at": "2026-07-17T11:30:00Z",
+            "needs_input": true,
+        }))
+        .unwrap();
+        assert!(
+            coding_session_display(&flagged, Some(domain::contract::PR_STATE_OPEN))
+                == CodingSessionDisplay::Review
+        );
+        let running: domain::rows::CodingSession = serde_json::from_value(json!({
+            "id": "sess-2",
+            "issue_id": "issue-1",
+            "status": "running",
+            "updated_at": "2026-07-17T11:30:00Z",
+            "needs_input": true,
+        }))
+        .unwrap();
+        assert!(coding_session_display(&running, None) == CodingSessionDisplay::NeedsInput);
     }
 
     #[test]

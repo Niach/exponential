@@ -59,6 +59,17 @@ class CodingSessionDisplayTest {
     }
 
     @Test
+    fun inReviewWithNeedsInputStaysReview() {
+        // EXP-531: once the PR is open the session is in review — claude's
+        // idle notification (which trips needs_input after the final turn
+        // ends) must not mask "Ready for review".
+        assertEquals(
+            CodingSessionDisplayState.Review,
+            codingSessionDisplayState(session("in_review", needsInput = true), "open"),
+        )
+    }
+
+    @Test
     fun runningWithNeedsInputIsNeedsInput() {
         assertEquals(
             CodingSessionDisplayState.NeedsInput,
