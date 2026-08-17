@@ -215,11 +215,17 @@ fun AgentsScreen(
                         }
                     } else {
                         items(state.rows, key = { it.session.id }) { row ->
+                            // EXP-535: batch rows merge (and fix conflicts)
+                            // through their resolved PR's representative issue
+                            // — the server resolves a batch PR to ALL linked
+                            // issues (Reviews pattern).
+                            val mergeIssue = row.issue ?: row.batchPrIssue
                             AgentSessionRow(
                                 session = row.session,
                                 issue = row.issue,
-                                merging = row.issue?.id in merging,
-                                errorMessage = row.issue?.id?.let(mergeErrors::get),
+                                mergeIssue = mergeIssue,
+                                merging = mergeIssue?.id in merging,
+                                errorMessage = mergeIssue?.id?.let(mergeErrors::get),
                                 onClick = {
                                     // Every listed row is the caller's own
                                     // (EXP-312), so steer availability alone
@@ -237,8 +243,8 @@ fun AgentsScreen(
                                 // it needs one recorded — the same gate as the
                                 // Reviews rows (EXP-323), plus a reachable
                                 // machine to run on.
-                                canFixConflicts = steerOn && !row.issue?.branch.isNullOrBlank(),
-                                onFixConflicts = { fixTargetIssueId = row.issue?.id },
+                                canFixConflicts = steerOn && !mergeIssue?.branch.isNullOrBlank(),
+                                onFixConflicts = { fixTargetIssueId = mergeIssue?.id },
                             )
                         }
                     }
@@ -319,7 +325,8 @@ fun AgentsScreen(
     // EXP-498: merging always closes the session too, so the merge is
     // confirm-gated — same shape as the Reviews dialog.
     mergeTarget?.let { row ->
-        val issueId = row.issue?.id
+        // EXP-535: a batch row merges through its resolved representative issue.
+        val issueId = (row.issue ?: row.batchPrIssue)?.id
         AlertDialog(
             onDismissRequest = { mergeTarget = null },
             title = { Text("Merge pull request?") },
@@ -634,6 +641,10 @@ private fun startStateCaption(state: SteerStartState): StartCaption? = when (sta
 private fun AgentSessionRow(
     session: CodingSessionEntity,
     issue: IssueEntity?,
+    // EXP-535: the issue the merge shortcut acts through — the linked issue,
+    // or a batch row's client-resolved representative (AgentRow.batchPrIssue).
+    // The label/status rendering keeps reading [issue] alone.
+    mergeIssue: IssueEntity?,
     merging: Boolean,
     errorMessage: String?,
     onClick: () -> Unit,
@@ -643,9 +654,11 @@ private fun AgentSessionRow(
     onFixConflicts: () -> Unit,
 ) {
     val state = codingSessionDisplayState(session, issue?.prState)
-    // The merge shortcut only shows while the linked PR is still open — a
-    // batch row (no issue) or an already-merged PR has nothing to merge.
-    val canMerge = issue?.prState == DomainContract.prStateOpen
+    // The merge shortcut only shows while the PR is still open — for a batch
+    // row (no linked issue) that is the resolved representative's PR
+    // (EXP-535); an already-merged PR, or a batch row with no unambiguous
+    // resolution, has nothing to merge.
+    val canMerge = mergeIssue?.prState == DomainContract.prStateOpen
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier

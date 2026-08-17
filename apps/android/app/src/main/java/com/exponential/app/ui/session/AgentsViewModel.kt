@@ -12,6 +12,7 @@ import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.SteerStartOptions
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.DeviceEntity
@@ -53,6 +54,10 @@ import kotlinx.coroutines.launch
 data class AgentRow(
     val session: CodingSessionEntity,
     val issue: IssueEntity?,
+    // EXP-535: a batch session's resolved open PR, as a representative linked
+    // issue (merging through it merges the ONE batch PR — Reviews pattern).
+    // Set only on issueless batch rows in review with an UNAMBIGUOUS match.
+    val batchPrIssue: IssueEntity? = null,
 )
 
 data class AgentsState(
@@ -109,26 +114,29 @@ class AgentsViewModel @Inject constructor(
     private val _startState = MutableStateFlow<SteerStartState>(SteerStartState.Idle)
     val startState: StateFlow<SteerStartState> = _startState
 
-    // Paired up front: the typed `combine` overloads stop at five flows, and
-    // the state below already needs six.
-    private val liveSessionsAndIssues = combine(
+    // Bundled up front: the typed `combine` overloads stop at five flows, and
+    // the state below already needs seven. Boards ride along for the batch-PR
+    // resolution (EXP-535) — issues don't sync team_id, so team scoping goes
+    // through their board.
+    private val liveSessionsIssuesAndBoards = combine(
         dbFlow.scopedQuery(emptyList()) {
             it.codingSessionDao().observeByStatuses(CodingSessionLiveness.liveStatuses)
         },
         dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
-    ) { sessions, issues -> sessions to issues }
+        dbFlow.scopedQuery(emptyList()) { it.boardDao().observeAll() },
+    ) { sessions, issues, boards -> Triple(sessions, issues, boards) }
 
     val state: StateFlow<AgentsState> = combine(
-        liveSessionsAndIssues,
+        liveSessionsIssuesAndBoards,
         _steerEnabled,
         // Heartbeat-stale rows render as absent (EXP-153); the ticker clears
         // them once the liveness window elapses without a sync delta.
         CodingSessionLiveness.minuteTicker(),
         auth.userId,
         selection.selectedId,
-    ) { (sessions, issues), steerEnabled, now, userId, teamId ->
+    ) { (sessions, issues, boards), steerEnabled, now, userId, teamId ->
         AgentsState(
-            rows = agentRows(sessions, issues, userId, teamId, now),
+            rows = agentRows(sessions, issues, boards, userId, teamId, now),
             steerEnabled = steerEnabled,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AgentsState())
@@ -357,21 +365,83 @@ class AgentsViewModel @Inject constructor(
 fun agentRows(
     sessions: List<CodingSessionEntity>,
     issues: List<IssueEntity>,
+    boards: List<BoardEntity>,
     currentUserId: String?,
     teamId: String?,
     nowMs: Long,
 ): List<AgentRow> {
     if (currentUserId == null || teamId == null) return emptyList()
     val issuesById = issues.associateBy { it.id }
-    return sessions
-        .filter {
-            it.userId == currentUserId &&
-                it.teamId == teamId &&
-                CodingSessionLiveness.isLive(it, nowMs)
+    val live = sessions.filter {
+        it.userId == currentUserId &&
+            it.teamId == teamId &&
+            CodingSessionLiveness.isLive(it, nowMs)
+    }
+    // EXP-535: resolved only while an issueless, actionless in-review batch
+    // row actually needs it — an action run merges nothing, and a still
+    // running batch has no PR yet (in_review is flipped in the pr_open
+    // transaction).
+    val batchPrIssue = if (live.any { it.isBatchInReview }) {
+        soleOpenBatchPrIssue(issues, boards, teamId)
+    } else {
+        null
+    }
+    // issueId is null for batch multi-issue sessions — those rows render
+    // without an issue link.
+    return live.map { session ->
+        AgentRow(
+            session = session,
+            issue = session.issueId?.let(issuesById::get),
+            batchPrIssue = batchPrIssue.takeIf { session.isBatchInReview },
+        )
+    }
+}
+
+// An issueless, actionless in-review session — the only row shape whose merge
+// shortcut needs the client-resolved batch PR (EXP-535).
+private val CodingSessionEntity.isBatchInReview: Boolean
+    get() = issueId == null &&
+        actionName == null &&
+        status == DomainContract.codingSessionStatusInReview
+
+// The batch launcher's branch namespace (`exp/batch-<id8>`); the contract
+// carries no constant for it — matching web's inline literal.
+private const val BATCH_BRANCH_PREFIX = "exp/batch-"
+
+/**
+ * EXP-535: batch sessions carry no issue/PR linkage (the schema has none —
+ * the server's in_review flip is equally loose), so a batch row resolves its
+ * open PR client-side: the team's open-PR issues on an `exp/batch-` branch,
+ * collapsed by prUrl to one representative (newest `createdAt`) issue — the
+ * Reviews pattern; the server resolves that issue's PR to ALL linked issues
+ * on merge. Team scoping goes through live boards ([issues] don't sync
+ * team_id). Only an UNAMBIGUOUS match (exactly one open batch PR in the
+ * team) offers the merge shortcut — with concurrent batch runs Reviews still
+ * lists every PR.
+ */
+fun soleOpenBatchPrIssue(
+    issues: List<IssueEntity>,
+    boards: List<BoardEntity>,
+    teamId: String?,
+): IssueEntity? {
+    if (teamId == null) return null
+    val teamBoardIds = boards
+        .filter { it.teamId == teamId && it.deletedAt == null }
+        .mapTo(mutableSetOf()) { it.id }
+    val byPrUrl = mutableMapOf<String, IssueEntity>()
+    for (issue in issues) {
+        val prUrl = issue.prUrl ?: continue
+        if (issue.prState != DomainContract.prStateOpen) continue
+        if (issue.branch?.startsWith(BATCH_BRANCH_PREFIX) != true) continue
+        if (issue.boardId !in teamBoardIds) continue
+        val current = byPrUrl[prUrl]
+        // ISO-8601 UTC timestamps — lexicographic order IS chronological
+        // (same comparison the list sorts already lean on).
+        if (current == null || issue.createdAt > current.createdAt) {
+            byPrUrl[prUrl] = issue
         }
-        // issueId is null for batch multi-issue sessions — those rows render
-        // without an issue link.
-        .map { AgentRow(session = it, issue = it.issueId?.let(issuesById::get)) }
+    }
+    return byPrUrl.values.singleOrNull()
 }
 
 /**
