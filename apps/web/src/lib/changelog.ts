@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-git-history-view`,
+    date: `2026-08-17`,
+    title: `Git history in the desktop IDE`,
+    summary: `See your repo's commit graph in Source Control, and push safely when trunk has moved on.`,
+    body: `- **Commit graph**: Source Control in the desktop IDE now shows the repo's history as a lane graph, including remote branches, with paging for deep histories.
+- **Push through a diverged trunk**: commit and push now walks you through a guided rebase when your trunk is both ahead of and behind the remote, instead of failing with a raw git error.
+- **Fixes**: the board settings color picker no longer clips at the dialog edge, and steering a session with image attachments can no longer stall the live connection to your phone.`,
+  },
+  {
     id: `2026-08-selectable-desktop-text`,
     date: `2026-08-16`,
     title: `Selectable text in the desktop IDE`,
