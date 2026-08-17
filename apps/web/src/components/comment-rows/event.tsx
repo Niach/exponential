@@ -1,6 +1,8 @@
 import type { IssueEvent, Label, Board, User } from "@/db/schema"
 import { displayUserName } from "@/lib/user-display"
 import { conceptIcon } from "@/lib/icons.generated"
+import { StatusIcon } from "@/components/issue-properties/status-dropdown"
+import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 
 // EXP-317: timeline glyphs come from the shared registry, so a status change
 // (or a board move) looks the same here as it does in the desktop IDE.
@@ -21,6 +23,60 @@ function statusLabel(payload: Record<string, unknown>, side: `to` | `from`): str
   return String(payload[side] ?? ``).replace(/_/g, ` `)
 }
 
+function optionalString(value: unknown): string | null {
+  return typeof value === `string` && value.length > 0 ? value : null
+}
+
+// EXP-525: the PR events carry their pull request, so the phrase links out to
+// GitHub. `pr_opened` writes {prUrl, prNumber, branch}, `pr_merged` only
+// {prUrl} — and rows from before either field existed carry neither, so both
+// sides degrade to plain text. The number is parsed off the url when the
+// payload has none.
+function prRef(payload: Record<string, unknown>): {
+  url: string | null
+  number: number | null
+} {
+  const url = optionalString(payload.prUrl) ?? optionalString(payload.url)
+  const raw = payload.prNumber ?? payload.number
+  const parsed =
+    typeof raw === `number`
+      ? raw
+      : typeof raw === `string`
+        ? Number.parseInt(raw, 10)
+        : NaN
+  if (Number.isFinite(parsed) && parsed > 0) return { url, number: parsed }
+  const fromUrl = url?.match(/\/pull\/(\d+)/)
+  return { url, number: fromUrl ? Number(fromUrl[1]) : null }
+}
+
+function PrPhrase({
+  verb,
+  payload,
+}: {
+  verb: `opened` | `merged`
+  payload: Record<string, unknown>
+}) {
+  const { url, number } = prRef(payload)
+  const phrase = number ? `pull request #${number}` : `pull request`
+  return (
+    <>
+      {verb}{` `}
+      {url ? (
+        <a
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          className="font-medium text-brand-soft hover:underline"
+        >
+          {phrase}
+        </a>
+      ) : (
+        <span className="font-medium text-foreground">{phrase}</span>
+      )}
+    </>
+  )
+}
+
 // A compact, single-line activity entry (status/assignee/label/PR).
 export function EventRow({
   event,
@@ -33,16 +89,28 @@ export function EventRow({
   labelMap: Map<string, Label>
   boardMap?: Map<string, Board>
 }) {
+  const { resolve: resolveStatus } = useTeamStatusesContext()
   const actor = event.actorUserId ? userMap.get(event.actorUserId) : undefined
   const actorName = displayUserName(actor, event.actorUserId)
   const payload = (event.payload ?? {}) as Record<string, unknown>
 
   let Icon = StatusChangedIcon
+  // A resolved status row wins over the generic glyph, so the timeline shows
+  // the same colored icon the list and the picker do (EXP-525). The shared
+  // fallback chain (statusId row → anchor enum row → constructed default)
+  // never fails, so the generic icon only survives for the other event types.
+  let icon: React.ReactNode = null
   let text: React.ReactNode = null
 
   switch (event.type) {
-    case `status_changed`:
-      Icon = StatusChangedIcon
+    case `status_changed`: {
+      const option = resolveStatus({
+        status: String(payload.to ?? ``),
+        statusId: optionalString(payload.toStatusId),
+      })
+      icon = (
+        <StatusIcon option={option} className="!h-3.5 !w-3.5 shrink-0" />
+      )
       text = (
         <>
           changed status to{` `}
@@ -52,6 +120,7 @@ export function EventRow({
         </>
       )
       break
+    }
     case `assignee_changed`: {
       Icon = AssigneeChangedIcon
       // `payload.to` can reference a user the viewer can't see (the users
@@ -88,11 +157,11 @@ export function EventRow({
     }
     case `pr_opened`:
       Icon = PrOpenedIcon
-      text = <>opened a pull request</>
+      text = <PrPhrase verb="opened" payload={payload} />
       break
     case `pr_merged`:
       Icon = PrMergedIcon
-      text = <>merged the pull request</>
+      text = <PrPhrase verb="merged" payload={payload} />
       break
     case `board_moved`: {
       Icon = BoardMovedIcon
@@ -127,7 +196,7 @@ export function EventRow({
 
   return (
     <div className="flex items-center gap-2 py-1 pl-1 text-xs text-muted-foreground">
-      <Icon className="size-3.5 shrink-0" />
+      {icon ?? <Icon className="size-3.5 shrink-0" />}
       <span className="truncate">
         <span className="font-medium text-foreground">{actorName}</span> {text}
       </span>

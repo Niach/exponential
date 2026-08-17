@@ -52,10 +52,12 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use gpui::{
-    div, prelude::FluentBuilder as _, px, size, AnyWindowHandle, App, AppContext as _, Entity,
-    InteractiveElement as _, IntoElement, ParentElement, Render, ScrollHandle, SharedString,
-    StatefulInteractiveElement as _, Styled, Subscription, Window,
+    div, prelude::FluentBuilder as _, px, size, AnyWindowHandle, App, AppContext as _, ClickEvent,
+    Entity, InteractiveElement as _, IntoElement, ParentElement, Render, ScrollHandle,
+    SharedString, StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
+
+use crate::controls::WebControl as _;
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     checkbox::Checkbox,
@@ -232,7 +234,7 @@ fn open(
     let opener = window.window_handle();
     // EXP-285: trimmed 640 → 560 and user-resizable — the two-column layout
     // tolerates it (both lists are max_h-capped).
-    let height = (window.viewport_size().height * 0.85).min(px(560.));
+    let height = (window.viewport_size().height * 0.85).min(px(520.));
     let title = if create_mode { "New action" } else { "Start coding" };
     let spec =
         DialogSpec::new(title, size(px(760.), height)).resizable(size(px(640.), px(480.)));
@@ -1594,32 +1596,32 @@ impl StartCodingDialogView {
         )
     }
 
-    /// The top-level Issues | Actions subject strip (EXP-257) — segmented,
-    /// distinct from the Pill agent strip below.
+    /// The top-level Issues | Actions subject strip (EXP-257). EXP-525: the
+    /// web launch dialog's FULL-WIDTH segmented capsule (`ui/tabs.tsx`)
+    /// instead of the small centered `TabBar`.
     fn subject_tabs(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let active_ix = match self.subject_tab {
-            SubjectTab::Issues => 0,
-            SubjectTab::Actions => 1,
-        };
-        h_flex().w_full().justify_center().child(
-            TabBar::new("sc-subject-tabs")
-                .with_variant(TabVariant::Segmented)
-                .with_size(Size::Small)
-                .selected_index(active_ix)
-                .on_click(cx.listener(|this, ix: &usize, _window, cx| {
-                    let tab = if *ix == 0 {
-                        SubjectTab::Issues
-                    } else {
-                        SubjectTab::Actions
-                    };
+        let segment = |label: &'static str, tab: SubjectTab, active: bool| {
+            crate::controls::segmented_item(active, cx)
+                .id(label)
+                .child(label)
+                .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                     if this.subject_tab != tab {
                         this.subject_tab = tab;
                         cx.notify();
                     }
                 }))
-                .child(Tab::new().child("Issues"))
-                .child(Tab::new().child("Actions")),
-        )
+        };
+        crate::controls::segmented(cx)
+            .child(segment(
+                "Issues",
+                SubjectTab::Issues,
+                self.subject_tab == SubjectTab::Issues,
+            ))
+            .child(segment(
+                "Actions",
+                SubjectTab::Actions,
+                self.subject_tab == SubjectTab::Actions,
+            ))
     }
 
     /// One Actions-tab list row: icon + name + selection check.
@@ -1685,7 +1687,7 @@ impl StartCodingDialogView {
         };
         let field: gpui::AnyElement = match input.input_type.as_str() {
             "text" => match self.action_text_inputs.get(&input.key) {
-                Some(state) => Input::new(state).small().into_any_element(),
+                Some(state) => Input::new(state).web_input_sm().into_any_element(),
                 None => div().into_any_element(), // transient re-selection frame
             },
             "repo" => {
@@ -1698,8 +1700,8 @@ impl StartCodingDialogView {
                 let optional = !input.required;
                 let view = cx.entity().downgrade();
                 Button::new(("sc-input-repo", ix))
-                    .outline()
-                    .small()
+                    .outline().cursor_pointer()
+                    .web_input_sm()
                     .label(pick_label)
                     .dropdown_menu(move |mut menu, _window, _cx| {
                         if optional {
@@ -1752,8 +1754,8 @@ impl StartCodingDialogView {
                 let optional = !input.required;
                 let view = cx.entity().downgrade();
                 Button::new(("sc-input-board", ix))
-                    .outline()
-                    .small()
+                    .outline().cursor_pointer()
+                    .web_input_sm()
                     .label(pick_label)
                     .dropdown_menu(move |mut menu, _window, _cx| {
                         if optional {
@@ -1805,8 +1807,8 @@ impl StartCodingDialogView {
                 let optional = !input.required;
                 let view = cx.entity().downgrade();
                 Button::new(("sc-input-pr", ix))
-                    .outline()
-                    .small()
+                    .outline().cursor_pointer()
+                    .web_input_sm()
                     .label(pick_label)
                     .dropdown_menu(move |mut menu, _window, _cx| {
                         if optional {
@@ -1869,8 +1871,8 @@ impl StartCodingDialogView {
                 Popover::new(("sc-input-icon-pop", ix))
                     .trigger(
                         Button::new(("sc-input-icon", ix))
-                            .outline()
-                            .small()
+                            .outline().cursor_pointer()
+                            .web_input_sm()
                             .icon(crate::icons::action_icon(picked.as_deref()))
                             .label(pick_label),
                     )
@@ -1889,7 +1891,7 @@ impl StartCodingDialogView {
                             let popover = popover.clone();
                             content = content.child(
                                 Button::new("sc-input-icon-none")
-                                    .ghost()
+                                    .ghost().cursor_pointer()
                                     .xsmall()
                                     .label("No icon")
                                     .on_click(move |_, window, cx| {
@@ -2008,8 +2010,8 @@ impl StartCodingDialogView {
             .child(div().flex_1())
             .child(
                 Button::new("sc-cancel")
-                    .outline()
-                    .small()
+                    .outline().cursor_pointer()
+                    .web_sm()
                     .label("Cancel")
                     .disabled(self.launching)
                     .on_click(cx.listener(|this, _, window, cx| {
@@ -2021,8 +2023,8 @@ impl StartCodingDialogView {
             )
             .child(
                 Button::new("sc-start")
-                    .primary()
-                    .small()
+                    .primary().cursor_pointer()
+                    .web_sm()
                     .label(if self.launching {
                         "Starting…"
                     } else if self.subject_tab == SubjectTab::Actions {
@@ -2126,14 +2128,14 @@ impl Render for StartCodingDialogView {
             .items_start()
             .child(Self::labeled_field(
                 "Model",
-                Select::new(&self.model).small().into_any_element(),
+                Select::new(&self.model).web_input_sm().into_any_element(),
                 None,
                 cx,
             ))
             .child(Self::labeled_field(
                 agent.effort_label(),
                 Select::new(&self.effort)
-                    .small()
+                    .web_input_sm()
                     .disabled(ultracode && agent.supports_ultracode())
                     .into_any_element(),
                 effort_hint,
@@ -2166,31 +2168,16 @@ impl Render for StartCodingDialogView {
             toggles = toggles.child(self.skip_permissions_row(cx).into_any_element());
         }
 
-        let agent_label = agent.label();
-        let intro: SharedString = if checked_count >= 2 {
-            format!(
-                "One {agent_label} session implements the {checked_count} checked issues on \
-                 one branch and opens one combined PR."
-            )
-            .into()
-        } else {
-            format!(
-                "{agent_label} works on the checked issue in its own worktree and opens the \
-                 pull request when done. Check more issues for a batch run."
-            )
-            .into()
-        };
-
         let blocker = self.launch_blocker(cx);
         // EXP-268: two-column widescreen layout (web `launch-dialog.tsx`
         // parity) — subject tabs full-width on top, then picker LEFT /
-        // options RIGHT, error + footer full-width below.
+        // options RIGHT, error + footer full-width below. EXP-525: the
+        // explainer paragraphs are gone (web has none either).
         let mut left = v_flex().flex_1().min_w_0().gap_3();
         match self.subject_tab {
             SubjectTab::Issues => {
                 left = left
-                    .child(div().text_xs().text_color(theme_muted).child(intro))
-                    .child(Input::new(&self.search).small())
+                    .child(Input::new(&self.search).web_input_sm())
                     // Bounded, actually-scrollable checklist (EXP-119):
                     // compose the EXP-67 scroll-pane primitives directly —
                     // gpui-component's `overflow_y_scrollbar` wrapper drops
@@ -2275,14 +2262,7 @@ impl Render for StartCodingDialogView {
                     }
                 }
                 left = left
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme_muted)
-                            .child("Run a reusable team action on this device. Pick one and \
-fill in its inputs."),
-                    )
-                    .child(Input::new(&self.action_search).small())
+                    .child(Input::new(&self.action_search).web_input_sm())
                     .child(self.bounded_pane(
                         "sc-actions-scroll",
                         &self.action_list_scroll.clone(),

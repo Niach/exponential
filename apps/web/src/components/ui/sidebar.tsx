@@ -575,8 +575,11 @@ function SidebarMenuAction({
         `peer-data-[size=default]/menu-button:top-1.5`,
         `peer-data-[size=lg]/menu-button:top-2.5`,
         `group-data-[collapsible=icon]:hidden`,
+        // EXP-525: keyboard focus reveals the action, a MOUSE click does not —
+        // `:focus-within` kept the gear pinned visible after clicking the board
+        // row, so the hover affordance never went away again.
         showOnHover &&
-          `group-focus-within/menu-item:opacity-100 group-hover/menu-item:opacity-100 peer-data-[active=true]/menu-button:text-sidebar-accent-foreground data-[state=open]:opacity-100 md:opacity-0`,
+          `group-has-focus-visible/menu-item:opacity-100 group-hover/menu-item:opacity-100 peer-data-[active=true]/menu-button:text-sidebar-accent-foreground data-[state=open]:opacity-100 md:opacity-0`,
         className
       )}
       {...props}

@@ -17,7 +17,7 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, ActiveTheme as _, Icon, Sizable as _,
+    h_flex, ActiveTheme as _, Icon,
 };
 
 use domain::options::get_issue_priority_config;
@@ -25,6 +25,7 @@ use domain::rows::Label;
 use domain::statuses::{status_key_matches, ResolvedStatus};
 use domain::{empty_filters, IssueFilters, IssuePriority};
 
+use crate::controls::WebControl as _;
 use crate::filter_popover::OnFiltersChange;
 use crate::icons::{option_icon, registry, resolved_status_icon};
 use crate::issue_list::parse_hex_color;
@@ -114,7 +115,7 @@ impl RenderOnce for ActiveFilterPills {
         row.child(
             Button::new("filter-pills-clear-all")
                 .ghost()
-                .xsmall()
+                .web_xs()
                 .text_color(cx.theme().muted_foreground)
                 .label("Clear all")
                 .on_click(move |_, window, cx| on_clear(empty_filters(), window, cx)),

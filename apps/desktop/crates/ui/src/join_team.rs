@@ -31,6 +31,7 @@ use gpui_component::{
 };
 use sync::Store;
 
+use crate::controls::WebControl as _;
 use crate::native_dialog::{self, DialogContent, DialogSpec};
 
 use api::teams::TeamInviteOut;
@@ -388,7 +389,7 @@ impl Render for JoinTeamView {
                         .text_color(cx.theme().muted_foreground)
                         .child("Invite link"),
                 )
-                .child(Input::new(&self.token_input).small()),
+                .child(Input::new(&self.token_input).web_input()),
         );
 
         let (primary_label, primary_disabled): (&'static str, bool) = match &self.preview {
@@ -446,8 +447,7 @@ impl Render for JoinTeamView {
             .when(!self.embedded, |row| {
                 row.child(
                     Button::new("join-team-cancel")
-                        .outline()
-                        .small()
+                        .outline().web_sm()
                         .label("Cancel")
                         .disabled(self.accepting)
                         .on_click(cx.listener(|this, _, window, cx| {
@@ -460,8 +460,7 @@ impl Render for JoinTeamView {
             })
             .child(
                 Button::new("join-team-primary")
-                    .primary()
-                    .small()
+                    .primary().web_md()
                     .label(primary_label)
                     .disabled(primary_disabled)
                     .loading(self.accepting)

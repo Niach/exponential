@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use gpui::{
-    div, prelude::FluentBuilder as _, relative, App, AppContext as _, ClickEvent, Entity,
+    div, prelude::FluentBuilder as _, px, relative, App, AppContext as _, ClickEvent, Entity,
     FontWeight, InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
     Styled, Subscription, Window,
 };
@@ -30,8 +30,10 @@ use gpui_component::{
     menu::{DropdownMenu as _, PopupMenuItem},
     scroll::ScrollableElement as _,
     skeleton::Skeleton,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Selectable as _, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Selectable as _,
 };
+
+use crate::controls::WebControl as _;
 use sync::Store;
 
 use crate::actions::OpenIssue;
@@ -87,6 +89,12 @@ pub struct SupportThreadView {
     nav: Entity<Navigation>,
     thread_id: Option<String>,
     detail: Option<api::helpdesk::SupportThreadDetail>,
+    /// EXP-525: the widget submission behind the thread — the details rail's
+    /// Context section (web `ThreadDetails`). Fetched once per thread.
+    submission: Option<api::widgets::WidgetSubmission>,
+    /// The reporter the reply placeholder was last synced for (render-time
+    /// sync — the fetch landing has no `Window`).
+    placeholder_reporter: Option<String>,
     /// Bumped per fetch — a stale response checks it before landing.
     fetch_seq: u64,
     /// Bumped per poll spawn — a superseded loop sees the mismatch and dies.
@@ -112,7 +120,7 @@ impl SupportThreadView {
         let composer = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(1, 8)
-                .placeholder(REPLY_PLACEHOLDER)
+                .placeholder(reply_placeholder("the reporter"))
         });
         let mut subscriptions = Vec::new();
         // Cmd/Ctrl+Enter sends (the comment composer's gesture).
@@ -138,6 +146,8 @@ impl SupportThreadView {
             nav,
             thread_id: None,
             detail: None,
+            submission: None,
+            placeholder_reporter: None,
             fetch_seq: 0,
             poll_seq: 0,
             composer,
@@ -166,6 +176,8 @@ impl SupportThreadView {
         }
         self.thread_id = Some(thread_id);
         self.detail = None;
+        self.submission = None;
+        self.placeholder_reporter = None;
         self.note_mode = false;
         self.sending = false;
         self.acting = false;
@@ -174,11 +186,45 @@ impl SupportThreadView {
         self.error = None;
         self.composer.update(cx, |input, cx| {
             input.set_value("", window, cx);
-            input.set_placeholder(REPLY_PLACEHOLDER, window, cx);
+            input.set_placeholder(reply_placeholder("the reporter"), window, cx);
         });
         self.fetch(cx);
+        self.fetch_submission(cx);
         self.ensure_poll(cx);
         cx.notify();
+    }
+
+    /// EXP-525: the details rail's Context data — one fetch per thread
+    /// (`widgets.submissionForThread`; `None` for mail-only threads).
+    fn fetch_submission(&mut self, cx: &mut gpui::Context<Self>) {
+        let Some(thread_id) = self.thread_id.clone() else {
+            return;
+        };
+        let Some(trpc) = queries::trpc_client(cx) else {
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            let call_id = thread_id.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::widgets::submission_for_thread(&trpc, &call_id) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.thread_id.as_deref() != Some(thread_id.as_str()) {
+                    return;
+                }
+                match result {
+                    Ok(submission) => {
+                        this.submission = submission;
+                        cx.notify();
+                    }
+                    Err(err) => {
+                        log::warn!("[ui] widgets.submissionForThread({thread_id}) failed: {err}");
+                    }
+                }
+            });
+        })
+        .detach();
     }
 
     /// Whether this thread's tab is the window's active screen — the poll
@@ -426,12 +472,22 @@ impl SupportThreadView {
             return;
         }
         self.note_mode = note;
+        let reporter = self
+            .detail
+            .as_ref()
+            .map(|detail| {
+                reporter_label(
+                    detail.thread.reporter_name.as_deref(),
+                    detail.thread.reporter_email.as_deref(),
+                )
+            })
+            .unwrap_or_else(|| "the reporter".to_string());
         self.composer.update(cx, |input, cx| {
             input.set_placeholder(
                 if note {
-                    NOTE_PLACEHOLDER
+                    SharedString::from(NOTE_PLACEHOLDER)
                 } else {
-                    REPLY_PLACEHOLDER
+                    reply_placeholder(&reporter)
                 },
                 window,
                 cx,
@@ -441,8 +497,13 @@ impl SupportThreadView {
     }
 }
 
-const REPLY_PLACEHOLDER: &str = "Reply to the reporter…";
-const NOTE_PLACEHOLDER: &str = "Add an internal note (never emailed)…";
+/// Web composer placeholder, byte-for-byte
+/// (`helpdesk/support-inbox.tsx`): `Reply to {reporter}… (emailed to them)`.
+fn reply_placeholder(reporter: &str) -> SharedString {
+    SharedString::from(format!("Reply to {reporter}… (emailed to them)"))
+}
+
+const NOTE_PLACEHOLDER: &str = "Add an internal note… (never sent to the reporter)";
 
 /// The reporter's display label: name, else email, else a generic.
 fn reporter_label(name: Option<&str>, email: Option<&str>) -> String {
@@ -454,7 +515,7 @@ fn reporter_label(name: Option<&str>, email: Option<&str>) -> String {
 }
 
 impl Render for SupportThreadView {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let Some(detail) = self.detail.clone() else {
             // First fetch in flight — skeleton, never a wrong empty state.
             return v_flex()
@@ -472,6 +533,16 @@ impl Render for SupportThreadView {
             detail.thread.reporter_name.as_deref(),
             detail.thread.reporter_email.as_deref(),
         );
+        // Keep the reply placeholder addressed to the real reporter (the
+        // fetch landing has no Window, so it syncs here — guarded, or the
+        // notify would re-render forever).
+        if !self.note_mode && self.placeholder_reporter.as_deref() != Some(reporter.as_str()) {
+            self.placeholder_reporter = Some(reporter.clone());
+            let placeholder = reply_placeholder(&reporter);
+            self.composer.update(cx, |input, cx| {
+                input.set_placeholder(placeholder, window, cx);
+            });
+        }
         let resolved = detail.thread.status.as_deref() == Some("resolved");
         let team_id = detail
             .thread
@@ -523,19 +594,25 @@ impl Render for SupportThreadView {
         };
 
         let theme = cx.theme();
-        let radius = theme.radius;
         let fg = theme.foreground;
         let muted = theme.muted_foreground;
         let warning = theme.warning;
         let danger = theme.danger;
 
-        // ---- header ---------------------------------------------------------
+        // ---- header (web `support-inbox.tsx` conversation header) ----------
         let status_button = {
-            let mut button = Button::new("support-status").small().outline();
+            let mut button = Button::new("support-status")
+                .outline().cursor_pointer()
+                .web_sm()
+                .flex_shrink_0();
             button = if resolved {
-                button.label("Reopen ticket")
+                button
+                    .icon(Icon::from(ExpIcon::Undo2).size_3())
+                    .label("Reopen ticket")
             } else {
-                button.label("Close ticket")
+                button
+                    .icon(Icon::from(ExpIcon::Check).size_3())
+                    .label("Close ticket")
             };
             button
                 .loading(self.acting)
@@ -545,7 +622,129 @@ impl Render for SupportThreadView {
                 }))
         };
 
-        let escalate_area: gpui::AnyElement = match &detail.linked_issue {
+        let header = v_flex()
+            .w_full()
+            .flex_shrink_0()
+            .child(
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .gap_2()
+                    .px_3()
+                    .py_2()
+                    .border_b_1()
+                    .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .child(
+                                div()
+                                    .truncate()
+                                    .text_sm()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child(SharedString::from(reporter.clone())),
+                            )
+                            .child(
+                                div()
+                                    .truncate()
+                                    .text_xs()
+                                    .text_color(muted)
+                                    .child(SharedString::from(detail.thread.title.clone())),
+                            ),
+                    )
+                    .child(status_button),
+            )
+            .when_some(self.error.clone(), |this, message| {
+                this.child(
+                    div()
+                        .px_4()
+                        .py_1()
+                        .text_xs()
+                        .text_color(danger)
+                        .child(SharedString::from(message)),
+                )
+            });
+
+        // ---- details rail (web `ThreadDetails`, EXP-525 brings it back) ----
+        let section_heading = |label: &'static str| {
+            div()
+                .text_xs()
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(muted)
+                .mb_1p5()
+                .child(label)
+        };
+        let mut reporter_section = v_flex().child(section_heading("REPORTER")).child(
+            div()
+                .text_sm()
+                .font_weight(FontWeight::MEDIUM)
+                .truncate()
+                .child(SharedString::from(reporter.clone())),
+        );
+        if let Some(email) = detail
+            .thread
+            .reporter_email
+            .clone()
+            .filter(|email| !email.is_empty())
+        {
+            reporter_section = reporter_section.child(
+                div()
+                    .truncate()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(SharedString::from(email)),
+            );
+        }
+        if let Some(seen) = detail.thread.last_reporter_seen_at.as_deref() {
+            reporter_section = reporter_section.child(
+                div()
+                    .mt_1()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(SharedString::from(format!(
+                        "Last seen {}",
+                        crate::inbox::relative_time(seen)
+                    ))),
+            );
+        }
+
+        let context_section = self.submission.as_ref().and_then(|submission| {
+            let mut section = v_flex().child(section_heading("CONTEXT"));
+            let mut any = false;
+            if let Some(url) = submission.page_url.clone().filter(|url| !url.is_empty()) {
+                any = true;
+                section = section.child(
+                    div()
+                        .truncate()
+                        .text_xs()
+                        .text_color(muted)
+                        .child(SharedString::from(url)),
+                );
+            }
+            if let Some(agent) = submission.user_agent.clone().filter(|ua| !ua.is_empty()) {
+                any = true;
+                section = section.child(
+                    div()
+                        .truncate()
+                        .text_xs()
+                        .text_color(muted)
+                        .child(SharedString::from(agent)),
+                );
+            }
+            if let (Some(w), Some(h)) = (submission.viewport_width, submission.viewport_height) {
+                any = true;
+                section = section.child(
+                    div()
+                        .text_xs()
+                        .text_color(muted)
+                        .child(SharedString::from(format!("Viewport {w}×{h}"))),
+                );
+            }
+            any.then(|| section.into_any_element())
+        });
+
+        let escalate_section: gpui::AnyElement = match &detail.linked_issue {
             Some(issue) => {
                 // Already escalated: the issue chip opens the issue tab.
                 let label = match issue.identifier.as_deref() {
@@ -556,40 +755,51 @@ impl Render for SupportThreadView {
                     None => issue.title.clone().unwrap_or_else(|| "Issue".to_string()),
                 };
                 let issue_id = issue.id.clone();
-                Button::new("support-linked-issue")
-                    .xsmall()
-                    .outline()
-                    .icon(Icon::from(ExpIcon::CircleDot))
-                    .label(SharedString::from(label.trim().to_string()))
-                    .on_click(move |_: &ClickEvent, window, cx| {
-                        window.dispatch_action(
-                            Box::new(OpenIssue {
-                                issue_id: issue_id.clone(),
+                v_flex()
+                    .child(section_heading("LINKED ISSUE"))
+                    .child(
+                        Button::new("support-linked-issue")
+                            .outline().cursor_pointer()
+                            .web_xs()
+                            .icon(Icon::from(ExpIcon::CircleDot))
+                            .label(SharedString::from(label.trim().to_string()))
+                            .on_click(move |_: &ClickEvent, window, cx| {
+                                window.dispatch_action(
+                                    Box::new(OpenIssue {
+                                        issue_id: issue_id.clone(),
+                                    }),
+                                    cx,
+                                );
                             }),
-                            cx,
-                        );
-                    })
+                    )
                     .into_any_element()
             }
             None => {
-                // Unlinked: board dropdown + confirm.
+                // Unlinked: web Escalate section — hint, board picker,
+                // "Create issue".
                 let picked = self.escalate_board.clone();
                 let dropdown_label: SharedString = picked
                     .as_ref()
                     .map(|(_, name)| SharedString::from(name.clone()))
-                    .unwrap_or_else(|| "Create issue on board…".into());
+                    .unwrap_or_else(|| "Pick a board".into());
                 let view = cx.entity().clone();
                 let menu_boards = boards.clone();
                 let picked_id = picked.as_ref().map(|(id, _)| id.clone());
-                // EXP-417: one cluster on the meta row (the sidebar that
-                // forced the stacked shape is gone).
-                h_flex()
+                v_flex()
                     .gap_2()
-                    .items_center()
+                    .child(section_heading("ESCALATE"))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(muted)
+                            .child("Create an issue from this ticket on one of the team's boards."),
+                    )
                     .child(
                         Button::new("support-escalate-board")
-                            .xsmall()
-                            .outline()
+                            .outline().cursor_pointer()
+                            .web_input_sm()
+                            .w_full()
+                            .cursor_pointer()
                             .label(dropdown_label)
                             .disabled(boards.is_empty())
                             .dropdown_menu(move |mut menu, _window, _cx| {
@@ -614,9 +824,10 @@ impl Render for SupportThreadView {
                     )
                     .child(
                         Button::new("support-escalate")
-                            .xsmall()
-                            .primary()
-                            .label("Escalate to issue")
+                            .primary().cursor_pointer()
+                            .web_sm()
+                            .w_full()
+                            .label("Create issue")
                             .loading(self.escalating)
                             .disabled(self.escalating || picked.is_none())
                             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -627,123 +838,78 @@ impl Render for SupportThreadView {
             }
         };
 
-        let title = div()
-            .w_full()
+        let details_rail = v_flex()
+            .w(px(288.))
             .flex_shrink_0()
+            .h_full()
+            .gap_4()
             .px_4()
-            .pt_4()
-            .pb_2()
-            .text_lg()
-            .font_weight(FontWeight::SEMIBOLD)
-            .truncate()
-            .child(SharedString::from(detail.thread.title.clone()));
+            .py_4()
+            .border_l_1()
+            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+            .overflow_hidden()
+            .child(reporter_section)
+            .children(context_section)
+            .child(escalate_section);
 
-        let status_pill = div()
-            .flex_shrink_0()
-            .px_1p5()
-            .py_0p5()
-            .rounded(radius)
-            .text_xs()
-            .when(resolved, |this| {
-                this.bg(theme::tokens::glass::FILL_CARD.to_hsla())
-                    .text_color(muted)
-                    .child("Resolved")
-            })
-            .when(!resolved, |this| {
-                this.bg(theme::tokens::GREEN.to_hsla().opacity(0.15))
-                    .text_color(theme::tokens::GREEN.to_hsla())
-                    .child("Open")
-            });
-
-        // EXP-417: the sidebar's three property groups collapse into ONE
-        // compact meta row under the title — status · Close/Reopen · reporter
-        // · escalation, with the write error as its own row below.
-        let header = v_flex()
-            .w_full()
-            .flex_shrink_0()
-            .child(title)
-            .child(
-                h_flex()
-                    .w_full()
-                    .flex_wrap()
-                    .gap_2()
-                    .items_center()
-                    .px_4()
-                    .pb_2()
-                    .child(status_pill)
-                    .child(status_button)
-                    .child(
-                        div()
-                            .min_w_0()
-                            .text_xs()
-                            .text_color(muted)
-                            .child(SharedString::from(reporter.clone())),
-                    )
-                    .child(div().flex_1())
-                    .child(escalate_area),
-            )
-            .when_some(self.error.clone(), |this, message| {
-                this.child(
-                    div()
-                        .px_4()
-                        .pb_2()
-                        .text_xs()
-                        .text_color(danger)
-                        .child(SharedString::from(message)),
-                )
-            });
-
-        // ---- messages -------------------------------------------------------
+        // ---- messages (web bubble colors: inbound muted, outbound brand,
+        // internal amber; meta line UNDER the body) -------------------------
+        let brand = theme::tokens::BRAND_STRONG.to_hsla();
         let bubbles: Vec<gpui::AnyElement> = rows
             .iter()
             .map(|row| {
-                // EXP-277: bubbles on the glass fills (inbound card wash,
-                // outbound active wash); internal keeps the warning tint.
-                let (bubble_bg, bubble_border) = if row.internal {
-                    (warning.opacity(0.12), Some(warning.opacity(0.4)))
+                let (bubble_bg, bubble_border, body_color, meta_color) = if row.internal {
+                    (
+                        warning.opacity(0.12),
+                        Some(warning.opacity(0.4)),
+                        fg,
+                        muted,
+                    )
                 } else if row.inbound {
-                    (theme::tokens::glass::FILL_CARD.to_hsla(), None)
+                    (
+                        theme::tokens::glass::FILL_CARD.to_hsla(),
+                        None,
+                        fg,
+                        muted,
+                    )
                 } else {
-                    (theme::tokens::glass::FILL_ACTIVE.to_hsla(), None)
+                    (brand, None, gpui::white(), gpui::white().opacity(0.7))
                 };
                 let mut bubble = v_flex()
-                    .max_w(relative(0.78))
+                    .max_w(relative(0.85))
                     .min_w_0()
-                    .px_3()
-                    .py_2()
+                    .px_3p5()
+                    .py_2p5()
                     .gap_1()
-                    .rounded(radius)
+                    .rounded(px(theme::tokens::radius::XL))
+                    .map(|bubble| {
+                        // Web: the corner nearest the sender flattens
+                        // (`rounded-bl-sm` / `rounded-br-sm`).
+                        if row.inbound {
+                            bubble.rounded_bl(px(4.))
+                        } else {
+                            bubble.rounded_br(px(4.))
+                        }
+                    })
                     .bg(bubble_bg);
                 if let Some(color) = bubble_border {
                     bubble = bubble.border_1().border_color(color);
                 }
-                bubble = bubble.child(
-                    h_flex()
-                        .gap_1p5()
-                        .items_center()
-                        .text_xs()
-                        .text_color(muted)
-                        .child(
-                            div()
-                                .font_weight(FontWeight::MEDIUM)
-                                .child(SharedString::from(row.author.clone())),
-                        )
-                        .child(SharedString::from(row.time.clone()))
-                        .when(row.internal, |this| {
-                            this.child(
-                                div()
-                                    .px_1()
-                                    .rounded(radius)
-                                    .bg(warning.opacity(0.2))
-                                    .text_color(warning)
-                                    .child("Internal"),
-                            )
-                        }),
-                );
+                if row.internal {
+                    bubble = bubble.child(
+                        h_flex()
+                            .gap_1()
+                            .items_center()
+                            .text_xs()
+                            .text_color(warning)
+                            .child(Icon::from(ExpIcon::FileText).size_3())
+                            .child("Internal note"),
+                    );
+                }
                 // Plain text bodies (support email content, not GFM):
                 // newline-split so paragraphs survive; blank lines become
                 // spacing.
-                let mut body = v_flex().gap_0p5().text_sm().text_color(fg);
+                let mut body = v_flex().gap_0p5().text_sm().text_color(body_color);
                 for line in row.body.lines() {
                     if line.trim().is_empty() {
                         body = body.child(div().h_2());
@@ -752,6 +918,18 @@ impl Render for SupportThreadView {
                     }
                 }
                 bubble = bubble.child(body);
+                // Web meta line: "{author} · {time}" under the body.
+                let meta = if row.time.is_empty() {
+                    row.author.clone()
+                } else {
+                    format!("{} · {}", row.author, row.time)
+                };
+                bubble = bubble.child(
+                    div()
+                        .text_xs()
+                        .text_color(meta_color)
+                        .child(SharedString::from(meta)),
+                );
 
                 h_flex()
                     .id(SharedString::from(format!("support-msg-{}", row.id)))
@@ -763,12 +941,13 @@ impl Render for SupportThreadView {
             .collect();
 
         let messages: gpui::AnyElement = if bubbles.is_empty() {
-            div()
-                .p_4()
-                .text_sm()
-                .text_color(muted)
-                .child("No messages yet.")
-                .into_any_element()
+            crate::controls::empty_state(
+                Icon::from(ExpIcon::LifeBuoy),
+                "No messages yet",
+                "The conversation with the reporter shows up here.",
+                cx,
+            )
+            .into_any_element()
         } else {
             div()
                 .id("support-thread-scroll")
@@ -797,9 +976,11 @@ impl Render for SupportThreadView {
                     .gap_1()
                     .items_center()
                     .child(
+                        // Web mode pills: icon + label, `h-6 rounded-full`.
                         Button::new("support-mode-reply")
-                            .ghost()
-                            .xsmall()
+                            .ghost().cursor_pointer()
+                            .web_xs()
+                            .icon(Icon::from(ExpIcon::Mail).size_3())
                             .label("Reply")
                             .selected(!self.note_mode)
                             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
@@ -808,10 +989,12 @@ impl Render for SupportThreadView {
                     )
                     .child(
                         Button::new("support-mode-note")
-                            .ghost()
-                            .xsmall()
+                            .ghost().cursor_pointer()
+                            .web_xs()
+                            .icon(Icon::from(ExpIcon::FileText).size_3())
                             .label("Internal note")
                             .selected(self.note_mode)
+                            .when(self.note_mode, |button| button.text_color(warning))
                             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                                 this.set_note_mode(true, window, cx);
                             })),
@@ -822,11 +1005,11 @@ impl Render for SupportThreadView {
                     .w_full()
                     .gap_2()
                     .items_end()
-                    .child(div().flex_1().min_w_0().child(Textarea::new(&self.composer).w_full()))
+                    .child(v_flex().flex_1().min_w_0().child(Textarea::new(&self.composer).w_full()))
                     .child(
                         Button::new("support-send")
-                            .primary()
-                            .small()
+                            .primary().cursor_pointer()
+                            .web_icon_sm()
                             .icon(Icon::from(ExpIcon::Send))
                             .loading(self.sending)
                             .disabled(self.sending || !has_draft)
@@ -836,14 +1019,25 @@ impl Render for SupportThreadView {
                     ),
             );
 
-        // EXP-417: ONE column — fixed header, scrolling messages, composer.
-        v_flex()
+        // EXP-525: conversation column + the details rail (web 3-pane's
+        // right two panes; the thread list stays in the sidebar tool).
+        h_flex()
             .size_full()
             .min_h_0()
             .overflow_hidden()
-            .child(header)
-            .child(messages)
-            .child(composer)
+            .items_start()
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
+                    .min_h_0()
+                    .overflow_hidden()
+                    .child(header)
+                    .child(messages)
+                    .child(composer),
+            )
+            .child(details_rail)
             .into_any_element()
     }
 }

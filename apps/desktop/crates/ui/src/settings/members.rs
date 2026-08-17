@@ -31,6 +31,7 @@ use domain::board::format_short_date;
 use domain::contract::TEAM_ROLE_OWNER;
 use domain::rows::{User, TeamInvite, TeamMember};
 
+use crate::controls::WebControl as _;
 use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
 
@@ -313,7 +314,7 @@ fn member_actions_menu(
 ) -> impl IntoElement {
     Button::new(row_id("member-actions", &member_id))
         .ghost()
-        .xsmall()
+        .web_icon_xs()
         .icon(registry::UI_MORE)
         .dropdown_menu({
             let member_id = member_id.clone();
@@ -470,12 +471,12 @@ impl Render for MembersPane {
                         div()
                             .flex_1()
                             .min_w_0()
-                            .child(Input::new(&self.email_input).small()),
+                            .child(Input::new(&self.email_input).web_input_sm()),
                     )
                     .child(
                         Button::new("invite-generate")
                             .primary()
-                            .small()
+                            .web_sm()
                             .label(if email_empty {
                                 "Generate invite link"
                             } else {
@@ -557,7 +558,7 @@ impl Render for MembersPane {
                             .child(
                                 Button::new(row_id("invite-revoke", &invite.id))
                                     .ghost()
-                                    .xsmall()
+                                    .web_icon_xs()
                                     .icon(registry::UI_DELETE)
                                     .on_click(move |_, _, cx| {
                                         let invite_id = invite_id.clone();

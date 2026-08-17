@@ -3,11 +3,11 @@ import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import {
   issueCollection,
   issueLabelCollection,
-  labelCollection,
 } from "@/lib/collections"
 import {
   useTeamBySlug,
   useTeamBoardsWithReady,
+  useTeamLabels,
   useTeamUsers,
 } from "@/hooks/use-team-data"
 import type { IssueFilters } from "@/lib/filters"
@@ -18,7 +18,7 @@ import {
   buildVisibleIssueGroups,
 } from "@/lib/board-view"
 import { useTeamStatuses } from "@/hooks/use-team-statuses"
-import type { Issue, IssueLabel, Label, Board } from "@/db/schema"
+import type { Issue, IssueLabel, Board } from "@/db/schema"
 
 // Cross-board "My Issues" board data: every issue assigned to the current
 // user across all boards in the team, reusing the board-view
@@ -62,15 +62,7 @@ export function useMyIssuesData({
     [assignee, boardIds.join(`,`)]
   )
 
-  const { data: labels } = useLiveQuery(
-    (query) =>
-      team
-        ? query
-            .from({ labels: labelCollection })
-            .where(({ labels }) => eq(labels.teamId, team.id))
-        : undefined,
-    [team?.id]
-  )
+  const labelList = useTeamLabels(team?.id)
 
   const { data: issueLabels } = useLiveQuery(
     (query) =>
@@ -92,7 +84,6 @@ export function useMyIssuesData({
   )
 
   const issueList = (issues ?? []) as Issue[]
-  const labelList = (labels ?? []) as Label[]
   const issueLabelList = (issueLabels ?? []) as IssueLabel[]
 
   return useMemo(() => {

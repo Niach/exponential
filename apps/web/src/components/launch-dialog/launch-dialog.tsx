@@ -48,7 +48,6 @@ import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -60,7 +59,6 @@ import {
 } from "@/components/launch-dialog/issues-pane"
 import { ActionsPane } from "@/components/launch-dialog/actions-pane"
 import {
-  AGENT_LABELS,
   CLI_DEFAULT_EFFORT,
   LaunchOptionsPane,
 } from "@/components/launch-dialog/launch-options-pane"
@@ -608,22 +606,6 @@ export function LaunchDialog({
     )
   }
 
-  const agentLabel = AGENT_LABELS[agent] ?? agent
-  const description =
-    tab === `actions`
-      ? selectedAction
-        ? `Run "${selectedAction.name}" with ${agentLabel}${
-            device ? ` on ${device.deviceLabel}` : ``
-          }.`
-        : `Pick an action to run on one of your desktops.`
-      : isBatch
-        ? `Launch one ${agentLabel} batch session across ${count} issues${
-            device ? ` on ${device.deviceLabel}` : ``
-          }.`
-        : devices.length === 1 && device
-          ? `Launch a ${agentLabel} session on ${device.deviceLabel}.`
-          : `Launch a ${agentLabel} session on one of your desktops.`
-
   const pickerRows = [...checkedIssues, ...searchMatches]
 
   return (
@@ -641,7 +623,6 @@ export function LaunchDialog({
           <DialogTitle>
             {tab === `actions` ? `Run action` : `Start coding`}
           </DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <Tabs value={tab} onValueChange={(value) => setTab(value as LaunchTab)}>
           <TabsList className="w-full">

@@ -28,6 +28,7 @@ use gpui_component::{
     v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 
+use crate::controls::WebControl as _;
 use crate::github_connect::{fetch_github_repos, GithubRepo, GithubReposResult};
 use crate::icons::registry;
 use crate::native_dialog::{self, DialogContent, DialogSpec};
@@ -286,8 +287,8 @@ impl AddRepositoryDialogView {
     fn connect_button(&self, id: &'static str, label: &'static str) -> Option<impl IntoElement> {
         self.connect_url().map(|url| {
             Button::new(id)
-                .outline()
-                .small()
+                .outline().cursor_pointer()
+                .web_sm()
                 .icon(registry::UI_GITHUB)
                 .label(label)
                 .on_click(move |_, _, cx| open_url(cx, url.clone()))
@@ -427,8 +428,8 @@ fn suspended_notice(
         ))))
         .children(manage_url.map(|url| {
             Button::new("add-repo-unsuspend")
-                .outline()
-                .xsmall()
+                .outline().cursor_pointer()
+                .web_xs()
                 .label("Manage")
                 .on_click(move |_, _, cx| open_url(cx, url.clone()))
         }))
@@ -479,8 +480,8 @@ impl Render for AddRepositoryDialogView {
                             .children(self.connect_button("add-repo-connect", "Connect GitHub"))
                             .child(
                                 Button::new("add-repo-connected-refresh")
-                                    .ghost()
-                                    .small()
+                                    .ghost().cursor_pointer()
+                                    .web_sm()
                                     .label("I've connected")
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.fetch(true, true, cx)
@@ -543,7 +544,7 @@ impl Render for AddRepositoryDialogView {
                     .cloned()
                     .collect();
 
-                body = body.child(Input::new(&self.query).small().cleanable(true));
+                body = body.child(Input::new(&self.query).web_input_sm().cleanable(true));
                 if visible.is_empty() {
                     body = body.child(self.message("No repositories found.", cx));
                 } else {

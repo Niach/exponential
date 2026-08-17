@@ -47,6 +47,7 @@ use domain::statuses::{
     ResolvedStatus,
 };
 
+use crate::controls::WebControl as _;
 use crate::native_dialog::{self, AlertSpec};
 use crate::navigation::{active_team_id, Navigation};
 
@@ -502,8 +503,8 @@ impl StatusesPane {
             // the fixed box; here it ellipsizes inside the definite-width
             // chain (button → `size_full` inner row → `w_full` child).
             let trigger = Button::new(id)
-                .outline()
-                .small()
+                .outline().cursor_pointer()
+                .web_input_sm()
                 .w(px(PR_PICKER_WIDTH))
                 .child(
                     h_flex()
@@ -635,7 +636,7 @@ impl StatusesPane {
                     .trigger(
                         Button::new(row_id("status-color-trigger", &status_id))
                             .ghost()
-                            .xsmall()
+                            .web_icon_xs()
                             .child(glyph.clone().small()),
                     )
                     .content(move |_, _, cx| {
@@ -669,7 +670,7 @@ impl StatusesPane {
         // Name: locked plain text for builtins, an inline input for customs.
         line = match self.name_inputs.get(&status_id) {
             Some(input) => {
-                line.child(Input::new(input).small().appearance(false).flex_1().min_w_0())
+                line.child(Input::new(input).web_input_sm().appearance(false).flex_1().min_w_0())
             }
             None => line.child(
                 div()
@@ -713,7 +714,7 @@ impl StatusesPane {
             .child(
                 Button::new(row_id("status-up", &status_id))
                     .ghost()
-                    .xsmall()
+                    .web_icon_xs()
                     .icon(registry::UI_CHEVRON_UP)
                     .tooltip("Move up")
                     .disabled(first_in_category)
@@ -724,7 +725,7 @@ impl StatusesPane {
             .child(
                 Button::new(row_id("status-down", &status_id))
                     .ghost()
-                    .xsmall()
+                    .web_icon_xs()
                     .icon(registry::UI_CHEVRON_DOWN)
                     .tooltip("Move down")
                     .disabled(last_in_category)
@@ -754,7 +755,7 @@ impl StatusesPane {
             line = line.child(
                 Button::new(row_id("status-delete", &status_id))
                     .ghost()
-                    .xsmall()
+                    .web_icon_xs()
                     .icon(registry::UI_DELETE)
                     .tooltip("Delete status")
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -814,7 +815,7 @@ impl StatusesPane {
             .rounded(cx.theme().radius)
             .border_1()
             .border_color(super::row_stroke(cx))
-            .child(Input::new(&self.new_name).small())
+            .child(Input::new(&self.new_name).web_input_sm())
             .when_some(form_error, |col, message| {
                 col.child(
                     div()
@@ -851,7 +852,7 @@ impl StatusesPane {
                     .child(
                         Button::new(category_id("status-create", category))
                             .primary()
-                            .xsmall()
+                            .web_xs()
                             .label(if self.submitting {
                                 "Creating…"
                             } else {
@@ -864,7 +865,7 @@ impl StatusesPane {
                     .child(
                         Button::new(category_id("status-create-cancel", category))
                             .ghost()
-                            .xsmall()
+                            .web_xs()
                             .label("Cancel")
                             .disabled(self.submitting)
                             .on_click(cx.listener(|this, _, window, cx| {
@@ -948,7 +949,7 @@ impl Render for StatusesPane {
                             .child(
                                 Button::new(category_id("status-new", category))
                                     .outline()
-                                    .xsmall()
+                                    .web_xs()
                                     .icon(registry::UI_ADD)
                                     .label("Add status")
                                     .disabled(capped)
@@ -1043,8 +1044,8 @@ impl Render for DeleteStatusContent {
                     .child(div().text_sm().child("Move issues to"))
                     .child(
                         Button::new("status-delete-reassign-target")
-                            .outline()
-                            .small()
+                            .outline().cursor_pointer()
+                            .web_input_sm()
                             .label(selected_name)
                             .dropdown_menu(move |mut menu, _window, _cx| {
                                 menu = menu.scrollable(true).max_h(gpui::px(240.));

@@ -27,12 +27,13 @@ use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
     input::{Input, InputEvent, InputState},
-    v_flex, ActiveTheme as _, Disableable as _, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _,
 };
 
 use coding::Settings;
 
 use crate::coding_flow::CodingHub;
+use crate::controls::WebControl as _;
 use crate::native_dialog::{self, AlertSpec};
 
 use super::doctor_section::DoctorPanel;
@@ -203,7 +204,7 @@ impl ToolsPane {
         v_flex()
             .gap_1()
             .child(div().text_xs().text_color(cx.theme().muted_foreground).child(label))
-            .child(Input::new(input).small())
+            .child(Input::new(input).web_input_sm())
     }
 }
 
@@ -233,7 +234,7 @@ impl Render for ToolsPane {
             h_flex().justify_end().child(
                 Button::new("tools-save")
                     .primary()
-                    .small()
+                    .web_sm()
                     .label("Save changes")
                     .disabled(!dirty)
                     .on_click(cx.listener(|this, _, _, cx| this.save(cx))),
@@ -263,7 +264,7 @@ impl Render for ToolsPane {
                     .child(
                         Button::new("tools-reset-ide")
                             .danger()
-                            .small()
+                            .web_sm()
                             .label("Reset IDE data")
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.confirm_reset(window, cx);

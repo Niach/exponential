@@ -45,7 +45,7 @@ impl WysiwygDescription {
         cx: &mut Context<Self>,
     ) -> Button {
         Button::new(id)
-            .ghost()
+            .ghost().cursor_pointer()
             .xsmall()
             .icon(Icon::from(icon))
             .tooltip(tooltip)
@@ -135,7 +135,7 @@ impl WysiwygDescription {
                     Some(input) => row.child(render_link_editor(input, has_link, cx)),
                     None => row.child(
                         Button::new("wysiwyg-link")
-                            .ghost()
+                            .ghost().cursor_pointer()
                             .xsmall()
                             .icon(Icon::from(registry::EDITOR_LINK))
                             .tooltip("Link")
@@ -190,7 +190,7 @@ impl WysiwygDescription {
                 .child(separator(cx))
                 .child(
                     Button::new("wysiwyg-image")
-                        .ghost()
+                        .ghost().cursor_pointer()
                         .xsmall()
                         .icon(Icon::from(registry::EDITOR_IMAGE))
                         .tooltip("Insert image")
@@ -204,7 +204,7 @@ impl WysiwygDescription {
                 .when(has_attach, |row| {
                     row.child(
                         Button::new("wysiwyg-attach")
-                            .ghost()
+                            .ghost().cursor_pointer()
                             .xsmall()
                             .icon(Icon::from(ExpIcon::Paperclip))
                             .tooltip("Attach file")
@@ -228,7 +228,7 @@ fn render_link_editor(
         .child(div().w_48().child(Input::new(&url_input).xsmall()))
         .child(
             Button::new("wysiwyg-link-apply")
-                .ghost()
+                .ghost().cursor_pointer()
                 .xsmall()
                 .icon(Icon::from(registry::UI_CHECK))
                 .tooltip("Apply link")
@@ -238,7 +238,7 @@ fn render_link_editor(
         .when(has_link, |row| {
             row.child(
                 Button::new("wysiwyg-link-remove")
-                    .ghost()
+                    .ghost().cursor_pointer()
                     .xsmall()
                     .icon(Icon::from(registry::EDITOR_UNLINK))
                     .tooltip("Remove link")

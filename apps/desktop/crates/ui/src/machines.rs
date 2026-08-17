@@ -30,6 +30,7 @@ use gpui_component::{
     ActiveTheme as _, Icon, Sizable as _,
 };
 
+use crate::controls::WebControl as _;
 use crate::icons::registry;
 use crate::native_dialog::{self, AlertSpec};
 use crate::queries;
@@ -365,13 +366,15 @@ impl MachinesSection {
         } else {
             device.device_label.clone()
         };
-        // Teammates' shared rows carry their owner (EXP-432) for attribution.
-        let label: SharedString = match device.owner.as_ref() {
-            Some(owner) if !owner.name.is_empty() => {
-                format!("{base_label} · {}", owner.name).into()
-            }
-            _ => base_label.into(),
-        };
+        // EXP-525: no owner-name suffix in the visible label — the row shows
+        // just the machine name (web parity); a teammate's shared row keeps
+        // the attribution in its tooltip below.
+        let label: SharedString = base_label.into();
+        let owner_tooltip: Option<SharedString> = device
+            .owner
+            .as_ref()
+            .filter(|owner| !owner.name.is_empty())
+            .map(|owner| format!("Shared by {}", owner.name).into());
         let server = device.is_server();
         let kind_icon = if server {
             registry::UI_SERVER
@@ -399,7 +402,7 @@ impl MachinesSection {
             // exists (or one is already in flight — keep its state visible).
             let can_update = server && device.online && (outdated || updating);
             Button::new(("machine-menu", index))
-                .ghost()
+                .ghost().cursor_pointer()
                 .xsmall()
                 .icon(registry::UI_MORE)
                 .dropdown_menu(move |menu, _window, _cx| {
@@ -498,10 +501,17 @@ impl MachinesSection {
                     .overflow_hidden()
                     .child(
                         div()
+                            .id(("machine-name", index))
                             .flex_shrink_0()
                             .text_sm()
                             .whitespace_nowrap()
                             .text_color(theme.foreground)
+                            .when_some(owner_tooltip, |this, owner| {
+                                this.tooltip(move |window, cx| {
+                                    gpui_component::tooltip::Tooltip::new(owner.clone())
+                                        .build(window, cx)
+                                })
+                            })
                             .child(label.clone()),
                     )
                     .when_some(device.version.clone(), |this, version| {
@@ -721,8 +731,8 @@ impl Render for MachinesSection {
         // The web `SectionLabel` band (EXP-480): label · count · spacer ·
         // "Add server" — the same band design as the Actions section below.
         let add_server = Button::new("machines-add-server")
-            .outline()
-            .xsmall()
+            .outline().cursor_pointer()
+            .web_xs()
             .icon(registry::UI_ADD)
             .label("Add server")
             .on_click(|_: &gpui::ClickEvent, window, cx| {

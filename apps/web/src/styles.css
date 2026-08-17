@@ -212,6 +212,20 @@ html {
   * {
     @apply border-border outline-ring/50;
   }
+  /* EXP-525: Tailwind v4 dropped the preflight `cursor: pointer` on buttons,
+     so every interactive control kept the text caret. One base rule instead of
+     a `cursor-pointer` class on each call site — enabled controls only, so a
+     disabled button still reads as inert. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="menuitem"],
+  [role="option"],
+  [role="tab"]:not([disabled]),
+  [role="combobox"],
+  label[for],
+  select:not(:disabled) {
+    cursor: pointer;
+  }
   body {
     @apply text-foreground antialiased;
     font-family: "Inter", ui-sans-serif, system-ui, sans-serif;

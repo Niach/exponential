@@ -45,6 +45,7 @@ use gpui_component::{
 };
 use sync::{SessionPhase, Store};
 
+use crate::controls::WebControl as _;
 use crate::icons::{registry, ExpIcon};
 use crate::session::{connect_account, AuthContext};
 
@@ -436,7 +437,7 @@ impl LoginView {
         if self.choice != InstanceChoice::SelfHosted {
             return None;
         }
-        Some(labeled(cx, "Server URL", Input::new(&self.server).small()))
+        Some(labeled(cx, "Server URL", Input::new(&self.server).web_input()))
     }
 
     /// The small, muted instance toggle: most users are on the cloud, so
@@ -484,7 +485,7 @@ impl LoginView {
             let pending = self.pending_provider.as_deref() == Some("apple");
             section = section.child(
                 Button::new("login-apple")
-                    .outline()
+                    .outline().web_md()
                     .w_full()
                     // Apple's mark is monochrome by design — the standard
                     // tinted-Icon pipeline is exactly right (EXP-9).
@@ -507,7 +508,7 @@ impl LoginView {
             let provider_id = provider.id.clone();
             section = section.child(
                 Button::new(SharedString::from(format!("login-oidc-{}", provider.id)))
-                    .outline()
+                    .outline().web_md()
                     .w_full()
                     .label(SharedString::from(label))
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -519,7 +520,7 @@ impl LoginView {
             let pending = self.pending_provider.as_deref() == Some("google");
             section = section.child(
                 Button::new("login-google")
-                    .outline()
+                    .outline().web_md()
                     .w_full()
                     // The official multi-color "G" (EXP-9). `Button::icon`/
                     // gpui's `svg()` is an alpha-mask tinted with ONE color,
@@ -582,8 +583,7 @@ impl LoginView {
             )
             .child(
                 Button::new("login-copy-oauth-url")
-                    .outline()
-                    .xsmall()
+                    .outline().web_xs()
                     .label("Copy")
                     .on_click(cx.listener(move |_, _, _, cx| {
                         cx.write_to_clipboard(ClipboardItem::new_string(
@@ -718,16 +718,16 @@ impl Render for LoginView {
         // -- password form ----------------------------------------------------
         if password_enabled {
             form = form
-                .child(labeled(cx, "Email", Input::new(&self.email).small()))
+                .child(labeled(cx, "Email", Input::new(&self.email).web_input()))
                 .child(labeled(
                     cx,
                     "Password",
                     // Web `PasswordInput`: show/hide eye toggle.
-                    Input::new(&self.password).small().mask_toggle(),
+                    Input::new(&self.password).web_input().mask_toggle(),
                 ))
                 .child(
                     Button::new("login-submit")
-                        .primary()
+                        .primary().web_md()
                         .label(if signing_in { "Signing in…" } else { "Sign in" })
                         .loading(signing_in)
                         .disabled(signing_in)

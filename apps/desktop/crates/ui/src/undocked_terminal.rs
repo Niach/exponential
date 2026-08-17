@@ -135,7 +135,7 @@ impl Render for UndockedTerminalWindow {
         }
 
         let reattach = Button::new("reattach-terminal-tab")
-            .ghost()
+            .ghost().cursor_pointer()
             .xsmall()
             .icon(crate::icons::ExpIcon::ExternalLinkIn)
             .tooltip("Move back into the terminal dock")
@@ -146,13 +146,13 @@ impl Render for UndockedTerminalWindow {
         // Linux server-decoration fallback (see undock.rs for rationale).
         let header: AnyElement = if crate::app_title_bar::client_chrome(window) {
             TitleBar::new()
-                .child(crate::app_title_bar::interactive(
+                .child(
                     h_flex()
                         .items_center()
                         .gap_2()
-                        .child(reattach)
+                        .child(crate::app_title_bar::interactive(reattach))
                         .child(div().text_sm().child(title)),
-                ))
+                )
                 .into_any_element()
         } else {
             h_flex()

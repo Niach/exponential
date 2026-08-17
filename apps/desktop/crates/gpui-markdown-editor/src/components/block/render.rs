@@ -2084,8 +2084,11 @@ impl Render for Block {
                 .render_shell(
                     block_id,
                     false,
+                    // EXP-525: a rendered image is not clickable — the
+                    // pointer belongs only to the image's own "…" overlay
+                    // button; the block shows a plain arrow over the picture.
                     if showing_rendered_image {
-                        CursorStyle::PointingHand
+                        CursorStyle::Arrow
                     } else {
                         CursorStyle::IBeam
                     },
@@ -2204,8 +2207,10 @@ impl Render for Block {
         let focused_base = self.render_shell(
             block_id.clone(),
             false,
+            // EXP-525: arrow over rendered images (see the table-cell base
+            // above) — only the "…" overlay button points.
             if showing_rendered_image {
-                CursorStyle::PointingHand
+                CursorStyle::Arrow
             } else {
                 CursorStyle::IBeam
             },

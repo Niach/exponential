@@ -30,6 +30,7 @@ use sync::Store;
 
 use api::boards::ArchivedBoard;
 
+use crate::controls::WebControl as _;
 use crate::icons::{board_icon_name_glyph, registry};
 use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
@@ -194,8 +195,8 @@ impl ArchivedBoardsPane {
             )
             .child(
                 Button::new(SharedString::from(format!("unarchive-{}", board.id)))
-                    .outline()
-                    .xsmall()
+                    .outline().cursor_pointer()
+                    .web_xs()
                     .label(if pending { "Unarchiving\u{2026}" } else { "Unarchive" })
                     .disabled(pending)
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -225,8 +226,8 @@ impl Render for ArchivedBoardsPane {
         ));
 
         let refresh = Button::new("archived-boards-refresh")
-            .ghost()
-            .xsmall()
+            .ghost().cursor_pointer()
+            .web_sm()
             .label("Refresh")
             .loading(matches!(self.load, Load::Loading))
             .on_click(cx.listener(|this, _, _, cx| this.refetch(cx)));

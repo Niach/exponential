@@ -13,9 +13,10 @@ use gpui::{
     div, FontWeight, IntoElement, ParentElement, Render, SharedString, Styled, Subscription,
     Window,
 };
-use gpui_component::{button::Button, h_flex, v_flex, ActiveTheme as _, Sizable as _};
+use gpui_component::{button::Button, h_flex, v_flex, ActiveTheme as _};
 
 use super::spawn_trpc;
+use crate::controls::WebControl as _;
 use crate::queries;
 
 /// The account's stored IANA timezone (`users.timezone` — a server-only
@@ -145,8 +146,8 @@ impl AccountPane {
                 .child(div().text_sm().text_color(value_color).child(value))
                 .child(
                     Button::new("use-system-timezone")
-                        .outline()
-                        .small()
+                        .outline().cursor_pointer()
+                        .web_sm()
                         .label("Use system timezone")
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.use_system_timezone(cx);

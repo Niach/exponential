@@ -35,6 +35,7 @@ use domain::rows::Label;
 use domain::statuses::{status_key_matches, IssueStatusCategory, ResolvedStatus};
 use domain::{active_filter_count, IssueFilters};
 
+use crate::controls::WebControl as _;
 use crate::icons::{option_icon, registry, resolved_status_icon, ExpIcon};
 use crate::issue_list::parse_hex_color;
 
@@ -134,12 +135,10 @@ impl RenderOnce for IssueFilterPopover {
         let count = active_filter_count(&self.filters);
 
         // Web trigger: ghost xs `text-muted-foreground` — ListFilter icon +
-        // "Filter" + count badge. EXP-289: one size step up (xsmall → small,
-        // 20px → 24px) so the title row's two controls stay comfortably
-        // hittable next to the floating bulk bar.
+        // "Filter" + count badge.
         let trigger = Button::new("issue-filter-trigger")
             .ghost()
-            .small()
+            .web_xs()
             .text_color(cx.theme().muted_foreground)
             .icon(
                 Icon::from(ExpIcon::ListFilter)
@@ -420,7 +419,7 @@ fn labels_view(
         .child(
             Button::new("filter-labels-back")
                 .ghost()
-                .xsmall()
+                .web_icon_xs()
                 .icon(Icon::new(registry::UI_BACK).size_3p5())
                 .on_click({
                     let on_view_change = on_view_change.clone();

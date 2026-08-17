@@ -1,16 +1,44 @@
 import { useMemo, useState } from "react"
+import { createPortal } from "react-dom"
 import { useNavigate } from "@tanstack/react-router"
 import { CircleUser } from "lucide-react"
+import { ActiveFilterPills } from "@/components/active-filter-pills"
 import { BulkActionBar } from "@/components/bulk-action-bar"
 import { EmptyState } from "@/components/empty-state"
-import { IssueFilterBar } from "@/components/issue-filter-bar"
+import { IssueFilterPopover } from "@/components/issue-filter-popover"
 import { IssueList } from "@/components/issue-list"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { useMyIssuesData } from "@/hooks/use-my-issues-data"
 import { useSession } from "@/hooks/use-session"
+import { useTeamBySlug, useTeamLabels } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { emptyFilters, hasActiveFilters as filtersActive } from "@/lib/filters"
 import type { IssueFilters } from "@/lib/filters"
+
+// EXP-525: the filter trigger belongs in the Inbox page's TAB row, opposite
+// "Mark all read" — the standalone control row below it was an always-present
+// empty strip. The page owns the tabs, so the trigger renders there and the
+// view keeps only the pills; the labels come from the same cheap client-side
+// query the view's own data hook uses.
+export function MyIssuesFilterAction({
+  teamSlug,
+  filters,
+  onFiltersChange,
+}: {
+  teamSlug: string
+  filters: IssueFilters
+  onFiltersChange: (filters: IssueFilters) => void
+}) {
+  const team = useTeamBySlug(teamSlug)
+  const labels = useTeamLabels(team?.id)
+  return (
+    <IssueFilterPopover
+      filters={filters}
+      onFiltersChange={onFiltersChange}
+      labels={labels}
+    />
+  )
+}
 
 // Cross-board "My Issues": every issue assigned to the signed-in user across
 // all boards in the team, grouped by status like the board
@@ -25,10 +53,13 @@ export function MyIssuesView({
   teamSlug,
   filters,
   onFiltersChange,
+  bulkActionSlot,
 }: {
   teamSlug: string
   filters: IssueFilters
   onFiltersChange: (filters: IssueFilters) => void
+  /** The tab row's right-hand cell, where the bulk-action bar renders. */
+  bulkActionSlot: HTMLElement | null
 }) {
   const navigate = useNavigate()
   const { data: session } = useSession()
@@ -66,25 +97,29 @@ export function MyIssuesView({
 
   return (
     <div className="flex flex-col h-full">
-      <IssueFilterBar
-        filters={filters}
-        onFiltersChange={onFiltersChange}
-        labels={labelList}
-        // The bulk bar lives INSIDE the fixed-height control row (md+) so
-        // starting a selection never reflows the list (FEED-12); below md
-        // the bar floats itself above the tab bar.
-        actions={
-          selectedIssues.length > 0 ? (
-            <BulkActionBar
-              issues={selectedIssues}
-              issueLabelMap={issueLabelMap}
-              labels={labelList}
-              users={users}
-              onClear={() => setSelectedIds(new Set())}
-            />
-          ) : undefined
-        }
-      />
+      {/* The bulk bar renders into the page's TAB row (EXP-525) — that row is
+          always there, so starting a selection still never reflows the list
+          (FEED-12) even though the old fixed-height control row is gone.
+          Below md the bar floats itself above the tab bar regardless. */}
+      {bulkActionSlot !== null &&
+        selectedIssues.length > 0 &&
+        createPortal(
+          <BulkActionBar
+            issues={selectedIssues}
+            issueLabelMap={issueLabelMap}
+            labels={labelList}
+            users={users}
+            onClear={() => setSelectedIds(new Set())}
+          />,
+          bulkActionSlot
+        )}
+      <div className="px-4 md:px-6">
+        <ActiveFilterPills
+          filters={filters}
+          onFiltersChange={onFiltersChange}
+          labels={labelList}
+        />
+      </div>
 
       <div
         className={`flex-1 overflow-auto ${

@@ -23,10 +23,11 @@ use gpui_component::{
     h_flex,
     input::{Input, InputEvent, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
-    v_flex, ActiveTheme as _, Icon, Sizable as _,
+    v_flex, ActiveTheme as _, Icon,
 };
 use sync::Store;
 
+use crate::controls::WebControl as _;
 use crate::native_dialog::{self, AlertSpec};
 use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
@@ -363,8 +364,8 @@ impl BoardDetailPane {
         };
 
         let button = Button::new(row_id("board-detail-repo", &board.id))
-            .outline()
-            .small()
+            .outline().cursor_pointer()
+            .web_sm()
             .max_w(px(320.))
             .icon(registry::UI_GITHUB)
             .label(label);
@@ -468,7 +469,7 @@ impl Render for BoardDetailPane {
         let name_field = v_flex()
             .gap_1()
             .child(Self::field_label("Name", cx))
-            .child(Input::new(&self.name_input).small());
+            .child(Input::new(&self.name_input).web_input_sm());
 
         let prefix_field = v_flex()
             .gap_1()
@@ -563,7 +564,7 @@ impl Render for BoardDetailPane {
                 .gap_2()
                 .child(
                     Button::new(row_id("board-detail-archive", &board.id))
-                        .small()
+                        .web_sm()
                         .icon(registry::UI_ARCHIVE)
                         .label("Archive board")
                         .on_click(cx.listener(move |_, _, window, cx| {
@@ -577,8 +578,8 @@ impl Render for BoardDetailPane {
                 )
                 .child(
                     Button::new(row_id("board-detail-trash", &board.id))
-                        .danger()
-                        .small()
+                        .danger().cursor_pointer()
+                        .web_sm()
                         .icon(registry::UI_DELETE)
                         .label("Move to trash")
                         .on_click(cx.listener(move |_, _, window, cx| {

@@ -404,10 +404,20 @@ impl IssueTimeline {
                 .text_xs()
                 .text_color(cx.theme().muted_foreground)
                 .child(
-                    Icon::from(ExpIcon::CircleDot)
-                        .xsmall()
-                        .text_color(cx.theme().muted_foreground)
-                        .flex_shrink_0(),
+                    // Web parity (EXP-525): the synthesized created row leads
+                    // with a small plain dot, not an event glyph.
+                    div()
+                        .size_3p5()
+                        .flex_shrink_0()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(
+                            div()
+                                .size_1p5()
+                                .rounded_full()
+                                .bg(cx.theme().muted_foreground),
+                        ),
                 )
                 .child(
                     // Same definite-width chain as `event_row` (EXP-175).
@@ -520,11 +530,19 @@ impl Render for IssueTimeline {
             );
         }
 
+        // EXP-525: status-changed rows resolve their target status against
+        // the team vocabulary (real icon + color).
+        let statuses = self
+            .team_id
+            .as_deref()
+            .map(|team_id| queries::team_statuses(cx, team_id))
+            .unwrap_or_default();
+
         for item in &items {
             match item {
                 TimelineItem::Event(event) => {
                     if let Some(row) =
-                        event_row(event, &user_map, &label_map, &board_map, cx)
+                        event_row(event, &user_map, &label_map, &board_map, &statuses, cx)
                     {
                         body = body.child(row);
                     }
@@ -607,6 +625,24 @@ fn pr_number_from_url(url: &str) -> Option<String> {
     (!last.is_empty() && last.bytes().all(|b| b.is_ascii_digit())).then(|| last.to_string())
 }
 
+/// An event row's leading glyph: a plain registry icon, or — for status
+/// changes (EXP-525) — the target status's REAL resolved icon in its color.
+enum EventGlyph {
+    Plain(ExpIcon),
+    Status(domain::statuses::ResolvedStatus),
+}
+
+impl EventGlyph {
+    fn render(&self, cx: &App) -> Icon {
+        match self {
+            EventGlyph::Plain(icon) => Icon::from(icon.clone())
+                .xsmall()
+                .text_color(cx.theme().muted_foreground),
+            EventGlyph::Status(status) => crate::icons::resolved_status_icon(status, cx).xsmall(),
+        }
+    }
+}
+
 /// The phrase of one event, mirroring the web `EventRow` switch (plus the
 /// richer payload details — EXP-33: from→to status, PR number + link).
 /// The third element is a click-through URL (PR events). Returns `None` for
@@ -616,7 +652,8 @@ fn event_phrase(
     user_map: &HashMap<String, User>,
     label_map: &HashMap<String, Label>,
     board_map: &HashMap<String, Board>,
-) -> Option<(ExpIcon, String, Option<String>)> {
+    statuses: &[domain::rows::IssueStatusRow],
+) -> Option<(EventGlyph, String, Option<String>)> {
     let payload = event.payload.as_ref();
     let payload_str = |key: &str| -> Option<String> {
         payload
@@ -647,7 +684,16 @@ fn event_phrase(
                 }
                 _ => format!("changed status to {to}"),
             };
-            Some((registry::EVENT_STATUS_CHANGED, phrase, None))
+            // EXP-525: lead with the TARGET status's real colored icon —
+            // resolved from the payload's `toStatusId` (or the legacy anchor)
+            // against the team vocabulary, like every status surface.
+            let anchor = domain::IssueStatus::from_wire(&payload_str("to").unwrap_or_default());
+            let status = crate::queries::resolve_status_ref(
+                payload_str("toStatusId").as_deref(),
+                anchor,
+                statuses,
+            );
+            Some((EventGlyph::Status(status), phrase, None))
         }
         "assignee_changed" => match payload_str("to") {
             // `payload.to` can reference a user the viewer can't see (the
@@ -658,10 +704,10 @@ fn event_phrase(
                     .get(&to_id)
                     .map(|user| comments::author_label(Some(user)))
                     .unwrap_or_else(|| "someone".to_string());
-                Some((registry::EVENT_ASSIGNEE_CHANGED, format!("assigned {name}"), None))
+                Some((EventGlyph::Plain(registry::EVENT_ASSIGNEE_CHANGED), format!("assigned {name}"), None))
             }
             None => Some((
-                registry::EVENT_ASSIGNEE_CHANGED,
+                EventGlyph::Plain(registry::EVENT_ASSIGNEE_CHANGED),
                 "removed the assignee".to_string(),
                 None,
             )),
@@ -671,7 +717,7 @@ fn event_phrase(
                 .and_then(|id| label_map.get(&id).map(|label| label.name.clone()))
                 .unwrap_or_else(|| "a label".to_string());
             let verb = if kind == "label_added" { "added" } else { "removed" };
-            Some((registry::EVENT_LABEL_ADDED, format!("{verb} label {label_name}"), None))
+            Some((EventGlyph::Plain(registry::EVENT_LABEL_ADDED), format!("{verb} label {label_name}"), None))
         }
         "board_moved" => {
             // EXP-57 (web `EventRow` parity): from/to board names resolve
@@ -687,7 +733,7 @@ fn event_phrase(
                 Some(identifier) => format!("moved this from {from} ({identifier}) to {to}"),
                 None => format!("moved this from {from} to {to}"),
             };
-            Some((registry::EVENT_BOARD_MOVED, phrase, None))
+            Some((EventGlyph::Plain(registry::EVENT_BOARD_MOVED), phrase, None))
         }
         "pr_opened" => {
             let url = payload_str("prUrl");
@@ -695,7 +741,7 @@ fn event_phrase(
                 Some(number) => format!("opened pull request #{number}"),
                 None => "opened a pull request".to_string(),
             };
-            Some((registry::PR_OPEN, phrase, url))
+            Some((EventGlyph::Plain(registry::PR_OPEN), phrase, url))
         }
         "pr_merged" => {
             let url = payload_str("prUrl");
@@ -705,7 +751,7 @@ fn event_phrase(
                 Some(number) => format!("merged pull request #{number}"),
                 None => "merged the pull request".to_string(),
             };
-            Some((registry::PR_MERGED, phrase, url))
+            Some((EventGlyph::Plain(registry::PR_MERGED), phrase, url))
         }
         _ => None,
     }
@@ -719,9 +765,10 @@ fn event_row(
     user_map: &HashMap<String, User>,
     label_map: &HashMap<String, Label>,
     board_map: &HashMap<String, Board>,
+    statuses: &[domain::rows::IssueStatusRow],
     cx: &App,
 ) -> Option<gpui::AnyElement> {
-    let (icon, phrase, link) = event_phrase(event, user_map, label_map, board_map)?;
+    let (glyph, phrase, link) = event_phrase(event, user_map, label_map, board_map, statuses)?;
     let actor_name = match event.actor_user_id.as_deref() {
         Some(id) => comments::user_label(id, user_map.get(id)),
         None => "Someone".to_string(),
@@ -744,12 +791,7 @@ fn event_row(
         .items_center()
         .text_xs()
         .text_color(cx.theme().muted_foreground)
-        .child(
-            Icon::from(icon)
-                .xsmall()
-                .text_color(cx.theme().muted_foreground)
-                .flex_shrink_0(),
-        )
+        .child(glyph.render(cx).flex_shrink_0())
         .child(
             h_flex()
                 .gap_1()
@@ -835,6 +877,7 @@ mod tests {
             &users,
             &labels,
             &boards,
+            &[],
         )
         .unwrap();
         assert_eq!(phrase, "changed status to in progress");
@@ -845,6 +888,7 @@ mod tests {
             &users,
             &labels,
             &boards,
+            &[],
         )
         .unwrap();
         assert_eq!(phrase, "changed status from todo to in progress");
@@ -867,6 +911,7 @@ mod tests {
             &users,
             &labels,
             &boards,
+            &[],
         )
         .unwrap();
         assert_eq!(phrase, "changed status from Building to In QA");
@@ -876,6 +921,7 @@ mod tests {
             &users,
             &labels,
             &boards,
+            &[],
         )
         .unwrap();
         assert_eq!(phrase, "changed status to In QA");
@@ -885,6 +931,7 @@ mod tests {
             &users,
             &labels,
             &boards,
+            &[],
         )
         .unwrap();
         assert_eq!(phrase, "assigned Ada");
@@ -895,6 +942,7 @@ mod tests {
             &users,
             &labels,
             &boards,
+            &[],
         )
         .unwrap();
         assert_eq!(phrase, "assigned someone");
@@ -904,6 +952,7 @@ mod tests {
             &users,
             &labels,
             &boards,
+            &[],
         )
         .unwrap();
         assert_eq!(phrase, "removed the assignee");
@@ -913,6 +962,7 @@ mod tests {
             &users,
             &labels,
             &boards,
+            &[],
         )
         .unwrap();
         assert_eq!(phrase, "added label bug");
@@ -922,6 +972,7 @@ mod tests {
             &users,
             &labels,
             &boards,
+            &[],
         )
         .unwrap();
         assert_eq!(phrase, "removed label a label");
@@ -931,6 +982,7 @@ mod tests {
             &users,
             &labels,
             &boards,
+            &[],
         )
         .unwrap();
         assert_eq!(phrase, "opened a pull request");
@@ -941,6 +993,7 @@ mod tests {
             &users,
             &labels,
             &boards,
+            &[],
         )
         .unwrap();
         assert_eq!(phrase, "merged the pull request");
@@ -951,7 +1004,8 @@ mod tests {
             &event("something_new", json!({})),
             &users,
             &labels,
-            &boards
+            &boards,
+            &[],
         )
         .is_none());
     }
@@ -975,6 +1029,7 @@ mod tests {
             &users,
             &labels,
             &boards,
+            &[],
         )
         .unwrap();
         assert_eq!(phrase, "opened pull request #42");
@@ -986,6 +1041,7 @@ mod tests {
             &users,
             &labels,
             &boards,
+            &[],
         )
         .unwrap();
         assert_eq!(phrase, "merged pull request #42");
@@ -1024,6 +1080,7 @@ mod tests {
             &users,
             &labels,
             &boards,
+            &[],
         )
         .unwrap();
         assert_eq!(phrase, "moved this from Alpha (EXP-42) to Beta");
@@ -1042,6 +1099,7 @@ mod tests {
             &users,
             &labels,
             &boards,
+            &[],
         )
         .unwrap();
         assert_eq!(phrase, "moved this from another board (EXP-42) to Beta");
@@ -1052,6 +1110,7 @@ mod tests {
             &users,
             &labels,
             &boards,
+            &[],
         )
         .unwrap();
         assert_eq!(phrase, "moved this from another board to this board");
@@ -1110,6 +1169,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
+            &[],
         )
         .unwrap();
         assert_eq!(phrase, "changed status from todo to in progress");

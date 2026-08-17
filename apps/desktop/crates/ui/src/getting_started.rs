@@ -37,6 +37,7 @@ use gpui_component::{
 };
 use sync::Store;
 
+use crate::controls::WebControl as _;
 use crate::icons::registry;
 use crate::navigation::{active_team_id, nav_for_window, set_screen, Navigation};
 use crate::queries;
@@ -403,8 +404,7 @@ impl GettingStartedView {
             let team = team_id.to_string();
             Some(match entry.key {
                 EntryKey::Github => Button::new(("gs-cta-github", index))
-                    .primary()
-                    .small()
+                    .primary().web_sm()
                     .label("Connect GitHub")
                     .on_click(|_, window, cx| {
                         crate::navigation::navigate(
@@ -420,16 +420,14 @@ impl GettingStartedView {
                     })
                     .into_any_element(),
                 EntryKey::Board => Button::new(("gs-cta-board", index))
-                    .primary()
-                    .small()
+                    .primary().web_sm()
                     .label("Create a board")
                     .on_click(move |_, window, cx| {
                         crate::create_board_dialog::open(window, cx, team.clone());
                     })
                     .into_any_element(),
                 EntryKey::Coding => Button::new(("gs-cta-coding", index))
-                    .primary()
-                    .small()
+                    .primary().web_sm()
                     .label("Start coding")
                     .on_click(move |_, window, cx| {
                         crate::start_coding_dialog::open_for_selection(
@@ -442,16 +440,14 @@ impl GettingStartedView {
                     })
                     .into_any_element(),
                 EntryKey::Server => Button::new(("gs-cta-server", index))
-                    .primary()
-                    .small()
+                    .primary().web_sm()
                     .label("Add a server")
                     .on_click(|_, window, cx| {
                         crate::machines::open_add_server_dialog(window, cx);
                     })
                     .into_any_element(),
                 EntryKey::Invite => Button::new(("gs-cta-invite", index))
-                    .primary()
-                    .small()
+                    .primary().web_sm()
                     .label("Invite in team settings")
                     .on_click(|_, window, cx| {
                         crate::navigation::navigate(
@@ -604,8 +600,7 @@ impl Render for GettingStartedView {
                                     .child(progress)
                                     .child(
                                         Button::new("gs-dismiss")
-                                            .ghost()
-                                            .small()
+                                            .ghost().web_sm()
                                             .label("Dismiss")
                                             .on_click(cx.listener(|this, _, window, cx| {
                                                 this.dismiss(window, cx);

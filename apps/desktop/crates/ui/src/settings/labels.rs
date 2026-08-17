@@ -29,6 +29,7 @@ use sync::Store;
 
 use domain::rows::Label;
 
+use crate::controls::WebControl as _;
 use crate::navigation::{active_team_id, Navigation};
 
 use super::{section, card_header, parse_hex_color, spawn_trpc};
@@ -313,7 +314,7 @@ impl LabelsPane {
                 Popover::new(row_id("label-color", &label.id))
                     .trigger(
                         Button::new(row_id("label-color-trigger", &label.id))
-                            .ghost()
+                            .ghost().cursor_pointer()
                             .xsmall()
                             .child(
                                 div()
@@ -361,7 +362,7 @@ impl LabelsPane {
         // itself with a percent width, which collapses to content width
         // inside a flex-basis-0 wrapper div — cutting the name to ~1 char.
         if let Some(input) = self.name_inputs.get(&label.id) {
-            row = row.child(Input::new(input).small().appearance(false).flex_1().min_w_0());
+            row = row.child(Input::new(input).web_input_sm().appearance(false).flex_1().min_w_0());
         } else {
             row = row.child(
                 div()
@@ -386,7 +387,7 @@ impl LabelsPane {
                     )
                     .child(
                         Button::new(row_id("label-delete-confirm", &label.id))
-                            .ghost()
+                            .ghost().cursor_pointer()
                             .xsmall()
                             .icon(Icon::new(registry::UI_CHECK).text_color(cx.theme().danger))
                             .on_click(cx.listener(move |this, _, _, cx| {
@@ -401,7 +402,7 @@ impl LabelsPane {
                     )
                     .child(
                         Button::new(row_id("label-delete-cancel", &label.id))
-                            .ghost()
+                            .ghost().cursor_pointer()
                             .xsmall()
                             .icon(registry::UI_CLOSE)
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -414,7 +415,7 @@ impl LabelsPane {
             let confirm_id = label_id.clone();
             row = row.child(
                 Button::new(row_id("label-delete", &label.id))
-                    .ghost()
+                    .ghost().cursor_pointer()
                     .xsmall()
                     .icon(registry::UI_DELETE)
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -490,7 +491,7 @@ impl Render for LabelsPane {
                     .rounded(cx.theme().radius)
                     .border_1()
                     .border_color(super::row_stroke(cx))
-                    .child(Input::new(&self.new_name).small())
+                    .child(Input::new(&self.new_name).web_input_sm())
                     .when_some(form_error, |col, message| {
                         col.child(
                             div()
@@ -526,8 +527,8 @@ impl Render for LabelsPane {
                             .gap_2()
                             .child(
                                 Button::new("label-create")
-                                    .primary()
-                                    .xsmall()
+                                    .primary().cursor_pointer()
+                                    .web_xs()
                                     .label(if self.submitting {
                                         "Creating…"
                                     } else {
@@ -539,8 +540,8 @@ impl Render for LabelsPane {
                             )
                             .child(
                                 Button::new("label-create-cancel")
-                                    .ghost()
-                                    .xsmall()
+                                    .ghost().cursor_pointer()
+                                    .web_xs()
                                     .label("Cancel")
                                     .disabled(self.submitting)
                                     .on_click(cx.listener(|this, _, window, cx| {
@@ -558,8 +559,8 @@ impl Render for LabelsPane {
             body = body.child(
                 h_flex().child(
                     Button::new("label-new")
-                        .outline()
-                        .small()
+                        .outline().cursor_pointer()
+                        .web_sm()
                         .icon(registry::UI_ADD)
                         .label("New label")
                         .on_click(cx.listener(|this, _, window, cx| {

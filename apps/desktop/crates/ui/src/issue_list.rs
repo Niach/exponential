@@ -462,7 +462,7 @@ impl IssueListView {
             .border_color(cx.theme().border.opacity(0.5))
             .child(
                 Button::new(header_id("collapse", &status.group_key))
-                    .ghost()
+                    .ghost().cursor_pointer()
                     .xsmall()
                     .icon(Icon::new(chevron).text_color(cx.theme().muted_foreground))
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -710,7 +710,7 @@ impl IssueListView {
             let list = list.clone();
             let team_id = team_id.clone();
             Button::new("bulk-status")
-                .ghost()
+                .ghost().cursor_pointer()
                 .small()
                 .icon(Icon::from(ExpIcon::ListTodo))
                 .tooltip("Status")
@@ -755,7 +755,7 @@ impl IssueListView {
             let ids = ids.clone();
             let list = list.clone();
             Button::new("bulk-priority")
-                .ghost()
+                .ghost().cursor_pointer()
                 .small()
                 .icon(Icon::from(ExpIcon::SignalHigh))
                 .tooltip("Priority")
@@ -800,7 +800,7 @@ impl IssueListView {
             let users = queries::team_users(cx, &team_id);
             (users.len() > 1).then(|| {
                 Button::new("bulk-assignee")
-                    .ghost()
+                    .ghost().cursor_pointer()
                     .small()
                     .icon(Icon::new(registry::UI_ASSIGNEE))
                     .tooltip("Assignee")
@@ -873,7 +873,7 @@ impl IssueListView {
             let list = list.clone();
             let team_id = team_id.clone();
             Button::new("bulk-labels")
-                .ghost()
+                .ghost().cursor_pointer()
                 .small()
                 .icon(Icon::from(ExpIcon::Tag))
                 .tooltip("Labels")
@@ -970,7 +970,7 @@ impl IssueListView {
             // never hidden (same copy as every Start-coding affordance).
             let no_agent = crate::coding_flow::no_agent_reason(cx);
             Button::new("bulk-start-coding")
-                .ghost()
+                .ghost().cursor_pointer()
                 .small()
                 .icon(Icon::new(registry::ACTION_RUN))
                 .tooltip(no_agent.clone().unwrap_or_else(|| "Start coding".into()))
@@ -996,7 +996,7 @@ impl IssueListView {
             let ids = ids.clone();
             let list = list.clone();
             Button::new("bulk-delete")
-                .ghost()
+                .ghost().cursor_pointer()
                 .small()
                 .icon(Icon::new(registry::UI_DELETE).text_color(danger))
                 .tooltip("Delete selected")
@@ -1049,7 +1049,7 @@ impl IssueListView {
             )
             .child(
                 Button::new("bulk-clear")
-                    .ghost()
+                    .ghost().cursor_pointer()
                     .small()
                     .icon(Icon::new(registry::UI_CLOSE))
                     .tooltip("Clear selection")
@@ -1349,7 +1349,7 @@ fn priority_dropdown(issue: &Issue, cx: &App) -> impl IntoElement {
     let issue_id = issue.id.clone();
 
     Button::new(row_id("priority", &issue.id))
-        .ghost()
+        .ghost().cursor_pointer()
         .xsmall()
         .icon(option_icon(config, cx))
         .dropdown_menu(move |menu, _window, cx| {
@@ -1383,7 +1383,7 @@ fn status_dropdown(issue: &Issue, statuses: &[ResolvedStatus], cx: &App) -> impl
     let issue_id = issue.id.clone();
 
     Button::new(row_id("status", &issue.id))
-        .ghost()
+        .ghost().cursor_pointer()
         .xsmall()
         .icon(resolved_status_icon(&resolved, cx))
         .dropdown_menu(move |menu, _window, cx| {
@@ -1444,7 +1444,7 @@ fn assignee_dropdown(issue: &Issue, cx: &App) -> impl IntoElement {
         // Assigned — the avatar seeds from the member's name, or `Member
         // <LAST4>` when the co-member's user row didn't sync.
         Some(id) => Button::new(row_id("assignee", &issue.id))
-            .ghost()
+            .ghost().cursor_pointer()
             .xsmall()
             .child(
                 Avatar::new()
@@ -1454,7 +1454,7 @@ fn assignee_dropdown(issue: &Issue, cx: &App) -> impl IntoElement {
                     )))
                     .xsmall(),
             ),
-        None => Button::new(row_id("assignee", &issue.id)).ghost().xsmall().child(
+        None => Button::new(row_id("assignee", &issue.id)).ghost().cursor_pointer().xsmall().child(
             div()
                 .size_4()
                 .rounded_full()

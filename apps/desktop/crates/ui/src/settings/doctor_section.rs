@@ -31,6 +31,7 @@ use gpui_component::{
 use coding::{CodingAgent, DoctorReport, Tool, ToolCheck};
 
 use crate::coding_flow::CodingHub;
+use crate::controls::WebControl as _;
 use crate::icons::registry;
 
 use super::{card_header, section};
@@ -278,8 +279,8 @@ impl DoctorPanel {
             .child(
                 h_flex().child(
                     Button::new(SharedString::from(format!("doctor-install-{}", tool.label())))
-                        .outline()
-                        .xsmall()
+                        .outline().cursor_pointer()
+                        .web_xs()
                         .label("Install page")
                         .icon(registry::UI_EXTERNAL_LINK)
                         .on_click(cx.listener(move |_, _, _, cx| {
@@ -293,15 +294,15 @@ impl DoctorPanel {
                     .gap_2()
                     .items_center()
                     .child(div().flex_1().min_w_0().child(
-                        Input::new(self.input_for(agent)).small(),
+                        Input::new(self.input_for(agent)).web_input_sm(),
                     ))
                     .child(
                         Button::new(SharedString::from(format!(
                             "doctor-save-path-{}",
                             agent.id()
                         )))
-                        .outline()
-                        .xsmall()
+                        .outline().cursor_pointer()
+                        .web_xs()
                         .label("Save path")
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.save_path(agent, cx);
@@ -355,8 +356,8 @@ impl Render for DoctorPanel {
         body.child(
             h_flex().child(
                 Button::new("doctor-check")
-                    .outline()
-                    .xsmall()
+                    .outline().cursor_pointer()
+                    .web_sm()
                     .label("Check tools")
                     .loading(running)
                     .disabled(running)

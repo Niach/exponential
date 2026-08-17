@@ -549,7 +549,11 @@ impl Collections {
         out
     }
 
-    /// A team's boards, sort-order-then-name sorted (web sidebar parity).
+    /// A team's boards in the canonical cross-client order (EXP-525):
+    /// `sort_order` asc with NULLS LAST, tie-broken by `created_at` asc —
+    /// byte-identical to the web sidebar's comparator (`use-team-data.ts`),
+    /// so the rail and the web sidebar always list boards identically. (The
+    /// old name tiebreak diverged from the web for null sort orders.)
     pub fn boards_in_team(&self, team_id: &str, cx: &App) -> Vec<Board> {
         let mut out: Vec<Board> = self
             .boards
@@ -562,7 +566,8 @@ impl Collections {
             a.sort_order
                 .unwrap_or(f64::MAX)
                 .total_cmp(&b.sort_order.unwrap_or(f64::MAX))
-                .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+                .then_with(|| a.created_at.cmp(&b.created_at))
+                .then_with(|| a.id.cmp(&b.id))
         });
         out
     }

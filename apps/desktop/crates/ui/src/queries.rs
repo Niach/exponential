@@ -325,6 +325,35 @@ pub fn team_statuses(cx: &App, team_id: &str) -> Vec<IssueStatusRow> {
     sort_team_statuses(&rows)
 }
 
+/// EXP-314: resolve a bare `(status_id, anchor)` pair — a row NOT locally
+/// synced (server search hits, `status_changed` event payloads) — against a
+/// team's sorted status rows: the exact row when the id resolves, else the
+/// anchor's builtin row, else a constructed default. Shared by the search
+/// sheet and the timeline (EXP-525).
+pub(crate) fn resolve_status_ref(
+    status_id: Option<&str>,
+    anchor: domain::IssueStatus,
+    sorted: &[IssueStatusRow],
+) -> ResolvedStatus {
+    if let Some(status_id) = status_id {
+        if let Some(index) = sorted.iter().position(|row| row.id == status_id) {
+            return domain::statuses::resolve_row(sorted, index);
+        }
+    }
+    // Unknown forward-compat anchors normalize to backlog before the lookup,
+    // so a hit still shows the team's real Backlog row.
+    let anchor = domain::statuses::normalized_anchor(anchor);
+    if let Some(wire) = anchor.as_wire() {
+        if let Some(index) = sorted
+            .iter()
+            .position(|row| row.builtin_key.as_deref() == Some(wire))
+        {
+            return domain::statuses::resolve_row(sorted, index);
+        }
+    }
+    domain::statuses::constructed_default(anchor)
+}
+
 /// A team's status vocabulary as the pickers/filters render it — the synced
 /// rows, or the constructed `builtin:<key>` defaults while the shape has not
 /// landed its first snapshot (so a picker is never empty).
@@ -593,7 +622,7 @@ pub fn review_issues(cx: &App, team_id: &str) -> Vec<domain::rows::Issue> {
 
 /// The per-issue Reviews predicate: an OPEN pull request. A batch PR entry
 /// groups every issue that shares the `pr_url` (mobile parity).
-fn is_reviewable(issue: &domain::rows::Issue) -> bool {
+pub(crate) fn is_reviewable(issue: &domain::rows::Issue) -> bool {
     issue.pr_state.as_deref() == Some("open")
 }
 

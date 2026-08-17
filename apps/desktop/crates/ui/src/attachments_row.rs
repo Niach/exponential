@@ -19,6 +19,7 @@ use gpui_component::{
     h_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 
+use crate::controls::WebControl as _;
 use crate::icons::{registry, ExpIcon};
 
 /// One `![alt](url)` occurrence in a markdown string — the web's
@@ -260,7 +261,7 @@ pub(crate) fn image_chip(
         row = row.child(
             Button::new(id)
                 .ghost()
-                .xsmall()
+                .web_icon_xs()
                 .icon(
                     Icon::new(registry::UI_CLOSE)
                         .xsmall()
@@ -324,7 +325,7 @@ pub(crate) fn file_chip(
         row = row.child(
             Button::new(id)
                 .ghost()
-                .xsmall()
+                .web_icon_xs()
                 .icon(
                     Icon::new(registry::UI_CLOSE)
                         .xsmall()

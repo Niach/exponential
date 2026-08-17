@@ -24,6 +24,7 @@ use gpui_component::{
 
 use domain::rows::{Comment, User};
 
+use crate::controls::WebControl as _;
 use crate::description_editor::open_issue_by_identifier;
 use crate::icons::{registry, ExpIcon};
 use crate::markdown::{ImageCache, MarkdownView, RefResolver};
@@ -176,7 +177,7 @@ pub(crate) fn comment_row(
             let delete_id = comment_id.clone();
             row.child(div().flex_1()).child(
                 Button::new(SharedString::from(format!("comment-menu-{comment_id}")))
-                    .ghost()
+                    .ghost().cursor_pointer()
                     .xsmall()
                     .icon(
                         Icon::new(registry::UI_MORE)
@@ -218,7 +219,7 @@ pub(crate) fn comment_row(
                     .child(
                         Button::new(SharedString::from(format!("comment-save-{comment_id}")))
                             .primary()
-                            .xsmall()
+                            .web_xs()
                             .label("Save")
                             .loading(props.saving)
                             .on_click(cx.listener({
@@ -231,7 +232,7 @@ pub(crate) fn comment_row(
                     .child(
                         Button::new(SharedString::from(format!("comment-cancel-{comment_id}")))
                             .ghost()
-                            .xsmall()
+                            .web_xs()
                             .label("Cancel")
                             .on_click(cx.listener(|this, _, _, cx| this.cancel_edit(cx))),
                     ),
@@ -292,11 +293,16 @@ pub(crate) fn composer_row(
         .mt_2()
         .gap_2()
         .items_end()
-        .child(div().flex_1().min_w_0().child(input.clone()))
+        // EXP-525: a flex-COLUMN slot, not a nested row — the view child's
+        // percent width resolved against unclamped avail in a row hop
+        // (EXP-436 class) and the composer collapsed to placeholder width at
+        // some window sizes; a column stretches its child to the definite
+        // slot width instead.
+        .child(v_flex().flex_1().min_w_0().child(input.clone()))
         .child(
             Button::new("comment-submit")
                 .primary()
-                .small()
+                .web_icon_sm()
                 .icon(Icon::from(ExpIcon::Send))
                 .loading(submitting)
                 .disabled(submitting || !has_draft)

@@ -36,7 +36,7 @@ use domain::rows::Label;
 use domain::IssueFilters;
 
 use crate::filter_bar::IssueFilterBar;
-use crate::filter_popover::{FilterView, OnFiltersChange, OnViewChange};
+use crate::filter_popover::{FilterView, IssueFilterPopover, OnFiltersChange, OnViewChange};
 use crate::issue_list::{IssueListView, IssueQuery};
 
 pub struct BoardView {
@@ -45,6 +45,10 @@ pub struct BoardView {
     popover_view: FilterView,
     label_query: Entity<InputState>,
     issue_list: Entity<IssueListView>,
+    /// EXP-525: the host renders the Filter trigger itself (the Inbox tool
+    /// strip's trailing slot) — the bar's own control row only appears while
+    /// the bulk-action bar needs it.
+    external_filter: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -76,8 +80,56 @@ impl BoardView {
             popover_view: FilterView::Categories,
             label_query,
             issue_list,
+            external_filter: false,
             _subscriptions: subscriptions,
         }
+    }
+
+    /// EXP-525: hand the Filter trigger to the host (see `external_filter`).
+    pub fn set_external_filter(&mut self, external: bool) {
+        self.external_filter = external;
+    }
+
+    /// The standalone Filter-popover trigger for an external host slot
+    /// (the Inbox tool strip). Same state + sinks as the in-bar trigger.
+    pub fn filter_trigger(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        let team_id = self.team_id(cx);
+        let labels = team_id
+            .as_deref()
+            .map(|team_id| labels_in_team(team_id, cx))
+            .unwrap_or_default();
+        let statuses = team_id
+            .as_deref()
+            .map(|team_id| crate::queries::team_status_options(cx, team_id))
+            .unwrap_or_else(domain::statuses::default_resolved_statuses);
+        let (on_filters_change, on_view_change) = self.filter_sinks(cx);
+        IssueFilterPopover::new(
+            self.filters.clone(),
+            labels,
+            statuses,
+            self.popover_view,
+            self.label_query.clone(),
+            on_filters_change,
+            on_view_change,
+        )
+        .into_any_element()
+    }
+
+    /// The two filter-state sinks the popover/pills funnel through.
+    fn filter_sinks(&self, cx: &mut gpui::Context<Self>) -> (OnFiltersChange, OnViewChange) {
+        let entity = cx.entity().downgrade();
+        let on_filters_change: OnFiltersChange = Rc::new(move |next, _window, cx| {
+            if let Some(board) = entity.upgrade() {
+                board.update(cx, |board, cx| board.apply_filters(next, cx));
+            }
+        });
+        let entity = cx.entity().downgrade();
+        let on_view_change: OnViewChange = Rc::new(move |view, _window, cx| {
+            if let Some(board) = entity.upgrade() {
+                board.update(cx, |board, cx| board.set_popover_view(view, cx));
+            }
+        });
+        (on_filters_change, on_view_change)
     }
 
     /// Point the board at a new scope (called by the screens panel on
@@ -177,18 +229,7 @@ impl Render for BoardView {
             .map(|team_id| crate::queries::team_status_options(cx, team_id))
             .unwrap_or_else(domain::statuses::default_resolved_statuses);
 
-        let entity = cx.entity().downgrade();
-        let on_filters_change: OnFiltersChange = Rc::new(move |next, _window, cx| {
-            if let Some(board) = entity.upgrade() {
-                board.update(cx, |board, cx| board.apply_filters(next, cx));
-            }
-        });
-        let entity = cx.entity().downgrade();
-        let on_view_change: OnViewChange = Rc::new(move |view, _window, cx| {
-            if let Some(board) = entity.upgrade() {
-                board.update(cx, |board, cx| board.set_popover_view(view, cx));
-            }
-        });
+        let (on_filters_change, on_view_change) = self.filter_sinks(cx);
 
         // EXP-426: the list's bulk-action bar rides INSIDE the filter bar —
         // its fixed-min-height control row swaps the Filter trigger for the
@@ -198,16 +239,19 @@ impl Render for BoardView {
 
         v_flex()
             .size_full()
-            .child(IssueFilterBar::new(
-                self.filters.clone(),
-                labels,
-                statuses,
-                self.popover_view,
-                self.label_query.clone(),
-                on_filters_change,
-                on_view_change,
-                bulk_bar,
-            ))
+            .child(
+                IssueFilterBar::new(
+                    self.filters.clone(),
+                    labels,
+                    statuses,
+                    self.popover_view,
+                    self.label_query.clone(),
+                    on_filters_change,
+                    on_view_change,
+                    bulk_bar,
+                )
+                .external_trigger(self.external_filter),
+            )
             .child(div().flex_1().min_h_0().child(self.issue_list.clone()))
     }
 }

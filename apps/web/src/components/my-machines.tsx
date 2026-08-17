@@ -333,14 +333,16 @@ export function MyMachines({
               >
                 <ServerIcon className="size-4 shrink-0 text-muted-foreground" />
                 <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
-                  <span className="min-w-0 truncate text-sm">
+                  {/* EXP-525: no people names inline — a teammate's shared
+                      row keeps the attribution in its tooltip. */}
+                  <span
+                    className="min-w-0 truncate text-sm"
+                    title={
+                      device.owner ? `Shared by ${device.owner.name}` : undefined
+                    }
+                  >
                     {device.deviceLabel || device.deviceId}
                   </span>
-                  {device.owner && (
-                    <span className="shrink-0 text-[10px] text-muted-foreground/60">
-                      shared by {device.owner.name}
-                    </span>
-                  )}
                 </span>
                 {online ? (
                   <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">

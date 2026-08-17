@@ -39,6 +39,7 @@ use gpui_component::{
 use serde::{Deserialize, Serialize};
 use sync::Store;
 
+use crate::controls::WebControl as _;
 use crate::actions::NewBoard;
 use crate::github_connect::{fetch_github_repos, GithubRepo, GithubReposResult};
 use crate::native_dialog::{self, DialogContent, DialogSpec};
@@ -538,7 +539,7 @@ impl CreateBoardDialogView {
                 .child(field_label(cx, "Repository"))
                 .child(
                     Button::new("board-repo-picker")
-                        .outline()
+                        .outline().cursor_pointer()
                         .small()
                         .w_full()
                         .label("Loading your GitHub repositories\u{2026}")
@@ -572,7 +573,7 @@ impl CreateBoardDialogView {
             let view = cx.entity().clone();
             column = column.child(
                 Button::new("board-repo-picker")
-                    .outline()
+                    .outline().cursor_pointer()
                     .small()
                     .w_full()
                     .icon(registry::UI_GITHUB)
@@ -659,7 +660,7 @@ impl CreateBoardDialogView {
             if let Some(url) = connect_url {
                 row = row.child(
                     Button::new("board-repo-connect-gh")
-                        .outline()
+                        .outline().cursor_pointer()
                         .small()
                         .icon(registry::UI_GITHUB)
                         .label("Connect GitHub")
@@ -746,7 +747,7 @@ impl CreateBoardDialogView {
             if let Some(url) = manage_url {
                 notice = notice.child(
                     Button::new("board-repo-unsuspend-gh")
-                        .outline()
+                        .outline().cursor_pointer()
                         .xsmall()
                         .label("Manage")
                         .on_click(move |_, _, cx| open_url(cx, url.clone())),
@@ -820,7 +821,7 @@ impl CreateBoardDialogView {
             if let Some(url) = reconnect_url {
                 notice = notice.child(
                     Button::new("board-repo-reconnect-gh")
-                        .outline()
+                        .outline().cursor_pointer()
                         .xsmall()
                         .icon(registry::UI_GITHUB)
                         .label("Reconnect GitHub")
@@ -871,7 +872,7 @@ impl CreateBoardDialogView {
         // browser" affordance, so it says that instead of a bare "Refresh".
         let mut actions = h_flex().gap_2().items_center().child(
             Button::new("board-repo-refresh")
-                .ghost()
+                .ghost().cursor_pointer()
                 .xsmall()
                 .label(if configured_not_installed {
                     "I've connected"
@@ -937,8 +938,8 @@ impl Render for CreateBoardDialogView {
 
         let mut form = v_flex()
             .gap_4()
-            .child(labeled(cx, "Name", Input::new(&self.name).small()))
-            .child(labeled(cx, "Prefix", Input::new(&self.prefix).small()))
+            .child(labeled(cx, "Name", Input::new(&self.name).web_input_sm()))
+            .child(labeled(cx, "Prefix", Input::new(&self.prefix).web_input_sm()))
             .child(self.icon_picker(cx))
             .child(
                 v_flex()
@@ -970,7 +971,7 @@ impl Render for CreateBoardDialogView {
                     error_block = error_block.child(
                         h_flex().child(
                             Button::new("board-grant-reconnect-gh")
-                                .outline()
+                                .outline().cursor_pointer()
                                 .xsmall()
                                 .icon(registry::UI_GITHUB)
                                 .label("Reconnect GitHub")
@@ -984,8 +985,8 @@ impl Render for CreateBoardDialogView {
 
         let footer = h_flex().flex_shrink_0().justify_end().child(
             Button::new("create-board-submit")
-                .primary()
-                .small()
+                .primary().cursor_pointer()
+                .web_sm()
                 .label(if self.submitting {
                     "Creating..."
                 } else {

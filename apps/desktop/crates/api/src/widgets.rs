@@ -47,6 +47,26 @@ pub fn submission_for_issue(
     client.query_with_input("widgets.submissionForIssue", &SubmissionForIssueInput { issue_id })
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SubmissionForThreadInput<'a> {
+    thread_id: &'a str,
+}
+
+/// Fetch the widget submission metadata behind a SUPPORT thread
+/// (`widgets.submissionForThread`, EXP-525 — the web details rail's Context
+/// section). `Ok(None)` for threads without a widget submission. Blocking —
+/// background executor only (§3.5).
+pub fn submission_for_thread(
+    client: &TrpcClient,
+    thread_id: &str,
+) -> Result<Option<WidgetSubmission>, ApiError> {
+    client.query_with_input(
+        "widgets.submissionForThread",
+        &SubmissionForThreadInput { thread_id },
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

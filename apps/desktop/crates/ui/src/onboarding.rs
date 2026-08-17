@@ -32,11 +32,12 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
+    h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon,
 };
 use sync::Store;
 
 use crate::coding_flow::CodingHub;
+use crate::controls::WebControl as _;
 use crate::create_board_dialog::{BoardCreated, CreateBoardDialogView};
 use crate::create_team_dialog::{CreateTeamDialogView, TeamCreated};
 use crate::icons::registry;
@@ -515,8 +516,7 @@ impl Render for OnboardingView {
             WizardStep::Syncing => None,
             WizardStep::Team => {
                 let skip = Button::new("onboarding-skip-team")
-                    .ghost()
-                    .small()
+                    .ghost().web_sm()
                     .label("Set up later")
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.complete_account_steps(cx);
@@ -529,8 +529,7 @@ impl Render for OnboardingView {
                         .justify_between()
                         .child(
                             Button::new("onboarding-team-back")
-                                .ghost()
-                                .small()
+                                .ghost().web_sm()
                                 .icon(registry::UI_BACK)
                                 .label("Back")
                                 .on_click(cx.listener(|this, _, _, cx| {
@@ -547,8 +546,7 @@ impl Render for OnboardingView {
                     .justify_end()
                     .child(
                         Button::new("onboarding-skip-board")
-                            .ghost()
-                            .small()
+                            .ghost().web_sm()
                             .label("Skip for now")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.complete_account_steps(cx);
@@ -581,16 +579,14 @@ impl Render for OnboardingView {
                 Some(
                     row.child(if all_green {
                         Button::new("onboarding-tools-continue")
-                            .primary()
-                            .small()
+                            .primary().web_md()
                             .label("Continue")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.complete_tools_step(cx);
                             }))
                     } else {
                         Button::new("onboarding-tools-continue")
-                            .outline()
-                            .small()
+                            .outline().web_sm()
                             .label("Set up later")
                             .disabled(!git_ok)
                             .on_click(cx.listener(|this, _, _, cx| {

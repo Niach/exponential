@@ -202,7 +202,7 @@ fn toolbar_button(
         + 'static,
 ) -> Button {
     Button::new(id)
-        .ghost()
+        .ghost().cursor_pointer()
         .xsmall()
         .icon(Icon::from(icon))
         .tooltip(tooltip)
@@ -327,7 +327,7 @@ fn render_link_editor(
         .child(div().w_32().child(Input::new(&text_input).xsmall()))
         .child(
             Button::new("md-link-apply")
-                .ghost()
+                .ghost().cursor_pointer()
                 .xsmall()
                 .icon(Icon::from(registry::UI_CHECK))
                 .tooltip("Apply link")
@@ -335,7 +335,7 @@ fn render_link_editor(
         )
         .child(
             Button::new("md-link-cancel")
-                .ghost()
+                .ghost().cursor_pointer()
                 .xsmall()
                 .icon(Icon::from(registry::EDITOR_UNLINK))
                 .tooltip("Cancel")

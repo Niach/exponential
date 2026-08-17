@@ -28,12 +28,14 @@ pub(crate) fn glass_card() -> Div {
 pub(crate) fn tab_chip(selected: bool, cx: &App) -> Div {
     let theme = cx.theme();
     let chip = div()
-        .h(px(24.))
-        .px_2()
+        // EXP-525: web tab-pill metrics (`h-7 rounded-full px-3 text-xs`
+        // scale) — the old 24px/px_2 chips read too small next to the web.
+        .h(px(26.))
+        .px_2p5()
         .flex()
         .flex_none()
         .items_center()
-        .gap_1()
+        .gap_1p5()
         .rounded(theme.radius)
         .cursor_pointer()
         .text_sm();
