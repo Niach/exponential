@@ -71,3 +71,23 @@ pub mod size {
     pub const INPUT_HEIGHT: f32 = 36.0;
     pub const ROW_HEIGHT: f32 = 32.0;
 }
+
+// Motion (EXP-523) — durations in milliseconds (u64, so `Duration::from_millis`
+// takes them verbatim), easings as CSS cubic-bezier control points. Read these
+// through `theme::motion`, which wraps the millis in `Duration` and SOLVES the
+// curve for x. Do NOT hand them to `gpui_component::animation::cubic_bezier`:
+// that helper evaluates y over the RAW progress and throws its own x away
+// (`let _x = …`), which is a different curve from CSS / SwiftUI / Compose.
+pub mod motion {
+    pub mod duration {
+        pub const FAST_MS: u64 = 120;
+        pub const STANDARD_MS: u64 = 180;
+        pub const SLOW_MS: u64 = 280;
+    }
+
+    pub mod ease {
+        pub const STANDARD: [f32; 4] = [0.2, 0.0, 0.0, 1.0];
+        pub const DECELERATE: [f32; 4] = [0.0, 0.0, 0.2, 1.0];
+        pub const ACCELERATE: [f32; 4] = [0.3, 0.0, 1.0, 1.0];
+    }
+}

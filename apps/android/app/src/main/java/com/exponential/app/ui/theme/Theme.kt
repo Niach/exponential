@@ -6,6 +6,7 @@ import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -102,10 +103,15 @@ private val ExpoShapes = Shapes(
 
 @Composable
 fun ExponentialTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = ZincDarkColors,
-        typography = ExpoTypography,
-        shapes = ExpoShapes,
-        content = content,
-    )
+    // EXP-523: one read of the OS animation scale for the whole tree. Provided
+    // HERE and not in MainActivity so previews, instrumentation tests and any
+    // future entry point cannot forget it — they all go through the theme.
+    CompositionLocalProvider(LocalReduceMotion provides rememberReduceMotion()) {
+        MaterialTheme(
+            colorScheme = ZincDarkColors,
+            typography = ExpoTypography,
+            shapes = ExpoShapes,
+            content = content,
+        )
+    }
 }

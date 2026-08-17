@@ -22,6 +22,14 @@ interface Tokens {
   glass: Record<string, string>
   radius: Record<string, number>
   size: Record<string, number>
+  // Nested, unlike every group above: durations are integer milliseconds and
+  // easings are 4-element CSS cubic-bezier control points [x1, y1, x2, y2]
+  // (P0 = (0,0) and P3 = (1,1) implicit). The group's `$comment` lives one
+  // level up, so both leaf maps stay cleanly typed.
+  motion: {
+    duration: Record<string, number>
+    ease: Record<string, number[]>
+  }
   type: { fontFamily: string; baseSize: number }
 }
 
@@ -129,7 +137,44 @@ function rustSrgb8(name: string, input: string): string {
 
 function rustF32(name: string, v: number): string {
   // always a float literal so it's f32-typed
-  return `pub const ${screamingSnake(name)}: f32 = ${Number.isInteger(v) ? v.toFixed(1) : v};`
+  return `pub const ${screamingSnake(name)}: f32 = ${decimal(v)};`
+}
+
+// ── Motion helpers (EXP-523) ─────────────────────────────────────────────────
+
+// Always a DECIMAL literal. `0` would be an Int in Kotlin and an integer
+// literal in Rust, and neither coerces where a Float/f32 is wanted.
+function decimal(n: number): string {
+  return Number.isInteger(n) ? n.toFixed(1) : `${n}`
+}
+
+const kotlinFloat = (n: number): string => `${decimal(n)}f`
+const swiftDouble = (n: number): string => decimal(n)
+const rustFloat = (n: number): string => decimal(n)
+
+// Easing control points are the ONE cross-platform form: [x1, y1, x2, y2],
+// with P0 = (0,0) and P3 = (1,1) implicit. Every target takes the same four
+// numbers in the same order — only the literal syntax differs.
+function bezier(v: number[], fmt: (n: number) => string): string {
+  if (v.length !== 4) {
+    throw new Error(
+      `Easing must be 4 cubic-bezier control points, got ${v.length}: ${JSON.stringify(v)}`
+    )
+  }
+  return v.map(fmt).join(`, `)
+}
+
+// tokens.json stores integer milliseconds; SwiftUI's unit is seconds.
+// `toFixed(3)` rather than a bare `v / 1000` so the literal is deterministic
+// and never float-print-dependent.
+function swiftSeconds(ms: number): string {
+  return (ms / 1000).toFixed(3)
+}
+
+// The motion leaves have no `$comment` of their own (it lives on the group),
+// but filter anyway so the emitters stay uniform with the color/dim groups.
+function motionEntries<T>(group: Record<string, T>): [string, T][] {
+  return Object.entries(group).filter(([k]) => !k.startsWith(`$`))
 }
 
 // ── Emit helpers ─────────────────────────────────────────────────────────────
@@ -171,9 +216,21 @@ function emitKotlin(): string {
     .map(([k, v]) => `        val ${pascalCase(k)}: Dp = ${v}.dp`)
     .join(`\n`)
 
+  const motionDuration = motionEntries(tokens.motion.duration)
+    .map(([k, v]) => `            const val ${pascalCase(k)}: Int = ${v}`)
+    .join(`\n`)
+  const motionEase = motionEntries(tokens.motion.ease)
+    .map(
+      ([k, v]) =>
+        `            val ${pascalCase(k)}: Easing = CubicBezierEasing(${bezier(v, kotlinFloat)})`
+    )
+    .join(`\n`)
+
   return `${HEADER_KOTLIN}
 package com.exponential.app.ui.theme
 
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.Easing
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -203,6 +260,20 @@ ${radius}
     // Control geometry, matching the web control heights.
     object Size {
 ${size}
+    }
+
+    // Motion (EXP-523) — durations in MILLISECONDS (Compose's \`tween\` unit),
+    // easings as CSS cubic-bezier control points. Read these through
+    // ui/theme/Motion.kt, which collapses them to \`snap()\` when the OS has
+    // animations turned off; never call \`tween(…)\` with a literal.
+    object Motion {
+        object Duration {
+${motionDuration}
+        }
+
+        object Ease {
+${motionEase}
+        }
     }
 }
 `
@@ -235,6 +306,18 @@ function emitSwift(): string {
     .filter(([k]) => !k.startsWith(`$`))
     .map(([k, v]) => `        public static let ${k}: CGFloat = ${v}`)
     .join(`\n`)
+  const motionDuration = motionEntries(tokens.motion.duration)
+    .map(
+      ([k, v]) =>
+        `            public static let ${k}: TimeInterval = ${swiftSeconds(v)}`
+    )
+    .join(`\n`)
+  const motionEase = motionEntries(tokens.motion.ease)
+    .map(([k, v]) => {
+      const [x1, y1, x2, y2] = v.map(swiftDouble)
+      return `            public static let ${k} = BezierCurve(x1: ${x1}, y1: ${y1}, x2: ${x2}, y2: ${y2})`
+    })
+    .join(`\n`)
 
   return `${HEADER_SWIFT}
 import SwiftUI
@@ -264,6 +347,21 @@ ${radius}
     // Control geometry, matching the web control heights.
     public enum Size {
 ${size}
+    }
+
+    // Motion (EXP-523) — durations in SECONDS (SwiftUI's unit; tokens.json
+    // stores integer milliseconds), easings as CSS cubic-bezier control
+    // points. \`BezierCurve\` is hand-written in ExpUI/Sources/Motion.swift,
+    // the same arrangement as the desktop's hand-written \`Srgb8\`. Read these
+    // through \`@Environment(\\.motion)\`, which returns nil under Reduce Motion.
+    public enum Motion {
+        public enum Duration {
+${motionDuration}
+        }
+
+        public enum Ease {
+${motionEase}
+        }
     }
 }
 `
@@ -298,6 +396,15 @@ function emitRust(): string {
     .filter(([k]) => !k.startsWith(`$`))
     .map(([k, v]) => `    ${rustF32(k, v)}`)
     .join(`\n`)
+  const motionDuration = motionEntries(tokens.motion.duration)
+    .map(([k, v]) => `        pub const ${screamingSnake(k)}_MS: u64 = ${v};`)
+    .join(`\n`)
+  const motionEase = motionEntries(tokens.motion.ease)
+    .map(
+      ([k, v]) =>
+        `        pub const ${screamingSnake(k)}: [f32; 4] = [${bezier(v, rustFloat)}];`
+    )
+    .join(`\n`)
 
   return `${HEADER_RUST}use crate::Srgb8;
 
@@ -322,6 +429,22 @@ ${radius}
 // Control geometry in px, matching the web control heights.
 pub mod size {
 ${size}
+}
+
+// Motion (EXP-523) — durations in milliseconds (u64, so \`Duration::from_millis\`
+// takes them verbatim), easings as CSS cubic-bezier control points. Read these
+// through \`theme::motion\`, which wraps the millis in \`Duration\` and SOLVES the
+// curve for x. Do NOT hand them to \`gpui_component::animation::cubic_bezier\`:
+// that helper evaluates y over the RAW progress and throws its own x away
+// (\`let _x = …\`), which is a different curve from CSS / SwiftUI / Compose.
+pub mod motion {
+    pub mod duration {
+${motionDuration}
+    }
+
+    pub mod ease {
+${motionEase}
+    }
 }
 `
 }

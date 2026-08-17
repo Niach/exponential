@@ -68,6 +68,7 @@ pub mod tokens {
     include!("tokens.generated.rs");
 }
 
+pub mod motion;
 pub mod terminal;
 
 use tokens as t;

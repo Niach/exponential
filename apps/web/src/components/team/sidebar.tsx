@@ -204,7 +204,7 @@ export function TeamSidebar({
               stops and hides it from assistive tech meanwhile. */}
           <div
             inert={inSettings}
-            className={`absolute inset-0 flex flex-col transition-transform duration-200 ease-linear motion-reduce:transition-none ${
+            className={`absolute inset-0 flex flex-col transition-transform duration-standard ease-standard motion-reduce:transition-none ${
               inSettings ? `-translate-x-full` : `translate-x-0`
             }`}
           >
@@ -484,7 +484,7 @@ export function TeamSidebar({
           {/* Settings panel — slides in from the right edge of the slot. */}
           <div
             inert={!inSettings}
-            className={`absolute inset-0 flex flex-col transition-transform duration-200 ease-linear motion-reduce:transition-none ${
+            className={`absolute inset-0 flex flex-col transition-transform duration-standard ease-standard motion-reduce:transition-none ${
               inSettings ? `translate-x-0` : `translate-x-full`
             }`}
           >

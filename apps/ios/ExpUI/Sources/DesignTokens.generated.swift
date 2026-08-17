@@ -76,4 +76,23 @@ public enum DesignTokens {
         public static let inputHeight: CGFloat = 36
         public static let rowHeight: CGFloat = 32
     }
+
+    // Motion (EXP-523) — durations in SECONDS (SwiftUI's unit; tokens.json
+    // stores integer milliseconds), easings as CSS cubic-bezier control
+    // points. `BezierCurve` is hand-written in ExpUI/Sources/Motion.swift,
+    // the same arrangement as the desktop's hand-written `Srgb8`. Read these
+    // through `@Environment(\.motion)`, which returns nil under Reduce Motion.
+    public enum Motion {
+        public enum Duration {
+            public static let fast: TimeInterval = 0.120
+            public static let standard: TimeInterval = 0.180
+            public static let slow: TimeInterval = 0.280
+        }
+
+        public enum Ease {
+            public static let standard = BezierCurve(x1: 0.2, y1: 0.0, x2: 0.0, y2: 1.0)
+            public static let decelerate = BezierCurve(x1: 0.0, y1: 0.0, x2: 0.2, y2: 1.0)
+            public static let accelerate = BezierCurve(x1: 0.3, y1: 0.0, x2: 1.0, y2: 1.0)
+        }
+    }
 }
