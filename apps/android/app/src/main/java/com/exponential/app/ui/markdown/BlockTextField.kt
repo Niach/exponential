@@ -1,26 +1,24 @@
 package com.exponential.app.ui.markdown
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.LocalTextStyle
@@ -35,7 +33,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -51,9 +48,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
@@ -65,12 +62,12 @@ import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import com.exponential.app.ui.components.GlassMenuSurface
 import com.exponential.app.ui.markdown.model.BlockKind
-import com.exponential.app.ui.markdown.model.ListType
 import com.exponential.app.ui.markdown.model.ParagraphAttrs
 import com.exponential.app.ui.theme.resolvedStatusColor
 
-// In-progress mention `@query` at the caret (after start-of-text or whitespace);
-// the query stops at whitespace. Mirrors apps/web/src/components/mention-textarea.tsx.
+// In-progress mention `@query` at the caret (after start-of-text or whitespace —
+// '\n' counts as whitespace, so line starts inside the multi-line run trigger
+// too); the query stops at whitespace. Mirrors apps/web/src/components/mention-textarea.tsx.
 private val MENTION_AT_CARET = Regex("(?:^|\\s)@([A-Za-z0-9._%+-]*)$")
 
 // In-progress issue reference `#query` at the caret — same shape as the web
@@ -78,17 +75,23 @@ private val MENTION_AT_CARET = Regex("(?:^|\\s)@([A-Za-z0-9._%+-]*)$")
 private val ISSUE_REF_AT_CARET = Regex("(?:^|\\s)#([A-Za-z0-9-]*)$")
 
 /**
- * One editable paragraph line, backed by a [BasicTextField]. Per-paragraph
- * styling (heading size / list glyph / indent / code background / quote color)
- * lives in the decoration so the editable text stays glyph-free. Enter splits
- * the paragraph and Backspace-at-start merges with the previous row — both routed
- * through [EditorModel]. The field only re-seeds its value when the row's
- * revision bumps (structural change), never on the user's own keystrokes.
+ * One editable text RUN — every '\n'-separated paragraph between two images in
+ * ONE multi-line [BasicTextField] (EXP-534, the iOS one-UITextView-per-run
+ * architecture), which is what lets selection/copy/cut span paragraphs,
+ * headings, list items, quotes and code fences. Per-paragraph styling
+ * (heading size / indents / quote & code colors) rides the visual
+ * transformation ([ChipVisualTransformation]); quote bars, code backgrounds
+ * and list glyphs are painted behind the text ([drawRunDecorations]). Enter is
+ * an ordinary '\n' and Backspace over a line boundary an ordinary delete —
+ * both flow through [EditorModel.updateRun], which remaps the paragraph-attrs
+ * list; the field only re-seeds its value when the row's revision bumps
+ * (structural/external change), never on the user's own keystrokes.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun BlockTextField(
     model: EditorModel,
-    row: EditorRow.Para,
+    row: EditorRow.TextRun,
     placeholder: String?,
     mentionMembers: List<MentionMember> = emptyList(),
     modifier: Modifier = Modifier,
@@ -112,16 +115,16 @@ fun BlockTextField(
             value = TextFieldValue(text = row.text, selection = TextRange(caret.coerceIn(0, row.text.length)))
         }
         // A toolbar `@`/`#` tap arrives here as a plain revision bump,
-        // indistinguishable from an Enter split — hence the explicit signal.
+        // indistinguishable from any other reseed — hence the explicit signal.
         if (model.consumeAutocompleteArm(row.id)) armed = true
     }
 
     val focusRequester = remember { FocusRequester() }
     // Whether THIS field currently holds OS focus. Two focus-handoff guards
-    // hang off it (EXP-25 — Enter left the caret in the old row):
+    // hang off it (EXP-25 — a structural change left the caret in the old row):
     //  - a freshly-composed row emits an initial focused=false event; without
-    //    the guard below that cleared the focusedRowId splitParagraphFrom had
-    //    just pointed at the new row, so its requestFocus loop never ran and
+    //    the guard below that cleared the focusedRowId the model had just
+    //    pointed at the new row, so its requestFocus loop never ran and
     //    the old field kept focus.
     //  - requestFocus() on a not-yet-placed node can no-op WITHOUT throwing,
     //    so the retry loop must verify focus actually landed instead of
@@ -129,11 +132,12 @@ fun BlockTextField(
     var hasOsFocus by remember(row.id) { mutableStateOf(false) }
     LaunchedEffect(model.focusedRowId) {
         if (model.focusedRowId == row.id) {
-            // A freshly-created row (Enter/merge/insert) may not be laid out yet
-            // when this effect first runs; requestFocus() throws (or silently
-            // does nothing) until the node is placed. Retry across frames until
-            // the focus change is actually observed, so focus deterministically
-            // lands on the new row instead of staying on the old one.
+            // A freshly-created row (image insert/delete, run merge) may not be
+            // laid out yet when this effect first runs; requestFocus() throws
+            // (or silently does nothing) until the node is placed. Retry across
+            // frames until the focus change is actually observed, so focus
+            // deterministically lands on the new row instead of staying on the
+            // old one.
             var attempts = 0
             while (attempts < 8 && model.focusedRowId == row.id && !hasOsFocus) {
                 runCatching { focusRequester.requestFocus() }
@@ -170,7 +174,7 @@ fun BlockTextField(
             value.text.substring(0, start) + "@" + member.email + " " + value.text.substring(caret)
         val newCaret = start + member.email.length + 2
         value = TextFieldValue(newText, TextRange(newCaret))
-        model.updatePara(row.id, newText, newCaret)
+        model.updateRun(row.id, newText, newCaret)
         model.updateSelection(row.id, newCaret..newCaret)
         armed = false
     }
@@ -199,21 +203,23 @@ fun BlockTextField(
             value.text.substring(0, start) + "#" + target.identifier + " " + value.text.substring(caret)
         val newCaret = start + target.identifier.length + 2
         value = TextFieldValue(newText, TextRange(newCaret))
-        model.updatePara(row.id, newText, newCaret)
+        model.updateRun(row.id, newText, newCaret)
         model.updateSelection(row.id, newCaret..newCaret)
         armed = false
     }
 
-    val attrs = row.attrs
-    val textStyle = paragraphTextStyle(attrs)
     val marks = row.marks
-    val chipsEnabled = attrs.kind != BlockKind.CodeBlock
+    val paragraphs = row.paragraphs
+    // The paragraph under the caret gates the autocomplete (code lines are
+    // inert) — per-LINE now that the field spans the whole run.
+    val caretAttrs = paragraphs.getOrNull(ParaRemap.paraIndexAt(value.text, value.selection.start))
+        ?: ParagraphAttrs.PLAIN
 
     val menuOpen = shouldOpenAutocomplete(
         armed = armed,
         hasOsFocus = hasOsFocus,
         isFocusedRow = model.focusedRowId == row.id,
-        kind = attrs.kind,
+        kind = caretAttrs.kind,
         caretInInlineCode = caretInInlineCode(marks, value.selection.start),
         hasCandidates = mentionCandidates.isNotEmpty() || refCandidates.isNotEmpty(),
     )
@@ -226,8 +232,8 @@ fun BlockTextField(
     // Caret geometry for the menu's anchor, in the text-glyph box's own
     // coordinates (see the Popup below).
     var textLayout by remember(row.id) { mutableStateOf<TextLayoutResult?>(null) }
-    val chipTransform = remember(value.text, marks, issueRefs, chipsEnabled) {
-        IssueChipTransform.build(value.text, marks, issueRefs, chipsEnabled)
+    val chipTransform = remember(value.text, marks, issueRefs, paragraphs) {
+        IssueChipTransform.build(value.text, marks, issueRefs, paragraphs)
     }
     // The painted half of the editor's chips (EXP-423) — same geometry rules as
     // the read renderer, in the decoration box's coordinate space.
@@ -242,6 +248,11 @@ fun BlockTextField(
             )
         }
     }
+    // The per-paragraph vertical bands the painted decorations + checkbox tap
+    // targets key off, in the same display coordinates as [chipSpecs].
+    val bands = remember(chipTransform, paragraphs) {
+        paraBands(value.text, paragraphs, chipTransform)
+    }
     val caretRect = remember(textLayout, value.selection.start, chipTransform) {
         val layout = textLayout ?: return@remember null
         // getCursorRect wants a TRANSFORMED offset and throws out of range;
@@ -254,33 +265,60 @@ fun BlockTextField(
     }
     val toolbarHeightPx = LocalMarkdownToolbarController.current?.toolbarHeightPx ?: 0
 
+    // Caret auto-scroll while typing (EXP-534). The legacy CoreTextField only
+    // issues bringIntoView on focus GAIN, so a run that grows taller while
+    // typing (soft wrap or Enter — no focus handoff anymore) walks the caret
+    // below the viewport / behind the formatting bar. Re-request whenever the
+    // post-layout caret rect changes while THIS field holds focus. Keyed on
+    // caretRect: a keystroke fires once with the coerced stale-layout rect and
+    // again when the fresh TextLayoutResult lands; the restart cancels the
+    // in-flight scroll animation, so the correct rect always wins and fast
+    // typing conflates instead of queueing. The request propagates through
+    // every scrollable ancestor, covering both the page scroll (issue
+    // detail/create) and the comment composer's bounded box. The rect is the
+    // caret rect EXACTLY — no breathing-room margin: a rect reaching outside
+    // the requester node's bounds sends ContentInViewNode into a creeping
+    // never-visible scroll animation (verified on foundation 1.7.6), and the
+    // viewport is already inset by the toolbar + IME so the bare rect is
+    // enough.
+    val bringIntoViewRequester = remember(row.id) { BringIntoViewRequester() }
+    LaunchedEffect(caretRect, hasOsFocus) {
+        val rect = caretRect
+        if (hasOsFocus && rect != null) {
+            bringIntoViewRequester.bringIntoView(rect)
+        }
+    }
+
     BasicTextField(
         value = value,
         onValueChange = { new ->
-            if (new.text.contains('\n')) {
-                // Newline(s) arrived — either Enter (one '\n' replacing the
-                // selection) or a multi-line paste. Apply against the POST-EDIT
-                // text so a replaced selection is honored and no characters are
-                // dropped; splitParagraphFrom handles 1..N resulting lines.
-                model.splitParagraphFrom(row.id, new.text)
-            } else {
-                // Only a real document change may open the menu (web parity).
-                if (new.text != value.text) armed = true
-                value = new
-                if (new.text != row.text) model.updatePara(row.id, new.text, new.selection.start)
-                model.updateSelection(row.id, new.selection.start..new.selection.end)
-            }
+            // Only a real document change may open the menu (web parity).
+            if (new.text != value.text) armed = true
+            value = new
+            if (new.text != row.text) model.updateRun(row.id, new.text, new.selection.start)
+            model.updateSelection(row.id, new.selection.start..new.selection.end)
         },
-        textStyle = textStyle,
+        // Fixed line boxes (center + no trim): every line is exactly lineHeight
+        // tall, so lines that carry their own ParagraphStyle (list/quote/code
+        // indents — each range is a separate paragraph in the AnnotatedString)
+        // don't pick up the platform's extra first/last-line font padding and a
+        // multi-line code fence packs as tightly as the read renderer's.
+        textStyle = MdStyle.body.copy(
+            lineHeightStyle = LineHeightStyle(
+                alignment = LineHeightStyle.Alignment.Center,
+                trim = LineHeightStyle.Trim.None,
+            ),
+        ),
         onTextLayout = { textLayout = it },
         cursorBrush = SolidColor(MdStyle.Link),
-        // Resolved `#IDENTIFIER` tokens render as `#EXP-238 <title>` chips
-        // while editing (EXP-322, web parity) — display-only, the stored
-        // markdown keeps the bare token. Code rows opt out, like read mode.
+        // Per-paragraph styles (heading/list/quote/code) + inline marks +
+        // resolved `#IDENTIFIER` chips (EXP-322) — display-only, the stored
+        // markdown keeps the bare tokens.
         visualTransformation = ChipVisualTransformation(
             marks = marks,
             issueRefs = issueRefs,
-            chipsEnabled = chipsEnabled,
+            paragraphs = paragraphs,
+            fontScale = LocalDensity.current.fontScale,
         ),
         modifier = modifier
             .focusRequester(focusRequester)
@@ -290,8 +328,8 @@ fun BlockTextField(
                     model.setFocused(row.id)
                 } else {
                     // Only a field that actually HELD focus may clear the model's
-                    // focus target — the initial focused=false of a row created
-                    // by splitParagraphFrom must not cancel its pending handoff.
+                    // focus target — the initial focused=false of a freshly-
+                    // created row must not cancel its pending handoff.
                     if (hasOsFocus) model.clearFocusIfMatches(row.id)
                     hasOsFocus = false
                     armed = false
@@ -301,24 +339,35 @@ fun BlockTextField(
                 if (
                     event.type == KeyEventType.KeyDown &&
                     event.key == Key.Backspace &&
-                    value.selection.collapsed &&
-                    value.selection.start == 0
+                    value.selection.collapsed
                 ) {
-                    val canHandle = attrs.kind != BlockKind.Paragraph || model.rows.indexOfFirst { it.id == row.id } > 0
-                    if (canHandle) {
-                        model.backspaceAtStart(row.id)
-                        return@onPreviewKeyEvent true
+                    val caret = value.selection.start
+                    val atLineStart = caret == 0 || value.text.getOrNull(caret - 1) == '\n'
+                    if (atLineStart) {
+                        val kind = row.paragraphs
+                            .getOrNull(ParaRemap.paraIndexAt(value.text, caret))?.kind
+                            ?: BlockKind.Paragraph
+                        if (kind != BlockKind.Paragraph) {
+                            // First press on a formatted line clears its block
+                            // formatting instead of deleting into the previous
+                            // line (per-row editor / iOS parity).
+                            model.clearParagraphFormat(row.id, caret)
+                            return@onPreviewKeyEvent true
+                        }
+                        if (caret == 0 && model.rows.indexOfFirst { it.id == row.id } > 0) {
+                            // Run start: delete the image above and merge runs.
+                            model.backspaceAtRunStart(row.id)
+                            return@onPreviewKeyEvent true
+                        }
                     }
                 }
                 false
             },
         decorationBox = { inner ->
-            ParagraphDecoration(
-                model = model,
-                row = row,
-                showPlaceholder = placeholder != null && row.text.isEmpty(),
-                placeholder = placeholder,
-            ) {
+            Box(modifier = Modifier.fillMaxWidth().padding(vertical = MdStyle.textInsetV)) {
+                if (placeholder != null && row.text.isEmpty()) {
+                    Text(placeholder, style = LocalTextStyle.current.copy(color = MdStyle.Placeholder))
+                }
                 // The Popup lives INSIDE the decoration, wrapping the glyph box:
                 // that box becomes its anchorBounds and is the same coordinate
                 // space getCursorRect reports in, so the menu sits at the caret
@@ -326,7 +375,17 @@ fun BlockTextField(
                 // field it used to anchor to the whole editor column (EXP-322).
                 Box(
                     Modifier
+                        .fillMaxWidth()
+                        // Same coordinate space getCursorRect reports in, so the
+                        // caret rect passes through to bringIntoView untranslated.
+                        .bringIntoViewRequester(bringIntoViewRequester)
+                        // Painted decorations first so chips draw over a code
+                        // background, then chips, then the tap interceptors.
+                        .drawRunDecorations(bands) { textLayout }
                         .drawIssueRefChips(chipSpecs) { textLayout }
+                        .checklistTapTargets(bands, { textLayout }) { paraIndex ->
+                            model.toggleChecklistChecked(row.id, paraIndex)
+                        }
                         // Chips stay tappable while the row is NOT focused (iOS
                         // parity — the description editor is always the editable
                         // path on Android, so this is the only way a description
@@ -484,113 +543,3 @@ private fun AutocompleteMenu(
         }
     }
 }
-
-@Composable
-private fun ParagraphDecoration(
-    model: EditorModel,
-    row: EditorRow.Para,
-    showPlaceholder: Boolean,
-    placeholder: String?,
-    inner: @Composable () -> Unit,
-) {
-    val attrs = row.attrs
-    when (attrs.kind) {
-        BlockKind.ListItem -> {
-            val indent = MdStyle.listIndentBase + MdStyle.listIndentPerDepth * attrs.listDepth
-            Row(modifier = Modifier.padding(start = indent, top = 2.dp, bottom = 2.dp), verticalAlignment = Alignment.Top) {
-                ListGlyph(model, row, attrs)
-                Box(Modifier.weight(1f)) { inner() }
-            }
-        }
-
-        BlockKind.CodeBlock -> {
-            // Consecutive code rows merge into ONE visual box (EXP-246): corners
-            // round and outer/inner vertical padding apply only at the run's
-            // edges, so an N-line fence reads as a single connected block —
-            // read-view CodeBlockView parity. Neighbor kinds come straight off
-            // model.rows (snapshot state — recomposes when a neighbor changes).
-            val rows = model.rows
-            val idx = rows.indexOfFirst { it.id == row.id }
-            fun kindAt(i: Int) = (rows.getOrNull(i) as? EditorRow.Para)?.attrs?.kind
-            val joinsPrev = kindAt(idx - 1) == BlockKind.CodeBlock
-            val joinsNext = kindAt(idx + 1) == BlockKind.CodeBlock
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = if (joinsPrev) 0.dp else 1.dp, bottom = if (joinsNext) 0.dp else 1.dp)
-                    .clip(
-                        RoundedCornerShape(
-                            topStart = if (joinsPrev) 0.dp else 4.dp,
-                            topEnd = if (joinsPrev) 0.dp else 4.dp,
-                            bottomStart = if (joinsNext) 0.dp else 4.dp,
-                            bottomEnd = if (joinsNext) 0.dp else 4.dp,
-                        ),
-                    )
-                    .background(MdStyle.CodeBlockBg)
-                    .padding(
-                        start = 8.dp,
-                        end = 8.dp,
-                        top = if (joinsPrev) 1.dp else 4.dp,
-                        bottom = if (joinsNext) 1.dp else 4.dp,
-                    ),
-            ) { inner() }
-        }
-
-        BlockKind.Blockquote -> {
-            // Linear-style quote (EXP-246): vertical left bar + indented text.
-            // The bar fills the row's full height and rows stack flush in the
-            // editor column, so a multi-line quote reads as one continuous bar.
-            Row(modifier = Modifier.height(IntrinsicSize.Min)) {
-                Box(
-                    Modifier
-                        .width(MdStyle.quoteBarWidth)
-                        .fillMaxHeight()
-                        .background(MdStyle.QuoteBar),
-                )
-                Spacer(Modifier.width(MdStyle.quoteIndent))
-                Box(Modifier.weight(1f).padding(vertical = MdStyle.textInsetV)) { inner() }
-            }
-        }
-
-        else -> {
-            Box(modifier = Modifier.padding(vertical = MdStyle.textInsetV)) {
-                if (showPlaceholder && placeholder != null) {
-                    Text(placeholder, style = LocalTextStyle.current.copy(color = MdStyle.Placeholder))
-                }
-                inner()
-            }
-        }
-    }
-}
-
-@Composable
-private fun ListGlyph(model: EditorModel, row: EditorRow.Para, attrs: ParagraphAttrs) {
-    when (attrs.listType) {
-        ListType.Checklist -> Text(
-            text = if (attrs.checked) "☑" else "☐",
-            style = MdStyle.body,
-            modifier = Modifier
-                .width(24.dp)
-                .padding(end = 2.dp)
-                .clickable { model.toggleChecklistChecked(row.id) },
-        )
-        ListType.Ordered -> Text(
-            text = "${attrs.orderedIndex}.",
-            style = MdStyle.body,
-            modifier = Modifier.width(24.dp),
-        )
-        ListType.Bullet, null -> Text(
-            text = "•",
-            style = MdStyle.body,
-            modifier = Modifier.width(24.dp),
-        )
-    }
-}
-
-private fun paragraphTextStyle(attrs: ParagraphAttrs): TextStyle = when (attrs.kind) {
-    BlockKind.Heading -> MdStyle.heading(attrs.headingLevel)
-    BlockKind.CodeBlock -> MdStyle.mono
-    BlockKind.Blockquote -> MdStyle.body.copy(color = MdStyle.Blockquote)
-    else -> MdStyle.body
-}
-

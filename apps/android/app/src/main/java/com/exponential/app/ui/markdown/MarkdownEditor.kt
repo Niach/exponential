@@ -33,7 +33,8 @@ import kotlinx.coroutines.withContext
 
 /**
  * Block-based markdown editor / viewer. In `editable` mode it renders the
- * [EditorModel]'s rows as per-paragraph fields plus a formatting toolbar; in
+ * [EditorModel]'s rows as one multi-line field per text run between images
+ * (EXP-534 — selection spans paragraphs) plus a formatting toolbar; in
  * read mode it delegates to [MarkdownView]. The public signature is unchanged
  * from the previous `compose-rich-editor` wrapper so all call sites compile as-is:
  * markdown flows in via [markdown] and out via [onChange] (callers debounce).
@@ -158,11 +159,11 @@ fun MarkdownEditor(
             .heightIn(min = minHeight),
     ) {
         val rows = model.rows
-        val soleEmptyId = rows.singleOrNull()?.let { (it as? EditorRow.Para)?.takeIf { p -> p.text.isEmpty() }?.id }
+        val soleEmptyId = rows.singleOrNull()?.let { (it as? EditorRow.TextRun)?.takeIf { p -> p.text.isEmpty() }?.id }
         rows.forEach { row ->
             key(row.id) {
                 when (row) {
-                    is EditorRow.Para -> BlockTextField(
+                    is EditorRow.TextRun -> BlockTextField(
                         model = model,
                         row = row,
                         placeholder = if (row.id == soleEmptyId) placeholder else null,

@@ -16,22 +16,24 @@ import kotlinx.coroutines.coroutineScope
 
 /**
  * Single source of truth for the block markdown editor — the Compose analog of
- * iOS `IssueEditorModel`. Owns the flat [EditorRow] document and routes every
- * edit through intent methods; markdown is derived only at save
- * ([currentMarkdown]), never per keystroke.
+ * iOS `IssueEditorModel`. Owns the flat [EditorRow] document (multi-line
+ * [EditorRow.TextRun]s split only by images, EXP-534) and routes every edit
+ * through intent methods; markdown is derived only at save ([currentMarkdown]),
+ * never per keystroke.
  *
- * Revisions are bumped ONLY for structural / external changes (load, split,
- * merge, insert, delete) so a field never clobbers the characters the user just
- * typed — mirroring the iOS revision discipline.
+ * Revisions are bumped ONLY when the MODEL diverges from what the field
+ * reported (load, list-exit rewrite, toolbar insert, image insert/delete,
+ * attribute toggles) so a field never clobbers the characters the user just
+ * typed — mirroring the iOS revision discipline. An ordinary Enter or
+ * multi-line paste needs NO reseed: the field already holds the new text, and
+ * [updateRun] only remaps marks + paragraph attrs onto it.
  */
 @Stable
 class EditorModel {
 
     enum class ImageUploadState { Idle, Uploading, Failed }
 
-    var rows by mutableStateOf<List<EditorRow>>(
-        listOf(EditorRow.Para(text = "", attrs = ParagraphAttrs.PLAIN, marks = emptyList())),
-    )
+    var rows by mutableStateOf<List<EditorRow>>(listOf(EditorRows.emptyRun()))
         private set
 
     val pendingImages = mutableStateMapOf<String, PendingImage>()
@@ -141,8 +143,8 @@ class EditorModel {
      * Row whose `@`/`#` autocomplete an explicit toolbar insert just armed
      * (EXP-322). The field only opens its menu on a TEXT change, and a toolbar
      * insert reaches it through the revision re-seed, which is
-     * indistinguishable from an Enter split or a backspace merge — hence this
-     * explicit one-shot signal. Set only by [insertPlainText].
+     * indistinguishable from a reseeding rewrite — hence this explicit
+     * one-shot signal. Set only by [insertPlainText].
      */
     var autocompleteArmRowId by mutableStateOf<String?>(null)
         private set
@@ -156,17 +158,65 @@ class EditorModel {
 
     // -- Text editing -----------------------------------------------------------
 
-    /** Non-structural intra-paragraph edit: update text + remap marks. No revision bump. */
-    fun updatePara(rowId: String, newText: String, caret: Int) {
+    /**
+     * Apply the field's post-edit text for a run — the ONE entry point for
+     * every IME edit: typing, Enter (a plain '\n' now that a run is one
+     * multi-line field), backspace over a newline, and multi-line paste. One
+     * [TextDiff] (caret-pinned to disambiguate repeated surroundings) remaps
+     * both the inline marks and the paragraph-attribute list; no revision bump,
+     * so the field's own keystrokes are never clobbered.
+     *
+     * The one rewrite: Enter on an EMPTY list item exits the list instead of
+     * continuing it — the model drops the '\n', demotes the line to a plain
+     * paragraph, and reseeds the field (revision bump + desired caret).
+     */
+    fun updateRun(rowId: String, newText: String, caret: Int) {
         val idx = rows.indexOfFirst { it.id == rowId }
         if (idx < 0) return
-        val row = rows[idx] as? EditorRow.Para ?: return
+        val row = rows[idx] as? EditorRow.TextRun ?: return
         if (row.text == newText) return
-        val remapped = MarkRemap.remap(row.text, newText, row.marks)
+        val diff = TextDiff.of(row.text, newText, caret)
+
+        val exitIndex = emptyListItemEnterIndex(row, newText, diff)
+        if (exitIndex != null) {
+            val paras = row.paragraphs.toMutableList()
+            paras[exitIndex] = ParagraphAttrs.PLAIN
+            replaceRow(idx, row.copy(paragraphs = paras))
+            bump(row.id)
+            desiredSelection = row.id to diff.removedStart
+            renumberOrdered()
+            notifyEdit()
+            return
+        }
+
+        val remapped = MarkRemap.remap(diff, newText, row.marks)
         val finalMarks = applyPendingMarks(rowId, row.text, newText, caret, remapped)
-        rows = rows.toMutableList().also { it[idx] = row.copy(text = newText, marks = finalMarks) }
+        val newParas = ParaRemap.remap(diff, row.text, newText, row.paragraphs)
+        val structural = newParas.size != row.paragraphs.size
+        rows = rows.toMutableList().also {
+            it[idx] = row.copy(text = newText, paragraphs = newParas, marks = finalMarks)
+        }
         selection = rowId to (caret..caret)
+        if (structural) renumberOrdered()
         notifyEdit()
+    }
+
+    /**
+     * The list-exit rule: the edit is a lone '\n' typed on an empty ListItem
+     * line. Returns that line's paragraph index, or null.
+     */
+    private fun emptyListItemEnterIndex(
+        row: EditorRow.TextRun,
+        newText: String,
+        diff: TextDiff,
+    ): Int? {
+        if (!diff.isPureInsertion || diff.insertedLen != 1) return null
+        if (newText.getOrNull(diff.removedStart) != '\n') return null
+        val index = ParaRemap.paraIndexAt(row.text, diff.removedStart)
+        val (start, end) = ParaRemap.paragraphBounds(row.text, index)
+        if (start != end || diff.removedStart != start) return null
+        val attrs = row.paragraphs.getOrNull(index) ?: return null
+        return if (attrs.kind == BlockKind.ListItem) index else null
     }
 
     /**
@@ -202,139 +252,84 @@ class EditorModel {
         return out
     }
 
-    /** Enter: split the paragraph at [caret] (or list-continue / list-exit). */
     /**
-     * Handle a newline-bearing edit (Enter or a multi-line paste). [fullText] is
-     * the field's POST-EDIT text — Compose has already deleted any selected range
-     * and inserted the newline(s) — so we split on it directly, which makes
-     * Enter-over-a-selection replace the selection (not duplicate it) and a paste
-     * of `A\nB\nC` become three rows with nothing dropped.
+     * Backspace on a collapsed caret at a formatted line's start: clear that
+     * line's block formatting instead of deleting into the previous line
+     * (first-press-demotes, matching the old per-row editor and iOS).
      */
-    fun splitParagraphFrom(rowId: String, fullText: String) {
+    fun clearParagraphFormat(rowId: String, caret: Int) {
         val idx = rows.indexOfFirst { it.id == rowId }
         if (idx < 0) return
-        val row = rows[idx] as? EditorRow.Para ?: return
-        val parts = fullText.split("\n")
-
-        // Empty list item with a lone Enter → exit the list instead of adding one.
-        if (parts.size == 2 && parts[0].isEmpty() && parts[1].isEmpty() &&
-            row.attrs.kind == BlockKind.ListItem
-        ) {
-            replaceRow(idx, row.copy(text = "", marks = emptyList(), attrs = ParagraphAttrs.PLAIN))
-            bump(row.id)
-            desiredSelection = row.id to 0
-            renumberOrdered()
-            notifyEdit()
-            return
-        }
-
-        // First line keeps the row's block attrs; its marks are the original row's
-        // marks remapped onto the (possibly shortened) first-line text.
-        val firstText = parts.first()
-        val first = row.copy(text = firstText, marks = MarkRemap.remap(row.text, firstText, row.marks))
-
-        // Continuation lines: lists continue (ordered increments, checklist resets),
-        // code/quote continue, everything else becomes a plain paragraph.
-        val contAttrs = when (row.attrs.kind) {
-            BlockKind.ListItem -> when (row.attrs.listType) {
-                ListType.Checklist -> row.attrs.copy(checked = false)
-                else -> row.attrs
-            }
-            BlockKind.CodeBlock, BlockKind.Blockquote -> row.attrs
-            else -> ParagraphAttrs.PLAIN
-        }
-        val rest = parts.drop(1).map {
-            EditorRow.Para(text = it, attrs = contAttrs, marks = emptyList())
-        }
-
-        val next = rows.toMutableList()
-        next[idx] = first
-        next.addAll(idx + 1, rest)
-        rows = next
-        bump(first.id)
-        rest.forEach { bump(it.id) }
-        val last = rest.last()
-        focusedRowId = last.id
-        desiredSelection = last.id to 0
+        val row = rows[idx] as? EditorRow.TextRun ?: return
+        val index = ParaRemap.paraIndexAt(row.text, caret)
+        val attrs = row.paragraphs.getOrNull(index) ?: return
+        if (attrs.kind == BlockKind.Paragraph) return
+        val paras = row.paragraphs.toMutableList()
+        paras[index] = ParagraphAttrs.PLAIN
+        replaceRow(idx, row.copy(paragraphs = paras))
+        bump(row.id)
+        desiredSelection = row.id to caret.coerceIn(0, row.text.length)
         renumberOrdered()
         notifyEdit()
     }
 
-    /** Backspace at offset 0: clear paragraph formatting, then merge / delete image. */
-    fun backspaceAtStart(rowId: String) {
+    /**
+     * Backspace at offset 0 of a run whose previous row is an image: delete the
+     * image and merge this run into the run above it (the two runs' adjacent
+     * lines join into one, keeping the upper line's attrs).
+     */
+    fun backspaceAtRunStart(rowId: String) {
         val idx = rows.indexOfFirst { it.id == rowId }
-        if (idx < 0) return
-        val row = rows[idx] as? EditorRow.Para ?: return
+        if (idx <= 0) return
+        val row = rows[idx] as? EditorRow.TextRun ?: return
+        val prev = rows[idx - 1] as? EditorRow.Image ?: return
 
-        // First press on a formatted line just clears its block formatting.
-        if (row.attrs.kind != BlockKind.Paragraph) {
-            replaceRow(idx, row.copy(attrs = ParagraphAttrs.PLAIN))
-            bump(row.id)
+        dropPendingDraft(prev)
+        uploadStates.remove(prev.id)
+        uploadErrors.remove(prev.id)
+        uploaders.remove(prev.id)
+        val prevPrevIdx = idx - 2
+        val next = rows.toMutableList()
+        val target = next.getOrNull(prevPrevIdx) as? EditorRow.TextRun
+        if (target != null) {
+            val mergePoint = target.text.length
+            val merged = joinRuns(target, row)
+            next[prevPrevIdx] = merged
+            next.removeAt(idx)        // current
+            next.removeAt(idx - 1)    // image
+            rows = EditorRows.normalize(next)
+            bumpAll()
+            focusedRowId = merged.id
+            desiredSelection = merged.id to mergePoint
+        } else {
+            next.removeAt(idx - 1)    // just remove the image
+            rows = EditorRows.normalize(next)
+            bumpAll()
+            focusedRowId = row.id
             desiredSelection = row.id to 0
-            renumberOrdered()
-            notifyEdit()
-            return
         }
-
-        if (idx == 0) return
-        val prev = rows[idx - 1]
-        when (prev) {
-            is EditorRow.Image -> {
-                // Delete the image above, then merge this para into the para above it.
-                dropPendingDraft(prev)
-                uploadStates.remove(prev.id)
-                uploaders.remove(prev.id)
-                val prevPrevIdx = idx - 2
-                val next = rows.toMutableList()
-                if (prevPrevIdx >= 0 && next[prevPrevIdx] is EditorRow.Para) {
-                    val target = next[prevPrevIdx] as EditorRow.Para
-                    val mergePoint = target.text.length
-                    val merged = target.copy(
-                        text = target.text + row.text,
-                        marks = target.marks + MarkOps.offset(row.marks, mergePoint),
-                    )
-                    next[prevPrevIdx] = merged
-                    next.removeAt(idx)        // current
-                    next.removeAt(idx - 1)    // image
-                    rows = EditorRows.normalize(next)
-                    bumpAll()
-                    focusedRowId = merged.id
-                    desiredSelection = merged.id to mergePoint
-                } else {
-                    next.removeAt(idx - 1)    // just remove the image
-                    rows = EditorRows.normalize(next)
-                    bumpAll()
-                    focusedRowId = row.id
-                    desiredSelection = row.id to 0
-                }
-                renumberOrdered()
-                notifyEdit()
-            }
-            is EditorRow.Para -> {
-                val mergePoint = prev.text.length
-                val merged = prev.copy(
-                    text = prev.text + row.text,
-                    marks = prev.marks + MarkOps.offset(row.marks, mergePoint),
-                )
-                val next = rows.toMutableList()
-                next[idx - 1] = merged
-                next.removeAt(idx)
-                rows = next
-                bump(merged.id)
-                focusedRowId = merged.id
-                desiredSelection = merged.id to mergePoint
-                renumberOrdered()
-                notifyEdit()
-            }
-        }
+        renumberOrdered()
+        notifyEdit()
     }
+
+    /**
+     * Join two runs that an image no longer separates: [first]'s last line and
+     * [second]'s first line become ONE line (keeping [first]'s attrs for it),
+     * exactly like the old per-row image-delete merge.
+     */
+    private fun joinRuns(first: EditorRow.TextRun, second: EditorRow.TextRun): EditorRow.TextRun =
+        first.copy(
+            text = first.text + second.text,
+            paragraphs = first.paragraphs + second.paragraphs.drop(1),
+            marks = first.marks + MarkOps.offset(second.marks, first.text.length),
+        )
 
     // -- Inline marks -----------------------------------------------------------
 
     fun toggleMark(rowId: String, range: IntRange, kind: InlineKind, href: String? = null) {
         val idx = rows.indexOfFirst { it.id == rowId }
         if (idx < 0) return
-        val row = rows[idx] as? EditorRow.Para ?: return
+        val row = rows[idx] as? EditorRow.TextRun ?: return
         val start = range.first.coerceIn(0, row.text.length)
         val end = (range.last).coerceIn(start, row.text.length)
         if (kind == InlineKind.Link) {
@@ -389,17 +384,17 @@ class EditorModel {
 
     /**
      * Insert plain text at the caret of the active row (falls back to the end of
-     * the last paragraph) — the comment composer's `@` affordance (EXP-240).
+     * the last text run) — the comment composer's `@` affordance (EXP-240).
      * Mirrors [insertLinkText] sans the mark; re-asserts focus so the mention
      * autocomplete fires off the reseeded caret.
      */
     fun insertPlainText(text: String) {
         val rid = activeRowId
-            ?: rows.lastOrNull { it is EditorRow.Para }?.id
+            ?: rows.lastOrNull { it is EditorRow.TextRun }?.id
             ?: return
         val idx = rows.indexOfFirst { it.id == rid }
         if (idx < 0) return
-        val row = rows[idx] as? EditorRow.Para ?: return
+        val row = rows[idx] as? EditorRow.TextRun ?: return
         val pos = (selection?.takeIf { it.first == rid }?.second?.first ?: row.text.length)
             .coerceIn(0, row.text.length)
         val newText = row.text.substring(0, pos) + text + row.text.substring(pos)
@@ -417,7 +412,7 @@ class EditorModel {
     fun insertLinkText(rowId: String, at: Int, text: String, url: String) {
         val idx = rows.indexOfFirst { it.id == rowId }
         if (idx < 0) return
-        val row = rows[idx] as? EditorRow.Para ?: return
+        val row = rows[idx] as? EditorRow.TextRun ?: return
         val pos = at.coerceIn(0, row.text.length)
         val newText = row.text.substring(0, pos) + text + row.text.substring(pos)
         val shifted = MarkRemap.remap(row.text, newText, row.marks)
@@ -429,54 +424,88 @@ class EditorModel {
     }
 
     fun marksFor(rowId: String): List<com.exponential.app.ui.markdown.model.InlineMark> =
-        (rows.firstOrNull { it.id == rowId } as? EditorRow.Para)?.marks ?: emptyList()
+        (rows.firstOrNull { it.id == rowId } as? EditorRow.TextRun)?.marks ?: emptyList()
 
-    fun attrsFor(rowId: String): ParagraphAttrs? =
-        (rows.firstOrNull { it.id == rowId } as? EditorRow.Para)?.attrs
+    /** The paragraph under the caret (start of the active selection) — toolbar tint. */
+    fun attrsAtCaret(): ParagraphAttrs? {
+        val (rid, range) = activeSelection() ?: return null
+        val row = rows.firstOrNull { it.id == rid } as? EditorRow.TextRun ?: return null
+        return row.paragraphs.getOrNull(ParaRemap.paraIndexAt(row.text, range.first))
+    }
 
     // -- Paragraph kind ---------------------------------------------------------
+    // Toggles act on every paragraph the active selection touches (a collapsed
+    // caret = its one line) — the multi-paragraph upgrade EXP-534's one-field-
+    // per-run restructure unlocks. All-or-nothing semantics: if every touched
+    // paragraph already has the target kind, all clear to plain.
 
-    fun cycleHeading(rowId: String) = mutateAttrs(rowId) { a ->
+    fun cycleHeading(rowId: String) = mutateParaRange(rowId) { attrs ->
+        val a = attrs.first()
         val next = when {
             a.kind != BlockKind.Heading -> 1
             a.headingLevel >= 3 -> 0
             else -> a.headingLevel + 1
         }
-        if (next == 0) ParagraphAttrs.PLAIN else ParagraphAttrs(kind = BlockKind.Heading, headingLevel = next)
+        val v = if (next == 0) ParagraphAttrs.PLAIN
+        else ParagraphAttrs(kind = BlockKind.Heading, headingLevel = next)
+        attrs.map { v }
     }
 
-    fun toggleList(rowId: String, type: ListType) = mutateAttrs(rowId) { a ->
-        if (a.kind == BlockKind.ListItem && a.listType == type) ParagraphAttrs.PLAIN
-        else ParagraphAttrs(kind = BlockKind.ListItem, listType = type)
+    fun toggleList(rowId: String, type: ListType) = mutateParaRange(rowId) { attrs ->
+        if (attrs.all { it.kind == BlockKind.ListItem && it.listType == type }) {
+            attrs.map { ParagraphAttrs.PLAIN }
+        } else {
+            attrs.map { ParagraphAttrs(kind = BlockKind.ListItem, listType = type) }
+        }
     }.also { renumberOrdered() }
 
-    fun toggleQuote(rowId: String) = mutateAttrs(rowId) { a ->
-        if (a.kind == BlockKind.Blockquote) ParagraphAttrs.PLAIN
-        else ParagraphAttrs(kind = BlockKind.Blockquote)
+    fun toggleQuote(rowId: String) = mutateParaRange(rowId) { attrs ->
+        if (attrs.all { it.kind == BlockKind.Blockquote }) attrs.map { ParagraphAttrs.PLAIN }
+        else attrs.map { ParagraphAttrs(kind = BlockKind.Blockquote) }
     }
 
-    fun toggleCodeBlock(rowId: String) = mutateAttrs(rowId) { a ->
-        if (a.kind == BlockKind.CodeBlock) ParagraphAttrs.PLAIN
-        else ParagraphAttrs(kind = BlockKind.CodeBlock)
+    fun toggleCodeBlock(rowId: String) = mutateParaRange(rowId) { attrs ->
+        if (attrs.all { it.kind == BlockKind.CodeBlock }) attrs.map { ParagraphAttrs.PLAIN }
+        else attrs.map { ParagraphAttrs(kind = BlockKind.CodeBlock) }
     }
 
-    fun toggleChecklistChecked(rowId: String) {
+    fun toggleChecklistChecked(rowId: String, paraIndex: Int) {
         val idx = rows.indexOfFirst { it.id == rowId }
         if (idx < 0) return
-        val row = rows[idx] as? EditorRow.Para ?: return
-        if (row.attrs.kind != BlockKind.ListItem || row.attrs.listType != ListType.Checklist) return
-        replaceRow(idx, row.copy(attrs = row.attrs.copy(checked = !row.attrs.checked)))
+        val row = rows[idx] as? EditorRow.TextRun ?: return
+        val attrs = row.paragraphs.getOrNull(paraIndex) ?: return
+        if (attrs.kind != BlockKind.ListItem || attrs.listType != ListType.Checklist) return
+        val paras = row.paragraphs.toMutableList()
+        paras[paraIndex] = attrs.copy(checked = !attrs.checked)
+        replaceRow(idx, row.copy(paragraphs = paras))
         setFocused(rowId)
         notifyEdit()
     }
 
-    private fun mutateAttrs(rowId: String, transform: (ParagraphAttrs) -> ParagraphAttrs) {
+    private fun mutateParaRange(
+        rowId: String,
+        transform: (List<ParagraphAttrs>) -> List<ParagraphAttrs>,
+    ) {
         val idx = rows.indexOfFirst { it.id == rowId }
         if (idx < 0) return
-        val row = rows[idx] as? EditorRow.Para ?: return
-        replaceRow(idx, row.copy(attrs = transform(row.attrs)))
-        bump(row.id) // re-seed the field so glyph / indent / text size update cleanly
-        desiredSelection = row.id to ((selection?.takeIf { it.first == row.id }?.second?.first) ?: row.text.length)
+        val row = rows[idx] as? EditorRow.TextRun ?: return
+        val sel = selection?.takeIf { it.first == rowId }?.second
+        val start = (sel?.first ?: row.text.length).coerceIn(0, row.text.length)
+        val end = (sel?.last ?: row.text.length).coerceIn(start, row.text.length)
+        val firstPara = ParaRemap.paraIndexAt(row.text, start)
+        val lastPara = ParaRemap.paraIndexAt(row.text, end)
+            .coerceIn(firstPara, row.paragraphs.lastIndex.coerceAtLeast(0))
+        val paras = row.paragraphs.toMutableList()
+        if (paras.isEmpty()) return
+        val slice = (firstPara..lastPara).map { paras[it] }
+        val replaced = transform(slice)
+        for (i in firstPara..lastPara) paras[i] = replaced[i - firstPara]
+        replaceRow(idx, row.copy(paragraphs = paras))
+        // Re-seed the field so indent / text size update cleanly. When only
+        // attributes changed the field's text and selection start still match,
+        // so a live selection survives the (no-op) reseed.
+        bump(row.id)
+        desiredSelection = row.id to start
         notifyEdit()
     }
 
@@ -515,10 +544,10 @@ class EditorModel {
 
         val targetId = if (atEnd) null else focusedRowId ?: selection?.first
         val targetIdx = rows.indexOfFirst { it.id == targetId }
-        val targetRow = rows.getOrNull(targetIdx) as? EditorRow.Para
+        val targetRow = rows.getOrNull(targetIdx) as? EditorRow.TextRun
 
         if (targetRow == null) {
-            val after = EditorRow.Para(text = "", attrs = ParagraphAttrs.PLAIN, marks = emptyList())
+            val after = EditorRows.emptyRun()
             val next = rows.toMutableList()
             next.add(imageRow)
             next.add(after)
@@ -533,13 +562,18 @@ class EditorModel {
 
         val caret = (selection?.takeIf { it.first == targetRow.id }?.second?.first ?: targetRow.text.length)
             .coerceIn(0, targetRow.text.length)
+        val caretPara = ParaRemap.paraIndexAt(targetRow.text, caret)
         val before = targetRow.copy(
             text = targetRow.text.substring(0, caret),
+            paragraphs = targetRow.paragraphs.subList(0, caretPara + 1).toList(),
             marks = MarkOps.slice(targetRow.marks, 0, caret),
         )
-        val after = EditorRow.Para(
+        // The remainder's first line becomes a plain paragraph (the image cut
+        // it loose from its old block context); later lines keep their attrs.
+        val after = EditorRow.TextRun(
             text = targetRow.text.substring(caret),
-            attrs = ParagraphAttrs.PLAIN,
+            paragraphs = listOf(ParagraphAttrs.PLAIN) +
+                targetRow.paragraphs.subList(caretPara + 1, targetRow.paragraphs.size),
             marks = MarkOps.slice(targetRow.marks, caret, targetRow.text.length),
         )
         val next = rows.toMutableList()
@@ -618,12 +652,9 @@ class EditorModel {
         val next = rows.toMutableList()
         val prev = next.getOrNull(prevIdx)
         val after = next.getOrNull(nextIdx)
-        if (prev is EditorRow.Para && after is EditorRow.Para) {
+        if (prev is EditorRow.TextRun && after is EditorRow.TextRun) {
             val mergePoint = prev.text.length
-            val merged = prev.copy(
-                text = prev.text + after.text,
-                marks = prev.marks + MarkOps.offset(after.marks, mergePoint),
-            )
+            val merged = joinRuns(prev, after)
             next[prevIdx] = merged
             next.removeAt(nextIdx)
             next.removeAt(idx)
@@ -636,6 +667,7 @@ class EditorModel {
             rows = EditorRows.normalize(next)
             bumpAll()
         }
+        renumberOrdered()
         notifyEdit()
     }
 
@@ -718,47 +750,62 @@ class EditorModel {
     /**
      * Renumber consecutive ordered list items (1,2,3…) so serialization matches
      * the UI. Counters are PER DEPTH, mirroring the parser's ListFrame stack: a
-     * nested list lives inside its parent item, so deeper rows must not break
-     * the parent's run and the parent's counter must never bleed into a nested
-     * list (REV-31). A depth's counter resets when its run breaks — a non-list
-     * row, a shallower list row (which closes the nested list), or a different
-     * list type arriving at the same depth (a marker-type switch starts a new
-     * list in CommonMark).
+     * nested list lives inside its parent item, so deeper paragraphs must not
+     * break the parent's run and the parent's counter must never bleed into a
+     * nested list (REV-31). A depth's counter resets when its run breaks — a
+     * non-list paragraph, an image row, a shallower list paragraph (which
+     * closes the nested list), or a different list type arriving at the same
+     * depth (a marker-type switch starts a new list in CommonMark).
      */
     private fun renumberOrdered() {
-        val next = rows.toMutableList()
         val counters = mutableListOf<Int>() // counters[d] = last ordered index emitted at depth d
         val types = mutableListOf<ListType>() // list type of the open run at depth d
         var changed = false
-        for (i in next.indices) {
-            val r = next[i] as? EditorRow.Para
-            val a = r?.attrs
-            if (a == null || a.kind != BlockKind.ListItem) {
-                counters.clear()
-                types.clear()
-                continue
-            }
-            val depth = a.listDepth.coerceAtLeast(0)
-            // This row closes any deeper open lists…
-            while (counters.size > depth + 1) {
-                counters.removeAt(counters.size - 1)
-                types.removeAt(types.size - 1)
-            }
-            // …and opens its own level (plus any skipped intermediates).
-            val type = a.listType ?: ListType.Bullet // the serializer emits null as a bullet
-            while (counters.size <= depth) {
-                counters.add(0)
-                types.add(type)
-            }
-            if (types[depth] != type) {
-                counters[depth] = 0
-                types[depth] = type
-            }
-            if (type == ListType.Ordered) {
-                counters[depth] = counters[depth] + 1
-                if (a.orderedIndex != counters[depth]) {
-                    next[i] = r.copy(attrs = a.copy(orderedIndex = counters[depth]))
-                    changed = true
+        val next = rows.map { r ->
+            when (r) {
+                is EditorRow.Image -> {
+                    counters.clear()
+                    types.clear()
+                    r
+                }
+                is EditorRow.TextRun -> {
+                    var rowChanged = false
+                    val paras = r.paragraphs.toMutableList()
+                    for (i in paras.indices) {
+                        val a = paras[i]
+                        if (a.kind != BlockKind.ListItem) {
+                            counters.clear()
+                            types.clear()
+                            continue
+                        }
+                        val depth = a.listDepth.coerceAtLeast(0)
+                        // This paragraph closes any deeper open lists…
+                        while (counters.size > depth + 1) {
+                            counters.removeAt(counters.size - 1)
+                            types.removeAt(types.size - 1)
+                        }
+                        // …and opens its own level (plus any skipped intermediates).
+                        val type = a.listType ?: ListType.Bullet // the serializer emits null as a bullet
+                        while (counters.size <= depth) {
+                            counters.add(0)
+                            types.add(type)
+                        }
+                        if (types[depth] != type) {
+                            counters[depth] = 0
+                            types[depth] = type
+                        }
+                        if (type == ListType.Ordered) {
+                            counters[depth] = counters[depth] + 1
+                            if (a.orderedIndex != counters[depth]) {
+                                paras[i] = a.copy(orderedIndex = counters[depth])
+                                rowChanged = true
+                            }
+                        }
+                    }
+                    if (rowChanged) {
+                        changed = true
+                        r.copy(paragraphs = paras)
+                    } else r
                 }
             }
         }

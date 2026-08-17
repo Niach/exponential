@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
@@ -74,11 +75,19 @@ fun MarkdownView(
         MarkdownParser.parse(markdown, softBreaksAsNewlines)
     }
     val issueRefs = LocalIssueRefs.current
-    Column(modifier = modifier.fillMaxWidth()) {
-        blocks.forEach { block ->
-            when (block) {
-                is ContentBlock.TextBlock -> TextBlockView(block.content, issueRefs)
-                is ContentBlock.ImageBlock -> ImageBlockView(block.url, block.alt)
+    // The whole rendered document is one selection scope (EXP-534): long-press
+    // selection spans blocks AND images (the text on both sides selects; the
+    // image itself is not selectable content). Links/chips stay tappable —
+    // SelectionContainer only adds the long-press gesture. The caller's
+    // modifier goes on the container so parent-data modifiers (weight) land on
+    // the layout parent's direct child.
+    SelectionContainer(modifier = modifier) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            blocks.forEach { block ->
+                when (block) {
+                    is ContentBlock.TextBlock -> TextBlockView(block.content, issueRefs)
+                    is ContentBlock.ImageBlock -> ImageBlockView(block.url, block.alt)
+                }
             }
         }
     }

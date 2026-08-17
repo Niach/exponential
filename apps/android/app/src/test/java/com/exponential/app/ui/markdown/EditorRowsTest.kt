@@ -42,24 +42,25 @@ class EditorRowsTest {
     @Test fun codeBlockSurvivesRowRoundTrip() =
         assertEquals("```js\nx\ny\n```", roundTripViaRows("```js\nx\ny\n```"))
 
-    @Test fun everyTextLineBecomesOneParaRow() {
+    @Test fun everyTextBlockBecomesOneMultiLineRun() {
         val rows = EditorRows.fromBlocks(MarkdownParser.parse("# T\n\nbody"))
-        val paras = rows.filterIsInstance<EditorRow.Para>()
-        // heading line + body line (the empty separator collapses out).
-        assertEquals(BlockKind.Heading, paras.first().attrs.kind)
-        assertTrue(paras.any { it.text == "body" })
+        val run = rows.filterIsInstance<EditorRow.TextRun>().single()
+        // heading line + body line in ONE field (EXP-534 — selection spans them).
+        assertEquals(listOf("T", "body"), run.lines)
+        assertEquals(BlockKind.Heading, run.paragraphs.first().kind)
+        assertEquals(run.lines.size, run.paragraphs.size)
     }
 
-    @Test fun imageRowSplitsParaRuns() {
+    @Test fun imageRowSplitsTextRuns() {
         val rows = EditorRows.fromBlocks(MarkdownParser.parse("a\n\n![x](/api/attachments/y)\n\nb"))
         val kinds = rows.map { it::class.simpleName }
-        assertEquals(listOf("Para", "Image", "Para"), kinds)
+        assertEquals(listOf("TextRun", "Image", "TextRun"), kinds)
     }
 
     @Test fun orderedListIndicesPreserved() {
-        val rows = EditorRows.fromBlocks(MarkdownParser.parse("1. one\n2. two\n3. three"))
-            .filterIsInstance<EditorRow.Para>()
-        assertEquals(listOf(1, 2, 3), rows.map { it.attrs.orderedIndex })
-        assertTrue(rows.all { it.attrs.listType == ListType.Ordered })
+        val run = EditorRows.fromBlocks(MarkdownParser.parse("1. one\n2. two\n3. three"))
+            .filterIsInstance<EditorRow.TextRun>().single()
+        assertEquals(listOf(1, 2, 3), run.paragraphs.map { it.orderedIndex })
+        assertTrue(run.paragraphs.all { it.listType == ListType.Ordered })
     }
 }

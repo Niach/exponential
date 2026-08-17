@@ -2,13 +2,19 @@ package com.exponential.app.ui.markdown
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.ParagraphStyle
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextIndent
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.sp
+import com.exponential.app.ui.markdown.model.BlockKind
 import com.exponential.app.ui.markdown.model.InlineMark
+import com.exponential.app.ui.markdown.model.ParagraphAttrs
 
 /**
  * The editor-side `#IDENTIFIER` chip (EXP-322): a resolved token renders as
@@ -106,10 +112,15 @@ internal class IssueChipTransform private constructor(
 
     companion object {
         /**
-         * Build the chip transform for one editable line. Returns the identity
-         * instance when there is nothing to chip — the common case, and the
-         * reason the `contains('#')` early-out matters on the per-keystroke
-         * path.
+         * Build the chip transform for one editable text run (multi-line since
+         * EXP-534 — the injection stays a pure per-token suffix, so newlines
+         * change nothing). Returns the identity instance when there is nothing
+         * to chip — the common case, and the reason the `contains('#')`
+         * early-out matters on the per-keystroke path.
+         *
+         * [paragraphs] is the run's per-line attrs: tokens on a code-block
+         * line stay plain, the run-level analog of the old per-row
+         * `chipsEnabled` flag (read-mode parity — code renders literally).
          *
          * MUST be called with the string the transformation is filtering; a
          * transform built from a captured, stale `row.text`/`value.text` is
@@ -119,12 +130,15 @@ internal class IssueChipTransform private constructor(
             source: String,
             marks: List<InlineMark>,
             issueRefs: IssueRefHandler?,
-            enabled: Boolean,
+            paragraphs: List<ParagraphAttrs>,
         ): IssueChipTransform {
-            if (!enabled || issueRefs == null || !source.contains('#')) return identity(source)
+            if (issueRefs == null || !source.contains('#')) return identity(source)
             // Same candidate rule as the read renderer: resolved tokens only,
-            // never inside inline code or a markdown link.
-            val pills = resolvedRefPills(source, marks, issueRefs)
+            // never inside inline code, a markdown link, or a code-block line.
+            val pills = resolvedRefPills(source, marks, issueRefs).filterNot { (match, _) ->
+                paragraphs.getOrNull(ParaRemap.paraIndexAt(source, match.start))
+                    ?.kind == BlockKind.CodeBlock
+            }
             if (pills.isEmpty()) return identity(source)
 
             val out = StringBuilder(source.length + pills.size * 16)
@@ -155,74 +169,153 @@ internal class IssueChipTransform private constructor(
 }
 
 /**
- * The editor's inline styling: the existing bold/italic/strike/code/link marks
- * plus resolved `#IDENTIFIER` chips (EXP-322). Falls back to the pre-chip
- * behaviour byte for byte when nothing chips.
+ * The editor's whole visual styling for one multi-line text run (EXP-534):
+ * per-PARAGRAPH styles (heading size/weight, list/quote/code indents via
+ * [ParagraphStyle], quote/code/thematic colors), the existing
+ * bold/italic/strike/code/link marks, and resolved `#IDENTIFIER` chips
+ * (EXP-322) — layered in that order so marks override line styles and chips
+ * override both, exactly like the read renderer.
  */
 internal class ChipVisualTransformation(
     private val marks: List<InlineMark>,
     private val issueRefs: IssueRefHandler?,
-    private val chipsEnabled: Boolean,
+    private val paragraphs: List<ParagraphAttrs>,
+    /** For dp→sp indent conversion — sp shrinks under font scaling, dp doesn't. */
+    private val fontScale: Float,
 ) : VisualTransformation {
 
     override fun filter(text: AnnotatedString): TransformedText {
         // Built from filter's OWN argument — never from captured state.
-        val transform = IssueChipTransform.build(text.text, marks, issueRefs, chipsEnabled)
-        if (transform.isIdentity) {
-            return TransformedText(InlineMarks.annotate(text.text, marks), OffsetMapping.Identity)
-        }
+        val source = text.text
+        val transform = IssueChipTransform.build(source, marks, issueRefs, paragraphs)
         // Reuse the shared mark styling by lifting the marks into display
         // coordinates first, so the editor and the read renderer can never
         // drift on how a bold/link/code span looks.
-        val remapped = marks.mapNotNull { m ->
+        val remapped = if (transform.isIdentity) marks else marks.mapNotNull { m ->
             val start = transform.originalToTransformed(m.start)
             val end = transform.originalToTransformed(m.end)
             if (end > start) m.copy(start = start, end = end) else null
         }
-        val base = InlineMarks.annotate(transform.display, remapped)
         val annotated = buildAnnotatedString {
-            append(base)
-            for (chip in transform.chips) {
-                // The same span treatment MarkdownView's read-mode pills use
-                // (EXP-423): title in the normal text color, identifier muted +
-                // monospace, and — when the issue's status resolved — a
-                // transparent `#` for the glyph BlockTextField paints over it.
-                // The background and border are painted, not spanned. No
-                // `addLink` here: a LinkAnnotation inside a BasicTextField
-                // fights the caret — tap-to-open is a pointerInput on the
-                // decoration box instead.
-                addStyle(
-                    SpanStyle(color = MdStyle.Text),
-                    chip.displayStart,
-                    chip.displayEnd,
+            // Newlines render as zero-width spaces: every line carries its own
+            // ParagraphStyle range below, so the paragraph BREAKS come from the
+            // ranges — a real '\n' inside a range would add a trailing empty
+            // line to its paragraph (StaticLayout renders one after a trailing
+            // newline), doubling the spacing of every styled line. The 1:1
+            // substitution keeps display offsets identical, keeps end-of-line
+            // and start-of-next-line carets at DISTINCT display offsets (the
+            // zero-width char still occupies one), and the copy/IME path never
+            // sees it — those work on the source TextFieldValue.
+            append(transform.display.replace('\n', '\u200B'))
+            addLineStyles(this, source, transform)
+            InlineMarks.addStyles(this, transform.display.length, remapped)
+            addChipStyles(this, transform)
+        }
+        val mapping = if (transform.isIdentity) OffsetMapping.Identity else transform.offsetMapping
+        return TransformedText(annotated, mapping)
+    }
+
+    /**
+     * Per-paragraph span + paragraph styles over each line's display range.
+     * EVERY line gets a ParagraphStyle range (plain lines an empty one): with
+     * newlines substituted away (see [filter]) the ranges are what break the
+     * text into paragraphs at all. Ranges INCLUDE the substituted newline so
+     * they tile the display exactly. The paragraphs list can lag the text by a
+     * frame; every index is guarded and a missing entry styles as plain.
+     */
+    private fun addLineStyles(
+        builder: AnnotatedString.Builder,
+        source: String,
+        transform: IssueChipTransform,
+    ) {
+        val display = transform.display
+        val lines = if (source.isEmpty()) listOf("") else source.split("\n")
+        var lineStart = 0
+        for ((i, line) in lines.withIndex()) {
+            val lineEnd = lineStart + line.length
+            val a = paragraphs.getOrNull(i) ?: ParagraphAttrs.PLAIN
+            val dStart = transform.originalToTransformed(lineStart)
+            // The display position of this line's '\n' (chips injected at the
+            // very end of the line sit BEFORE it, hence the end+1 - 1 mapping).
+            val dLineEnd =
+                if (i == lines.lastIndex) display.length
+                else (transform.originalToTransformed(lineEnd + 1) - 1).coerceAtLeast(dStart)
+            val span: SpanStyle? = when (a.kind) {
+                BlockKind.Heading -> MdStyle.heading(a.headingLevel).toSpanStyle()
+                BlockKind.CodeBlock -> SpanStyle(
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = MdStyle.mono.fontSize,
                 )
-                addStyle(
-                    SpanStyle(fontFamily = FontFamily.Monospace, color = MdStyle.ChipToken),
+                BlockKind.Blockquote -> SpanStyle(color = MdStyle.Blockquote)
+                BlockKind.ThematicBreak -> SpanStyle(color = MdStyle.Dim)
+                else -> null
+            }
+            val paragraph: ParagraphStyle = when (a.kind) {
+                BlockKind.Heading -> ParagraphStyle(lineHeight = MdStyle.heading(a.headingLevel).lineHeight)
+                BlockKind.ListItem -> ParagraphStyle(textIndent = indentOf(listIndentDp(a.listDepth)))
+                BlockKind.Blockquote ->
+                    ParagraphStyle(textIndent = indentOf(MdStyle.quoteBarWidth + MdStyle.quoteIndent))
+                BlockKind.CodeBlock -> ParagraphStyle(textIndent = indentOf(MdStyle.codeInsetX))
+                else -> ParagraphStyle()
+            }
+            if (span != null && dLineEnd > dStart) builder.addStyle(span, dStart, dLineEnd)
+            val parEnd = (dLineEnd + 1).coerceAtMost(display.length)
+            if (parEnd > dStart) builder.addStyle(paragraph, dStart, parEnd)
+            lineStart = lineEnd + 1
+        }
+    }
+
+    private fun listIndentDp(depth: Int): Dp =
+        MdStyle.listIndentBase + MdStyle.listIndentPerDepth * depth.coerceAtLeast(0) +
+            MdStyle.listGlyphWidth
+
+    private fun indentOf(dp: Dp): TextIndent {
+        val sp = (dp.value / fontScale).sp
+        return TextIndent(firstLine = sp, restLine = sp)
+    }
+
+    private fun addChipStyles(builder: AnnotatedString.Builder, transform: IssueChipTransform) {
+        for (chip in transform.chips) {
+            // The same span treatment MarkdownView's read-mode pills use
+            // (EXP-423): title in the normal text color, identifier muted +
+            // monospace, and — when the issue's status resolved — a
+            // transparent `#` for the glyph BlockTextField paints over it.
+            // The background and border are painted, not spanned. No
+            // `addLink` here: a LinkAnnotation inside a BasicTextField
+            // fights the caret — tap-to-open is a pointerInput on the
+            // decoration box instead.
+            builder.addStyle(
+                SpanStyle(color = MdStyle.Text),
+                chip.displayStart,
+                chip.displayEnd,
+            )
+            builder.addStyle(
+                SpanStyle(fontFamily = FontFamily.Monospace, color = MdStyle.ChipToken),
+                chip.displayStart,
+                chip.displayTokenEnd,
+            )
+            if (chip.target.resolvedStatus != null) {
+                builder.addStyle(
+                    SpanStyle(color = Color.Transparent),
                     chip.displayStart,
-                    chip.displayTokenEnd,
+                    (chip.displayStart + 1).coerceAtMost(chip.displayTokenEnd),
                 )
-                if (chip.target.resolvedStatus != null) {
-                    addStyle(
-                        SpanStyle(color = Color.Transparent),
-                        chip.displayStart,
-                        (chip.displayStart + 1).coerceAtMost(chip.displayTokenEnd),
-                    )
-                }
             }
         }
-        return TransformedText(annotated, transform.offsetMapping)
     }
 
     override fun equals(other: Any?): Boolean =
         other is ChipVisualTransformation &&
             other.marks == marks &&
             other.issueRefs === issueRefs &&
-            other.chipsEnabled == chipsEnabled
+            other.paragraphs == paragraphs &&
+            other.fontScale == fontScale
 
     override fun hashCode(): Int {
         var result = marks.hashCode()
         result = 31 * result + (issueRefs?.hashCode() ?: 0)
-        result = 31 * result + chipsEnabled.hashCode()
+        result = 31 * result + paragraphs.hashCode()
+        result = 31 * result + fontScale.hashCode()
         return result
     }
 }

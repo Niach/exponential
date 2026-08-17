@@ -3,34 +3,24 @@ package com.exponential.app.ui.markdown
 import com.exponential.app.ui.markdown.model.InlineMark
 
 /**
- * Adjusts a paragraph's inline marks when its text is edited, using a
- * prefix/suffix diff to locate the changed span. Keeps bold/italic/etc. ranges
- * attached to the right characters as the user types or deletes — without this,
- * marks would drift on every keystroke.
+ * Adjusts a text run's inline marks when its text is edited, using a
+ * prefix/suffix diff ([TextDiff]) to locate the changed span. Keeps
+ * bold/italic/etc. ranges attached to the right characters as the user types or
+ * deletes — without this, marks would drift on every keystroke.
  */
 object MarkRemap {
 
-    fun remap(oldText: String, newText: String, marks: List<InlineMark>): List<InlineMark> {
-        if (marks.isEmpty() || oldText == newText) return marks
+    fun remap(oldText: String, newText: String, marks: List<InlineMark>): List<InlineMark> =
+        remap(TextDiff.of(oldText, newText), newText, marks)
 
-        // Common prefix length.
-        var p = 0
-        val maxPrefix = minOf(oldText.length, newText.length)
-        while (p < maxPrefix && oldText[p] == newText[p]) p++
+    internal fun remap(diff: TextDiff, newText: String, marks: List<InlineMark>): List<InlineMark> {
+        if (marks.isEmpty() || (diff.removedLen == 0 && diff.insertedLen == 0)) return marks
 
-        // Common suffix length (not overlapping the prefix).
-        var s = 0
-        while (
-            s < (minOf(oldText.length, newText.length) - p) &&
-            oldText[oldText.length - 1 - s] == newText[newText.length - 1 - s]
-        ) s++
-
-        val removedStart = p
-        val removedEnd = oldText.length - s          // exclusive, in old coords
-        val insertedLen = newText.length - s - p
-        val removedLen = removedEnd - removedStart
-        val delta = insertedLen - removedLen
-        val pureInsertion = removedLen == 0
+        val removedStart = diff.removedStart
+        val removedEnd = diff.removedEnd
+        val insertedLen = diff.insertedLen
+        val delta = diff.delta
+        val pureInsertion = diff.isPureInsertion
 
         // A mark's start and end bias differently at the edit boundary: text
         // inserted exactly at a mark's start pushes the start right (the typed

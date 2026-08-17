@@ -28,23 +28,32 @@ object InlineMarks {
 
         return buildAnnotatedString {
             append(text)
-            for (m in marks) {
-                val start = m.start.coerceIn(0, text.length)
-                val end = m.end.coerceIn(start, text.length)
-                if (end <= start) continue
-                when (m.kind) {
-                    InlineKind.Bold -> addStyle(SpanStyle(fontWeight = FontWeight.Bold), start, end)
-                    InlineKind.Italic -> addStyle(SpanStyle(fontStyle = FontStyle.Italic), start, end)
-                    InlineKind.Strikethrough ->
-                        addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), start, end)
-                    InlineKind.InlineCode -> addStyle(
-                        SpanStyle(fontFamily = FontFamily.Monospace, background = MdStyle.InlineCodeBg),
-                        start, end,
-                    )
-                    InlineKind.Link -> {
-                        addStyle(SpanStyle(color = MdStyle.Link), start, end)
-                        m.href?.let { addStringAnnotation(LINK_TAG, it, start, end) }
-                    }
+            addStyles(this, text.length, marks)
+        }
+    }
+
+    /**
+     * The style half of [annotate], applied onto an existing builder whose text
+     * is already appended — lets the editor's visual transformation stack line
+     * styles, mark styles and chip styles in one build (EXP-534).
+     */
+    fun addStyles(builder: AnnotatedString.Builder, textLength: Int, marks: List<InlineMark>) {
+        for (m in marks) {
+            val start = m.start.coerceIn(0, textLength)
+            val end = m.end.coerceIn(start, textLength)
+            if (end <= start) continue
+            when (m.kind) {
+                InlineKind.Bold -> builder.addStyle(SpanStyle(fontWeight = FontWeight.Bold), start, end)
+                InlineKind.Italic -> builder.addStyle(SpanStyle(fontStyle = FontStyle.Italic), start, end)
+                InlineKind.Strikethrough ->
+                    builder.addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), start, end)
+                InlineKind.InlineCode -> builder.addStyle(
+                    SpanStyle(fontFamily = FontFamily.Monospace, background = MdStyle.InlineCodeBg),
+                    start, end,
+                )
+                InlineKind.Link -> {
+                    builder.addStyle(SpanStyle(color = MdStyle.Link), start, end)
+                    m.href?.let { builder.addStringAnnotation(LINK_TAG, it, start, end) }
                 }
             }
         }
