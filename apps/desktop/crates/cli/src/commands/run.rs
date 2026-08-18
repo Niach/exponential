@@ -54,6 +54,8 @@ pub fn run(args: &[String]) -> CommandResult {
         inputs,
         options,
         coding::LaunchOrigin::Local,
+        // A hand-typed `run` is never automation-started.
+        None,
     )?;
     println!("Running action: {}", request.action_name);
 

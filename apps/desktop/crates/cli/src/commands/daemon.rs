@@ -48,8 +48,11 @@ pub const DEVICE_CAPS: [&str; 3] = ["resume", "worktrees", "launch-defaults"];
 
 /// The action-run capabilities — advertised only while at least one agent is
 /// RUNNABLE (EXP-409: a machine whose only agents are signed out cannot run
-/// actions either).
-pub const ACTION_CAPS: [&str; 3] = ["actions", "action-inputs", "fix-conflicts"];
+/// actions either). EXP-530 adds `automations`: this daemon evaluates the
+/// triggers bound to its device id and starts the runs itself, so the web
+/// device pickers may offer it as an automation host (hand-synced with the
+/// desktop's `steer_wiring` caps vec).
+pub const ACTION_CAPS: [&str; 4] = ["actions", "action-inputs", "fix-conflicts", "automations"];
 
 /// The caps to advertise for a doctor snapshot: the build caps, plus the
 /// action caps while anything is runnable.
@@ -182,6 +185,11 @@ enum UpdateTrigger {
 /// One live session the daemon supervises (the desktop's `LocalSessions`).
 struct LiveSession {
     issue_id: Option<String>,
+    /// EXP-530: the `actions` row this run executes (from the prepared
+    /// launch's [`terminal::tab::TabKind::Action`]) — the automation host's
+    /// defer check ("never launch a second run of an action already
+    /// running here").
+    action_id: Option<String>,
     branch: String,
     is_fix_run: bool,
     session: Arc<RunningSession>,
@@ -320,6 +328,26 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // forces an immediate heartbeat (the beat IS the work pull).
     let device_worker = spawn_device_worker(Arc::clone(&ctx), Arc::clone(&sessions), device_id.clone());
     let check_in = Arc::new(AtomicBool::new(false));
+    // EXP-530: the automation host — this daemon's own Electric pipeline (a
+    // 6-shape subset in `sync-cli.sqlite`, never the GUI's store), ONE delta
+    // drain nudging the serialized worker, plus the 30s self-tick below.
+    // Sync failing to open is not fatal: everything else (remote starts,
+    // heartbeat, worktrees) keeps working, automations just stay dormant.
+    let sync_manager = start_automation_sync(&ctx);
+    let automation_worker = sync_manager.as_ref().map(|manager| {
+        let worker = spawn_automation_worker(AutomationHost {
+            ctx: Arc::clone(&ctx),
+            sidecars: Arc::clone(&sidecars),
+            runtime: runtime.clone(),
+            sessions: Arc::clone(&sessions),
+            reservations: reservations.clone(),
+            personal_key: personal_key.clone(),
+            sync: Arc::clone(manager),
+            device_id: device_id.clone(),
+        });
+        spawn_delta_drain(manager, worker.clone());
+        worker
+    });
 
     let mut advertised = probe_agents(&ctx);
     // EXP-414: a failed register (network not up yet at boot) is retried on
@@ -381,6 +409,11 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // converges in ~1s (and a restarted daemon corrects a stale count on its
     // first tick) instead of up to a full heartbeat interval.
     let mut reported_sessions: Option<usize> = None;
+    // EXP-530: the automation beat. Event triggers ride the delta drain
+    // (they fire within a second of the row landing); this tick is what
+    // makes SCHEDULES fire — and the catch-up beat after a sleep/offline
+    // stretch, where no delta ever arrives.
+    let mut last_automation_tick = Instant::now();
     while !shutdown_requested() {
         match inbox_rx.recv_timeout(Duration::from_secs(1)) {
             // REV-9: claim the frame's subject BEFORE spawning its thread —
@@ -483,6 +516,13 @@ fn run_daemon(args: &[String]) -> CommandResult {
             device_worker.send(DeviceWork::ReportWorktrees).ok();
         }
 
+        if let Some(worker) = &automation_worker {
+            if last_automation_tick.elapsed() >= AUTOMATION_TICK {
+                last_automation_tick = Instant::now();
+                worker.send(AutomationWork::Tick).ok();
+            }
+        }
+
         // Scheduled auto-update check (settings-gated + persisted throttle).
         if pending_update.is_none() && last_update_poll.elapsed() >= Duration::from_secs(60) {
             last_update_poll = Instant::now();
@@ -580,6 +620,12 @@ fn run_daemon(args: &[String]) -> CommandResult {
     log::info!("daemon stopping");
     if let Some(handle) = control.take() {
         handle.stop();
+    }
+    // EXP-530: stop the shape threads before the session teardown so the
+    // pipeline isn't long-polling while children die (the store stays on
+    // disk — it is a cache, and the next start resumes from its offsets).
+    if let Some(manager) = &sync_manager {
+        manager.stop_all();
     }
     let live: Vec<Arc<RunningSession>> = lock_sessions(&sessions)
         .iter()
@@ -1006,6 +1052,8 @@ fn remote_action_start(
         inputs,
         options,
         origin,
+        // A relay frame is a person pressing Run — never automation-started.
+        None,
     )?;
 
     // Fix-conflicts branch takeover (desktop `take_over_branch`): a live
@@ -1071,6 +1119,12 @@ fn spawn_prepared(
         sidecars,
         personal_key,
     };
+    // EXP-530: an action run's own id, straight off the prepared tab kind —
+    // the automation host defers while it is live.
+    let action_id = match &prepared.tab_kind {
+        terminal::tab::TabKind::Action(id) => Some(id.clone()),
+        _ => None,
+    };
     let session = session_host::launch(&env, prepared, false, issue_id.clone())?;
     log::info!(
         "session {} started ({}, branch {})",
@@ -1080,6 +1134,7 @@ fn spawn_prepared(
     );
     lock_sessions(sessions).push(LiveSession {
         issue_id,
+        action_id,
         branch: session.branch.clone(),
         is_fix_run,
         session: Arc::new(session),
@@ -1387,6 +1442,618 @@ fn report_worktrees(
         // Older server / offline: retried on the next trigger (fp unchanged).
         Err(err) => log::debug!("reportWorktrees failed: {err}"),
     }
+}
+
+// ---------------------------------------------------------------------------
+// EXP-530: the automation host — this daemon's own Electric pipeline (a
+// 6-shape subset in `sync-cli.sqlite`), ONE delta-drain thread, and the
+// serialized automations worker. The worker evaluates the triggers bound to
+// THIS device (`Ctx::device_id`) through the shared `coding::automations`
+// engine and self-starts the fired action runs; the sessions it spawns join
+// the normal `Sessions` vec, so heartbeat/parked-update/quit-sweep cover them
+// like any other run.
+// ---------------------------------------------------------------------------
+
+/// What the automation host syncs: triggers (`actions`), the event feed
+/// (`issue_events`), and the rows the prompt lines and board filters read
+/// (`issues`, `boards`, `labels`, `issue_statuses`). Deliberately NOT the
+/// desktop's 18 — a headless daemon has no views to hydrate.
+const AUTOMATION_SHAPES: &[&str] = &[
+    "actions",
+    "issues",
+    "issue_events",
+    "boards",
+    "labels",
+    "issue_statuses",
+];
+
+/// The automation self-tick. Event triggers ride the delta drain (they fire
+/// within a second of the row landing); this beat is what makes SCHEDULES
+/// fire at all, and it is the catch-up pass after a sleep/offline stretch
+/// where no delta ever arrives.
+const AUTOMATION_TICK: Duration = Duration::from_secs(30);
+
+/// Open the daemon's shape store and start its pipeline. `None` (logged, not
+/// fatal) leaves automations dormant while every other daemon duty — remote
+/// starts, heartbeat, worktree commands — keeps running.
+fn start_automation_sync(ctx: &Ctx) -> Option<Arc<sync::SyncManager>> {
+    // NEVER `sync-v2.sqlite`: that file belongs to the desktop GUI, and two
+    // pipelines writing one store would fight over shape offsets.
+    let db_path = ctx
+        .data_dir
+        .join("accounts")
+        .join(&ctx.account.id)
+        .join("sync-cli.sqlite");
+    if let Some(parent) = db_path.parent() {
+        if let Err(err) = std::fs::create_dir_all(parent) {
+            log::warn!("automations: sync store dir ({err}) — automations disabled");
+            return None;
+        }
+    }
+    let manager = Arc::new(sync::SyncManager::new());
+    let config = sync::AccountSyncConfig {
+        account_id: ctx.account.id.clone(),
+        base_url: ctx.account.instance_url.clone(),
+        db_path,
+        // Call-time token access (§5.7) — never captured once, so a refresh
+        // mid-run is picked up by the next poll.
+        token: ctx.auth.token_provider_fn(&ctx.account.id),
+        shapes: Some(AUTOMATION_SHAPES),
+    };
+    match manager.start_account(config) {
+        Ok(_) => Some(manager),
+        Err(err) => {
+            log::warn!("automations: sync store failed to open ({err}) — automations disabled");
+            None
+        }
+    }
+}
+
+/// Why the worker woke up. Both are handled identically (the beat is a full
+/// re-evaluation) — they differ only in what scheduled them.
+enum AutomationWork {
+    /// A synced `issue_events`/`actions` batch landed.
+    Nudge,
+    /// The 1s loop's [`AUTOMATION_TICK`] beat.
+    Tick,
+}
+
+/// The single `deltas()` consumer (flume is MPMC — cloned receivers STEAL,
+/// so exactly one place may drain). Applied batches for the two shapes an
+/// automation can turn on nudge the worker; everything else is ignored.
+fn spawn_delta_drain(manager: &Arc<sync::SyncManager>, worker: flume::Sender<AutomationWork>) {
+    let deltas = manager.deltas();
+    let spawned = std::thread::Builder::new()
+        .name("exp-automations".to_string())
+        .spawn(move || {
+            while let Ok(delta) = deltas.recv() {
+                let sync::ShapeDelta::Applied {
+                    shape,
+                    keys,
+                    full_replace,
+                    ..
+                } = delta
+                else {
+                    continue;
+                };
+                if !matches!(shape, "issue_events" | "actions") {
+                    continue;
+                }
+                // A pure `up-to-date` heartbeat changed nothing.
+                if keys.is_empty() && !full_replace {
+                    continue;
+                }
+                // A closed channel is the daemon shutting down.
+                if worker.send(AutomationWork::Nudge).is_err() {
+                    break;
+                }
+            }
+        });
+    if let Err(err) = spawned {
+        log::warn!("automations: delta drain failed to spawn: {err}");
+    }
+}
+
+/// Everything the worker thread owns.
+struct AutomationHost {
+    ctx: Arc<Ctx>,
+    sidecars: Arc<Sidecars>,
+    runtime: Option<Arc<steer::SteerRuntime>>,
+    sessions: Sessions,
+    reservations: StartReservations,
+    personal_key: Option<String>,
+    sync: Arc<sync::SyncManager>,
+    device_id: String,
+}
+
+/// The `spawn_device_worker` idiom: unbounded flume + ONE thread, so two
+/// beats never evaluate (or write state) concurrently.
+fn spawn_automation_worker(host: AutomationHost) -> flume::Sender<AutomationWork> {
+    let (tx, rx) = flume::unbounded::<AutomationWork>();
+    std::thread::Builder::new()
+        .name("exp-automate".to_string())
+        .spawn(move || {
+            while rx.recv().is_ok() {
+                // Coalesce a burst (a refetch is thousands of rows in a
+                // handful of batches) into ONE evaluation pass.
+                while rx.try_recv().is_ok() {}
+                host.beat();
+            }
+        })
+        .expect("spawn the automations worker");
+    tx
+}
+
+/// One action this device's trigger targets, plus what the LAUNCH needs
+/// beyond the engine's view of it.
+#[derive(Clone, Debug)]
+struct AutomationAction {
+    triggered: coding::automations::TriggeredAction,
+    team_id: String,
+    name: String,
+}
+
+impl AutomationHost {
+    /// One evaluation pass. Every failure mode degrades to "do nothing this
+    /// beat" — the next nudge or tick retries from fresh state.
+    fn beat(&self) {
+        let Some(store) = self.sync.store(&self.ctx.account.id) else {
+            return;
+        };
+        let rows = read_shape_rows::<domain::rows::ActionRow>(&store, "actions");
+        let actions = triggered_actions(&rows, &self.device_id);
+        if actions.is_empty() {
+            return;
+        }
+        let settings_path = coding::Settings::default_path(&self.ctx.data_dir);
+        let mut states = coding::automations::read_states(&settings_path, &self.device_id);
+        let now_local = chrono::Local::now();
+        let now_ms = now_local.timestamp_millis();
+        let events = read_event_rows(&store, now_ms);
+        let live = live_action_ids(&self.sessions);
+        let triggers: Vec<coding::automations::TriggeredAction> = actions
+            .iter()
+            .map(|action| action.triggered.clone())
+            .collect();
+        let decisions = coding::automations::evaluate(&coding::automations::EvalInput {
+            actions: &triggers,
+            states: &states,
+            events: &events,
+            live_action_ids: &live,
+            now_ms,
+            now_local,
+        });
+
+        // Re-seeds are pure bookkeeping (a new or edited trigger anchoring
+        // itself) — persist the whole batch in ONE write.
+        let mut reseeded = false;
+        for decision in &decisions {
+            if let coding::automations::Decision::Reseed {
+                action_id,
+                new_state,
+            } = decision
+            {
+                states.insert(action_id.clone(), new_state.clone());
+                reseeded = true;
+            }
+        }
+        if reseeded {
+            self.persist(&settings_path, &states);
+        }
+
+        for decision in decisions {
+            let coding::automations::Decision::Fire {
+                action_id,
+                firing,
+                new_state,
+            } = decision
+            else {
+                continue;
+            };
+            let Some(action) = actions
+                .iter()
+                .find(|candidate| candidate.triggered.action_id == action_id)
+            else {
+                continue;
+            };
+            // The key remote action starts hold too (REV-9): a fire racing an
+            // in-flight start of the SAME action is dropped WITHOUT a state
+            // write, so the next beat re-decides it.
+            let reservation = match self.reservations.claim(vec![format!("action:{action_id}")]) {
+                Ok(reservation) => reservation,
+                Err(clash) => {
+                    log::info!(
+                        "automation for {action_id} skipped — a start holding {clash} is already in flight"
+                    );
+                    continue;
+                }
+            };
+            // Watermark-at-launch-START (the firing protocol): persist before
+            // launching, so a crash mid-launch drops the run instead of
+            // re-firing the same events forever.
+            states.insert(action_id.clone(), new_state.clone());
+            if !self.persist(&settings_path, &states) {
+                continue;
+            }
+            let Some(note) = self.trigger_note(&store, action, &firing) else {
+                continue;
+            };
+            log::info!(
+                "automation firing action {} ({action_id}) — {}",
+                action.name,
+                note.started_reason()
+            );
+            let launched = match self.start(action, note) {
+                Ok(launched) => launched,
+                Err(err) => {
+                    log::warn!("automation run for {action_id} failed: {err:#}");
+                    false
+                }
+            };
+            drop(reservation);
+            if !launched {
+                // Poison-pill backoff: the events are already consumed (a
+                // trigger that cannot prepare must not hot-loop the same
+                // batch), so only the cooldown moves.
+                let mut backed_off = new_state;
+                backed_off.cooldown_until = Some(
+                    backed_off.cooldown_until.unwrap_or(now_ms)
+                        + coding::automations::PREPARE_FAILURE_BACKOFF_MS,
+                );
+                log::warn!("automation for {action_id} backing off after a failed prepare");
+                states.insert(action_id, backed_off);
+                self.persist(&settings_path, &states);
+            }
+        }
+    }
+
+    fn persist(
+        &self,
+        settings_path: &Path,
+        states: &HashMap<String, coding::automations::AutomationState>,
+    ) -> bool {
+        match coding::automations::write_states(settings_path, &self.device_id, states) {
+            Ok(()) => true,
+            Err(err) => {
+                // Without a durable watermark a launch could re-fire forever
+                // — skip the fire rather than risk that.
+                log::warn!("automations: persisting state failed ({err}) — skipping");
+                false
+            }
+        }
+    }
+
+    /// The prompt's `## Trigger` section: a schedule carries the shared
+    /// sentence, an event the per-issue lines rendered from synced rows.
+    fn trigger_note(
+        &self,
+        store: &sync::store::ShapeStore,
+        action: &AutomationAction,
+        firing: &coding::automations::Firing,
+    ) -> Option<coding::TriggerNote> {
+        match firing {
+            coding::automations::Firing::Schedule { .. } => {
+                match &action.triggered.trigger.kind {
+                    coding::automations::TriggerKind::Schedule(schedule) => {
+                        Some(coding::TriggerNote {
+                            kind: coding::TriggerNoteKind::Schedule {
+                                phrase: coding::automations::schedule_phrase(schedule),
+                            },
+                        })
+                    }
+                    // Unreachable (the engine only schedule-fires a schedule).
+                    _ => None,
+                }
+            }
+            coding::automations::Firing::Event { matches } => {
+                let lookups = EventLookups::for_matches(store, matches);
+                let lines: Vec<String> = matches
+                    .iter()
+                    .take(coding::automations::TRIGGER_PROMPT_MAX_LINES)
+                    .filter_map(|row| event_line(row, &lookups))
+                    .collect();
+                Some(coding::TriggerNote {
+                    kind: coding::TriggerNoteKind::Event {
+                        lines,
+                        omitted: matches
+                            .len()
+                            .saturating_sub(coding::automations::TRIGGER_PROMPT_MAX_LINES),
+                    },
+                })
+            }
+        }
+    }
+
+    /// The self-fired twin of [`remote_action_start`], minus the steer-frame
+    /// mapping: the device's OWN launch defaults, the action's own repo
+    /// binding, no inputs (an automation has nobody to prompt),
+    /// `LaunchOrigin::Local`. Returns whether a session actually spawned — a
+    /// doctor-disabled launcher counts as a FAILED prepare, so the caller
+    /// backs the trigger off instead of retrying every beat.
+    fn start(&self, action: &AutomationAction, note: coding::TriggerNote) -> anyhow::Result<bool> {
+        let settings = coding::Settings::load(&coding::Settings::default_path(&self.ctx.data_dir));
+        // The same resolution `run` uses: the saved default agent with its
+        // per-agent model/effort, plan mode forced OFF (F7 — an unattended
+        // run must never park at the plan-approval TUI).
+        let options = launch::agent_options(&settings, &launch::AgentFlags::default(), false)?;
+        let request = launch::resolve_action_request(
+            &self.ctx,
+            &action.triggered.action_id,
+            &action.team_id,
+            ActionRepo::Resolve,
+            Vec::new(),
+            options,
+            coding::LaunchOrigin::Local,
+            Some(note),
+        )?;
+        let deps = launch::coding_deps(&self.ctx, HashMap::new());
+        let prepared = coding::prepare_with_hooks(
+            &PrepareRequest::Action(request),
+            &deps,
+            self.sidecars.hook_setup().as_ref(),
+            self.sidecars.observer_setup().as_ref(),
+        )
+        .map_err(|err| anyhow::anyhow!("{err}"))?;
+        if let Prepared::Disabled(reason) = &prepared {
+            log::warn!("automation run refused: {}", reason.message());
+            return Ok(false);
+        }
+        spawn_prepared(
+            &self.ctx,
+            &self.sidecars,
+            self.runtime.as_ref(),
+            &self.sessions,
+            self.personal_key.clone(),
+            prepared,
+            None,
+            false,
+        )?;
+        Ok(true)
+    }
+}
+
+/// The synced `actions` rows whose trigger targets THIS device, as engine
+/// input. Fingerprints hash the DECODED trigger value — the same canonical
+/// input the GUI feeds `trigger_fingerprint` — so the two hosts agree on
+/// what counts as an edit. A row without a trigger, with an untargetable one
+/// (no `deviceId`), or targeting another device is dropped; a MALFORMED but
+/// targeted one survives as `Unsupported` (inert, and the engine ignores it).
+fn triggered_actions(rows: &[domain::rows::ActionRow], device_id: &str) -> Vec<AutomationAction> {
+    rows.iter()
+        .filter_map(|row| {
+            let trigger = row.trigger.as_ref()?;
+            let parsed = coding::automations::parse_trigger(trigger)?;
+            if parsed.device_id != device_id {
+                return None;
+            }
+            Some(AutomationAction {
+                triggered: coding::automations::TriggeredAction {
+                    action_id: row.id.clone(),
+                    fingerprint: coding::automations::trigger_fingerprint(trigger),
+                    trigger: parsed,
+                },
+                team_id: row.team_id.clone().unwrap_or_default(),
+                name: row.name.clone().unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+
+/// Hydrate a whole shape table into `domain::rows` structs (§5.5 tolerant
+/// decode — an undecodable row is dropped, never fatal).
+fn read_shape_rows<T: serde::de::DeserializeOwned>(
+    store: &sync::store::ShapeStore,
+    shape: &str,
+) -> Vec<T> {
+    let Some(spec) = sync::shapes::shape_by_name(shape) else {
+        return Vec::new();
+    };
+    match store.read_all(spec) {
+        Ok(rows) => rows
+            .into_iter()
+            .filter_map(|row| serde_json::from_value(serde_json::Value::Object(row)).ok())
+            .collect(),
+        Err(err) => {
+            log::debug!("automations: reading the {shape} table failed: {err}");
+            Vec::new()
+        }
+    }
+}
+
+/// The candidate event rows: inside the contract catch-up window, with
+/// `board_id` pre-joined from the issue (the `issue_events` shape carries
+/// none, and the engine's board filter needs it — a missing datum
+/// conservatively FAILS a non-empty filter).
+fn read_event_rows(
+    store: &sync::store::ShapeStore,
+    now_ms: i64,
+) -> Vec<coding::automations::EventRow> {
+    let cutoff = now_ms - domain::contract::AUTOMATION_EVENT_CATCHUP_MS;
+    let mut boards: HashMap<String, Option<String>> = HashMap::new();
+    read_shape_rows::<domain::rows::IssueEvent>(store, "issue_events")
+        .into_iter()
+        .filter_map(|row| {
+            let created_at_ms = row.created_at.as_deref().and_then(parse_epoch_ms)?;
+            if created_at_ms < cutoff {
+                return None;
+            }
+            let board_id = boards
+                .entry(row.issue_id.clone())
+                .or_insert_with(|| issue_field(store, &row.issue_id, "board_id"))
+                .clone();
+            Some(coding::automations::EventRow {
+                id: row.id,
+                issue_id: row.issue_id,
+                created_at_ms,
+                kind: row.kind.unwrap_or_default(),
+                payload: row.payload,
+                board_id,
+            })
+        })
+        .collect()
+}
+
+/// One column of one issue, point-read by primary key (§5.8).
+fn issue_field(store: &sync::store::ShapeStore, issue_id: &str, column: &str) -> Option<String> {
+    let spec = sync::shapes::shape_by_name("issues")?;
+    let row = store
+        .read_by_key(spec, &sync::protocol::RowKey::Single(issue_id.to_string()))
+        .ok()??;
+    row.get(column)
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+}
+
+/// Tolerant ISO-8601 → MS epoch (the watermark scale). Electric/Postgres
+/// emit both the RFC 3339 form and the `2026-07-03 10:00:00+00` space form —
+/// the twin of the ui crate's `comments::parse_epoch`, in milliseconds.
+fn parse_epoch_ms(raw: &str) -> Option<i64> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(trimmed) {
+        return Some(parsed.timestamp_millis());
+    }
+    let t_form = trimmed.replacen(' ', "T", 1);
+    for candidate in [t_form.clone(), format!("{t_form}:00"), format!("{t_form}Z")] {
+        if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(&candidate) {
+            return Some(parsed.timestamp_millis());
+        }
+    }
+    None
+}
+
+/// Actions with a STILL-RUNNING local session — the engine defers those (one
+/// run of an action at a time on one machine).
+fn live_action_ids(sessions: &Sessions) -> HashSet<String> {
+    lock_sessions(sessions)
+        .iter()
+        .filter(|live| !live.session.is_done())
+        .filter_map(|live| live.action_id.clone())
+        .collect()
+}
+
+/// The names an event prompt line renders (host-filled from the sync store;
+/// tests pass literals).
+#[derive(Debug, Default)]
+struct EventLookups {
+    /// issue id → (identifier, title)
+    issues: HashMap<String, (String, String)>,
+    /// label id → name
+    labels: HashMap<String, String>,
+    /// `issue_statuses` id → name
+    statuses: HashMap<String, String>,
+}
+
+impl EventLookups {
+    /// Point-read the matched issues (capped like the prompt itself) and
+    /// take the two small team-wide tables whole.
+    fn for_matches(
+        store: &sync::store::ShapeStore,
+        matches: &[coding::automations::EventRow],
+    ) -> Self {
+        let mut issues: HashMap<String, (String, String)> = HashMap::new();
+        for row in matches
+            .iter()
+            .take(coding::automations::TRIGGER_PROMPT_MAX_LINES)
+        {
+            if issues.contains_key(&row.issue_id) {
+                continue;
+            }
+            let Some(identifier) = issue_field(store, &row.issue_id, "identifier") else {
+                continue;
+            };
+            let title = issue_field(store, &row.issue_id, "title").unwrap_or_default();
+            issues.insert(row.issue_id.clone(), (identifier, title));
+        }
+        Self {
+            issues,
+            labels: read_shape_rows::<domain::rows::Label>(store, "labels")
+                .into_iter()
+                .map(|label| (label.id, label.name))
+                .collect(),
+            statuses: read_shape_rows::<domain::rows::IssueStatusRow>(store, "issue_statuses")
+                .into_iter()
+                .map(|status| (status.id, status.name))
+                .collect(),
+        }
+    }
+}
+
+/// One prompt line for a matched event: `EXP-42 "Title" <what changed>`.
+/// `None` when the issue is not synced locally — a line naming no issue
+/// tells the agent nothing (the run still starts; the watermark already
+/// accounted for the row).
+fn event_line(row: &coding::automations::EventRow, lookups: &EventLookups) -> Option<String> {
+    let (identifier, title) = lookups.issues.get(&row.issue_id)?;
+    let payload = |key: &str| {
+        row.payload
+            .as_ref()
+            .and_then(|payload| payload.get(key))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+    };
+    let tail = match row.kind.as_str() {
+        "status_changed" => format!(
+            "status {} → {}",
+            status_name(lookups, payload("fromName"), payload("fromStatusId"), payload("from")),
+            status_name(lookups, payload("toName"), payload("toStatusId"), payload("to")),
+        ),
+        "priority_changed" => format!(
+            "priority {} → {}",
+            or_none(payload("from")),
+            or_none(payload("to"))
+        ),
+        "created" => format!("created ({})", or_none(payload("priority"))),
+        "label_added" => {
+            let id = payload("labelId").unwrap_or_default();
+            let name = lookups
+                .labels
+                .get(&id)
+                .cloned()
+                .filter(|name| !name.is_empty())
+                .unwrap_or_else(|| if id.is_empty() { "a label".to_string() } else { id });
+            format!("label {name} added")
+        }
+        "assignee_changed" => "assignee changed".to_string(),
+        "pr_opened" => "pull request opened".to_string(),
+        "pr_merged" => "pull request merged".to_string(),
+        // Only the 7 contract kinds can match — a future one still reads.
+        other => other.replace('_', " "),
+    };
+    Some(format!("{identifier} \"{title}\" {tail}"))
+}
+
+/// A status side's display name: the payload's own snapshot (EXP-314 writes
+/// `fromName`/`toName`), else the team's synced row, else the anchor enum
+/// munged (`in_progress` → `in progress`). The chain never fails.
+fn status_name(
+    lookups: &EventLookups,
+    name: Option<String>,
+    status_id: Option<String>,
+    anchor: Option<String>,
+) -> String {
+    if let Some(name) = name.filter(|name| !name.is_empty()) {
+        return name;
+    }
+    if let Some(name) = status_id
+        .and_then(|id| lookups.statuses.get(&id).cloned())
+        .filter(|name| !name.is_empty())
+    {
+        return name;
+    }
+    match anchor.filter(|anchor| !anchor.is_empty()) {
+        Some(anchor) => anchor.replace('_', " "),
+        None => "none".to_string(),
+    }
+}
+
+/// A cleared/absent priority reads `none` (the web `priorityLabel` shape).
+fn or_none(value: Option<String>) -> String {
+    value
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "none".to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -1731,6 +2398,202 @@ mod tests {
         assert_eq!(clash, "issue:EXP-2");
         // The refusal held NOTHING — the batch's other issue stays startable.
         assert!(reservations.claim(reservation_keys(&issue_subject("EXP-1"))).is_ok());
+    }
+
+    // -----------------------------------------------------------------------
+    // EXP-530: the automation host's pure helpers
+    // -----------------------------------------------------------------------
+
+    fn action_row(id: &str, trigger: Option<serde_json::Value>) -> domain::rows::ActionRow {
+        let mut row = serde_json::json!({
+            "id": id,
+            "team_id": "team-1",
+            "name": format!("Action {id}"),
+        });
+        if let Some(trigger) = trigger {
+            row["trigger"] = trigger;
+        }
+        serde_json::from_value(row).expect("action row decodes")
+    }
+
+    /// Only THIS device's evaluable triggers become engine input.
+    #[test]
+    fn triggered_actions_keeps_only_this_devices_rows() {
+        let rows = vec![
+            action_row(
+                "act-mine",
+                Some(serde_json::json!({
+                    "kind": "schedule", "deviceId": "cli-1",
+                    "interval": "daily", "minuteOfDay": 420
+                })),
+            ),
+            action_row(
+                "act-theirs",
+                Some(serde_json::json!({
+                    "kind": "schedule", "deviceId": "desk-9",
+                    "interval": "daily", "minuteOfDay": 420
+                })),
+            ),
+            // Untargetable (no deviceId) — no host could ever evaluate it.
+            action_row("act-untargeted", Some(serde_json::json!({"kind": "schedule"}))),
+            // A manual-only action.
+            action_row("act-plain", None),
+            // Malformed but TARGETED: kept, inert (the engine skips
+            // Unsupported) so the row stays visible instead of vanishing.
+            action_row(
+                "act-future",
+                Some(serde_json::json!({"kind": "cron", "deviceId": "cli-1"})),
+            ),
+        ];
+        let mine = triggered_actions(&rows, "cli-1");
+        assert_eq!(
+            mine.iter()
+                .map(|action| action.triggered.action_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["act-mine", "act-future"]
+        );
+        assert_eq!(mine[0].team_id, "team-1", "the launch needs the row's team");
+        assert_eq!(mine[0].name, "Action act-mine");
+        assert_eq!(
+            mine[1].triggered.trigger.kind,
+            coding::automations::TriggerKind::Unsupported
+        );
+        // The fingerprint hashes the trigger VALUE — key order (Electric's
+        // jsonb round-trip) must not read as an edit, or the GUI and the CLI
+        // would re-seed each other's state forever.
+        let reordered = action_row(
+            "act-mine",
+            Some(serde_json::json!({
+                "minuteOfDay": 420, "interval": "daily",
+                "deviceId": "cli-1", "kind": "schedule"
+            })),
+        );
+        assert_eq!(
+            triggered_actions(&[reordered], "cli-1")[0].triggered.fingerprint,
+            mine[0].triggered.fingerprint
+        );
+    }
+
+    fn event(kind: &str, payload: serde_json::Value) -> coding::automations::EventRow {
+        coding::automations::EventRow {
+            id: "evt-1".to_string(),
+            issue_id: "issue-1".to_string(),
+            created_at_ms: 0,
+            kind: kind.to_string(),
+            payload: Some(payload),
+            board_id: Some("board-1".to_string()),
+        }
+    }
+
+    fn lookups() -> EventLookups {
+        EventLookups {
+            issues: HashMap::from([(
+                "issue-1".to_string(),
+                ("EXP-42".to_string(), "Fix the thing".to_string()),
+            )]),
+            labels: HashMap::from([("lbl-1".to_string(), "bug".to_string())]),
+            statuses: HashMap::from([
+                ("st-1".to_string(), "In Progress".to_string()),
+                ("st-2".to_string(), "In Review".to_string()),
+            ]),
+        }
+    }
+
+    /// One line per event kind — the prompt grammar the agent reads.
+    #[test]
+    fn event_lines_render_per_kind() {
+        let lookups = lookups();
+        let line = |row: coding::automations::EventRow| event_line(&row, &lookups).expect("renders");
+        assert_eq!(
+            line(event(
+                "status_changed",
+                serde_json::json!({
+                    "from": "in_progress", "to": "in_review",
+                    "fromStatusId": "st-1", "toStatusId": "st-2",
+                    "fromName": "In Progress", "toName": "In Review"
+                })
+            )),
+            "EXP-42 \"Fix the thing\" status In Progress → In Review"
+        );
+        // No name snapshot (an older row): the synced status rows fill in.
+        assert_eq!(
+            line(event(
+                "status_changed",
+                serde_json::json!({"from": "in_progress", "to": "in_review",
+                                   "fromStatusId": "st-1", "toStatusId": "st-2"})
+            )),
+            "EXP-42 \"Fix the thing\" status In Progress → In Review"
+        );
+        // Neither: the anchor enum munges (the chain never fails).
+        assert_eq!(
+            line(event(
+                "status_changed",
+                serde_json::json!({"from": "in_progress", "to": "in_review"})
+            )),
+            "EXP-42 \"Fix the thing\" status in progress → in review"
+        );
+        assert_eq!(
+            line(event("priority_changed", serde_json::json!({"from": "low", "to": "urgent"}))),
+            "EXP-42 \"Fix the thing\" priority low → urgent"
+        );
+        assert_eq!(
+            line(event("created", serde_json::json!({"priority": "urgent"}))),
+            "EXP-42 \"Fix the thing\" created (urgent)"
+        );
+        // A cleared/absent priority reads `none`.
+        assert_eq!(
+            line(event("priority_changed", serde_json::json!({"from": "low"}))),
+            "EXP-42 \"Fix the thing\" priority low → none"
+        );
+        assert_eq!(
+            line(event("label_added", serde_json::json!({"labelId": "lbl-1"}))),
+            "EXP-42 \"Fix the thing\" label bug added"
+        );
+        // An unsynced label degrades to its id rather than dropping the line.
+        assert_eq!(
+            line(event("label_added", serde_json::json!({"labelId": "lbl-9"}))),
+            "EXP-42 \"Fix the thing\" label lbl-9 added"
+        );
+        assert_eq!(
+            line(event("assignee_changed", serde_json::json!({}))),
+            "EXP-42 \"Fix the thing\" assignee changed"
+        );
+        assert_eq!(
+            line(event("pr_opened", serde_json::json!({}))),
+            "EXP-42 \"Fix the thing\" pull request opened"
+        );
+        assert_eq!(
+            line(event("pr_merged", serde_json::json!({}))),
+            "EXP-42 \"Fix the thing\" pull request merged"
+        );
+
+        // An issue this device has not synced names nothing — skip the line.
+        let mut orphan = event("created", serde_json::json!({"priority": "urgent"}));
+        orphan.issue_id = "issue-unknown".to_string();
+        assert_eq!(event_line(&orphan, &lookups), None);
+    }
+
+    /// Postgres/Electric timestamp forms → the watermark's ms scale.
+    #[test]
+    fn event_timestamps_parse_in_both_wire_forms() {
+        let expected = 1_754_395_200_000;
+        assert_eq!(parse_epoch_ms("2025-08-05T12:00:00.000Z"), Some(expected));
+        assert_eq!(parse_epoch_ms("2025-08-05T12:00:00Z"), Some(expected));
+        assert_eq!(parse_epoch_ms("2025-08-05 12:00:00+00"), Some(expected));
+        assert_eq!(parse_epoch_ms("2025-08-05 12:00:00+00:00"), Some(expected));
+        assert_eq!(parse_epoch_ms(""), None);
+        assert_eq!(parse_epoch_ms("not-a-date"), None);
+    }
+
+    /// The cap is hand-synced with the desktop's `steer_wiring` vec — the
+    /// automation host must advertise itself or the web pickers hide it.
+    #[test]
+    fn action_caps_advertise_automations() {
+        assert!(ACTION_CAPS.contains(&"automations"));
+        let caps = device_caps(&advert(&["claude"]));
+        assert!(caps.contains(&"automations".to_string()));
+        // Nothing runnable = nothing to run an automation with.
+        assert!(!device_caps(&advert(&[])).contains(&"automations".to_string()));
     }
 
     #[test]

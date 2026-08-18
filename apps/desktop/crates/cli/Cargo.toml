@@ -26,6 +26,10 @@ terminal = { path = "../terminal", default-features = false }
 updater = { path = "../updater" }
 
 anyhow = { workspace = true }
+# EXP-530: the automation host's local clock (schedule occurrences are
+# wall-clock, device time) + tolerant ISO timestamp parsing. Same pin as
+# `crates/ui` / `crates/coding`.
+chrono = { version = "0.4.38", default-features = false, features = ["std", "clock"] }
 dirs = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
