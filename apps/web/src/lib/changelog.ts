@@ -25,6 +25,18 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-action-automations`,
+    date: `2026-08-18`,
+    title: `Actions run themselves`,
+    summary: `Give an action a schedule or an issue-event trigger and a device of yours runs it, plus a tabbed Actions surface with suggestions.`,
+    body: `- **Schedules**: run an action every day, week, or month at a time you pick. The run happens on a device you choose, in its local time, and a run missed while the machine was off fires once when it comes back.
+- **Event triggers**: start an action when issues change, on creation, status moves, assignee or priority changes, label adds, or pull request opens and merges, with optional board, label, priority, and status filters. Changes that arrive together batch into one run.
+- **Runs stay local**: your desktop app or the exponential daemon watches its own sync and starts the run itself. There is no server-side runner, and automated runs carry an Automated badge everywhere.
+- **A tabbed Actions surface**: Actions, Automations, and Suggestions tabs on all four apps. The Automations tab shows every trigger, its device, the next run, and recent automated runs.
+- **Suggestions**: eight ready-made action ideas, from a daily standup digest to a label janitor. One tap prefills the action creator.
+- **Multi-line inputs**: actions can now declare textarea inputs, and the action editor's description grew into one.`,
+  },
+  {
     id: `2026-08-motion-pass`,
     date: `2026-08-17`,
     title: `Everything moves`,
