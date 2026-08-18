@@ -1,10 +1,14 @@
 package com.exponential.app.data.api
 
 import com.exponential.app.data.db.ActionEntity
+import com.exponential.app.domain.ActionTrigger
 import com.exponential.app.domain.DomainContract
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 
 // Team action prompts (EXP-253). Since EXP-268 actions are Electric-synced
 // (the 15th shape — see SyncManager/ActionEntity), so consumers list them
@@ -51,10 +55,19 @@ data class ActionDto(
     val createdAt: String = "",
     val updatedAt: String = "",
     val inputs: List<ActionInputDto>? = null,
+    /**
+     * EXP-530: the action's optional automation trigger as its raw JSON
+     * string (null on the builtins). Parse via [ActionTrigger.parse] —
+     * tolerant, so an unknown future kind reads as "no automation".
+     */
+    val trigger: String? = null,
     val builtin: Boolean? = null,
 ) {
     /** Whether this is the virtual builtin "Create action" row. */
     val isBuiltin: Boolean get() = builtin == true
+
+    /** The parsed automation trigger, or null (absent/unknown/malformed). */
+    val parsedTrigger: ActionTrigger? get() = ActionTrigger.parse(trigger)
 }
 
 /**
@@ -147,4 +160,36 @@ fun ActionEntity.toActionDto(json: Json): ActionDto = ActionDto(
             json.decodeFromString(ListSerializer(ActionInputDto.serializer()), raw)
         }.getOrNull()
     },
+    trigger = trigger,
 )
+
+@Serializable
+private data class UpdateTriggerInput(
+    val id: String,
+    val trigger: JsonObject,
+)
+
+/**
+ * The one tRPC call mobile makes against the `actions` router (EXP-530): the
+ * Automations tab's enabled toggle. Everything else stays view-only off the
+ * synced shape (the SteerApi transport pattern).
+ */
+@Singleton
+class ActionsApi @Inject constructor(private val trpc: TrpcClient) {
+
+    /**
+     * `actions.update({id, trigger})` — flip an automation's paused flag.
+     * The server replaces the WHOLE trigger object (never merges), so the
+     * caller sends the parsed trigger with `enabled` flipped. Owner-only
+     * server-side; Electric echoes the flipped row back into the actions
+     * shape, so success needs no local write.
+     */
+    suspend fun updateTrigger(accountId: String, actionId: String, trigger: ActionTrigger) {
+        trpc.mutationUnit(
+            accountId,
+            path = "actions.update",
+            input = UpdateTriggerInput(id = actionId, trigger = trigger.toWireJson()),
+            inputSerializer = UpdateTriggerInput.serializer(),
+        )
+    }
+}

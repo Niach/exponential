@@ -361,6 +361,9 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
     // Both NULL on ordinary issue/batch sessions.
     public let actionId: String?
     public let actionName: String?
+    // EXP-530: non-nil (`schedule`/`event`) when the run was started by the
+    // action's automation trigger rather than a person; NULL on user starts.
+    public let startedReason: String?
     public let startedAt: String
     public let endedAt: String?
     public let createdAt: String
@@ -378,6 +381,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         needsInput: Bool = false,
         actionId: String? = nil,
         actionName: String? = nil,
+        startedReason: String? = nil,
         startedAt: String,
         endedAt: String?,
         createdAt: String,
@@ -394,6 +398,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         self.needsInput = needsInput
         self.actionId = actionId
         self.actionName = actionName
+        self.startedReason = startedReason
         self.startedAt = startedAt
         self.endedAt = endedAt
         self.createdAt = createdAt
@@ -410,6 +415,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         case needsInput = "needs_input"
         case actionId = "action_id"
         case actionName = "action_name"
+        case startedReason = "started_reason"
         case startedAt = "started_at"
         case endedAt = "ended_at"
         case createdAt = "created_at"
@@ -436,6 +442,7 @@ extension CodingSessionEntity: Codable {
         needsInput = c.decodeWireBool(forKey: .needsInput, default: false)
         actionId = try c.decodeIfPresent(String.self, forKey: .actionId)
         actionName = try c.decodeIfPresent(String.self, forKey: .actionName)
+        startedReason = try c.decodeIfPresent(String.self, forKey: .startedReason)
         startedAt = try c.decode(String.self, forKey: .startedAt)
         endedAt = try c.decodeIfPresent(String.self, forKey: .endedAt)
         createdAt = try c.decode(String.self, forKey: .createdAt)
@@ -466,6 +473,11 @@ public struct ActionEntity: FetchableRecord, PersistableRecord, Identifiable, Se
     /// stringified JSON, decoded lazily by the UI. Null when the action
     /// declares no inputs.
     public let inputs: String?
+    /// EXP-530: optional automation trigger (jsonb `{kind: schedule|event,
+    /// …}`) — Electric delivers it as a JSON value; stored as the stringified
+    /// JSON, parsed lazily via `ActionTrigger.parse`. Null when the action
+    /// has no automation.
+    public let trigger: String?
     public let sortOrder: Double?
     public let createdAt: String
     public let updatedAt: String
@@ -478,6 +490,7 @@ public struct ActionEntity: FetchableRecord, PersistableRecord, Identifiable, Se
         description: String?,
         icon: String?,
         inputs: String?,
+        trigger: String? = nil,
         sortOrder: Double?,
         createdAt: String,
         updatedAt: String
@@ -489,13 +502,14 @@ public struct ActionEntity: FetchableRecord, PersistableRecord, Identifiable, Se
         self.description = description
         self.icon = icon
         self.inputs = inputs
+        self.trigger = trigger
         self.sortOrder = sortOrder
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, description, icon, inputs
+        case id, name, description, icon, inputs, trigger
         case teamId = "team_id"
         case repositoryId = "repository_id"
         case sortOrder = "sort_order"
@@ -537,6 +551,21 @@ extension ActionEntity: Codable {
             }
         } else {
             inputs = nil
+        }
+
+        // Handle JSONB trigger: string, null, or object/array.
+        if c.contains(.trigger) {
+            if let stringValue = try? c.decode(String.self, forKey: .trigger) {
+                trigger = stringValue
+            } else if (try? c.decodeNil(forKey: .trigger)) == true {
+                trigger = nil
+            } else {
+                let rawJSON = try c.decode(JSONWireValue.self, forKey: .trigger)
+                let data = try JSONEncoder().encode(rawJSON)
+                trigger = String(data: data, encoding: .utf8)
+            }
+        } else {
+            trigger = nil
         }
     }
 }

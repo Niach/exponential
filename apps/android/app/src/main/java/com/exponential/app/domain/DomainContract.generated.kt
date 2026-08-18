@@ -22,7 +22,7 @@ object DomainContract {
     val prStateValues: List<String> = listOf("open", "closed", "merged", "draft")
     val codingSessionStatusValues: List<String> = listOf("running", "in_review", "merged", "ended")
     val subscriberSourceValues: List<String> = listOf("creator", "assignee", "commenter", "manual", "mention", "widget_reporter")
-    val issueEventTypeValues: List<String> = listOf("status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved")
+    val issueEventTypeValues: List<String> = listOf("status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved", "created", "priority_changed")
     val codingAgentValues: List<String> = listOf("claude", "codex", "pi")
     val codingModelValues: List<String> = listOf("fable", "opus", "sonnet")
     val codingEffortValues: List<String> = listOf("low", "medium", "high", "xhigh", "max")
@@ -30,7 +30,9 @@ object DomainContract {
     val codexEffortValues: List<String> = listOf("minimal", "low", "medium", "high", "xhigh")
     val piModelValues: List<String> = listOf("fable", "opus", "sonnet", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "grok-4.5")
     val piThinkingValues: List<String> = listOf("off", "minimal", "low", "medium", "high", "xhigh", "max")
-    val actionInputTypeValues: List<String> = listOf("text", "repo", "board", "pr", "icon")
+    val actionInputTypeValues: List<String> = listOf("text", "repo", "board", "pr", "icon", "textarea")
+    val actionTriggerEventValues: List<String> = listOf("created", "status_changed", "assignee_changed", "label_added", "priority_changed", "pr_opened", "pr_merged")
+    val actionScheduleIntervalValues: List<String> = listOf("daily", "weekly", "monthly")
 
     const val issueStatusStartedMax: Int = 4
     const val codingSessionStaleMs: Long = 7200000L
@@ -39,6 +41,9 @@ object DomainContract {
     const val builtinFixConflictsId: String = "builtin:fix-conflicts"
     const val actionInputsMax: Int = 10
     const val actionInputTextMax: Int = 4096
+    const val actionTriggerMaxFilterIds: Int = 20
+    const val automationCooldownMs: Long = 60000L
+    const val automationEventCatchupMs: Long = 86400000L
 
     const val issueStatusCategoryBacklog: String = "backlog"
     const val issueStatusCategoryUnstarted: String = "unstarted"
@@ -81,4 +86,6 @@ object DomainContract {
     const val issueEventTypePrOpened: String = "pr_opened"
     const val issueEventTypePrMerged: String = "pr_merged"
     const val issueEventTypeBoardMoved: String = "board_moved"
+    const val issueEventTypeCreated: String = "created"
+    const val issueEventTypePriorityChanged: String = "priority_changed"
 }

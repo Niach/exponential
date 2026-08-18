@@ -24,6 +24,9 @@ import {
   actionInputTypeValues,
   MAX_ACTION_INPUTS,
   MAX_ACTION_INPUT_TEXT,
+  actionTriggerEventValues,
+  actionScheduleIntervalValues,
+  MAX_TRIGGER_FILTER_IDS,
 } from "@exp/db-schema/domain"
 import {
   BUILTIN_CREATE_ACTION_ID,
@@ -183,5 +186,20 @@ describe(`domain-contract parity`, () => {
     expect(BUILTIN_FIX_CONFLICTS_ID).toBe(
       contract.builtinAction.fixConflictsId
     )
+  })
+
+  it(`action trigger vocabulary + filter cap match the contract (EXP-530)`, () => {
+    expect([...actionTriggerEventValues]).toEqual([
+      ...contract.actionTrigger.eventValues,
+    ])
+    expect([...actionScheduleIntervalValues]).toEqual([
+      ...contract.actionTrigger.scheduleIntervalValues,
+    ])
+    expect(MAX_TRIGGER_FILTER_IDS).toBe(contract.actionTrigger.maxFilterIds)
+    // Trigger events are strictly a subset of the issue-event vocabulary the
+    // devices watch (`created` etc. included above).
+    for (const event of contract.actionTrigger.eventValues) {
+      expect(issueEventTypeValues).toContain(event)
+    }
   })
 })

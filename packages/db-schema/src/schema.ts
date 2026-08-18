@@ -23,6 +23,7 @@ import { z } from "zod"
 import {
   type ActionInputDef,
   actionInputsSchema,
+  type ActionTrigger,
   codingSessionStatusSchema,
   codingSessionStatusValues,
   commentBodySchema,
@@ -631,6 +632,12 @@ export const codingSessions = pgTable(
       onDelete: `set null`,
     }),
     actionName: varchar(`action_name`, { length: 255 }),
+    // EXP-530: why the session started — 'schedule' | 'event' (documented
+    // varchar, startedReasonValues in domain.ts; NULL = a person started it).
+    // Set only by codingSessions.start when a device's automation host fires
+    // an action trigger; powers the "Automated" badge + Automations run
+    // history on every client (synced via the shape).
+    startedReason: varchar(`started_reason`, { length: 16 }),
     // The real user driving the session under their own auth — NOT a synthetic
     // agent identity. For a start on a teammate's shared server device
     // (EXP-432) this is the REQUESTER, so EXP-312 owner-only steering lets
@@ -1321,6 +1328,14 @@ export const actions = pgTable(
       .$type<ActionInputDef[]>()
       .notNull()
       .default(sql`'[]'::jsonb`),
+    // EXP-530: the ONE optional automation trigger (schedule or issue-event
+    // watcher; typed union + strict write zod in domain.ts). LOCAL-ONLY by
+    // design — its `deviceId` (the steer device_id, not a row uuid) names the
+    // machine whose desktop/daemon watches its own sync and fires the run;
+    // there is no server scheduler. jsonb rather than columns so appended
+    // trigger vocabulary never needs a migration; readers tolerate unknown
+    // shapes as "no automation".
+    trigger: jsonb().$type<ActionTrigger>(),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     ...timestamps,
   },
@@ -1784,6 +1799,15 @@ export const selectRepositorySchema = createSelectSchema(repositories)
 
 export const selectActionSchema = createSelectSchema(actions, {
   inputs: actionInputsSchema,
+  // TOLERANT read (unlike the strict write union in domain.ts): the web
+  // actions collection must not brick on a future trigger kind, so runtime
+  // validation only checks "object or null" — clients parse triggers
+  // leniently (parseActionTrigger) and treat unknown shapes as "no
+  // automation". Typed as ActionTrigger to match the drizzle row type.
+  trigger: z.custom<ActionTrigger | null>(
+    (value) =>
+      value === null || (typeof value === `object` && !Array.isArray(value))
+  ),
 })
 
 // The shape-synced projection: the actions shape pins a columns allowlist

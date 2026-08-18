@@ -1,12 +1,18 @@
 import { useEffect, useMemo, useState } from "react"
 import { createFileRoute, redirect } from "@tanstack/react-router"
 import { eq, useLiveQuery } from "@tanstack/react-db"
+import type { BoardIcon } from "@exp/db-schema/domain"
 import { actionCollection } from "@/lib/collections"
 import {
   BUILTIN_CREATE_ACTION_ID,
   BUILTIN_CREATE_ACTION_NAME,
   builtinFixConflictsAction,
 } from "@/lib/builtin-actions"
+import { parseActionTrigger, triggerSummary } from "@/lib/action-triggers"
+import {
+  ACTION_SUGGESTIONS,
+  type ActionSuggestion,
+} from "@/lib/action-suggestions"
 import {
   Github,
   LoaderCircle,
@@ -31,6 +37,7 @@ import {
   type LaunchTab,
 } from "@/components/launch-dialog/launch-dialog"
 import { CreateActionDialog } from "@/components/launch-dialog/create-action-dialog"
+import { AutomationsTab } from "@/components/automations-tab"
 import { useAgentsData } from "@/hooks/use-agents-data"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useRemoteStart } from "@/hooks/use-remote-start"
@@ -53,8 +60,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
-import { getActionIcon } from "@/lib/board-icons"
+import { BOARD_ICON_COMPONENTS, getActionIcon } from "@/lib/board-icons"
 
 // Team Agents view (EXP-257 — absorbed the old Actions route): the caller's
 // online desktops (remote-start entry point) plus the team's actions. On
@@ -80,6 +93,11 @@ export const Route = createFileRoute(`/t/$teamSlug/agents/`)({
 // EXP-431: the create entry points share the cross-client `action-create`
 // concept (desktop's `registry::ACTION_CREATE`), never a raw glyph.
 const ActionCreateIcon = conceptIcon(`action-create`)
+// EXP-530: automation + suggestion glyphs are cross-client concepts too.
+const ActionAutomationIcon = conceptIcon(`action-automation`)
+const ActionSuggestionIcon = conceptIcon(`action-suggestion`)
+
+type AgentsTab = `actions` | `automations` | `suggestions`
 
 // Owner-only ⋯ menu — hidden entirely on the builtin (server-shipped, not
 // editable or deletable).
@@ -151,6 +169,9 @@ function ActionCard({
   onDelete: () => void
 }) {
   const CardIcon = getActionIcon(action)
+  // Builtins never automate (trigger is locked null), so this only renders
+  // on synced rows carrying a parseable trigger.
+  const trigger = parseActionTrigger(action.trigger)
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
       <div className="flex min-w-0 items-center gap-2">
@@ -171,6 +192,12 @@ function ActionCard({
         <p className="line-clamp-2 text-xs text-muted-foreground">
           {action.description}
         </p>
+      )}
+      {trigger && (
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <ActionAutomationIcon className="size-3.5 shrink-0" />
+          <span className="truncate">{triggerSummary(trigger)}</span>
+        </div>
       )}
       {canRun && (
         <div className="mt-auto pt-1">
@@ -210,6 +237,7 @@ function ActionRow({
   onDelete: () => void
 }) {
   const RowIcon = getActionIcon(action)
+  const trigger = parseActionTrigger(action.trigger)
   return (
     <div className="flex items-center gap-2 border-b border-border/30 px-3 py-2">
       <RowIcon className="size-4 shrink-0 text-muted-foreground" />
@@ -221,6 +249,12 @@ function ActionRow({
         {action.description && (
           <div className="truncate text-xs text-muted-foreground">
             {action.description}
+          </div>
+        )}
+        {trigger && (
+          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+            <ActionAutomationIcon className="size-3 shrink-0" />
+            <span className="truncate">{triggerSummary(trigger)}</span>
           </div>
         )}
       </div>
@@ -265,6 +299,44 @@ function NoCustomActionsNudge({
         Describe one and your agent will build it.
       </span>
     </button>
+  )
+}
+
+// One suggestion seed as a card (EXP-530). "Use suggestion" opens the
+// create-action dialog with the description/icon prefilled — the same
+// owner+steer gate as the "New action" button, since it launches the same
+// builtin creator run.
+function SuggestionCard({
+  suggestion,
+  canUse,
+  disabled,
+  onUse,
+}: {
+  suggestion: ActionSuggestion
+  canUse: boolean
+  disabled: boolean
+  onUse: () => void
+}) {
+  const CardIcon =
+    BOARD_ICON_COMPONENTS[suggestion.icon as BoardIcon] ?? ActionSuggestionIcon
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
+      <div className="flex min-w-0 items-center gap-2">
+        <CardIcon className="size-4 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1 truncate text-sm font-medium">
+          {suggestion.title}
+        </span>
+      </div>
+      <p className="text-xs text-muted-foreground">{suggestion.description}</p>
+      {canUse && (
+        <div className="mt-auto pt-1">
+          <Button variant="outline" size="sm" disabled={disabled} onClick={onUse}>
+            <ActionSuggestionIcon />
+            Use suggestion
+          </Button>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -352,6 +424,11 @@ function AgentsPage() {
 
   // The dedicated "New action" creation dialog (EXP-431).
   const [createActionOpen, setCreateActionOpen] = useState(false)
+  // EXP-530: Actions · Automations · Suggestions tab, plus the suggestion
+  // whose description/icon prefill the next create-dialog open.
+  const [agentsTab, setAgentsTab] = useState<AgentsTab>(`actions`)
+  const [suggestionPrefill, setSuggestionPrefill] =
+    useState<ActionSuggestion | null>(null)
 
   const [editorOpen, setEditorOpen] = useState(false)
   const [editing, setEditing] = useState<TeamAction | null>(null)
@@ -432,58 +509,102 @@ function AgentsPage() {
           ) : null)}
 
         {isMember && (
-          <div className="mb-4">
-            <SectionLabel
-              label="Actions"
-              count={sortedActions?.length ?? 0}
-              trailing={
-                steerEnabled && isOwner ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-6 gap-1 px-2 text-xs"
-                    disabled={runBusy}
-                    onClick={() => setCreateActionOpen(true)}
-                  >
-                    <ActionCreateIcon className="size-3.5" />
-                    New action
-                  </Button>
-                ) : undefined
-              }
-            />
-            {sortedActions === null ? (
-              <div className="px-3 py-3 text-sm text-muted-foreground">
-                Loading…
-              </div>
-            ) : isMobile ? (
-              <>
-                {sortedActions.map((action) => (
-                  <ActionRow key={action.id} {...actionItemProps(action)} />
-                ))}
-                {steerEnabled &&
-                  isOwner &&
-                  sortedActions.every((a) => a.builtin) && (
-                    <NoCustomActionsNudge
-                      mobile
+          <Tabs
+            value={agentsTab}
+            onValueChange={(value) => setAgentsTab(value as AgentsTab)}
+            className="mb-4"
+          >
+            <TabsList className="w-full">
+              <TabsTrigger value="actions" className="flex-1">
+                Actions
+              </TabsTrigger>
+              <TabsTrigger value="automations" className="flex-1">
+                Automations
+              </TabsTrigger>
+              <TabsTrigger value="suggestions" className="flex-1">
+                Suggestions
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="actions">
+              <SectionLabel
+                label="Actions"
+                count={sortedActions?.length ?? 0}
+                trailing={
+                  steerEnabled && isOwner ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-6 gap-1 px-2 text-xs"
+                      disabled={runBusy}
                       onClick={() => setCreateActionOpen(true)}
-                    />
-                  )}
-              </>
-            ) : (
+                    >
+                      <ActionCreateIcon className="size-3.5" />
+                      New action
+                    </Button>
+                  ) : undefined
+                }
+              />
+              {sortedActions === null ? (
+                <div className="px-3 py-3 text-sm text-muted-foreground">
+                  Loading…
+                </div>
+              ) : isMobile ? (
+                <>
+                  {sortedActions.map((action) => (
+                    <ActionRow key={action.id} {...actionItemProps(action)} />
+                  ))}
+                  {steerEnabled &&
+                    isOwner &&
+                    sortedActions.every((a) => a.builtin) && (
+                      <NoCustomActionsNudge
+                        mobile
+                        onClick={() => setCreateActionOpen(true)}
+                      />
+                    )}
+                </>
+              ) : (
+                <div className="grid gap-3 pt-1 sm:grid-cols-2 xl:grid-cols-3">
+                  {sortedActions.map((action) => (
+                    <ActionCard key={action.id} {...actionItemProps(action)} />
+                  ))}
+                  {steerEnabled &&
+                    isOwner &&
+                    sortedActions.every((a) => a.builtin) && (
+                      <NoCustomActionsNudge
+                        onClick={() => setCreateActionOpen(true)}
+                      />
+                    )}
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="automations">
+              <AutomationsTab
+                actions={sortedActions}
+                devices={remote.devices ?? []}
+                isOwner={isOwner}
+                teamId={team.id}
+              />
+            </TabsContent>
+
+            <TabsContent value="suggestions">
               <div className="grid gap-3 pt-1 sm:grid-cols-2 xl:grid-cols-3">
-                {sortedActions.map((action) => (
-                  <ActionCard key={action.id} {...actionItemProps(action)} />
+                {ACTION_SUGGESTIONS.map((suggestion) => (
+                  <SuggestionCard
+                    key={suggestion.id}
+                    suggestion={suggestion}
+                    canUse={steerEnabled && isOwner}
+                    disabled={runBusy}
+                    onUse={() => {
+                      setSuggestionPrefill(suggestion)
+                      setCreateActionOpen(true)
+                    }}
+                  />
                 ))}
-                {steerEnabled &&
-                  isOwner &&
-                  sortedActions.every((a) => a.builtin) && (
-                    <NoCustomActionsNudge
-                      onClick={() => setCreateActionOpen(true)}
-                    />
-                  )}
               </div>
-            )}
-          </div>
+            </TabsContent>
+          </Tabs>
         )}
       </div>
 
@@ -515,12 +636,18 @@ function AgentsPage() {
       <CreateActionDialog
         open={createActionOpen}
         onOpenChange={(next) => {
-          if (!next) setCreateActionOpen(false)
+          if (!next) {
+            setCreateActionOpen(false)
+            // A later plain "New action" open must start blank again.
+            setSuggestionPrefill(null)
+          }
         }}
         devices={remote.devices ?? []}
         starting={remote.starting}
         teamId={team.id}
         repos={repos}
+        initialDescription={suggestionPrefill?.description}
+        initialIcon={suggestionPrefill?.icon}
         onCreate={(device, options, inputs) => {
           remote
             .runAction(
@@ -544,6 +671,7 @@ function AgentsPage() {
           onOpenChange={setEditorOpen}
           repos={repos}
           action={editing}
+          devices={remote.devices ?? []}
         />
       )}
 

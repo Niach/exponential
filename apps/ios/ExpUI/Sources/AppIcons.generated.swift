@@ -272,6 +272,8 @@ public enum AppIcons {
         allNames.contains(name) ? "lucide-\(name)" : nil
     }
 
+    /// Concept `action-automation`.
+    public static let actionAutomation: String = "zap"
     /// Concept `action-create`.
     public static let actionCreate: String = "plus"
     /// Concept `action-default`.
@@ -280,6 +282,8 @@ public enum AppIcons {
     public static let actionRepository: String = "git-branch"
     /// Concept `action-run`.
     public static let actionRun: String = "play"
+    /// Concept `action-suggestion`.
+    public static let actionSuggestion: String = "lightbulb"
     /// Concept `coding-assistant`.
     public static let codingAssistant: String = "sparkles"
     /// Concept `coding-diff`.
@@ -342,6 +346,8 @@ public enum AppIcons {
     public static let eventLabelAdded: String = "tag"
     /// Concept `event-label-removed`.
     public static let eventLabelRemoved: String = "tag"
+    /// Concept `event-priority-changed`.
+    public static let eventPriorityChanged: String = "signal-high"
     /// Concept `event-status-changed`.
     public static let eventStatusChanged: String = "circle-dot"
     /// Concept `nav-account`.

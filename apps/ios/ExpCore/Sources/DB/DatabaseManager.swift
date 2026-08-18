@@ -918,6 +918,46 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v18 (EXP-530 action automations): `actions.trigger` (jsonb stored
+        // as stringified JSON — the schedule/event automation config) and
+        // `coding_sessions.started_reason` (non-null on automation-started
+        // runs) ride along on their shapes. Additive ALTERs — fresh installs
+        // get the columns HERE too (the v9/v1 creates predate them); guarded
+        // on table + column presence so migration-fixture DBs converge.
+        migrator.registerMigration("v18_action_automations") { db in
+            if try db.tableExists("actions") {
+                let existing = Set(try db.columns(in: "actions").map(\.name))
+                if !existing.contains("trigger") {
+                    try db.alter(table: "actions") { t in
+                        t.add(column: "trigger", .text)
+                    }
+                }
+            }
+            if try db.tableExists("coding_sessions") {
+                let existing = Set(try db.columns(in: "coding_sessions").map(\.name))
+                if !existing.contains("started_reason") {
+                    try db.alter(table: "coding_sessions") { t in
+                        t.add(column: "started_reason", .text)
+                    }
+                }
+            }
+            // Force re-snapshots so already-synced rows pick up the new
+            // columns (the v17 precedent). NOTE: the coding-sessions shape
+            // key has A DASH (the proxy route name), not the table name.
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'actions'
+                    """)
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'coding-sessions'
+                    """)
+            }
+        }
+
         return migrator
     }
 

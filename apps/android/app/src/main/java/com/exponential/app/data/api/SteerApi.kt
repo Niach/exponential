@@ -193,6 +193,13 @@ data class SteerDevice(
      */
     val canResume: Boolean get() = caps?.contains("resume") == true
 
+    /**
+     * Whether this machine runs action automations locally (EXP-530) — the
+     * trigger device picker offers only these (offline-but-capable stays
+     * pickable: the machine fires on its own clock once it's back).
+     */
+    val canRunAutomations: Boolean get() = caps?.contains("automations") == true
+
     companion object {
         const val KIND_DESKTOP = "desktop"
         const val KIND_SERVER = "server"

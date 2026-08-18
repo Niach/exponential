@@ -276,10 +276,12 @@ export type CustomIcon = (typeof CUSTOM_ICONS)[number]
 
 /** Stable concept id -> icon name. Call sites reference the concept. */
 export const SEMANTIC_ICONS = {
+  "action-automation": `zap`,
   "action-create": `plus`,
   "action-default": `zap`,
   "action-repository": `git-branch`,
   "action-run": `play`,
+  "action-suggestion": `lightbulb`,
   "coding-assistant": `sparkles`,
   "coding-diff": `file-diff`,
   "coding-ended": `circle-check`,
@@ -311,6 +313,7 @@ export const SEMANTIC_ICONS = {
   "event-board-moved": `move`,
   "event-label-added": `tag`,
   "event-label-removed": `tag`,
+  "event-priority-changed": `signal-high`,
   "event-status-changed": `circle-dot`,
   "nav-account": `circle-user`,
   "nav-admin": `shield`,

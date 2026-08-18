@@ -28,6 +28,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import { BoardGlyph } from "@/components/board-glyph"
 import {
   Select,
@@ -86,6 +87,23 @@ export function ActionInputFields({
                 placeholder={def.placeholder}
                 // Client parity with the server's per-value cap, so a long
                 // paste is refused at the field instead of at submit.
+                maxLength={MAX_ACTION_INPUT_TEXT}
+              />
+            </div>
+          )
+        }
+        if (def.type === `textarea`) {
+          // EXP-530: identical value plumbing and limits to `text` — only the
+          // widget differs (multi-line).
+          return (
+            <div key={def.key} className="space-y-2">
+              <Label htmlFor={fieldId}>{label}</Label>
+              <Textarea
+                id={fieldId}
+                value={values[def.key] ?? ``}
+                onChange={(e) => onChange(def.key, e.target.value)}
+                placeholder={def.placeholder}
+                className="min-h-24"
                 maxLength={MAX_ACTION_INPUT_TEXT}
               />
             </div>

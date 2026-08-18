@@ -361,6 +361,15 @@ pub const SHAPES: [ShapeSpec; 18] = [
             "device_label",
             "status",
             "needs_input",
+            // EXP-530 automation attribution: `action_id`/`action_name` scope
+            // a run to its action (name snapshotted — outlives a deleted
+            // row), `started_reason` (`schedule`/`event`, NULL = manual)
+            // marks self-started runs. `heal_missing_columns` ALTERs them
+            // onto existing store tables and stamps a refetch so old rows get
+            // real values, not NULLs.
+            "action_id",
+            "action_name",
+            "started_reason",
             "started_at",
             "ended_at",
             "created_at",
@@ -386,6 +395,11 @@ pub const SHAPES: [ShapeSpec; 18] = [
             // local table, so no hand-written migration.
             "icon",
             "inputs",
+            // EXP-530: the ONE optional automation trigger (jsonb, TEXT-stored
+            // like `inputs`) the bound device watches. `heal_missing_columns`
+            // ALTERs it onto existing store tables and stamps a refetch so
+            // old rows get real values, not NULLs.
+            "trigger",
             "sort_order",
             "created_at",
             "updated_at",
@@ -553,6 +567,24 @@ mod tests {
         // dropping it from the allowlist silently kills the badge on desktop.
         let spec = shape_by_name("coding_sessions").unwrap();
         assert!(spec.columns.contains(&"needs_input"));
+    }
+
+    #[test]
+    fn coding_sessions_syncs_action_attribution() {
+        // EXP-530: the Automations tab's last-run/recent-runs read these —
+        // dropping any silently shows every automated run as a manual one.
+        let spec = shape_by_name("coding_sessions").unwrap();
+        assert!(spec.columns.contains(&"action_id"));
+        assert!(spec.columns.contains(&"action_name"));
+        assert!(spec.columns.contains(&"started_reason"));
+    }
+
+    #[test]
+    fn actions_syncs_the_trigger() {
+        // EXP-530: the bound device fires automations off this column —
+        // dropping it from the allowlist silently disables every automation.
+        let spec = shape_by_name("actions").unwrap();
+        assert!(spec.columns.contains(&"trigger"));
     }
 
     #[test]

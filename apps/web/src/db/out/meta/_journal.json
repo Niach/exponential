@@ -540,6 +540,13 @@
       "when": 1787011614864,
       "tag": "0076_marvelous_tyrannus",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1787015999164,
+      "tag": "0077_glossy_magdalene",
+      "breakpoints": true
     }
   ]
 }

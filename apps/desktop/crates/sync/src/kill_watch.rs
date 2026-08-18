@@ -31,15 +31,19 @@
 //! a possibly-live child), so vanish-does-not-fire is load-bearing — only an
 //! explicit `ended` flip may ever tear a session down.
 
+#[cfg(feature = "gpui")]
 use std::collections::HashMap;
 
 use domain::contract::CODING_SESSION_STATUS_ENDED;
 use domain::rows::CodingSession;
+#[cfg(feature = "gpui")]
 use gpui::{App, AppContext as _, Context, Entity};
 
+#[cfg(feature = "gpui")]
 use crate::collections::{Collection, Store};
 
 /// One-shot teardown callback, invoked on the gpui foreground.
+#[cfg(feature = "gpui")]
 pub type OnSessionEnded = Box<dyn FnOnce() + 'static>;
 
 /// The `running → ended` transition test, shared by the sweep and the
@@ -73,6 +77,7 @@ pub fn session_row_fires_kill(row: Option<&CodingSession>, own_user_id: Option<&
 /// One registered watch: the teardown callback plus the signed-in user's id
 /// at registration time (the row's expected owner — see
 /// [`session_row_fires_kill`]).
+#[cfg(feature = "gpui")]
 struct Watched {
     own_user_id: Option<String>,
     on_ended: OnSessionEnded,
@@ -80,11 +85,13 @@ struct Watched {
 
 /// The watch registry. Install ONCE per app (after [`Store::open`]) and share
 /// the entity with the coding flow.
+#[cfg(feature = "gpui")]
 pub struct KillWatch {
     sessions: Entity<Collection<CodingSession>>,
     watched: HashMap<String, Watched>,
 }
 
+#[cfg(feature = "gpui")]
 impl KillWatch {
     /// Subscribe to the store's `coding_sessions` collection. The observer
     /// lives as long as the entity (subscription detached into the app).

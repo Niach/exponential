@@ -23,7 +23,7 @@ public enum DomainContract {
     public static let prStateValues: [String] = ["open", "closed", "merged", "draft"]
     public static let codingSessionStatusValues: [String] = ["running", "in_review", "merged", "ended"]
     public static let subscriberSourceValues: [String] = ["creator", "assignee", "commenter", "manual", "mention", "widget_reporter"]
-    public static let issueEventTypeValues: [String] = ["status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved"]
+    public static let issueEventTypeValues: [String] = ["status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved", "created", "priority_changed"]
     public static let codingAgentValues: [String] = ["claude", "codex", "pi"]
     public static let codingModelValues: [String] = ["fable", "opus", "sonnet"]
     public static let codingEffortValues: [String] = ["low", "medium", "high", "xhigh", "max"]
@@ -31,7 +31,9 @@ public enum DomainContract {
     public static let codexEffortValues: [String] = ["minimal", "low", "medium", "high", "xhigh"]
     public static let piModelValues: [String] = ["fable", "opus", "sonnet", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "grok-4.5"]
     public static let piThinkingValues: [String] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
-    public static let actionInputTypeValues: [String] = ["text", "repo", "board", "pr", "icon"]
+    public static let actionInputTypeValues: [String] = ["text", "repo", "board", "pr", "icon", "textarea"]
+    public static let actionTriggerEventValues: [String] = ["created", "status_changed", "assignee_changed", "label_added", "priority_changed", "pr_opened", "pr_merged"]
+    public static let actionScheduleIntervalValues: [String] = ["daily", "weekly", "monthly"]
 
     public static let issueStatusStartedMax: Int = 4
     public static let codingSessionStaleMs: Int = 7200000
@@ -40,6 +42,9 @@ public enum DomainContract {
     public static let builtinFixConflictsId: String = "builtin:fix-conflicts"
     public static let actionInputsMax: Int = 10
     public static let actionInputTextMax: Int = 4096
+    public static let actionTriggerMaxFilterIds: Int = 20
+    public static let automationCooldownMs: Int = 60000
+    public static let automationEventCatchupMs: Int = 86400000
 
     public static let issueStatusCategoryBacklog: String = "backlog"
     public static let issueStatusCategoryUnstarted: String = "unstarted"
@@ -82,4 +87,6 @@ public enum DomainContract {
     public static let issueEventTypePrOpened: String = "pr_opened"
     public static let issueEventTypePrMerged: String = "pr_merged"
     public static let issueEventTypeBoardMoved: String = "board_moved"
+    public static let issueEventTypeCreated: String = "created"
+    public static let issueEventTypePriorityChanged: String = "priority_changed"
 }

@@ -120,9 +120,22 @@ internal fun eventPhrase(
                 eventVerb(event.type)
             }
         }
+        // EXP-530: priority wire values render capitalized ("urgent" →
+        // "Urgent"); a missing side reads "None" — mirrors web priorityLabel.
+        "priority_changed" ->
+            "changed priority from ${priorityLabel(field("from"))} to ${priorityLabel(field("to"))}"
         else -> eventVerb(event.type)
     }
 }
+
+// EXP-530: whether a synced event renders a timeline row at all. `created`
+// rows exist as the automation-trigger substrate — the issue header already
+// shows creation, so every client suppresses them (web returns null there).
+// The filter lives here (not in the composable) so the rule is lock-testable.
+internal fun eventRowVisible(type: String): Boolean = type != "created"
+
+private fun priorityLabel(raw: String?): String =
+    raw?.replaceFirstChar { it.uppercaseChar() } ?: "None"
 
 // The event's JSON payload (stored as stringified JSON) as an object, or null
 // for missing/unparseable payloads.

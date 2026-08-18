@@ -135,6 +135,13 @@ export function deviceCanFixConflicts(device: SteerDevice): boolean {
   return (device.caps ?? []).includes(`fix-conflicts`)
 }
 
+/** EXP-530: only devices advertising this capability evaluate action
+ * triggers locally — older builds would accept the binding and never fire.
+ * Offline-but-capable devices stay pickable (they catch up on reconnect). */
+export function deviceCanRunAutomations(device: SteerDevice): boolean {
+  return (device.caps ?? []).includes(`automations`)
+}
+
 /** EXP-481: remote resume needs this capability — an older build would
  * silently drop the flag and start fresh (`steer.startSession` gates on the
  * persisted row's caps server-side). */

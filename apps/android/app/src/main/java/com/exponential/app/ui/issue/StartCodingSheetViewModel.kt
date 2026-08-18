@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.RepositoriesApi
+import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.data.api.builtinActions
 import com.exponential.app.data.api.toActionDto
@@ -13,9 +14,14 @@ import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.DeviceEntity
 import com.exponential.app.data.db.DeviceWorktreeEntity
 import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.IssueStatusCategory
+import com.exponential.app.domain.IssueStatusResolver
+import com.exponential.app.ui.session.composeDeviceList
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -48,6 +54,12 @@ data class SheetActionsState(
 
 /** One pickable board for a `board`-typed action input. */
 data class StartBoardOption(
+    val id: String,
+    val name: String,
+)
+
+/** One pickable label/status/priority for the EXP-530 automation filter pickers. */
+data class StartFilterOption(
     val id: String,
     val name: String,
 )
@@ -131,6 +143,23 @@ class StartCodingSheetViewModel @Inject constructor(
         dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /**
+     * EXP-530: the Automation section's device pool — the caller's own
+     * machines plus the SELECTED team's shared servers ([composeDeviceList],
+     * the exact scope the server's trigger validation accepts; an
+     * out-of-scope row here would only earn a BAD_REQUEST mid-run), filtered
+     * to the `automations` cap. Offline rows stay in — the bound device
+     * fires on its own clock once it comes back.
+     */
+    val automationDevices: StateFlow<List<SteerDevice>> = combine(
+        dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() },
+        dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeAll() },
+        combine(selection.selectedId, auth.userId) { teamId, userId -> teamId to userId },
+        DeviceLiveness.ticker(),
+    ) { rows, users, (teamId, userId), now ->
+        composeDeviceList(rows, users, teamId, userId, now).filter { it.canRunAutomations }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     /** The team repo registry — options for `repo`-typed inputs (failure = empty). */
     val repos: StateFlow<List<TeamRepo>> = scope.flatMapLatest { (accountId, teamId) ->
         flow {
@@ -161,6 +190,43 @@ class StartCodingSheetViewModel @Inject constructor(
                 .filter { it.teamId == teamId && it.deletedAt == null }
                 .sortedBy { it.name.lowercase() }
                 .map { StartBoardOption(id = it.id, name = it.name) }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Live, team-scoped labels — the EXP-530 label-added filter picker. */
+    val labelOptions: StateFlow<List<StartFilterOption>> = combine(
+        dbFlow.scopedQuery(emptyList()) { it.labelDao().observeAll() },
+        selection.selectedId,
+    ) { labels, teamId ->
+        if (teamId == null) {
+            emptyList()
+        } else {
+            labels
+                .filter { it.teamId == teamId }
+                .sortedBy { it.name.lowercase() }
+                .map { StartFilterOption(id = it.id, name = it.name) }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * The team's REAL status rows in canonical display order — the EXP-530
+     * status-changed filter picker. Constructed fallbacks (no row id) can't
+     * be a filter target, and duplicate is never pickable (the web
+     * buildStatusOptions rule).
+     */
+    val statusOptions: StateFlow<List<StartFilterOption>> = combine(dbFlow, selection.selectedId) { db, teamId ->
+        db to teamId
+    }.flatMapLatest { (db, teamId) ->
+        if (db == null || teamId == null) {
+            flowOf(emptyList())
+        } else {
+            db.issueStatusDao().observeByTeam(teamId).map { rows ->
+                IssueStatusResolver.teamStatuses(rows)
+                    .filter { it.category != IssueStatusCategory.Duplicate }
+                    .mapNotNull { status ->
+                        status.rowId?.let { StartFilterOption(id = it, name = status.name) }
+                    }
+            }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 

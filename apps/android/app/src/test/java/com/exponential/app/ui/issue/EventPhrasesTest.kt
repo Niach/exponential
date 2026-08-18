@@ -4,6 +4,7 @@ import com.exponential.app.data.db.IssueEventEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.UserEntity
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -164,5 +165,36 @@ class EventPhrasesTest {
     @Test
     fun unknownTypeSpacesUnderscores() {
         assertEquals("something new", phrase(event("something_new", null)))
+    }
+
+    /** EXP-530: priority wire values render capitalized (web parity). */
+    @Test
+    fun priorityChangedCapitalizesWireValues() {
+        assertEquals(
+            "changed priority from Urgent to Low",
+            phrase(event("priority_changed", """{"from":"urgent","to":"low"}""")),
+        )
+    }
+
+    @Test
+    fun priorityChangedMissingSidesReadNone() {
+        assertEquals(
+            "changed priority from None to High",
+            phrase(event("priority_changed", """{"to":"high"}""")),
+        )
+        assertEquals(
+            "changed priority from None to None",
+            phrase(event("priority_changed", null)),
+        )
+    }
+
+    /** EXP-530: `created` rows never render a timeline row — the issue header
+     * already shows creation. Every other kind stays visible. */
+    @Test
+    fun createdEventsAreSuppressedEntirely() {
+        assertFalse(eventRowVisible("created"))
+        assertTrue(eventRowVisible("status_changed"))
+        assertTrue(eventRowVisible("priority_changed"))
+        assertTrue(eventRowVisible("something_new"))
     }
 }

@@ -1086,6 +1086,7 @@ version = "0.14.15"
 dependencies = [
  "anyhow",
  "api",
+ "chrono",
  "dirs",
  "domain",
  "gpui",
@@ -1852,6 +1853,7 @@ version = "0.14.15"
 dependencies = [
  "anyhow",
  "api",
+ "chrono",
  "coding",
  "dirs",
  "domain",
@@ -1862,6 +1864,7 @@ dependencies = [
  "serde",
  "serde_json",
  "steer",
+ "sync",
  "terminal",
  "updater",
  "uuid",

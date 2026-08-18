@@ -3,6 +3,7 @@ import { issues, issueSubscribers, widgetSubmissions } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
 import { getSoleHumanMemberId } from "@/lib/team-membership"
 import { ensureSubscribed } from "@/lib/integrations/subscriptions"
+import { recordIssueEvent } from "@/lib/integrations/activity"
 import { fireAndForgetNewIssueNotify } from "@/lib/integrations/notifications"
 import { loadWidgetConfigByKey, WidgetRequestError } from "./service"
 
@@ -56,7 +57,28 @@ export async function createAgentBugReport(args: {
         creatorId: null,
         source: `agent`,
       })
-      .returning({ id: issues.id, identifier: issues.identifier })
+      .returning({
+        id: issues.id,
+        identifier: issues.identifier,
+        status: issues.status,
+        statusId: issues.statusId,
+        priority: issues.priority,
+      })
+
+    // EXP-530: `created` event (timeline-suppressed; feeds automation event
+    // triggers). No actor — widget parity, the reporter is not a member.
+    await recordIssueEvent(tx, {
+      issueId: issue.id,
+      teamId: config.teamId,
+      actorUserId: null,
+      type: `created`,
+      payload: {
+        status: issue.status,
+        statusId: issue.statusId,
+        priority: issue.priority,
+        source: `agent`,
+      },
+    })
 
     // EXP-50 parity: subscribe the auto-assigned solo member without an
     // assignment notification — the post-commit fan-out already reaches them.

@@ -70,6 +70,8 @@ pub fn connect_account(account: &api::Account, cx: &mut App) -> bool {
         base_url: account.instance_url.clone(),
         db_path: api::account_db_path(&auth.data_dir, &account.id),
         token: auth.auth.token_provider_fn(&account.id),
+        // The desktop syncs all 18 shapes; only the CLI daemon subsets.
+        shapes: None,
     };
     match store.connect(config, cx) {
         Ok(_) => {
@@ -79,6 +81,9 @@ pub fn connect_account(account: &api::Account, cx: &mut App) -> bool {
             // EXP-481: the device-state sync loop (heartbeat/work pull/
             // inventory reports) rides beside the control socket.
             crate::device_sync::start_device_sync(account, cx);
+            // EXP-530: the action-automation host (schedules + event
+            // triggers bound to THIS device) rides the same lifecycle.
+            crate::automation_host::start_automation_host(account, cx);
             // EXP-229: end the coding_sessions rows a crash / forced logout
             // stranded `running` — this is the single choke point every
             // sign-in path (warm start, dev inject, OAuth, login form) runs
@@ -150,6 +155,7 @@ pub fn sign_out_active(cx: &mut App) {
     // §08: stop this account's steer control socket before tearing sync down.
     crate::steer_wiring::stop_control_channel(&account_id, cx);
     crate::device_sync::stop_device_sync(&account_id, cx);
+    crate::automation_host::stop_automation_host(&account_id, cx);
     let auth = AuthContext::global(cx).clone();
 
     // Best-effort server-side session ends + revocation — local sign-out
@@ -222,6 +228,7 @@ pub fn reset_ide_data(cx: &mut App) {
         }
         crate::steer_wiring::stop_control_channel(&account.id, cx);
         crate::device_sync::stop_device_sync(&account.id, cx);
+        crate::automation_host::stop_automation_host(&account.id, cx);
         if let Some(token) = auth.auth.token(&account.id) {
             let client = Arc::clone(&auth.client);
             let instance = account.instance_url.clone();

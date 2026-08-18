@@ -404,6 +404,12 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
                 "actions".to_string(),
                 "action-inputs".to_string(),
                 "fix-conflicts".to_string(),
+                // EXP-530: this build runs the automation host, so a trigger
+                // may be BOUND to this device. Agent-gated with the rest —
+                // an automation is an action run, and a machine with no
+                // runnable agent could only fail every firing. Hand-synced
+                // with the CLI daemon's `ACTION_CAPS`.
+                "automations".to_string(),
             ]);
         }
         // EXP-403: record this machine in the per-user devices registry so the
@@ -620,7 +626,7 @@ pub(crate) struct StartReservations(Arc<Mutex<HashSet<String>>>);
 impl StartReservations {
     /// All-or-nothing claim: `None` when the key is already held by an
     /// in-flight start (the caller drops the duplicate frame).
-    fn claim(&self, key: String) -> Option<ReservationGuard> {
+    pub(crate) fn claim(&self, key: String) -> Option<ReservationGuard> {
         let mut held = match self.0.lock() {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
@@ -653,7 +659,10 @@ impl Drop for ReservationGuard {
     }
 }
 
-fn action_start_reservations() -> &'static StartReservations {
+/// The process-wide claim set. EXP-530: the automation host claims through
+/// the SAME set as the relay path — a scheduled firing and a remote start of
+/// one action must never both launch.
+pub(crate) fn action_start_reservations() -> &'static StartReservations {
     static RESERVATIONS: std::sync::OnceLock<StartReservations> = std::sync::OnceLock::new();
     RESERVATIONS.get_or_init(StartReservations::default)
 }
@@ -725,6 +734,10 @@ fn remote_action_start(
             target: None,
             activate_app: true,
             reservation: Some(reservation),
+            // A relay start is a PERSON's start — the automation host is the
+            // only caller that fires these (EXP-530).
+            trigger: None,
+            on_failed: None,
         },
         cx,
     );

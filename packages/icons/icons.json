@@ -157,6 +157,10 @@
     "event-label-added": "tag",
     "event-label-removed": "tag",
     "event-board-moved": "move",
+    "event-priority-changed": "signal-high",
+
+    "action-automation": "zap",
+    "action-suggestion": "lightbulb",
 
     "editor-bold": "bold",
     "editor-italic": "italic",

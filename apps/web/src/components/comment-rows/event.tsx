@@ -12,6 +12,14 @@ const LabelIcon = conceptIcon(`event-label-added`)
 const BoardMovedIcon = conceptIcon(`event-board-moved`)
 const PrOpenedIcon = conceptIcon(`pr-open`)
 const PrMergedIcon = conceptIcon(`pr-merged`)
+const PriorityChangedIcon = conceptIcon(`event-priority-changed`)
+
+// Priority wire values render capitalized ("urgent" → "Urgent"); anything
+// unexpected falls back to the raw string.
+function priorityLabel(value: unknown): string {
+  const raw = String(value ?? ``)
+  return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : `None`
+}
 
 // EXP-314: `status_changed` payloads now carry the human status NAMES
 // (`fromName`/`toName`) alongside the legacy enum anchors, so a custom status
@@ -190,6 +198,27 @@ export function EventRow({
       )
       break
     }
+    case `priority_changed`: {
+      Icon = PriorityChangedIcon
+      text = (
+        <>
+          changed priority from{` `}
+          <span className="font-medium text-foreground">
+            {priorityLabel(payload.from)}
+          </span>
+          {` `}to{` `}
+          <span className="font-medium text-foreground">
+            {priorityLabel(payload.to)}
+          </span>
+        </>
+      )
+      break
+    }
+    // EXP-530: `created` rows are the automation-trigger substrate — the
+    // issue header already shows creation, so the timeline suppresses them
+    // on every client.
+    case `created`:
+      return null
     default:
       return null
   }

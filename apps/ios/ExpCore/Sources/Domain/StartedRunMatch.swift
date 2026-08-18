@@ -51,7 +51,11 @@ public enum StartedRunMatch {
         else { return false }
         switch key {
         case let .action(name):
-            return session.actionName == name
+            // EXP-530: an automation-started run (started_reason non-null)
+            // carries the same action-name snapshot — it must never satisfy a
+            // USER's pending start watch, or a schedule firing in the window
+            // hijacks the navigation.
+            return session.actionName == name && session.startedReason == nil
         case let .issue(id):
             return session.issueId == id && session.actionName == nil
         case .batch:

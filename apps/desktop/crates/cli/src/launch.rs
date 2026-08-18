@@ -166,6 +166,10 @@ pub enum ActionRepo {
 /// constructed locally (the server rejects `actions.get` for their ids),
 /// team actions fetch the FRESH body, fix-conflicts resolves its `pr` input
 /// (issue UUID or identifier) to the PR branch + repository via tRPC.
+/// `trigger` (EXP-530) is set only by the daemon's automation host — it feeds
+/// the prompt's `## Trigger` section and the row's `started_reason`; every
+/// user-initiated start passes `None`.
+#[allow(clippy::too_many_arguments)]
 pub fn resolve_action_request(
     ctx: &Ctx,
     action_id: &str,
@@ -174,6 +178,7 @@ pub fn resolve_action_request(
     inputs: Vec<ActionInputValue>,
     options: LaunchOptions,
     origin: LaunchOrigin,
+    trigger: Option<coding::TriggerNote>,
 ) -> anyhow::Result<ActionLaunchRequest> {
     let builtin = api::actions::is_builtin_action_id(action_id);
     let fixing = action_id == BUILTIN_FIX_CONFLICTS_ID;
@@ -292,6 +297,7 @@ pub fn resolve_action_request(
         repo: repo_group,
         inputs,
         kind,
+        trigger,
         device_label: coding::default_device_label(),
         origin,
         options,

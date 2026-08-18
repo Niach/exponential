@@ -165,9 +165,11 @@ import androidx.room.RoomDatabase
     // v36 (EXP-545): coding_sessions.branch — the batch↔PR linkage stamped by
     //      the server's pr_open batch flip, so a batch row's Merge shortcut
     //      targets its OWN PR instead of the team's sole open batch PR.
+    // v37 (EXP-530): actions.trigger + coding_sessions.started_reason —
+    //      additive columns; destructive fallback wipes + resyncs
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so an additive shape column just wipes and re-syncs from Electric.
-    version = 36,
+    version = 37,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

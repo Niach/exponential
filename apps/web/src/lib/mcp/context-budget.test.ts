@@ -95,9 +95,13 @@ it(`keeps the serialized MCP tool context within budget`, () => {
   // registering here, the budget silently under-measures.
   expect(defs.some((def) => def.name === `exponential_report_bug`)).toBe(true)
   const total = JSON.stringify(defs).length
-  // 23.2k as of EXP-353. If this trips, trim schemas/descriptions — do not
-  // just raise the ceiling: Claude Code's large-MCP-context warning is ~25k.
-  expect(total).toBeLessThan(24_000)
+  // 23.2k as of EXP-353; 24.6k as of EXP-530 (the ceiling was deliberately
+  // raised once for the trigger shape doc — an agent authoring an automation
+  // needs the field vocabulary in-context). If this trips, trim
+  // schemas/descriptions — do not raise the ceiling again: Claude Code's
+  // large-MCP-context warning is ~25k and the remaining headroom IS the
+  // budget.
+  expect(total).toBeLessThan(24_800)
   for (const def of defs) {
     // No single tool may reintroduce a fat inline enum or a novella.
     expect(JSON.stringify(def).length, `${def.name}`).toBeLessThan(1_800)

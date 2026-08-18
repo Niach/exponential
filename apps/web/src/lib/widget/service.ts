@@ -35,6 +35,7 @@ import { getImageDimensions } from "@/lib/storage/image-dimensions"
 import { uploadObject, deleteObject } from "@/lib/storage"
 import { getSoleHumanMemberId } from "@/lib/team-membership"
 import { ensureSubscribed } from "@/lib/integrations/subscriptions"
+import { recordIssueEvent } from "@/lib/integrations/activity"
 import {
   fireAndForgetNewIssueNotify,
   fireAndForgetSupportThreadNotify,
@@ -670,7 +671,28 @@ export async function createWidgetSubmission(args: {
           creatorId: null,
           source: `widget`,
         })
-        .returning({ id: issues.id, identifier: issues.identifier })
+        .returning({
+          id: issues.id,
+          identifier: issues.identifier,
+          status: issues.status,
+          statusId: issues.statusId,
+          priority: issues.priority,
+        })
+
+      // EXP-530: `created` event (timeline-suppressed; feeds automation event
+      // triggers). No actor — the reporter is anonymous, like the issue.
+      await recordIssueEvent(tx, {
+        issueId,
+        teamId: config.teamId,
+        actorUserId: null,
+        type: `created`,
+        payload: {
+          status: issue.status,
+          statusId: issue.statusId,
+          priority: issue.priority,
+          source: `widget`,
+        },
+      })
 
       // Reporter-picked labels (EXP-435). Re-selected against live team rows
       // inside the tx — the configured set can hold ids deleted since the

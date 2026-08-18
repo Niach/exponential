@@ -40,6 +40,7 @@ pub mod action_prompt;
 pub mod agent;
 pub mod atomic_config;
 pub mod argv;
+pub mod automations;
 pub mod batch_launcher;
 pub mod batch_prompt;
 pub mod claude_trust;
@@ -78,7 +79,8 @@ pub use batch_launcher::{
     batch_branch_name, new_batch_id, BatchIssueSpec, BatchLaunchRequest, RepoGroup,
 };
 pub use action_prompt::{
-    create_action_prompt, fix_pr_conflicts_prompt, render_action_prompt, ActionInputValue,
+    create_action_prompt, fix_pr_conflicts_prompt, render_action_prompt,
+    render_action_prompt_with_trigger, ActionInputValue, TriggerNote, TriggerNoteKind,
 };
 pub use batch_prompt::{render_batch_prompt, BatchPromptArgs};
 pub use clone_manager::{AutoSyncOutcome, CloneEvent};

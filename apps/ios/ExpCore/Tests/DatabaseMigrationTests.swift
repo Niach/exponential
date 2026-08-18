@@ -29,7 +29,10 @@ import XCTest
 // attachments.uploader_id is nullable server-side — a table rebuild, the v6
 // precedent, since SQLite can't relax a NOT NULL via ALTER) the fourteenth,
 // and v16_devices_worktrees (EXP-481: the synced devices + device_worktrees
-// tables, shapes 17/18) the fifteenth.
+// tables, shapes 17/18) the fifteenth, v17_coding_session_branch (EXP-545:
+// the batch↔PR head branch ride-along) the sixteenth, and
+// v18_action_automations (EXP-530: actions.trigger +
+// coding_sessions.started_reason) the seventeenth.
 // These tests pin the fresh-install schema and the
 // exact migration identifiers so a new incremental migration is a conscious
 // decision, not an accident.
@@ -73,7 +76,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v8_coding_session_action_fields", "v9_actions", "v10_action_icon",
              "v11_drop_archived_at", "v12_drop_issue_times",
              "v13_issue_statuses", "v14_drop_board_is_protected",
-             "v15_attachment_nullable_uploader", "v16_devices_worktrees"]
+             "v15_attachment_nullable_uploader", "v16_devices_worktrees",
+             "v17_coding_session_branch", "v18_action_automations"]
         )
     }
 
@@ -91,7 +95,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v8_coding_session_action_fields", "v9_actions", "v10_action_icon",
              "v11_drop_archived_at", "v12_drop_issue_times",
              "v13_issue_statuses", "v14_drop_board_is_protected",
-             "v15_attachment_nullable_uploader", "v16_devices_worktrees"]
+             "v15_attachment_nullable_uploader", "v16_devices_worktrees",
+             "v17_coding_session_branch", "v18_action_automations"]
         )
     }
 
@@ -137,7 +142,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v8_coding_session_action_fields", "v9_actions", "v10_action_icon",
              "v11_drop_archived_at", "v12_drop_issue_times",
              "v13_issue_statuses", "v14_drop_board_is_protected",
-             "v15_attachment_nullable_uploader", "v16_devices_worktrees"]
+             "v15_attachment_nullable_uploader", "v16_devices_worktrees",
+             "v17_coding_session_branch", "v18_action_automations"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -203,7 +209,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v8_coding_session_action_fields", "v9_actions", "v10_action_icon",
              "v11_drop_archived_at", "v12_drop_issue_times",
              "v13_issue_statuses", "v14_drop_board_is_protected",
-             "v15_attachment_nullable_uploader", "v16_devices_worktrees"]
+             "v15_attachment_nullable_uploader", "v16_devices_worktrees",
+             "v17_coding_session_branch", "v18_action_automations"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -441,6 +448,60 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertEqual(offsetValue, "-1")
         XCTAssertEqual(needsRefetch, true)
         XCTAssertEqual(isLive, false)
+    }
+
+    // v18 (EXP-530 action automations): a store created before
+    // `actions.trigger` / `coding_sessions.started_reason` existed must gain
+    // both via the guarded ALTERs and get BOTH shape offsets reset (the
+    // coding-sessions key has A DASH — the proxy route name, not the table
+    // name) so already-synced rows re-arrive with the new columns.
+    func testActionAutomationColumnsAddedToExistingStore() throws {
+        let pool = try makePool("action-automations")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v17_coding_session_branch")
+        try pool.write { db in
+            // Hand-build the pre-v18 state: drop the columns the earlier
+            // creates already declare (that overlap is exactly what the
+            // guarded ALTERs have to tolerate) + live offset rows.
+            let actionCols = Set(try db.columns(in: "actions").map(\.name))
+            if actionCols.contains("trigger") {
+                try db.alter(table: "actions") { t in t.drop(column: "trigger") }
+            }
+            let sessionCols = Set(try db.columns(in: "coding_sessions").map(\.name))
+            if sessionCols.contains("started_reason") {
+                try db.alter(table: "coding_sessions") { t in t.drop(column: "started_reason") }
+            }
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('actions', 'h', '0_0', 0, 1),
+                       ('coding-sessions', 'h', '0_0', 0, 1)
+                """)
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertTrue(try columnNames(pool, "actions").contains("trigger"))
+        XCTAssertTrue(try columnNames(pool, "coding_sessions").contains("started_reason"))
+        // The ALTERs must force a refetch of BOTH shapes.
+        for shape in ["actions", "coding-sessions"] {
+            let offset = try pool.read { db in
+                try Row.fetchOne(
+                    db,
+                    sql: """
+                        SELECT "handle", "offset", "needs_refetch", "is_live"
+                        FROM "electric_offsets" WHERE "shape" = '\(shape)'
+                        """
+                )
+            }
+            let handle: String? = offset?["handle"]
+            let offsetValue: String? = offset?["offset"]
+            let needsRefetch: Bool? = offset?["needs_refetch"]
+            let isLive: Bool? = offset?["is_live"]
+            XCTAssertEqual(handle, "", "shape \(shape)")
+            XCTAssertEqual(offsetValue, "-1", "shape \(shape)")
+            XCTAssertEqual(needsRefetch, true, "shape \(shape)")
+            XCTAssertEqual(isLive, false, "shape \(shape)")
+        }
     }
 
     // The end-state schema must expose the tables + key columns sync writes to,

@@ -1,7 +1,10 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { and, desc, eq, gte, inArray, or } from "drizzle-orm"
-import { CODING_SESSION_STALE_MS } from "@exp/db-schema/domain"
+import {
+  CODING_SESSION_STALE_MS,
+  startedReasonValues,
+} from "@exp/db-schema/domain"
 import { router, authedProcedure, type Context } from "@/lib/trpc"
 import { actions, codingSessions, devices, issues } from "@/db/schema"
 import {
@@ -153,6 +156,9 @@ export const codingSessionsRouter = router({
           // EXP-432 shared-device attribution (see resolveStartAttribution).
           startedById: z.string().min(1).max(128).optional(),
           deviceId: z.string().min(1).max(128).optional(),
+          // EXP-530: set by a device's automation host when an action trigger
+          // fires. NULL/absent = a person started the run.
+          startedReason: z.enum(startedReasonValues).optional(),
         })
         .refine(
           (value) => {
@@ -168,6 +174,14 @@ export const codingSessionsRouter = router({
           },
           {
             message: `Exactly one of issueId/teamId/actionId is required`,
+          }
+        )
+        .refine(
+          (value) =>
+            !value.startedReason ||
+            (Boolean(value.actionId) && !isBuiltinActionId(value.actionId!)),
+          {
+            message: `startedReason requires a real actionId — only action triggers automate starts`,
           }
         )
     )
@@ -233,6 +247,7 @@ export const codingSessionsRouter = router({
             teamId: action.teamId,
             actionId: action.id,
             actionName: action.name,
+            startedReason: input.startedReason ?? null,
             userId: attribution.userId,
             hostUserId: attribution.hostUserId,
             deviceLabel: input.deviceLabel ?? null,
@@ -334,6 +349,9 @@ export const codingSessionsRouter = router({
           // host (which would break the requester's steering mid-run).
           startedById: z.string().min(1).max(128).optional(),
           deviceId: z.string().min(1).max(128).optional(),
+          // EXP-530: automated runs echo their reason so a swept row
+          // resurrects with its "Automated" badge intact.
+          startedReason: z.enum(startedReasonValues).optional(),
         })
         .refine((value) => !(value.issueId && value.teamId), {
           message: `At most one of issueId/teamId`,
@@ -435,6 +453,12 @@ export const codingSessionsRouter = router({
                 ? builtinActionName(input.actionId!)
                 : input.actionId
                   ? (input.actionName ?? null)
+                  : null,
+              // Automated-run parity with `start`: only a real action row
+              // can carry a reason (builtins/batch never automate).
+              startedReason:
+                input.actionId && !builtin
+                  ? (input.startedReason ?? null)
                   : null,
               userId: attribution.userId,
               hostUserId: attribution.hostUserId,

@@ -48,6 +48,9 @@ pub const DEFAULT_CLAUDE_EFFORT: &str = "";
 /// runs replaced release runs), the even older `releaseAutonomous`, and the
 /// EXP-201 per-run-mode toggle pairs (EXP-206 merged them into the
 /// per-AGENT fields below — issue and batch runs share one default).
+/// Foreign top-level keys other subsystems own (`launchDefaultsSync`,
+/// `actionAutomations`) ride the merge-save untouched and must never enter
+/// this list.
 const DEAD_KEYS: [&str; 11] = [
     "subagentModel",
     "subagentEffort",

@@ -52,8 +52,13 @@ struct CommentThreadView: View {
         )
         // (createdAt, id) — the deterministic tie-break Android uses, so
         // same-timestamp items order identically on both platforms.
+        // EXP-530: server `created` events are suppressed (nil phrase) — drop
+        // them HERE too, so collapsed-run counts never include hidden rows.
+        let visibleEvents = events.filter {
+            eventPhrase($0, users: users, labels: labels, boards: boards) != nil
+        }
         let rest = (humanComments.map { TimelineItem.comment($0) }
-            + events.map { TimelineItem.event($0) })
+            + visibleEvents.map { TimelineItem.event($0) })
             .sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
         return [created] + rest
     }
@@ -139,21 +144,24 @@ struct CommentThreadView: View {
     @ViewBuilder
     private func eventRow(_ event: IssueEventEntity, showTop: Bool, showBottom: Bool) -> some View {
         let who = memberDisplayName(event.actorUserId.flatMap { users[$0] }, id: event.actorUserId)
-        let phrase = eventPhrase(event, users: users, labels: labels, boards: boards)
-        // Append a relative timestamp (EXP-169) — only when it parses, so an
-        // unparseable created_at never leaves a dangling " · ".
-        let time = relativeDate(event.createdAt)
-        TimelineRow(
-            showTop: showTop,
-            showBottom: showBottom,
-            markerSize: 16,
-            topPadding: 5,
-            bottomPadding: 5,
-            marker: { eventDot }
-        ) {
-            Text(time.isEmpty ? "\(who) \(phrase)" : "\(who) \(phrase) · \(time)")
-                .font(.caption)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+        // Nil phrase = a suppressed event type (the timeline filter already
+        // drops them; this guard keeps a stray one from rendering munged).
+        if let phrase = eventPhrase(event, users: users, labels: labels, boards: boards) {
+            // Append a relative timestamp (EXP-169) — only when it parses, so
+            // an unparseable created_at never leaves a dangling " · ".
+            let time = relativeDate(event.createdAt)
+            TimelineRow(
+                showTop: showTop,
+                showBottom: showBottom,
+                markerSize: 16,
+                topPadding: 5,
+                bottomPadding: 5,
+                marker: { eventDot }
+            ) {
+                Text(time.isEmpty ? "\(who) \(phrase)" : "\(who) \(phrase) · \(time)")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            }
         }
     }
 

@@ -210,7 +210,9 @@
       "label_removed",
       "pr_opened",
       "pr_merged",
-      "board_moved"
+      "board_moved",
+      "created",
+      "priority_changed"
     ]
   },
   "codingAgent": {
@@ -243,7 +245,24 @@
     "values": ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
   },
   "actionInputType": {
-    "values": ["text", "repo", "board", "pr", "icon"]
+    "values": ["text", "repo", "board", "pr", "icon", "textarea"]
+  },
+  "actionTrigger": {
+    "eventValues": [
+      "created",
+      "status_changed",
+      "assignee_changed",
+      "label_added",
+      "priority_changed",
+      "pr_opened",
+      "pr_merged"
+    ],
+    "scheduleIntervalValues": ["daily", "weekly", "monthly"],
+    "maxFilterIds": 20
+  },
+  "automation": {
+    "cooldownSeconds": 60,
+    "eventCatchupHours": 24
   },
   "builtinAction": {
     "createActionId": "builtin:create-action",

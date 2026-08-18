@@ -66,6 +66,8 @@ export interface BuiltinAction {
   icon: string | null
   body: string
   inputs: ActionInputDef[]
+  /** Builtins never automate — always null (EXP-530). */
+  trigger: null
   sortOrder: number
   createdAt: Date
   updatedAt: Date
@@ -85,6 +87,7 @@ export function builtinCreateAction(teamId: string): BuiltinAction {
     icon: `sparkles`,
     body: ``,
     inputs: CREATE_ACTION_INPUTS,
+    trigger: null,
     sortOrder: 1e9,
     createdAt: new Date(0),
     updatedAt: new Date(0),
@@ -106,6 +109,7 @@ export function builtinFixConflictsAction(teamId: string): BuiltinAction {
     icon: `git-branch`,
     body: ``,
     inputs: FIX_CONFLICTS_INPUTS,
+    trigger: null,
     sortOrder: 1e9 + 1,
     createdAt: new Date(0),
     updatedAt: new Date(0),

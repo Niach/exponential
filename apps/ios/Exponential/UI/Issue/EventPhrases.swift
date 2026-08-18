@@ -34,6 +34,11 @@ func statusLabel(_ s: String) -> String {
     }
 }
 
+/// Capitalized wire priority value for the timeline row ("urgent" → "Urgent").
+func priorityLabel(_ wire: String) -> String {
+    wire.prefix(1).uppercased() + wire.dropFirst()
+}
+
 /// Pull a string or integer scalar out of an issue_event's JSON payload (stored
 /// as stringified JSON). Returns nil for missing/null/empty values.
 func eventField(_ payload: String?, _ key: String) -> String? {
@@ -49,14 +54,21 @@ func eventField(_ payload: String?, _ key: String) -> String? {
 /// A rich activity phrase from the event type + payload (status from→to, PR #N,
 /// assigned/unassigned, label name). Resolves user/label names when the maps are
 /// supplied; falls back to the generic verb for events without a payload.
-/// Mirrors the web activity timeline.
+/// Mirrors the web activity timeline. Nil = SUPPRESS the row entirely
+/// (EXP-530: server `created` events duplicate the locally synthesized
+/// "created the issue" row and must never render — not even as the munged
+/// verb fallback).
 func eventPhrase(
     _ event: IssueEventEntity,
     users: [String: UserEntity],
     labels: [String: LabelEntity]?,
     boards: [String: BoardEntity]? = nil
-) -> String {
+) -> String? {
     switch event.type {
+    case "created":
+        // Suppressed: the timeline synthesizes its own creation row from the
+        // issue itself (which predates these events and covers old issues).
+        return nil
     case "status_changed":
         // EXP-314: newer events carry the real status NAMES (custom statuses
         // have no enum label at all); older rows only have the enum anchors, so
@@ -83,6 +95,13 @@ func eventPhrase(
             return "removed label \(name)"
         }
         return "removed a label"
+    case "priority_changed":
+        // EXP-530 — mirrors the web row byte-for-byte: capitalized wire
+        // values, a missing side reading "None" (web/Android/desktop render
+        // both sides unconditionally).
+        let from = eventField(event.payload, "from").map(priorityLabel) ?? "None"
+        let to = eventField(event.payload, "to").map(priorityLabel) ?? "None"
+        return "changed priority from \(from) to \(to)"
     case "pr_opened":
         if let n = eventField(event.payload, "prNumber") { return "opened PR #\(n)" }
         return "opened a pull request"
