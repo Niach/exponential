@@ -3,6 +3,13 @@ import { LoaderCircle, Sparkles } from "lucide-react"
 import { MAX_ACTION_INPUT_TEXT, type BoardIcon } from "@exp/db-schema/domain"
 import { builtinCreateAction } from "@/lib/builtin-actions"
 import { missingRequiredInputs, buildInputsPayload } from "@/lib/action-inputs"
+import { formatTriggerBlock } from "@/lib/action-triggers"
+import {
+  AutomationSection,
+  draftToTrigger,
+  emptyAutomationDraft,
+  type AutomationDraft,
+} from "@/components/automation-section"
 import {
   agentSeed,
   agentSupportsPlanMode,
@@ -67,6 +74,8 @@ export function CreateActionDialog({
   starting,
   teamId,
   repos,
+  initialDescription,
+  initialIcon,
   onCreate,
 }: {
   open: boolean
@@ -76,6 +85,9 @@ export function CreateActionDialog({
   teamId: string
   /** The team's connected repos, for the optional repo input. */
   repos: ActionRepoOption[]
+  /** EXP-530 suggestion prefill — applied on OPEN only (the reset effect). */
+  initialDescription?: string
+  initialIcon?: string
   onCreate: (
     device: SteerDevice,
     options: StartCodingOptions,
@@ -91,6 +103,13 @@ export function CreateActionDialog({
   const [description, setDescription] = useState(``)
   const [repoId, setRepoId] = useState(``)
   const [icon, setIcon] = useState(``)
+  // EXP-530: the Automation section's controlled draft. The configured
+  // trigger is NOT sent to the server from here — it is appended to the
+  // description as a machine-readable block the creator agent copies into
+  // `exponential_actions_create`'s `trigger` field.
+  const [automation, setAutomation] = useState<AutomationDraft>(
+    emptyAutomationDraft
+  )
 
   // Launch options — the same device-seeded cluster as the launch dialog
   // shell (a deliberate small duplication; the 677-line shell isn't worth a
@@ -112,9 +131,10 @@ export function CreateActionDialog({
   // the selected machine's advertised defaults (EXP-437).
   useEffect(() => {
     if (!open) return
-    setDescription(``)
+    setDescription(initialDescription ?? ``)
     setRepoId(``)
-    setIcon(``)
+    setIcon(initialIcon ?? ``)
+    setAutomation(emptyAutomationDraft())
     setDeviceId(null)
     seededDeviceRef.current = null
     const seed = agentSeed(DEFAULT_LAUNCH_AGENT, null)
@@ -203,7 +223,18 @@ export function CreateActionDialog({
   }, [open, availableAgentsKey, agent])
 
   const inputValues = { description, repo: repoId, icon }
-  const submitBlocked = missingRequiredInputs(inputDefs, inputValues).length > 0
+
+  // EXP-530: a configured trigger rides the description input as a trailing
+  // machine-readable block — the combined value must still fit the server's
+  // per-value text cap, so an overflow blocks submit with an inline message
+  // instead of a server-side reject.
+  const trigger = draftToTrigger(automation)
+  const descriptionWithTrigger = trigger
+    ? `${description}${formatTriggerBlock(trigger)}`
+    : description
+  const triggerOverflow = descriptionWithTrigger.length > MAX_ACTION_INPUT_TEXT
+  const submitBlocked =
+    missingRequiredInputs(inputDefs, inputValues).length > 0 || triggerOverflow
 
   const submit = () => {
     if (!device || submitBlocked) return
@@ -215,7 +246,14 @@ export function CreateActionDialog({
       planMode: planMode && agentSupportsPlanMode(agent),
       skipPermissions: skipPermissions && agentSupportsSkipPermissions(agent),
     }
-    onCreate(device, options, buildInputsPayload(inputDefs, inputValues))
+    onCreate(
+      device,
+      options,
+      buildInputsPayload(inputDefs, {
+        ...inputValues,
+        description: descriptionWithTrigger,
+      })
+    )
   }
 
   return (
@@ -276,6 +314,19 @@ export function CreateActionDialog({
                 onChange={setIcon}
               />
             </div>
+            <AutomationSection
+              draft={automation}
+              onChange={setAutomation}
+              devices={devices}
+              teamId={teamId}
+            />
+            {triggerOverflow && (
+              <p className="text-xs text-destructive">
+                Description plus the automation block exceeds the
+                {` ${MAX_ACTION_INPUT_TEXT}`}-character input limit. Shorten
+                the description.
+              </p>
+            )}
           </div>
           <LaunchOptionsPane
             devices={candidateDevices}

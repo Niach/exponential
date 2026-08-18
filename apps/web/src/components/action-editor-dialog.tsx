@@ -5,6 +5,15 @@ import type { SyncedAction } from "@/db/schema"
 import { BOARD_ICON_OPTIONS } from "@/lib/board-icons"
 import { IconSwatchGrid } from "@/components/ui/icon-swatch-grid"
 import type { BuiltinAction } from "@/lib/builtin-actions"
+import { parseActionTrigger } from "@/lib/action-triggers"
+import type { SteerDevice } from "@/lib/steer-devices"
+import {
+  AutomationSection,
+  draftFromTrigger,
+  draftToTrigger,
+  emptyAutomationDraft,
+  type AutomationDraft,
+} from "@/components/automation-section"
 import { trpc } from "@/lib/trpc-client"
 import { Button } from "@/components/ui/button"
 import {
@@ -51,6 +60,7 @@ export function ActionEditorDialog({
   onOpenChange,
   repos,
   action,
+  devices,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -58,12 +68,19 @@ export function ActionEditorDialog({
   repos: ActionRepoOption[]
   /** The action being edited (never the builtin — it has no editable body). */
   action: TeamAction
+  /** The caller's machines, for the Automation section's device binding. */
+  devices: SteerDevice[]
 }) {
   const [name, setName] = useState(``)
   const [description, setDescription] = useState(``)
   const [repoValue, setRepoValue] = useState(NO_REPO)
   // EXP-273: the action's display glyph, from the same curated set as boards.
   const [icon, setIcon] = useState<BoardIcon>(BOARD_ICON_OPTIONS[0].name)
+  // EXP-530: the Automation section's controlled draft — seeded from the
+  // tolerantly-parsed synced trigger on open, converted back at submit.
+  const [automation, setAutomation] = useState<AutomationDraft>(
+    emptyAutomationDraft
+  )
   const [body, setBody] = useState(``)
   // Synced rows carry no body (EXP-268) — fetched on open; the prompt field
   // stays disabled until it lands so a save can never blank it.
@@ -81,6 +98,7 @@ export function ActionEditorDialog({
     setDescription(action.description ?? ``)
     setRepoValue(action.repositoryId ?? NO_REPO)
     setIcon((action.icon as BoardIcon | null) ?? BOARD_ICON_OPTIONS[0].name)
+    setAutomation(draftFromTrigger(parseActionTrigger(action.trigger)))
     setBody(``)
     setBodyLoading(true)
     setSubmitting(false)
@@ -122,6 +140,9 @@ export function ActionEditorDialog({
           icon,
           repositoryId: repoValue === NO_REPO ? null : repoValue,
           body,
+          // null clears a previously-set trigger (an incomplete draft also
+          // converts to null, which can only happen when nothing was bound).
+          trigger: draftToTrigger(automation),
         },
         { context: { skipErrorToast: true } }
       )
@@ -184,11 +205,12 @@ export function ActionEditorDialog({
                 <Label htmlFor="action-description">
                   Description (optional)
                 </Label>
-                <Input
+                <Textarea
                   id="action-description"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="What this action does, for the list"
+                  className="min-h-16"
                 />
               </div>
 
@@ -216,6 +238,13 @@ export function ActionEditorDialog({
                   agent works in a scratch directory.
                 </p>
               </div>
+
+              <AutomationSection
+                draft={automation}
+                onChange={setAutomation}
+                devices={devices}
+                teamId={action.teamId}
+              />
             </div>
 
             <div className="flex min-h-0 flex-col gap-2">
