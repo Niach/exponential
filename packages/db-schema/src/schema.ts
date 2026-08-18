@@ -651,6 +651,14 @@ export const codingSessions = pgTable(
     // Human label of the host device ("Dennis's MacBook"), shown on the badge.
     deviceLabel: varchar(`device_label`, { length: 255 }),
     status: codingSessionStatusEnum().notNull().default(`running`),
+    // EXP-545: the batch↔PR linkage. Stamped with the PR's head branch
+    // (`exp/batch-<id8>`) when the MCP pr_open batch flip parks the row in
+    // `in_review`, so clients tie a batch session's Merge shortcut to ITS
+    // OWN PR instead of "the team's sole open batch PR" (which could target
+    // a teammate's PR once the session's own PR closed unmerged). NULL on
+    // issue-scoped sessions (the issue row carries the branch), on action
+    // rows, and on batch rows whose PR isn't open yet.
+    branch: varchar(`branch`, { length: 255 }),
     // Desktop-written attention flag (EXP-214): the agent is parked on a
     // plan-approval or AskUserQuestion picker and waits for a human. Composes
     // with running/in_review (which stay server-owned) instead of being a

@@ -8,7 +8,9 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // Server-pinned column allowlist — excludes the `board_deleted_at` trash
 // mirror (REV2-5) and the `board_archived_at` archive mirror (EXP-500), both
 // server-only (the where clause filters on them).
-// `action_id`/`action_name` were appended for EXP-253 — a ONE-TIME shape-
+// `action_id`/`action_name` were appended for EXP-253, `branch` for EXP-545
+// (the batch↔PR linkage: stamped by the MCP pr_open batch flip so clients tie
+// a batch row's Merge shortcut to its OWN PR) — each a ONE-TIME shape-
 // identity rotation (benign: small table, full resync; land in one deploy).
 // Old native builds drop unknown columns safely (verified: iOS filters to
 // its SQLite schema, Android ignoreUnknownKeys + partial-plan filter,
@@ -23,6 +25,7 @@ const CODING_SESSION_COLUMNS = [
   `user_id`,
   `device_label`,
   `status`,
+  `branch`,
   `needs_input`,
   `started_at`,
   `ended_at`,

@@ -385,6 +385,9 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("user_id", .text).notNull().indexed()
                 t.column("device_label", .text)
                 t.column("status", .text).notNull().defaults(to: "running")
+                // EXP-545: the pr_open batch flip's stamped head branch — the
+                // batch row's own-PR linkage for the Merge shortcut.
+                t.column("branch", .text)
                 t.column("needs_input", .boolean).notNull().defaults(to: false)
                 // Action run linkage (EXP-253): both NULL on ordinary
                 // issue/batch sessions; action_name outlives a deleted action
@@ -881,6 +884,37 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("reported_at", .text)
                 t.column("created_at", .text)
                 t.column("updated_at", .text)
+            }
+        }
+
+        // v17 (EXP-545 batch↔PR linkage): `coding_sessions.branch` rides
+        // along on the coding-sessions shape — the head branch the server's
+        // pr_open batch flip stamps so a batch row's Merge shortcut targets
+        // its OWN PR (not "the team's sole open batch PR", which could be a
+        // teammate's once the session's own PR closed unmerged). Additive
+        // ALTER for stores created before the column existed; guarded on
+        // column presence so fresh installs (which get it from the v1 create
+        // above) converge on the same schema.
+        migrator.registerMigration("v17_coding_session_branch") { db in
+            // Table-existence guard (old v3-v6 precedent): migration-fixture
+            // DBs that carry only the minimal schema don't have the table.
+            guard try db.tableExists("coding_sessions") else { return }
+            let existing = Set(try db.columns(in: "coding_sessions").map(\.name))
+            if !existing.contains("branch") {
+                try db.alter(table: "coding_sessions") { t in
+                    t.add(column: "branch", .text)
+                }
+            }
+            // Force a re-snapshot so already-synced rows pick up the new
+            // column (the v4 needs_input precedent). NOTE: the shape key is
+            // 'coding-sessions' WITH A DASH (the proxy route name), not the
+            // SQLite table name.
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'coding-sessions'
+                    """)
             }
         }
 

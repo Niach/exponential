@@ -1188,11 +1188,15 @@ export function registerExponentialTools(
           // Batch sessions carry no issue linkage (issue_id NULL), so the
           // per-issue session flip inside applyPrLifecycleStatusInTx misses
           // them — flip the CALLER's running batch session(s) in the
-          // affected team(s) instead (EXP-194). Deliberately loose, like
-          // batch runs themselves: two concurrent batch runs by the same
-          // user in one team both flip on either's PR — the schema has no
-          // batch↔PR linkage to be more precise with. The caller matches as
-          // owner OR host (EXP-432): on a shared server device the agent
+          // affected team(s) instead (EXP-194). The flip itself stays loose,
+          // like batch runs themselves: two concurrent batch runs by the
+          // same user in one team both flip on either's PR — running rows
+          // are indistinguishable. But the flip STAMPS the PR's head branch
+          // onto the row (EXP-545), creating the batch↔PR linkage clients
+          // use to tie the row's Merge shortcut to ITS OWN PR — without it,
+          // "the team's sole open batch PR" could target a teammate's PR
+          // once this session's own PR closed unmerged. The caller matches
+          // as owner OR host (EXP-432): on a shared server device the agent
           // authenticates with the daemon owner's key while the batch row is
           // requester-owned.
           if (issueIds?.length) {
@@ -1200,7 +1204,12 @@ export function registerExponentialTools(
               .update(codingSessions)
               // needsInput resets with the flip, like the per-issue path
               // (EXP-531).
-              .set({ status: `in_review`, needsInput: false, updatedAt: new Date() })
+              .set({
+                status: `in_review`,
+                branch: headBranch,
+                needsInput: false,
+                updatedAt: new Date(),
+              })
               .where(
                 and(
                   or(

@@ -162,9 +162,12 @@ import androidx.room.RoomDatabase
     //      freshness = online), replacing the 15s `devices.list` polling on
     //      the Agents tab and powering the device-settings sheet + the remote
     //      resume offer. Destructive fallback wipes + resyncs all 18 shapes.
+    // v36 (EXP-545): coding_sessions.branch — the batch↔PR linkage stamped by
+    //      the server's pr_open batch flip, so a batch row's Merge shortcut
+    //      targets its OWN PR instead of the team's sole open batch PR.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so an additive shape column just wipes and re-syncs from Electric.
-    version = 35,
+    version = 36,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

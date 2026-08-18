@@ -244,6 +244,12 @@ data class CodingSessionEntity(
     @ColumnInfo(name = "user_id") @SerialName("user_id") @JsonNames("userId") val userId: String,
     @ColumnInfo(name = "device_label") @SerialName("device_label") @JsonNames("deviceLabel") val deviceLabel: String? = null,
     val status: String = "running",
+    // EXP-545: the batch↔PR linkage — the PR's head branch (`exp/batch-<id8>`),
+    // stamped by the server's pr_open batch flip alongside the in_review
+    // status. Ties a batch row's Merge shortcut to its OWN PR; null on
+    // issue-scoped sessions, on action rows, and on batch rows whose PR
+    // isn't open yet (or that were flipped before the stamp existed).
+    val branch: String? = null,
     // Desktop-written attention flag (EXP-214): the agent is parked on a
     // plan-approval / AskUserQuestion picker and waits for a human.
     @ColumnInfo(name = "needs_input") @SerialName("needs_input") @JsonNames("needsInput") val needsInput: PgBool = false,

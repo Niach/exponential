@@ -414,10 +414,10 @@ fun agentRows(
     // row actually needs it — an action run merges nothing, and a still
     // running batch has no PR yet (in_review is flipped in the pr_open
     // transaction).
-    val batchPrIssue = if (live.any { it.isBatchInReview }) {
-        soleOpenBatchPrIssue(issues, boards, teamId)
+    val batchPrReps = if (live.any { it.isBatchInReview }) {
+        openBatchPrRepresentatives(issues, boards, teamId)
     } else {
-        null
+        emptyList()
     }
     // issueId is null for batch multi-issue sessions — those rows render
     // without an issue link.
@@ -425,7 +425,11 @@ fun agentRows(
         AgentRow(
             session = session,
             issue = session.issueId?.let(issuesById::get),
-            batchPrIssue = batchPrIssue.takeIf { session.isBatchInReview },
+            batchPrIssue = if (session.isBatchInReview) {
+                resolveBatchPrIssue(batchPrReps, session.branch)
+            } else {
+                null
+            },
         )
     }
 }
@@ -442,22 +446,19 @@ private val CodingSessionEntity.isBatchInReview: Boolean
 private const val BATCH_BRANCH_PREFIX = "exp/batch-"
 
 /**
- * EXP-535: batch sessions carry no issue/PR linkage (the schema has none —
- * the server's in_review flip is equally loose), so a batch row resolves its
+ * EXP-535: batch sessions carry no issue linkage, so a batch row resolves its
  * open PR client-side: the team's open-PR issues on an `exp/batch-` branch,
  * collapsed by prUrl to one representative (newest `createdAt`) issue — the
  * Reviews pattern; the server resolves that issue's PR to ALL linked issues
  * on merge. Team scoping goes through live boards ([issues] don't sync
- * team_id). Only an UNAMBIGUOUS match (exactly one open batch PR in the
- * team) offers the merge shortcut — with concurrent batch runs Reviews still
- * lists every PR.
+ * team_id).
  */
-fun soleOpenBatchPrIssue(
+fun openBatchPrRepresentatives(
     issues: List<IssueEntity>,
     boards: List<BoardEntity>,
     teamId: String?,
-): IssueEntity? {
-    if (teamId == null) return null
+): List<IssueEntity> {
+    if (teamId == null) return emptyList()
     val teamBoardIds = boards
         .filter { it.teamId == teamId && it.deletedAt == null }
         .mapTo(mutableSetOf()) { it.id }
@@ -474,8 +475,27 @@ fun soleOpenBatchPrIssue(
             byPrUrl[prUrl] = issue
         }
     }
-    return byPrUrl.values.singleOrNull()
+    return byPrUrl.values.toList()
 }
+
+/**
+ * EXP-545: a batch session's Merge shortcut must target its OWN PR — the
+ * branch the server's pr_open batch flip stamped on the row. Matching "the
+ * team's sole open batch PR" alone could offer a teammate's PR once this
+ * session's own PR closed unmerged (prState `closed` while the row stays
+ * in_review). Rows flipped before the stamp existed ([sessionBranch] null)
+ * keep the legacy sole-open-PR fallback; anything ambiguous resolves to null
+ * — with concurrent batch runs Reviews still lists every PR.
+ */
+fun resolveBatchPrIssue(
+    representatives: List<IssueEntity>,
+    sessionBranch: String?,
+): IssueEntity? =
+    if (sessionBranch != null) {
+        representatives.filter { it.branch == sessionBranch }.singleOrNull()
+    } else {
+        representatives.singleOrNull()
+    }
 
 /**
  * The synced devices rows → the tab's SteerDevice list (EXP-481): the
