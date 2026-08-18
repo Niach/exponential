@@ -259,6 +259,10 @@ data class CodingSessionEntity(
     // Both null on ordinary issue/batch sessions.
     @ColumnInfo(name = "action_id") @SerialName("action_id") @JsonNames("actionId") val actionId: String? = null,
     @ColumnInfo(name = "action_name") @SerialName("action_name") @JsonNames("actionName") val actionName: String? = null,
+    // EXP-530: why an automation started this run (`schedule` | `event`);
+    // NULL on every user-started session. Powers the "Automated" badge and
+    // keeps automation rows out of the post-send start watch (StartedRunMatch).
+    @ColumnInfo(name = "started_reason") @SerialName("started_reason") @JsonNames("startedReason") val startedReason: String? = null,
     @ColumnInfo(name = "started_at") @SerialName("started_at") @JsonNames("startedAt") val startedAt: String,
     @ColumnInfo(name = "ended_at") @SerialName("ended_at") @JsonNames("endedAt") val endedAt: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
@@ -287,6 +291,10 @@ data class ActionEntity(
     // jsonb array of typed run-input defs ({key,label,type,required,placeholder}
     // — EXP-257), kept as its raw JSON string and parsed at the consumer.
     @Serializable(with = JsonAsStringSerializer::class) val inputs: String? = null,
+    // EXP-530: the action's ONE optional automation trigger (schedule or
+    // event), kept as its raw jsonb JSON string and parsed tolerantly at the
+    // consumer (ActionTrigger.parse — unknown kinds read as "no automation").
+    @Serializable(with = JsonAsStringSerializer::class) val trigger: String? = null,
     @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,

@@ -16,6 +16,8 @@ import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.IssueStatusCategory
+import com.exponential.app.domain.IssueStatusResolver
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -48,6 +50,12 @@ data class SheetActionsState(
 
 /** One pickable board for a `board`-typed action input. */
 data class StartBoardOption(
+    val id: String,
+    val name: String,
+)
+
+/** One pickable label/status/priority for the EXP-530 automation filter pickers. */
+data class StartFilterOption(
     val id: String,
     val name: String,
 )
@@ -161,6 +169,43 @@ class StartCodingSheetViewModel @Inject constructor(
                 .filter { it.teamId == teamId && it.deletedAt == null }
                 .sortedBy { it.name.lowercase() }
                 .map { StartBoardOption(id = it.id, name = it.name) }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Live, team-scoped labels — the EXP-530 label-added filter picker. */
+    val labelOptions: StateFlow<List<StartFilterOption>> = combine(
+        dbFlow.scopedQuery(emptyList()) { it.labelDao().observeAll() },
+        selection.selectedId,
+    ) { labels, teamId ->
+        if (teamId == null) {
+            emptyList()
+        } else {
+            labels
+                .filter { it.teamId == teamId }
+                .sortedBy { it.name.lowercase() }
+                .map { StartFilterOption(id = it.id, name = it.name) }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * The team's REAL status rows in canonical display order — the EXP-530
+     * status-changed filter picker. Constructed fallbacks (no row id) can't
+     * be a filter target, and duplicate is never pickable (the web
+     * buildStatusOptions rule).
+     */
+    val statusOptions: StateFlow<List<StartFilterOption>> = combine(dbFlow, selection.selectedId) { db, teamId ->
+        db to teamId
+    }.flatMapLatest { (db, teamId) ->
+        if (db == null || teamId == null) {
+            flowOf(emptyList())
+        } else {
+            db.issueStatusDao().observeByTeam(teamId).map { rows ->
+                IssueStatusResolver.teamStatuses(rows)
+                    .filter { it.category != IssueStatusCategory.Duplicate }
+                    .mapNotNull { status ->
+                        status.rowId?.let { StartFilterOption(id = it, name = status.name) }
+                    }
+            }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 

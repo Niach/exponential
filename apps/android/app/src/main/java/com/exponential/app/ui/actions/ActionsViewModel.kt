@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.ActionDto
+import com.exponential.app.data.api.ActionsApi
 import com.exponential.app.data.api.DevicesApi
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
@@ -12,13 +13,16 @@ import com.exponential.app.data.api.builtinActions
 import com.exponential.app.data.api.toActionDto
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.CodingSessionLiveness
+import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.StartedRunKey
 import com.exponential.app.domain.StartedRunMatch
+import com.exponential.app.domain.toSteerDevice
 import com.exponential.app.ui.issue.StartIssueOption
 import com.exponential.app.ui.steer.ActionRunState
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -62,6 +66,7 @@ class ActionsViewModel @Inject constructor(
     holder: DatabaseHolder,
     private val steerApi: SteerApi,
     private val devicesApi: DevicesApi,
+    private val actionsApi: ActionsApi,
     private val selection: TeamSelection,
     private val json: Json,
 ) : ViewModel() {
@@ -93,6 +98,96 @@ class ActionsViewModel @Inject constructor(
 
     // The selected team, for the screen's "New action" entry point (EXP-431).
     val selectedTeamId: StateFlow<String?> = selection.selectedId
+
+    // ── Automations tab (EXP-530) ────────────────────────────────────────────
+
+    /**
+     * EVERY synced device as a [SteerDevice], offline included — the
+     * Automations tab resolves a trigger's bound deviceId to a label + online
+     * dot, and an offline machine must still be nameable. Online-ness derives
+     * from `last_seen_at` freshness, recomputed on the 30s ticker (Room flows
+     * only re-emit on writes).
+     */
+    val syncedDevices: StateFlow<List<SteerDevice>> = combine(
+        dbFlow.scopedQuery(emptyList()) { it.deviceDao().observeAll() },
+        DeviceLiveness.ticker(),
+        auth.userId,
+    ) { rows, nowMs, userId ->
+        rows.map { it.toSteerDevice(nowMs, userId) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * Recent automation-started runs (coding_sessions rows with a non-null
+     * `started_reason`), newest first, capped at 10 for the "Recent automated
+     * runs" list.
+     */
+    val automationRuns: StateFlow<List<CodingSessionEntity>> =
+        combine(dbFlow, selection.selectedId) { db, teamId ->
+            db to teamId
+        }.flatMapLatest { (db, teamId) ->
+            if (db == null || teamId == null) {
+                flowOf(emptyList())
+            } else {
+                db.codingSessionDao().observeByTeam(teamId).map { rows ->
+                    rows.filter { it.startedReason != null }
+                        .sortedByDescending { it.startedAt }
+                        .take(10)
+                }
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * Whether the current user OWNS the selected team — the Automations
+     * enabled toggle is disabled otherwise (`actions.update` is owner-gated
+     * server-side; mirror it instead of bouncing on submit).
+     */
+    val isTeamOwner: StateFlow<Boolean> = combine(dbFlow, selection.selectedId) { db, teamId ->
+        db to teamId
+    }.flatMapLatest { (db, teamId) ->
+        if (db == null || teamId == null) {
+            flowOf(emptyList())
+        } else {
+            db.teamMemberDao().observeByTeam(teamId)
+        }
+    }.combine(auth.userId) { members, userId ->
+        userId != null &&
+            members.firstOrNull { it.userId == userId }?.role == DomainContract.teamRoleOwner
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    // Action id with an in-flight trigger toggle (disables that row's
+    // control); Electric echoes the flipped row back into the actions shape.
+    private val _triggerBusyActionId = MutableStateFlow<String?>(null)
+    val triggerBusyActionId: StateFlow<String?> = _triggerBusyActionId
+
+    private val _triggerError = MutableStateFlow<String?>(null)
+    val triggerError: StateFlow<String?> = _triggerError
+
+    /**
+     * Flip an automation's paused flag (EXP-530): `actions.update` replaces
+     * the WHOLE trigger object, so send the parsed trigger with `enabled`
+     * flipped. Success needs no local write — Electric echoes the row.
+     */
+    fun setTriggerEnabled(action: ActionDto, enabled: Boolean) {
+        val trigger = action.parsedTrigger ?: return
+        if (_triggerBusyActionId.value != null) return
+        _triggerBusyActionId.value = action.id
+        _triggerError.value = null
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value
+            if (accountId == null) {
+                _triggerBusyActionId.value = null
+                return@launch
+            }
+            try {
+                actionsApi.updateTrigger(accountId, action.id, trigger.withEnabled(enabled))
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _triggerError.value =
+                    trpcErrorMessage(t, "The automation could not be updated")
+            }
+            _triggerBusyActionId.value = null
+        }
+    }
 
     // Live from the synced actions shape (EXP-268): the DAO orders by
     // sort_order then name; the fix-conflicts builtin is prepended (the

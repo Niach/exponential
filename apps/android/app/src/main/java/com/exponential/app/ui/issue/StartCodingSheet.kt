@@ -53,10 +53,16 @@ import com.exponential.app.data.api.ActionInputDto
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.SteerStartOptions
 import com.exponential.app.data.api.TeamRepo
+import com.exponential.app.domain.ActionTrigger
+import com.exponential.app.domain.ActionTriggerFilters
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.resumeWorktreeFor
+import com.exponential.app.domain.toSteerDevice
+import com.exponential.app.domain.triggerDescriptionBlock
+import com.exponential.app.domain.triggerEventLabel
+import com.exponential.app.domain.triggerWeekdayName
 import com.exponential.app.ui.components.AgentTab
 import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
 import com.exponential.app.ui.components.CLI_DEFAULT_MODEL
@@ -146,6 +152,10 @@ fun StartCodingSheet(
     // subject switch, no action picker, just the (preselected) create
     // builtin's input fields. Callers pair it with the create builtin's id.
     createActionMode: Boolean = false,
+    // EXP-530: seed input values keyed by def key (the Suggestions tab's
+    // "Use suggestion" hands over description + icon; the iOS
+    // prefilledInputs pattern).
+    prefilledInputs: Map<String, String>? = null,
     // Non-null pre-picks the selected action's `pr` input (EXP-323 — the
     // conflict-recovery entry points hand over the issue their surface acts
     // on; ANY issue linked to the PR resolves, see [optionForIssue]).
@@ -213,7 +223,24 @@ fun StartCodingSheet(
     }
     var selectedActionId by remember { mutableStateOf(preselectedActionId) }
     var actionQuery by remember { mutableStateOf("") }
-    var inputValues by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var inputValues by remember { mutableStateOf<Map<String, String>>(prefilledInputs ?: emptyMap()) }
+
+    // ── Automation draft (EXP-530, create mode only) ─────────────────────────
+    // A draft can represent states a valid trigger cannot (a kind picked but
+    // no capable device online) — the submit path converts via
+    // [automationDraftToTrigger] (incomplete → null = "no automation").
+    var automation by remember { mutableStateOf(AutomationDraft()) }
+    // Candidates come from the SYNCED devices rows (not the online-filtered
+    // start list): offline-but-capable machines stay pickable — the bound
+    // device fires on its own clock once it comes back.
+    val automationDevices = remember(syncedDeviceRows) {
+        val nowMs = System.currentTimeMillis()
+        syncedDeviceRows
+            .map { it.toSteerDevice(nowMs, null) }
+            .filter { it.canRunAutomations }
+    }
+    val automationFilterLabels by dataViewModel.labelOptions.collectAsStateWithLifecycle()
+    val automationFilterStatuses by dataViewModel.statusOptions.collectAsStateWithLifecycle()
 
     // Builtin rows pin FIRST by the flag (never by sort order; stable sort
     // keeps the server order otherwise), then the search filter applies. The
@@ -477,10 +504,22 @@ fun StartCodingSheet(
                         if (action != null) {
                             // Only filled values ride, keyed by the def key
                             // (repo/board values are the picked ids).
-                            val payload = selectedActionInputs.mapNotNull { def ->
+                            var payload = selectedActionInputs.mapNotNull { def ->
                                 inputValues[def.key]?.trim()?.takeIf { it.isNotEmpty() }
                                     ?.let { def.key to it }
                             }.toMap()
+                            // EXP-530: a configured automation rides the
+                            // description as a machine-readable block the
+                            // creator agent copies verbatim into
+                            // exponential_actions_create's `trigger` field.
+                            if (createActionMode) {
+                                automationDraftToTrigger(automation)?.let { trigger ->
+                                    payload["description"]?.let { description ->
+                                        payload = payload +
+                                            ("description" to description + triggerDescriptionBlock(trigger))
+                                    }
+                                }
+                            }
                             onRunAction(target, action, options, payload)
                         } else {
                             onStart(target, ids, options)
@@ -811,6 +850,18 @@ fun StartCodingSheet(
                         }
                     }
                     Spacer(Modifier.height(4.dp))
+
+                    // ── Automation (EXP-530, create mode only) ───────────────
+                    if (createActionMode) {
+                        AutomationSection(
+                            draft = automation,
+                            devices = automationDevices,
+                            boards = boardOptions,
+                            labels = automationFilterLabels,
+                            statuses = automationFilterStatuses,
+                            onChange = { automation = it },
+                        )
+                    }
                 }
 
                 // ── Desktop ──────────────────────────────────────────────────
@@ -1249,6 +1300,17 @@ private fun ActionInputField(
                 )
             }
         }
+        // EXP-530: multi-line prompt text — same cap as `text`, taller field.
+        "textarea" -> OutlinedTextField(
+            value = value,
+            onValueChange = { onValueChange(it.take(DomainContract.actionInputTextMax)) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            label = { Text(label) },
+            placeholder = def.placeholder?.let { hint -> { Text(hint) } },
+            minLines = 3,
+        )
         // Only text remains — unknown types never render (the pane blocks the
         // run and shows the needs-a-newer-app caption instead).
         else -> OutlinedTextField(
@@ -1301,6 +1363,326 @@ private fun defaultAgentFor(device: SteerDevice?): String {
         ?: DEFAULT_AGENT.takeIf { it in available }
         ?: available.firstOrNull()
         ?: DEFAULT_AGENT
+}
+
+// ── Automation (EXP-530) ─────────────────────────────────────────────────────
+
+/**
+ * The create sheet's automation editor state (the web `AutomationDraft`
+ * mirror). A draft can represent states a valid [ActionTrigger] cannot (a
+ * kind picked but no capable device to bind) — [automationDraftToTrigger]
+ * converts at submit, and incomplete reads as null ("no automation"). The
+ * filter picks are SINGLE-select with an "Any" default — the mobile
+ * simplification of the web's multi-selects; the wire lists carry one-or-none
+ * entries from here.
+ */
+internal data class AutomationDraft(
+    /** `none` | `schedule` | `event`. */
+    val kind: String = "none",
+    /** Steer deviceId of the bound machine; null = nothing bindable yet. */
+    val deviceId: String? = null,
+    val enabled: Boolean = true,
+    val interval: String = "daily",
+    /** `HH:MM` wall-clock string, straight off the time field. */
+    val time: String = "09:00",
+    val weekday: Int = 1,
+    val dayOfMonth: Int = 1,
+    val event: String = "created",
+    val boardId: String = "",
+    val labelId: String = "",
+    val priority: String = "",
+    val toStatusId: String = "",
+)
+
+/** `HH:MM` → minutes past midnight; malformed/out-of-range reads 540 (09:00,
+ * the web `timeToMinute` fallback). */
+internal fun automationTimeToMinute(time: String): Int {
+    val match = Regex("^(\\d{1,2}):(\\d{2})$").find(time.trim()) ?: return 540
+    val minute = match.groupValues[1].toInt() * 60 + match.groupValues[2].toInt()
+    return if (minute in 0..1439) minute else 540
+}
+
+/**
+ * The draft's trigger, or null when it is "none" OR incomplete (no device
+ * bound). Filters irrelevant to the picked event are dropped, matching the
+ * server's strict write schema.
+ */
+internal fun automationDraftToTrigger(draft: AutomationDraft): ActionTrigger? {
+    val deviceId = draft.deviceId ?: return null
+    return when (draft.kind) {
+        "schedule" -> ActionTrigger.Schedule(
+            deviceId = deviceId,
+            enabled = draft.enabled,
+            interval = draft.interval,
+            minuteOfDay = automationTimeToMinute(draft.time),
+            weekday = draft.weekday.takeIf { draft.interval == "weekly" },
+            dayOfMonth = draft.dayOfMonth.takeIf { draft.interval == "monthly" },
+        )
+        "event" -> ActionTrigger.Event(
+            deviceId = deviceId,
+            enabled = draft.enabled,
+            event = draft.event,
+            filters = ActionTriggerFilters(
+                boardIds = listOfNotNull(draft.boardId.takeIf { it.isNotEmpty() }),
+                labelIds = listOfNotNull(
+                    draft.labelId.takeIf { it.isNotEmpty() && draft.event == "label_added" },
+                ),
+                priorities = listOfNotNull(
+                    draft.priority.takeIf {
+                        it.isNotEmpty() &&
+                            (draft.event == "created" || draft.event == "priority_changed")
+                    },
+                ),
+                toStatusIds = listOfNotNull(
+                    draft.toStatusId.takeIf { it.isNotEmpty() && draft.event == "status_changed" },
+                ),
+            ),
+        )
+        else -> null
+    }
+}
+
+private fun intervalLabel(interval: String): String = when (interval) {
+    "weekly" -> "Week"
+    "monthly" -> "Month"
+    else -> "Day"
+}
+
+// The create sheet's Automation section (EXP-530): segmented None · Schedule
+// · On event (the SubjectTabPill language), the schedule pane (interval +
+// contextual weekday/day pickers + HH:MM time), the event pane (event picker
+// + contextual filter pickers from the synced tables), then the device picker
+// (automation-capable synced machines — offline stays pickable) and the
+// enabled toggle.
+@Composable
+private fun AutomationSection(
+    draft: AutomationDraft,
+    devices: List<SteerDevice>,
+    boards: List<StartBoardOption>,
+    labels: List<StartFilterOption>,
+    statuses: List<StartFilterOption>,
+    onChange: (AutomationDraft) -> Unit,
+) {
+    Spacer(Modifier.height(8.dp))
+    SectionLabel("Automation")
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+    ) {
+        listOf("none" to "None", "schedule" to "Schedule", "event" to "On event")
+            .forEach { (kind, label) ->
+                SubjectTabPill(
+                    label = label,
+                    selected = draft.kind == kind,
+                    onClick = {
+                        if (draft.kind != kind) {
+                            // Picking a kind auto-binds the first capable
+                            // device so "Schedule + Create" is already
+                            // complete (web parity).
+                            val deviceId = draft.deviceId
+                                ?: devices.firstOrNull()?.deviceId?.takeIf { kind != "none" }
+                            onChange(draft.copy(kind = kind, deviceId = deviceId))
+                        }
+                    },
+                )
+            }
+    }
+
+    if (draft.kind == "schedule") {
+        Spacer(Modifier.height(4.dp))
+        OptionGroup {
+            PickerRow(
+                label = "Every",
+                value = intervalLabel(draft.interval),
+                options = DomainContract.actionScheduleIntervalValues,
+                selected = draft.interval,
+                optionLabel = ::intervalLabel,
+                onSelect = { onChange(draft.copy(interval = it)) },
+            )
+            if (draft.interval == "weekly") {
+                GroupDivider()
+                PickerRow(
+                    label = "Weekday",
+                    value = triggerWeekdayName(draft.weekday),
+                    options = (1..7).map(Int::toString),
+                    selected = draft.weekday.toString(),
+                    optionLabel = { triggerWeekdayName(it.toInt()) },
+                    onSelect = { onChange(draft.copy(weekday = it.toInt())) },
+                )
+            }
+            if (draft.interval == "monthly") {
+                GroupDivider()
+                PickerRow(
+                    label = "Day of month",
+                    value = "Day ${draft.dayOfMonth}",
+                    options = (1..28).map(Int::toString),
+                    selected = draft.dayOfMonth.toString(),
+                    optionLabel = { "Day $it" },
+                    onSelect = { onChange(draft.copy(dayOfMonth = it.toInt())) },
+                )
+            }
+            GroupDivider()
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Time",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+                OutlinedTextField(
+                    value = draft.time,
+                    onValueChange = { onChange(draft.copy(time = it.take(5))) },
+                    modifier = Modifier.width(104.dp),
+                    placeholder = { Text("09:00") },
+                    singleLine = true,
+                )
+            }
+        }
+        Text(
+            "Runs on the selected device, in its local time. A run missed " +
+                "while the device was offline fires once when it comes back.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
+        )
+    } else if (draft.kind == "event") {
+        Spacer(Modifier.height(4.dp))
+        OptionGroup {
+            PickerRow(
+                label = "When",
+                value = triggerEventLabel(draft.event),
+                options = DomainContract.actionTriggerEventValues,
+                selected = draft.event,
+                optionLabel = ::triggerEventLabel,
+                onSelect = { onChange(draft.copy(event = it)) },
+            )
+            GroupDivider()
+            // Board filter applies to every event; the rest are contextual
+            // (labels for label_added, priorities for created/priority
+            // changes, target status for status_changed).
+            AutomationFilterPicker(
+                label = "Board",
+                anyLabel = "Any board",
+                options = boards.map { StartFilterOption(it.id, it.name) },
+                selected = draft.boardId,
+                onSelect = { onChange(draft.copy(boardId = it)) },
+            )
+            if (draft.event == "label_added") {
+                GroupDivider()
+                AutomationFilterPicker(
+                    label = "Label",
+                    anyLabel = "Any label",
+                    options = labels,
+                    selected = draft.labelId,
+                    onSelect = { onChange(draft.copy(labelId = it)) },
+                )
+            }
+            if (draft.event == "created" || draft.event == "priority_changed") {
+                GroupDivider()
+                AutomationFilterPicker(
+                    label = "Priority",
+                    anyLabel = "Any priority",
+                    options = DomainContract.issuePriorityValues.map {
+                        StartFilterOption(it, IssuePriority.fromWire(it).label)
+                    },
+                    selected = draft.priority,
+                    onSelect = { onChange(draft.copy(priority = it)) },
+                )
+            }
+            if (draft.event == "status_changed") {
+                GroupDivider()
+                AutomationFilterPicker(
+                    label = "To status",
+                    anyLabel = "Any status",
+                    options = statuses,
+                    selected = draft.toStatusId,
+                    onSelect = { onChange(draft.copy(toStatusId = it)) },
+                )
+            }
+        }
+        Text(
+            "Runs on the selected device, in its local time. A run missed " +
+                "while the device was offline fires once when it comes back.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
+        )
+    }
+
+    if (draft.kind != "none") {
+        Spacer(Modifier.height(4.dp))
+        if (devices.isEmpty() && draft.deviceId == null) {
+            OptionGroup {
+                Text(
+                    "No automation-capable device. Run the desktop app or the " +
+                        "exponential daemon and it will appear here.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                )
+            }
+        } else {
+            // A binding to a device the viewer cannot see (a teammate's
+            // private machine) keeps its raw id as a fallback entry so edits
+            // never silently rebind or drop it.
+            val unknownId = draft.deviceId
+                ?.takeIf { id -> devices.none { it.deviceId == id } }
+            val optionIds = listOfNotNull(unknownId) + devices.map { it.deviceId }
+            fun deviceOptionLabel(id: String): String {
+                val device = devices.firstOrNull { it.deviceId == id } ?: return id
+                val name = device.deviceLabel.ifBlank { device.deviceId }
+                // PickerRow renders text only — the online dot is textual
+                // here (the Automations tab draws the real colored dot).
+                return if (device.online) "● $name" else "○ $name"
+            }
+            OptionGroup {
+                PickerRow(
+                    label = "Device",
+                    value = draft.deviceId?.let(::deviceOptionLabel) ?: "Select",
+                    options = optionIds,
+                    selected = draft.deviceId,
+                    optionLabel = ::deviceOptionLabel,
+                    onSelect = { onChange(draft.copy(deviceId = it)) },
+                )
+                GroupDivider()
+                SwitchRow(
+                    title = "Enabled",
+                    checked = draft.enabled,
+                    onCheckedChange = { onChange(draft.copy(enabled = it)) },
+                )
+            }
+        }
+    }
+    Spacer(Modifier.height(4.dp))
+}
+
+// One "Any"-defaulted single-select filter row: the empty value is the
+// no-filter state and stays re-pickable as the first option.
+@Composable
+private fun AutomationFilterPicker(
+    label: String,
+    anyLabel: String,
+    options: List<StartFilterOption>,
+    selected: String,
+    onSelect: (String) -> Unit,
+) {
+    PickerRow(
+        label = label,
+        value = options.firstOrNull { it.id == selected }?.name ?: anyLabel,
+        options = listOf("") + options.map { it.id },
+        selected = selected,
+        optionLabel = { id ->
+            if (id.isEmpty()) anyLabel else options.firstOrNull { it.id == id }?.name ?: id
+        },
+        onSelect = onSelect,
+    )
 }
 
 /**

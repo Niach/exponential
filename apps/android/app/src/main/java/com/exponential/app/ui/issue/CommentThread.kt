@@ -99,8 +99,11 @@ fun CommentThread(
     // createdAt (e.g. a comment + the status event of one mutation) keep a
     // stable order across syncs.
     val timeline = remember(humanComments, state.events, state.issue) {
+        // EXP-530: `created` events are suppressed entirely (eventRowVisible)
+        // — the synthesized Created header already shows creation, and the
+        // rows exist only as the automation-trigger substrate.
         val merged = (humanComments.map { TimelineItem.Comment(it) } +
-            state.events.map { TimelineItem.Event(it) })
+            state.events.filter { eventRowVisible(it.type) }.map { TimelineItem.Event(it) })
             .sortedWith(compareBy({ it.createdAt }, { it.id }))
         listOfNotNull(state.issue?.let { TimelineItem.Created(it) }) + merged
     }

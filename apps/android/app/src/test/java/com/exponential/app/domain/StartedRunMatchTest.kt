@@ -22,12 +22,14 @@ class StartedRunMatchTest {
         actionName: String? = null,
         userId: String = "user-1",
         startedAt: String = "2026-07-17T11:59:30Z",
+        startedReason: String? = null,
     ) = CodingSessionEntity(
         id = id,
         issueId = issueId,
         teamId = "team-1",
         userId = userId,
         actionName = actionName,
+        startedReason = startedReason,
         startedAt = startedAt,
         createdAt = startedAt,
         updatedAt = startedAt,
@@ -78,6 +80,34 @@ class StartedRunMatchTest {
         assertFalse(matches(session(issueId = "issue-1", userId = "user-2"), key))
         // Started an hour ago — a pre-existing session, not the one we sent.
         assertFalse(matches(session(issueId = "issue-1", startedAt = "2026-07-17T11:00:00Z"), key))
+    }
+
+    /** EXP-530: automation-started rows are the device's own doing — a user's
+     * pending start watch must never grab one, even when the action name and
+     * timing line up. */
+    @Test
+    fun automationStartedRowsNeverMatch() {
+        val key = StartedRunKey.Action("Fix merge conflicts")
+        assertFalse(
+            matches(
+                session(actionName = "Fix merge conflicts", startedReason = "schedule"),
+                key,
+            ),
+        )
+        assertFalse(
+            matches(
+                session(actionName = "Fix merge conflicts", startedReason = "event"),
+                key,
+            ),
+        )
+        // Batch/issue watches reject them too — the reason cut runs first.
+        assertFalse(matches(session(startedReason = "schedule"), StartedRunKey.Batch))
+        assertFalse(
+            matches(
+                session(issueId = "issue-1", startedReason = "event"),
+                StartedRunKey.Issue("issue-1"),
+            ),
+        )
     }
 
     @Test
