@@ -62,7 +62,7 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     checkbox::Checkbox,
     h_flex,
-    input::{Input, InputEvent, InputState},
+    input::{Input, InputEvent, InputState, Textarea, TextareaState},
     menu::{DropdownMenu as _, PopupMenuItem},
     popover::Popover,
     scroll::{Scrollbar, ScrollbarAxis},
@@ -80,6 +80,7 @@ use coding::{
 use domain::IssueStatus;
 
 use crate::action_run::{self, ActionRepo, ActionRepoRow, StartActionArgs};
+use crate::automation_editor::AutomationEditorState;
 use crate::coding_flow::{self, CodingHub, SessionSubject};
 use crate::coding_selects::{
     agent_icon, choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect,
@@ -126,6 +127,36 @@ fn pr_pick_options(cx: &App, team_id: &str) -> Vec<(String, String)> {
             (issue.id.clone(), label)
         })
         .collect()
+}
+
+/// Append the machine-readable trigger instruction to the creator run's
+/// `description` input (EXP-530), value AND display alike — the prompt renders
+/// the display, the value is what the agent is told it received. Compact JSON
+/// so the whole thing stays one readable line.
+///
+/// The wording is cross-client copy: the web create dialog appends the exact
+/// same block ([`trigger_note`] is locked by
+/// `trigger_note_matches_the_web_block`).
+fn append_trigger_note(inputs: &mut [ActionInputValue], trigger: &serde_json::Value) {
+    let note = trigger_note(trigger);
+    for input in inputs.iter_mut() {
+        if input.key != "description" {
+            continue;
+        }
+        input.value.push_str(&note);
+        if let Some(display) = input.display.as_mut() {
+            display.push_str(&note);
+        }
+    }
+}
+
+/// The appended block itself (see [`append_trigger_note`]).
+fn trigger_note(trigger: &serde_json::Value) -> String {
+    let json = serde_json::to_string(trigger).unwrap_or_else(|_| "{}".to_string());
+    format!(
+        "\n\nAutomation — set exactly this trigger via the `trigger` field on \
+         exponential_actions_create: `{json}`"
+    )
 }
 
 /// Fired once after a successful ISSUE-subject launch (EXP-439) — the bulk
@@ -183,7 +214,21 @@ pub fn open_for_action(window: &mut Window, cx: &mut App, team_id: String, actio
 /// creation dialog — no subject tabs, no action picker, just the builtin's
 /// input fields (Description leading) over the shared options cluster.
 pub fn open_for_create_action(window: &mut Window, cx: &mut App, team_id: String) {
-    open(
+    open_for_create_action_prefilled(window, cx, team_id, None, None);
+}
+
+/// Create mode with the builtin's Description (and optionally its Icon) seeded
+/// — the EXP-530 Suggestions tab's "Use suggestion", which hands the creator
+/// run a ready-written brief instead of an empty field. The user still edits
+/// it before starting; nothing is authored until the run does it.
+pub fn open_for_create_action_prefilled(
+    window: &mut Window,
+    cx: &mut App,
+    team_id: String,
+    description: Option<String>,
+    icon: Option<String>,
+) {
+    open_inner(
         window,
         cx,
         team_id,
@@ -192,7 +237,16 @@ pub fn open_for_create_action(window: &mut Window, cx: &mut App, team_id: String
         None,
         true,
         None,
+        Prefill { description, icon },
     );
+}
+
+/// Seed values for CREATE mode's builtin input fields (EXP-530). Applied once,
+/// right after the preselect lands — a typed edit afterwards always wins.
+#[derive(Default)]
+struct Prefill {
+    description: Option<String>,
+    icon: Option<String>,
 }
 
 /// Open the dialog on the ACTIONS tab with the builtin "Fix merge conflicts"
@@ -228,6 +282,31 @@ fn open(
     create_mode: bool,
     on_launched: Option<OnLaunched>,
 ) {
+    open_inner(
+        window,
+        cx,
+        team_id,
+        preselected,
+        preselect_action,
+        preselect_pr,
+        create_mode,
+        on_launched,
+        Prefill::default(),
+    );
+}
+
+#[allow(clippy::too_many_arguments)] // the one shared entry every open_* rides
+fn open_inner(
+    window: &mut Window,
+    cx: &mut App,
+    team_id: String,
+    preselected: Vec<String>,
+    preselect_action: Option<String>,
+    preselect_pr: Option<String>,
+    create_mode: bool,
+    on_launched: Option<OnLaunched>,
+    prefill: Prefill,
+) {
     // EXP-268: widescreen two-column layout (web `sm:max-w-3xl` parity —
     // picker left, options right); the launched terminal tab lands back in
     // the OPENER window (EXP-284: the dialog is its own native window).
@@ -247,6 +326,7 @@ fn open(
                 preselect_pr,
                 create_mode,
                 on_launched,
+                prefill,
                 opener,
                 window,
                 cx,
@@ -340,12 +420,21 @@ pub struct StartCodingDialogView {
     /// EXP-313) — applied right after the action preselect, which clears the
     /// pick maps.
     pending_pr_preselect: Option<String>,
+    /// EXP-530: the Suggestions tab's seed values, applied with the preselect.
+    pending_prefill: Prefill,
+    /// EXP-530: create mode's Automation section. It cannot SAVE a trigger
+    /// (nothing exists yet) — [`Self::launch`] appends the wire JSON to the
+    /// creator run's description so the agent sets it on create.
+    automation: AutomationEditorState,
     action_search: Entity<InputState>,
     action_list_scroll: ScrollHandle,
     action_inputs_scroll: ScrollHandle,
     /// Per-TEXT-input editor states for the selected action, keyed by input
     /// key — built in [`Self::select_action`] (never in render).
     action_text_inputs: HashMap<String, Entity<InputState>>,
+    /// EXP-530: the same, for `textarea` inputs — a separate map because the
+    /// two editors are different entity types (multi-line vs one-line).
+    action_textarea_inputs: HashMap<String, Entity<TextareaState>>,
     /// Change subscriptions for the states above (footer gate re-evaluates
     /// while typing); replaced wholesale on re-selection.
     action_input_subscriptions: Vec<Subscription>,
@@ -416,6 +505,7 @@ impl StartCodingDialogView {
         preselect_pr: Option<String>,
         create_mode: bool,
         on_launched: Option<OnLaunched>,
+        prefill: Prefill,
         opener: AnyWindowHandle,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
@@ -543,6 +633,9 @@ impl StartCodingDialogView {
 
         let agent = settings.default_agent;
         let (ultracode, plan_mode, skip_permissions) = agent_defaults(&settings, agent);
+        // The section's filter pickers are team-scoped; `team_id` itself
+        // moves into the struct below.
+        let team_id_for_automation = team_id.clone();
 
         let mut this = Self {
             team_id,
@@ -558,10 +651,13 @@ impl StartCodingDialogView {
             selected_action_id: None,
             pending_action_preselect: preselect_action,
             pending_pr_preselect: preselect_pr,
+            pending_prefill: prefill,
+            automation: AutomationEditorState::new(team_id_for_automation, window, cx),
             action_search,
             action_list_scroll: ScrollHandle::new(),
             action_inputs_scroll: ScrollHandle::new(),
             action_text_inputs: HashMap::new(),
+            action_textarea_inputs: HashMap::new(),
             action_input_subscriptions: Vec::new(),
             action_repo_picks: HashMap::new(),
             action_board_picks: HashMap::new(),
@@ -655,6 +751,9 @@ impl StartCodingDialogView {
                         self.action_pr_picks.insert(key, pick);
                     }
                 }
+                // EXP-530: the Suggestions seeds land last — after the pick
+                // maps are clear and the input states exist.
+                self.apply_prefill(window, cx);
             }
         }
     }
@@ -705,6 +804,7 @@ impl StartCodingDialogView {
             return;
         }
         self.action_text_inputs.clear();
+        self.action_textarea_inputs.clear();
         self.action_input_subscriptions.clear();
         self.action_repo_picks.clear();
         self.action_board_picks.clear();
@@ -757,6 +857,66 @@ impl StartCodingDialogView {
             ));
             self.action_text_inputs.insert(key, state);
         }
+
+        // EXP-530: the same reconcile for `textarea` inputs — a multi-line
+        // editor for the prompts and briefs a one-line field mangled.
+        let Some(action) = self.selected_action() else {
+            return;
+        };
+        let textarea_inputs: Vec<(String, Option<String>)> = action
+            .inputs
+            .iter()
+            .filter(|input| input.input_type == "textarea")
+            .map(|input| (input.key.clone(), input.placeholder.clone()))
+            .collect();
+        self.action_textarea_inputs
+            .retain(|key, _| textarea_inputs.iter().any(|(kept, _)| kept == key));
+        for (key, placeholder) in textarea_inputs {
+            if self.action_textarea_inputs.contains_key(&key) {
+                continue;
+            }
+            let state = cx.new(|cx| {
+                let mut state = TextareaState::new(window, cx);
+                if let Some(placeholder) = placeholder {
+                    state = state.placeholder(placeholder);
+                }
+                state
+            });
+            self.action_input_subscriptions.push(cx.subscribe(
+                &state,
+                |_, _, event: &InputEvent, cx| {
+                    if matches!(event, InputEvent::Change) {
+                        cx.notify();
+                    }
+                },
+            ));
+            self.action_textarea_inputs.insert(key, state);
+        }
+    }
+
+    /// Apply the [`Prefill`] seeds once the create builtin's fields exist
+    /// (EXP-530 — the Suggestions tab hands over a written brief). Runs after
+    /// [`Self::select_action`], which clears the pick maps.
+    fn apply_prefill(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if let Some(description) = self.pending_prefill.description.take() {
+            // The builtin's brief field, by key (its `text` input).
+            if let Some(state) = self.action_text_inputs.get("description").cloned() {
+                state.update(cx, |state, cx| state.set_value(description, window, cx));
+            } else if let Some(state) = self.action_textarea_inputs.get("description").cloned() {
+                state.update(cx, |state, cx| state.set_value(description, window, cx));
+            }
+        }
+        if let Some(icon) = self.pending_prefill.icon.take() {
+            if let Some(key) = self.selected_action().and_then(|action| {
+                action
+                    .inputs
+                    .iter()
+                    .find(|input| input.input_type == "icon")
+                    .map(|input| input.key.clone())
+            }) {
+                self.action_icon_picks.insert(key, icon);
+            }
+        }
     }
 
     /// Pre-fill `repo` inputs with the selected action's bound repository
@@ -805,6 +965,10 @@ impl StartCodingDialogView {
                 .action_text_inputs
                 .get(&input.key)
                 .is_some_and(|state| !state.read(cx).value().trim().is_empty()),
+            "textarea" => self
+                .action_textarea_inputs
+                .get(&input.key)
+                .is_some_and(|state| !state.read(cx).value().trim().is_empty()),
             "repo" => self.action_repo_picks.contains_key(&input.key),
             "board" => self.action_board_picks.contains_key(&input.key),
             "pr" => self.action_pr_picks.contains_key(&input.key),
@@ -827,6 +991,27 @@ impl StartCodingDialogView {
                 "text" => {
                     let Some(text) = self
                         .action_text_inputs
+                        .get(&input.key)
+                        .map(|state| state.read(cx).value().trim().to_string())
+                    else {
+                        continue;
+                    };
+                    if text.is_empty() {
+                        continue;
+                    }
+                    values.push(ActionInputValue {
+                        key: input.key.clone(),
+                        label: input.label.clone(),
+                        input_type: input.input_type.clone(),
+                        value: text.clone(),
+                        display: Some(text),
+                    });
+                }
+                // EXP-530: identical to `text` on the wire — the type only
+                // changes the editor, and the server resolves both the same.
+                "textarea" => {
+                    let Some(text) = self
+                        .action_textarea_inputs
                         .get(&input.key)
                         .map(|state| state.read(cx).value().trim().to_string())
                     else {
@@ -1113,7 +1298,7 @@ impl StartCodingDialogView {
                 // hard, never silently degrade to a text field.
                 if !matches!(
                     input.input_type.as_str(),
-                    "text" | "repo" | "board" | "pr" | "icon"
+                    "text" | "textarea" | "repo" | "board" | "pr" | "icon"
                 ) {
                     return Some("This action needs a newer app version.".into());
                 }
@@ -1262,7 +1447,23 @@ impl StartCodingDialogView {
             let Some(action) = self.selected_action().cloned() else {
                 return;
             };
-            let inputs = self.collect_action_inputs(&action, cx);
+            let mut inputs = self.collect_action_inputs(&action, cx);
+            // EXP-530: create mode can't SAVE a trigger — the action does not
+            // exist yet. Instead the wire JSON rides the brief the creator
+            // agent reads, with an explicit instruction to set it verbatim on
+            // `exponential_actions_create`. A half-filled section blocks the
+            // launch rather than starting a run that silently drops it.
+            if self.create_mode {
+                match self.automation.to_trigger(cx) {
+                    Err(message) => {
+                        self.error = Some(message);
+                        cx.notify();
+                        return;
+                    }
+                    Ok(Some(trigger)) => append_trigger_note(&mut inputs, &trigger),
+                    Ok(None) => {}
+                }
+            }
             let options = self.options(cx);
             // The runner's terminal tab targets the OPENER window — this
             // dialog window is about to be gone.
@@ -1279,6 +1480,11 @@ impl StartCodingDialogView {
                     target: Some(handle),
                     activate_app: false,
                     reservation: None,
+                    // A person clicked Start — never an automation firing
+                    // (no trigger prompt section, no `started_reason`), so
+                    // there is no poison-pill state to back off either.
+                    trigger: None,
+                    on_failed: None,
                 },
                 cx,
             );
@@ -1688,6 +1894,12 @@ impl StartCodingDialogView {
         let field: gpui::AnyElement = match input.input_type.as_str() {
             "text" => match self.action_text_inputs.get(&input.key) {
                 Some(state) => Input::new(state).web_input_sm().into_any_element(),
+                None => div().into_any_element(), // transient re-selection frame
+            },
+            // EXP-530: the multi-line twin of `text` — same value on the
+            // wire, a taller editor in the form.
+            "textarea" => match self.action_textarea_inputs.get(&input.key) {
+                Some(state) => Textarea::new(state).h(px(80.)).into_any_element(),
                 None => div().into_any_element(), // transient re-selection frame
             },
             "repo" => {
@@ -2291,6 +2503,16 @@ impl Render for StartCodingDialogView {
                     ));
                 }
             }
+        }
+        // EXP-530: create mode authors the automation up front — the section
+        // sits under the builtin's fields and rides the brief on launch. The
+        // RUN presentation has no section: an existing action's trigger is
+        // edited in the action editor, not at launch time.
+        if self.create_mode {
+            left = left.child(
+                self.automation
+                    .render("sc-automation", |this| &mut this.automation, cx),
+            );
         }
         // Web parity: the selection-size notes ride the picker column.
         if self.subject_tab == SubjectTab::Issues {

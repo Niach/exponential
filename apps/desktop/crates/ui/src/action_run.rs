@@ -114,6 +114,14 @@ pub(crate) fn fetch_repositories(
     trpc.query_with_input("repositories.list", &Input { team_id })
 }
 
+/// The EXP-530 poison-pill hook: called ONCE on every path that ends a start
+/// without a running agent (a refused resolve, a failed fetch, no shell
+/// window, a disabled launcher, a failed prepare/spawn). Runs on the
+/// FOREGROUND — an `&mut App` is exactly what the automation host's callback
+/// needs to hand its settings write to the background executor. `FnOnce`
+/// because a start fails exactly once.
+pub(crate) type ActionFailureHook = Box<dyn FnOnce(&mut App) + 'static>;
+
 /// One [`start_action_run`] request (EXP-257 — grew past positional args).
 pub(crate) struct StartActionArgs {
     pub action_id: String,
@@ -136,6 +144,14 @@ pub(crate) struct StartActionArgs {
     /// fails, so a retried relay frame can't run the same action twice while
     /// this one is still preparing. `None` on local dialog starts.
     pub reservation: Option<crate::steer_wiring::ReservationGuard>,
+    /// EXP-530: `Some` when an AUTOMATION started this run — renders the
+    /// prompt's `## Trigger` section and stamps the session row's
+    /// `startedReason`. `None` for every user start.
+    pub trigger: Option<coding::TriggerNote>,
+    /// EXP-530: the automation host's backoff hook (see [`ActionFailureHook`]).
+    /// `None` for user starts — a person watching a failed dialog run retries
+    /// themselves.
+    pub on_failed: Option<ActionFailureHook>,
 }
 
 /// Start an action: fetch FRESH body (`actions.get`) → resolve repo →
@@ -151,9 +167,15 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
         target,
         activate_app,
         reservation,
+        trigger,
+        on_failed,
     } = args;
+    // EXP-530: every early return below has to release the hook, or an
+    // automation whose watermark already advanced would sit without a backoff.
+    let mut on_failed = on_failed;
     let Some(trpc) = queries::trpc_client(cx) else {
         log::warn!("actions: run ignored — not signed in");
+        fire_failure(&mut on_failed, cx);
         return;
     };
     let builtin = is_builtin_action_id(&action_id);
@@ -165,6 +187,7 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
             Err(message) => {
                 log::warn!("actions: fix-conflicts start refused — {message}");
                 notify_target_error(target, &message, cx);
+                fire_failure(&mut on_failed, cx);
                 return;
             }
         }
@@ -265,18 +288,20 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
             })
             .await;
 
-        let _ = cx.update(|cx| {
+        cx.update(|cx| {
             let (action, repo_group) = match fetched {
                 Ok(fetched) => fetched,
                 Err(message) => {
                     log::warn!("actions: {message}");
                     notify_target_error(target, &message, cx);
+                    fire_failure(&mut on_failed, cx);
                     return;
                 }
             };
             let Some(window) = target.or_else(|| crate::steer_wiring::find_team_window(cx))
             else {
                 log::warn!("actions: run for {} — no shell window open", action.name);
+                fire_failure(&mut on_failed, cx);
                 return;
             };
             if activate_app {
@@ -304,6 +329,7 @@ team settings → Repositories.";
                                 cx,
                             );
                         });
+                        fire_failure(&mut on_failed, cx);
                         return;
                     }
                     ActionRunKind::FixConflicts {
@@ -323,6 +349,7 @@ team settings → Repositories.";
             // them down for nothing.
             if let Some(branch) = fix_branch {
                 if !take_over_branch(&branch, window, cx) {
+                    fire_failure(&mut on_failed, cx);
                     return;
                 }
             }
@@ -334,12 +361,12 @@ team settings → Repositories.";
                 repo: repo_group,
                 inputs,
                 kind,
-                trigger: None,
+                trigger,
                 device_label: coding::default_device_label(),
                 origin,
                 options,
             };
-            launch_action(request, window, reservation, cx);
+            launch_action(request, window, reservation, on_failed, cx);
         });
     })
     .detach();
@@ -414,10 +441,13 @@ fn launch_action(
     request: ActionLaunchRequest,
     target: gpui::AnyWindowHandle,
     reservation: Option<crate::steer_wiring::ReservationGuard>,
+    on_failed: Option<ActionFailureHook>,
     cx: &mut App,
 ) {
+    let mut on_failed = on_failed;
     let Some(deps) = coding_flow::build_action_deps(cx) else {
         log::warn!("actions: launch ignored — not signed in");
+        fire_failure(&mut on_failed, cx);
         return;
     };
     let hooks = crate::steer_wiring::hook_setup(cx);
@@ -451,6 +481,7 @@ fn launch_action(
                         Notification::error(SharedString::from(message)),
                         cx,
                     );
+                    fire_failure(&mut on_failed, cx);
                 }
             }
             Ok(Prepared::Disabled(reason)) => {
@@ -459,6 +490,7 @@ fn launch_action(
                     Notification::error(SharedString::from(reason.message())),
                     cx,
                 );
+                fire_failure(&mut on_failed, cx);
             }
             Err(err) => {
                 log::warn!("actions: prepare failed: {err}");
@@ -468,8 +500,18 @@ fn launch_action(
                     ))),
                     cx,
                 );
+                fire_failure(&mut on_failed, cx);
             }
         });
     })
     .detach();
+}
+
+/// Run the EXP-530 failure hook exactly once (the `Option` is the "already
+/// fired" latch — a start fails on ONE path, and a double backoff would
+/// double the automation's cooldown).
+fn fire_failure(on_failed: &mut Option<ActionFailureHook>, cx: &mut App) {
+    if let Some(hook) = on_failed.take() {
+        hook(cx);
+    }
 }

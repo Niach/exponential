@@ -36,7 +36,7 @@
 //! differs (§7.1: "there is no second, divergent remote-start
 //! implementation").
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -363,6 +363,17 @@ impl LocalSessions {
     pub(crate) fn session_ids(&self) -> Vec<String> {
         self.all()
             .map(|session| session.session_id.clone())
+            .collect()
+    }
+
+    /// The ACTIONS with a live local run (EXP-530) — the automation host's
+    /// defer set: a trigger never launches a second run of an action this
+    /// process is already running. Keyed by action id (not session id), and
+    /// deliberately over ALL subjects: an issue/batch session carries no
+    /// action id, so only real action runs land in the set.
+    pub(crate) fn live_action_ids(&self) -> HashSet<String> {
+        self.all()
+            .filter_map(|session| session.action_id.clone())
             .collect()
     }
 

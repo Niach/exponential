@@ -21,11 +21,14 @@
 
 mod action_editor_dialog;
 mod action_run;
+mod action_suggestions;
 mod actions;
 mod actions_view;
 mod active_filter_pills;
+mod automation_host;
 mod app_title_bar;
 mod attachments_row;
+mod automation_editor;
 mod board;
 mod board_form;
 pub mod coding_flow;

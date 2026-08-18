@@ -59,8 +59,10 @@ pub fn trigger_summary(trigger: &ParsedTrigger) -> String {
                 + spec.label_ids.len()
                 + spec.priorities.len()
                 + spec.to_status_ids.len();
+            // Singular for exactly one pick — web `triggerSummary` parity.
+            let noun = if filter_count == 1 { "filter" } else { "filters" };
             if filter_count > 0 {
-                format!("{sentence} · {filter_count} filters")
+                format!("{sentence} · {filter_count} {noun}")
             } else {
                 sentence.to_string()
             }
@@ -160,6 +162,13 @@ mod tests {
         assert_eq!(
             trigger_summary(&trigger(TriggerKind::Event(spec.clone()))),
             "When an issue is created · 3 filters"
+        );
+        // Singular for exactly one pick — web parity.
+        spec.board_ids = vec!["b-1".to_string()];
+        spec.priorities = Vec::new();
+        assert_eq!(
+            trigger_summary(&trigger(TriggerKind::Event(spec.clone()))),
+            "When an issue is created · 1 filter"
         );
         for (event, sentence) in [
             (EventKind::StatusChanged, "When status changes"),

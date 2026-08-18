@@ -618,6 +618,17 @@ fn status_label(wire: &str) -> String {
     wire.replace('_', " ")
 }
 
+/// Web `priorityLabel`: the wire value capitalized (`urgent` → `Urgent`);
+/// an absent/empty side reads `None` (EXP-530 — a priority can be cleared).
+fn priority_label(value: Option<String>) -> String {
+    let raw = value.unwrap_or_default();
+    let mut chars = raw.chars();
+    match chars.next() {
+        Some(first) => format!("{}{}", first.to_uppercase(), chars.as_str()),
+        None => "None".to_string(),
+    }
+}
+
 /// The trailing digits of a PR URL (`…/pull/42` → `42`) — `pr_merged`
 /// payloads carry only `prUrl` (see `pr-sync.ts`), so the number is derived.
 fn pr_number_from_url(url: &str) -> Option<String> {
@@ -753,6 +764,22 @@ fn event_phrase(
             };
             Some((EventGlyph::Plain(registry::PR_MERGED), phrase, url))
         }
+        // EXP-530: the from→to pair the server writes in
+        // `finalizeIssueUpdateInTx` — both sides capitalized, a cleared
+        // priority reads "None" (web `priorityLabel` parity).
+        "priority_changed" => {
+            let from = priority_label(payload_str("from"));
+            let to = priority_label(payload_str("to"));
+            Some((
+                EventGlyph::Plain(registry::EVENT_PRIORITY_CHANGED),
+                format!("changed priority from {from} to {to}"),
+                None,
+            ))
+        }
+        // EXP-530: `created` rows exist as the automation-trigger substrate —
+        // the issue header already shows creation, so every client suppresses
+        // them here (web `EventRow` returns null on the same arm).
+        "created" => None,
         _ => None,
     }
 }
@@ -998,6 +1025,39 @@ mod tests {
         .unwrap();
         assert_eq!(phrase, "merged the pull request");
         assert_eq!(link, None);
+
+        // EXP-530: both priority sides capitalize; a cleared side reads
+        // "None" (web `priorityLabel`).
+        let (_, phrase, _) = event_phrase(
+            &event("priority_changed", json!({ "from": "low", "to": "urgent" })),
+            &users,
+            &labels,
+            &boards,
+            &[],
+        )
+        .unwrap();
+        assert_eq!(phrase, "changed priority from Low to Urgent");
+
+        let (_, phrase, _) = event_phrase(
+            &event("priority_changed", json!({ "to": "high" })),
+            &users,
+            &labels,
+            &boards,
+            &[],
+        )
+        .unwrap();
+        assert_eq!(phrase, "changed priority from None to High");
+
+        // EXP-530: `created` is suppressed on every client — the issue header
+        // already says who filed it.
+        assert!(event_phrase(
+            &event("created", json!({ "status": "todo", "source": "user" })),
+            &users,
+            &labels,
+            &boards,
+            &[],
+        )
+        .is_none());
 
         // Unknown event type renders nothing (web returns null).
         assert!(event_phrase(
