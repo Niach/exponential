@@ -6,7 +6,7 @@ Urmărește munca împreună cu echipa:
 • Taskuri cu priorități, etichete, termene limită și statusuri personalizate
 • Board-uri pentru fiecare parte a produsului, fiecare putând fi legat de un repo GitHub
 • Descrieri și comentarii în Markdown, cu @mentions, liste de sarcini și imagini inline
-• Sincronizare în timp real pe web, desktop, iOS și Android. Fără refresh, fără vederi învechite
+• Sincronizare în timp real în momentul în care ceva se schimbă. Fără refresh, fără vederi învechite
 • Notificări push pentru mențiuni, asignări și activitate pe PR-uri
 
 Vino cu agenții tăi. Claude Code, Codex sau pi rulează local pe desktopul tău conectat, pe abonamentul tău. Alege un task și apasă Start coding, chiar și de pe telefon. Agentul lucrează pe un branch real în IDE-ul tău de desktop și deschide pull request-ul când termină.

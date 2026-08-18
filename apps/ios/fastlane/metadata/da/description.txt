@@ -6,7 +6,7 @@ Hold styr på arbejdet sammen med dit team:
 • Issues med prioriteter, labels, deadlines og egne statusser
 • Boards til hver del af dit produkt, hver især valgfrit koblet til et GitHub-repository
 • Markdown-beskrivelser og kommentarer med @mentions, tjeklister og indlejrede billeder
-• Realtidssynkronisering på web, desktop, iOS og Android. Ingen genindlæsning, ingen forældede visninger
+• Realtidssynkronisering i det sekund noget ændrer sig. Ingen genindlæsning, ingen forældede visninger
 • Push-notifikationer ved mentions, tildelinger og PR-aktivitet
 
 Tag dine egne agenter med. Claude Code, Codex eller pi kører lokalt på din tilsluttede computer, på dit eget abonnement. Vælg et issue og tryk på Start coding, selv fra din telefon. Din agent arbejder på en rigtig branch i din desktop-IDE og åbner en pull request, når den er færdig.

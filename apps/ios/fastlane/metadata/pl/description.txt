@@ -6,7 +6,7 @@ Exponential to tracker zadań w czasie rzeczywistym dla zespołów, które buduj
 • Zadania z priorytetami, etykietami, terminami i własnymi statusami
 • Tablice dla każdej części produktu, każda opcjonalnie podpięta pod repozytorium GitHub
 • Opisy i komentarze w Markdown z @mentions, listami zadań i obrazkami w treści
-• Synchronizacja w czasie rzeczywistym między webem, desktopem, iOS i Androidem. Zero odświeżania, zero nieaktualnych widoków
+• Synchronizacja w czasie rzeczywistym w chwili, gdy coś się zmienia. Zero odświeżania, zero nieaktualnych widoków
 • Powiadomienia push o wzmiankach, przypisaniach i aktywności w PR
 
 Przynieś własnych agentów. Claude Code, Codex lub pi działają lokalnie na Twoim podłączonym desktopie, w ramach Twojej subskrypcji. Wybierz zadanie i stuknij Start coding, nawet z telefonu. Agent pracuje na prawdziwym branchu w Twoim desktopowym IDE i otwiera pull request, gdy skończy.

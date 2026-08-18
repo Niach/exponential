@@ -6,7 +6,7 @@ Werk samen met je team:
 • Issues met prioriteiten, labels, deadlines en eigen statussen
 • Boards voor elk onderdeel van je product, elk optioneel gekoppeld aan een GitHub-repository
 • Markdown-beschrijvingen en reacties met @mentions, takenlijsten en inline afbeeldingen
-• Realtime sync tussen web, desktop, iOS en Android. Geen refresh, geen verouderde weergaven
+• Realtime sync op het moment dat er iets verandert. Geen refresh, geen verouderde weergaven
 • Pushmeldingen bij mentions, toewijzingen en PR-activiteit
 
 Breng je eigen agents mee. Claude Code, Codex of pi draait lokaal op je gekoppelde desktop, op je eigen abonnement. Kies een issue en tik op Start coding, zelfs vanaf je telefoon. Je agent werkt op een echte branch in je desktop-IDE en opent de pull request zodra die klaar is.

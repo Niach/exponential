@@ -6,7 +6,7 @@ Håll koll på arbetet med ditt team:
 • Ärenden med prioriteter, etiketter, deadlines och egna statusar
 • Boards för varje del av din produkt, var och en valfritt kopplad till ett GitHub-repo
 • Markdown-beskrivningar och kommentarer med @mentions, checklistor och inbäddade bilder
-• Realtidssynk mellan webb, desktop, iOS och Android. Ingen omladdning, inga inaktuella vyer
+• Realtidssynk i samma stund som något ändras. Ingen omladdning, inga inaktuella vyer
 • Pushnotiser vid omnämnanden, tilldelningar och PR-aktivitet
 
 Ta med dina egna agenter. Claude Code, Codex eller pi kör lokalt på din anslutna dator, på din egen prenumeration. Välj ett ärende och tryck på Start coding, även från mobilen. Din agent jobbar på en riktig branch i din desktop-IDE och öppnar en pull request när den är klar.

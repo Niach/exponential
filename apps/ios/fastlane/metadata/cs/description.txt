@@ -6,7 +6,7 @@ Sledujte práci společně s týmem:
 • Úkoly s prioritami, štítky, termíny a vlastními stavy
 • Boardy pro každou část produktu, každý volitelně napojený na GitHub repozitář
 • Popisy a komentáře v Markdownu s @mentions, checklisty a obrázky přímo v textu
-• Realtime synchronizace mezi webem, desktopem, iOS a Androidem. Žádné obnovování, žádné zastaralé pohledy
+• Realtime synchronizace v okamžiku, kdy se něco změní. Žádné obnovování, žádné zastaralé pohledy
 • Push notifikace o zmínkách, přiřazeních a aktivitě u PR
 
 Přineste si vlastní agenty. Claude Code, Codex nebo pi běží lokálně na vašem připojeném desktopu, na vašem předplatném. Vyberte úkol a klepněte na Start coding, klidně z telefonu. Agent pracuje na skutečné větvi ve vašem desktopovém IDE a po dokončení otevře pull request.

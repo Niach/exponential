@@ -6,7 +6,7 @@ Seuraa työtä tiimisi kanssa:
 • Issuet, joissa prioriteetit, labelit, määräpäivät ja omat statukset
 • Boardit tuotteesi jokaiselle osalle, jokainen halutessasi kytkettynä GitHub-repositorioon
 • Markdown-kuvaukset ja kommentit, joissa @mentions, tehtävälistat ja upotetut kuvat
-• Reaaliaikainen synkkaus webin, työpöydän, iOS:n ja Androidin välillä. Ei päivittelyä, ei vanhentuneita näkymiä
+• Reaaliaikainen synkkaus heti kun jokin muuttuu. Ei päivittelyä, ei vanhentuneita näkymiä
 • Push-ilmoitukset maininnoista, sinulle osoitetuista issueista ja PR-aktiviteetista
 
 Tuo omat agenttisi. Claude Code, Codex tai pi pyörii paikallisesti yhdistetyllä työpöytäkoneellasi, omalla tilauksellasi. Valitse issue ja paina Start coding, vaikka suoraan puhelimesta. Agenttisi työskentelee oikealla branchilla työpöydän IDE:ssä ja avaa pull requestin, kun työ on valmis.

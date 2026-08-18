@@ -6,7 +6,7 @@ Prati posao sa svojim timom:
 • Zadaci s prioritetima, oznakama, rokovima i prilagođenim statusima
 • Boardovi za svaki dio proizvoda, svaki po želji povezan s GitHub repozitorijem
 • Markdown opisi i komentari s @mentions, popisima zadataka i slikama u tekstu
-• Sinkronizacija u stvarnom vremenu na webu, desktopu, iOS-u i Androidu. Bez osvježavanja, bez zastarjelih prikaza
+• Sinkronizacija u stvarnom vremenu čim se nešto promijeni. Bez osvježavanja, bez zastarjelih prikaza
 • Push obavijesti za spominjanja, dodjele i aktivnost na PR-ovima
 
 Dovedi vlastite agente. Claude Code, Codex ili pi rade lokalno na tvom povezanom računalu, na tvojoj pretplati. Odaberi zadatak i pritisni Start coding, čak i s mobitela. Agent radi na pravom branchu u tvom desktop IDE-u i otvara pull request kad završi.

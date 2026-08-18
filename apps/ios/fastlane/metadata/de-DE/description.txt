@@ -6,7 +6,7 @@ Behalte die Arbeit im Team im Blick:
 • Issues mit Prioritäten, Labels, Fälligkeitsdaten und eigenen Status
 • Boards für jeden Teil deines Produkts, auf Wunsch mit einem GitHub-Repository verknüpft
 • Markdown in Beschreibungen und Kommentaren, mit @mentions, Aufgabenlisten und Bildern
-• Echtzeit-Sync über Web, Desktop, iOS und Android. Kein Aktualisieren, keine veralteten Ansichten
+• Echtzeit-Sync, sobald sich etwas ändert. Kein Aktualisieren, keine veralteten Ansichten
 • Push-Benachrichtigungen bei Mentions, Zuweisungen und PR-Aktivität
 
 Bring deine eigenen Agents mit. Claude Code, Codex oder pi laufen lokal auf deinem verbundenen Desktop, mit deinem Abo. Wähl ein Issue und tippe auf Start coding, auch vom Handy aus. Dein Agent arbeitet auf einem echten Branch in deiner Desktop-IDE und öffnet den Pull Request, wenn er fertig ist.

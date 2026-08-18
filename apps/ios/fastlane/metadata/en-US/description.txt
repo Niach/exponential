@@ -6,7 +6,7 @@ Track work with your team:
 • Issues with priorities, labels, due dates and custom statuses
 • Boards for every part of your product, each optionally backed by a GitHub repository
 • Markdown descriptions and comments with @mentions, task lists and inline images
-• Realtime sync across web, desktop, iOS and Android. No refresh, no stale views
+• Realtime sync, the moment anything changes. No refresh, no stale views
 • Push notifications for mentions, assignments and PR activity
 
 Bring your own agents. Claude Code, Codex or pi run locally on your connected desktop, on your subscription. Pick an issue and hit Start coding, even from your phone. Your agent works on a real branch in your desktop IDE and opens the pull request when it is done.

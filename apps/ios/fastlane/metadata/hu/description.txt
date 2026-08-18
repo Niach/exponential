@@ -6,7 +6,7 @@ Kövesd a munkát a csapatoddal:
 • Feladatok prioritásokkal, címkékkel, határidőkkel és saját státuszokkal
 • Boardok a terméked minden részéhez, mindegyik igény szerint egy GitHub-repóra kötve
 • Markdown-leírások és kommentek @mentions-szel, teendőlistákkal és beszúrt képekkel
-• Valós idejű szinkron weben, desktopon, iOS-en és Androidon. Nincs frissítgetés, nincsenek elavult nézetek
+• Valós idejű szinkron abban a pillanatban, ahogy bármi változik. Nincs frissítgetés, nincsenek elavult nézetek
 • Push-értesítések említésekről, hozzárendelésekről és PR-aktivitásról
 
 Hozd a saját ügynökeidet. A Claude Code, a Codex vagy a pi helyben fut a csatlakoztatott gépeden, a saját előfizetéseddel. Válassz egy feladatot, nyomd meg a Start codingot, akár a telefonodról is. Az ügynök valódi branchen dolgozik a desktop IDE-dben, és ha végzett, megnyitja a pull requestet.

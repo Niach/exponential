@@ -6,7 +6,7 @@ Acompanha o trabalho com a tua equipa:
 • Issues com prioridades, etiquetas, datas limite e estados personalizados
 • Boards para cada parte do teu produto, cada um opcionalmente ligado a um repositório GitHub
 • Descrições e comentários em Markdown, com @mentions, listas de tarefas e imagens
-• Sincronização em tempo real entre web, desktop, iOS e Android. Sem refrescar, sem vistas desatualizadas
+• Sincronização em tempo real no momento em que algo muda. Sem refrescar, sem vistas desatualizadas
 • Notificações push para menções, atribuições e atividade de PRs
 
 Traz os teus próprios agentes. O Claude Code, o Codex ou o pi correm localmente no teu desktop ligado, com a tua subscrição. Escolhe um issue e toca em Start coding, até a partir do telemóvel. O teu agente trabalha num branch real no teu IDE de desktop e abre o pull request quando termina.

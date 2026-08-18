@@ -9,3 +9,12 @@ Notes:
 - Coding sessions on the Agents tab are started from our desktop app. With no desktop online the tab shows a "No desktop online" hint and a "No agents running" empty state — this is expected and not a bug.
 - Teammates are invited from the web app, not from iOS.
 - There are no purchases, subscriptions, or paid features in the iOS app; billing exists only on the web.
+
+Account deletion (guideline 5.1.1(v)) is in the app, no website visit needed:
+1. On the Issues screen, tap the gear icon at the top right to open Settings.
+2. Under "Servers", tap your account row ("Exponential Cloud", your email below it).
+3. Tap "Delete account" (red, directly below "Sign out").
+4. Confirm in the "Delete your account?" alert.
+The account and its data are deleted immediately on the server, together with any team
+where you are the only member, and the app returns to the signed-out screen. No support
+contact or website visit is involved at any point.
