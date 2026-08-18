@@ -161,12 +161,15 @@ pub fn start_automation_host(account: &api::Account, cx: &mut App) {
 
             // Persist BEFORE launching (the firing protocol): a crash between
             // here and the spawn drops the run instead of double-firing it.
+            // A FAILED write skips the launch too (the daemon's rule):
+            // without a durable watermark the same occurrence would re-fire
+            // every beat for as long as settings.json stays unwritable.
             let mut states = outcome.states;
             let advanced: Vec<(String, AutomationState)> = claimed
                 .iter()
                 .map(|(fire, _)| (fire.action_id.clone(), fire.new_state.clone()))
                 .collect();
-            {
+            let persisted = {
                 let settings_path = settings_path.clone();
                 let device_id = device_id.clone();
                 cx.background_executor()
@@ -174,9 +177,12 @@ pub fn start_automation_host(account: &api::Account, cx: &mut App) {
                         for (action_id, new_state) in advanced {
                             states.insert(action_id, new_state);
                         }
-                        write_states(&settings_path, &device_id, &states);
+                        write_states(&settings_path, &device_id, &states)
                     })
-                    .await;
+                    .await
+            };
+            if !persisted {
+                continue;
             }
 
             cx.update(|cx| {
@@ -263,10 +269,9 @@ struct EvalSnapshot {
     /// The GUI's steer device id — triggers bound to the CLI daemon's
     /// sibling row (or another machine) belong to that host, never this one.
     device_id: String,
+    /// This device's parseable triggers, each carrying its action's team
+    /// (the event fence AND the runner's up-front team).
     actions: Vec<TriggeredAction>,
-    /// `action_id` → the action's team (the runner needs it up front — the
-    /// builtins have no fetchable row, so every caller supplies it).
-    team_by_action: HashMap<String, String>,
     events: Vec<EventRow>,
     live_action_ids: HashSet<String>,
     issue_display: HashMap<String, IssueDisplay>,
@@ -293,8 +298,7 @@ fn snapshot_for(account_id: &str, cx: &mut App) -> Option<EvalSnapshot> {
 
     let options = LaunchOptions::defaults(&hub.read(cx).settings);
     let live_action_ids = sessions.read(cx).live_action_ids();
-    let (actions, team_by_action) =
-        triggered_actions(collections.actions.read(cx).iter(), &device_id);
+    let actions = triggered_actions(collections.actions.read(cx).iter(), &device_id);
     if actions.is_empty() {
         // Nothing bound to this device — skip the (potentially large) event
         // scan entirely.
@@ -302,7 +306,6 @@ fn snapshot_for(account_id: &str, cx: &mut App) -> Option<EvalSnapshot> {
             settings_path,
             device_id,
             actions,
-            team_by_action,
             events: Vec::new(),
             live_action_ids,
             issue_display: HashMap::new(),
@@ -341,6 +344,10 @@ fn snapshot_for(account_id: &str, cx: &mut App) -> Option<EvalSnapshot> {
         events.push(EventRow {
             id: row.id.clone(),
             issue_id: row.issue_id.clone(),
+            // The denormalized team — the engine fences matching to the
+            // action's own team (a missing value conservatively never
+            // matches).
+            team_id: row.team_id.clone(),
             created_at_ms,
             // A row without a type can never match a spec, but it still
             // belongs in the snapshot — the watermark advances over it.
@@ -367,7 +374,6 @@ fn snapshot_for(account_id: &str, cx: &mut App) -> Option<EvalSnapshot> {
         settings_path,
         device_id,
         actions,
-        team_by_action,
         events,
         live_action_ids,
         issue_display,
@@ -384,9 +390,8 @@ fn snapshot_for(account_id: &str, cx: &mut App) -> Option<EvalSnapshot> {
 fn triggered_actions<'a>(
     rows: impl Iterator<Item = &'a ActionRow>,
     device_id: &str,
-) -> (Vec<TriggeredAction>, HashMap<String, String>) {
+) -> Vec<TriggeredAction> {
     let mut actions = Vec::new();
-    let mut team_by_action = HashMap::new();
     for row in rows {
         let Some(raw) = row.trigger.as_ref() else {
             continue; // manual-only action
@@ -400,14 +405,14 @@ fn triggered_actions<'a>(
         let Some(team_id) = row.team_id.clone() else {
             continue; // no team to run in
         };
-        team_by_action.insert(row.id.clone(), team_id);
         actions.push(TriggeredAction {
             action_id: row.id.clone(),
+            team_id,
             trigger,
             fingerprint: automations::trigger_fingerprint(raw),
         });
     }
-    (actions, team_by_action)
+    actions
 }
 
 // ---------------------------------------------------------------------------
@@ -459,18 +464,16 @@ fn evaluate_pass(snapshot: EvalSnapshot) -> PassOutcome {
                 firing,
                 new_state,
             } => {
-                let (Some(team_id), Some(action)) = (
-                    snapshot.team_by_action.get(&action_id).cloned(),
-                    snapshot
-                        .actions
-                        .iter()
-                        .find(|candidate| candidate.action_id == action_id),
-                ) else {
+                let Some(action) = snapshot
+                    .actions
+                    .iter()
+                    .find(|candidate| candidate.action_id == action_id)
+                else {
                     continue;
                 };
                 fires.push(FireOrder {
                     action_id,
-                    team_id,
+                    team_id: action.team_id.clone(),
                     note: trigger_note(action, &firing, &snapshot),
                     new_state,
                 });
@@ -487,9 +490,13 @@ fn write_states(
     settings_path: &Path,
     device_id: &str,
     states: &HashMap<String, AutomationState>,
-) {
-    if let Err(err) = automations::write_states(settings_path, device_id, states) {
-        log::warn!("[automations] state write failed: {err}");
+) -> bool {
+    match automations::write_states(settings_path, device_id, states) {
+        Ok(()) => true,
+        Err(err) => {
+            log::warn!("[automations] state write failed: {err}");
+            false
+        }
     }
 }
 
@@ -717,6 +724,7 @@ mod tests {
         EventRow {
             id: id.to_string(),
             issue_id: "issue-1".to_string(),
+            team_id: Some("team-1".to_string()),
             created_at_ms: 1_000,
             kind: kind.to_string(),
             payload,
@@ -758,7 +766,7 @@ mod tests {
                 Some(json!({"kind": "moon_phase", "deviceId": "dev-gui"})),
             ),
         ];
-        let (actions, teams) = triggered_actions(rows.iter(), "dev-gui");
+        let actions = triggered_actions(rows.iter(), "dev-gui");
         assert_eq!(
             actions
                 .iter()
@@ -768,12 +776,12 @@ mod tests {
             "other devices', manual, untargetable and team-less rows are skipped"
         );
         assert_eq!(actions[1].trigger.kind, TriggerKind::Unsupported);
-        assert_eq!(teams.get("mine").map(String::as_str), Some("team-1"));
-        assert_eq!(teams.len(), 2);
+        assert_eq!(actions[0].team_id, "team-1");
+        assert_eq!(actions[1].team_id, "team-2");
 
         // The fingerprint is the RAW trigger JSON's — identical input, identical
         // hash, so a GUI↔CLI hand-off never re-seeds.
-        let (again, _) = triggered_actions(rows.iter(), "dev-gui");
+        let again = triggered_actions(rows.iter(), "dev-gui");
         assert_eq!(actions[0].fingerprint, again[0].fingerprint);
         assert_eq!(
             actions[0].fingerprint,
@@ -862,7 +870,6 @@ mod tests {
             settings_path: PathBuf::new(),
             device_id: "dev-gui".to_string(),
             actions: Vec::new(),
-            team_by_action: HashMap::new(),
             events: Vec::new(),
             live_action_ids: HashSet::new(),
             issue_display: displays(),
@@ -872,6 +879,7 @@ mod tests {
         };
         let action = TriggeredAction {
             action_id: "act".to_string(),
+            team_id: "team-1".to_string(),
             trigger: automations::parse_trigger(&json!({
                 "kind": "event",
                 "deviceId": "dev-gui",
@@ -896,6 +904,7 @@ mod tests {
         // CLI host and in the UI's summary rows).
         let scheduled = TriggeredAction {
             action_id: "act".to_string(),
+            team_id: "team-1".to_string(),
             trigger: automations::parse_trigger(&schedule_trigger("dev-gui")).expect("parses"),
             fingerprint: "fp".to_string(),
         };

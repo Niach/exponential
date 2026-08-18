@@ -96,15 +96,12 @@ func eventPhrase(
         }
         return "removed a label"
     case "priority_changed":
-        // EXP-530 — mirrors the web row: capitalized wire values
-        // ("changed priority from Urgent to Low").
-        guard let to = eventField(event.payload, "to").map(priorityLabel) else {
-            return "changed the priority"
-        }
-        if let from = eventField(event.payload, "from").map(priorityLabel) {
-            return "changed priority from \(from) to \(to)"
-        }
-        return "changed priority to \(to)"
+        // EXP-530 — mirrors the web row byte-for-byte: capitalized wire
+        // values, a missing side reading "None" (web/Android/desktop render
+        // both sides unconditionally).
+        let from = eventField(event.payload, "from").map(priorityLabel) ?? "None"
+        let to = eventField(event.payload, "to").map(priorityLabel) ?? "None"
+        return "changed priority from \(from) to \(to)"
     case "pr_opened":
         if let n = eventField(event.payload, "prNumber") { return "opened PR #\(n)" }
         return "opened a pull request"

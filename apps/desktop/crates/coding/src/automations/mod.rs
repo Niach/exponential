@@ -41,6 +41,9 @@ pub const TRIGGER_PROMPT_MAX_LINES: usize = 50;
 #[derive(Clone, Debug)]
 pub struct TriggeredAction {
     pub action_id: String,
+    /// The action's team — the fence event matching applies to the shared
+    /// events snapshot (hosts sync every member team's rows into one place).
+    pub team_id: String,
     pub trigger: ParsedTrigger,
     /// [`trigger_fingerprint`] of the RAW trigger JSON.
     pub fingerprint: String,
@@ -176,7 +179,8 @@ pub fn evaluate<Tz: chrono::TimeZone>(input: &EvalInput<Tz>) -> Vec<Decision> {
                     state.watermark_created_at.expect("reseed guaranteed the stamp"),
                     state.watermark_id.as_deref().expect("reseed guaranteed the id"),
                 );
-                let matches = matching_events(spec, input.events, watermark, input.now_ms);
+                let matches =
+                    matching_events(spec, &action.team_id, input.events, watermark, input.now_ms);
                 if matches.is_empty() {
                     continue;
                 }
@@ -221,6 +225,7 @@ mod tests {
     fn daily_action(id: &str, minute: u32, enabled: bool) -> TriggeredAction {
         TriggeredAction {
             action_id: id.to_string(),
+            team_id: "team-1".to_string(),
             trigger: ParsedTrigger {
                 device_id: "dev-1".to_string(),
                 enabled,
@@ -238,6 +243,7 @@ mod tests {
     fn event_action(id: &str) -> TriggeredAction {
         TriggeredAction {
             action_id: id.to_string(),
+            team_id: "team-1".to_string(),
             trigger: ParsedTrigger {
                 device_id: "dev-1".to_string(),
                 enabled: true,
@@ -257,6 +263,7 @@ mod tests {
         EventRow {
             id: id.to_string(),
             issue_id: "issue-1".to_string(),
+            team_id: Some("team-1".to_string()),
             created_at_ms,
             kind: kind.to_string(),
             payload: None,
@@ -412,6 +419,23 @@ mod tests {
             other => panic!("expected one event Fire, got {other:?}"),
         }
 
+        // Another member team's events never fire this team's trigger — but
+        // the watermark (max over the WHOLE snapshot) still advances past
+        // them on the next real fire, so no Fire and no Reseed here.
+        let mut cross_team = Snapshot::new(now.clone());
+        cross_team.actions = vec![event_action("act-e")];
+        cross_team
+            .states
+            .insert("act-e".to_string(), seeded("fp-act-e", 0, (0, "")));
+        let mut foreign = event_row("evt-f", "created", now_ms - 1_000);
+        foreign.team_id = Some("team-OTHER".to_string());
+        cross_team.events = vec![foreign];
+        assert_eq!(
+            cross_team.evaluate(),
+            vec![],
+            "cross-team events are fenced out of matching"
+        );
+
         // Cooldown defers.
         let mut cooling = Snapshot::new(now.clone());
         cooling.actions = vec![event_action("act-e")];
@@ -444,6 +468,7 @@ mod tests {
             daily_action("act-off", 420, false),
             TriggeredAction {
                 action_id: "act-u".to_string(),
+                team_id: "team-1".to_string(),
                 trigger: ParsedTrigger {
                     device_id: "dev-1".to_string(),
                     enabled: true,

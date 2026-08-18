@@ -110,6 +110,12 @@ final class ActionTriggerTests: XCTestCase {
             event: "label_added",
             filters: ActionTriggerFilters(boardIds: ["b1"], labelIds: ["l1"])
         ))
+        // Canonical key order (web/Android/desktop byte parity), filters in
+        // boardIds/labelIds/priorities/toStatusIds order, empties omitted.
+        XCTAssertEqual(
+            trigger.wireJSONString,
+            #"{"kind":"event","deviceId":"dev-9","enabled":false,"event":"label_added","filters":{"boardIds":["b1"],"labelIds":["l1"]}}"#
+        )
         // The compact string re-parses into the identical trigger.
         XCTAssertEqual(ActionTrigger.parse(trigger.wireJSONString), trigger)
         // …and so does the Encodable form the actions.update input embeds.
@@ -121,9 +127,11 @@ final class ActionTriggerTests: XCTestCase {
         let daily = ActionTrigger.schedule(ActionScheduleTrigger(
             deviceId: "d", interval: "daily", minuteOfDay: 420
         ))
+        // Canonical key order — byte-locked against web JSON.stringify,
+        // Android toWireJsonString and desktop's preserve_order serde_json.
         XCTAssertEqual(
             daily.wireJSONString,
-            #"{"deviceId":"d","enabled":true,"interval":"daily","kind":"schedule","minuteOfDay":420}"#
+            #"{"kind":"schedule","deviceId":"d","enabled":true,"interval":"daily","minuteOfDay":420}"#
         )
         XCTAssertEqual(ActionTrigger.parse(daily.wireJSONString), daily)
     }

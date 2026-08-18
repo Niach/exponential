@@ -921,10 +921,9 @@ public final class DatabaseManager: @unchecked Sendable {
         // v18 (EXP-530 action automations): `actions.trigger` (jsonb stored
         // as stringified JSON — the schedule/event automation config) and
         // `coding_sessions.started_reason` (non-null on automation-started
-        // runs) ride along on their shapes. Additive ALTERs for stores
-        // created before the columns existed; guarded on table + column
-        // presence so fresh installs (which get them from the v9/v1 creates
-        // above) and migration-fixture DBs converge.
+        // runs) ride along on their shapes. Additive ALTERs — fresh installs
+        // get the columns HERE too (the v9/v1 creates predate them); guarded
+        // on table + column presence so migration-fixture DBs converge.
         migrator.registerMigration("v18_action_automations") { db in
             if try db.tableExists("actions") {
                 let existing = Set(try db.columns(in: "actions").map(\.name))

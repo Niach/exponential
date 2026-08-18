@@ -12,6 +12,9 @@ use super::trigger::{EventKind, EventSpec};
 pub struct EventRow {
     pub id: String,
     pub issue_id: String,
+    /// The event's denormalized `team_id` — a trigger only ever fires on
+    /// its own action's team; `None` = unknown, which FAILS the team check.
+    pub team_id: Option<String>,
     /// `created_at` as a ms epoch (the watermark scale).
     pub created_at_ms: i64,
     /// The raw `issue_event_type` wire value.
@@ -40,10 +43,13 @@ pub fn event_matches(spec: &EventSpec, row: &EventRow) -> bool {
     }
 }
 
-/// The rows past the watermark, inside the catch-up window, matching the
-/// spec — sorted by `(created_at_ms, id)` (the watermark's tuple order).
+/// The rows past the watermark, inside the catch-up window, on the action's
+/// OWN team, matching the spec — sorted by `(created_at_ms, id)` (the
+/// watermark's tuple order). The hosts sync every member team's events into
+/// one collection, so the team fence lives here, not in the snapshot.
 pub fn matching_events<'a>(
     spec: &EventSpec,
+    team_id: &str,
     rows: &'a [EventRow],
     watermark: (i64, &str),
     now_ms: i64,
@@ -51,6 +57,7 @@ pub fn matching_events<'a>(
     let cutoff = now_ms - domain::contract::AUTOMATION_EVENT_CATCHUP_MS;
     let mut matches: Vec<&EventRow> = rows
         .iter()
+        .filter(|row| row.team_id.as_deref() == Some(team_id))
         .filter(|row| (row.created_at_ms, row.id.as_str()) > watermark)
         .filter(|row| row.created_at_ms >= cutoff)
         .filter(|row| event_matches(spec, row))
@@ -89,6 +96,7 @@ mod tests {
         EventRow {
             id: id.to_string(),
             issue_id: "issue-1".to_string(),
+            team_id: Some("team-1".to_string()),
             created_at_ms,
             kind: kind.to_string(),
             payload: None,
@@ -158,6 +166,24 @@ mod tests {
         assert!(event_matches(&spec(EventKind::PrMerged), &row("e", "pr_merged", 0)));
     }
 
+    /// The hosts feed EVERY member team's events into one snapshot — a
+    /// trigger must only ever see its own action's team, and a row with an
+    /// unknown team fails conservatively.
+    #[test]
+    fn other_teams_rows_never_match() {
+        let mut foreign = row("id-f", "created", 100);
+        foreign.team_id = Some("team-2".to_string());
+        let mut unknown = row("id-u", "created", 100);
+        unknown.team_id = None;
+        let rows = vec![row("id-m", "created", 100), foreign, unknown];
+        let matches = matching_events(&spec(EventKind::Created), "team-1", &rows, (0, ""), 1_000);
+        assert_eq!(
+            matches.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
+            vec!["id-m"],
+            "cross-team and team-less rows are fenced out"
+        );
+    }
+
     #[test]
     fn watermark_is_tuple_ordered() {
         let rows = vec![
@@ -167,16 +193,16 @@ mod tests {
         ];
         let now = 1_000;
         // Equal created_at: only ids ABOVE the watermark id pass.
-        let past_a = matching_events(&spec(EventKind::Created), &rows, (100, "id-a"), now);
+        let past_a = matching_events(&spec(EventKind::Created), "team-1", &rows, (100, "id-a"), now);
         assert_eq!(
             past_a.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
             vec!["id-b", "id-c"]
         );
         // The watermark row itself is excluded (strictly greater).
-        let past_c = matching_events(&spec(EventKind::Created), &rows, (200, "id-c"), now);
+        let past_c = matching_events(&spec(EventKind::Created), "team-1", &rows, (200, "id-c"), now);
         assert!(past_c.is_empty());
         // A lower timestamp never passes regardless of id.
-        let fresh = matching_events(&spec(EventKind::Created), &rows, (150, ""), now);
+        let fresh = matching_events(&spec(EventKind::Created), "team-1", &rows, (150, ""), now);
         assert_eq!(fresh.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), vec!["id-c"]);
     }
 
@@ -188,7 +214,7 @@ mod tests {
             row("edge", "created", 500), // exactly at the cutoff — kept
             row("new", "created", now - 1),
         ];
-        let matches = matching_events(&spec(EventKind::Created), &rows, (0, ""), now);
+        let matches = matching_events(&spec(EventKind::Created), "team-1", &rows, (0, ""), now);
         assert_eq!(
             matches.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
             vec!["edge", "new"]
@@ -202,7 +228,7 @@ mod tests {
             row("id-b", "created", 100),
             row("id-a", "created", 300),
         ];
-        let matches = matching_events(&spec(EventKind::Created), &rows, (0, ""), 1_000);
+        let matches = matching_events(&spec(EventKind::Created), "team-1", &rows, (0, ""), 1_000);
         assert_eq!(
             matches.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
             vec!["id-b", "id-a", "id-z"]

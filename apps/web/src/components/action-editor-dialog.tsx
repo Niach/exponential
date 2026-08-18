@@ -125,6 +125,13 @@ export function ActionEditorDialog({
 
   const canSubmit = Boolean(name.trim()) && Boolean(body.trim()) && !bodyLoading
 
+  // Forward-compat: a stored trigger this build can't parse (a future
+  // kind/event from a newer client) seeds an empty draft — saving that back
+  // as null would silently wipe the automation on an unrelated edit. Leave
+  // it untouched unless the user explicitly binds something new.
+  const storedUnsupported =
+    action.trigger != null && parseActionTrigger(action.trigger) === null
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!canSubmit || submitting) return
@@ -141,8 +148,12 @@ export function ActionEditorDialog({
           repositoryId: repoValue === NO_REPO ? null : repoValue,
           body,
           // null clears a previously-set trigger (an incomplete draft also
-          // converts to null, which can only happen when nothing was bound).
-          trigger: draftToTrigger(automation),
+          // converts to null, which can only happen when nothing was bound);
+          // an unsupported stored trigger rides through unchanged.
+          trigger:
+            storedUnsupported && automation.kind === `none`
+              ? undefined
+              : draftToTrigger(automation),
         },
         { context: { skipErrorToast: true } }
       )

@@ -171,10 +171,10 @@ public enum ActionTrigger: Sendable, Equatable {
             else { return nil }
             let rawFilters = object["filters"] as? [String: Any] ?? [:]
             let filters = ActionTriggerFilters(
-                boardIds: stringList(rawFilters["boardIds"]),
-                labelIds: stringList(rawFilters["labelIds"]),
-                priorities: stringList(rawFilters["priorities"]),
-                toStatusIds: stringList(rawFilters["toStatusIds"])
+                boardIds: idList(rawFilters["boardIds"]),
+                labelIds: idList(rawFilters["labelIds"]),
+                priorities: priorityList(rawFilters["priorities"]),
+                toStatusIds: idList(rawFilters["toStatusIds"])
             )
             return .event(ActionEventTrigger(
                 deviceId: deviceId,
@@ -196,8 +196,16 @@ public enum ActionTrigger: Sendable, Equatable {
         }
     }
 
-    private static func stringList(_ value: Any?) -> [String] {
-        (value as? [Any])?.compactMap { $0 as? String } ?? []
+    /// Id lists drop empty entries (web `idList` parity — the filter count
+    /// and the toggle's whole-object rewrite must agree across clients).
+    private static func idList(_ value: Any?) -> [String] {
+        (value as? [Any])?.compactMap { $0 as? String }.filter { !$0.isEmpty } ?? []
+    }
+
+    /// Priorities additionally validate against the contract vocabulary
+    /// (web `priorityList` parity — an unknown value drops, never counts).
+    private static func priorityList(_ value: Any?) -> [String] {
+        idList(value).filter { DomainContract.issuePriorityValues.contains($0) }
     }
 
     // MARK: - Wire encoding
@@ -235,14 +243,63 @@ public enum ActionTrigger: Sendable, Equatable {
         }
     }
 
-    /// Compact key-sorted JSON string of `wireObject` — rides the create
-    /// sheet's machine-readable description block.
+    /// Compact JSON string in the CANONICAL key order every client emits
+    /// (web `JSON.stringify` insertion order, Android `toWireJsonString`,
+    /// desktop's preserve_order serde_json) — the machine-readable
+    /// description block must be byte-identical across the four clients, so
+    /// this is hand-composed rather than serialized (JSONSerialization only
+    /// offers alphabetical order).
     public var wireJSONString: String {
-        guard let data = try? JSONSerialization.data(
-            withJSONObject: wireObject,
-            options: [.sortedKeys]
-        ) else { return "{}" }
-        return String(data: data, encoding: .utf8) ?? "{}"
+        func list(_ values: [String]) -> String {
+            "[" + values.map(Self.jsonQuoted).joined(separator: ",") + "]"
+        }
+        switch self {
+        case let .schedule(s):
+            var parts = [
+                "\"kind\":\"schedule\"",
+                "\"deviceId\":\(Self.jsonQuoted(s.deviceId))",
+                "\"enabled\":\(s.enabled)",
+                "\"interval\":\(Self.jsonQuoted(s.interval))",
+                "\"minuteOfDay\":\(s.minuteOfDay)",
+            ]
+            if let weekday = s.weekday { parts.append("\"weekday\":\(weekday)") }
+            if let dayOfMonth = s.dayOfMonth { parts.append("\"dayOfMonth\":\(dayOfMonth)") }
+            return "{" + parts.joined(separator: ",") + "}"
+        case let .event(e):
+            var parts = [
+                "\"kind\":\"event\"",
+                "\"deviceId\":\(Self.jsonQuoted(e.deviceId))",
+                "\"enabled\":\(e.enabled)",
+                "\"event\":\(Self.jsonQuoted(e.event))",
+            ]
+            var filters: [String] = []
+            if !e.filters.boardIds.isEmpty {
+                filters.append("\"boardIds\":\(list(e.filters.boardIds))")
+            }
+            if !e.filters.labelIds.isEmpty {
+                filters.append("\"labelIds\":\(list(e.filters.labelIds))")
+            }
+            if !e.filters.priorities.isEmpty {
+                filters.append("\"priorities\":\(list(e.filters.priorities))")
+            }
+            if !e.filters.toStatusIds.isEmpty {
+                filters.append("\"toStatusIds\":\(list(e.filters.toStatusIds))")
+            }
+            if !filters.isEmpty {
+                parts.append("\"filters\":{" + filters.joined(separator: ",") + "}")
+            }
+            return "{" + parts.joined(separator: ",") + "}"
+        }
+    }
+
+    /// One JSON-escaped, quoted string (delegates the escaping rules to
+    /// JSONSerialization via a single-element array).
+    private static func jsonQuoted(_ value: String) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: [value]),
+              let text = String(data: data, encoding: .utf8),
+              text.count >= 2
+        else { return "\"\"" }
+        return String(text.dropFirst().dropLast())
     }
 }
 

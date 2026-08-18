@@ -130,35 +130,41 @@ async function assertRepoInTeam(repositoryId: string, teamId: string) {
 async function assertTriggerValid(
   trigger: ActionTrigger,
   teamId: string,
-  callerUserId: string
+  callerUserId: string,
+  // A binding that already survived validation once: skip the device
+  // ownership check so a co-owner can edit/toggle an action bound to a
+  // teammate's private device (they could never re-mint that binding).
+  unchangedDeviceId?: string
 ): Promise<void> {
   const { db } = await import(`@/db/connection`)
   const bad = (message: string) => new TRPCError({ code: `BAD_REQUEST`, message })
 
-  const rows = await db
-    .select({ userId: devices.userId, sharedTeamId: devices.sharedTeamId })
-    .from(devices)
-    .where(eq(devices.deviceId, trigger.deviceId))
-  let usable = rows.some((row) => row.userId === callerUserId)
-  if (!usable) {
-    const sharedOwners = rows
-      .filter((row) => row.sharedTeamId === teamId)
-      .map((row) => row.userId)
-    if (sharedOwners.length > 0) {
-      const members = await db
-        .select({ userId: teamMembers.userId })
-        .from(teamMembers)
-        .where(
-          and(
-            eq(teamMembers.teamId, teamId),
-            inArray(teamMembers.userId, sharedOwners)
+  if (trigger.deviceId !== unchangedDeviceId) {
+    const rows = await db
+      .select({ userId: devices.userId, sharedTeamId: devices.sharedTeamId })
+      .from(devices)
+      .where(eq(devices.deviceId, trigger.deviceId))
+    let usable = rows.some((row) => row.userId === callerUserId)
+    if (!usable) {
+      const sharedOwners = rows
+        .filter((row) => row.sharedTeamId === teamId)
+        .map((row) => row.userId)
+      if (sharedOwners.length > 0) {
+        const members = await db
+          .select({ userId: teamMembers.userId })
+          .from(teamMembers)
+          .where(
+            and(
+              eq(teamMembers.teamId, teamId),
+              inArray(teamMembers.userId, sharedOwners)
+            )
           )
-        )
-      usable = members.length > 0
+        usable = members.length > 0
+      }
     }
-  }
-  if (!usable) {
-    throw bad(`Trigger device must be yours or shared with this team`)
+    if (!usable) {
+      throw bad(`Trigger device must be yours or shared with this team`)
+    }
   }
 
   if (trigger.kind === `event`) {
@@ -345,13 +351,16 @@ export const actionsRouter = router({
       if (input.repositoryId) {
         await assertRepoInTeam(input.repositoryId, existing.teamId)
       }
-      // Whole-object replace, so even an enabled-only flip re-validates —
-      // cheap, and it keeps a stale device binding from surviving edits.
+      // Whole-object replace, so even an enabled-only flip re-validates the
+      // filters — but an UNCHANGED device binding is accepted as-is, so any
+      // co-owner can edit/toggle an automation bound to a teammate's device.
       if (input.trigger) {
+        const stored = existing.trigger as { deviceId?: unknown } | null
         await assertTriggerValid(
           input.trigger,
           existing.teamId,
-          ctx.session.user.id
+          ctx.session.user.id,
+          typeof stored?.deviceId === `string` ? stored.deviceId : undefined
         )
       }
 

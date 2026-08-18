@@ -9,6 +9,7 @@ import { TRPCError } from "@trpc/server"
 const h = vi.hoisted(() => {
   const selectResults: unknown[][] = []
   const inserts: Record<string, unknown>[] = []
+  const updates: Record<string, unknown>[] = []
   const makeChain = () => {
     const chain = {
       from: () => chain,
@@ -26,6 +27,7 @@ const h = vi.hoisted(() => {
     assertTeamOwner: vi.fn(async () => ({ role: `owner` }) as unknown),
     selectResults,
     inserts,
+    updates,
     fakeDb: {
       select: () => makeChain(),
       insert: () => ({
@@ -34,6 +36,16 @@ const h = vi.hoisted(() => {
           return {
             onConflictDoNothing: () => ({
               returning: async () => [{ id: `new-action`, ...values }],
+            }),
+          }
+        },
+      }),
+      update: () => ({
+        set: (values: Record<string, unknown>) => {
+          updates.push(values)
+          return {
+            where: () => ({
+              returning: async () => [{ id: `updated-action`, ...values }],
             }),
           }
         },
@@ -52,7 +64,7 @@ vi.mock(`@/db/connection`, () => ({ db: h.fakeDb }))
 
 import { actionsRouter } from "@/lib/trpc/actions"
 
-const { selectResults, inserts, fakeDb } = h
+const { selectResults, inserts, updates, fakeDb } = h
 
 const TEAM_ID = `11111111-1111-4111-8111-111111111111`
 const ACTION_ID = `22222222-2222-4222-8222-222222222222`
@@ -75,6 +87,7 @@ async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
 beforeEach(() => {
   selectResults.length = 0
   inserts.length = 0
+  updates.length = 0
   h.assertTeamMember.mockClear()
   h.assertTeamOwner.mockClear()
 })
@@ -321,5 +334,50 @@ describe(`actions.create — trigger validation (EXP-530)`, () => {
       expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
     }
     expect(inserts).toHaveLength(0)
+  })
+})
+
+// EXP-530 update path: an UNCHANGED device binding skips the device
+// ownership check (a co-owner must be able to rename/toggle an action bound
+// to a teammate's private device — they could never re-mint that binding),
+// while a CHANGED binding re-validates in full.
+describe(`actions.update — unchanged device binding (EXP-530)`, () => {
+  const schedule = {
+    kind: `schedule` as const,
+    deviceId: `device-1`,
+    enabled: true,
+    interval: `daily` as const,
+    minuteOfDay: 420,
+  }
+
+  it(`accepts a toggle on a binding the caller could not mint`, async () => {
+    // loadAction select ONLY — the queue holds no device rows, so the test
+    // fails loudly if the ownership check runs anyway.
+    selectResults.push([
+      { id: ACTION_ID, teamId: TEAM_ID, name: `Sweep`, trigger: schedule },
+    ])
+    const { action } = await caller.update({
+      id: ACTION_ID,
+      trigger: { ...schedule, enabled: false },
+    })
+    expect(updates[0]!.trigger).toEqual({ ...schedule, enabled: false })
+    expect(action).toMatchObject({ id: `updated-action` })
+  })
+
+  it(`re-validates a CHANGED device binding in full`, async () => {
+    selectResults.push([
+      { id: ACTION_ID, teamId: TEAM_ID, name: `Sweep`, trigger: schedule },
+    ])
+    // Device select for the NEW binding: someone else's, other team.
+    selectResults.push([{ userId: `other`, sharedTeamId: `other-team` }])
+    const error = await rejectionOf(
+      caller.update({
+        id: ACTION_ID,
+        trigger: { ...schedule, deviceId: `device-2` },
+      })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect((error as TRPCError).message).toContain(`device`)
+    expect(updates).toHaveLength(0)
   })
 })

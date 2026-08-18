@@ -353,6 +353,10 @@ impl IssueTimeline {
                 .read(cx)
                 .iter()
                 .filter(|event| event.issue_id == issue_id)
+                // EXP-530: `created` rows exist for automations but the
+                // synthesized creation line already covers them — drop them
+                // here so they don't inflate the "Activity (N)" count.
+                .filter(|event| event.kind.as_deref() != Some("created"))
                 .cloned()
                 .map(TimelineItem::Event),
         );

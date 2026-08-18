@@ -2611,3 +2611,28 @@ impl Render for StartCodingDialogView {
             .into_any_element()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The machine-readable block is cross-client copy — byte-locked against
+    /// web `formatTriggerBlock` (`lib/action-triggers.ts`) and the mobile
+    /// mirrors, including the compact `JSON.stringify` value form.
+    #[test]
+    fn trigger_note_matches_the_web_block() {
+        let note = trigger_note(&serde_json::json!({
+            "kind": "schedule",
+            "deviceId": "d",
+            "enabled": true,
+            "interval": "daily",
+            "minuteOfDay": 420,
+        }));
+        assert_eq!(
+            note,
+            "\n\nAutomation — set exactly this trigger via the `trigger` field on \
+             exponential_actions_create: \
+             `{\"kind\":\"schedule\",\"deviceId\":\"d\",\"enabled\":true,\"interval\":\"daily\",\"minuteOfDay\":420}`"
+        );
+    }
+}

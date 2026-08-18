@@ -1826,13 +1826,17 @@ fn triggered_actions(rows: &[domain::rows::ActionRow], device_id: &str) -> Vec<A
             if parsed.device_id != device_id {
                 return None;
             }
+            // A team-less row has nowhere to run (GUI parity) — and the
+            // team doubles as the engine's event fence.
+            let team_id = row.team_id.clone()?;
             Some(AutomationAction {
                 triggered: coding::automations::TriggeredAction {
                     action_id: row.id.clone(),
+                    team_id: team_id.clone(),
                     fingerprint: coding::automations::trigger_fingerprint(trigger),
                     trigger: parsed,
                 },
-                team_id: row.team_id.clone().unwrap_or_default(),
+                team_id,
                 name: row.name.clone().unwrap_or_default(),
             })
         })
@@ -1884,6 +1888,9 @@ fn read_event_rows(
             Some(coding::automations::EventRow {
                 id: row.id,
                 issue_id: row.issue_id,
+                // The engine fences matching to the action's own team — a
+                // missing value conservatively never matches.
+                team_id: row.team_id,
                 created_at_ms,
                 kind: row.kind.unwrap_or_default(),
                 payload: row.payload,
@@ -2478,6 +2485,7 @@ mod tests {
         coding::automations::EventRow {
             id: "evt-1".to_string(),
             issue_id: "issue-1".to_string(),
+            team_id: Some("team-1".to_string()),
             created_at_ms: 0,
             kind: kind.to_string(),
             payload: Some(payload),

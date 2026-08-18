@@ -471,8 +471,14 @@ mod tests {
         input.trigger = Patch::Set(serde_json::json!({
             "kind": "schedule", "deviceId": "dev-1"
         }));
-        let json = serde_json::to_string(&input).unwrap();
-        assert!(json.contains(r#""trigger":{"deviceId":"dev-1","kind":"schedule"}"#));
+        // Compare as a Value — string key order flips with serde_json's
+        // `preserve_order` (on whenever gpui is in the cargo graph).
+        let value: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&input).unwrap()).unwrap();
+        assert_eq!(
+            value["trigger"],
+            serde_json::json!({ "kind": "schedule", "deviceId": "dev-1" })
+        );
 
         let mut cleared = ActionUpdate::new("act-1");
         cleared.trigger = Patch::Null;

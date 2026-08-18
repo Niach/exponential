@@ -59,7 +59,6 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.resumeWorktreeFor
-import com.exponential.app.domain.toSteerDevice
 import com.exponential.app.domain.triggerDescriptionBlock
 import com.exponential.app.domain.triggerEventLabel
 import com.exponential.app.domain.triggerWeekdayName
@@ -232,13 +231,10 @@ fun StartCodingSheet(
     var automation by remember { mutableStateOf(AutomationDraft()) }
     // Candidates come from the SYNCED devices rows (not the online-filtered
     // start list): offline-but-capable machines stay pickable — the bound
-    // device fires on its own clock once it comes back.
-    val automationDevices = remember(syncedDeviceRows) {
-        val nowMs = System.currentTimeMillis()
-        syncedDeviceRows
-            .map { it.toSteerDevice(nowMs, null) }
-            .filter { it.canRunAutomations }
-    }
+    // device fires on its own clock once it comes back. Scoped by the view
+    // model to own + this-team-shared rows (the set the server accepts) with
+    // teammate owners attributed.
+    val automationDevices by dataViewModel.automationDevices.collectAsStateWithLifecycle()
     val automationFilterLabels by dataViewModel.labelOptions.collectAsStateWithLifecycle()
     val automationFilterStatuses by dataViewModel.statusOptions.collectAsStateWithLifecycle()
 

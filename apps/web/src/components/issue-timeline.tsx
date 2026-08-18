@@ -91,11 +91,16 @@ export function IssueTimeline({
         at: new Date(c.createdAt).getTime(),
         comment: c,
       })),
-      ...((events ?? []) as IssueEvent[]).map((e) => ({
-        kind: `event` as const,
-        at: new Date(e.createdAt).getTime(),
-        event: e,
-      })),
+      // `created` rows exist for automations (EXP-530) but the timeline
+      // already synthesizes the creation line — drop them here so they
+      // neither render nor inflate the "(N)" count.
+      ...((events ?? []) as IssueEvent[])
+        .filter((e) => e.type !== `created`)
+        .map((e) => ({
+          kind: `event` as const,
+          at: new Date(e.createdAt).getTime(),
+          event: e,
+        })),
     ]
     items.sort((a, b) => a.at - b.at)
     return items
