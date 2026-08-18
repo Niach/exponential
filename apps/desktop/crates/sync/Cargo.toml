@@ -12,10 +12,12 @@ domain = { path = "../domain" }
 # is the gpui-free plain-types crate and does not depend on `sync`, so this edge
 # is acyclic.
 api = { path = "../api" }
-# gpui is allowed ONLY in src/collections.rs — the thin reactive seam (§3.1:
-# "Only sync::collections links gpui"). protocol/client/store/manager (Phase 2)
-# stay gpui-free and headless-testable.
-gpui.workspace = true
+# gpui is allowed ONLY in src/collections.rs and the gpui half of
+# src/kill_watch.rs — the thin reactive seam (§3.1: "Only sync::collections
+# links gpui"). protocol/client/store/manager (Phase 2) stay gpui-free and
+# headless-testable. Optional behind the default-on `gpui` feature (EXP-530)
+# so the headless CLI daemon links the engine without gpui.
+gpui = { workspace = true, optional = true }
 # Phase-2 engine deps (masterplan-v3 §5.1) — all gpui-free.
 rusqlite.workspace = true
 serde.workspace = true
@@ -27,3 +29,7 @@ reqwest.workspace = true
 # layer drains it on one foreground task.
 flume.workspace = true
 log = "0.4"
+
+[features]
+default = ["gpui"]
+gpui = ["dep:gpui"]

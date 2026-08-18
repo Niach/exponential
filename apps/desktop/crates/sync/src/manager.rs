@@ -54,6 +54,11 @@ pub struct AccountSyncConfig {
     pub db_path: PathBuf,
     /// Call-time session-token access (§5.7) — never captured once.
     pub token: TokenFn,
+    /// Shape-name subset to sync; `None` = all [`SHAPES`] (the desktop). The
+    /// EXP-530 CLI daemon syncs a 6-shape subset into its own store
+    /// (`sync-cli.sqlite`) — threads are spawned only for named shapes, and
+    /// unknown names are ignored.
+    pub shapes: Option<&'static [&'static str]>,
 }
 
 struct AccountPipeline {
@@ -65,6 +70,7 @@ struct AccountPipeline {
     base_url: String,
     db_path: PathBuf,
     token: TokenFn,
+    shapes: Option<&'static [&'static str]>,
 }
 
 impl AccountPipeline {
@@ -166,7 +172,10 @@ impl SyncManager {
         let upgrade_required_reported = Arc::new(AtomicBool::new(false));
 
         let mut threads = Vec::with_capacity(SHAPES.len());
-        for spec in &SHAPES {
+        for spec in SHAPES
+            .iter()
+            .filter(|spec| config.shapes.is_none_or(|subset| subset.contains(&spec.name)))
+        {
             let client = ShapeClient::new(ShapeClientConfig {
                 account_id: config.account_id.clone(),
                 base_url: config.base_url.clone(),
@@ -202,6 +211,7 @@ impl SyncManager {
                 base_url: config.base_url,
                 db_path: config.db_path,
                 token: config.token,
+                shapes: config.shapes,
             },
         );
         Ok(true)
@@ -230,6 +240,7 @@ impl SyncManager {
                 base_url: pipeline.base_url.clone(),
                 db_path: pipeline.db_path.clone(),
                 token: Arc::clone(&pipeline.token),
+                shapes: pipeline.shapes,
             }
         };
         self.stop_account(account_id);

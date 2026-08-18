@@ -334,6 +334,7 @@ team settings → Repositories.";
                 repo: repo_group,
                 inputs,
                 kind,
+                trigger: None,
                 device_label: coding::default_device_label(),
                 origin,
                 options,

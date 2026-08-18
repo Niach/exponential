@@ -109,6 +109,12 @@ pub struct Action {
     /// actions and on rows from a pre-inputs server).
     #[serde(default)]
     pub inputs: Vec<ActionInput>,
+    /// The ONE optional automation trigger (EXP-530) — kept as loose JSON so
+    /// a newer server's trigger kind never fails decoding; the automations
+    /// engine (`coding::automations`) owns the tolerant parse. `None` =
+    /// manual-only.
+    #[serde(default)]
+    pub trigger: Option<serde_json::Value>,
     #[serde(default)]
     pub sort_order: f64,
     #[serde(default)]
@@ -218,6 +224,11 @@ pub struct ActionUpdate {
     /// `Some(vec![])` deliberately CLEARS it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inputs: Option<Vec<ActionInput>>,
+    /// EXP-530: the automation trigger — the server's `.nullable().optional()`
+    /// tri-state ([`Patch`]): `Null` clears the automation (back to
+    /// manual-only), `Set` replaces it whole.
+    #[serde(skip_serializing_if = "Patch::is_omit")]
+    pub trigger: Patch<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sort_order: Option<f64>,
 }
@@ -272,6 +283,7 @@ pub fn from_row(row: &domain::rows::ActionRow) -> Action {
         body: String::new(),
         builtin: false,
         inputs,
+        trigger: row.trigger.clone(),
         sort_order: row.sort_order.unwrap_or_default(),
         created_at: row.created_at.clone(),
         updated_at: row.updated_at.clone(),
@@ -317,6 +329,8 @@ pub fn builtin_create_action(team_id: &str) -> Action {
                 placeholder: None,
             },
         ],
+        // Builtins never automate — their rows are client-constructed.
+        trigger: None,
         sort_order: 1e9,
         created_at: None,
         updated_at: None,
@@ -349,6 +363,7 @@ pub fn builtin_fix_conflicts_action(team_id: &str) -> Action {
             required: true,
             placeholder: None,
         }],
+        trigger: None,
         sort_order: 1e9 + 1.0,
         created_at: None,
         updated_at: None,
@@ -446,6 +461,27 @@ mod tests {
         let omitted = ActionUpdate::new("act-1");
         let json = serde_json::to_string(&omitted).unwrap();
         assert!(!json.contains("repositoryId"));
+    }
+
+    #[test]
+    fn update_serializes_the_trigger_tristate() {
+        // EXP-530: Omit = unchanged, Null = clear back to manual-only,
+        // Set = whole-object replace (the server re-validates the shape).
+        let mut input = ActionUpdate::new("act-1");
+        input.trigger = Patch::Set(serde_json::json!({
+            "kind": "schedule", "deviceId": "dev-1"
+        }));
+        let json = serde_json::to_string(&input).unwrap();
+        assert!(json.contains(r#""trigger":{"deviceId":"dev-1","kind":"schedule"}"#));
+
+        let mut cleared = ActionUpdate::new("act-1");
+        cleared.trigger = Patch::Null;
+        assert!(serde_json::to_string(&cleared)
+            .unwrap()
+            .contains(r#""trigger":null"#));
+
+        let omitted = ActionUpdate::new("act-1");
+        assert!(!serde_json::to_string(&omitted).unwrap().contains("trigger"));
     }
 
     #[test]
@@ -557,6 +593,7 @@ mod tests {
             "name": "Code review",
             "description": "Review + file issues",
             "inputs": r#"[{"key":"scope","label":"Scope","type":"text","required":true}]"#,
+            "trigger": r#"{"kind":"schedule","deviceId":"dev-1"}"#,
             "sort_order": "1.5"
         }))
         .unwrap();
@@ -571,6 +608,8 @@ mod tests {
         assert_eq!(action.inputs.len(), 1);
         assert_eq!(action.inputs[0].key, "scope");
         assert!(action.inputs[0].required);
+        // EXP-530: the trigger rides the hydrated projection as loose JSON.
+        assert_eq!(action.trigger.as_ref().unwrap()["kind"], "schedule");
     }
 
     #[test]

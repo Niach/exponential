@@ -18,6 +18,9 @@ domain = { path = "../domain" }
 terminal = { path = "../terminal", default-features = false }
 
 serde = { workspace = true }
+# EXP-530: automations schedule math (latest/next occurrence in the device's
+# local zone, DST-aware) — same trimmed feature set as crates/ui.
+chrono = { version = "0.4.38", default-features = false, features = ["std", "clock"] }
 # EXP-389: parse-check ~/.codex/config.toml before appending trust entries —
 # already in the tree transitively (no new crates in the licence inventory).
 toml = "0.8"

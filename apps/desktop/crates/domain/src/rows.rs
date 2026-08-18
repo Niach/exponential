@@ -440,6 +440,16 @@ pub struct CodingSession {
     /// plan-approval / AskUserQuestion picker and waits for a human.
     #[serde(default, deserialize_with = "tolerant_opt_bool")]
     pub needs_input: Option<bool>,
+    /// Action-run scoping (EXP-253/EXP-530): the `actions` row id plus its
+    /// name SNAPSHOT (survives the action's deletion); `None` = issue/batch.
+    #[serde(default)]
+    pub action_id: Option<String>,
+    #[serde(default)]
+    pub action_name: Option<String>,
+    /// `schedule` / `event` on automation-started runs (EXP-530) — raw wire
+    /// value; `None` = a person started it.
+    #[serde(default)]
+    pub started_reason: Option<String>,
     #[serde(default)]
     pub started_at: Option<String>,
     #[serde(default)]
@@ -472,6 +482,10 @@ pub struct ActionRow {
     /// like `issue_events.payload`.
     #[serde(default, deserialize_with = "tolerant_opt_json")]
     pub inputs: Option<serde_json::Value>,
+    /// jsonb `ActionTrigger` (EXP-530) — the ONE optional automation trigger;
+    /// TEXT-stored, re-parsed like `inputs`. `None` = manual-only action.
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub trigger: Option<serde_json::Value>,
     #[serde(default, deserialize_with = "tolerant_opt_f64")]
     pub sort_order: Option<f64>,
     #[serde(default)]
@@ -695,6 +709,58 @@ mod tests {
             serde_json::from_value(json!({"id": "wt-2"})).unwrap();
         assert!(unmarked.offers_agent("claude"));
         assert_eq!(unmarked.agent_ids(), None);
+    }
+
+    #[test]
+    fn coding_session_hydrates_action_attribution() {
+        // EXP-530: TEXT-stored wire forms; pre-column rows degrade to None
+        // (a manual run), never a dropped row.
+        let session: CodingSession = serde_json::from_value(json!({
+            "id": "cs-1",
+            "team_id": "t-1",
+            "status": "running",
+            "action_id": "act-1",
+            "action_name": "Daily standup digest",
+            "started_reason": "schedule",
+        }))
+        .unwrap();
+        assert_eq!(session.action_id.as_deref(), Some("act-1"));
+        assert_eq!(session.action_name.as_deref(), Some("Daily standup digest"));
+        assert_eq!(session.started_reason.as_deref(), Some("schedule"));
+
+        let manual: CodingSession = serde_json::from_value(json!({
+            "id": "cs-2",
+            "status": "running",
+        }))
+        .unwrap();
+        assert_eq!(manual.action_id, None);
+        assert_eq!(manual.action_name, None);
+        assert_eq!(manual.started_reason, None);
+    }
+
+    #[test]
+    fn action_row_hydrates_the_trigger_like_inputs() {
+        // EXP-530: the trigger arrives TEXT-stored (§5.5) — the string form
+        // must re-parse into structured JSON, like `inputs`.
+        let row: ActionRow = serde_json::from_value(json!({
+            "id": "act-1",
+            "team_id": "t-1",
+            "name": "Daily standup digest",
+            "trigger": "{\"kind\":\"schedule\",\"deviceId\":\"dev-1\"}",
+        }))
+        .unwrap();
+        assert_eq!(row.trigger.as_ref().unwrap()["kind"], "schedule");
+        assert_eq!(row.trigger.as_ref().unwrap()["deviceId"], "dev-1");
+
+        // Pre-column / trigger-less rows degrade to None, never a dropped row.
+        let manual: ActionRow = serde_json::from_value(json!({
+            "id": "act-2",
+            "team_id": "t-1",
+            "name": "Groom",
+            "trigger": serde_json::Value::Null,
+        }))
+        .unwrap();
+        assert_eq!(manual.trigger, None);
     }
 
     #[test]

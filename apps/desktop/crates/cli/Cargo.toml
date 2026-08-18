@@ -19,6 +19,9 @@ api = { path = "../api" }
 domain = { path = "../domain" }
 coding = { path = "../coding", default-features = false }
 steer = { path = "../steer" }
+# EXP-530: the daemon's own Electric pipeline (a 6-shape subset into
+# `sync-cli.sqlite`) — engine only, the gpui collections seam stays off.
+sync = { path = "../sync", default-features = false }
 terminal = { path = "../terminal", default-features = false }
 updater = { path = "../updater" }
 

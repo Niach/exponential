@@ -43,7 +43,9 @@ use crate::argv::{
     session_args, AgentMcp, LaunchOptions, SessionTail, HOOK_CONFIG_ENV, HOOK_PORT_ENV,
     MCP_TOKEN_ENV, MCP_URL_ENV, OBSERVER_TOKEN_ENV, OBSERVER_URL_ENV,
 };
-use crate::action_prompt::{render_action_prompt, ActionInputValue};
+use crate::action_prompt::{
+    render_action_prompt_with_trigger, ActionInputValue, TriggerNote,
+};
 use crate::action_prompt::{create_action_prompt, fix_pr_conflicts_prompt};
 use crate::batch_launcher::{batch_branch_name, BatchLaunchRequest, RepoGroup};
 use domain::IssueStatus;
@@ -253,6 +255,11 @@ pub struct ActionLaunchRequest {
     pub inputs: Vec<ActionInputValue>,
     /// Which program this run executes (team action or a virtual builtin).
     pub kind: ActionRunKind,
+    /// `Some` when an AUTOMATION started this run (EXP-530): renders the
+    /// prompt's `## Trigger` section and stamps `startedReason` on the
+    /// session row. Always `None` for user starts and the builtins (their
+    /// generated prompts ignore it).
+    pub trigger: Option<TriggerNote>,
     pub device_label: String,
     pub origin: LaunchOrigin,
     /// The FULL option set (EXP-257 — same per-agent vocabulary as issue
@@ -1490,7 +1497,12 @@ fn prepare_action(
             // server predates issues.prepareConflictFix (EXP-324).
             fix_rebase_onto.as_deref().unwrap_or(default_branch),
         ),
-        ActionRunKind::Team => render_action_prompt(&req.action_name, &req.body, &req.inputs),
+        ActionRunKind::Team => render_action_prompt_with_trigger(
+            &req.action_name,
+            &req.body,
+            &req.inputs,
+            req.trigger.as_ref(),
+        ),
     };
     let delivery = deliver_prompt(&cwd, &cwd, &rendered)
         .map_err(|e| CodingError::Io(format!("deliver prompt: {e}")))?;
@@ -1501,6 +1513,7 @@ fn prepare_action(
         &deps.trpc,
         &req.action_id,
         req.kind.is_builtin().then_some(req.team_id.as_str()),
+        req.trigger.as_ref().map(|note| note.started_reason()),
         Some(&req.device_label),
         relay_attribution(&req.origin),
     ) {
@@ -2166,6 +2179,7 @@ mod tests {
             repo: None,
             inputs: Vec::new(),
             kind: ActionRunKind::Team,
+            trigger: None,
             device_label: "box".to_string(),
             origin: LaunchOrigin::Local,
             options: LaunchOptions {
@@ -2292,6 +2306,40 @@ mod tests {
             }
             other => panic!("expected SessionLimit, got {other:?}"),
         }
+    }
+
+    /// EXP-530: an automation-started run stamps startedReason on the start
+    /// mutation and renders the `## Trigger` prompt section — one flag, two
+    /// seams, locked together.
+    #[test]
+    fn prepare_action_trigger_rides_the_start_and_the_prompt() {
+        let dir = temp_dir("action-trigger");
+        let (base, captured) = canned_server_recording(vec![(200, START_ACTION_OK.to_string())]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let deps = make_deps(&base, &dir.0, worktrees);
+
+        let mut req = action_request();
+        req.trigger = Some(TriggerNote {
+            kind: crate::action_prompt::TriggerNoteKind::Schedule {
+                phrase: "daily at 07:00".to_string(),
+            },
+        });
+        let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            Prepared::Disabled(reason) => panic!("unexpectedly disabled: {reason:?}"),
+        };
+
+        let prompt = prepared.spawn.args.last().unwrap();
+        assert!(prompt.contains("## Trigger"));
+        assert!(prompt.contains("started automatically by the action's schedule \
+(daily at 07:00, device time)"));
+
+        let requests = captured.lock().unwrap();
+        assert_eq!(requests.len(), 1, "{requests:?}");
+        assert!(requests[0].contains(r#""startedReason":"schedule""#));
     }
 
     /// EXP-257: action runs honor the full claude option set — plan mode ON

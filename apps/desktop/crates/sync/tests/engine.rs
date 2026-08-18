@@ -742,6 +742,7 @@ fn dead_token_surfaces_unauthorized_once_and_tears_down() {
             base_url: server.base_url.clone(),
             db_path: dir.db_path(),
             token: Arc::new(|| Some("dead-token".to_string())),
+            shapes: None,
         })
         .unwrap();
     assert!(started);
@@ -798,6 +799,7 @@ fn restart_account_rebuilds_a_live_pipeline() {
             base_url: server.base_url.clone(),
             db_path: dir.db_path(),
             token: Arc::new(|| Some("token".to_string())),
+            shapes: None,
         })
         .unwrap();
     assert!(started);
@@ -844,6 +846,7 @@ fn consecutive_401s_past_grace_tear_down() {
             base_url: server.base_url.clone(),
             db_path: dir.db_path(),
             token: Arc::new(|| Some("dead-token".to_string())),
+            shapes: None,
         })
         .unwrap();
     assert!(started);
@@ -1014,6 +1017,7 @@ fn stale_client_surfaces_upgrade_required_once_and_tears_down() {
             base_url: server.base_url.clone(),
             db_path: dir.db_path(),
             token: Arc::new(|| Some("live-token".to_string())),
+            shapes: None,
         })
         .unwrap();
     assert!(started);
@@ -1111,6 +1115,7 @@ fn manager_runs_all_15_shapes_and_stops_cleanly() {
         base_url: server.base_url.clone(),
         db_path: dir.db_path(),
         token: Arc::new(|| Some("tok-1".to_string())),
+        shapes: None,
     };
 
     assert!(manager.start_account(config()).unwrap());

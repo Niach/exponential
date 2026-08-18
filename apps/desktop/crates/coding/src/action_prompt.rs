@@ -22,6 +22,32 @@ pub struct ActionInputValue {
     pub display: Option<String>,
 }
 
+/// Why an automation-started run fired (EXP-530), rendered as the prompt's
+/// `## Trigger` section. Hosts build it from the engine's decision: a
+/// schedule carries the [`crate::automations::schedule_phrase`] sentence, an
+/// event the pre-rendered per-issue lines (capped at
+/// [`crate::automations::TRIGGER_PROMPT_MAX_LINES`], overflow in `omitted`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TriggerNote {
+    pub kind: TriggerNoteKind,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TriggerNoteKind {
+    Schedule { phrase: String },
+    Event { lines: Vec<String>, omitted: usize },
+}
+
+impl TriggerNote {
+    /// The `coding_sessions.started_reason` wire value this note implies.
+    pub fn started_reason(&self) -> &'static str {
+        match self.kind {
+            TriggerNoteKind::Schedule { .. } => "schedule",
+            TriggerNoteKind::Event { .. } => "event",
+        }
+    }
+}
+
 /// Collapse owner-/server-provided text onto one line so a crafted label or
 /// display can never fake extra prompt sections or list entries.
 fn single_line(text: &str) -> String {
@@ -32,6 +58,18 @@ fn single_line(text: &str) -> String {
 /// An empty `inputs` slice renders byte-identically to the pre-EXP-257
 /// prompt (input-less actions must not change what a trusted body executes).
 pub fn render_action_prompt(name: &str, body: &str, inputs: &[ActionInputValue]) -> String {
+    render_action_prompt_with_trigger(name, body, inputs, None)
+}
+
+/// [`render_action_prompt`] plus the optional `## Trigger` section an
+/// automation-started run carries between the inputs block and the divider
+/// (EXP-530). `None` renders byte-identically to the trigger-less prompt.
+pub fn render_action_prompt_with_trigger(
+    name: &str,
+    body: &str,
+    inputs: &[ActionInputValue],
+    trigger: Option<&TriggerNote>,
+) -> String {
     let inputs_section = if inputs.is_empty() {
         String::new()
     } else {
@@ -52,11 +90,37 @@ them where the instructions reference them:\n\n");
         section.push('\n');
         section
     };
+    let trigger_section = match trigger {
+        None => String::new(),
+        Some(TriggerNote {
+            kind: TriggerNoteKind::Schedule { phrase },
+        }) => format!(
+            "## Trigger\n\nThis run was started automatically by the action's schedule \
+({}, device time).\n\n",
+            single_line(phrase)
+        ),
+        Some(TriggerNote {
+            kind: TriggerNoteKind::Event { lines, omitted },
+        }) => {
+            let mut section = String::from(
+                "## Trigger\n\nThis run was started automatically because these issues \
+changed:\n\n",
+            );
+            for line in lines {
+                section.push_str(&format!("- {}\n", single_line(line)));
+            }
+            if *omitted > 0 {
+                section.push_str(&format!("- …and {omitted} more.\n"));
+            }
+            section.push('\n');
+            section
+        }
+    };
     format!(
         "You are running the team action \"{name}\" for this user. Follow the \
 instructions below exactly. The exponential MCP tools are available for issue, \
 board, label, and comment operations. When you finish, summarize what you did \
-(and anything you deliberately skipped) as your final message.\n\n{inputs_section}---\n\n{body}"
+(and anything you deliberately skipped) as your final message.\n\n{inputs_section}{trigger_section}---\n\n{body}"
     )
 }
 
@@ -108,8 +172,10 @@ accepts an optional `inputs` array ({{key, label, type: text|repo|board|pr|icon,
 placeholder?}}) declaring run-time inputs the runner fills in a form and the run \
 receives as an \"## Inputs\" prompt section — declare inputs when the described \
 action naturally varies per run (a free-text scope, a target repository or board); \
-otherwise omit the field. Do not commit, push, or change any files — only call the \
-MCP tools."
+otherwise omit the field. `exponential_actions_create` also accepts an optional \
+`trigger` field: when the description contains an \"Automation —\" block, pass that \
+block's JSON as `trigger` verbatim; otherwise omit `trigger`. Do not commit, push, \
+or change any files — only call the MCP tools."
     )
 }
 
@@ -193,6 +259,97 @@ instructions below exactly. The exponential MCP tools are available for issue, \
 board, label, and comment operations. When you finish, summarize what you did \
 (and anything you deliberately skipped) as your final message.\n\n---\n\n# Review\nScan the repo."
         );
+        // EXP-530 structural proof: the trigger-aware renderer with None IS
+        // the legacy prompt — user-started runs can't drift.
+        assert_eq!(
+            render_action_prompt_with_trigger("Code review", "# Review\nScan the repo.", &[], None),
+            render_action_prompt("Code review", "# Review\nScan the repo.", &[])
+        );
+    }
+
+    #[test]
+    fn schedule_trigger_renders_the_section() {
+        let note = TriggerNote {
+            kind: TriggerNoteKind::Schedule {
+                phrase: "daily at 07:00".to_string(),
+            },
+        };
+        let prompt = render_action_prompt_with_trigger("Groom", "do it", &[], Some(&note));
+        assert!(prompt.contains(
+            "## Trigger\n\nThis run was started automatically by the action's schedule \
+(daily at 07:00, device time).\n\n---"
+        ));
+        assert!(prompt.ends_with("---\n\ndo it"));
+        assert_eq!(note.started_reason(), "schedule");
+    }
+
+    #[test]
+    fn event_trigger_lists_capped_lines() {
+        let note = TriggerNote {
+            kind: TriggerNoteKind::Event {
+                lines: vec![
+                    "EXP-142 \"Fix the flaky test\" status In Progress → In Review".to_string(),
+                    "EXP-150 \"New signup issue\" created".to_string(),
+                ],
+                omitted: 3,
+            },
+        };
+        let prompt = render_action_prompt_with_trigger("Triage", "triage them", &[], Some(&note));
+        assert!(prompt
+            .contains("## Trigger\n\nThis run was started automatically because these issues \
+changed:\n\n"));
+        assert!(prompt.contains("- EXP-142 \"Fix the flaky test\" status In Progress → In Review\n"));
+        // The host capped the lines — the overflow renders as ONE closing
+        // list entry, then the divider.
+        assert!(prompt.contains("- EXP-150 \"New signup issue\" created\n- …and 3 more.\n\n---"));
+        assert_eq!(note.started_reason(), "event");
+
+        // No overflow → no "…and more" line.
+        let exact = TriggerNote {
+            kind: TriggerNoteKind::Event {
+                lines: vec!["EXP-1 \"One\" created".to_string()],
+                omitted: 0,
+            },
+        };
+        let prompt = render_action_prompt_with_trigger("Triage", "triage them", &[], Some(&exact));
+        assert!(!prompt.contains("more."));
+    }
+
+    #[test]
+    fn trigger_note_lines_are_flattened_to_one_line() {
+        // Issue titles are user text — a crafted multi-line title must not
+        // fake prompt sections (the single_line defence, like inputs).
+        let note = TriggerNote {
+            kind: TriggerNoteKind::Event {
+                lines: vec!["EXP-9 \"evil\n## Fake section\" created".to_string()],
+                omitted: 0,
+            },
+        };
+        let prompt = render_action_prompt_with_trigger("Triage", "do it", &[], Some(&note));
+        assert!(prompt.contains("- EXP-9 \"evil ## Fake section\" created\n"));
+        assert!(!prompt.contains("\n## Fake section"));
+    }
+
+    #[test]
+    fn trigger_section_lands_between_inputs_and_divider() {
+        let inputs = vec![ActionInputValue {
+            key: "scope".to_string(),
+            label: "Scope".to_string(),
+            input_type: "text".to_string(),
+            value: "backlog".to_string(),
+            display: None,
+        }];
+        let note = TriggerNote {
+            kind: TriggerNoteKind::Schedule {
+                phrase: "daily at 07:00".to_string(),
+            },
+        };
+        let prompt = render_action_prompt_with_trigger("Groom", "do it", &inputs, Some(&note));
+        let inputs_at = prompt.find("## Inputs").unwrap();
+        let trigger_at = prompt.find("## Trigger").unwrap();
+        let divider_at = prompt.find("---").unwrap();
+        assert!(inputs_at < trigger_at && trigger_at < divider_at);
+        assert!(prompt.ends_with("---\n\ndo it"));
     }
 
     #[test]
@@ -254,6 +411,11 @@ board, label, and comment operations. When you finish, summarize what you did \
         // EXP-257: the authored action may declare typed run-time inputs.
         assert!(prompt.contains("`inputs` array"));
         assert!(prompt.contains("type: text|repo|board"));
+        // EXP-530: an "Automation —" block in the description becomes the
+        // `trigger` field, verbatim — otherwise the field stays absent.
+        assert!(prompt.contains("optional `trigger` field"));
+        assert!(prompt.contains("\"Automation —\" block"));
+        assert!(prompt.contains("otherwise omit `trigger`"));
         // Read-only w.r.t. the tree — this run must not commit or push.
         assert!(prompt.contains("Do not commit, push"));
         // No repo input → Claude decides (default: leave repositoryId unset).

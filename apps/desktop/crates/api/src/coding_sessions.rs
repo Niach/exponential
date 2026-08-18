@@ -110,6 +110,11 @@ struct StartActionInput<'a> {
     /// to resolve a team from); forbidden otherwise.
     #[serde(skip_serializing_if = "Option::is_none")]
     team_id: Option<&'a str>,
+    /// EXP-530: `schedule`/`event` when an automation (not a person)
+    /// started the run; absent for user starts — old servers never see the
+    /// field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    started_reason: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     device_label: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -272,10 +277,13 @@ pub fn start_batch(
 /// EXP-257: the builtin `builtin:create-action` id must ride with `team_id`
 /// (the server inserts that row with `action_id` NULL + the constant name);
 /// real actions must NOT send one. Same 412 semantics as [`start`].
+/// EXP-530: `started_reason` (`schedule`/`event`) marks an
+/// automation-started run — `None` for every user start.
 pub fn start_action(
     trpc: &TrpcClient,
     action_id: &str,
     team_id: Option<&str>,
+    started_reason: Option<&str>,
     device_label: Option<&str>,
     attribution: Attribution,
 ) -> Result<CodingSession, ApiError> {
@@ -284,6 +292,7 @@ pub fn start_action(
         &StartActionInput {
             action_id,
             team_id,
+            started_reason,
             device_label,
             started_by_id: attribution.started_by_id,
             device_id: attribution.device_id,
@@ -529,7 +538,15 @@ mod tests {
                 "actionId":"act-1","actionName":"Code review",
                 "userId":"user-1","deviceLabel":"testbox","status":"running"}}}}"#,
         );
-        let session = start_action(&client(&base), "act-1", None, Some("testbox"), Attribution::default()).unwrap();
+        let session = start_action(
+            &client(&base),
+            "act-1",
+            None,
+            None,
+            Some("testbox"),
+            Attribution::default(),
+        )
+        .unwrap();
         assert_eq!(session.id, "sess-a");
         assert_eq!(session.action_id.as_deref(), Some("act-1"));
         assert_eq!(session.action_name.as_deref(), Some("Code review"));
@@ -555,6 +572,7 @@ mod tests {
             &client(&base),
             "builtin:create-action",
             Some("ws-1"),
+            None,
             Some("testbox"),
             Attribution::default(),
         )
@@ -565,6 +583,33 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(
             r#"{"actionId":"builtin:create-action","teamId":"ws-1","deviceLabel":"testbox"}"#
+        ));
+    }
+
+    #[test]
+    fn start_action_posts_started_reason_for_automation_runs() {
+        // EXP-530: an automation-started run stamps startedReason; user
+        // starts omit the field entirely (old-server compat rides on the
+        // skip_serializing_if — locked by the two tests above).
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"session":{
+                "id":"sess-a","issueId":null,"teamId":"ws-1",
+                "actionId":"act-1","actionName":"Code review",
+                "userId":"user-1","status":"running"}}}}"#,
+        );
+        start_action(
+            &client(&base),
+            "act-1",
+            None,
+            Some("schedule"),
+            Some("testbox"),
+            Attribution::default(),
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(
+            r#"{"actionId":"act-1","startedReason":"schedule","deviceLabel":"testbox"}"#
         ));
     }
 
