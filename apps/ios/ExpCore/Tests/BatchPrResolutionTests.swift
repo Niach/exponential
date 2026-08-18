@@ -2,11 +2,13 @@ import Foundation
 import XCTest
 @testable import ExpCore
 
-// EXP-535: a batch session carries no issue/PR linkage, so its Merge button
-// rides a client-side resolution — the team's sole open batch PR, collapsed by
-// prUrl with the NEWEST linked issue as the representative. Anything ambiguous
-// (two distinct open batch PRs) must resolve to nil: Reviews still lists every
-// PR there.
+// EXP-535: a batch session carries no issue linkage, so its Merge button
+// rides a client-side resolution — the team's open batch PRs, collapsed by
+// prUrl with the NEWEST linked issue as the representative. EXP-545: the
+// session resolves ITS OWN PR by the branch the pr_open flip stamped on the
+// row; a pre-stamp legacy row falls back to the sole open batch PR. Anything
+// ambiguous or unmatched must resolve to nil: Reviews still lists every PR
+// there.
 final class BatchPrResolutionTests: XCTestCase {
     private func issue(
         id: String,
@@ -42,9 +44,9 @@ final class BatchPrResolutionTests: XCTestCase {
         )
     }
 
-    func testResolvesTheSoleOpenBatchPrToItsNewestLinkedIssue() {
+    func testResolvesTheSessionsOwnBatchPrToItsNewestLinkedIssue() {
         let batchUrl = "https://github.com/acme/web/pull/7"
-        let resolved = BatchPrResolution.soleOpenBatchPr(
+        let open = BatchPrResolution.openBatchPrs(
             issues: [
                 issue(id: "i-1", prUrl: batchUrl, createdAt: "2026-07-25T00:00:00Z"),
                 issue(id: "i-3", prUrl: batchUrl, createdAt: "2026-07-25T02:00:00Z"),
@@ -53,27 +55,77 @@ final class BatchPrResolutionTests: XCTestCase {
             teamBoardIds: ["b-1"]
         )
 
+        let resolved = BatchPrResolution.resolve(
+            sessionBranch: "exp/batch-a1b2c3d4", openBatchPrs: open
+        )
         XCTAssertEqual(resolved?.id, "i-3")
+        // Legacy rows flipped before the branch stamp existed still resolve
+        // the sole open batch PR.
+        let legacy = BatchPrResolution.resolve(
+            sessionBranch: nil, openBatchPrs: open
+        )
+        XCTAssertEqual(legacy?.id, "i-3")
     }
 
-    func testTwoDistinctOpenBatchPrsAreAmbiguousAndResolveToNil() {
-        let resolved = BatchPrResolution.soleOpenBatchPr(
+    func testSessionBranchPicksItsOwnPrAmongConcurrentBatchRuns() {
+        // EXP-545: with the stamped branch a session resolves its own PR even
+        // while a second batch PR is open; a branchless legacy row stays
+        // ambiguous.
+        let open = BatchPrResolution.openBatchPrs(
             issues: [
                 issue(id: "i-1", prUrl: "https://github.com/acme/web/pull/7"),
-                issue(id: "i-2", prUrl: "https://github.com/acme/web/pull/9"),
+                issue(
+                    id: "i-2",
+                    prUrl: "https://github.com/acme/web/pull/9",
+                    branch: "exp/batch-ef567890"
+                ),
             ],
             teamBoardIds: ["b-1"]
         )
 
-        XCTAssertNil(resolved)
+        let resolved = BatchPrResolution.resolve(
+            sessionBranch: "exp/batch-ef567890", openBatchPrs: open
+        )
+        XCTAssertEqual(resolved?.id, "i-2")
+        XCTAssertNil(
+            BatchPrResolution.resolve(sessionBranch: nil, openBatchPrs: open)
+        )
+    }
+
+    func testSessionWhoseOwnPrClosedNeverOffersATeammatesPr() {
+        // EXP-545 regression: my batch PR closed unmerged (my session stays
+        // in_review — only merge ends it) while a teammate's batch PR is the
+        // sole open one. My stamped branch matches nothing open → no Merge.
+        let open = BatchPrResolution.openBatchPrs(
+            issues: [
+                issue(
+                    id: "mine",
+                    prUrl: "https://github.com/acme/web/pull/7",
+                    branch: "exp/batch-a1b2c3d4",
+                    prState: "closed"
+                ),
+                issue(
+                    id: "theirs",
+                    prUrl: "https://github.com/acme/web/pull/9",
+                    branch: "exp/batch-ef567890"
+                ),
+            ],
+            teamBoardIds: ["b-1"]
+        )
+
+        XCTAssertNil(
+            BatchPrResolution.resolve(
+                sessionBranch: "exp/batch-a1b2c3d4", openBatchPrs: open
+            )
+        )
     }
 
     // Single-issue `exp/<IDENTIFIER>` branches, non-open PR states,
     // out-of-team boards, and rows without a prUrl never count as the batch
-    // PR — nor may they trip the exactly-one guard on a real one.
+    // PR — nor may they trip the exactly-one legacy guard on a real one.
     func testIgnoresNonBatchNonOpenOutOfTeamAndUrlLessRows() {
         let batchUrl = "https://github.com/acme/web/pull/7"
-        let resolved = BatchPrResolution.soleOpenBatchPr(
+        let open = BatchPrResolution.openBatchPrs(
             issues: [
                 issue(id: "i-1", prUrl: batchUrl),
                 issue(
@@ -98,11 +150,18 @@ final class BatchPrResolutionTests: XCTestCase {
             teamBoardIds: ["b-1"]
         )
 
+        let resolved = BatchPrResolution.resolve(
+            sessionBranch: "exp/batch-a1b2c3d4", openBatchPrs: open
+        )
         XCTAssertEqual(resolved?.id, "i-1")
+        XCTAssertEqual(
+            BatchPrResolution.resolve(sessionBranch: nil, openBatchPrs: open)?.id,
+            "i-1"
+        )
     }
 
     func testNoOpenBatchPrResolvesToNil() {
-        let resolved = BatchPrResolution.soleOpenBatchPr(
+        let open = BatchPrResolution.openBatchPrs(
             issues: [
                 issue(
                     id: "single",
@@ -113,6 +172,13 @@ final class BatchPrResolutionTests: XCTestCase {
             teamBoardIds: ["b-1"]
         )
 
-        XCTAssertNil(resolved)
+        XCTAssertNil(
+            BatchPrResolution.resolve(
+                sessionBranch: "exp/batch-a1b2c3d4", openBatchPrs: open
+            )
+        )
+        XCTAssertNil(
+            BatchPrResolution.resolve(sessionBranch: nil, openBatchPrs: open)
+        )
     }
 }

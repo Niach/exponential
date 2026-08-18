@@ -249,11 +249,12 @@ final class AgentsViewModel {
 
     private func rebuild() {
         let issuesById = Dictionary(issues.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        // EXP-535: the active team's sole open batch PR, resolved once per
-        // rebuild — batch sessions carry no issue/PR linkage, so their Merge
-        // shortcut rides this representative issue (see BatchPrResolution).
+        // EXP-535: the active team's open batch PRs, collapsed once per
+        // rebuild — each in-review batch row then resolves ITS OWN PR by the
+        // branch the pr_open flip stamped on it (EXP-545, see
+        // BatchPrResolution).
         let teamBoardIds = Set(boards.filter { $0.teamId == activeTeamId }.map(\.id))
-        let batchPrIssue = BatchPrResolution.soleOpenBatchPr(
+        let openBatchPrs = BatchPrResolution.openBatchPrs(
             issues: issues, teamBoardIds: teamBoardIds
         )
         rows = sessions
@@ -279,7 +280,10 @@ final class AgentsViewModel {
                     issue: session.issueId.flatMap { issuesById[$0] },
                     batchPrIssue: isBatch
                         && session.status == DomainContract.codingSessionStatusInReview
-                        ? batchPrIssue : nil
+                        ? BatchPrResolution.resolve(
+                            sessionBranch: session.branch,
+                            openBatchPrs: openBatchPrs
+                        ) : nil
                 )
             }
     }

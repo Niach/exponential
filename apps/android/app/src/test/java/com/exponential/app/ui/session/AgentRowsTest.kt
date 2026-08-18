@@ -23,6 +23,7 @@ class AgentRowsTest {
         issueId: String? = "issue-1",
         teamId: String = "team-1",
         status: String = "running",
+        branch: String? = null,
         updatedAt: String = "2026-07-17T11:30:00Z",
     ) = CodingSessionEntity(
         id = id,
@@ -30,6 +31,7 @@ class AgentRowsTest {
         teamId = teamId,
         userId = userId,
         status = status,
+        branch = branch,
         startedAt = "2026-07-17T09:00:00Z",
         createdAt = "2026-07-17T09:00:00Z",
         updatedAt = updatedAt,
@@ -198,7 +200,7 @@ class AgentRowsTest {
     fun `batch in-review row carries the resolved batch PR, a running one does not`() {
         val rows = agentRows(
             sessions = listOf(
-                session("reviewing", userId = "me", issueId = null, status = "in_review"),
+                session("reviewing", userId = "me", issueId = null, status = "in_review", branch = "exp/batch-abcd1234"),
                 session("running", userId = "me", issueId = null),
             ),
             issues = listOf(
@@ -217,7 +219,7 @@ class AgentRowsTest {
     fun `resolves the single open batch PR to its newest linked issue`() {
         // Two issues share ONE batch PR (the batch launcher links them all to
         // the same prUrl) — still one distinct PR, newest createdAt wins.
-        val resolved = soleOpenBatchPrIssue(
+        val reps = openBatchPrRepresentatives(
             issues = listOf(
                 issue(
                     "older",
@@ -237,13 +239,18 @@ class AgentRowsTest {
             boards = listOf(board("board-1")),
             teamId = "team-1",
         )
-        assertEquals("newer", resolved?.id)
+        assertEquals("newer", resolveBatchPrIssue(reps, "exp/batch-abcd1234")?.id)
+        // Legacy rows flipped before the branch stamp existed still resolve
+        // the sole open batch PR.
+        assertEquals("newer", resolveBatchPrIssue(reps, null)?.id)
     }
 
     @Test
-    fun `two distinct open batch PRs are ambiguous`() {
-        // Concurrent batch runs: no shortcut — Reviews still lists every PR.
-        val resolved = soleOpenBatchPrIssue(
+    fun `session branch picks its own PR among concurrent batch runs`() {
+        // EXP-545: with the stamped branch a session resolves ITS OWN PR even
+        // while a second batch PR is open; a branchless legacy row stays
+        // ambiguous.
+        val reps = openBatchPrRepresentatives(
             issues = listOf(
                 issue("a", prUrl = "https://github.com/o/r/pull/1", prState = "open", branch = "exp/batch-abcd1234"),
                 issue("b", prUrl = "https://github.com/o/r/pull/2", prState = "open", branch = "exp/batch-ef567890"),
@@ -251,14 +258,31 @@ class AgentRowsTest {
             boards = listOf(board("board-1")),
             teamId = "team-1",
         )
-        assertNull(resolved)
+        assertEquals("a", resolveBatchPrIssue(reps, "exp/batch-abcd1234")?.id)
+        assertNull(resolveBatchPrIssue(reps, null))
+    }
+
+    @Test
+    fun `session whose own PR closed never offers a teammate's PR`() {
+        // EXP-545 regression: my batch PR closed unmerged (my session stays
+        // in_review — only merge ends it) while a teammate's batch PR is the
+        // sole open one. My stamped branch matches nothing open → no Merge.
+        val reps = openBatchPrRepresentatives(
+            issues = listOf(
+                issue("mine", prUrl = "https://github.com/o/r/pull/1", prState = "closed", branch = "exp/batch-abcd1234"),
+                issue("theirs", prUrl = "https://github.com/o/r/pull/2", prState = "open", branch = "exp/batch-ef567890"),
+            ),
+            boards = listOf(board("board-1")),
+            teamId = "team-1",
+        )
+        assertNull(resolveBatchPrIssue(reps, "exp/batch-abcd1234"))
     }
 
     @Test
     fun `single-issue and non-open PRs never resolve`() {
         // A plain `exp/EXP-12` branch is not a batch PR, a merged batch PR is
         // no longer mergeable, and an issue without a prUrl has no PR at all.
-        val resolved = soleOpenBatchPrIssue(
+        val reps = openBatchPrRepresentatives(
             issues = listOf(
                 issue("single", prUrl = "https://github.com/o/r/pull/1", prState = "open", branch = "exp/EXP-12"),
                 issue("merged", prUrl = "https://github.com/o/r/pull/2", prState = "merged", branch = "exp/batch-abcd1234"),
@@ -267,14 +291,15 @@ class AgentRowsTest {
             boards = listOf(board("board-1")),
             teamId = "team-1",
         )
-        assertNull(resolved)
+        assertNull(resolveBatchPrIssue(reps, "exp/batch-abcd1234"))
+        assertNull(resolveBatchPrIssue(reps, null))
     }
 
     @Test
     fun `another team's batch PR is out of scope`() {
         // Issues don't sync team_id — the scoping goes through boards, and a
         // trashed board's issues are out too.
-        val resolved = soleOpenBatchPrIssue(
+        val reps = openBatchPrRepresentatives(
             issues = listOf(
                 issue(
                     "elsewhere",
@@ -287,6 +312,7 @@ class AgentRowsTest {
             boards = listOf(board("board-1"), board("board-2", teamId = "team-2")),
             teamId = "team-1",
         )
-        assertNull(resolved)
+        assertNull(resolveBatchPrIssue(reps, "exp/batch-abcd1234"))
+        assertNull(resolveBatchPrIssue(reps, null))
     }
 }

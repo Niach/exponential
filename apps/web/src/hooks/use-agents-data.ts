@@ -15,7 +15,8 @@ export interface AgentSessionRow {
   user: User | undefined
   /** EXP-535: a batch session's resolved open PR, as a representative linked
    * issue (merging through it merges the ONE batch PR — Reviews pattern).
-   * Set only on issueless batch rows in review with an UNAMBIGUOUS match. */
+   * Set only on issueless batch rows in review whose OWN PR (matched by the
+   * stamped session branch, EXP-545) is open and unambiguous. */
   batchPrIssue: Issue | undefined
 }
 
@@ -75,10 +76,10 @@ export function useAgentsData(
     [issueIds.join(`,`)]
   )
 
-  // EXP-535: batch sessions carry no issue/PR linkage (the schema has none —
-  // the server's in_review flip is equally loose), so a batch row resolves
+  // EXP-535: batch sessions carry no issue linkage, so a batch row resolves
   // its open PR client-side: the team's open-PR issues on an `exp/batch-`
-  // branch, collapsed by prUrl like Reviews. Team scoping rides the board
+  // branch, collapsed by prUrl like Reviews, then matched to the branch the
+  // pr_open flip stamped on the row (EXP-545). Team scoping rides the board
   // join below (the issues shape drops team_id). Queried only while an
   // issueless, actionless in-review batch row actually needs it — this hook
   // also backs the always-mounted dock.
@@ -113,9 +114,12 @@ export function useAgentsData(
     const boardMap = new Map(boards.map((board) => [board.id, board]))
 
     // The team's open batch PRs, one representative (newest) issue per
-    // distinct prUrl. Only an UNAMBIGUOUS resolution (exactly one open batch
-    // PR in the team) feeds the batch rows' merge shortcut — with concurrent
-    // batch runs Reviews still lists every PR.
+    // distinct prUrl. A session resolves ITS OWN PR by the branch the
+    // pr_open batch flip stamped on the row (EXP-545) — matching by "the
+    // team's sole open batch PR" alone could target a teammate's PR once
+    // the session's own PR closed unmerged. Rows flipped before the stamp
+    // existed (branch NULL) keep the legacy sole-open-PR fallback; anything
+    // ambiguous resolves to nothing — Reviews still lists every PR.
     const batchPrByUrl = new Map<string, Issue>()
     for (const issue of (openPrIssueRows ?? []) as Issue[]) {
       if (!issue.prUrl || !issue.branch?.startsWith(`exp/batch-`)) continue
@@ -129,8 +133,16 @@ export function useAgentsData(
         batchPrByUrl.set(issue.prUrl, issue)
       }
     }
-    const soleBatchPrIssue =
-      batchPrByUrl.size === 1 ? [...batchPrByUrl.values()][0] : undefined
+    const batchPrReps = [...batchPrByUrl.values()]
+    const resolveBatchPr = (sessionBranch: string | null): Issue | undefined => {
+      if (sessionBranch) {
+        const matches = batchPrReps.filter(
+          (issue) => issue.branch === sessionBranch
+        )
+        return matches.length === 1 ? matches[0] : undefined
+      }
+      return batchPrReps.length === 1 ? batchPrReps[0] : undefined
+    }
 
     const toRow = (session: CodingSession): AgentSessionRow => {
       // Batch-scoped sessions carry no issue — render issueless.
@@ -146,7 +158,7 @@ export function useAgentsData(
         user: userMap.get(session.userId),
         batchPrIssue:
           isBatch && session.status === `in_review`
-            ? soleBatchPrIssue
+            ? resolveBatchPr(session.branch)
             : undefined,
       }
     }

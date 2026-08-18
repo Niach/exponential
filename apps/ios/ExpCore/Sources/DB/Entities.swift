@@ -346,6 +346,12 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
     public let userId: String
     public let deviceLabel: String?
     public let status: String
+    // EXP-545: the batch↔PR linkage — the PR's head branch
+    // (`exp/batch-<id8>`), stamped by the server's pr_open batch flip
+    // alongside the in_review status. Ties a batch row's Merge shortcut to
+    // its OWN PR; nil on issue-scoped sessions, on action rows, and on batch
+    // rows whose PR isn't open yet (or flipped before the stamp existed).
+    public let branch: String?
     // Desktop-written attention flag (EXP-214): the agent is parked on a
     // plan-approval / AskUserQuestion picker and waits for a human.
     public let needsInput: Bool
@@ -368,6 +374,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         userId: String,
         deviceLabel: String?,
         status: String,
+        branch: String? = nil,
         needsInput: Bool = false,
         actionId: String? = nil,
         actionName: String? = nil,
@@ -383,6 +390,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         self.userId = userId
         self.deviceLabel = deviceLabel
         self.status = status
+        self.branch = branch
         self.needsInput = needsInput
         self.actionId = actionId
         self.actionName = actionName
@@ -393,7 +401,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, status
+        case id, status, branch
         case issueId = "issue_id"
         case boardId = "board_id"
         case teamId = "team_id"
@@ -423,6 +431,8 @@ extension CodingSessionEntity: Codable {
         userId = try c.decode(String.self, forKey: .userId)
         deviceLabel = try c.decodeIfPresent(String.self, forKey: .deviceLabel)
         status = try c.decode(String.self, forKey: .status)
+        // Pre-EXP-545 snapshots omit the key — decode permissively.
+        branch = try c.decodeIfPresent(String.self, forKey: .branch)
         needsInput = c.decodeWireBool(forKey: .needsInput, default: false)
         actionId = try c.decodeIfPresent(String.self, forKey: .actionId)
         actionName = try c.decodeIfPresent(String.self, forKey: .actionName)
