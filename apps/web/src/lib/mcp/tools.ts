@@ -1711,7 +1711,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_actions_create`,
     {
-      description: `Create a team action (owner only). body is the markdown prompt an agent runs locally; repositoryId targets that repo's trunk clone; icon: a curated icon name. inputs (max 10): typed run-dialog inputs ({key,label,type,required?,placeholder?}; type: text|textarea|repo|board|pr|icon) injected into the prompt. trigger (optional): pass a provided trigger JSON verbatim.`,
+      description: `Create a team action (owner only). body is the markdown prompt an agent runs locally; repositoryId targets that repo's trunk clone; icon: a curated icon name. inputs (max 10): typed run-dialog inputs ({key,label,type,required?,placeholder?}; type: text|textarea|repo|board|pr|icon) injected into the prompt. trigger (optional) binds an automation: {kind:schedule,deviceId,enabled,interval:daily|weekly|monthly,minuteOfDay:0-1439,weekday?:1-7,dayOfMonth?:1-28} | {kind:event,deviceId,enabled,event:created|status_changed|assignee_changed|label_added|priority_changed|pr_opened|pr_merged,filters?:{boardIds?,labelIds?,priorities?,toStatusIds?}}; deviceId is the hosting device's steer id — pass a provided trigger JSON verbatim.`,
       inputSchema: {
         teamId: uuidString,
         name: z.string().min(1).max(255),
@@ -1720,7 +1720,7 @@ export function registerExponentialTools(
         repositoryId: uuidString.nullable().optional(),
         body: z.string().min(1),
         inputs: actionInputsSchema.optional(),
-        trigger: z.unknown().optional(),
+        trigger: z.record(z.string(), z.unknown()).nullish(),
       },
     },
     async (input) => {
@@ -1743,7 +1743,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_actions_update`,
     {
-      description: `Update an action by UUID: name, description, icon (null clears), repositoryId, body, inputs (whole-array replace), trigger (automation; null clears), or sortOrder. Pass only fields to change. Team owner only.`,
+      description: `Update an action by UUID: name, description, icon (null clears), repositoryId, body, inputs (whole-array replace), trigger (automation, same shape as exponential_actions_create's; null clears), or sortOrder. Pass only fields to change. Team owner only.`,
       inputSchema: {
         id: uuidString,
         name: z.string().min(1).max(255).optional(),
@@ -1752,7 +1752,7 @@ export function registerExponentialTools(
         repositoryId: uuidString.nullable().optional(),
         body: z.string().min(1).optional(),
         inputs: actionInputsSchema.optional(),
-        trigger: z.unknown().optional(),
+        trigger: z.record(z.string(), z.unknown()).nullish(),
         sortOrder: z.number().finite().optional(),
       },
     },
