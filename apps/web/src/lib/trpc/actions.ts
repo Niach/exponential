@@ -1,9 +1,22 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, asc, desc, eq, ne } from "drizzle-orm"
-import { actionIconSchema, actionInputsSchema } from "@exp/db-schema/domain"
+import { and, asc, desc, eq, inArray, ne } from "drizzle-orm"
+import {
+  actionIconSchema,
+  actionInputsSchema,
+  actionTriggerSchema,
+  type ActionTrigger,
+} from "@exp/db-schema/domain"
 import { router, authedProcedure } from "@/lib/trpc"
-import { actions, repositories } from "@/db/schema"
+import {
+  actions,
+  boards,
+  devices,
+  issueStatuses,
+  labels,
+  repositories,
+  teamMembers,
+} from "@/db/schema"
 import { assertTeamMember, assertTeamOwner } from "@/lib/team-membership"
 import {
   BUILTIN_CREATE_ACTION_ID,
@@ -39,6 +52,7 @@ const wireColumns = {
   icon: actions.icon,
   body: actions.body,
   inputs: actions.inputs,
+  trigger: actions.trigger,
   sortOrder: actions.sortOrder,
   createdAt: actions.createdAt,
   updatedAt: actions.updatedAt,
@@ -103,6 +117,68 @@ async function assertRepoInTeam(repositoryId: string, teamId: string) {
       code: `BAD_REQUEST`,
       message: `Repository must belong to the team`,
     })
+  }
+}
+
+// EXP-530: a trigger binds an automation to a device and (for event triggers)
+// to team resources — validate ALL of it against the caller's reality and
+// REJECT, never clamp. The zod union already enforced shape/limits; this
+// checks ownership and team scoping. `trigger.deviceId` is the steer TEXT id
+// (devices.device_id) — unique per (userId, deviceId), so the same id can
+// exist under several users: usable when any matching row is the caller's
+// own, or is shared with THIS team by an owner who is still a member.
+async function assertTriggerValid(
+  trigger: ActionTrigger,
+  teamId: string,
+  callerUserId: string
+): Promise<void> {
+  const { db } = await import(`@/db/connection`)
+  const bad = (message: string) => new TRPCError({ code: `BAD_REQUEST`, message })
+
+  const rows = await db
+    .select({ userId: devices.userId, sharedTeamId: devices.sharedTeamId })
+    .from(devices)
+    .where(eq(devices.deviceId, trigger.deviceId))
+  let usable = rows.some((row) => row.userId === callerUserId)
+  if (!usable) {
+    const sharedOwners = rows
+      .filter((row) => row.sharedTeamId === teamId)
+      .map((row) => row.userId)
+    if (sharedOwners.length > 0) {
+      const members = await db
+        .select({ userId: teamMembers.userId })
+        .from(teamMembers)
+        .where(
+          and(
+            eq(teamMembers.teamId, teamId),
+            inArray(teamMembers.userId, sharedOwners)
+          )
+        )
+      usable = members.length > 0
+    }
+  }
+  if (!usable) {
+    throw bad(`Trigger device must be yours or shared with this team`)
+  }
+
+  if (trigger.kind === `event`) {
+    const assertIdsInTeam = async (
+      ids: string[] | undefined,
+      table: typeof boards | typeof labels | typeof issueStatuses,
+      what: string
+    ) => {
+      if (!ids?.length) return
+      const found = await db
+        .select({ id: table.id })
+        .from(table)
+        .where(and(eq(table.teamId, teamId), inArray(table.id, ids)))
+      if (found.length !== new Set(ids).size) {
+        throw bad(`Trigger ${what} must belong to the team`)
+      }
+    }
+    await assertIdsInTeam(trigger.filters?.boardIds, boards, `boards`)
+    await assertIdsInTeam(trigger.filters?.labelIds, labels, `labels`)
+    await assertIdsInTeam(trigger.filters?.toStatusIds, issueStatuses, `statuses`)
   }
 }
 
@@ -203,6 +279,7 @@ export const actionsRouter = router({
         repositoryId: z.string().uuid().nullable().optional(),
         body: bodySchema,
         inputs: actionInputsSchema.optional(),
+        trigger: actionTriggerSchema.nullish(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -210,6 +287,9 @@ export const actionsRouter = router({
       assertNotReservedName(input.name)
       if (input.repositoryId) {
         await assertRepoInTeam(input.repositoryId, input.teamId)
+      }
+      if (input.trigger) {
+        await assertTriggerValid(input.trigger, input.teamId, ctx.session.user.id)
       }
 
       // Append to the end of the list by default.
@@ -231,6 +311,7 @@ export const actionsRouter = router({
           icon: input.icon ?? null,
           body: input.body,
           inputs: input.inputs ?? [],
+          trigger: input.trigger ?? null,
           sortOrder: nextSortOrder,
         })
         .onConflictDoNothing({
@@ -252,6 +333,7 @@ export const actionsRouter = router({
         repositoryId: z.string().uuid().nullable().optional(),
         body: bodySchema.optional(),
         inputs: actionInputsSchema.optional(),
+        trigger: actionTriggerSchema.nullish(),
         sortOrder: z.number().finite().optional(),
       })
     )
@@ -262,6 +344,15 @@ export const actionsRouter = router({
       if (input.name !== undefined) assertNotReservedName(input.name)
       if (input.repositoryId) {
         await assertRepoInTeam(input.repositoryId, existing.teamId)
+      }
+      // Whole-object replace, so even an enabled-only flip re-validates —
+      // cheap, and it keeps a stale device binding from surviving edits.
+      if (input.trigger) {
+        await assertTriggerValid(
+          input.trigger,
+          existing.teamId,
+          ctx.session.user.id
+        )
       }
 
       // Pre-check renames against the (teamId, name) unique so the caller
@@ -293,6 +384,8 @@ export const actionsRouter = router({
       if (input.body !== undefined) updates.body = input.body
       // Whole-array replace — inputs are small and orderful, no patching.
       if (input.inputs !== undefined) updates.inputs = input.inputs
+      // Whole-object replace like inputs; explicit null clears the automation.
+      if (input.trigger !== undefined) updates.trigger = input.trigger
       if (input.sortOrder !== undefined) updates.sortOrder = input.sortOrder
 
       // Nothing to change — return the current row (drizzle rejects an empty

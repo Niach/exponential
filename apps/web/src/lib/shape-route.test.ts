@@ -478,6 +478,7 @@ describe(`shape column + trash contracts`, () => {
       `description`,
       `icon`,
       `inputs`,
+      `trigger`,
       `sort_order`,
       `created_at`,
       `updated_at`,

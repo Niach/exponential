@@ -100,7 +100,8 @@ export async function resolveActionInputs(
       continue
     }
 
-    if (def.type === `text`) {
+    // textarea (EXP-530) is text with a multi-line widget — same validation.
+    if (def.type === `text` || def.type === `textarea`) {
       if (raw.length > MAX_ACTION_INPUT_TEXT) {
         return {
           ok: false,

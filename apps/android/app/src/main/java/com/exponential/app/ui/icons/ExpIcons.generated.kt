@@ -5861,6 +5861,8 @@ public object ExpIcons {
         else -> null
     }
 
+    /** Concept `action-automation`. */
+    public val actionAutomation: ImageVector get() = `zap`
     /** Concept `action-create`. */
     public val actionCreate: ImageVector get() = `plus`
     /** Concept `action-default`. */
@@ -5869,6 +5871,8 @@ public object ExpIcons {
     public val actionRepository: ImageVector get() = `git-branch`
     /** Concept `action-run`. */
     public val actionRun: ImageVector get() = `play`
+    /** Concept `action-suggestion`. */
+    public val actionSuggestion: ImageVector get() = `lightbulb`
     /** Concept `coding-assistant`. */
     public val codingAssistant: ImageVector get() = `sparkles`
     /** Concept `coding-diff`. */
@@ -5931,6 +5935,8 @@ public object ExpIcons {
     public val eventLabelAdded: ImageVector get() = `tag`
     /** Concept `event-label-removed`. */
     public val eventLabelRemoved: ImageVector get() = `tag`
+    /** Concept `event-priority-changed`. */
+    public val eventPriorityChanged: ImageVector get() = `signal-high`
     /** Concept `event-status-changed`. */
     public val eventStatusChanged: ImageVector get() = `circle-dot`
     /** Concept `nav-account`. */

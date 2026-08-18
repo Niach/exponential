@@ -79,6 +79,21 @@ export interface DomainContract {
   builtinAction: { createActionId: string; fixConflictsId: string }
   /** Action-input limits — parity-locked with @exp/db-schema/domain. */
   actionInputs: { max: number; maxTextLength: number }
+  /**
+   * Action automation triggers (EXP-530): the event kinds a trigger may
+   * watch (a subset of issueEventType), the schedule intervals, and the cap
+   * on each filter id list — parity-locked with @exp/db-schema/domain.
+   */
+  actionTrigger: {
+    eventValues: readonly string[]
+    scheduleIntervalValues: readonly string[]
+    maxFilterIds: number
+  }
+  /**
+   * EXP-530 automation-host tuning: cooldown after any triggered start, and
+   * how far back an offline device replays issue_events on reconnect.
+   */
+  automation: { cooldownSeconds: number; eventCatchupHours: number }
 }
 
 export const contract = contractJson as unknown as DomainContract

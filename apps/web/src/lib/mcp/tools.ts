@@ -1,6 +1,7 @@
 import { z } from "zod"
 import {
   actionInputsSchema,
+  actionTriggerSchema,
   MAX_ISSUE_DESCRIPTION,
 } from "@exp/db-schema/domain"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
@@ -1710,7 +1711,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_actions_create`,
     {
-      description: `Create a team action (owner only). body is the markdown prompt an agent session runs locally; repositoryId (optional) targets that repo's trunk clone; icon is a curated icon name. inputs (max 10) declares typed run-time inputs ({ key, label, type: "text"|"repo"|"board"|"pr"|"icon", required?, placeholder? }) members fill in the run dialog; values are injected into the prompt at launch.`,
+      description: `Create a team action (owner only). body is the markdown prompt an agent runs locally; repositoryId targets that repo's trunk clone; icon: a curated icon name. inputs (max 10): typed run-dialog inputs ({key,label,type,required?,placeholder?}; type: text|textarea|repo|board|pr|icon) injected into the prompt. trigger (optional): pass a provided trigger JSON verbatim.`,
       inputSchema: {
         teamId: uuidString,
         name: z.string().min(1).max(255),
@@ -1719,12 +1720,19 @@ export function registerExponentialTools(
         repositoryId: uuidString.nullable().optional(),
         body: z.string().min(1),
         inputs: actionInputsSchema.optional(),
+        trigger: z.unknown().optional(),
       },
     },
     async (input) => {
       try {
         if (!access.full) assertTeamFullyGranted(access, input.teamId)
-        const result = await caller(user, request).actions.create(input)
+        // Declared loose to stay inside the MCP context budget; the strict
+        // union validates here (and again in the router — single source).
+        const trigger = actionTriggerSchema.nullish().parse(input.trigger)
+        const result = await caller(user, request).actions.create({
+          ...input,
+          trigger,
+        })
         return ok(result.action)
       } catch (e) {
         return err(e)
@@ -1735,7 +1743,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_actions_update`,
     {
-      description: `Update an action by UUID: name, description, icon (null clears), repositoryId, body, inputs (whole-array replace), or sortOrder. Pass only fields to change. Team owner only.`,
+      description: `Update an action by UUID: name, description, icon (null clears), repositoryId, body, inputs (whole-array replace), trigger (automation; null clears), or sortOrder. Pass only fields to change. Team owner only.`,
       inputSchema: {
         id: uuidString,
         name: z.string().min(1).max(255).optional(),
@@ -1744,6 +1752,7 @@ export function registerExponentialTools(
         repositoryId: uuidString.nullable().optional(),
         body: z.string().min(1).optional(),
         inputs: actionInputsSchema.optional(),
+        trigger: z.unknown().optional(),
         sortOrder: z.number().finite().optional(),
       },
     },
@@ -1753,7 +1762,12 @@ export function registerExponentialTools(
           const action = await getActionContext(input.id)
           assertTeamFullyGranted(access, action.teamId)
         }
-        const result = await caller(user, request).actions.update(input)
+        // Loose in the declared schema (context budget); strict-parsed here.
+        const trigger = actionTriggerSchema.nullish().parse(input.trigger)
+        const result = await caller(user, request).actions.update({
+          ...input,
+          trigger,
+        })
         return ok(result.action)
       } catch (e) {
         return err(e)

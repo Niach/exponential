@@ -279,6 +279,7 @@ describe(`codingSessions.start — action path (EXP-253)`, () => {
       teamId: TEAM_ID,
       actionId: ACTION_ID,
       actionName: `Code review`,
+      startedReason: null,
       userId: `actor`,
       hostUserId: null,
       deviceLabel: `MacBook`,
@@ -292,6 +293,31 @@ describe(`codingSessions.start — action path (EXP-253)`, () => {
       id: SESSION_ID,
       actionId: ACTION_ID,
     })
+  })
+
+  it(`stamps startedReason on automated action starts (EXP-530)`, async () => {
+    selectResults.push([
+      { id: ACTION_ID, teamId: TEAM_ID, name: `Code review` },
+    ])
+
+    await caller.start({ actionId: ACTION_ID, startedReason: `schedule` })
+
+    expect(inserts[0]!.values.startedReason).toBe(`schedule`)
+  })
+
+  it(`rejects startedReason without a real actionId (EXP-530)`, async () => {
+    // No action at all, and the builtin literal — neither can automate.
+    await expect(
+      caller.start({ teamId: TEAM_ID, startedReason: `event` })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    await expect(
+      caller.start({
+        actionId: `builtin:create-action`,
+        teamId: TEAM_ID,
+        startedReason: `event`,
+      })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    expect(inserts).toHaveLength(0)
   })
 
   it(`404s a missing action before any membership check or insert`, async () => {

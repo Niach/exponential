@@ -282,6 +282,18 @@ async function finalizeIssueUpdateInTx(
       })
     }
   }
+  // EXP-530: the ONE priority-change detection point — update, bulkUpdate and
+  // the MCP tools all funnel through here. Fires no notifications (deliberate,
+  // like label events); exists for timelines + automation event triggers.
+  if (current.priority !== issue.priority) {
+    await recordIssueEvent(tx, {
+      issueId,
+      teamId,
+      actorUserId,
+      type: `priority_changed`,
+      payload: { from: current.priority, to: issue.priority },
+    })
+  }
 
   return {
     issue,
@@ -399,6 +411,22 @@ export const issuesRouter = router({
             }))
           )
         }
+
+        // EXP-530: `created` event — timeline-suppressed on every client, it
+        // exists so automation event triggers can watch inserts. Payload
+        // carries priority/status/source so trigger filters never join.
+        await recordIssueEvent(tx, {
+          issueId: issue.id,
+          teamId: board.teamId,
+          actorUserId: ctx.session.user.id,
+          type: `created`,
+          payload: {
+            status: issue.status,
+            statusId: issue.statusId,
+            priority: issue.priority,
+            source: issue.source,
+          },
+        })
 
         // Auto-subscribe the creator (and assignee, if any) so they get inbox
         // activity. Agents are skipped inside ensureSubscribed.

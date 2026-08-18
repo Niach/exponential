@@ -274,6 +274,8 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
     })
 }
 
+/// Registry concept `action-automation` -> Lucide `zap`.
+pub const ACTION_AUTOMATION: ExpIcon = ExpIcon::Zap;
 /// Registry concept `action-create` -> Lucide `plus`.
 pub const ACTION_CREATE: ExpIcon = ExpIcon::Plus;
 /// Registry concept `action-default` -> Lucide `zap`.
@@ -282,6 +284,8 @@ pub const ACTION_DEFAULT: ExpIcon = ExpIcon::Zap;
 pub const ACTION_REPOSITORY: ExpIcon = ExpIcon::GitBranch;
 /// Registry concept `action-run` -> Lucide `play`.
 pub const ACTION_RUN: ExpIcon = ExpIcon::Play;
+/// Registry concept `action-suggestion` -> Lucide `lightbulb`.
+pub const ACTION_SUGGESTION: ExpIcon = ExpIcon::Lightbulb;
 /// Registry concept `coding-assistant` -> Lucide `sparkles`.
 pub const CODING_ASSISTANT: ExpIcon = ExpIcon::Sparkles;
 /// Registry concept `coding-diff` -> Lucide `file-diff`.
@@ -344,6 +348,8 @@ pub const EVENT_BOARD_MOVED: ExpIcon = ExpIcon::Move;
 pub const EVENT_LABEL_ADDED: ExpIcon = ExpIcon::Tag;
 /// Registry concept `event-label-removed` -> Lucide `tag`.
 pub const EVENT_LABEL_REMOVED: ExpIcon = ExpIcon::Tag;
+/// Registry concept `event-priority-changed` -> Lucide `signal-high`.
+pub const EVENT_PRIORITY_CHANGED: ExpIcon = ExpIcon::SignalHigh;
 /// Registry concept `event-status-changed` -> Lucide `circle-dot`.
 pub const EVENT_STATUS_CHANGED: ExpIcon = ExpIcon::CircleDot;
 /// Registry concept `nav-account` -> Lucide `circle-user`.

@@ -23,6 +23,10 @@ const ACTION_COLUMNS = [
   `description`,
   `icon`,
   `inputs`,
+  // EXP-530: the automation trigger — clients render summaries and the bound
+  // device's host evaluates it; appended with the same one-time benign shape
+  // rotation as `icon` above.
+  `trigger`,
   `sort_order`,
   `created_at`,
   `updated_at`,

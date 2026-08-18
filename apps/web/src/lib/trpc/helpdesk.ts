@@ -16,6 +16,7 @@ import {
   getSoleHumanMemberId,
 } from "@/lib/team-membership"
 import { ensureSubscribed } from "@/lib/integrations/subscriptions"
+import { recordIssueEvent } from "@/lib/integrations/activity"
 import { deliveryStatus, sendSupportReplyEmail } from "@/lib/email"
 import { mintSupportToken } from "@/lib/helpdesk/token"
 import { isReporterActivelyViewing } from "@/lib/helpdesk/presence"
@@ -404,7 +405,25 @@ export const helpdeskRouter = router({
             id: issues.id,
             identifier: issues.identifier,
             title: issues.title,
+            status: issues.status,
+            statusId: issues.statusId,
+            priority: issues.priority,
+            source: issues.source,
           })
+        // EXP-530: `created` event (timeline-suppressed; feeds automation
+        // event triggers).
+        await recordIssueEvent(tx, {
+          issueId: issue.id,
+          teamId: thread.teamId,
+          actorUserId: ctx.session.user.id,
+          type: `created`,
+          payload: {
+            status: issue.status,
+            statusId: issue.statusId,
+            priority: issue.priority,
+            source: issue.source,
+          },
+        })
         await ensureSubscribed(tx, {
           issueId: issue.id,
           userId: ctx.session.user.id,

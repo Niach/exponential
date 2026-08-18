@@ -53,6 +53,12 @@ interface Contract {
   actionInputType: Section
   builtinAction: { createActionId: string; fixConflictsId: string }
   actionInputs: { max: number; maxTextLength: number }
+  actionTrigger: {
+    eventValues: string[]
+    scheduleIntervalValues: string[]
+    maxFilterIds: number
+  }
+  automation: { cooldownSeconds: number; eventCatchupHours: number }
 }
 
 const contract: Contract = JSON.parse(
@@ -66,6 +72,13 @@ const codingSessionStaleMs = contract.codingSession.staleHours * 60 * 60 * 1000
 // EXP-481: how fresh a devices row's last_seen_at must be to render "online"
 // (devices heartbeat ~30s; 90s = three missed beats). Pre-multiplied to ms.
 const deviceOnlineWindowMs = contract.device.onlineWindowSeconds * 1000
+
+// EXP-530 automation-host tuning, pre-multiplied to ms like the windows above:
+// cooldown after any triggered action start, and how far back an offline
+// device replays issue_events when it reconnects.
+const automationCooldownMs = contract.automation.cooldownSeconds * 1000
+const automationEventCatchupMs =
+  contract.automation.eventCatchupHours * 60 * 60 * 1000
 
 // The 7 locked builtin issue statuses (EXP-314) — emitted as parallel arrays
 // (keys/categories/names/colors/sortOrders) so every client can construct its
@@ -187,6 +200,8 @@ ${swiftStringArray("codexEffortValues", contract.codexEffort.values)}
 ${swiftStringArray("piModelValues", contract.piModel.values)}
 ${swiftStringArray("piThinkingValues", contract.piThinking.values)}
 ${swiftStringArray("actionInputTypeValues", contract.actionInputType.values)}
+${swiftStringArray("actionTriggerEventValues", contract.actionTrigger.eventValues)}
+${swiftStringArray("actionScheduleIntervalValues", contract.actionTrigger.scheduleIntervalValues)}
 
     public static let issueStatusStartedMax: Int = ${contract.issueStatusCategory.startedMax}
     public static let codingSessionStaleMs: Int = ${codingSessionStaleMs}
@@ -195,6 +210,9 @@ ${swiftStringArray("actionInputTypeValues", contract.actionInputType.values)}
     public static let builtinFixConflictsId: String = "${contract.builtinAction.fixConflictsId}"
     public static let actionInputsMax: Int = ${contract.actionInputs.max}
     public static let actionInputTextMax: Int = ${contract.actionInputs.maxTextLength}
+    public static let actionTriggerMaxFilterIds: Int = ${contract.actionTrigger.maxFilterIds}
+    public static let automationCooldownMs: Int = ${automationCooldownMs}
+    public static let automationEventCatchupMs: Int = ${automationEventCatchupMs}
 
 ${swiftNamedValues("issueStatusCategory", contract.issueStatusCategory.values)}
 ${swiftNamedValues("issueSource", contract.issueSource.values)}
@@ -239,6 +257,8 @@ ${kotlinStringArray("codexEffortValues", contract.codexEffort.values)}
 ${kotlinStringArray("piModelValues", contract.piModel.values)}
 ${kotlinStringArray("piThinkingValues", contract.piThinking.values)}
 ${kotlinStringArray("actionInputTypeValues", contract.actionInputType.values)}
+${kotlinStringArray("actionTriggerEventValues", contract.actionTrigger.eventValues)}
+${kotlinStringArray("actionScheduleIntervalValues", contract.actionTrigger.scheduleIntervalValues)}
 
     const val issueStatusStartedMax: Int = ${contract.issueStatusCategory.startedMax}
     const val codingSessionStaleMs: Long = ${codingSessionStaleMs}L
@@ -247,6 +267,9 @@ ${kotlinStringArray("actionInputTypeValues", contract.actionInputType.values)}
     const val builtinFixConflictsId: String = "${contract.builtinAction.fixConflictsId}"
     const val actionInputsMax: Int = ${contract.actionInputs.max}
     const val actionInputTextMax: Int = ${contract.actionInputs.maxTextLength}
+    const val actionTriggerMaxFilterIds: Int = ${contract.actionTrigger.maxFilterIds}
+    const val automationCooldownMs: Long = ${automationCooldownMs}L
+    const val automationEventCatchupMs: Long = ${automationEventCatchupMs}L
 
 ${kotlinNamedValues("issueStatusCategory", contract.issueStatusCategory.values)}
 ${kotlinNamedValues("issueSource", contract.issueSource.values)}
@@ -293,6 +316,8 @@ ${rustStrSlice("codexEffortValues", contract.codexEffort.values)}
 ${rustStrSlice("piModelValues", contract.piModel.values)}
 ${rustStrSlice("piThinkingValues", contract.piThinking.values)}
 ${rustStrSlice("actionInputTypeValues", contract.actionInputType.values)}
+${rustStrSlice("actionTriggerEventValues", contract.actionTrigger.eventValues)}
+${rustStrSlice("actionScheduleIntervalValues", contract.actionTrigger.scheduleIntervalValues)}
 
 pub const ISSUE_STATUS_STARTED_MAX: usize = ${contract.issueStatusCategory.startedMax};
 pub const CODING_SESSION_STALE_MS: i64 = ${codingSessionStaleMs};
@@ -301,6 +326,9 @@ pub const BUILTIN_CREATE_ACTION_ID: &str = "${contract.builtinAction.createActio
 pub const BUILTIN_FIX_CONFLICTS_ID: &str = "${contract.builtinAction.fixConflictsId}";
 pub const ACTION_INPUTS_MAX: usize = ${contract.actionInputs.max};
 pub const ACTION_INPUT_TEXT_MAX: usize = ${contract.actionInputs.maxTextLength};
+pub const ACTION_TRIGGER_MAX_FILTER_IDS: usize = ${contract.actionTrigger.maxFilterIds};
+pub const AUTOMATION_COOLDOWN_MS: i64 = ${automationCooldownMs};
+pub const AUTOMATION_EVENT_CATCHUP_MS: i64 = ${automationEventCatchupMs};
 
 ${rustNamedValues("issueStatusCategory", contract.issueStatusCategory.values)}
 ${rustNamedValues("issueSource", contract.issueSource.values)}
