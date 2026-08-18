@@ -138,6 +138,9 @@ struct StartCodingSheet: View {
     /// subject switch, no action picker, just the (preselected) create
     /// builtin's input fields. Callers pair it with the create builtin's id.
     let createActionMode: Bool
+    /// EXP-530 "Use suggestion": initial input values (keyed like
+    /// `inputValues` — e.g. the create builtin's `description` + `icon`).
+    let prefilledInputs: [String: String]?
     /// Non-nil pre-picks the selected action's `pr` input (EXP-323 — the
     /// conflict-recovery entry points hand over the issue their surface acts
     /// on; ANY issue linked to the PR resolves).
@@ -184,6 +187,29 @@ struct StartCodingSheet: View {
     /// `""` = unset). Reset on action switch.
     @State private var inputValues: [String: String] = [:]
 
+    // EXP-530 create-mode automation (None · Schedule · On event). The
+    // resulting trigger rides the description as a machine-readable block —
+    // the creator agent sets it verbatim via `exponential_actions_create`.
+    @State private var automationKind = "none"
+    @State private var schedInterval = "daily"
+    @State private var schedTime = Self.defaultScheduleTime
+    /// 1 = Monday … 7 = Sunday (the wire convention).
+    @State private var schedWeekday = 1
+    @State private var schedDayOfMonth = 1
+    @State private var eventType = "created"
+    @State private var filterBoardId = ""
+    @State private var filterLabelId = ""
+    @State private var filterPriority = ""
+    @State private var filterToStatusId = ""
+    @State private var automationDeviceId = ""
+    @State private var automationEnabled = true
+    /// Automation-capable machines (caps `automations`), OFFLINE INCLUDED —
+    /// an offline device stays pickable (its missed schedule fires once when
+    /// it comes back), unlike the run-now device pool.
+    @State private var automationDevices: [SteerDevice] = []
+    @State private var teamLabels: [LabelEntity] = []
+    @State private var teamStatuses: [IssueStatusEntity] = []
+
     // Seeded from the selected machine's advertised defaults in onAppear
     // (EXP-437). Placeholder values render for one frame before seed() resolves
     // them.
@@ -213,6 +239,7 @@ struct StartCodingSheet: View {
         initialTab: SubjectTab = .issues,
         preselectedActionId: String? = nil,
         createActionMode: Bool = false,
+        prefilledInputs: [String: String]? = nil,
         preselectedPrIssueId: String? = nil,
         worktrees: [DeviceWorktreeEntity]? = nil,
         onStart: @escaping (SteerDevice, [String], SteerStartOptions) -> Void,
@@ -226,12 +253,14 @@ struct StartCodingSheet: View {
         self.teamId = teamId
         self.preselectedActionId = preselectedActionId
         self.createActionMode = createActionMode
+        self.prefilledInputs = prefilledInputs
         self.preselectedPrIssueId = preselectedPrIssueId
         self.onStart = onStart
         self.onRunAction = onRunAction
         _checked = State(initialValue: preselectedIds)
         _subjectTab = State(initialValue: initialTab)
         _selectedActionId = State(initialValue: preselectedActionId)
+        _inputValues = State(initialValue: prefilledInputs ?? [:])
     }
 
     /// Whether the host wired the Actions tab (EXP-257).
@@ -300,6 +329,11 @@ struct StartCodingSheet: View {
                     }
                     if let action = selectedAction, !(action.inputs ?? []).isEmpty {
                         inputsSection(action)
+                    }
+                    // EXP-530: only creation configures a trigger — existing
+                    // actions are edited on web/desktop.
+                    if createActionMode {
+                        automationSection
                     }
                 }
 
@@ -770,6 +804,16 @@ struct StartCodingSheet: View {
                 TextField(def.placeholder ?? "", text: inputBinding(def.key), axis: .vertical)
                     .lineLimit(1...4)
             }
+        case "textarea":
+            // EXP-530: the multi-line variant — same value rules as `text`
+            // (trim, length cap), just a roomier field.
+            VStack(alignment: .leading, spacing: 4) {
+                Text(inputLabel(def))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextField(def.placeholder ?? "", text: inputBinding(def.key), axis: .vertical)
+                    .lineLimit(3...8)
+            }
         case "repo":
             Picker(inputLabel(def), selection: inputBinding(def.key)) {
                 Text(def.isRequired ? "Select a repository" : "None").tag("")
@@ -1003,6 +1047,30 @@ struct StartCodingSheet: View {
         if let action = selectedAction {
             seedRepoInputs(for: action)
         }
+        // EXP-530 create mode: the Automation section's option pools — labels
+        // + statuses for the event filters, and the automation-capable device
+        // pool (offline included; a missed schedule fires on reconnect).
+        if createActionMode {
+            if let pool = try? deps.db.pool(forAccountId: accountId) {
+                let labelRows = (try? await pool.read { db in
+                    try LabelEntity.filter(Column("team_id") == teamId).fetchAll(db)
+                }) ?? []
+                teamLabels = labelRows.sorted { lhs, rhs in
+                    (lhs.sortOrder ?? 0, lhs.name) < (rhs.sortOrder ?? 0, rhs.name)
+                }
+                let statusRows = (try? await pool.read { db in
+                    try IssueStatusEntity.filter(Column("team_id") == teamId).fetchAll(db)
+                }) ?? []
+                teamStatuses = statusRows
+                    .filter { $0.category != "duplicate" }
+                    .sorted { lhs, rhs in
+                        (lhs.sortOrder ?? 0, lhs.name) < (rhs.sortOrder ?? 0, rhs.name)
+                    }
+            }
+            automationDevices = await DeviceQueries.devices(
+                db: deps.db, accountId: accountId, teamId: teamId, userId: deps.auth.userId
+            ).filter(\.canRunAutomations)
+        }
     }
 
     /// Pre-pick the target PR once both the action list and the options exist
@@ -1018,6 +1086,191 @@ struct StartCodingSheet: View {
             let option = StartPullRequestOption.option(in: pullRequests, forIssueId: seed)
         else { return }
         inputValues[key] = option.issueId
+    }
+
+    // MARK: - Automation (EXP-530, create mode)
+
+    private static var defaultScheduleTime: Date {
+        Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: Date()) ?? Date()
+    }
+
+    @ViewBuilder
+    private var automationSection: some View {
+        Section {
+            Picker("Trigger", selection: $automationKind) {
+                Text("None").tag("none")
+                Text("Schedule").tag("schedule")
+                Text("On event").tag("event")
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+
+            if automationKind == "schedule" {
+                Picker("Every", selection: $schedInterval) {
+                    Text("Day").tag("daily")
+                    Text("Week").tag("weekly")
+                    Text("Month").tag("monthly")
+                }
+                if schedInterval == "weekly" {
+                    Picker("Weekday", selection: $schedWeekday) {
+                        ForEach(1...7, id: \.self) { day in
+                            Text(ActionTriggerDisplay.weekdayNames[day - 1]).tag(day)
+                        }
+                    }
+                }
+                if schedInterval == "monthly" {
+                    Picker("Day of month", selection: $schedDayOfMonth) {
+                        ForEach(1...28, id: \.self) { day in
+                            Text("\(day)").tag(day)
+                        }
+                    }
+                }
+                DatePicker("Time", selection: $schedTime, displayedComponents: .hourAndMinute)
+            }
+
+            if automationKind == "event" {
+                Picker("Event", selection: $eventType) {
+                    ForEach(DomainContract.actionTriggerEventValues, id: \.self) { value in
+                        Text(Self.eventLabel(value)).tag(value)
+                    }
+                }
+                Picker("Board", selection: $filterBoardId) {
+                    Text("Any").tag("")
+                    ForEach(boards) { board in
+                        Text(board.name).tag(board.id)
+                    }
+                }
+                if eventType == "label_added" {
+                    Picker("Label", selection: $filterLabelId) {
+                        Text("Any").tag("")
+                        ForEach(teamLabels) { label in
+                            Text(label.name).tag(label.id)
+                        }
+                    }
+                }
+                if eventType == "created" || eventType == "priority_changed" {
+                    Picker("Priority", selection: $filterPriority) {
+                        Text("Any").tag("")
+                        ForEach(IssuePriority.displayOrder) { priority in
+                            Text(priority.label).tag(priority.rawValue)
+                        }
+                    }
+                }
+                if eventType == "status_changed" {
+                    Picker("To status", selection: $filterToStatusId) {
+                        Text("Any").tag("")
+                        ForEach(teamStatuses) { status in
+                            Text(status.name).tag(status.id)
+                        }
+                    }
+                }
+            }
+
+            if automationKind != "none" {
+                if automationDevices.isEmpty {
+                    Text("No device can run automations yet. Update the Exponential desktop app or CLI daemon.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Picker("Device", selection: automationDeviceBinding) {
+                        ForEach(automationDevices) { device in
+                            Text(Self.automationDeviceCaption(device)).tag(device.deviceId)
+                        }
+                    }
+                    if let selected = selectedAutomationDevice {
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(selected.isOnline
+                                    ? DesignTokens.Semantic.green
+                                    : Color.secondary.opacity(0.5))
+                                .frame(width: 6, height: 6)
+                            Text(selected.isOnline ? "Device online" : "Device offline")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Toggle("Enabled", isOn: $automationEnabled)
+                }
+            }
+        } header: {
+            Text("Automation")
+        } footer: {
+            if automationKind != "none" {
+                Text("Runs on the selected device, in its local time. A run missed while the device was offline fires once when it comes back.")
+            }
+        }
+    }
+
+    /// Web parity: `TRIGGER_EVENT_LABELS` in apps/web/src/lib/action-triggers.ts.
+    private static func eventLabel(_ value: String) -> String {
+        switch value {
+        case "created": "An issue is created"
+        case "status_changed": "Status changes"
+        case "assignee_changed": "The assignee changes"
+        case "label_added": "A label is added"
+        case "priority_changed": "Priority changes"
+        case "pr_opened": "A pull request is opened"
+        case "pr_merged": "A pull request is merged"
+        default: value.replacingOccurrences(of: "_", with: " ")
+        }
+    }
+
+    /// Offline machines stay pickable — say so in the row.
+    private static func automationDeviceCaption(_ device: SteerDevice) -> String {
+        let base = deviceCaption(device)
+        return device.isOnline ? base : "\(base) (offline)"
+    }
+
+    private var selectedAutomationDevice: SteerDevice? {
+        automationDevices.first { $0.deviceId == automationDeviceId }
+            ?? automationDevices.first
+    }
+
+    private var automationDeviceBinding: Binding<String> {
+        Binding(
+            get: { selectedAutomationDevice?.deviceId ?? "" },
+            set: { automationDeviceId = $0 }
+        )
+    }
+
+    /// The configured trigger, in wire form — nil when the section is on
+    /// "None" or no automation-capable device exists.
+    private var configuredTrigger: ActionTrigger? {
+        guard createActionMode, automationKind != "none",
+              let device = selectedAutomationDevice
+        else { return nil }
+        switch automationKind {
+        case "schedule":
+            let comps = Calendar.current.dateComponents([.hour, .minute], from: schedTime)
+            let minuteOfDay = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
+            return .schedule(ActionScheduleTrigger(
+                deviceId: device.deviceId,
+                enabled: automationEnabled,
+                interval: schedInterval,
+                minuteOfDay: minuteOfDay,
+                weekday: schedInterval == "weekly" ? schedWeekday : nil,
+                dayOfMonth: schedInterval == "monthly" ? schedDayOfMonth : nil
+            ))
+        case "event":
+            // Contextual filters travel only for the event they apply to —
+            // a stale pick from a previously chosen event never rides along.
+            return .event(ActionEventTrigger(
+                deviceId: device.deviceId,
+                enabled: automationEnabled,
+                event: eventType,
+                filters: ActionTriggerFilters(
+                    boardIds: filterBoardId.isEmpty ? [] : [filterBoardId],
+                    labelIds: eventType == "label_added" && !filterLabelId.isEmpty
+                        ? [filterLabelId] : [],
+                    priorities: (eventType == "created" || eventType == "priority_changed")
+                        && !filterPriority.isEmpty ? [filterPriority] : [],
+                    toStatusIds: eventType == "status_changed" && !filterToStatusId.isEmpty
+                        ? [filterToStatusId] : []
+                )
+            ))
+        default:
+            return nil
+        }
     }
 
     // MARK: - Agent tab strip (EXP-208)
@@ -1280,7 +1533,16 @@ struct StartCodingSheet: View {
         let options = buildOptions()
         // Values in wire form: text trimmed, blank optionals dropped (a
         // required blank can't get here — `canRunAction` gates it).
-        let values = ActionInputValues.wireValues(selectedActionInputs, values: inputValues)
+        var values = ActionInputValues.wireValues(selectedActionInputs, values: inputValues)
+        // EXP-530: a configured trigger rides the description as a
+        // machine-readable trailing block the creator agent sets verbatim.
+        if createActionMode, let trigger = configuredTrigger {
+            let block = "Automation — set exactly this trigger via the `trigger` field on exponential_actions_create: `\(trigger.wireJSONString)`"
+            let description = values["description"] ?? ""
+            values["description"] = description.isEmpty
+                ? block
+                : "\(description)\n\n\(block)"
+        }
         dismiss()
         onRunAction(device, action, options, values)
     }

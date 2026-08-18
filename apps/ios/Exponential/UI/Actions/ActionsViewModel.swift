@@ -15,6 +15,20 @@ final class ActionsViewModel {
     var actions: [ActionDto] = []
     var isLoading = false
     var loadError: String?
+    // EXP-530 Automations tab: recent automation-started runs (started_reason
+    // non-null), newest first, capped at 10.
+    var automationRuns: [CodingSessionEntity] = []
+    /// EVERY synced device, offline included (EXP-530) — the Automations tab
+    /// resolves a trigger's bound deviceId to a label + online dot, and an
+    /// offline machine must still be nameable.
+    var allDevices: [SteerDevice] = []
+    /// EXP-530: the enabled toggle is owner-gated (`actions.update` is
+    /// owner-only server-side — mirror it instead of bouncing on submit).
+    var permissions: TeamPermissions = .denied
+    /// Action id with an in-flight trigger toggle (disables that row's
+    /// control); Electric echoes the flipped row back into `actions`.
+    var triggerBusyActionId: String?
+    var triggerError: String?
     // Issues the unified sheet's Issues tab can queue (Android parity —
     // the AgentsViewModel.startCandidates rules): the loaded team's
     // repo-backed boards; open issues, recency-ordered.
@@ -31,14 +45,25 @@ final class ActionsViewModel {
     private let accountId: String
     private let db: DatabaseManager
     private let steerApi: SteerApi
+    private let actionsApi: ActionsApi
+    private let auth: AuthRepository
 
     private var loadedTeamId: String?
     private var actionsObservationTask: Task<Void, Never>?
+    private var runsObservationTask: Task<Void, Never>?
 
-    init(accountId: String, db: DatabaseManager, steerApi: SteerApi) {
+    init(
+        accountId: String,
+        db: DatabaseManager,
+        steerApi: SteerApi,
+        actionsApi: ActionsApi,
+        auth: AuthRepository
+    ) {
         self.accountId = accountId
         self.db = db
         self.steerApi = steerApi
+        self.actionsApi = actionsApi
+        self.auth = auth
     }
 
     /// Observe the team's synced actions (EXP-268: the local GRDB store, not
@@ -57,11 +82,24 @@ final class ActionsViewModel {
         loadedTeamId = teamId
         if actions.isEmpty { isLoading = true }
         actionsObservationTask?.cancel()
+        runsObservationTask?.cancel()
         guard let pool = try? db.pool(forAccountId: accountId) else {
             isLoading = false
             loadError = "The local database is unavailable."
             return
         }
+        // EXP-530: owner-gate + device labels for the Automations tab.
+        let team = (try? await pool.read { db in try TeamEntity.fetchOne(db, key: teamId) }) ?? nil
+        permissions = TeamPermissions.resolve(
+            team: team,
+            currentUserId: auth.userId,
+            isAdmin: auth.isAdmin,
+            dbPool: pool
+        )
+        allDevices = await DeviceQueries.devices(
+            db: db, accountId: accountId, teamId: teamId, userId: auth.userId
+        )
+        observeAutomationRuns(teamId: teamId, pool: pool)
         let observation = ValueObservation.tracking { db in
             try ActionEntity.filter(Column("team_id") == teamId).fetchAll(db)
         }
@@ -83,6 +121,53 @@ final class ActionsViewModel {
                 self.isLoading = false
                 self.loadError = error.localizedDescription
             }
+        }
+    }
+
+    /// Observe the team's automation-started runs (EXP-530: coding_sessions
+    /// rows with a non-null started_reason), newest first, capped at 10 for
+    /// the "Recent automated runs" list.
+    private func observeAutomationRuns(teamId: String, pool: DatabasePool) {
+        let observation = ValueObservation.tracking { db in
+            try CodingSessionEntity
+                .filter(Column("team_id") == teamId)
+                .filter(Column("started_reason") != nil)
+                .fetchAll(db)
+        }
+        runsObservationTask = Task { [weak self] in
+            do {
+                for try await rows in observation.values(in: pool) {
+                    guard let self, !Task.isCancelled else { return }
+                    guard self.loadedTeamId == teamId else { return }
+                    self.automationRuns = Array(
+                        rows.sorted { $0.startedAt > $1.startedAt }.prefix(10)
+                    )
+                }
+            } catch {
+                // Non-fatal — the list simply stays as it was.
+            }
+        }
+    }
+
+    /// Flip an automation's paused flag (EXP-530): `actions.update` replaces
+    /// the WHOLE trigger object, so send the parsed trigger with `enabled`
+    /// flipped. Owner-only server-side — the UI disables the control for
+    /// everyone else. Success needs no local write: Electric echoes the row.
+    func setTriggerEnabled(action: ActionDto, enabled: Bool) {
+        guard let trigger = action.parsedTrigger, triggerBusyActionId == nil else { return }
+        triggerBusyActionId = action.id
+        triggerError = nil
+        Task {
+            do {
+                try await actionsApi.updateTrigger(
+                    accountId: accountId,
+                    actionId: action.id,
+                    trigger: trigger.withEnabled(enabled)
+                )
+            } catch {
+                triggerError = error.localizedDescription
+            }
+            triggerBusyActionId = nil
         }
     }
 

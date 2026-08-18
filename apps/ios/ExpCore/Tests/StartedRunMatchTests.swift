@@ -15,6 +15,7 @@ final class StartedRunMatchTests: XCTestCase {
         id: String = "sess-1",
         issueId: String? = nil,
         actionName: String? = nil,
+        startedReason: String? = nil,
         userId: String = "user-1",
         startedAt: String = "2026-07-17T11:59:30Z"
     ) -> CodingSessionEntity {
@@ -26,6 +27,7 @@ final class StartedRunMatchTests: XCTestCase {
             deviceLabel: nil,
             status: "running",
             actionName: actionName,
+            startedReason: startedReason,
             startedAt: startedAt,
             endedAt: nil,
             createdAt: startedAt,
@@ -63,6 +65,24 @@ final class StartedRunMatchTests: XCTestCase {
         )
         XCTAssertFalse(
             matches(session(actionName: "Create action"), .action(name: "Fix merge conflicts"))
+        )
+    }
+
+    // EXP-530: an automation-started run carries the same action-name
+    // snapshot — a user's pending start watch must never grab it, or a
+    // schedule firing in the window hijacks the navigation.
+    func testActionRunIgnoresAutomationStartedRows() {
+        XCTAssertFalse(
+            matches(
+                session(actionName: "Fix merge conflicts", startedReason: "schedule"),
+                .action(name: "Fix merge conflicts")
+            )
+        )
+        XCTAssertFalse(
+            matches(
+                session(actionName: "Fix merge conflicts", startedReason: "event"),
+                .action(name: "Fix merge conflicts")
+            )
         )
     }
 

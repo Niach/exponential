@@ -101,4 +101,27 @@ final class ActionInputValuesTests: XCTestCase {
         )
         XCTAssertTrue(ActionInputValues.textsWithinLimit([iconInput()], values: ["icon": tooLong]))
     }
+
+    // EXP-530: `textarea` is a supported type that shares every `text` rule —
+    // trim, blank-drop, and the length cap.
+    func testTextareaSharesTheTextRules() {
+        let textarea = ActionInputDto(key: "notes", label: "Notes", type: "textarea", required: false)
+        XCTAssertFalse(ActionInputValues.hasUnsupportedType([textarea]))
+        XCTAssertTrue(DomainContract.actionInputTypeValues.contains("textarea"))
+
+        XCTAssertEqual(
+            ActionInputValues.wireValues([textarea], values: ["notes": "  hi\nthere  "]),
+            ["notes": "hi\nthere"]
+        )
+        XCTAssertEqual(ActionInputValues.wireValues([textarea], values: ["notes": "   "]), [:])
+
+        let tooLong = String(repeating: "a", count: DomainContract.actionInputTextMax + 1)
+        XCTAssertFalse(ActionInputValues.textsWithinLimit([textarea], values: ["notes": tooLong]))
+        XCTAssertTrue(
+            ActionInputValues.textsWithinLimit(
+                [textarea],
+                values: ["notes": String(repeating: "a", count: DomainContract.actionInputTextMax)]
+            )
+        )
+    }
 }

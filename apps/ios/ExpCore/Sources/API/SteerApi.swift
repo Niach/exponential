@@ -280,6 +280,12 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// filter such desktops out instead of failing after submit (EXP-323).
     public var canFixConflicts: Bool { caps?.contains("fix-conflicts") == true }
 
+    /// EXP-530: whether this machine runs action automations locally (watches
+    /// its own sync and fires schedule/event triggers). Trigger device pickers
+    /// offer only these — an offline-but-capable machine stays pickable (its
+    /// missed schedule fires once when it comes back).
+    public var canRunAutomations: Bool { caps?.contains("automations") == true }
+
     /// EXP-420: whether this device's reported version compares below the
     /// given latest. Unknown or unparsable on either side = false — the
     /// Update affordance renders only when a newer version really exists.
