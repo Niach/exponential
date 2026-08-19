@@ -1341,10 +1341,14 @@ impl StartCodingDialogView {
                 session.issue_id.as_deref() == Some(row.issue_id.as_str())
                     && queries::coding_session_is_live(session, now)
             }) {
-                let device = session
-                    .device_label
-                    .clone()
-                    .unwrap_or_else(|| "another device".to_string());
+                // EXP-549: name the machine as it is called TODAY.
+                let device = queries::session_device_presentation(
+                    session,
+                    store.collections().devices.read(cx).iter(),
+                    now * 1_000,
+                )
+                .label
+                .unwrap_or_else(|| "another device".to_string());
                 return Some(
                     format!(
                         "{} already has a live session on {device} (only one session per issue).",

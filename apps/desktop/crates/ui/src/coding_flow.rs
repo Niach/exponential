@@ -957,6 +957,7 @@ pub fn build_launch(
         issue_seed: Arc::new(move |_| Some(seed.clone())),
         worktrees: Arc::new(coding::GitWorktrees),
         codex_sessions_root: None,
+        device_id: Some(steer::persistent_device_id(&data_dir)),
         data_dir,
     };
     Some((request, deps))
@@ -1034,6 +1035,7 @@ pub fn build_batch_deps(cx: &mut App) -> Option<CodingDeps> {
         issue_seed: Arc::new(|_| None),
         worktrees: Arc::new(coding::GitWorktrees),
         codex_sessions_root: None,
+        device_id: Some(steer::persistent_device_id(&data_dir)),
         data_dir,
     })
 }

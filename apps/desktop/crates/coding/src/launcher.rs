@@ -109,21 +109,30 @@ pub enum LaunchOrigin {
     },
 }
 
-/// The (started_by, device_id) attribution pair a shared-device relay start
-/// carries into `codingSessions.start` and every heartbeat (EXP-432).
-/// `(None, None)` — the byte-identical legacy wire — for local starts and
-/// relay starts without `started_by`.
-fn relay_attribution(origin: &LaunchOrigin) -> coding_sessions::Attribution<'_> {
-    match origin {
+/// The (started_by, device_id) attribution pair every `codingSessions.start`
+/// and heartbeat carries. `started_by_id` (EXP-432) is set only by a relay
+/// start that named a requesting teammate — it makes the session row
+/// requester-owned. `device_id` is the relay origin's device when there is
+/// one, otherwise THIS machine's steer deviceId ([`CodingDeps::device_id`],
+/// EXP-549) so the server can stamp `coding_sessions.device_id` and snapshot
+/// the machine's current label. `(None, None)` — the byte-identical legacy
+/// wire — when neither is known (tests).
+fn attribution<'a>(
+    origin: &'a LaunchOrigin,
+    deps: &'a CodingDeps,
+) -> coding_sessions::Attribution<'a> {
+    let (started_by_id, relay_device_id) = match origin {
         LaunchOrigin::Relay {
             device_id,
-            started_by: Some(started_by),
+            started_by,
             ..
-        } => coding_sessions::Attribution {
-            started_by_id: Some(started_by.as_str()),
-            device_id: Some(device_id.as_str()),
-        },
-        _ => coding_sessions::Attribution::default(),
+        } => (started_by.as_deref(), Some(device_id.as_str())),
+        _ => (None, None),
+    };
+    coding_sessions::Attribution {
+        // Only a `started_by` relay start re-owns the row (EXP-432).
+        started_by_id,
+        device_id: relay_device_id.or(deps.device_id.as_deref()),
     }
 }
 
@@ -359,6 +368,12 @@ pub struct CodingDeps {
     /// The app data dir — repo-less action runs execute in
     /// `<data_dir>/actions/<action id>/` (EXP-253).
     pub data_dir: PathBuf,
+    /// This machine's steer deviceId (desktop: [`api::device_identity`] via
+    /// `steer::persistent_device_id`; CLI: `cli_device_id`). Rides
+    /// `codingSessions.start`/`heartbeat` so the server stamps the session
+    /// row's `device_id` and snapshots the machine's CURRENT label
+    /// (EXP-549). `None` only in tests.
+    pub device_id: Option<String>,
 }
 
 /// §7.1's non-fatal "why Start coding can't run" set — each renders as a
@@ -1045,13 +1060,13 @@ pub fn prepare_with_hooks(
             &deps.trpc,
             &issue_req.issue_id,
             Some(&issue_req.device_label),
-            relay_attribution(&issue_req.origin),
+            attribution(&issue_req.origin, deps),
         ),
         PrepareRequest::Batch(batch_req) => coding_sessions::start_batch(
             &deps.trpc,
             &batch_req.team_id,
             Some(&batch_req.device_label),
-            relay_attribution(&batch_req.origin),
+            attribution(&batch_req.origin, deps),
         ),
         PrepareRequest::Action(_) => unreachable!("dispatched above"),
     };
@@ -1200,7 +1215,7 @@ pub fn prepare_with_hooks(
 
     let heartbeat_scope = match req {
         PrepareRequest::Issue(issue_req) => {
-            let attribution = relay_attribution(&issue_req.origin);
+            let attribution = attribution(&issue_req.origin, deps);
             coding_sessions::HeartbeatScope {
                 issue_id: Some(issue_req.issue_id.clone()),
                 team_id: None,
@@ -1212,7 +1227,7 @@ pub fn prepare_with_hooks(
             }
         }
         PrepareRequest::Batch(batch_req) => {
-            let attribution = relay_attribution(&batch_req.origin);
+            let attribution = attribution(&batch_req.origin, deps);
             coding_sessions::HeartbeatScope {
                 issue_id: None,
                 team_id: Some(batch_req.team_id.clone()),
@@ -1515,7 +1530,7 @@ fn prepare_action(
         req.kind.is_builtin().then_some(req.team_id.as_str()),
         req.trigger.as_ref().map(|note| note.started_reason()),
         Some(&req.device_label),
-        relay_attribution(&req.origin),
+        attribution(&req.origin, deps),
     ) {
         Ok(session) => session,
         Err(ApiError::Http { status: 412, message }) => {
@@ -1600,10 +1615,10 @@ fn prepare_action(
             action_id: Some(req.action_id.clone()),
             action_name: Some(req.action_name.clone()),
             device_label: Some(req.device_label.clone()),
-            started_by_id: relay_attribution(&req.origin)
+            started_by_id: attribution(&req.origin, deps)
                 .started_by_id
                 .map(str::to_string),
-            device_id: relay_attribution(&req.origin).device_id.map(str::to_string),
+            device_id: attribution(&req.origin, deps).device_id.map(str::to_string),
         },
         tab_kind: TabKind::Action(req.action_id.clone()),
         bypass_permissions: options.skip_permissions && !options.plan_mode,

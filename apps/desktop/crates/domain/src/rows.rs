@@ -433,6 +433,12 @@ pub struct CodingSession {
     pub user_id: Option<String>,
     #[serde(default)]
     pub device_label: Option<String>,
+    /// EXP-549/550: the host machine's steer deviceId — join the synced
+    /// `devices` row for the machine's LIVE label (the user's rename) and
+    /// its online-ness (an offline host means the session is paused, not
+    /// live). `None` on rows written by pre-EXP-549 clients.
+    #[serde(default)]
+    pub device_id: Option<String>,
     /// `running` / `in_review` / `ended` — raw wire value (contract-locked).
     #[serde(default)]
     pub status: Option<String>,

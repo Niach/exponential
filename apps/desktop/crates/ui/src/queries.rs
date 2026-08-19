@@ -812,25 +812,123 @@ pub(crate) fn live_session_device_for_issue(
 ) -> Option<String> {
     let collections = Store::global(cx).collections();
     let sessions = collections.coding_sessions.read(cx);
-    live_session_device(sessions.iter(), issue_id, now_epoch)
+    let devices = collections.devices.read(cx);
+    live_session_device(
+        sessions.iter(),
+        devices.iter(),
+        issue_id,
+        now_epoch,
+        now_epoch * 1_000,
+    )
 }
 
 /// Pure core of [`live_session_device_for_issue`]. A live row with no
-/// `device_label` still blocks — the label is only for the message.
+/// resolvable device name still blocks — the label is only for the message.
+/// EXP-549: the name is the machine's CURRENT `devices.label` (the user's
+/// rename) whenever the row resolves, not the start-time snapshot.
 pub(crate) fn live_session_device<'a>(
     sessions: impl Iterator<Item = &'a domain::rows::CodingSession>,
+    devices: impl Iterator<Item = &'a domain::rows::DeviceRow>,
     issue_id: &str,
     now_epoch: i64,
+    now_ms: i64,
 ) -> Option<String> {
-    sessions
+    let session = sessions
         .filter(|session| session.issue_id.as_deref() == Some(issue_id))
-        .find(|session| coding_session_is_live(session, now_epoch))
-        .map(|session| {
-            session
-                .device_label
+        .find(|session| coding_session_is_live(session, now_epoch))?;
+    let presentation = session_device_presentation(session, devices, now_ms);
+    Some(
+        presentation
+            .label
+            .unwrap_or_else(|| "another device".to_string()),
+    )
+}
+
+/// EXP-549/550: how a session names its host machine and whether that machine
+/// is offline. Resolved against the synced `devices` rows, so a rename shows
+/// up everywhere and a lid-closed host stops reading as live.
+pub(crate) struct SessionDevicePresentation {
+    /// The machine's name — the resolved `devices.label`, else the session's
+    /// start-time `device_label` snapshot, else `None`.
+    pub label: Option<String>,
+    /// The resolved machine has not heartbeat inside the contract's online
+    /// window. Always `false` when no `devices` row resolves — an unknown
+    /// machine is never accused of being offline.
+    pub offline: bool,
+}
+
+/// Resolve `session`'s host machine against the synced `devices` rows.
+///
+/// Match order: the row whose steer `device_id` equals the session's
+/// (EXP-549's stamp; preferring the session owner's own row when a shared
+/// device produced several), then — ONLY for pre-EXP-549 rows that carry no
+/// `device_id` — the UNIQUE row whose label equals the snapshot (0 or 2+
+/// matches resolve nothing: guessing would rename the wrong machine).
+pub(crate) fn session_device_presentation<'a>(
+    session: &domain::rows::CodingSession,
+    devices: impl Iterator<Item = &'a domain::rows::DeviceRow>,
+    now_ms: i64,
+) -> SessionDevicePresentation {
+    let row = match session.device_id.as_deref() {
+        Some(device_id) => {
+            let matches = devices
+                .filter(|row| row.device_id.as_deref() == Some(device_id))
+                .collect::<Vec<_>>();
+            matches
+                .iter()
+                .find(|row| {
+                    session.user_id.is_some() && row.user_id.as_deref() == session.user_id.as_deref()
+                })
+                .copied()
+                .or_else(|| matches.first().copied())
+        }
+        None => {
+            let snapshot = session.device_label.as_deref().filter(|l| !l.is_empty());
+            match snapshot {
+                Some(snapshot) => {
+                    let mut matches = devices
+                        .filter(|row| row.label.as_deref() == Some(snapshot))
+                        .take(2);
+                    match (matches.next(), matches.next()) {
+                        // Ambiguous (two machines share the name) — resolve
+                        // nothing rather than pick the wrong one.
+                        (Some(row), None) => Some(row),
+                        _ => None,
+                    }
+                }
+                None => None,
+            }
+        }
+    };
+    match row {
+        Some(row) => SessionDevicePresentation {
+            label: row
+                .label
                 .clone()
-                .unwrap_or_else(|| "another device".to_string())
-        })
+                .filter(|label| !label.is_empty())
+                .or_else(|| session.device_label.clone()),
+            offline: !crate::device_settings::row_is_online(row.last_seen_at.as_deref(), now_ms),
+        },
+        None => SessionDevicePresentation {
+            label: session.device_label.clone(),
+            offline: false,
+        },
+    }
+}
+
+/// EXP-550: a session whose host machine is offline (lid closed) is PAUSED,
+/// not live — but only while it would otherwise read as in-flight. Review /
+/// Merged / Done are outcomes the offline host cannot un-say, so they are
+/// never overridden.
+pub(crate) fn session_is_paused(
+    display: CodingSessionDisplay,
+    presentation: &SessionDevicePresentation,
+) -> bool {
+    presentation.offline
+        && matches!(
+            display,
+            CodingSessionDisplay::Running | CodingSessionDisplay::NeedsInput
+        )
 }
 
 /// EXP-214: how a LIVE coding session renders. The synced status alone is not
@@ -1100,10 +1198,13 @@ mod tests {
             ),
         ];
         assert_eq!(
-            live_session_device(rows.iter(), "issue-1", now).as_deref(),
+            live_session_device(rows.iter(), [].iter(), "issue-1", now, now * 1_000).as_deref(),
             Some("mac-studio")
         );
-        assert_eq!(live_session_device(rows.iter(), "issue-2", now), None);
+        assert_eq!(
+            live_session_device(rows.iter(), [].iter(), "issue-2", now, now * 1_000),
+            None
+        );
         // A live row with no label still blocks.
         let unlabeled = vec![session_on(
             "s-2",
@@ -1113,7 +1214,8 @@ mod tests {
             None,
         )];
         assert_eq!(
-            live_session_device(unlabeled.iter(), "issue-2", now).as_deref(),
+            live_session_device(unlabeled.iter(), [].iter(), "issue-2", now, now * 1_000)
+                .as_deref(),
             Some("another device")
         );
     }
@@ -1139,7 +1241,204 @@ mod tests {
                 Some("m"),
             ),
         ];
-        assert_eq!(live_session_device(rows.iter(), "issue-1", now), None);
+        assert_eq!(
+            live_session_device(rows.iter(), [].iter(), "issue-1", now, now * 1_000),
+            None
+        );
+    }
+
+    // ---- EXP-549/550: host-machine resolution + the paused state --------
+
+    fn device_row(
+        id: &str,
+        device_id: Option<&str>,
+        user_id: Option<&str>,
+        label: Option<&str>,
+        last_seen_at: Option<&str>,
+    ) -> domain::rows::DeviceRow {
+        serde_json::from_value(json!({
+            "id": id,
+            "device_id": device_id,
+            "user_id": user_id,
+            "label": label,
+            "last_seen_at": last_seen_at,
+        }))
+        .unwrap()
+    }
+
+    fn hosted_session(
+        device_id: Option<&str>,
+        device_label: Option<&str>,
+        user_id: Option<&str>,
+    ) -> domain::rows::CodingSession {
+        serde_json::from_value(json!({
+            "id": "sess-1",
+            "issue_id": "issue-1",
+            "status": "running",
+            "updated_at": "2026-07-17T11:59:00Z",
+            "device_id": device_id,
+            "device_label": device_label,
+            "user_id": user_id,
+        }))
+        .unwrap()
+    }
+
+    /// The `device_id` stamp wins over the stale label snapshot AND over a
+    /// label-equal row — a rename must show up on the running session.
+    #[test]
+    fn session_device_presentation_prefers_the_device_id_match() {
+        let now_ms = 1784289600_000_i64;
+        let devices = vec![
+            device_row(
+                "d-1",
+                Some("dev-1"),
+                Some("user-1"),
+                Some("Danny's MacBook"),
+                Some("2026-07-17T11:59:30Z"),
+            ),
+            device_row(
+                "d-2",
+                Some("dev-2"),
+                Some("user-1"),
+                Some("mac-studio"),
+                Some("2026-07-17T11:59:30Z"),
+            ),
+        ];
+        let session = hosted_session(Some("dev-1"), Some("mac-studio"), Some("user-1"));
+        let presentation = session_device_presentation(&session, devices.iter(), now_ms);
+        assert_eq!(presentation.label.as_deref(), Some("Danny's MacBook"));
+        assert!(!presentation.offline);
+    }
+
+    /// A shared device produces one row per member — the session owner's own
+    /// row wins so the label is the one that user renamed.
+    #[test]
+    fn session_device_presentation_prefers_the_owner_row_on_a_shared_device() {
+        let now_ms = 1784289600_000_i64;
+        let devices = vec![
+            device_row(
+                "d-teammate",
+                Some("dev-1"),
+                Some("user-2"),
+                Some("Shared box"),
+                Some("2026-07-17T11:59:30Z"),
+            ),
+            device_row(
+                "d-mine",
+                Some("dev-1"),
+                Some("user-1"),
+                Some("Build server"),
+                Some("2026-07-17T11:59:30Z"),
+            ),
+        ];
+        let session = hosted_session(Some("dev-1"), Some("old-host"), Some("user-1"));
+        let presentation = session_device_presentation(&session, devices.iter(), now_ms);
+        assert_eq!(presentation.label.as_deref(), Some("Build server"));
+    }
+
+    /// Pre-EXP-549 rows carry no `device_id` — a UNIQUE label match still
+    /// resolves the machine (so its online-ness applies), and an ambiguous
+    /// one resolves nothing rather than guessing.
+    #[test]
+    fn session_device_presentation_falls_back_to_a_unique_label_only() {
+        let now_ms = 1784289600_000_i64;
+        let unique = vec![device_row(
+            "d-1",
+            Some("dev-1"),
+            Some("user-1"),
+            Some("mac-studio"),
+            Some("2026-07-17T09:00:00Z"),
+        )];
+        let legacy = hosted_session(None, Some("mac-studio"), Some("user-1"));
+        let presentation = session_device_presentation(&legacy, unique.iter(), now_ms);
+        assert_eq!(presentation.label.as_deref(), Some("mac-studio"));
+        assert!(presentation.offline, "stale heartbeat = offline");
+
+        // Two machines named the same → no row, so no offline claim.
+        let ambiguous = vec![
+            device_row(
+                "d-1",
+                Some("dev-1"),
+                Some("user-1"),
+                Some("mac-studio"),
+                Some("2026-07-17T09:00:00Z"),
+            ),
+            device_row(
+                "d-2",
+                Some("dev-2"),
+                Some("user-1"),
+                Some("mac-studio"),
+                Some("2026-07-17T11:59:30Z"),
+            ),
+        ];
+        let presentation = session_device_presentation(&legacy, ambiguous.iter(), now_ms);
+        assert_eq!(presentation.label.as_deref(), Some("mac-studio"));
+        assert!(!presentation.offline);
+
+        // A session that DOES carry a device_id never falls back to the
+        // label — an unknown machine stays unresolved.
+        let stamped = hosted_session(Some("dev-unknown"), Some("mac-studio"), Some("user-1"));
+        let presentation = session_device_presentation(&stamped, unique.iter(), now_ms);
+        assert_eq!(presentation.label.as_deref(), Some("mac-studio"));
+        assert!(!presentation.offline);
+    }
+
+    /// EXP-550: offline flips only the in-flight displays to paused.
+    #[test]
+    fn session_is_paused_only_while_in_flight() {
+        let offline = SessionDevicePresentation {
+            label: Some("mac-studio".to_string()),
+            offline: true,
+        };
+        let online = SessionDevicePresentation {
+            label: Some("mac-studio".to_string()),
+            offline: false,
+        };
+        for display in [
+            CodingSessionDisplay::Running,
+            CodingSessionDisplay::NeedsInput,
+        ] {
+            assert!(session_is_paused(display, &offline));
+            assert!(!session_is_paused(display, &online));
+        }
+        for display in [
+            CodingSessionDisplay::Review,
+            CodingSessionDisplay::Merged,
+            CodingSessionDisplay::Done,
+        ] {
+            assert!(!session_is_paused(display, &offline));
+            assert!(!session_is_paused(display, &online));
+        }
+    }
+
+    /// The blocker message names the RENAMED machine (EXP-549), not the
+    /// start-time snapshot.
+    #[test]
+    fn live_session_device_reports_the_renamed_label() {
+        let now = 1784289600_i64;
+        let sessions = vec![hosted_session(
+            Some("dev-1"),
+            Some("old-host"),
+            Some("user-1"),
+        )];
+        let devices = vec![device_row(
+            "d-1",
+            Some("dev-1"),
+            Some("user-1"),
+            Some("Danny's MacBook"),
+            Some("2026-07-17T11:59:30Z"),
+        )];
+        assert_eq!(
+            live_session_device(
+                sessions.iter(),
+                devices.iter(),
+                "issue-1",
+                now,
+                now * 1_000
+            )
+            .as_deref(),
+            Some("Danny's MacBook")
+        );
     }
 
     #[test]

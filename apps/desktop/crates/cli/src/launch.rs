@@ -79,6 +79,7 @@ pub fn coding_deps(ctx: &Ctx, seeds: HashMap<String, IssueSeed>) -> CodingDeps {
         issue_seed: Arc::new(move |issue_id: &str| seeds.get(issue_id).cloned()),
         worktrees: Arc::new(GitWorktrees),
         codex_sessions_root: None,
+        device_id: Some(ctx.device_id()),
         data_dir: ctx.data_dir.clone(),
     }
 }
