@@ -26,7 +26,7 @@ use domain::rows::{Comment, User};
 use crate::comment_attachments::{
     attach_button, comment_attachments_strip, pending_attachments_strip, MAX_COMMENT_ATTACHMENTS,
 };
-use crate::emoji_picker::emoji_picker_popover;
+use crate::emoji_picker::{emoji_picker_popover, EmojiPicker};
 use crate::controls::WebControl as _;
 use crate::description_editor::open_issue_by_identifier;
 use crate::icons::{registry, ExpIcon};
@@ -146,6 +146,10 @@ pub(crate) struct CommentRowProps<'a> {
     pub team_id: Option<&'a str>,
     /// Shared attachment-image cache (auth-gated fetch).
     pub images: &'a Entity<ImageCache>,
+    /// EXP-551: the timeline's shared picker + whether the EDIT composer's
+    /// popover is open. Passed in from `&self` — see [`emoji_button`].
+    pub emoji_picker: &'a Entity<EmojiPicker>,
+    pub emoji_open: bool,
 }
 
 /// Web `RegularCommentRow`: avatar · (name · relative time · [`…` menu]) over
@@ -240,6 +244,8 @@ pub(crate) fn comment_row(
                     .child(emoji_button(
                         SharedString::from(format!("comment-edit-emoji-{comment_id}")),
                         PendingScope::Edit,
+                        props.emoji_picker,
+                        props.emoji_open,
                         cx,
                     ))
                     .child(attach_button(
@@ -355,6 +361,8 @@ pub(crate) fn composer_row(
     submitting: bool,
     has_draft: bool,
     pending: &[PendingCommentAttachment],
+    emoji_picker: &Entity<EmojiPicker>,
+    emoji_open: bool,
     cx: &mut gpui::Context<IssueTimeline>,
 ) -> impl IntoElement {
     let full = pending.len() >= MAX_COMMENT_ATTACHMENTS;
@@ -374,7 +382,13 @@ pub(crate) fn composer_row(
                 // placeholder width at some window sizes; a column stretches
                 // its child to the definite slot width instead.
                 .child(v_flex().flex_1().min_w_0().child(input.clone()))
-                .child(emoji_button("comment-emoji", PendingScope::Composer, cx))
+                .child(emoji_button(
+                    "comment-emoji",
+                    PendingScope::Composer,
+                    emoji_picker,
+                    emoji_open,
+                    cx,
+                ))
                 .child(attach_button(
                     "comment-attach",
                     PendingScope::Composer,
@@ -397,9 +411,17 @@ pub(crate) fn composer_row(
 
 /// EXP-551: the emoji trigger both comment composers grow — a smiley that
 /// opens the shared picker; a pick inserts the UNICODE at the cursor.
+///
+/// `picker`/`open` come from the timeline's `&self`, NEVER from
+/// `cx.entity().read(cx)`: this renders inside `IssueTimeline::render`, where
+/// gpui holds the entity's lease, so reading it back through the map is a
+/// guaranteed `double_lease_panic` (it aborted desktop 0.14.16 on every issue
+/// open).
 fn emoji_button(
     id: impl Into<gpui::ElementId>,
     scope: PendingScope,
+    picker: &Entity<EmojiPicker>,
+    open: bool,
     cx: &mut gpui::Context<IssueTimeline>,
 ) -> impl IntoElement {
     let id = id.into();
@@ -411,8 +433,8 @@ fn emoji_button(
             .web_icon_sm()
             .icon(Icon::new(registry::EDITOR_EMOJI).text_color(cx.theme().muted_foreground))
             .tooltip("Emoji"),
-        cx.entity().read(cx).emoji_picker().clone(),
-        cx.entity().read(cx).emoji_open(scope),
+        picker.clone(),
+        open,
         cx.listener(move |this, open: &bool, _window, cx| {
             this.set_emoji_open(scope, *open, cx);
         }),
