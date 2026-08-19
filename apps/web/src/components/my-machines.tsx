@@ -58,6 +58,46 @@ export function buildServerInstallSnippet(origin: string): string {
   return `curl -fsSL https://exponential.at/install.sh | EXP_INSTANCE=${origin} sh`
 }
 
+// The row's second line (native `deviceStatusLine` parity): a live dot +
+// "Online" (amber + the signed-out agents when nothing is runnable, EXP-409),
+// or the last-seen caption for offline machines.
+function DeviceStatusLine({
+  online,
+  signInNeeded,
+  unauthed,
+  lastSeenAt,
+}: {
+  online: boolean
+  signInNeeded: boolean
+  unauthed: string[]
+  lastSeenAt: string | null | undefined
+}) {
+  if (!online) {
+    return (
+      <div className="truncate text-xs text-muted-foreground">
+        {lastSeenAt ? `Last seen ${relativeTime(lastSeenAt)}` : `Offline`}
+      </div>
+    )
+  }
+  return (
+    <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+      <span
+        className={`size-1.5 shrink-0 rounded-full ${
+          signInNeeded ? `bg-amber-500` : `bg-emerald-500`
+        }`}
+      />
+      <span className="truncate">
+        {signInNeeded ? `${unauthed.join(`, `)} not signed in` : `Online`}
+        {!signInNeeded && unauthed.length > 0 && (
+          <span className="text-muted-foreground/60">
+            {` · ${unauthed.join(`, `)} not signed in`}
+          </span>
+        )}
+      </span>
+    </div>
+  )
+}
+
 export function MyMachines({
   devices,
   runBusy,
@@ -166,68 +206,54 @@ export function MyMachines({
           return (
             <div
               key={device.deviceId}
-              className={`flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-border/30 px-3 py-2 ${
+              className={`flex items-center gap-3 border-b border-border/30 px-3 py-2 ${
                 signInNeeded ? `opacity-60` : ``
               }`}
             >
               <KindIcon className="size-4 shrink-0 text-muted-foreground" />
-              <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
-                <span className="min-w-0 truncate text-sm">
-                  {device.deviceLabel || device.deviceId}
-                </span>
-                {device.version && (
-                  <span
-                    className={`shrink-0 text-[10px] ${
-                      outdated
-                        ? `text-amber-500`
-                        : `text-muted-foreground/60`
-                    }`}
-                    title={
-                      outdated ? `Update available: ${latest}` : undefined
-                    }
-                  >
-                    v{device.version}
+              {/* FEED-15: the native two-line row — name + version (+ Shared)
+                  on top, live/last-seen state beneath, controls trailing —
+                  so phones never wrap the launcher onto its own line. */}
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 items-baseline gap-1.5">
+                  <span className="min-w-0 truncate text-sm font-medium">
+                    {device.deviceLabel || device.deviceId}
                   </span>
-                )}
-                {device.sharedTeamId && (
-                  <span
-                    className="shrink-0 rounded-sm border border-border/60 px-1 text-[10px] text-muted-foreground"
-                    title={
-                      device.sharedTeamId === teamId
-                        ? `Shared with this team — teammates can start coding sessions on this machine.`
-                        : `Shared with another team.`
-                    }
-                  >
-                    Shared
-                  </span>
-                )}
-              </span>
-              {online ? (
-                <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
-                  <span
-                    className={`size-1.5 rounded-full ${
-                      signInNeeded ? `bg-amber-500` : `bg-emerald-500`
-                    }`}
-                  />
-                  {signInNeeded
-                    ? `${unauthed.join(`, `)} not signed in`
-                    : `Online`}
-                  {!signInNeeded && unauthed.length > 0 && (
-                    <span className="text-muted-foreground/60">
-                      · {unauthed.join(`, `)} not signed in
+                  {device.version && (
+                    <span
+                      className={`shrink-0 text-[10px] ${
+                        outdated
+                          ? `text-amber-500`
+                          : `text-muted-foreground/60`
+                      }`}
+                      title={
+                        outdated ? `Update available: ${latest}` : undefined
+                      }
+                    >
+                      v{device.version}
                     </span>
                   )}
-                </span>
-              ) : (
-                <span className="shrink-0 text-xs text-muted-foreground">
-                  {device.lastSeenAt
-                    ? `Last seen ${relativeTime(device.lastSeenAt)}`
-                    : `Offline`}
-                </span>
-              )}
-              {/* On phones the controls drop to their own right-aligned
-                  line (the row wraps); ≥sm they stay inline. */}
-              <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
+                  {device.sharedTeamId && (
+                    <span
+                      className="shrink-0 rounded-sm border border-border/60 px-1 text-[10px] text-muted-foreground"
+                      title={
+                        device.sharedTeamId === teamId
+                          ? `Shared with this team — teammates can start coding sessions on this machine.`
+                          : `Shared with another team.`
+                      }
+                    >
+                      Shared
+                    </span>
+                  )}
+                </div>
+                <DeviceStatusLine
+                  online={online}
+                  signInNeeded={signInNeeded}
+                  unauthed={unauthed}
+                  lastSeenAt={device.lastSeenAt}
+                />
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
                 {/* EXP-420: only when a newer version really exists (or an
                     update is already in flight — keep its progress visible). */}
                 {(showDeviceUpdateButton(device, latest) ||
@@ -249,18 +275,18 @@ export function MyMachines({
                       // of spinning until the last one closes.
                       <>
                         <UpdateIcon />
-                        Queued
+                        <span className="max-sm:sr-only">Queued</span>
                       </>
                     ) : device.updateRequested ||
                       updatingId === device.deviceId ? (
                       <>
                         <LoaderCircle className="animate-spin" />
-                        Updating…
+                        <span className="max-sm:sr-only">Updating…</span>
                       </>
                     ) : (
                       <>
                         <UpdateIcon />
-                        Update
+                        <span className="max-sm:sr-only">Update</span>
                       </>
                     )}
                   </Button>
@@ -285,7 +311,12 @@ export function MyMachines({
                 {device.registered && (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" className="h-5 w-5 p-0">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 text-muted-foreground"
+                        aria-label={`Machine menu for ${device.deviceLabel || device.deviceId}`}
+                      >
                         <MoreIcon className="size-4" />
                       </Button>
                     </DropdownMenuTrigger>
@@ -327,42 +358,30 @@ export function MyMachines({
             return (
               <div
                 key={device.deviceId}
-                className={`flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-border/30 px-3 py-2 ${
+                className={`flex items-center gap-3 border-b border-border/30 px-3 py-2 ${
                   signInNeeded ? `opacity-60` : ``
                 }`}
               >
                 <ServerIcon className="size-4 shrink-0 text-muted-foreground" />
-                <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
+                <div className="min-w-0 flex-1">
                   {/* EXP-525: no people names inline — a teammate's shared
                       row keeps the attribution in its tooltip. */}
-                  <span
-                    className="min-w-0 truncate text-sm"
+                  <div
+                    className="min-w-0 truncate text-sm font-medium"
                     title={
                       device.owner ? `Shared by ${device.owner.name}` : undefined
                     }
                   >
                     {device.deviceLabel || device.deviceId}
-                  </span>
-                </span>
-                {online ? (
-                  <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
-                    <span
-                      className={`size-1.5 rounded-full ${
-                        signInNeeded ? `bg-amber-500` : `bg-emerald-500`
-                      }`}
-                    />
-                    {signInNeeded
-                      ? `${unauthed.join(`, `)} not signed in`
-                      : `Online`}
-                  </span>
-                ) : (
-                  <span className="shrink-0 text-xs text-muted-foreground">
-                    {device.lastSeenAt
-                      ? `Last seen ${relativeTime(device.lastSeenAt)}`
-                      : `Offline`}
-                  </span>
-                )}
-                <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
+                  </div>
+                  <DeviceStatusLine
+                    online={online}
+                    signInNeeded={signInNeeded}
+                    unauthed={unauthed}
+                    lastSeenAt={device.lastSeenAt}
+                  />
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
                   <Button
                     variant="outline"
                     size="sm"

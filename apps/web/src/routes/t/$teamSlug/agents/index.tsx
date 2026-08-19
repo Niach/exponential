@@ -96,6 +96,7 @@ const ActionCreateIcon = conceptIcon(`action-create`)
 // EXP-530: automation + suggestion glyphs are cross-client concepts too.
 const ActionAutomationIcon = conceptIcon(`action-automation`)
 const ActionSuggestionIcon = conceptIcon(`action-suggestion`)
+const ActionRepositoryIcon = conceptIcon(`action-repository`)
 
 type AgentsTab = `actions` | `automations` | `suggestions`
 
@@ -239,15 +240,26 @@ function ActionRow({
   const RowIcon = getActionIcon(action)
   const trigger = parseActionTrigger(action.trigger)
   return (
-    <div className="flex items-center gap-2 border-b border-border/30 px-3 py-2">
+    <div className="flex items-center gap-3 border-b border-border/30 px-3 py-2">
       <RowIcon className="size-4 shrink-0 text-muted-foreground" />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5 text-sm">
           <span className="truncate font-medium">{action.name}</span>
-          {repoName && <RepoBadge repoName={repoName} />}
+          {/* FEED-15: native parity — a small "runs in a repository" glyph
+              (the repo name in its tooltip) instead of the full-name badge
+              that ate the name on phones. */}
+          {repoName && (
+            <span
+              className="inline-flex shrink-0"
+              title={`Runs in ${repoName}`}
+              aria-label={`Runs in ${repoName}`}
+            >
+              <ActionRepositoryIcon className="size-3 text-muted-foreground/70" />
+            </span>
+          )}
         </div>
         {action.description && (
-          <div className="truncate text-xs text-muted-foreground">
+          <div className="line-clamp-2 text-xs text-muted-foreground">
             {action.description}
           </div>
         )}
