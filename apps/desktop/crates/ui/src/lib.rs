@@ -33,6 +33,7 @@ mod board;
 mod board_form;
 pub mod coding_flow;
 mod coding_selects;
+mod comment_attachments;
 mod comments;
 mod commit_graph;
 mod controls;

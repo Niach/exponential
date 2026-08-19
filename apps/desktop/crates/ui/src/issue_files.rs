@@ -34,6 +34,10 @@ pub(crate) fn is_inline_image(content_type: Option<&str>) -> bool {
 /// renders. Reads the collection the same way
 /// `markdown::attachment_natural_size` does, so an Electric delta re-renders
 /// the section through the detail view's existing collection observer.
+///
+/// EXP-554: rows carrying a `comment_id` belong to ONE comment and render in
+/// that comment's strip — the rail lists issue-level files only (web/iOS/
+/// Android filter identically).
 pub(crate) fn file_attachments(issue_id: &str, cx: &App) -> Vec<Attachment> {
     let Some(store) = Store::try_global(cx) else {
         return Vec::new();
@@ -44,6 +48,7 @@ pub(crate) fn file_attachments(issue_id: &str, cx: &App) -> Vec<Attachment> {
         .read(cx)
         .iter()
         .filter(|attachment| attachment.issue_id.as_deref() == Some(issue_id))
+        .filter(|attachment| attachment.comment_id.is_none())
         .filter(|attachment| !is_inline_image(attachment.content_type.as_deref()))
         .cloned()
         .collect();
@@ -169,6 +174,25 @@ pub(crate) fn temp_open_path(attachment_id: &str, filename: &str) -> std::path::
         .join("exponential-attachments")
         .join(sanitize_filename(attachment_id))
         .join(sanitize_filename(filename))
+}
+
+/// Fetch one attachment's bytes through the auth-gated transport into its
+/// [`temp_open_path`] and hand back the path for `cx.open_with_system`.
+/// BLOCKING (network + disk) — background executor only. Shared by the Files
+/// rail's "Open" and the EXP-554 comment attachment chips so both materialize
+/// bytes the same way.
+pub(crate) fn fetch_attachment_to_temp(
+    transport: &dyn crate::markdown::AttachmentTransport,
+    attachment_id: &str,
+    label: &str,
+) -> anyhow::Result<std::path::PathBuf> {
+    let path = temp_open_path(attachment_id, label);
+    let bytes = transport.fetch(&format!("/api/attachments/{attachment_id}"))?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&path, bytes)?;
+    Ok(path)
 }
 
 #[cfg(test)]

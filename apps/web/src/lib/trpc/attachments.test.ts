@@ -38,6 +38,7 @@ interface AttachmentRow {
   teamId?: string
   issueId?: string
   boardId?: string
+  commentId?: string | null
   uploaderId?: string | null
   filename: string
   contentType: string
@@ -91,12 +92,26 @@ function makeQueryable() {
     execute: async () => ({ rows: [{ txid: `42` }] }),
     select: (fields: Record<string, unknown>) => ({
       from: (table: unknown) => ({
-        where: () =>
-          thenable(
-            rowsFor(table).map((row) =>
+        where: () => {
+          let rows = rowsFor(table)
+          // The fake ignores predicates except for the one filter the tests
+          // exercise: the comment-linked pass (EXP-554) selects exactly `id`
+          // from attachments WHERE comment_id IS NOT NULL.
+          const isCommentLinkedPass =
+            table === attachments &&
+            Object.keys(fields).length === 1 &&
+            Object.keys(fields)[0] === `id`
+          if (isCommentLinkedPass) {
+            rows = (rows as AttachmentRow[]).filter(
+              (row) => row.commentId != null
+            )
+          }
+          return thenable(
+            rows.map((row) =>
               project(fields, row as unknown as Record<string, unknown>)
             )
-          ),
+          )
+        },
       }),
     }),
     update: (table: unknown) => ({
@@ -301,6 +316,25 @@ describe(`attachments.sweepUnreferencedImages`, () => {
     ).rejects.toThrow(`not allowed here`)
     expect(h.deleteStorageObjects).not.toHaveBeenCalled()
   })
+
+  it(`never reclaims comment-linked images (EXP-554: linked, not embedded)`, async () => {
+    state.attachmentRows = [
+      imageRow({ id: ATT_A, commentId: `comment-1` }),
+      imageRow({
+        id: ATT_B,
+        storageKey: `issues/issue-1/${ATT_B}-old.png`,
+      }),
+    ]
+    state.issueRows = []
+    state.commentRows = []
+
+    const result = await caller.sweepUnreferencedImages({ teamId: TEAM })
+
+    expect(result.deletedCount).toBe(1)
+    expect(h.deleteStorageObjects).toHaveBeenCalledWith([
+      `issues/issue-1/${ATT_B}-old.png`,
+    ])
+  })
 })
 
 describe(`attachments.listForTeam`, () => {
@@ -346,5 +380,15 @@ describe(`attachments.listForTeam`, () => {
     await expect(caller.listForTeam({ teamId: TEAM })).rejects.toThrow(
       `not allowed here`
     )
+  })
+
+  it(`flags comment-linked rows as referenced (EXP-554)`, async () => {
+    state.attachmentRows = [imageRow({ id: ATT_A, commentId: `comment-1` })]
+    state.issueRows = []
+    state.commentRows = []
+
+    const result = await caller.listForTeam({ teamId: TEAM })
+
+    expect(result.attachments[0].referenced).toBe(true)
   })
 })

@@ -691,6 +691,9 @@ final class IssueDetailViewModel {
     private func applyAttachments(_ rows: [AttachmentEntity]) {
         fileAttachments = rows
             .filter { !AttachmentFiles.isInlineImage(contentType: $0.contentType) }
+            // EXP-554: a file attached to a COMMENT renders in that comment's
+            // strip, not the issue's Files rail — otherwise it lists twice.
+            .filter { $0.commentId == nil }
             .sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
         // A pending entry whose real row has arrived is now a duplicate — the
         // synced row takes over.

@@ -12,6 +12,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.horizontalScroll
@@ -82,6 +83,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.ui.components.BottomBarPillFill
+import com.exponential.app.ui.components.PendingAttachment
+import com.exponential.app.ui.components.PendingAttachmentStrip
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.PatchLines
 import com.exponential.app.ui.issue.splitUnifiedDiff
@@ -93,6 +97,7 @@ import com.exponential.app.ui.markdown.LocalMarkdownAutolink
 import com.exponential.app.ui.markdown.MarkdownMediaUtils
 import com.exponential.app.ui.markdown.MarkdownView
 import com.exponential.app.ui.markdown.MdStyle
+import com.exponential.app.ui.theme.AccentIndigo
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -116,6 +121,8 @@ private val ConnectingYellow = Color(0xFFFBBF24)
 private val LostGray = Color(0xFF71717A)
 /** Accent for the "Plan ready" card + header cue (EXP-97). */
 private val PlanAccent = DesignTokens.Semantic.Blue
+/** Hairline around the steer composer card — the comment composer's stroke. */
+private val ComposerStroke = Color.White.copy(alpha = 0.12f)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -151,14 +158,20 @@ fun AgentSessionScreen(
                 val picked = withContext(Dispatchers.IO) {
                     val bytes = MarkdownMediaUtils.readBytes(context, uri)
                         ?: return@withContext null
-                    PendingSteerImage(
+                    PendingAttachment(
                         uri = uri,
                         bytes = bytes,
                         filename = MarkdownMediaUtils.guessFilename(context, uri),
-                        mime = MarkdownMediaUtils.guessMimeType(context, uri),
+                        contentType = MarkdownMediaUtils.guessMimeType(context, uri),
+                        isImage = true,
                     )
                 } ?: return@forEach
-                viewModel.addPendingImage(picked.uri, picked.bytes, picked.filename, picked.mime)
+                viewModel.addPendingImage(
+                    picked.uri,
+                    picked.bytes,
+                    picked.filename,
+                    picked.contentType,
+                )
             }
         }
     }
@@ -437,23 +450,17 @@ fun AgentSessionScreen(
             // operator state; live implies ownership, input just sends.
             val inputVisible = phase == AgentPhase.Live && !sessionEnded
             if (inputVisible) {
-                if (pendingImages.isNotEmpty()) {
-                    PendingImageStrip(
-                        images = pendingImages,
-                        enabled = !steerSending,
-                        onRemove = viewModel::removePendingImage,
-                    )
-                }
-                MessageInputRow(
+                SteerComposer(
+                    pendingImages = pendingImages,
                     canAttach = session?.issueId != null,
                     sending = steerSending,
-                    hasPendingImages = pendingImages.isNotEmpty(),
                     planPending = planAwaitingApproval,
                     onPickImages = {
                         imagePicker.launch(
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
                         )
                     },
+                    onRemoveImage = viewModel::removePendingImage,
                     onSend = viewModel::sendMessageWithImages,
                 )
             }
@@ -1618,95 +1625,48 @@ private fun middleTruncate(s: String, max: Int = 72): String {
 
 // ── Steering input ───────────────────────────────────────────────────────────
 
-/** Thumbnails of the images attached to the next message (EXP-511). */
+/**
+ * The steering composer (EXP-511) restyled to the comment composer's chrome
+ * (EXP-554): ONE rounded card — the near-opaque bottom-bar pill fill under a
+ * hairline stroke — holding the pending-image strip, a transparent text field,
+ * and the `[+] · spacer · send` row, with the send glyph tinted indigo the
+ * moment there is something to send.
+ *
+ * Chrome only: the image cap, the upload-on-send path and the frozen steer
+ * message wire format are untouched.
+ */
 @Composable
-private fun PendingImageStrip(
-    images: List<PendingSteerImage>,
-    enabled: Boolean,
-    onRemove: (Int) -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(bottom = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        images.forEachIndexed { index, image ->
-            val bitmap = remember(image.uri, image.bytes) {
-                BitmapFactory.decodeByteArray(image.bytes, 0, image.bytes.size)?.asImageBitmap()
-            }
-            Box(modifier = Modifier.size(64.dp)) {
-                if (bitmap != null) {
-                    Image(
-                        bitmap = bitmap,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(RoundedCornerShape(8.dp)),
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(GlassTokens.RowFill),
-                    )
-                }
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(2.dp)
-                        .size(18.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.55f))
-                        .clickable(enabled = enabled) { onRemove(index) },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        ExpIcons.uiClose,
-                        contentDescription = "Remove image",
-                        modifier = Modifier.size(12.dp),
-                        tint = Color.White,
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun MessageInputRow(
+private fun SteerComposer(
+    pendingImages: List<PendingAttachment>,
     canAttach: Boolean,
     sending: Boolean,
-    hasPendingImages: Boolean,
     /** A plan-approval card is awaiting the human — the composer doubles as
      *  the "tell Claude what to change" path (EXP-529 batch). */
     planPending: Boolean,
     onPickImages: () -> Unit,
+    onRemoveImage: (Int) -> Unit,
     onSend: (String) -> Unit,
 ) {
     var field by remember { mutableStateOf("") }
-    val canSend = (field.isNotBlank() || hasPendingImages) && !sending
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.Bottom,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    val canSend = (field.isNotBlank() || pendingImages.isNotEmpty()) && !sending
+    val shape = RoundedCornerShape(24.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(BottomBarPillFill)
+            .border(GlassTokens.Hairline, ComposerStroke, shape)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
     ) {
-        if (canAttach) {
-            IconButton(onClick = onPickImages, enabled = !sending) {
-                Icon(
-                    ExpIcons.uiAdd,
-                    contentDescription = "Attach image",
-                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                )
-            }
-        }
+        PendingAttachmentStrip(
+            items = pendingImages,
+            enabled = !sending,
+            onRemove = onRemoveImage,
+        )
         TextField(
             value = field,
             onValueChange = { field = it },
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.fillMaxWidth(),
             placeholder = {
                 Text(
                     if (planPending) "Tell Claude what to change…" else "Message the agent…",
@@ -1714,41 +1674,53 @@ private fun MessageInputRow(
                 )
             },
             maxLines = 4,
-            shape = RoundedCornerShape(12.dp),
             colors = TextFieldDefaults.colors(
-                focusedContainerColor = GlassTokens.RowFill,
-                unfocusedContainerColor = GlassTokens.RowFill,
-                disabledContainerColor = GlassTokens.RowFill,
+                focusedContainerColor = Color.Transparent,
+                unfocusedContainerColor = Color.Transparent,
+                disabledContainerColor = Color.Transparent,
                 focusedIndicatorColor = Color.Transparent,
                 unfocusedIndicatorColor = Color.Transparent,
                 disabledIndicatorColor = Color.Transparent,
             ),
         )
-        IconButton(
-            onClick = {
-                if (canSend) {
-                    onSend(field)
-                    field = ""
-                }
-            },
-            enabled = canSend,
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (sending) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    strokeWidth = 2.dp,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-            } else {
-                Icon(
-                    ExpIcons.uiSend,
-                    contentDescription = "Send",
-                    tint = if (canSend) {
-                        MaterialTheme.colorScheme.onSurface
-                    } else {
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Quaternary)
-                    },
-                )
+            if (canAttach) {
+                IconButton(onClick = onPickImages, enabled = !sending) {
+                    Icon(
+                        ExpIcons.uiAdd,
+                        contentDescription = "Attach image",
+                        modifier = Modifier.size(20.dp),
+                        tint = Color.White.copy(alpha = TextEmphasis.Secondary),
+                    )
+                }
+            }
+            Spacer(Modifier.weight(1f))
+            IconButton(
+                onClick = {
+                    if (canSend) {
+                        onSend(field)
+                        field = ""
+                    }
+                },
+                enabled = canSend,
+            ) {
+                if (sending) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = Color.White,
+                    )
+                } else {
+                    Icon(
+                        ExpIcons.uiSend,
+                        contentDescription = "Send",
+                        modifier = Modifier.size(24.dp),
+                        tint = if (canSend) AccentIndigo else Color.White.copy(alpha = 0.3f),
+                    )
+                }
             }
         }
     }

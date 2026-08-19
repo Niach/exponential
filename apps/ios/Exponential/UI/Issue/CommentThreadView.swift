@@ -1,7 +1,9 @@
 import ExpUI
 import ExpCore
+import PhotosUI
 import SwiftUI
 import GRDB
+import UniformTypeIdentifiers
 
 // The activity timeline (EXP-240 redesign). Reads live comments + issue_events
 // from the local GRDB store (populated by Electric sync) and routes comment
@@ -27,6 +29,9 @@ struct CommentThreadView: View {
     @State private var users: [String: UserEntity] = [:]
     @State private var labels: [String: LabelEntity] = [:]
     @State private var boards: [String: BoardEntity] = [:]
+    /// EXP-554 — this issue's comment-linked attachment rows, grouped by
+    /// `comment_id` and ordered (created_at, id) like every other timeline list.
+    @State private var attachmentsByComment: [String: [AttachmentEntity]] = [:]
     @State private var editingCommentId: String?
     // The rich editor backing the comment currently being edited (re-seeded on
     // each Edit tap; only one comment edits at a time).
@@ -217,6 +222,8 @@ struct CommentThreadView: View {
         ) {
             RegularCommentRow(
                 comment: comment,
+                attachments: attachmentsByComment[comment.id] ?? [],
+                issueId: issue.id,
                 author: users[comment.authorId],
                 authorId: comment.authorId,
                 isAuthor: comment.authorId == deps.auth.userId,
@@ -249,15 +256,28 @@ struct CommentThreadView: View {
                     editingCommentId = comment.id
                 },
                 onCancelEdit: { editingCommentId = nil },
-                onSaveEdit: {
+                onSaveEdit: { attachmentIds in
+                    // The editor's own keyboard toolbar can still inline an
+                    // image into the BODY (that path predates EXP-554 and stays
+                    // as it was); `attachmentIds` is the new, separate list of
+                    // linked rows — a FULL desired set, so anything the user
+                    // removed is hard-deleted server-side.
                     let ok = await editEditor.commitPendingImages(uploader: makeCommentImageUploader())
-                    guard ok, !editEditor.hasUncommittedDrafts else { return }
+                    guard ok, !editEditor.hasUncommittedDrafts else { return false }
                     let md = editEditor.currentMarkdown().trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !md.isEmpty else { return }
+                    guard !md.isEmpty || !attachmentIds.isEmpty else { return false }
                     do {
-                        try await deps.commentsApi.update(accountId: accountId, id: comment.id, text: md)
+                        try await deps.commentsApi.update(
+                            accountId: accountId,
+                            id: comment.id,
+                            text: md,
+                            attachmentIds: attachmentIds
+                        )
                         editingCommentId = nil
-                    } catch {}
+                        return true
+                    } catch {
+                        return false
+                    }
                 },
                 onDelete: {
                     Task { try? await deps.commentsApi.delete(accountId: accountId, id: comment.id) }
@@ -362,6 +382,27 @@ struct CommentThreadView: View {
             } catch {}
         })
 
+        // EXP-554: attachments linked to a COMMENT on this issue. Issue-level
+        // rows (comment_id NULL) belong to the description/Files rail and are
+        // filtered out in SQL so the grouping below never has to guess.
+        let attachmentObs = ValueObservation.tracking { db in
+            try AttachmentEntity
+                .filter(Column("issue_id") == issueId)
+                .filter(Column("comment_id") != nil)
+                .fetchAll(db)
+        }
+        observationTasks.append(Task {
+            do {
+                for try await rows in attachmentObs.values(in: pool) {
+                    let ordered = rows.sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
+                    self.attachmentsByComment = Dictionary(
+                        grouping: ordered,
+                        by: { $0.commentId ?? "" }
+                    )
+                }
+            } catch {}
+        })
+
         let eventObs = ValueObservation.tracking { db in
             try IssueEventEntity
                 .filter(Column("issue_id") == issueId)
@@ -434,6 +475,11 @@ private struct TimelineRow<Marker: View, Content: View>: View {
 
 private struct RegularCommentRow: View {
     let comment: CommentEntity
+    /// EXP-554 — the rows whose `comment_id` is this comment, already ordered.
+    let attachments: [AttachmentEntity]
+    /// Uploads target the ISSUE (the attachment rows are issue-scoped; the
+    /// comment link is stamped by `comments.create`/`update`).
+    let issueId: String
     let author: UserEntity?
     // The author's user id, so a not-synced author still gets a stable pseudonym
     // instead of the generic fallback.
@@ -452,8 +498,12 @@ private struct RegularCommentRow: View {
     let onOpenIssue: (String) -> Void
     let onEdit: () -> Void
     let onCancelEdit: () -> Void
-    let onSaveEdit: () async -> Void
+    /// Saves the edit with the FULL desired attachment id list; returns whether
+    /// the mutation went through (a failure keeps the composer open).
+    let onSaveEdit: ([String]) async -> Bool
     let onDelete: () -> Void
+
+    @Environment(AppDependencies.self) private var deps
 
     @State private var saving = false
     // Read-only display model for the comment body (same block stack as the
@@ -461,9 +511,32 @@ private struct RegularCommentRow: View {
     @State private var displayModel = IssueEditorModel()
     @State private var displayedBody: String?
 
+    // EXP-554 edit state: which already-linked rows survive the save, plus
+    // anything newly picked. Removals are permanent once saved (the server hard-
+    // deletes rows missing from the list), so nothing is uploaded or dropped
+    // until Save is pressed.
+    @State private var keptAttachmentIds: Set<String> = []
+    @State private var pendingAttachments: [PendingCommentAttachment] = []
+    @State private var attachmentError: String?
+    @State private var showPhotoPicker = false
+    @State private var photoItems: [PhotosPickerItem] = []
+    @State private var showFileImporter = false
+
     // Author-only, no global-admin bypass (EXP-398) — the server refuses the
     // mutation for anyone else, so the menu would only ever be a dead end.
     private var canModify: Bool { isAuthor }
+
+    private var keptAttachments: [AttachmentEntity] {
+        attachments.filter { keptAttachmentIds.contains($0.id) }
+    }
+
+    private var attachmentsFull: Bool {
+        keptAttachments.count + pendingAttachments.count >= AttachmentFiles.maxCommentAttachments
+    }
+
+    private var bodyText: String {
+        getCommentBodyText(comment.body)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -512,11 +585,60 @@ private struct RegularCommentRow: View {
                 .padding(.vertical, 2)
                 .background(Color.white.opacity(0.04))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
-                HStack {
+
+                // Already-linked rows, each removable. Removals only take effect
+                // on Save — and then they are permanent.
+                if !keptAttachments.isEmpty {
+                    CommentAttachmentsStrip(attachments: keptAttachments) { id in
+                        keptAttachmentIds.remove(id)
+                        attachmentError = nil
+                    }
+                }
+                if !pendingAttachments.isEmpty {
+                    PendingAttachmentStrip(items: pendingAttachments) { id in
+                        pendingAttachments.removeAll { $0.id == id }
+                        attachmentError = nil
+                    }
+                }
+                if let attachmentError {
+                    Text(attachmentError)
+                        .font(.caption2)
+                        .foregroundStyle(DesignTokens.Semantic.red)
+                }
+
+                HStack(spacing: 2) {
+                    Button {
+                        showPhotoPicker = true
+                    } label: {
+                        AppIcon(AppIcons.editorImage, size: AppIcon.Size.medium)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .frame(width: 32, height: 32)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(saving || attachmentsFull)
+                    .opacity(saving || attachmentsFull ? 0.4 : 1)
+                    .accessibilityLabel("Add photo")
+
+                    Button {
+                        showFileImporter = true
+                    } label: {
+                        AppIcon(AppIcons.uiAttach, size: AppIcon.Size.medium)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .frame(width: 32, height: 32)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(saving || attachmentsFull)
+                    .opacity(saving || attachmentsFull ? 0.4 : 1)
+                    .accessibilityLabel("Attach a file")
+
+                    Spacer(minLength: 8)
+
                     Button {
                         saving = true
                         Task {
-                            await onSaveEdit()
+                            await performSave()
                             saving = false
                         }
                     } label: {
@@ -538,35 +660,46 @@ private struct RegularCommentRow: View {
                 // and resolved `#IDENTIFIER` refs as tappable pills; the
                 // raw stored markdown stays untouched (the edit path
                 // reseeds from it).
-                MarkdownEditor(
-                    model: displayModel,
-                    placeholder: "",
-                    baseURL: baseURL,
-                    accountId: accountId,
-                    httpClient: httpClient,
-                    onIssueRefTap: { issueId in onOpenIssue(issueId) },
-                    isReadOnly: true
-                )
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .task(id: getCommentBodyText(comment.body)) {
-                    let text = getCommentBodyText(comment.body)
-                    guard displayedBody != text else { return }
-                    displayedBody = text
-                    let model = IssueEditorModel()
-                    // Display-only model: chips render as `#ID <title>` with
-                    // the title spliced in as real characters (EXP-307), which
-                    // is safe here because this model never serializes — the
-                    // edit path builds its own model from the raw stored
-                    // markdown. Editable models get the same chip via a
-                    // serialization-invisible attachment instead (EXP-322).
-                    model.isDisplayOnly = true
-                    model.mentionMembers = mentionMembers
-                    model.issueRefResolver = resolveIssueRef
-                    model.issueRefTitleResolver = resolveIssueRefTitle
-                    model.issueRefStatusResolver = resolveIssueRefStatus
-                    model.load(markdown: text, baseURL: baseURL)
-                    displayModel = model
+                //
+                // EXP-554: an attachment-only comment has a blank body — skip
+                // the body view entirely rather than rendering an empty block.
+                if !bodyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    MarkdownEditor(
+                        model: displayModel,
+                        placeholder: "",
+                        baseURL: baseURL,
+                        accountId: accountId,
+                        httpClient: httpClient,
+                        onIssueRefTap: { issueId in onOpenIssue(issueId) },
+                        isReadOnly: true
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .task(id: bodyText) {
+                        let text = bodyText
+                        guard displayedBody != text else { return }
+                        displayedBody = text
+                        let model = IssueEditorModel()
+                        // Display-only model: chips render as `#ID <title>` with
+                        // the title spliced in as real characters (EXP-307), which
+                        // is safe here because this model never serializes — the
+                        // edit path builds its own model from the raw stored
+                        // markdown. Editable models get the same chip via a
+                        // serialization-invisible attachment instead (EXP-322).
+                        model.isDisplayOnly = true
+                        model.mentionMembers = mentionMembers
+                        model.issueRefResolver = resolveIssueRef
+                        model.issueRefTitleResolver = resolveIssueRefTitle
+                        model.issueRefStatusResolver = resolveIssueRefStatus
+                        model.load(markdown: text, baseURL: baseURL)
+                        displayModel = model
+                    }
                 }
+
+                // EXP-554: linked attachments render BELOW the body as squared
+                // thumbs + file chips — never inlined into the markdown. Old
+                // comments that inlined `![](…)` keep rendering through the body
+                // above exactly as before.
+                CommentAttachmentsStrip(attachments: attachments)
             }
         }
         // Glass comment card (EXP-240) — the avatar lives in the timeline
@@ -576,6 +709,105 @@ private struct RegularCommentRow: View {
         .padding(.bottom, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassSection()
+        .photosPicker(
+            isPresented: $showPhotoPicker,
+            selection: $photoItems,
+            maxSelectionCount: AttachmentFiles.maxCommentAttachments,
+            matching: .images
+        )
+        .onChange(of: photoItems) { _, newItems in
+            guard !newItems.isEmpty else { return }
+            Task { await ingestPhotos(newItems) }
+        }
+        .fileImporter(
+            isPresented: $showFileImporter,
+            allowedContentTypes: [.item],
+            allowsMultipleSelection: true
+        ) { result in
+            guard case let .success(urls) = result else { return }
+            Task { await ingestFiles(urls) }
+        }
+        // Entering edit mode seeds the "kept" set from what is linked today; the
+        // pending list starts empty on every fresh edit.
+        .onChange(of: isEditing) { _, editing in
+            if editing { seedEditAttachments() }
+        }
+        .onAppear {
+            if isEditing { seedEditAttachments() }
+        }
+    }
+
+    // MARK: - Edit-mode attachments (EXP-554)
+
+    private func seedEditAttachments() {
+        keptAttachmentIds = Set(attachments.map(\.id))
+        pendingAttachments = []
+        attachmentError = nil
+    }
+
+    /// Upload anything newly picked, then hand the FULL desired id list to the
+    /// save closure. Uploads stamp `uploadedId`, so a retry after a failure only
+    /// uploads what is left.
+    private func performSave() async {
+        attachmentError = nil
+        var attachmentIds = keptAttachments.map(\.id)
+        if !pendingAttachments.isEmpty {
+            let outcome = await CommentAttachmentUploads.uploadAll(
+                pendingAttachments,
+                accountId: accountId,
+                issueId: issueId,
+                issueImagesApi: deps.issueImagesApi,
+                attachmentsApi: deps.attachmentsApi
+            )
+            pendingAttachments = outcome.items
+            if let failure = outcome.failure {
+                attachmentError = failure
+                return
+            }
+            attachmentIds += outcome.items.compactMap(\.uploadedId)
+        }
+        if await onSaveEdit(attachmentIds) {
+            pendingAttachments = []
+        }
+    }
+
+    private func ingestPhotos(_ items: [PhotosPickerItem]) async {
+        defer { photoItems = [] }
+        attachmentError = nil
+        for item in items {
+            guard !attachmentsFull else {
+                attachmentError = "A comment can carry \(AttachmentFiles.maxCommentAttachments) attachments."
+                break
+            }
+            guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
+            let type = item.supportedContentTypes.first
+            let outcome = AttachmentPicks.normalizedPhoto(
+                data: data,
+                contentTypeHint: type?.preferredMIMEType,
+                filenameExtensionHint: type?.preferredFilenameExtension
+            )
+            if let attachment = outcome.attachment {
+                pendingAttachments.append(attachment)
+            } else {
+                attachmentError = outcome.failure
+            }
+        }
+    }
+
+    private func ingestFiles(_ urls: [URL]) async {
+        attachmentError = nil
+        for url in urls {
+            guard !attachmentsFull else {
+                attachmentError = "A comment can carry \(AttachmentFiles.maxCommentAttachments) attachments."
+                break
+            }
+            let outcome = await AttachmentPicks.readPickedFile(at: url)
+            if let attachment = outcome.attachment {
+                pendingAttachments.append(attachment)
+            } else {
+                attachmentError = outcome.failure
+            }
+        }
     }
 }
 

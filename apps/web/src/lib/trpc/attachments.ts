@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server"
 import { z } from "zod"
-import { and, desc, eq, ilike, inArray } from "drizzle-orm"
+import { and, desc, eq, ilike, inArray, isNotNull } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { attachments, comments, issues } from "@/db/schema"
 import { assertTeamMember, assertTeamOwner } from "@/lib/team-membership"
@@ -37,7 +37,7 @@ async function collectTeamReferencedAttachmentIdsInTx(
 ): Promise<Set<string>> {
   const pattern = `%/api/attachments/%`
 
-  const [descriptionRows, commentRows] = await Promise.all([
+  const [descriptionRows, commentRows, commentLinkedRows] = await Promise.all([
     tx
       .select({ text: issues.description })
       .from(issues)
@@ -48,12 +48,24 @@ async function collectTeamReferencedAttachmentIdsInTx(
       .select({ text: comments.body })
       .from(comments)
       .where(and(eq(comments.teamId, teamId), ilike(comments.body, pattern))),
+    // Comment attachments (EXP-554) are linked via comment_id, never embedded
+    // in markdown — without this they'd read as unreferenced sweep bait.
+    tx
+      .select({ id: attachments.id })
+      .from(attachments)
+      .where(
+        and(eq(attachments.teamId, teamId), isNotNull(attachments.commentId))
+      ),
   ])
 
-  return collectReferencedAttachmentIds(
+  const referenced = collectReferencedAttachmentIds(
     [...descriptionRows, ...commentRows].map((row) => row.text ?? ``),
     origin
   )
+  for (const row of commentLinkedRows) {
+    referenced.add(row.id)
+  }
+  return referenced
 }
 
 export const attachmentsRouter = router({

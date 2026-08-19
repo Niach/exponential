@@ -77,9 +77,6 @@ struct AgentSessionView: View {
     private static let feedCoordSpace = "feed-scroll"
     /// Within this many points of the bottom still counts as pinned.
     private static let followSlack: CGFloat = 32
-    /// The server's `maxImageUploadBytes` (10 MB) — checked here so an oversize
-    /// pick fails instantly instead of after a long upload.
-    private static let maxImageBytes = 10 * 1024 * 1024
 
     var body: some View {
         ZStack {
@@ -619,22 +616,13 @@ struct AgentSessionView: View {
                     diffChip(diff)
                 }
                 if inputVisible {
-                    if !pendingImages.isEmpty {
-                        pendingImageStrip
-                    }
-                    if let imageError = model.steerImageError {
-                        Text(imageError)
-                            .font(.caption)
-                            .foregroundStyle(DesignTokens.Semantic.red)
-                    }
                     // Steering is fully seamless (EXP-312) — no captions, no
                     // operator state; input just sends.
-                    inputRow(model)
+                    composerCard(model)
                 }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
-            .background(.ultraThinMaterial)
         }
     }
 
@@ -673,60 +661,37 @@ struct AgentSessionView: View {
         inputText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// The images queued for the next steer message (EXP-511) — 64pt tiles with
-    /// a remove overlay, mirroring the share composer's strip.
-    private var pendingImageStrip: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(pendingImages) { image in
-                    if let uiImage = UIImage(data: image.data) {
-                        ZStack(alignment: .topTrailing) {
-                            Image(uiImage: uiImage)
-                                .resizable()
-                                .scaledToFill()
-                                .frame(width: 64, height: 64)
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
-                            Button {
-                                pendingImages.removeAll { $0.id == image.id }
-                            } label: {
-                                AppIcon(AppIcons.uiClose, size: 10, weight: .semibold)
-                                    .foregroundStyle(.white)
-                                    .frame(width: 20, height: 20)
-                                    .background(Circle().fill(Color.black.opacity(0.6)))
-                            }
-                            .buttonStyle(.plain)
-                            .padding(2)
-                            .accessibilityLabel("Remove image")
-                        }
-                    }
-                }
-            }
-            .padding(.vertical, 2)
-        }
-    }
-
-    private func inputRow(_ model: AgentSessionModel) -> some View {
+    /// EXP-554: the steer composer now wears the comment composer's chrome — ONE
+    /// rounded (rc20) ultraThinMaterial card holding the pending strip, a
+    /// transparent field, and the `[+]`·spacer·send row. Behavior is untouched:
+    /// four images max, the same `sendSteerImages` upload, the same frozen
+    /// `SteerImageMessage` wire format.
+    private func composerCard(_ model: AgentSessionModel) -> some View {
         // Images attach to the session's ISSUE, so a batch or action run has
         // nowhere to put them (EXP-511).
         let canAttach = model.session?.issueId != nil
         let attachFull = pendingImages.count >= SteerImageMessage.maxImages
         let canSend = !trimmedInput.isEmpty || !pendingImages.isEmpty
         let sendDisabled = !canSend || model.steerSending
-        return HStack(alignment: .bottom, spacing: 8) {
-            if canAttach {
-                Button {
-                    showPhotoPicker = true
-                } label: {
-                    AppIcon(AppIcons.uiAdd, size: 15, weight: .semibold)
-                        .foregroundStyle(.white)
-                        .padding(9)
+        let attachDisabled = attachFull || model.steerSending
+        return VStack(alignment: .leading, spacing: 0) {
+            if !pendingImages.isEmpty {
+                PendingAttachmentStrip(items: pendingImages) { id in
+                    pendingImages.removeAll { $0.id == id }
                 }
-                .glassButton()
-                .buttonStyle(.plain)
-                .disabled(attachFull || model.steerSending)
-                .opacity(attachFull || model.steerSending ? 0.5 : 1)
-                .accessibilityLabel("Attach image")
+                .padding(.horizontal, 8)
+                .padding(.top, 8)
             }
+
+            if let imageError = model.steerImageError {
+                Text(imageError)
+                    .font(.caption2)
+                    .foregroundStyle(DesignTokens.Semantic.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+            }
+
             TextField(
                 // A pending plan approval routes free text into the plan
                 // feedback flow (the desktop Esc's the picker and types the
@@ -742,26 +707,48 @@ struct AgentSessionView: View {
                 .foregroundStyle(.white)
                 .focused($inputFocused)
                 .padding(.horizontal, 12)
-                .padding(.vertical, 9)
-                .background(Color.white.opacity(0.06))
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
-                )
-            Button {
-                sendMessage(model)
-            } label: {
-                AppIcon(AppIcons.uiSend, size: 15, weight: .semibold)
-                    .foregroundStyle(.white)
-                    .padding(9)
+                .padding(.top, 12)
+                .padding(.bottom, 4)
+
+            HStack(spacing: 2) {
+                if canAttach {
+                    Button {
+                        showPhotoPicker = true
+                    } label: {
+                        AppIcon(AppIcons.uiAdd, size: AppIcon.Size.medium)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .frame(width: 36, height: 36)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(attachDisabled)
+                    .opacity(attachDisabled ? 0.4 : 1)
+                    .accessibilityLabel("Attach image")
+                }
+
+                Spacer(minLength: 0)
+
+                Button {
+                    sendMessage(model)
+                } label: {
+                    AppIcon(AppIcons.uiSend, size: 28)
+                        .foregroundStyle(
+                            sendDisabled ? Color.white.opacity(0.3) : Accent.indigo
+                        )
+                }
+                .buttonStyle(.plain)
+                .disabled(sendDisabled)
+                .accessibilityLabel("Send")
             }
-            .glassButton(isActive: !sendDisabled)
-            .buttonStyle(.plain)
-            .disabled(sendDisabled)
-            .opacity(sendDisabled ? 0.5 : 1)
-            .accessibilityLabel("Send")
+            .padding(.horizontal, 8)
+            .padding(.bottom, 6)
         }
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20).stroke(Color.white.opacity(0.12), lineWidth: 0.5)
+        )
+        .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
     }
 
     private func sendMessage(_ model: AgentSessionModel) {
@@ -797,22 +784,15 @@ struct AgentSessionView: View {
             guard pendingImages.count < SteerImageMessage.maxImages else { break }
             guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
             let type = item.supportedContentTypes.first
-            let contentType = AttachmentFiles.canonicalContentType(
-                type?.preferredMIMEType ?? "image/jpeg"
+            // EXP-554: one shared normalizer for every composer (steer + the two
+            // comment ones) — transcode, canonical type, 10 MB cap.
+            let outcome = AttachmentPicks.normalizedPhoto(
+                data: data,
+                contentTypeHint: type?.preferredMIMEType,
+                filenameExtensionHint: type?.preferredFilenameExtension
             )
-            let normalized: (data: Data, filename: String, contentType: String)
-            if AttachmentFiles.isInlineImage(contentType: contentType) {
-                let ext = type?.preferredFilenameExtension ?? "jpg"
-                normalized = (data, "image-\(Int(Date().timeIntervalSince1970)).\(ext)", contentType)
-            } else if let image = UIImage(data: data),
-                      let jpeg = image.jpegData(compressionQuality: 0.9) {
-                normalized = (jpeg, "image-\(Int(Date().timeIntervalSince1970)).jpg", "image/jpeg")
-            } else {
-                model?.steerImageError = "That image type isn't supported."
-                continue
-            }
-            guard normalized.data.count <= Self.maxImageBytes else {
-                model?.steerImageError = "That image is too large."
+            guard let normalized = outcome.attachment else {
+                model?.steerImageError = outcome.failure
                 continue
             }
             pendingImages.append(PendingSteerImage(

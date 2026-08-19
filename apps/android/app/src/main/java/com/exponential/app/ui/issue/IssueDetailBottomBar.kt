@@ -2,6 +2,9 @@ package com.exponential.app.ui.issue
 
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.fadeIn
@@ -46,13 +49,14 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.exponential.app.domain.CodingSessionDisplayState
+import com.exponential.app.domain.MAX_COMMENT_ATTACHMENTS
 import com.exponential.app.ui.components.BottomBarPillFill
+import com.exponential.app.ui.components.PendingAttachment
+import com.exponential.app.ui.components.PendingAttachmentStrip
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.EditorModel
 import com.exponential.app.ui.markdown.MarkdownEditor
 import com.exponential.app.ui.markdown.MentionMember
-import com.exponential.app.ui.markdown.hasDraftImages
-import com.exponential.app.ui.markdown.rememberMarkdownImagePicker
 import com.exponential.app.ui.theme.LocalReduceMotion
 import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.AccentIndigo
@@ -93,7 +97,11 @@ fun IssueDetailBottomBar(
     onDraftChange: (String) -> Unit,
     sending: Boolean,
     onSend: () -> Unit,
-    onUploadImage: suspend (Uri) -> String?,
+    // EXP-554: files queued for the next comment. They upload on send and
+    // link to the comment as attachments — never inlined into its markdown.
+    pendingAttachments: List<PendingAttachment>,
+    onAddAttachment: (Uri) -> Unit,
+    onRemoveAttachment: (Int) -> Unit,
     mentionMembers: List<MentionMember>,
     // Solo teams hide the @ button (nobody else to mention, EXP-246) — same
     // gate the assignee chip uses, threaded explicitly from the screen.
@@ -112,6 +120,9 @@ fun IssueDetailBottomBar(
     val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     val imeVisibleState = rememberUpdatedState(imeVisible)
     val draftState = rememberUpdatedState(draft)
+    // Queued attachments count as content: collapsing on them would hide the
+    // strip while the files stay queued in the VM.
+    val pendingState = rememberUpdatedState(pendingAttachments)
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(expanded) {
         if (!expanded) return@LaunchedEffect
@@ -125,7 +136,8 @@ fun IssueDetailBottomBar(
             }
             if (!hadFocus || ime) return@collectLatest
             delay(200)
-            val empty = draftState.value.isBlank() && composerModel.currentMarkdown().isBlank()
+            val empty = draftState.value.isBlank() && pendingState.value.isEmpty() &&
+                composerModel.currentMarkdown().isBlank()
             if (empty && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
                 onExpandedChange(false)
             }
@@ -154,7 +166,9 @@ fun IssueDetailBottomBar(
                 onDraftChange = onDraftChange,
                 sending = sending,
                 onSend = onSend,
-                onUploadImage = onUploadImage,
+                pendingAttachments = pendingAttachments,
+                onAddAttachment = onAddAttachment,
+                onRemoveAttachment = onRemoveAttachment,
                 mentionMembers = mentionMembers,
                 showMentionButton = showMentionButton,
                 onCollapse = { onExpandedChange(false) },
@@ -271,9 +285,10 @@ private fun BarCircle(
     }
 }
 
-// The docked composer the pill expands into: MarkdownEditor over a
-// [photo][@][#][spacer][send] row. Ports the send gating from the old inline
-// end-of-thread composer verbatim (draft:// placeholders block Send).
+// The docked composer the pill expands into: the pending-attachment strip over
+// a MarkdownEditor over a [photo][file][@][#][spacer][send] row. EXP-554:
+// picked images/files become real comment ATTACHMENTS (uploaded on send), so
+// nothing here ever mints a `draft://` block — the editor gets no uploader.
 @Composable
 private fun ExpandedCommentComposer(
     model: EditorModel,
@@ -281,17 +296,23 @@ private fun ExpandedCommentComposer(
     onDraftChange: (String) -> Unit,
     sending: Boolean,
     onSend: () -> Unit,
-    onUploadImage: suspend (Uri) -> String?,
+    pendingAttachments: List<PendingAttachment>,
+    onAddAttachment: (Uri) -> Unit,
+    onRemoveAttachment: (Int) -> Unit,
     mentionMembers: List<MentionMember>,
     showMentionButton: Boolean,
     onCollapse: () -> Unit,
 ) {
     BackHandler(onBack = onCollapse)
-    // The composer owns its own photo-picker launcher targeting ITS model. The
-    // shared toolbar controller's onPickImage is a last-focus-wins slot that can
-    // still point at the description editor (it is only overwritten on focus
-    // gain), which would insert the picked image into the description instead.
-    val pickImage = rememberMarkdownImagePicker(model, onUploadImage)
+    // The composer owns its own pickers (the shared toolbar controller's
+    // onPickImage is a last-focus-wins slot that can still point at the
+    // description editor). Both feed the VM's pending list, never the model.
+    val imagePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia(MAX_COMMENT_ATTACHMENTS),
+    ) { uris: List<Uri> -> uris.forEach(onAddAttachment) }
+    val filePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri: Uri? -> uri?.let(onAddAttachment) }
 
     Column(
         modifier = Modifier
@@ -302,6 +323,11 @@ private fun ExpandedCommentComposer(
             .border(GlassTokens.Hairline, BarStroke, RoundedCornerShape(24.dp))
             .padding(horizontal = 14.dp, vertical = 8.dp),
     ) {
+        PendingAttachmentStrip(
+            items = pendingAttachments,
+            enabled = !sending,
+            onRemove = onRemoveAttachment,
+        )
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -312,7 +338,9 @@ private fun ExpandedCommentComposer(
                 markdown = draft,
                 editable = true,
                 onChange = onDraftChange,
-                onUploadImage = onUploadImage,
+                // No uploader: an image pasted or picked into a COMMENT is an
+                // attachment, not an inline markdown block (EXP-554).
+                onUploadImage = null,
                 placeholder = "Write a comment…",
                 minHeight = 40.dp,
                 mentionMembers = mentionMembers,
@@ -328,15 +356,29 @@ private fun ExpandedCommentComposer(
         LaunchedEffect(Unit) {
             model.setFocused(model.rows.firstOrNull()?.id)
         }
-        val hasPendingImages = remember(draft) { hasDraftImages(draft) }
+        val canSend = draft.isNotBlank() || pendingAttachments.isNotEmpty()
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = pickImage) {
+            IconButton(
+                onClick = {
+                    imagePicker.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                    )
+                },
+            ) {
                 Icon(
                     ExpIcons.editorImage,
-                    contentDescription = "Add image",
+                    contentDescription = "Attach image",
+                    modifier = Modifier.size(20.dp),
+                    tint = Color.White.copy(alpha = TextEmphasis.Secondary),
+                )
+            }
+            IconButton(onClick = { filePicker.launch(arrayOf("*/*")) }) {
+                Icon(
+                    ExpIcons.uiAttach,
+                    contentDescription = "Attach file",
                     modifier = Modifier.size(20.dp),
                     tint = Color.White.copy(alpha = TextEmphasis.Secondary),
                 )
@@ -360,25 +402,15 @@ private fun ExpandedCommentComposer(
                 )
             }
             Spacer(Modifier.weight(1f))
-            if (hasPendingImages) {
-                Text(
-                    "Waiting for images…",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = CommentMeta,
-                )
-                Spacer(Modifier.width(8.dp))
-            }
             IconButton(
                 onClick = onSend,
-                enabled = !sending && draft.isNotBlank() && !hasPendingImages,
+                enabled = !sending && canSend,
             ) {
                 Icon(
                     ExpIcons.uiSubmit,
                     contentDescription = "Send",
                     modifier = Modifier.size(30.dp),
-                    tint = if (draft.isBlank() || hasPendingImages) {
-                        Color.White.copy(alpha = 0.3f)
-                    } else AccentIndigo,
+                    tint = if (canSend) AccentIndigo else Color.White.copy(alpha = 0.3f),
                 )
             }
         }

@@ -55,7 +55,7 @@ use crate::controls::WebControl as _;
 use crate::icons::{registry, ExpIcon};
 use crate::issue_files::{
     all_attachment_ids, attachment_label, file_attachments, format_bytes, icon_for_content_type,
-    is_inline_image, temp_open_path,
+    is_inline_image,
 };
 use crate::navigation::{navigate, Screen};
 use crate::issue_header::{spawn_issue_update, IssueHeader};
@@ -1448,26 +1448,24 @@ impl IssueDetailView {
         };
         self.busy_files.insert(attachment_id.clone());
         cx.notify();
-        let url = format!("/api/attachments/{attachment_id}");
-        let path = temp_open_path(&attachment_id, &label);
         let handle = window.window_handle();
         cx.spawn(async move |this, cx| {
-            let write_path = path.clone();
+            let fetch_id = attachment_id.clone();
+            let fetch_label = label.clone();
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    let bytes = transport.fetch(&url)?;
-                    if let Some(parent) = write_path.parent() {
-                        std::fs::create_dir_all(parent)?;
-                    }
-                    std::fs::write(&write_path, bytes)?;
-                    anyhow::Ok(())
+                    crate::issue_files::fetch_attachment_to_temp(
+                        transport.as_ref(),
+                        &fetch_id,
+                        &fetch_label,
+                    )
                 })
                 .await;
             this.update(cx, |this, cx| {
                 this.busy_files.remove(&attachment_id);
                 match result {
-                    Ok(()) => cx.open_with_system(&path),
+                    Ok(path) => cx.open_with_system(&path),
                     Err(error) => {
                         log::warn!("[ui] attachment open failed for {attachment_id}: {error}");
                         let note = Notification::error(SharedString::from(format!(

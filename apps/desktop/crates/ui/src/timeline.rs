@@ -12,10 +12,12 @@
 //!
 //! Mutations (`comments.create` / `comments.update` / `comments.delete`) are
 //! §4.1 un-gated: fire on a background thread, let the Electric echo
-//! re-render. The composer clears optimistically on submit and restores the
-//! draft on failure (the web keeps the draft only on failure too).
+//! re-render. The composer keeps its draft until the mutation SUCCEEDS
+//! (EXP-554 — an optimistic clear would eat the draft when an attachment
+//! upload fails halfway; the web keeps the draft on failure too).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -26,12 +28,14 @@ use gpui::{
 use gpui_component::{
     h_flex,
     input::{InputEvent, TextareaState},
-    v_flex, ActiveTheme as _, Icon, Sizable as _,
+    notification::Notification,
+    v_flex, ActiveTheme as _, Icon, Sizable as _, WindowExt as _,
 };
 use sync::Store;
 
 use domain::rows::{Comment, IssueEvent, Label, Board, User};
 
+use crate::comment_attachments::{self, MAX_COMMENT_ATTACHMENTS};
 use crate::comments::{self, CommentRowProps};
 use crate::icons::{registry, ExpIcon};
 use crate::markdown::{store_completion_source, ImageCache};
@@ -61,6 +65,51 @@ struct EditState {
     /// The §4.6 mention-capable wrapper around `input` (rendered in the row).
     mention: Entity<MentionInput>,
     saving: bool,
+    /// EXP-554: already-linked attachments the user staged for removal. They
+    /// vanish from the edit strip immediately and are dropped from the id set
+    /// the save sends — the server hard-deletes the rows it no longer sees.
+    removed_attachment_ids: HashSet<String>,
+    /// Attachments picked during THIS edit, uploaded on save.
+    pending: Vec<PendingCommentAttachment>,
+}
+
+/// One file picked for a comment, from the pick until its upload lands
+/// (EXP-554). Modeled on `issue_detail.rs::PendingFileUpload`, with the
+/// classification and the path kept so the upload can happen on SEND (never
+/// on pick — an abandoned composer must not leave orphan rows).
+#[derive(Clone)]
+pub(crate) struct PendingCommentAttachment {
+    /// Process-local row key (element ids + the stamp-back lookup).
+    pub(crate) key: u64,
+    pub(crate) path: PathBuf,
+    pub(crate) filename: String,
+    /// What `read_any_file` WILL send (derived from the extension).
+    pub(crate) content_type: String,
+    /// One of the five inline-image types → the `/images` endpoint.
+    pub(crate) is_image: bool,
+    /// Set once the upload answered — a retry after a mid-batch failure
+    /// never re-uploads it.
+    pub(crate) uploaded_id: Option<String>,
+    /// Last failure for this item (rendered on its chip).
+    pub(crate) error: Option<SharedString>,
+}
+
+/// Which composer a pending list belongs to — the create composer at the
+/// bottom of the thread, or the inline editor of the comment being edited.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PendingScope {
+    Composer,
+    Edit,
+}
+
+impl PendingScope {
+    /// Element-id namespace (the two strips can be on screen at once).
+    pub(crate) fn id_prefix(self) -> &'static str {
+        match self {
+            PendingScope::Composer => "composer",
+            PendingScope::Edit => "edit",
+        }
+    }
 }
 
 pub struct IssueTimeline {
@@ -77,6 +126,9 @@ pub struct IssueTimeline {
     images: Entity<ImageCache>,
     submitting: bool,
     editing: Option<EditState>,
+    /// EXP-554: files picked for the NEXT comment, uploaded on send.
+    pending_attachments: Vec<PendingCommentAttachment>,
+    next_pending_key: u64,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -110,6 +162,11 @@ impl IssueTimeline {
         subscriptions.push(cx.observe(&collections.issue_events, |_, _, cx| cx.notify()));
         subscriptions.push(cx.observe(&collections.users, |_, _, cx| cx.notify()));
         subscriptions.push(cx.observe(&collections.labels, |_, _, cx| cx.notify()));
+        // EXP-554: comment attachment strips read the `attachments`
+        // collection — without this observer a just-posted (or remotely
+        // added/removed) attachment would only appear on the next unrelated
+        // re-render.
+        subscriptions.push(cx.observe(&collections.attachments, |_, _, cx| cx.notify()));
         // The autocomplete scope depends on the issue → board → team
         // chain; re-resolve as those shapes land. Boards also notify —
         // board names in board_moved rows (EXP-57).
@@ -129,6 +186,8 @@ impl IssueTimeline {
             images,
             submitting: false,
             editing: None,
+            pending_attachments: Vec::new(),
+            next_pending_key: 0,
             _subscriptions: subscriptions,
         }
     }
@@ -148,6 +207,9 @@ impl IssueTimeline {
         self.team_id = None;
         self.editing = None;
         self.submitting = false;
+        // Pending picks are per-issue local state, like the draft: an upload
+        // that never happened must not follow the user to another issue.
+        self.pending_attachments.clear();
         self.composer
             .update(cx, |input, cx| input.set_value("", window, cx));
         self.refresh_scope(cx);
@@ -192,38 +254,226 @@ impl IssueTimeline {
             return;
         };
         let draft = self.composer.read(cx).value().trim().to_string();
-        if draft.is_empty() {
+        let pending = self.pending_attachments.clone();
+        // EXP-554: an attachment-only comment is legal (the server allows an
+        // empty body when the id list is non-empty).
+        if draft.is_empty() && pending.is_empty() {
             return;
         }
         let Some(trpc) = queries::trpc_client(cx) else {
             log::warn!("[ui] comments.create skipped: no signed-in account");
             return;
         };
+        let transport = queries::attachment_transport(cx);
+        if !pending.is_empty() && transport.is_none() {
+            log::warn!("[ui] comments.create skipped: no attachment transport");
+            return;
+        }
 
         self.submitting = true;
-        // Optimistic clear; restored on failure below.
-        self.composer
-            .update(cx, |input, cx| input.set_value("", window, cx));
+        // NO optimistic clear: the draft (and the picks) survive a failed
+        // upload, and only a successful create empties the composer.
         cx.notify();
 
-        let body = draft.clone();
+        let body = draft;
         cx.spawn_in(window, async move |this, cx| {
-            let result = cx
+            let upload_issue = issue_id.clone();
+            let (stamped, result) = cx
                 .background_executor()
-                .spawn(async move { api::comments::comments_create(&trpc, &issue_id, &body) })
+                .spawn(async move {
+                    let (stamped, upload_error) = match transport {
+                        Some(transport) => comment_attachments::upload_pending_attachments(
+                            transport.as_ref(),
+                            &upload_issue,
+                            &pending,
+                        ),
+                        None => (Vec::new(), None),
+                    };
+                    if let Some(error) = upload_error {
+                        return (stamped, Err(error));
+                    }
+                    let ids: Vec<String> =
+                        stamped.iter().map(|(_, id)| id.clone()).collect();
+                    let result = api::comments::comments_create(
+                        &trpc,
+                        &upload_issue,
+                        &body,
+                        (!ids.is_empty()).then_some(ids.as_slice()),
+                    )
+                    .map(|_| ())
+                    .map_err(|error| error.to_string());
+                    (stamped, result)
+                })
                 .await;
             let _ = this.update_in(cx, |this, window, cx| {
                 this.submitting = false;
-                if let Err(err) = result {
-                    log::warn!("[ui] comments.create failed: {err}");
-                    // Give the draft back (web keeps it on failure).
-                    this.composer
-                        .update(cx, |input, cx| input.set_value(draft, window, cx));
+                this.stamp_uploaded(PendingScope::Composer, &stamped);
+                match result {
+                    Ok(()) => {
+                        this.composer
+                            .update(cx, |input, cx| input.set_value("", window, cx));
+                        this.pending_attachments.clear();
+                    }
+                    Err(error) => {
+                        log::warn!("[ui] comments.create failed: {error}");
+                        this.note_attachment_failure(PendingScope::Composer, &error);
+                        window.push_notification(
+                            Notification::error(SharedString::from(format!(
+                                "Could not post comment: {error}"
+                            ))),
+                            cx,
+                        );
+                    }
                 }
                 cx.notify();
             });
         })
         .detach();
+    }
+
+    // -- EXP-554 attachment state ---------------------------------------------
+
+    /// "Attach files" — the native multi-select picker (the same shape as the
+    /// Files rail's), capped at [`MAX_COMMENT_ATTACHMENTS`] per comment.
+    /// Nothing uploads here: a pick only stages a path.
+    pub(crate) fn pick_comment_attachments(
+        &mut self,
+        scope: PendingScope,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let receiver = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: true,
+            prompt: Some("Attach".into()),
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            // Receiver error = dialog dismissed/unsupported; None = cancelled.
+            let Ok(Ok(Some(paths))) = receiver.await else {
+                return;
+            };
+            let _ = this.update_in(cx, |this, _, cx| {
+                this.stage_attachments(scope, paths, cx);
+            });
+        })
+        .detach();
+    }
+
+    fn stage_attachments(
+        &mut self,
+        scope: PendingScope,
+        paths: Vec<PathBuf>,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        // The cap counts what the comment will END UP with: already-linked
+        // rows (edit mode, minus the staged removals) plus every pick.
+        let linked = match scope {
+            PendingScope::Composer => 0,
+            PendingScope::Edit => self
+                .editing
+                .as_ref()
+                .map(|editing| {
+                    comment_attachments::comment_attachments(&editing.comment_id, cx)
+                        .into_iter()
+                        .filter(|row| !editing.removed_attachment_ids.contains(&row.id))
+                        .count()
+                })
+                .unwrap_or_default(),
+        };
+        let mut staged = Vec::new();
+        for path in paths {
+            let filename = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("file")
+                .to_string();
+            let content_type = crate::markdown::image_paste::content_type_for_path(&path);
+            staged.push(PendingCommentAttachment {
+                key: self.next_pending_key,
+                path,
+                filename,
+                content_type: content_type.to_string(),
+                is_image: crate::issue_files::is_inline_image(Some(content_type)),
+                uploaded_id: None,
+                error: None,
+            });
+            self.next_pending_key += 1;
+        }
+        let Some(pending) = self.pending_mut(scope) else {
+            return;
+        };
+        let room = MAX_COMMENT_ATTACHMENTS.saturating_sub(linked + pending.len());
+        let dropped = staged.len().saturating_sub(room);
+        staged.truncate(room);
+        pending.extend(staged);
+        if dropped > 0 {
+            log::warn!(
+                "[ui] comment attachments capped at {MAX_COMMENT_ATTACHMENTS}: dropped {dropped}"
+            );
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn remove_pending_attachment(
+        &mut self,
+        scope: PendingScope,
+        key: u64,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        if let Some(pending) = self.pending_mut(scope) {
+            pending.retain(|item| item.key != key);
+        }
+        cx.notify();
+    }
+
+    /// Stage one already-linked attachment for removal (edit mode). The row
+    /// is hard-deleted server-side when the save lands, never before.
+    pub(crate) fn stage_attachment_removal(
+        &mut self,
+        attachment_id: String,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        if let Some(editing) = self.editing.as_mut() {
+            editing.removed_attachment_ids.insert(attachment_id);
+        }
+        cx.notify();
+    }
+
+    fn pending_mut(&mut self, scope: PendingScope) -> Option<&mut Vec<PendingCommentAttachment>> {
+        match scope {
+            PendingScope::Composer => Some(&mut self.pending_attachments),
+            PendingScope::Edit => self.editing.as_mut().map(|editing| &mut editing.pending),
+        }
+    }
+
+    /// Record the ids the upload leg resolved so a retry resumes instead of
+    /// re-uploading (and so the abandoned rows stay findable).
+    fn stamp_uploaded(&mut self, scope: PendingScope, stamped: &[(u64, String)]) {
+        let Some(pending) = self.pending_mut(scope) else {
+            return;
+        };
+        for (key, id) in stamped {
+            if let Some(item) = pending.iter_mut().find(|item| item.key == *key) {
+                item.uploaded_id = Some(id.clone());
+                item.error = None;
+            }
+        }
+    }
+
+    /// Put the failure on the first item that still has no `uploaded_id` —
+    /// uploads are sequential, so that IS the one that failed (a mutation
+    /// failure after a clean upload run leaves the chips untouched).
+    fn note_attachment_failure(&mut self, scope: PendingScope, error: &str) {
+        let Some(pending) = self.pending_mut(scope) else {
+            return;
+        };
+        if let Some(item) = pending
+            .iter_mut()
+            .find(|item| item.uploaded_id.is_none())
+        {
+            item.error = Some(SharedString::from(error.to_string()));
+        }
     }
 
     /// Open the inline editor for one comment (web `setEditingCommentId`).
@@ -255,6 +505,8 @@ impl IssueTimeline {
             input,
             mention,
             saving: false,
+            removed_attachment_ids: HashSet::new(),
+            pending: Vec::new(),
         });
         cx.notify();
     }
@@ -270,13 +522,15 @@ impl IssueTimeline {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        let Some(editing) = self.editing.as_mut() else {
+        let Some(editing) = self.editing.as_ref() else {
             return;
         };
         if editing.comment_id != comment_id || editing.saving {
             return;
         }
         let next = editing.input.read(cx).value().trim().to_string();
+        let removed = editing.removed_attachment_ids.clone();
+        let pending = editing.pending.clone();
         let previous = Store::global(cx)
             .collections()
             .comments
@@ -284,8 +538,22 @@ impl IssueTimeline {
             .get(comment_id)
             .and_then(|comment| comment.body.clone())
             .unwrap_or_default();
-        // Web parity: empty or unchanged → just close the editor.
-        if next.is_empty() || next == previous.trim() {
+        // The ids that survive the edit, in the strip's order. Sending an
+        // array makes it the FULL desired set (rows missing from it are
+        // hard-deleted server-side), so an untouched attachment list sends
+        // NOTHING at all.
+        let kept: Vec<String> = comment_attachments::comment_attachments(comment_id, cx)
+            .into_iter()
+            .filter(|row| !removed.contains(&row.id))
+            .map(|row| row.id)
+            .collect();
+        let attachments_changed = !removed.is_empty() || !pending.is_empty();
+        // Web parity: unchanged → just close the editor. EXP-554 relaxes the
+        // empty-body guard — a body may be blank as long as the comment keeps
+        // (or gains) an attachment; a truly empty comment still just closes.
+        let unchanged = next == previous.trim() && !attachments_changed;
+        let would_be_empty = next.is_empty() && kept.is_empty() && pending.is_empty();
+        if unchanged || would_be_empty {
             self.editing = None;
             cx.notify();
             return;
@@ -293,23 +561,62 @@ impl IssueTimeline {
         let Some(trpc) = queries::trpc_client(cx) else {
             return;
         };
-        editing.saving = true;
+        let transport = queries::attachment_transport(cx);
+        if !pending.is_empty() && transport.is_none() {
+            log::warn!("[ui] comments.update skipped: no attachment transport");
+            return;
+        }
+        let Some(issue_id) = self.issue_id.clone() else {
+            return;
+        };
+        if let Some(editing) = self.editing.as_mut() {
+            editing.saving = true;
+        }
         cx.notify();
 
         let id = comment_id.to_string();
         cx.spawn_in(window, async move |this, cx| {
-            let result = cx
+            let (stamped, result) = cx
                 .background_executor()
-                .spawn(async move { api::comments::comments_update(&trpc, &id, &next) })
+                .spawn(async move {
+                    let (stamped, upload_error) = match transport {
+                        Some(transport) => comment_attachments::upload_pending_attachments(
+                            transport.as_ref(),
+                            &issue_id,
+                            &pending,
+                        ),
+                        None => (Vec::new(), None),
+                    };
+                    if let Some(error) = upload_error {
+                        return (stamped, Err(error));
+                    }
+                    let mut ids = kept;
+                    ids.extend(stamped.iter().map(|(_, id)| id.clone()));
+                    let attachment_ids =
+                        (attachments_changed).then_some(ids.as_slice());
+                    let result =
+                        api::comments::comments_update(&trpc, &id, &next, attachment_ids)
+                            .map(|_| ())
+                            .map_err(|error| error.to_string());
+                    (stamped, result)
+                })
                 .await;
-            let _ = this.update_in(cx, |this, _, cx| {
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.stamp_uploaded(PendingScope::Edit, &stamped);
                 match result {
-                    Ok(_) => this.editing = None,
-                    Err(err) => {
-                        log::warn!("[ui] comments.update failed: {err}");
+                    Ok(()) => this.editing = None,
+                    Err(error) => {
+                        log::warn!("[ui] comments.update failed: {error}");
+                        this.note_attachment_failure(PendingScope::Edit, &error);
                         if let Some(editing) = this.editing.as_mut() {
                             editing.saving = false;
                         }
+                        window.push_notification(
+                            Notification::error(SharedString::from(format!(
+                                "Could not save comment: {error}"
+                            ))),
+                            cx,
+                        );
                     }
                 }
                 cx.notify();
@@ -560,19 +867,23 @@ impl Render for IssueTimeline {
                     // server refuses the mutation for anyone else.
                     let can_modify =
                         current_user_id.is_some() && comment.author_id == current_user_id;
-                    let (editing, saving) = match self.editing.as_ref() {
-                        Some(edit) if edit.comment_id == comment.id => {
-                            (Some(&edit.mention), edit.saving)
-                        }
-                        _ => (None, false),
-                    };
+                    let edit = self
+                        .editing
+                        .as_ref()
+                        .filter(|edit| edit.comment_id == comment.id);
                     let row = comments::comment_row(
                         CommentRowProps {
                             comment,
                             author,
                             can_modify,
-                            editing,
-                            saving,
+                            editing: edit.map(|edit| &edit.mention),
+                            saving: edit.is_some_and(|edit| edit.saving),
+                            // EXP-554: the edit strip hides what the user
+                            // staged for removal and grows a ✕ per tile.
+                            edit_removed: edit.map(|edit| &edit.removed_attachment_ids),
+                            edit_pending: edit
+                                .map(|edit| edit.pending.as_slice())
+                                .unwrap_or_default(),
                             now_epoch,
                             team_id: self.team_id.as_deref(),
                             images: &self.images,
@@ -584,9 +895,16 @@ impl Render for IssueTimeline {
             }
         }
 
-        let has_draft = !self.composer.read(cx).value().trim().is_empty();
-        let composer =
-            comments::composer_row(&self.composer_mention, self.submitting, has_draft, cx);
+        // EXP-554: attachments alone are enough to send.
+        let has_draft = !self.composer.read(cx).value().trim().is_empty()
+            || !self.pending_attachments.is_empty();
+        let composer = comments::composer_row(
+            &self.composer_mention,
+            self.submitting,
+            has_draft,
+            &self.pending_attachments,
+            cx,
+        );
         // The hairline separating the activity section from the description
         // above stops at the READING column (EXP-422 — a deliberate reversal
         // of EXP-327's full-bleed rule; mobile keeps the full-bleed line).

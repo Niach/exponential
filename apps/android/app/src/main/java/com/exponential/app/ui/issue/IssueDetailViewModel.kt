@@ -272,10 +272,14 @@ class IssueDetailViewModel @Inject constructor(
      * section is the only place they are visible — which is exactly why the
      * classification has to mirror the server's accepted-image set: anything
      * else, `image/tiff` included, lands here rather than nowhere.
+     *
+     * EXP-554: comment-linked rows are excluded — they render in their comment's
+     * attachment strip, and listing them here too would double-list them.
      */
     val fileAttachments: StateFlow<List<AttachmentEntity>> = attachmentsFlow
         .map { rows ->
-            rows.filterNot { isInlineImage(it.contentType) }.sortedBy { it.createdAt }
+            rows.filter { it.commentId == null && !isInlineImage(it.contentType) }
+                .sortedBy { it.createdAt }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 

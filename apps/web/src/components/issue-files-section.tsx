@@ -59,6 +59,8 @@ export function IssueFilesSection({
     const rows = (data ?? []) as Attachment[]
     return rows
       .filter((row) => !isInlineImageAttachment(row.contentType))
+      // Comment attachments (EXP-554) render under their comment, not here.
+      .filter((row) => row.commentId === null)
       .sort(
         (a, b) =>
           new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()

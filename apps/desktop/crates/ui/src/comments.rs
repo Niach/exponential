@@ -24,12 +24,15 @@ use gpui_component::{
 
 use domain::rows::{Comment, User};
 
+use crate::comment_attachments::{
+    attach_button, comment_attachments_strip, pending_attachments_strip, MAX_COMMENT_ATTACHMENTS,
+};
 use crate::controls::WebControl as _;
 use crate::description_editor::open_issue_by_identifier;
 use crate::icons::{registry, ExpIcon};
 use crate::markdown::{ImageCache, MarkdownView, RefResolver};
 use crate::mention_input::MentionInput;
-use crate::timeline::IssueTimeline;
+use crate::timeline::{IssueTimeline, PendingCommentAttachment, PendingScope};
 
 // ---------------------------------------------------------------------------
 // format.ts mirrors
@@ -133,6 +136,11 @@ pub(crate) struct CommentRowProps<'a> {
     /// the §4.6 mention-capable input.
     pub editing: Option<&'a Entity<MentionInput>>,
     pub saving: bool,
+    /// EXP-554, edit mode only: linked attachments staged for removal (hidden
+    /// from the strip, dropped from the id set the save sends).
+    pub edit_removed: Option<&'a std::collections::HashSet<String>>,
+    /// EXP-554, edit mode only: attachments picked during this edit.
+    pub edit_pending: &'a [PendingCommentAttachment],
     pub now_epoch: i64,
     /// Scopes the body's `@email`/`#IDENT` pill resolution (§4.5).
     pub team_id: Option<&'a str>,
@@ -212,10 +220,29 @@ pub(crate) fn comment_row(
             .mt_1()
             .gap_2()
             .child(editor.clone())
+            // EXP-554: kept attachments (with the staging ✕) + this edit's
+            // picks, above the Save/Cancel row.
+            .children(comment_attachments_strip(
+                &comment_id,
+                props.images,
+                props.edit_removed,
+                cx,
+            ))
+            .children(pending_attachments_strip(
+                props.edit_pending,
+                PendingScope::Edit,
+                cx,
+            ))
             .child(
                 h_flex()
                     .gap_2()
                     .items_center()
+                    .child(attach_button(
+                        SharedString::from(format!("comment-edit-attach-{comment_id}")),
+                        PendingScope::Edit,
+                        edit_attachments_full(&props, cx),
+                        cx,
+                    ))
                     .child(
                         Button::new(SharedString::from(format!("comment-save-{comment_id}")))
                             .primary()
@@ -242,23 +269,37 @@ pub(crate) fn comment_row(
             // Read-only rendered GFM with live `@email`/`#IDENT` pills
             // (§4.5 — same decoration pass as the description).
             let source = props.comment.body.clone().unwrap_or_default();
-            let mut view = MarkdownView::new(
-                SharedString::from(format!("comment-body-{comment_id}")),
-                source,
-            )
-            // EXP-521: comment bodies join the window selection layer —
-            // sweep-select and copy across comments like on the web.
-            .selectable(true)
-            .images(props.images.clone());
-            if let Some(team_id) = props.team_id {
-                let team = team_id.to_string();
-                view = view
-                    .resolver(RefResolver::from_store(team_id))
-                    .on_open_issue(move |identifier, window, cx| {
-                        open_issue_by_identifier(&team, identifier, window, cx);
-                    });
-            }
-            div().mt_0p5().text_sm().child(view).into_any_element()
+            // EXP-554: an attachment-only comment has NO body — rendering an
+            // empty MarkdownView would leave a phantom line above the strip.
+            let rendered = (!source.trim().is_empty()).then(|| {
+                let mut view = MarkdownView::new(
+                    SharedString::from(format!("comment-body-{comment_id}")),
+                    source,
+                )
+                // EXP-521: comment bodies join the window selection layer —
+                // sweep-select and copy across comments like on the web.
+                .selectable(true)
+                .images(props.images.clone());
+                if let Some(team_id) = props.team_id {
+                    let team = team_id.to_string();
+                    view = view
+                        .resolver(RefResolver::from_store(team_id))
+                        .on_open_issue(move |identifier, window, cx| {
+                            open_issue_by_identifier(&team, identifier, window, cx);
+                        });
+                }
+                div().mt_0p5().text_sm().child(view)
+            });
+            v_flex()
+                .w_full()
+                .children(rendered)
+                .children(comment_attachments_strip(
+                    &comment_id,
+                    props.images,
+                    None,
+                    cx,
+                ))
+                .into_any_element()
         }
     };
 
@@ -279,34 +320,65 @@ pub(crate) fn comment_row(
 // Composer (issue-timeline.tsx bottom form)
 // ---------------------------------------------------------------------------
 
-/// The composer strip: auto-growing mention-capable input + Send button.
-/// State (the `InputState` entity, the submitting flag, the PressEnter
-/// subscription) lives on [`IssueTimeline`]; this only lays out the row.
+/// Is this comment's attachment set already at the server cap? (Edit mode —
+/// kept rows plus this edit's picks.)
+fn edit_attachments_full(props: &CommentRowProps<'_>, cx: &gpui::App) -> bool {
+    let kept = crate::comment_attachments::comment_attachments(&props.comment.id, cx)
+        .into_iter()
+        .filter(|row| {
+            props
+                .edit_removed
+                .is_none_or(|staged| !staged.contains(&row.id))
+        })
+        .count();
+    kept + props.edit_pending.len() >= MAX_COMMENT_ATTACHMENTS
+}
+
+/// The composer strip: pending-attachment chips over an auto-growing
+/// mention-capable input flanked by the attach + Send buttons. State (the
+/// `InputState` entity, the submitting flag, the pending picks, the PressEnter
+/// subscription) lives on [`IssueTimeline`]; this only lays out the rows.
 pub(crate) fn composer_row(
     input: &Entity<MentionInput>,
     submitting: bool,
     has_draft: bool,
+    pending: &[PendingCommentAttachment],
     cx: &mut gpui::Context<IssueTimeline>,
 ) -> impl IntoElement {
-    h_flex()
+    let full = pending.len() >= MAX_COMMENT_ATTACHMENTS;
+    v_flex()
         .w_full()
         .mt_2()
         .gap_2()
-        .items_end()
-        // EXP-525: a flex-COLUMN slot, not a nested row — the view child's
-        // percent width resolved against unclamped avail in a row hop
-        // (EXP-436 class) and the composer collapsed to placeholder width at
-        // some window sizes; a column stretches its child to the definite
-        // slot width instead.
-        .child(v_flex().flex_1().min_w_0().child(input.clone()))
+        .children(pending_attachments_strip(pending, PendingScope::Composer, cx))
         .child(
-            Button::new("comment-submit")
-                .primary()
-                .web_icon_sm()
-                .icon(Icon::from(ExpIcon::Send))
-                .loading(submitting)
-                .disabled(submitting || !has_draft)
-                .on_click(cx.listener(|this, _, window, cx| this.submit_comment(window, cx))),
+            h_flex()
+                .w_full()
+                .gap_2()
+                .items_end()
+                // EXP-525: a flex-COLUMN slot, not a nested row — the view
+                // child's percent width resolved against unclamped avail in a
+                // row hop (EXP-436 class) and the composer collapsed to
+                // placeholder width at some window sizes; a column stretches
+                // its child to the definite slot width instead.
+                .child(v_flex().flex_1().min_w_0().child(input.clone()))
+                .child(attach_button(
+                    "comment-attach",
+                    PendingScope::Composer,
+                    full,
+                    cx,
+                ))
+                .child(
+                    Button::new("comment-submit")
+                        .primary()
+                        .web_icon_sm()
+                        .icon(Icon::from(ExpIcon::Send))
+                        .loading(submitting)
+                        .disabled(submitting || !has_draft)
+                        .on_click(
+                            cx.listener(|this, _, window, cx| this.submit_comment(window, cx)),
+                        ),
+                ),
         )
 }
 

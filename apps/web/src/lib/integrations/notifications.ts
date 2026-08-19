@@ -307,8 +307,15 @@ export function fireAndForgetCommentNotify(args: {
   actorUserId: string
   commentBodyText: string
   mentionedUserIds?: string[]
+  attachmentCount?: number
 }): void {
-  const { issueId, actorUserId, commentBodyText, mentionedUserIds = [] } = args
+  const {
+    issueId,
+    actorUserId,
+    commentBodyText,
+    mentionedUserIds = [],
+    attachmentCount = 0,
+  } = args
 
   void (async () => {
     try {
@@ -326,6 +333,12 @@ export function fireAndForgetCommentNotify(args: {
         previewSource.length > 140
           ? `${previewSource.slice(0, 139)}…`
           : previewSource
+      // Attachment-only comments (EXP-554) have no text to preview.
+      const attachmentFallback =
+        attachmentCount > 0
+          ? `Sent ${attachmentCount} attachment${attachmentCount === 1 ? `` : `s`}`
+          : ``
+      const body = preview || attachmentFallback || issue.title
 
       if (mentioned.size > 0) {
         await deliver({
@@ -334,7 +347,7 @@ export function fireAndForgetCommentNotify(args: {
           type: `issue_mention`,
           pushType: `issue_mention`,
           title: `${name} mentioned you in ${issue.identifier}`,
-          body: preview || issue.title,
+          body,
         })
       }
       if (commentRecipients.length > 0) {
@@ -344,7 +357,7 @@ export function fireAndForgetCommentNotify(args: {
           type: `issue_comment`,
           pushType: `issue_comment`,
           title: `${name} commented on ${issue.identifier}`,
-          body: preview || issue.title,
+          body,
         })
       }
     } catch (err) {

@@ -2301,10 +2301,12 @@ function MessageComposer({
     }
   }
 
+  // One rounded card with the send button inside the box — the comment
+  // composer's chrome (EXP-554); behavior and wire format are unchanged.
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="rounded-lg border border-border bg-muted/40">
       {pending.length > 0 && (
-        <div className="flex flex-wrap gap-2 px-1 pt-1">
+        <div className="flex flex-wrap gap-2 px-2 pt-2">
           {pending.map((image) => (
             <div key={image.url} className="relative">
               <img
@@ -2325,7 +2327,7 @@ function MessageComposer({
           ))}
         </div>
       )}
-      <div className="flex items-end gap-1.5">
+      <div className="flex items-end gap-1.5 p-1.5">
         {issueId !== null && (
           <>
             <input
@@ -2371,7 +2373,7 @@ function MessageComposer({
           className={cn(
             `max-h-32 min-h-9 flex-1 resize-none border-none shadow-none focus-visible:ring-0`,
             // dark: variant included so it beats the base dark:bg-input/30.
-            `bg-muted/40 dark:bg-muted/40`
+            `bg-transparent dark:bg-transparent`
           )}
         />
         <Button

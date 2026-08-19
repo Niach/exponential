@@ -446,6 +446,18 @@ pub fn read_image_file(path: &std::path::Path) -> anyhow::Result<(String, String
     Ok((filename, mime.to_string(), bytes))
 }
 
+/// The content type [`read_any_file`] WILL send for `path`, derived from the
+/// extension alone (no read). EXP-554 uses it to classify a just-picked
+/// comment attachment as image-or-file before the bytes are ever loaded.
+pub(crate) fn content_type_for_path(path: &std::path::Path) -> &'static str {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default()
+        .to_lowercase();
+    content_type_for_extension(&ext)
+}
+
 /// Extension → content type for the EXP-297 files rail. Deliberately a small
 /// hand-kept table (no mime-guess dependency): the server stores whatever we
 /// send and only the five inline-image types get special treatment, so an
@@ -521,12 +533,7 @@ pub fn is_inline_image_path(path: &std::path::Path) -> bool {
 /// [`MAX_FILE_UPLOAD_BYTES`] (50 MB). The error strings mirror the server's
 /// wording so the same copy shows whichever side rejects first.
 pub fn read_any_file(path: &std::path::Path) -> anyhow::Result<(String, String, Vec<u8>)> {
-    let ext = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or_default()
-        .to_lowercase();
-    let content_type = content_type_for_extension(&ext);
+    let content_type = content_type_for_path(path);
     let filename = path
         .file_name()
         .and_then(|n| n.to_str())

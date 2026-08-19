@@ -1,10 +1,15 @@
 import { TRPCError } from "@trpc/server"
 import { z } from "zod"
-import { eq } from "drizzle-orm"
+import { eq, inArray } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { comments } from "@/db/schema"
-import { commentBodySchema, getCommentBodyText } from "@/lib/domain"
+import { attachments, comments } from "@/db/schema"
+import {
+  commentBodyWithAttachmentsSchema,
+  getCommentBodyText,
+  MAX_COMMENT_ATTACHMENTS,
+} from "@/lib/domain"
 import { resolveTeamAccess, getIssueTeamContext } from "@/lib/team-membership"
+import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
 import {
   fireAndForgetCommentNotify,
   fireAndForgetIssueMentionNotify,
@@ -33,13 +38,112 @@ async function loadCommentForMutation(
   return row
 }
 
+type Tx = Parameters<
+  // eslint-disable-next-line quotes -- esbuild rejects template literals inside typeof import()
+  Parameters<typeof import("@/db/connection").db.transaction>[0]
+>[0]
+
+/**
+ * Reconcile a comment's linked attachments to exactly `attachmentIds`
+ * (EXP-554: comment attachments ride attachments.comment_id, never inline
+ * markdown). Additions must belong to the SAME issue, be uploaded by the
+ * comment author, and not be claimed by another comment — the uploader gate is
+ * what makes the hard delete below safe: nobody can capture a teammate's
+ * upload into their comment and then destroy it. Rows previously linked but
+ * absent from the new list are hard-deleted (a comment attachment exists for
+ * its comment; unlinking would strand an orphan in the issue's Files rail).
+ * Returns their storage keys for post-commit blob reclamation.
+ */
+async function syncCommentAttachmentsInTx(
+  tx: Tx,
+  args: {
+    commentId: string
+    issueId: string
+    userId: string
+    attachmentIds: string[]
+  }
+): Promise<{ deletedStorageKeys: string[] }> {
+  const requested = [...new Set(args.attachmentIds)]
+
+  const rows =
+    requested.length > 0
+      ? await tx
+          .select({
+            id: attachments.id,
+            issueId: attachments.issueId,
+            commentId: attachments.commentId,
+            uploaderId: attachments.uploaderId,
+          })
+          .from(attachments)
+          .where(inArray(attachments.id, requested))
+      : []
+
+  const invalid =
+    rows.length !== requested.length ||
+    rows.some(
+      (row) =>
+        row.issueId !== args.issueId ||
+        (row.commentId !== null && row.commentId !== args.commentId) ||
+        row.uploaderId !== args.userId
+    )
+  if (invalid) {
+    throw new TRPCError({
+      code: `BAD_REQUEST`,
+      message: `Comments can only reference attachments you uploaded to this issue`,
+    })
+  }
+
+  const linked = await tx
+    .select({ id: attachments.id, storageKey: attachments.storageKey })
+    .from(attachments)
+    .where(eq(attachments.commentId, args.commentId))
+
+  const keep = new Set(requested)
+  const linkedIds = new Set(linked.map((row) => row.id))
+  const toAdd = requested.filter((id) => !linkedIds.has(id))
+  const toRemove = linked.filter((row) => !keep.has(row.id))
+
+  if (toAdd.length > 0) {
+    await tx
+      .update(attachments)
+      .set({ commentId: args.commentId })
+      .where(inArray(attachments.id, toAdd))
+  }
+  if (toRemove.length > 0) {
+    await tx.delete(attachments).where(
+      inArray(
+        attachments.id,
+        toRemove.map((row) => row.id)
+      )
+    )
+  }
+
+  return { deletedStorageKeys: toRemove.map((row) => row.storageKey) }
+}
+
 export const commentsRouter = router({
   create: authedProcedure
     .input(
-      z.object({
-        issueId: z.string().uuid(),
-        body: commentBodySchema,
-      })
+      z
+        .object({
+          issueId: z.string().uuid(),
+          body: commentBodyWithAttachmentsSchema,
+          attachmentIds: z
+            .array(z.string().uuid())
+            .max(MAX_COMMENT_ATTACHMENTS)
+            .default([]),
+        })
+        .superRefine((value, refineCtx) => {
+          if (
+            value.body.trim().length === 0 &&
+            value.attachmentIds.length === 0
+          ) {
+            refineCtx.addIssue({
+              code: `custom`,
+              message: `Comment needs text or attachments`,
+            })
+          }
+        })
     )
     .mutation(async ({ ctx, input }) => {
       const issueContext = await getIssueTeamContext(input.issueId)
@@ -86,6 +190,17 @@ export const commentsRouter = router({
           })
         }
 
+        if (input.attachmentIds.length > 0) {
+          // Same tx (and txId) as the comment insert, so Electric delivers the
+          // comment row and its linked attachment rows as one sync unit.
+          await syncCommentAttachmentsInTx(tx, {
+            commentId: comment.id,
+            issueId: input.issueId,
+            userId: ctx.session.user.id,
+            attachmentIds: input.attachmentIds,
+          })
+        }
+
         return { txId, comment, mentionedUserIds }
       })
 
@@ -94,6 +209,7 @@ export const commentsRouter = router({
         actorUserId: ctx.session.user.id,
         commentBodyText: getCommentBodyText(input.body),
         mentionedUserIds: result.mentionedUserIds,
+        attachmentCount: input.attachmentIds.length,
       })
 
       return result
@@ -101,10 +217,28 @@ export const commentsRouter = router({
 
   update: authedProcedure
     .input(
-      z.object({
-        id: z.string().uuid(),
-        body: commentBodySchema,
-      })
+      z
+        .object({
+          id: z.string().uuid(),
+          body: commentBodyWithAttachmentsSchema,
+          // undefined = leave attachments untouched (MCP and old clients);
+          // an array is the FULL desired set — missing linked rows are deleted.
+          attachmentIds: z
+            .array(z.string().uuid())
+            .max(MAX_COMMENT_ATTACHMENTS)
+            .optional(),
+        })
+        .superRefine((value, refineCtx) => {
+          if (
+            value.body.trim().length === 0 &&
+            (value.attachmentIds ?? []).length === 0
+          ) {
+            refineCtx.addIssue({
+              code: `custom`,
+              message: `Comment needs text or attachments`,
+            })
+          }
+        })
     )
     .mutation(async ({ ctx, input }) => {
       const existing = await loadCommentForMutation(ctx.db, input.id)
@@ -161,8 +295,22 @@ export const commentsRouter = router({
           })
         }
 
-        return { txId, comment, newlyMentionedUserIds }
+        const { deletedStorageKeys } =
+          input.attachmentIds !== undefined
+            ? await syncCommentAttachmentsInTx(tx, {
+                commentId: input.id,
+                issueId: existing.issueId,
+                userId: ctx.session.user.id,
+                attachmentIds: input.attachmentIds,
+              })
+            : { deletedStorageKeys: [] }
+
+        return { txId, comment, newlyMentionedUserIds, deletedStorageKeys }
       })
+
+      // Blob reclamation only after the rows are really gone (same order as
+      // attachments.delete).
+      await deleteStorageObjects(result.deletedStorageKeys)
 
       // Mention-only fan-out: an edit is not a new comment, so subscribers
       // must not get an issue_comment ping (same reason issues.update uses it
@@ -194,10 +342,24 @@ export const commentsRouter = router({
 
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
+        // Comment attachments die with their comment (EXP-554). Collect and
+        // delete BEFORE the comment row goes — the FK is ON DELETE SET NULL,
+        // which would silently unlink them into the issue's Files rail.
+        const linked = await tx
+          .select({ storageKey: attachments.storageKey })
+          .from(attachments)
+          .where(eq(attachments.commentId, input.id))
+        if (linked.length > 0) {
+          await tx
+            .delete(attachments)
+            .where(eq(attachments.commentId, input.id))
+        }
         await tx.delete(comments).where(eq(comments.id, input.id))
-        return { txId }
+        return { txId, storageKeys: linked.map((row) => row.storageKey) }
       })
 
-      return result
+      await deleteStorageObjects(result.storageKeys)
+
+      return { txId: result.txId }
     }),
 })

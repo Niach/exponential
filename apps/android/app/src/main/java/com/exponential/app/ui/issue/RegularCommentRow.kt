@@ -1,6 +1,9 @@
 package com.exponential.app.ui.issue
 
 import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -32,16 +35,21 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.api.getCommentBodyText
+import com.exponential.app.data.db.AttachmentEntity
 import com.exponential.app.data.db.CommentEntity
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.domain.MAX_COMMENT_ATTACHMENTS
+import com.exponential.app.ui.components.CommentAttachmentsStrip
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
+import com.exponential.app.ui.components.PendingAttachment
+import com.exponential.app.ui.components.PendingAttachmentStrip
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.MarkdownEditor
 import com.exponential.app.ui.markdown.MarkdownView
 import com.exponential.app.ui.markdown.MentionMember
-import com.exponential.app.ui.markdown.hasDraftImages
+import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassCard
 
 // One human comment in the thread: a rounded glass card (author + relative
@@ -59,15 +67,38 @@ internal fun RegularCommentRow(
     isEditing: Boolean,
     onEdit: () -> Unit,
     onCancelEdit: () -> Unit,
-    onSaveEdit: (String) -> Unit,
+    /** (body, kept attachment ids) — the ids the edit KEEPS; the VM appends
+     *  whatever it uploads and sends the union as the full desired set. */
+    onSaveEdit: (String, List<String>) -> Unit,
     onDelete: () -> Unit,
-    onUploadImage: suspend (Uri) -> String?,
+    // EXP-554: the comment's linked attachments (squared thumbs + file chips
+    // below the body, never inlined), plus the edit-mode add queue.
+    attachments: List<AttachmentEntity>,
+    onOpenAttachment: (AttachmentEntity) -> Unit,
+    editAttachments: List<PendingAttachment>,
+    onAddEditAttachment: (Uri, Int) -> Unit,
+    onRemoveEditAttachment: (Int) -> Unit,
     mentionMembers: List<MentionMember>,
     mentionEnabled: Boolean = true,
 ) {
     val bodyText = remember(comment.body) { getCommentBodyText(comment.body) }
     var draft by remember(comment.id, isEditing) { mutableStateOf(bodyText) }
     var menuOpen by remember { mutableStateOf(false) }
+    // The already-linked attachments this edit keeps. Snapshotted when the
+    // editor opens: removing a tile only drops it here — the save's id set is
+    // the full desired set, so the server hard-deletes what is missing.
+    var keptIds by remember(comment.id, isEditing) {
+        mutableStateOf(attachments.map { it.id })
+    }
+    val keptAttachments = remember(attachments, keptIds) {
+        attachments.filter { it.id in keptIds }
+    }
+    val imagePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia(MAX_COMMENT_ATTACHMENTS),
+    ) { uris: List<Uri> -> uris.forEach { onAddEditAttachment(it, keptIds.size) } }
+    val filePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri: Uri? -> uri?.let { onAddEditAttachment(it, keptIds.size) } }
 
     Row(
         modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
@@ -165,28 +196,82 @@ internal fun RegularCommentRow(
                     markdown = draft,
                     editable = true,
                     onChange = { draft = it },
-                    onUploadImage = onUploadImage,
+                    // A picked/pasted image in a COMMENT is an attachment, not
+                    // an inline markdown block (EXP-554) — no uploader here.
+                    onUploadImage = null,
                     placeholder = "Edit comment…",
                     minHeight = 40.dp,
                     mentionMembers = mentionMembers,
                     mentionEnabled = mentionEnabled,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                CommentAttachmentsStrip(
+                    attachments = keptAttachments,
+                    onOpen = onOpenAttachment,
+                    onRemove = { removed -> keptIds = keptIds - removed.id },
+                )
+                PendingAttachmentStrip(
+                    items = editAttachments,
+                    enabled = true,
+                    onRemove = onRemoveEditAttachment,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Icon(
+                        ExpIcons.editorImage,
+                        contentDescription = "Attach image",
+                        tint = Color.White.copy(alpha = TextEmphasis.Secondary),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(percent = 50))
+                            .clickable {
+                                imagePicker.launch(
+                                    PickVisualMediaRequest(
+                                        ActivityResultContracts.PickVisualMedia.ImageOnly,
+                                    ),
+                                )
+                            }
+                            .padding(4.dp)
+                            .size(18.dp),
+                    )
+                    Icon(
+                        ExpIcons.uiAttach,
+                        contentDescription = "Attach file",
+                        tint = Color.White.copy(alpha = TextEmphasis.Secondary),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(percent = 50))
+                            .clickable { filePicker.launch(arrayOf("*/*")) }
+                            .padding(4.dp)
+                            .size(18.dp),
+                    )
+                    Spacer(Modifier.weight(1f))
+                    val trimmed = draft.trim()
                     TextButton(
                         onClick = {
-                            val trimmed = draft.trim()
-                            if (trimmed.isEmpty() || trimmed == bodyText) onCancelEdit()
-                            else onSaveEdit(trimmed)
+                            val unchanged = trimmed == bodyText &&
+                                keptIds == attachments.map { it.id } &&
+                                editAttachments.isEmpty()
+                            if (unchanged) onCancelEdit() else onSaveEdit(trimmed, keptIds)
                         },
-                        // Same gate as the composer's Send: saving while an image
-                        // is still a draft:// placeholder would silently strip it.
-                        enabled = !hasDraftImages(draft),
+                        // Attachment-only comments are allowed — an entirely
+                        // empty one is not.
+                        enabled = trimmed.isNotEmpty() || keptIds.isNotEmpty() ||
+                            editAttachments.isNotEmpty(),
                     ) { Text("Save") }
                     TextButton(onClick = onCancelEdit) { Text("Cancel") }
                 }
             } else {
-                MarkdownView(bodyText)
+                // A comment can be attachments only (EXP-554) — the body view
+                // renders nothing at all then, instead of an empty block.
+                if (bodyText.isNotBlank()) {
+                    MarkdownView(bodyText)
+                }
+                CommentAttachmentsStrip(
+                    attachments = attachments,
+                    onOpen = onOpenAttachment,
+                )
             }
         }
     }

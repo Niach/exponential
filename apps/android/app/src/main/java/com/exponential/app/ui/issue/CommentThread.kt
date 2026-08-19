@@ -34,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -85,6 +86,11 @@ fun CommentThread(
 ) {
     LaunchedEffect(issueId) { viewModel.bind(issueId) }
     val state by viewModel.state.collectAsStateWithLifecycle()
+    // EXP-554: the thread's comment-linked attachments, grouped per comment,
+    // plus the add queue of whichever comment is being edited.
+    val attachmentsByComment by viewModel.commentAttachments.collectAsStateWithLifecycle()
+    val editAttachments by viewModel.editAttachments.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var editingId by remember { mutableStateOf<String?>(null) }
     // Expanded collapsed-runs, keyed by the run's first event id so sync
@@ -184,13 +190,19 @@ fun CommentThread(
                                 author = state.usersById[comment.authorId],
                                 isAuthor = state.currentUserId != null && comment.authorId == state.currentUserId,
                                 isEditing = editingId == comment.id,
-                                onEdit = { editingId = comment.id },
-                                onCancelEdit = { editingId = null },
-                                onSaveEdit = { text ->
+                                onEdit = {
+                                    viewModel.clearEditAttachments()
+                                    editingId = comment.id
+                                },
+                                onCancelEdit = {
+                                    viewModel.clearEditAttachments()
+                                    editingId = null
+                                },
+                                onSaveEdit = { text, keptIds ->
                                     scope.launch {
                                         // Keep the editor open on failure so the
                                         // typed edit isn't silently discarded.
-                                        if (viewModel.updateComment(comment.id, text)) {
+                                        if (viewModel.updateComment(comment.id, text, keptIds)) {
                                             editingId = null
                                         }
                                     }
@@ -198,7 +210,25 @@ fun CommentThread(
                                 onDelete = {
                                     scope.launch { viewModel.deleteComment(comment.id) }
                                 },
-                                onUploadImage = { uri -> viewModel.uploadImage(uri) },
+                                attachments = attachmentsByComment[comment.id].orEmpty(),
+                                onOpenAttachment = { attachment ->
+                                    scope.launch {
+                                        // No in-app viewer: hand the bytes to
+                                        // whatever app renders the type.
+                                        val local = viewModel.downloadToCache(attachment)
+                                            ?: return@launch
+                                        openFile(context, local, attachment.contentType)
+                                    }
+                                },
+                                editAttachments = if (editingId == comment.id) {
+                                    editAttachments
+                                } else {
+                                    emptyList()
+                                },
+                                onAddEditAttachment = { uri, keptCount ->
+                                    viewModel.addEditAttachment(uri, keptCount)
+                                },
+                                onRemoveEditAttachment = viewModel::removeEditAttachment,
                                 mentionMembers = mentionMembers,
                                 mentionEnabled = mentionEnabled,
                             )

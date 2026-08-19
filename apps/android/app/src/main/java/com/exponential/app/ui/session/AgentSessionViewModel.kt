@@ -16,7 +16,9 @@ import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.INLINE_IMAGE_CONTENT_TYPES
+import com.exponential.app.domain.MAX_IMAGE_UPLOAD_BYTES
 import com.exponential.app.domain.canonicalContentType
+import com.exponential.app.ui.components.PendingAttachment
 import com.exponential.app.ui.markdown.AttachmentDims
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.ktor.client.HttpClient
@@ -100,10 +102,6 @@ private const val SESSION_GONE_DETAIL = "This session is no longer available."
  *  message sent much later. */
 private const val ECHO_CAP = 8
 private const val ECHO_TTL_MS = 300_000L
-
-/** The server's image cap (`maxImageUploadBytes`) — refuse locally rather than
- *  push megabytes over a mobile uplink only to be rejected. */
-private const val MAX_STEER_IMAGE_BYTES = 10L * 1024 * 1024
 
 /** One answer choice of a [AgentFeedItem.Question] — `key` is the raw
  *  keystroke that selects it in the desktop TUI picker (mapped desktop-side)
@@ -808,34 +806,9 @@ sealed interface AgentPhase {
     data class Closed(val detail: String? = null, val reconnecting: Boolean = false) : AgentPhase
 }
 
-/**
- * An image attached to the next steer message (EXP-511). [uploadedId] is set
- * once the upload succeeded, so a retry after a mid-batch failure never
- * re-uploads what already landed.
- */
-data class PendingSteerImage(
-    val uri: Uri,
-    val bytes: ByteArray,
-    val filename: String,
-    val mime: String,
-    val uploadedId: String? = null,
-) {
-    // ByteArray breaks data-class equality; compare by the scalar fields only.
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (other !is PendingSteerImage) return false
-        return uri == other.uri && filename == other.filename &&
-            mime == other.mime && uploadedId == other.uploadedId
-    }
-
-    override fun hashCode(): Int {
-        var result = uri.hashCode()
-        result = 31 * result + filename.hashCode()
-        result = 31 * result + mime.hashCode()
-        result = 31 * result + (uploadedId?.hashCode() ?: 0)
-        return result
-    }
-}
+// EXP-554: the steer composer's own PendingSteerImage became the shared
+// `PendingAttachment` (ui/components/AttachmentStrips.kt), which the comment
+// composers use too — same upload-on-send, uploadedId-stamped semantics.
 
 @HiltViewModel
 class AgentSessionViewModel @Inject constructor(
@@ -902,8 +875,8 @@ class AgentSessionViewModel @Inject constructor(
 
     /** Images picked for the next steer message (EXP-511), capped at
      *  [MAX_STEER_IMAGES]; uploaded to the session's issue on send. */
-    private val _pendingImages = MutableStateFlow<List<PendingSteerImage>>(emptyList())
-    val pendingImages: StateFlow<List<PendingSteerImage>> = _pendingImages
+    private val _pendingImages = MutableStateFlow<List<PendingAttachment>>(emptyList())
+    val pendingImages: StateFlow<List<PendingAttachment>> = _pendingImages
 
     /** True while the pending images upload — the composer disables sending. */
     private val _steerSending = MutableStateFlow(false)
@@ -1252,15 +1225,15 @@ class AgentSessionViewModel @Inject constructor(
             _steerImageError.value = "That file type can't be attached"
             return
         }
-        if (bytes.size > MAX_STEER_IMAGE_BYTES) {
+        if (bytes.size > MAX_IMAGE_UPLOAD_BYTES) {
             _steerImageError.value =
-                "Images must be ${MAX_STEER_IMAGE_BYTES / (1024 * 1024)} MB or smaller"
+                "Images must be ${MAX_IMAGE_UPLOAD_BYTES / (1024 * 1024)} MB or smaller"
             return
         }
         if (_pendingImages.value.size >= MAX_STEER_IMAGES) return
         _steerImageError.value = null
         _pendingImages.value = _pendingImages.value +
-            PendingSteerImage(uri, bytes, filename, contentType)
+            PendingAttachment(uri, bytes, filename, contentType, isImage = true)
     }
 
     fun removePendingImage(index: Int) {
@@ -1310,7 +1283,7 @@ class AgentSessionViewModel @Inject constructor(
                             issueId,
                             image.bytes,
                             image.filename,
-                            image.mime,
+                            image.contentType,
                         )
                     } catch (cancel: CancellationException) {
                         throw cancel
