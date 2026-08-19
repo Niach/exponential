@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-comment-files-paused-sessions`,
+    date: `2026-08-19`,
+    title: `Files on comments, paused sessions, getting started`,
+    summary: `Attach images and files to comments, see a coding session as paused while its machine is offline, and a getting-started checklist that finishes itself.`,
+    body: `- **Files on comments**: the comment composer now uploads images and files on send, on web, desktop and Android. They render under the comment as image previews and file chips, can be added or removed in edit mode, and stay out of the issue Files rail.
+- **Paused sessions**: a coding session whose machine goes offline now reads as paused with the device name, on the Agents rows, the dock, the issue and the session view, instead of an endless starting spinner. The view reconnects by itself when the machine comes back.
+- **Getting started**: the checklist in the sidebar and the desktop rail mirrors the same ten steps everywhere, adds a Create an action step for owners, and hides itself once everything is done. No dismiss button to hunt for.
+- **Batch merge**: the merge button on a batch session now targets only its own branch's pull request, never a teammate's, after the session's own PR closed unmerged.
+- **Mobile web**: the team pages on a phone use the same layout as the native apps, and the avatar menu lost its duplicate Account entry.`,
+  },
+  {
     id: `2026-08-emoji-picker`,
     date: `2026-08-19`,
     title: `Emoji, everywhere you write`,

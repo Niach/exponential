@@ -1,0 +1,1 @@
+Emoji picker with :shortcode autocomplete, files and images on comments, actions that run themselves on a schedule or issue event, per-user GitHub repo sharing, and coding sessions that show as paused while their machine is offline.
