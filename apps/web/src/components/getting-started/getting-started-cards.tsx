@@ -1,17 +1,6 @@
 import { useMemo, useState } from "react"
 import { Link } from "@tanstack/react-router"
-import {
-  BookOpen,
-  CircleCheck,
-  Download,
-  FolderKanban,
-  Github,
-  LifeBuoy,
-  Lock,
-  MessageSquarePlus,
-  Plug,
-  SquareTerminal,
-} from "lucide-react"
+import { BookOpen, CircleCheck, Download, Lock } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -29,11 +18,10 @@ import {
 import { docsUrl } from "@/lib/docs-links"
 import { conceptIcon } from "@/lib/icons.generated"
 import { cn } from "@/lib/utils"
-import { useGettingStartedProgress } from "@/hooks/use-getting-started-progress"
-import {
-  deriveEntryStates,
-  type EntryKey,
-  type EntryState,
+import { useGettingStartedProgressContext } from "@/hooks/use-getting-started-progress"
+import type {
+  EntryKey,
+  EntryState,
 } from "@/components/getting-started/getting-started-model"
 import {
   CopySnippetButton,
@@ -45,10 +33,13 @@ import { CreateBoardDialog } from "@/components/create-board-dialog"
 import type { Team } from "@/db/schema"
 
 // The in-app "what to do next" checklist (EXP-88, rebuilt dynamic in
-// EXP-141, machines/invite goals in EXP-470): nine entries with live
-// completion state, lock/prereq hints, and per-client MCP setup tabs.
-// Signals come from useGettingStartedProgress; the pure state rules live in
-// getting-started-model.ts.
+// EXP-141, machines/invite goals in EXP-470, action goal in EXP-548): ten
+// entries with live completion state, lock/prereq hints, and per-client MCP
+// setup tabs. Signals come from the layout-level
+// GettingStartedProgressProvider; the pure state rules live in
+// getting-started-model.ts. The desktop IDE renders the SAME entries with
+// the same titles/descriptions/order (`crates/ui/src/getting_started.rs`) —
+// keep the copy in lockstep.
 
 export interface GettingStartedCardsProps {
   team: Team
@@ -56,16 +47,25 @@ export interface GettingStartedCardsProps {
   layout?: `grid` | `stack`
 }
 
+// EXP-548: concepts, not glyphs — the desktop page resolves the same
+// registry constants (`crates/ui/src/getting_started.rs`), so the two
+// checklists render byte-identical icons.
+const ActionCreateIcon = conceptIcon(`action-create`)
+const GithubIcon = conceptIcon(`ui-github`)
+const TerminalIcon = conceptIcon(`nav-terminal`)
+const HelpdeskIcon = conceptIcon(`nav-support`)
+
 const ENTRY_ICONS: Record<EntryKey, LucideIcon> = {
   desktop: conceptIcon(`ui-device`),
-  github: Github,
+  github: GithubIcon,
   invite: conceptIcon(`ui-invite`),
-  board: FolderKanban,
-  coding: SquareTerminal,
+  board: conceptIcon(`nav-boards`),
+  coding: TerminalIcon,
+  action: ActionCreateIcon,
   server: conceptIcon(`ui-server`),
-  widget: MessageSquarePlus,
-  helpdesk: LifeBuoy,
-  mcp: Plug,
+  widget: conceptIcon(`settings-widget`),
+  helpdesk: HelpdeskIcon,
+  mcp: conceptIcon(`ui-mcp`),
 }
 
 const ENTRY_TITLES: Record<EntryKey, string> = {
@@ -74,6 +74,7 @@ const ENTRY_TITLES: Record<EntryKey, string> = {
   invite: `Invite your team`,
   board: `Create a board`,
   coding: `Start coding with an agent`,
+  action: `Create an action`,
   server: `Set up a server`,
   widget: `Set up the feedback widget`,
   helpdesk: `Enable the helpdesk`,
@@ -86,6 +87,7 @@ const ENTRY_DESCRIPTIONS: Record<EntryKey, string> = {
   invite: `Teammates share boards, reviews, and the support inbox. Send an invite by email or hand out an invite link.`,
   board: `Boards hold your issues. Connect a repository to code on a board; without one it works as a plain board.`,
   coding: `"Start coding" on any issue hands it to your coding agent on your machine. It plans first, implements, then commits, pushes, and opens the pull request linked back to the issue. You just need git and your agent CLI (claude, codex or pi) on your PATH.`,
+  action: `Actions are reusable agent runs for your team — describe one and your agent writes it. Run them from Agents on any device, or wire them to automations.`,
   server: `Run the headless agent daemon on an always-on machine. One command installs it; the server then shows up under My machines and can take remote "Start coding" requests.`,
   widget: `Embed a feedback button on any website. Visitors report bugs with an annotated screenshot, and each lands here as an issue with reporter email and page context.`,
   helpdesk: `Flip the switch in Settings → Feedback widget and every member shares the Support inbox. Support tickets from the widget land there, with replies emailed to the reporter.`,
@@ -103,6 +105,9 @@ function lockedHint(entry: EntryKey, lockedBy: EntryKey): string {
   }
   if (entry === `coding` && lockedBy === `board`) {
     return `Create a board with a repository first.`
+  }
+  if (entry === `action`) {
+    return `Connect a machine first — the action creator runs on the desktop app or a registered server.`
   }
   if (entry === `widget`) {
     return `Create a board first. Widget feedback lands there as issues.`
@@ -159,8 +164,7 @@ export function GettingStartedCards({
   teamSlug,
   layout = `grid`,
 }: GettingStartedCardsProps) {
-  const { loading, signals, permissions } =
-    useGettingStartedProgress(team)
+  const { loading, entries, done, total } = useGettingStartedProgressContext()
 
   const [createOpen, setCreateOpen] = useState(false)
 
@@ -168,12 +172,6 @@ export function GettingStartedCards({
     typeof navigator === `undefined`
       ? desktopDownloadHref(``)
       : desktopDownloadHref(navigator.userAgent, navigator.maxTouchPoints)
-
-  const { entries, done, total } = deriveEntryStates(signals, {
-    canManageWidgets: permissions.canManageWidgets,
-    isOwner: permissions.isOwner,
-    canManageMembers: permissions.canManageMembers,
-  })
 
   const serverSnippet = useMemo(
     () =>
@@ -210,7 +208,7 @@ export function GettingStartedCards({
             to="/t/$teamSlug/settings/repositories"
             params={{ teamSlug }}
           >
-            <Github className="mr-1.5 size-4" />
+            <GithubIcon className="mr-1.5 size-4" />
             Connect GitHub
           </Link>
         </Button>
@@ -229,12 +227,26 @@ export function GettingStartedCards({
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" asChild>
           <Link to="/t/$teamSlug/agents" params={{ teamSlug }}>
-            <SquareTerminal className="mr-1.5 size-4" />
+            <TerminalIcon className="mr-1.5 size-4" />
             Open Agents
           </Link>
         </Button>
         <p className="text-xs text-muted-foreground">
           Or open any issue in the desktop app and press Start coding.
+        </p>
+      </div>
+    ),
+
+    action: (
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" asChild>
+          <Link to="/t/$teamSlug/agents" params={{ teamSlug }}>
+            <ActionCreateIcon className="mr-1.5 size-4" />
+            New action
+          </Link>
+        </Button>
+        <p className="text-xs text-muted-foreground">
+          "New action" on the Agents page describes it; your agent builds it.
         </p>
       </div>
     ),
@@ -288,7 +300,7 @@ export function GettingStartedCards({
             to="/t/$teamSlug/settings/widget"
             params={{ teamSlug }}
           >
-            <LifeBuoy className="mr-1.5 size-4" />
+            <HelpdeskIcon className="mr-1.5 size-4" />
             Enable in team settings
           </Link>
         </Button>

@@ -215,9 +215,10 @@ export const auth = betterAuth({
         required: false,
         input: false,
       },
-      // When the user dismissed the "Getting started" cards on the empty
-      // board (users.dismissGettingStarted, EXP-88). Surfaced
-      // read-only on the session; never client-settable.
+      // LEGACY (EXP-548): the old "Getting started" dismissal stamp
+      // (users.dismissGettingStarted, EXP-88). No client reads it any more —
+      // the checklist hides itself once complete; kept on the session for
+      // pre-EXP-548 desktop builds that still deserialize it.
       gettingStartedDismissedAt: {
         type: `date`,
         defaultValue: null,

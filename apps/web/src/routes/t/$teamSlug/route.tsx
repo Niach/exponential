@@ -19,6 +19,10 @@ import { FeedbackWidgetProvider } from "@/components/feedback-widget-provider"
 import { WebMcpProvider } from "@/components/webmcp-provider"
 import { IssueRefProvider } from "@/components/issue-ref-provider"
 import { TeamStatusesProvider } from "@/hooks/use-team-statuses"
+import {
+  GettingStartedProgressProvider,
+  useGettingStartedProgress,
+} from "@/hooks/use-getting-started-progress"
 import { MentionProvider } from "@/components/mention-provider"
 import { AgentDockProvider } from "@/components/agent-dock/agent-dock-provider"
 import { AgentDock } from "@/components/agent-dock/agent-dock"
@@ -91,6 +95,9 @@ function TeamLayout() {
   const team = useTeamBySlug(teamSlug)
   const boards = useTeamBoards(team?.id)
   const [searchOpen, setSearchOpen] = useState(false)
+  // EXP-548: ONE getting-started signal pass per team layout, shared by the
+  // sidebar entry (which hides once complete) and the empty-board block.
+  const gettingStarted = useGettingStartedProgress(team)
   // Child-route params (loose match): `boardSlug` is set while any
   // board-scoped route (board, issue detail) is active.
   const { boardSlug } = useParams({ strict: false })
@@ -124,6 +131,7 @@ function TeamLayout() {
           every status renderer below (lists, pickers, filter pills, submenus)
           — a 200-row list must not open 200 queries. */}
       <TeamStatusesProvider teamId={team?.id}>
+      <GettingStartedProgressProvider value={gettingStarted}>
       <IssueRefProvider
         teamId={team?.id}
         teamSlug={teamSlug}
@@ -183,6 +191,7 @@ function TeamLayout() {
           </AgentDockProvider>
         </MentionProvider>
       </IssueRefProvider>
+      </GettingStartedProgressProvider>
       </TeamStatusesProvider>
     </SidebarProvider>
   )

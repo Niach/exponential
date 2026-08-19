@@ -216,6 +216,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "phone" => ExpIcon::Phone,
         "plane" => ExpIcon::Plane,
         "play" => ExpIcon::Play,
+        "plug" => ExpIcon::Plug,
         "plus" => ExpIcon::Plus,
         "progress-1-4" => ExpIcon::Progress14,
         "progress-1-5" => ExpIcon::Progress15,
@@ -576,6 +577,8 @@ pub const UI_INVITE: ExpIcon = ExpIcon::UserPlus;
 pub const UI_ISSUE: ExpIcon = ExpIcon::FileText;
 /// Registry concept `ui-loading` -> Lucide `loader-circle`.
 pub const UI_LOADING: ExpIcon = ExpIcon::LoaderCircle;
+/// Registry concept `ui-mcp` -> Lucide `plug`.
+pub const UI_MCP: ExpIcon = ExpIcon::Plug;
 /// Registry concept `ui-member` -> Lucide `shield-check`.
 pub const UI_MEMBER: ExpIcon = ExpIcon::ShieldCheck;
 /// Registry concept `ui-minus` -> Lucide `minus`.
