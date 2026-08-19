@@ -431,6 +431,11 @@ private fun AutomationRow(
 ) {
     val trigger = remember(action.trigger) { action.parsedTrigger } ?: return
     val boundDevice = devices.firstOrNull { it.deviceId == trigger.deviceId }
+    // An automated run has nobody to type required inputs, so the server
+    // refuses to ENABLE such a trigger — but a legacy row that is already on
+    // must stay switchable OFF.
+    val hasRequired = action.inputs.orEmpty().any { it.required }
+    val locked = hasRequired && !trigger.enabled
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -495,13 +500,21 @@ private fun AutomationRow(
                     )
                 }
             }
+            if (locked) {
+                Text(
+                    "This action has required inputs, and an automated run has none to " +
+                        "fill them with. Make the inputs optional to enable it.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         Spacer(Modifier.width(8.dp))
         // Owner-only (actions.update is owner-gated server-side).
         Switch(
             checked = trigger.enabled,
             onCheckedChange = onSetEnabled,
-            enabled = toggleEnabled,
+            enabled = toggleEnabled && !locked,
         )
     }
 }

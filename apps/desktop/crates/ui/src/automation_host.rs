@@ -14,6 +14,11 @@
 //! collections that flip `eval_soon` so a freshly synced event (or an edited
 //! trigger) is acted on within a tick instead of waiting out the beat.
 //!
+//! EXP-562: the foreground half is the part that must stay cheap, so it is
+//! gated twice — a device with no ENABLED event trigger never looks at the
+//! `issue_events` collection at all, and one that does reuses its last
+//! [`EventCache`] until the collection's revision moves.
+//!
 //! Firing protocol (the module doc of [`coding::automations`] is the
 //! authority, both hosts obey it): claim the `action:{id}` reservation →
 //! persist the new state FIRST → launch. A failed claim skips WITHOUT a
@@ -100,6 +105,10 @@ pub fn start_automation_host(account: &api::Account, cx: &mut App) {
         // was offline must seed its state (never fire retroactively) before
         // any beat elapses.
         let mut ticks_since_beat = u32::MAX / 2;
+        // EXP-562: the event snapshot survives between beats — see
+        // [`EventCache`]. It lives in the loop, so a stopped host (sign-out)
+        // drops it with everything else.
+        let mut event_cache = EventCache::default();
         loop {
             cx.background_executor().timer(TICK).await;
             if stop.load(Ordering::SeqCst) {
@@ -114,7 +123,8 @@ pub fn start_automation_host(account: &api::Account, cx: &mut App) {
 
             // ONE foreground snapshot — every entity read happens here, the
             // whole evaluation below runs off the main thread.
-            let Some(snapshot) = cx.update(|cx| snapshot_for(&account_id, cx)) else {
+            let Some(snapshot) = cx.update(|cx| snapshot_for(&account_id, &mut event_cache, cx))
+            else {
                 // Account switched away — retire; connect_account restarts.
                 return;
             };
@@ -263,6 +273,28 @@ struct IssueDisplay {
     title: String,
 }
 
+/// The last built event snapshot, kept between beats (EXP-562). Rebuilding
+/// it walks the WHOLE `issue_events` collection on the foreground thread, so
+/// it happens only when the collection actually changed:
+/// [`sync::Collection::revision`] is a monotonic counter bumped by every
+/// upsert/remove/refetch, so an unchanged value means byte-identical rows.
+/// The `Arc` hands the pass to the background executor without a copy.
+#[derive(Default)]
+struct EventCache {
+    /// The revision `rows` were built from; `None` = nothing cached (first
+    /// beat, or a pass that needs no events at all dropped it).
+    revision: Option<u64>,
+    rows: Arc<Vec<EventRow>>,
+}
+
+impl EventCache {
+    /// The ONE rebuild condition. Kept pure so the cheap path is testable
+    /// without a gpui app.
+    fn needs_rebuild(&self, revision: u64) -> bool {
+        self.revision != Some(revision)
+    }
+}
+
 /// Everything one evaluation pass needs, read on the foreground.
 struct EvalSnapshot {
     settings_path: PathBuf,
@@ -272,7 +304,8 @@ struct EvalSnapshot {
     /// This device's parseable triggers, each carrying its action's team
     /// (the event fence AND the runner's up-front team).
     actions: Vec<TriggeredAction>,
-    events: Vec<EventRow>,
+    /// Shared with [`EventCache`] — the pass only reads it.
+    events: Arc<Vec<EventRow>>,
     live_action_ids: HashSet<String>,
     issue_display: HashMap<String, IssueDisplay>,
     label_names: HashMap<String, String>,
@@ -283,7 +316,7 @@ struct EvalSnapshot {
     options: LaunchOptions,
 }
 
-fn snapshot_for(account_id: &str, cx: &mut App) -> Option<EvalSnapshot> {
+fn snapshot_for(account_id: &str, cache: &mut EventCache, cx: &mut App) -> Option<EvalSnapshot> {
     let account = queries::active_account(cx)?;
     if account.id != account_id {
         return None;
@@ -299,14 +332,16 @@ fn snapshot_for(account_id: &str, cx: &mut App) -> Option<EvalSnapshot> {
     let options = automated_options(&hub.read(cx).settings);
     let live_action_ids = sessions.read(cx).live_action_ids();
     let actions = triggered_actions(collections.actions.read(cx).iter(), &device_id);
-    if actions.is_empty() {
-        // Nothing bound to this device — skip the (potentially large) event
-        // scan entirely.
+    if actions.is_empty() || !automations::needs_events(&actions) {
+        // Nothing bound to this device, or nothing that READS events (a
+        // schedule-only device never scans) — skip the potentially large
+        // event collection entirely, and let the cache go with it.
+        *cache = EventCache::default();
         return Some(EvalSnapshot {
             settings_path,
             device_id,
             actions,
-            events: Vec::new(),
+            events: Arc::default(),
             live_action_ids,
             issue_display: HashMap::new(),
             label_names: HashMap::new(),
@@ -318,45 +353,70 @@ fn snapshot_for(account_id: &str, cx: &mut App) -> Option<EvalSnapshot> {
     let now_local = Local::now();
     let cutoff = now_local.timestamp_millis() - domain::contract::AUTOMATION_EVENT_CATCHUP_MS;
     let issues = collections.issues.read(cx);
-    let mut events = Vec::new();
+    let synced_events = collections.issue_events.read(cx);
+    let revision = synced_events.revision();
+    if cache.needs_rebuild(revision) {
+        let mut rows = Vec::new();
+        for row in synced_events.iter() {
+            let Some(created_at_ms) = row
+                .created_at
+                .as_deref()
+                .and_then(crate::inbox::parse_timestamp)
+                .map(|parsed| parsed.timestamp_millis())
+            else {
+                continue;
+            };
+            // The engine re-applies the cutoff, but pruning here is what
+            // keeps the CACHE from growing without bound between rebuilds.
+            if created_at_ms < cutoff {
+                continue;
+            }
+            rows.push(EventRow {
+                id: row.id.clone(),
+                issue_id: row.issue_id.clone(),
+                // The denormalized team — the engine fences matching to the
+                // action's own team (a missing value conservatively never
+                // matches).
+                team_id: row.team_id.clone(),
+                created_at_ms,
+                // A row without a type can never match a spec, but it still
+                // belongs in the snapshot — the watermark advances over it.
+                kind: row.kind.clone().unwrap_or_default(),
+                payload: row.payload.clone(),
+                // Pre-joined: the issue_events shape carries no board_id, and
+                // an unknown issue must FAIL a board filter (never silently
+                // pass).
+                board_id: issues
+                    .get(&row.issue_id)
+                    .map(|issue| issue.board_id.clone()),
+            });
+        }
+        cache.rows = Arc::new(rows);
+        cache.revision = Some(revision);
+    } else {
+        patch_missing_boards(&mut cache.rows, |issue_id| {
+            issues.get(issue_id).map(|issue| issue.board_id.clone())
+        });
+    }
+    let events = cache.rows.clone();
+
+    // The two display maps are rebuilt every pass from the cached rows —
+    // distinct issues/labels inside the catch-up window, so this is a small
+    // map over an already-narrowed list, not a second scan.
     let mut issue_display: HashMap<String, IssueDisplay> = HashMap::new();
-    for row in collections.issue_events.read(cx).iter() {
-        let Some(created_at_ms) = row
-            .created_at
-            .as_deref()
-            .and_then(crate::inbox::parse_timestamp)
-            .map(|parsed| parsed.timestamp_millis())
-        else {
-            continue;
-        };
-        if created_at_ms < cutoff {
+    for row in events.iter() {
+        if issue_display.contains_key(&row.issue_id) {
             continue;
         }
-        let issue = issues.get(&row.issue_id);
-        if let Some(issue) = issue {
-            issue_display
-                .entry(row.issue_id.clone())
-                .or_insert_with(|| IssueDisplay {
+        if let Some(issue) = issues.get(&row.issue_id) {
+            issue_display.insert(
+                row.issue_id.clone(),
+                IssueDisplay {
                     identifier: issue.identifier.clone(),
                     title: issue.title.clone(),
-                });
+                },
+            );
         }
-        events.push(EventRow {
-            id: row.id.clone(),
-            issue_id: row.issue_id.clone(),
-            // The denormalized team — the engine fences matching to the
-            // action's own team (a missing value conservatively never
-            // matches).
-            team_id: row.team_id.clone(),
-            created_at_ms,
-            // A row without a type can never match a spec, but it still
-            // belongs in the snapshot — the watermark advances over it.
-            kind: row.kind.clone().unwrap_or_default(),
-            payload: row.payload.clone(),
-            // Pre-joined: the issue_events shape carries no board_id, and an
-            // unknown issue must FAIL a board filter (never silently pass).
-            board_id: issue.map(|issue| issue.board_id.clone()),
-        });
     }
 
     let referenced_labels: HashSet<String> = events
@@ -381,6 +441,32 @@ fn snapshot_for(account_id: &str, cx: &mut App) -> Option<EvalSnapshot> {
         now_local,
         options,
     })
+}
+
+/// Heal the board join of CACHED rows that still have none: `issue_events`
+/// routinely syncs BEFORE the issue it belongs to, and a missing board FAILS
+/// a board filter — so a miss frozen into the cache would never match, even
+/// once the issue lands. The rows are copied (`Arc::make_mut`) only when a
+/// lookup actually resolves, so the steady state — every issue synced, or
+/// none of them yet — allocates nothing. Returns whether anything changed.
+fn patch_missing_boards(
+    rows: &mut Arc<Vec<EventRow>>,
+    board_of: impl Fn(&str) -> Option<String>,
+) -> bool {
+    let resolved: Vec<(usize, String)> = rows
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| row.board_id.is_none())
+        .filter_map(|(index, row)| board_of(&row.issue_id).map(|board_id| (index, board_id)))
+        .collect();
+    if resolved.is_empty() {
+        return false;
+    }
+    let rows = Arc::make_mut(rows);
+    for (index, board_id) in resolved {
+        rows[index].board_id = Some(board_id);
+    }
+    true
 }
 
 /// This device's launch defaults for an AUTOMATED run: the saved default
@@ -452,7 +538,7 @@ fn evaluate_pass(snapshot: EvalSnapshot) -> PassOutcome {
     let decisions = automations::evaluate(&EvalInput {
         actions: &snapshot.actions,
         states: &states,
-        events: &snapshot.events,
+        events: &snapshot.events[..],
         live_action_ids: &snapshot.live_action_ids,
         now_ms,
         now_local: snapshot.now_local.clone(),
@@ -823,6 +909,45 @@ mod tests {
         );
     }
 
+    /// EXP-562: the foreground pass walks the whole `issue_events`
+    /// collection ONLY when its revision moved — every other beat reuses the
+    /// rows, patching just the board joins that were still missing.
+    #[test]
+    fn event_cache_rebuilds_only_on_revision_change() {
+        let mut cache = EventCache::default();
+        // Nothing cached yet: the first pass must always build.
+        assert!(cache.needs_rebuild(7));
+
+        let mut unjoined = event_row("e1", "created", None);
+        unjoined.board_id = None;
+        cache.rows = Arc::new(vec![event_row("e0", "created", None), unjoined]);
+        cache.revision = Some(7);
+        assert!(!cache.needs_rebuild(7), "an unchanged revision reuses");
+        assert!(cache.needs_rebuild(8), "any upsert/remove/refetch rebuilds");
+        // A dropped cache (a pass that needed no events) rebuilds next time.
+        assert!(EventCache::default().needs_rebuild(7));
+
+        // The reuse path heals the row whose issue synced late…
+        let before = cache.rows.clone();
+        assert!(patch_missing_boards(&mut cache.rows, |issue_id| {
+            (issue_id == "issue-1").then(|| "board-9".to_string())
+        }));
+        assert_eq!(cache.rows[1].board_id.as_deref(), Some("board-9"));
+        assert_eq!(
+            cache.rows[0].board_id.as_deref(),
+            Some("board-1"),
+            "an already-joined row is never re-read"
+        );
+        assert!(!Arc::ptr_eq(&before, &cache.rows), "the patch copies once");
+
+        // …and once every join resolves, the pass allocates nothing.
+        let steady = cache.rows.clone();
+        assert!(!patch_missing_boards(&mut cache.rows, |_| Some(
+            "board-9".to_string()
+        )));
+        assert!(Arc::ptr_eq(&steady, &cache.rows));
+    }
+
     /// One line per event kind — the strings the agent reads to know WHY it
     /// was started.
     #[test]
@@ -904,7 +1029,7 @@ mod tests {
             settings_path: PathBuf::new(),
             device_id: "dev-gui".to_string(),
             actions: Vec::new(),
-            events: Vec::new(),
+            events: Arc::default(),
             live_action_ids: HashSet::new(),
             issue_display: displays(),
             label_names: HashMap::new(),

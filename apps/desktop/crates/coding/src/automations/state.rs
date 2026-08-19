@@ -8,7 +8,8 @@
 //!   "<deviceId>": {
 //!     "<actionId>": {
 //!       "fingerprint": "…", "lastFiredAt": 123, "watermarkCreatedAt": 123,
-//!       "watermarkId": "…", "cooldownUntil": 123
+//!       "watermarkId": "…", "cooldownUntil": 123,
+//!       "seenFloor": 123, "seenIds": ["evt-…"]
 //!     }
 //!   }
 //! }
@@ -36,10 +37,23 @@ pub struct AutomationState {
     /// Schedule anchor / reseed stamp (ms epoch).
     pub last_fired_at: Option<i64>,
     /// Event high-water mark: `(created_at_ms, id)` of the newest row seen.
+    /// Still written on every seed/fire, but only LEGACY states (written
+    /// before EXP-562) are still read from it — see `seen_floor`.
     pub watermark_created_at: Option<i64>,
     pub watermark_id: Option<String>,
     /// No firing before this stamp (cooldown / prepare-failure backoff).
     pub cooldown_until: Option<i64>,
+    /// EXP-562 grace cursor: the oldest `created_at` (ms epoch) still
+    /// eligible to fire. A bare watermark loses a row that COMMITS earlier
+    /// but SYNCS later than its neighbour (overlapping transactions), so
+    /// the cursor trails the snapshot max by
+    /// [`crate::automations::EVENT_GRACE_MS`] and dedupes by id instead.
+    /// `None` = a legacy state, still read strictly off the watermark; it
+    /// migrates on the next fire.
+    pub seen_floor: Option<i64>,
+    /// The matching row ids at or above `seen_floor` that were already
+    /// fired on — capped at [`crate::automations::SEEN_IDS_CAP`].
+    pub seen_ids: Vec<String>,
 }
 
 /// Read `device_id`'s whole state map. Missing/corrupt file or key →
@@ -73,6 +87,15 @@ pub fn read_states(settings_path: &Path, device_id: &str) -> HashMap<String, Aut
                         .and_then(Value::as_str)
                         .map(str::to_string),
                     cooldown_until: entry.get("cooldownUntil").and_then(Value::as_i64),
+                    seen_floor: entry.get("seenFloor").and_then(Value::as_i64),
+                    // Missing / non-array / non-string entries → empty: a
+                    // hole here can only re-fire a row, never lose one, and
+                    // the floor still bounds the blast radius.
+                    seen_ids: entry
+                        .get("seenIds")
+                        .and_then(Value::as_array)
+                        .map(|ids| ids.iter().filter_map(Value::as_str).map(str::to_string).collect())
+                        .unwrap_or_default(),
                 },
             )
         })
@@ -103,6 +126,8 @@ pub fn write_states(
                 "watermarkCreatedAt": state.watermark_created_at,
                 "watermarkId": state.watermark_id,
                 "cooldownUntil": state.cooldown_until,
+                "seenFloor": state.seen_floor,
+                "seenIds": state.seen_ids,
             }),
         );
     }
@@ -161,6 +186,8 @@ mod tests {
             watermark_created_at: Some(fired),
             watermark_id: Some("evt-1".to_string()),
             cooldown_until: None,
+            seen_floor: Some(fired),
+            seen_ids: vec!["evt-1".to_string()],
         }
     }
 
@@ -226,5 +253,26 @@ mod tests {
         .into();
         write_states(&path, "d", &bare).unwrap();
         assert_eq!(read_states(&path, "d"), bare);
+    }
+
+    /// EXP-562: an entry written before the grace cursor existed reads as
+    /// `seen_floor: None` — the engine keeps it on the strict watermark
+    /// until the next fire migrates it, so an upgrade never double-fires.
+    #[test]
+    fn legacy_entry_without_seen_keys_reads_as_none() {
+        let dir = temp_dir("legacy");
+        let path = dir.0.join("settings.json");
+        std::fs::write(
+            &path,
+            r#"{"actionAutomations":{"d":{"act-1":{"fingerprint":"fp",
+               "lastFiredAt":100,"watermarkCreatedAt":100,"watermarkId":"evt-1",
+               "cooldownUntil":null}}}}"#,
+        )
+        .unwrap();
+        let states = read_states(&path, "d");
+        let legacy = &states["act-1"];
+        assert_eq!(legacy.watermark_id.as_deref(), Some("evt-1"));
+        assert_eq!(legacy.seen_floor, None, "no seenFloor key → strict watermark");
+        assert!(legacy.seen_ids.is_empty());
     }
 }

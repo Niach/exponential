@@ -1055,7 +1055,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_open`,
     {
-      description: `Open a GitHub PR on the linked repository and link it to the issue(s). The server uses the GitHub App, no 'gh' or token needed. Pass EXACTLY ONE of 'issueId' or 'issueIds' (batch: ONE combined PR for all listed issues, same repo; 'head' then REQUIRED, e.g. 'exp/batch-<id>'). Single issue: 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>'; 'base' to the repo default branch. Linked issues record prUrl/prNumber/prState/branch and move to the team's PR-open status (default 'in_review'); merging later moves them to the PR-merge status (default 'done'). Accepts UUIDs or identifiers ("MET-12").`,
+      description: `Open a GitHub PR on the linked repository via the GitHub App (no 'gh' or token) and link it to the issue(s). Pass EXACTLY ONE of 'issueId' or 'issueIds' (batch: ONE combined PR for all listed issues, same repo; 'head' then REQUIRED, e.g. 'exp/batch-<id>'). Single issue: 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>'; 'base' to the repo default branch. Linked issues record prUrl/prNumber/prState/branch and move to the team's PR-open status (default 'in_review'); merging later moves them to the PR-merge status (default 'done'). Accepts UUIDs or identifiers ("MET-12").`,
       inputSchema: {
         issueId: z.string().min(1).optional(),
         issueIds: z.array(z.string().min(1)).min(1).max(30).optional(),
@@ -1279,7 +1279,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_merge`,
     {
-      description: `Squash-merge linked open PRs via the GitHub App, no 'gh' or token needed. Pass EXACTLY ONE of 'issueId' or 'issueIds' (one merge per distinct prUrl, so issues sharing a batch PR merge once). Linked issues flip to prState='merged' and move to the team's PR-merge status (default 'done'); live coding sessions on the linked issues end. Merges run sequentially with per-PR results; one unmergeable PR never blocks the rest. If a merge is rejected because the base branch is stale, fix it with exponential_pr_retarget first. Idempotent for already-merged PRs.`,
+      description: `Squash-merge linked open PRs via the GitHub App (no 'gh' or token). Pass EXACTLY ONE of 'issueId' or 'issueIds' (one merge per distinct prUrl, so issues sharing a batch PR merge once). Linked issues flip to prState='merged' and move to the team's PR-merge status (default 'done'); live coding sessions on them end. Merges run sequentially with per-PR results; one unmergeable PR never blocks the rest. A merge rejected for a stale base: fix with exponential_pr_retarget first. Idempotent for already-merged PRs.`,
       inputSchema: {
         issueId: z.string().min(1).optional(),
         issueIds: z.array(z.string().min(1)).min(1).max(30).optional(),
@@ -1741,7 +1741,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_actions_create`,
     {
-      description: `Create a team action (owner only). body is the markdown prompt an agent runs locally; repositoryId targets that repo's trunk clone; icon: a curated icon name. inputs (max 10): typed run-dialog inputs ({key,label,type,required?,placeholder?}; type: text|textarea|repo|board|pr|icon) injected into the prompt. trigger (optional) binds an automation: {kind:schedule,deviceId,enabled,interval:daily|weekly|monthly,minuteOfDay:0-1439,weekday?:1-7,dayOfMonth?:1-28} | {kind:event,deviceId,enabled,event:created|status_changed|assignee_changed|label_added|priority_changed|pr_opened|pr_merged,filters?:{boardIds?,labelIds?,priorities?,toStatusIds?}}; deviceId is the hosting device's steer id — pass a provided trigger JSON verbatim.`,
+      description: `Create a team action (owner only). body = the markdown prompt an agent runs locally; repositoryId targets that repo's trunk clone; icon = a curated icon name; inputs = run-dialog fields injected into the prompt. trigger binds an automation on deviceId (the hosting device's steer id; pass a provided trigger JSON verbatim): {kind:schedule,deviceId,enabled,interval:daily|weekly|monthly,minuteOfDay:0-1439,weekday?:1-7,dayOfMonth?:1-28} or {kind:event,deviceId,enabled,event:created|status_changed|assignee_changed|label_added|priority_changed|pr_opened|pr_merged,filters?:{boardIds?,labelIds?,priorities?,toStatusIds?}}. An enabled trigger needs every input optional.`,
       inputSchema: {
         teamId: uuidString,
         name: z.string().min(1).max(255),
@@ -1773,7 +1773,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_actions_update`,
     {
-      description: `Update an action by UUID: name, description, icon (null clears), repositoryId, body, inputs (whole-array replace), trigger (automation, same shape as exponential_actions_create's; null clears), or sortOrder. Pass only fields to change. Team owner only.`,
+      description: `Update an action by UUID (owner only); pass only fields to change. icon/trigger: null clears; inputs: whole-array replace; trigger shape as in exponential_actions_create.`,
       inputSchema: {
         id: uuidString,
         name: z.string().min(1).max(255).optional(),

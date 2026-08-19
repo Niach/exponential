@@ -284,6 +284,58 @@ impl ShapeStore {
         }
     }
 
+    /// Rows whose TEXT `column` sorts at or after `bound` — the cheap
+    /// pre-filter for time-windowed scans (EXP-562: the automation hosts want
+    /// the last ~25h of `issue_events`, not the whole table, on every 30s
+    /// beat).
+    ///
+    /// The comparison is SQLite's raw byte compare over the ONE canonical
+    /// storage form (§5.4 — every column is TEXT), which is a guaranteed
+    /// **superset** of the real timestamp window for both wire forms Electric
+    /// and Postgres emit: the space form `2026-08-18 06:00:00.123+00` sorts
+    /// lexicographically exactly like it sorts chronologically, and the RFC
+    /// 3339 form `2026-08-18T06:00:00Z` differs only at the separator, where
+    /// `'T' > ' '` — so a T-form row can be over-included on the bound's own
+    /// day, never excluded. Callers MUST re-filter exactly (parse the value
+    /// and compare in ms); pass a `bound` rendered with a margin below the
+    /// real cutoff to keep that guarantee. SQL NULLs never compare true, so
+    /// timestamp-less rows are excluded — they carry no usable time anyway.
+    ///
+    /// No index backs this: the tables are small enough that a TEXT range
+    /// scan beats maintaining one, and the alternative was hydrating every
+    /// row. A covering index on the scanned column is the follow-up if a
+    /// table ever grows past that.
+    pub fn read_where_ge(
+        &self,
+        spec: &ShapeSpec,
+        column: &str,
+        bound: &str,
+    ) -> Result<Vec<Map<String, Value>>> {
+        // The column name is interpolated into the SQL, so it must come from
+        // the shape's own allowlist — never from a caller's string.
+        if !spec.columns.contains(&column) {
+            return Err(StoreError::Sqlite(rusqlite::Error::InvalidColumnName(
+                column.to_string(),
+            )));
+        }
+        let conn = self.reader.lock().expect("reader poisoned");
+        let mut stmt = conn.prepare_cached(&format!(
+            "SELECT * FROM \"{}\" WHERE \"{column}\" >= ?1",
+            spec.name
+        ))?;
+        let names: Vec<String> = stmt
+            .column_names()
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect();
+        let mut rows = stmt.query(params![bound])?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next()? {
+            out.push(row_to_map(row, &names)?);
+        }
+        Ok(out)
+    }
+
     /// Row count of a shape table (read-only connection) — cheap UI/test probe.
     pub fn count(&self, spec: &ShapeSpec) -> Result<i64> {
         let conn = self.reader.lock().expect("reader poisoned");

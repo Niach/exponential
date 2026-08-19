@@ -344,6 +344,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
             personal_key: personal_key.clone(),
             sync: Arc::clone(manager),
             device_id: device_id.clone(),
+            event_cache: None,
         });
         spawn_delta_drain(manager, worker.clone());
         worker
@@ -1509,11 +1510,17 @@ fn start_automation_sync(ctx: &Ctx) -> Option<Arc<sync::SyncManager>> {
     }
 }
 
-/// Why the worker woke up. Both are handled identically (the beat is a full
-/// re-evaluation) — they differ only in what scheduled them.
+/// Why the worker woke up. Every variant runs the same full re-evaluation;
+/// they differ only in whether the (expensive) `issue_events` snapshot has to
+/// be re-read — EXP-562: a beat that nothing eventful scheduled reuses the
+/// cached rows instead of hydrating the table again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum AutomationWork {
-    /// A synced `issue_events`/`actions` batch landed.
-    Nudge,
+    /// A synced `issue_events` batch landed — the cache is stale.
+    EventsChanged,
+    /// A synced `actions` batch landed (a trigger was authored or edited) —
+    /// re-decide, but the events snapshot is untouched.
+    ActionsChanged,
     /// The 1s loop's [`AUTOMATION_TICK`] beat.
     Tick,
 }
@@ -1536,15 +1543,17 @@ fn spawn_delta_drain(manager: &Arc<sync::SyncManager>, worker: flume::Sender<Aut
                 else {
                     continue;
                 };
-                if !matches!(shape, "issue_events" | "actions") {
-                    continue;
-                }
+                let work = match shape {
+                    "issue_events" => AutomationWork::EventsChanged,
+                    "actions" => AutomationWork::ActionsChanged,
+                    _ => continue,
+                };
                 // A pure `up-to-date` heartbeat changed nothing.
                 if keys.is_empty() && !full_replace {
                     continue;
                 }
                 // A closed channel is the daemon shutting down.
-                if worker.send(AutomationWork::Nudge).is_err() {
+                if worker.send(work).is_err() {
                     break;
                 }
             }
@@ -1564,24 +1573,40 @@ struct AutomationHost {
     personal_key: Option<String>,
     sync: Arc<sync::SyncManager>,
     device_id: String,
+    /// EXP-562: the last hydrated event snapshot, reused by every beat no
+    /// `issue_events` batch woke up. `None` = nothing cached (first beat, a
+    /// failed read, or a device with no event trigger at all).
+    event_cache: Option<Vec<coding::automations::EventRow>>,
 }
 
 /// The `spawn_device_worker` idiom: unbounded flume + ONE thread, so two
 /// beats never evaluate (or write state) concurrently.
-fn spawn_automation_worker(host: AutomationHost) -> flume::Sender<AutomationWork> {
+fn spawn_automation_worker(mut host: AutomationHost) -> flume::Sender<AutomationWork> {
     let (tx, rx) = flume::unbounded::<AutomationWork>();
     std::thread::Builder::new()
         .name("exp-automate".to_string())
         .spawn(move || {
-            while rx.recv().is_ok() {
+            while let Ok(first) = rx.recv() {
                 // Coalesce a burst (a refetch is thousands of rows in a
                 // handful of batches) into ONE evaluation pass.
-                while rx.try_recv().is_ok() {}
-                host.beat();
+                let mut batch = vec![first];
+                while let Ok(more) = rx.try_recv() {
+                    batch.push(more);
+                }
+                host.beat(rescan_events(&batch));
             }
         })
         .expect("spawn the automations worker");
     tx
+}
+
+/// Whether a coalesced burst invalidates the event snapshot: ONE
+/// `issue_events` batch anywhere in it does, a pile of ticks and trigger
+/// edits does not.
+fn rescan_events(batch: &[AutomationWork]) -> bool {
+    batch
+        .iter()
+        .any(|work| matches!(work, AutomationWork::EventsChanged))
 }
 
 /// One action this device's trigger targets, plus what the LAUNCH needs
@@ -1596,7 +1621,12 @@ struct AutomationAction {
 impl AutomationHost {
     /// One evaluation pass. Every failure mode degrades to "do nothing this
     /// beat" — the next nudge or tick retries from fresh state.
-    fn beat(&self) {
+    ///
+    /// `rescan` is the coalesced burst's verdict on the event snapshot
+    /// (EXP-562): false reuses [`Self::event_cache`], so the common
+    /// nothing-happened beat costs one settings read instead of hydrating
+    /// every synced `issue_events` row plus a point-read per issue.
+    fn beat(&mut self, rescan: bool) {
         let Some(store) = self.sync.store(&self.ctx.account.id) else {
             return;
         };
@@ -1609,16 +1639,30 @@ impl AutomationHost {
         let mut states = coding::automations::read_states(&settings_path, &self.device_id);
         let now_local = chrono::Local::now();
         let now_ms = now_local.timestamp_millis();
-        let events = read_event_rows(&store, now_ms);
         let live = live_action_ids(&self.sessions);
         let triggers: Vec<coding::automations::TriggeredAction> = actions
             .iter()
             .map(|action| action.triggered.clone())
             .collect();
+
+        if !coding::automations::needs_events(&triggers) {
+            // Schedule-only device: never touch the events table, and drop
+            // whatever a previously-enabled event trigger left cached.
+            self.event_cache = None;
+        } else if rescan || self.event_cache.is_none() {
+            // A failed read is NOT cached — this beat evaluates with no
+            // events (an event trigger simply decides nothing) and the next
+            // one retries the scan.
+            self.event_cache = read_event_rows(&store, now_ms);
+        } else if let Some(cached) = self.event_cache.as_mut() {
+            patch_missing_boards(&store, cached);
+        }
+        let events: &[coding::automations::EventRow] = self.event_cache.as_deref().unwrap_or(&[]);
+
         let decisions = coding::automations::evaluate(&coding::automations::EvalInput {
             actions: &triggers,
             states: &states,
-            events: &events,
+            events,
             live_action_ids: &live,
             now_ms,
             now_local,
@@ -1864,40 +1908,98 @@ fn read_shape_rows<T: serde::de::DeserializeOwned>(
     }
 }
 
+/// How far BELOW the catch-up cutoff [`event_scan_bound`] aims. The SQL
+/// pre-filter compares raw text, so the margin absorbs everything text order
+/// cannot model — device/server clock skew and a sub-second or offset-suffix
+/// render difference — and keeps the scan a strict superset of the window
+/// the Rust filter then applies exactly.
+const EVENT_SCAN_MARGIN_MS: i64 = 3_600_000;
+
+/// The `created_at >= ?` bound for the event scan: the catch-up cutoff minus
+/// [`EVENT_SCAN_MARGIN_MS`], rendered UTC in the space form Electric emits
+/// (`2026-08-18 06:00:00…`) so a byte compare orders it correctly against
+/// both wire forms — see [`sync::store::ShapeStore::read_where_ge`]. An
+/// unrepresentable instant degrades to the empty bound: a full scan, i.e. the
+/// old behaviour, never a missed row.
+fn event_scan_bound(now_ms: i64) -> String {
+    let floor_ms = now_ms - domain::contract::AUTOMATION_EVENT_CATCHUP_MS - EVENT_SCAN_MARGIN_MS;
+    chrono::DateTime::from_timestamp_millis(floor_ms)
+        .map(|at| at.format("%Y-%m-%d %H:%M:%S").to_string())
+        .unwrap_or_default()
+}
+
 /// The candidate event rows: inside the contract catch-up window, with
 /// `board_id` pre-joined from the issue (the `issue_events` shape carries
 /// none, and the engine's board filter needs it — a missing datum
 /// conservatively FAILS a non-empty filter).
+///
+/// SQL narrows the table to the window first (EXP-562 — hydrating every
+/// synced event every beat was the cost); the exact `created_at_ms < cutoff`
+/// filter still runs here, because the text bound is only a superset.
+/// `None` means the read FAILED — the caller evaluates with no events and
+/// caches nothing, so the next beat retries.
 fn read_event_rows(
     store: &sync::store::ShapeStore,
     now_ms: i64,
-) -> Vec<coding::automations::EventRow> {
+) -> Option<Vec<coding::automations::EventRow>> {
+    let spec = sync::shapes::shape_by_name("issue_events")?;
+    let raw = match store.read_where_ge(spec, "created_at", &event_scan_bound(now_ms)) {
+        Ok(raw) => raw,
+        Err(err) => {
+            log::debug!("automations: scanning the issue_events table failed: {err}");
+            return None;
+        }
+    };
     let cutoff = now_ms - domain::contract::AUTOMATION_EVENT_CATCHUP_MS;
     let mut boards: HashMap<String, Option<String>> = HashMap::new();
-    read_shape_rows::<domain::rows::IssueEvent>(store, "issue_events")
-        .into_iter()
-        .filter_map(|row| {
-            let created_at_ms = row.created_at.as_deref().and_then(parse_epoch_ms)?;
-            if created_at_ms < cutoff {
-                return None;
-            }
-            let board_id = boards
-                .entry(row.issue_id.clone())
-                .or_insert_with(|| issue_field(store, &row.issue_id, "board_id"))
-                .clone();
-            Some(coding::automations::EventRow {
-                id: row.id,
-                issue_id: row.issue_id,
-                // The engine fences matching to the action's own team — a
-                // missing value conservatively never matches.
-                team_id: row.team_id,
-                created_at_ms,
-                kind: row.kind.unwrap_or_default(),
-                payload: row.payload,
-                board_id,
+    Some(
+        raw.into_iter()
+            // §5.5 tolerant decode — an undecodable row is dropped, never fatal.
+            .filter_map(|row| {
+                serde_json::from_value::<domain::rows::IssueEvent>(serde_json::Value::Object(row))
+                    .ok()
             })
-        })
-        .collect()
+            .filter_map(|row| {
+                let created_at_ms = row.created_at.as_deref().and_then(parse_epoch_ms)?;
+                if created_at_ms < cutoff {
+                    return None;
+                }
+                let board_id = boards
+                    .entry(row.issue_id.clone())
+                    .or_insert_with(|| issue_field(store, &row.issue_id, "board_id"))
+                    .clone();
+                Some(coding::automations::EventRow {
+                    id: row.id,
+                    issue_id: row.issue_id,
+                    // The engine fences matching to the action's own team — a
+                    // missing value conservatively never matches.
+                    team_id: row.team_id,
+                    created_at_ms,
+                    kind: row.kind.unwrap_or_default(),
+                    payload: row.payload,
+                    board_id,
+                })
+            })
+            .collect(),
+    )
+}
+
+/// Re-join the `board_id` of CACHED rows that still have none: `issue_events`
+/// routinely syncs ahead of its issue, and an unknown board conservatively
+/// FAILS a board filter — so a miss frozen into the cache would silently
+/// never match, even once the issue lands. Only the misses are point-read
+/// (deduped per issue), so a cached beat stays O(unresolved issues).
+fn patch_missing_boards(
+    store: &sync::store::ShapeStore,
+    rows: &mut [coding::automations::EventRow],
+) {
+    let mut resolved: HashMap<String, Option<String>> = HashMap::new();
+    for row in rows.iter_mut().filter(|row| row.board_id.is_none()) {
+        row.board_id = resolved
+            .entry(row.issue_id.clone())
+            .or_insert_with(|| issue_field(store, &row.issue_id, "board_id"))
+            .clone();
+    }
 }
 
 /// One column of one issue, point-read by primary key (§5.8).
@@ -2591,6 +2693,46 @@ mod tests {
         assert_eq!(parse_epoch_ms("2025-08-05 12:00:00+00:00"), Some(expected));
         assert_eq!(parse_epoch_ms(""), None);
         assert_eq!(parse_epoch_ms("not-a-date"), None);
+    }
+
+    /// EXP-562: the SQL pre-filter's bound is UTC, second-granular, and a
+    /// margin BELOW the catch-up cutoff — a byte compare against either wire
+    /// form must never exclude a row the exact filter would keep.
+    #[test]
+    fn event_scan_bound_renders_utc_seconds_minus_margin() {
+        // 2025-08-05 12:00:00Z, in a zone whose local time is irrelevant.
+        let now_ms = 1_754_395_200_000;
+        let bound = event_scan_bound(now_ms);
+        assert_eq!(bound, "2025-08-04 11:00:00");
+        assert_eq!(
+            parse_epoch_ms(&format!("{bound}+00")),
+            Some(now_ms - domain::contract::AUTOMATION_EVENT_CATCHUP_MS - EVENT_SCAN_MARGIN_MS),
+            "the bound IS the cutoff minus the margin, to the second"
+        );
+        // Both wire forms of a row exactly AT the cutoff sort above it.
+        let cutoff_ms = now_ms - domain::contract::AUTOMATION_EVENT_CATCHUP_MS;
+        let at_cutoff = chrono::DateTime::from_timestamp_millis(cutoff_ms).unwrap();
+        assert!(at_cutoff.format("%Y-%m-%d %H:%M:%S%.3f+00").to_string() > bound);
+        assert!(at_cutoff.to_rfc3339() > bound);
+    }
+
+    /// Only an `issue_events` batch invalidates the cached snapshot — ticks
+    /// and trigger edits re-decide over the rows already in hand.
+    #[test]
+    fn only_an_events_batch_forces_a_rescan() {
+        assert!(!rescan_events(&[AutomationWork::Tick]));
+        assert!(!rescan_events(&[
+            AutomationWork::Tick,
+            AutomationWork::ActionsChanged
+        ]));
+        assert!(rescan_events(&[
+            AutomationWork::Tick,
+            AutomationWork::EventsChanged,
+            AutomationWork::ActionsChanged,
+        ]));
+        // An empty drain can't happen (recv yields the first item), but the
+        // fold must still be total.
+        assert!(!rescan_events(&[]));
     }
 
     /// The cap is hand-synced with the desktop's `steer_wiring` vec — the

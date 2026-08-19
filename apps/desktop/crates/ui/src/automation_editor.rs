@@ -32,7 +32,7 @@ use gpui_component::{
     input::{Input, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
     switch::Switch,
-    v_flex, ActiveTheme as _,
+    v_flex, ActiveTheme as _, Disableable as _,
 };
 use serde_json::{json, Value};
 
@@ -79,6 +79,15 @@ const INTERVAL_LABELS: [(ScheduleInterval, &str); 3] = [
     (ScheduleInterval::Monthly, "Month"),
 ];
 
+/// Why an action with required inputs can never be automated: an automated
+/// run has no one to type them. The server refuses an ENABLED trigger on such
+/// an action (`actions.update`), so every surface says the same sentence
+/// instead of letting the user discover it as a failed save. Byte-shared with
+/// the web `AutomationSection` copy.
+pub(crate) const AUTOMATION_REQUIRED_INPUTS_HINT: &str =
+    "This action has required inputs, and an automated run has none to fill them with. \
+     Make the inputs optional to enable it.";
+
 /// The cap the server enforces per filter list — the pickers stop offering
 /// more instead of letting the save fail (`ACTION_TRIGGER_MAX_FILTER_IDS`).
 fn filter_cap() -> usize {
@@ -112,7 +121,14 @@ pub(crate) struct AutomationEditorState {
     priorities: Vec<String>,
     to_status_ids: Vec<String>,
     device_id: Option<String>,
-    enabled: bool,
+    /// Host-writable: [`crate::action_editor_dialog`] forces it off for an
+    /// action with required inputs (see [`Self::has_required_inputs`]).
+    pub(crate) enabled: bool,
+    /// The hosted action has at least one REQUIRED input — the enabled switch
+    /// is locked off (an automated run has nothing to fill them with, and the
+    /// server refuses the save anyway). The create-action path leaves it
+    /// false: a brand-new action has no inputs yet.
+    pub(crate) has_required_inputs: bool,
 }
 
 impl AutomationEditorState {
@@ -137,6 +153,7 @@ impl AutomationEditorState {
             to_status_ids: Vec::new(),
             device_id: None,
             enabled: true,
+            has_required_inputs: false,
         }
     }
 
@@ -747,20 +764,38 @@ impl AutomationEditorState {
         access: fn(&mut V) -> &mut Self,
         cx: &mut Context<V>,
     ) -> impl IntoElement {
-        h_flex()
-            .w_full()
-            .items_center()
-            .justify_between()
-            .gap_3()
-            .child(div().text_sm().child("Enabled"))
+        let muted = cx.theme().muted_foreground;
+        let locked = self.has_required_inputs;
+        v_flex()
+            .gap_1()
             .child(
-                Switch::new(SharedString::from(format!("{prefix}-enabled")))
-                    .checked(self.enabled)
-                    .on_click(cx.listener(move |view: &mut V, on: &bool, _, cx| {
-                        access(view).enabled = *on;
-                        cx.notify();
-                    })),
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .justify_between()
+                    .gap_3()
+                    .child(div().text_sm().child("Enabled"))
+                    .child(
+                        Switch::new(SharedString::from(format!("{prefix}-enabled")))
+                            // Required inputs lock the switch OFF — the state
+                            // shown is the one that will actually be saved.
+                            .checked(self.enabled && !locked)
+                            .disabled(locked)
+                            .when(locked, |this| this.tooltip(AUTOMATION_REQUIRED_INPUTS_HINT))
+                            .on_click(cx.listener(move |view: &mut V, on: &bool, _, cx| {
+                                access(view).enabled = *on;
+                                cx.notify();
+                            })),
+                    ),
             )
+            .when(locked, |this| {
+                this.child(
+                    div()
+                        .text_xs()
+                        .text_color(muted.opacity(0.7))
+                        .child(AUTOMATION_REQUIRED_INPUTS_HINT),
+                )
+            })
     }
 }
 

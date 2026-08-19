@@ -505,6 +505,11 @@ impl ActionsView {
         let toggle_id = action.id.clone();
         let toggle_trigger = action.trigger.clone();
         let enabled = parsed.enabled;
+        // An automated run has nobody to type required inputs, so the server
+        // refuses to ENABLE such a trigger — but a legacy row that is already
+        // on must stay switchable OFF.
+        let has_required = action.inputs.iter().any(|input| input.required);
+        let locked = has_required && !enabled;
         gpui_component::h_flex()
             .w_full()
             .min_w_0()
@@ -542,7 +547,10 @@ impl ActionsView {
                 // (a disabled switch), owners flip it.
                 Switch::new(("automation-enabled", index))
                     .checked(enabled)
-                    .disabled(!is_owner)
+                    .disabled(!is_owner || locked)
+                    .when(locked, |this| {
+                        this.tooltip(crate::automation_editor::AUTOMATION_REQUIRED_INPUTS_HINT)
+                    })
                     .on_click(cx.listener(move |_, on: &bool, _, cx| {
                         let Some(trigger) = toggle_trigger.as_ref() else {
                             return;

@@ -5,7 +5,34 @@
 //! non-empty filter with a missing datum FAILS — an automation must never
 //! fire on a row it could not check.
 
+use std::collections::HashSet;
+
 use super::trigger::{EventKind, EventSpec};
+
+/// How far below the snapshot's newest row the [`EventCursor::Seen`] floor
+/// trails (EXP-562). Two overlapping transactions can commit out of
+/// `created_at` order and sync in that same wrong order; the earlier row
+/// then lands BELOW a bare high-water mark and is lost forever. The grace
+/// keeps re-considering that window and dedupes by id instead.
+pub const EVENT_GRACE_MS: i64 = 60_000;
+
+/// Cap on the ids a state remembers inside the grace window — a busy team
+/// must not grow settings.json without bound. Overflow RAISES the floor
+/// (see [`seen_window`]), which only ever narrows the grace.
+pub const SEEN_IDS_CAP: usize = 128;
+
+/// How a firing pass decides which rows it has already acted on.
+#[derive(Clone, Copy, Debug)]
+pub enum EventCursor<'a> {
+    /// LEGACY (pre-EXP-562) states: strict `(created_at, id) >` tuple
+    /// compare against the persisted high-water mark. Kept so an upgrade
+    /// re-reads nothing it already fired on; the first fire migrates the
+    /// state to [`EventCursor::Seen`].
+    Strict { watermark: (i64, &'a str) },
+    /// The grace cursor: everything at or above `floor` that is not
+    /// already in `seen_ids`.
+    Seen { floor: i64, seen_ids: &'a [String] },
+}
 
 /// One pre-fetched issue event, host-shaped for the engine.
 #[derive(Clone, Debug, PartialEq)]
@@ -43,27 +70,75 @@ pub fn event_matches(spec: &EventSpec, row: &EventRow) -> bool {
     }
 }
 
-/// The rows past the watermark, inside the catch-up window, on the action's
-/// OWN team, matching the spec — sorted by `(created_at_ms, id)` (the
-/// watermark's tuple order). The hosts sync every member team's events into
-/// one collection, so the team fence lives here, not in the snapshot.
+/// The rows the `cursor` still admits, inside the catch-up window, on the
+/// action's OWN team, matching the spec — sorted by `(created_at_ms, id)`.
+/// The hosts sync every member team's events into one collection, so the
+/// team fence lives here, not in the snapshot.
 pub fn matching_events<'a>(
     spec: &EventSpec,
     team_id: &str,
     rows: &'a [EventRow],
-    watermark: (i64, &str),
+    cursor: EventCursor<'_>,
     now_ms: i64,
 ) -> Vec<&'a EventRow> {
     let cutoff = now_ms - domain::contract::AUTOMATION_EVENT_CATCHUP_MS;
+    // Built once per call — the seen set is O(cap) and the row scan O(n).
+    let seen: HashSet<&str> = match cursor {
+        EventCursor::Seen { seen_ids, .. } => seen_ids.iter().map(String::as_str).collect(),
+        EventCursor::Strict { .. } => HashSet::new(),
+    };
     let mut matches: Vec<&EventRow> = rows
         .iter()
         .filter(|row| row.team_id.as_deref() == Some(team_id))
-        .filter(|row| (row.created_at_ms, row.id.as_str()) > watermark)
+        .filter(|row| match cursor {
+            EventCursor::Strict { watermark } => (row.created_at_ms, row.id.as_str()) > watermark,
+            EventCursor::Seen { floor, .. } => {
+                row.created_at_ms >= floor && !seen.contains(row.id.as_str())
+            }
+        })
         .filter(|row| row.created_at_ms >= cutoff)
         .filter(|row| event_matches(spec, row))
         .collect();
     matches.sort_by(|a, b| (a.created_at_ms, a.id.as_str()).cmp(&(b.created_at_ms, b.id.as_str())));
     matches
+}
+
+/// The `(floor, seen_ids)` to persist after a seed or a fire: every MATCHING
+/// same-team row at or above `base_floor`, newest first, truncated to
+/// [`SEEN_IDS_CAP`].
+///
+/// Matching-only, deliberately, on both counts:
+/// - It is SAFE. The seen set only has to cover rows this very spec would
+///   fire on, and a trigger edit moves its fingerprint, which reseeds the
+///   whole state rather than reusing these ids against a different spec.
+/// - It is BETTER than remembering all rows. A row whose `board_id` join
+///   came back `None` (its issue had not synced yet) does not match, so it
+///   is NOT recorded as seen — when the issue lands, the row matches and
+///   fires, as long as it is still inside the grace. Recording every row
+///   would swallow it for good.
+///
+/// Overflow raises the floor past the oldest kept row (`+1`, so same-ms
+/// ties go with it) and drops everything below: the window only ever
+/// NARROWS, so truncation can lose a late row but never double-fire one.
+pub fn seen_window(
+    spec: &EventSpec,
+    team_id: &str,
+    rows: &[EventRow],
+    base_floor: i64,
+) -> (i64, Vec<String>) {
+    let mut recent: Vec<&EventRow> = rows
+        .iter()
+        .filter(|row| row.team_id.as_deref() == Some(team_id))
+        .filter(|row| row.created_at_ms >= base_floor)
+        .filter(|row| event_matches(spec, row))
+        .collect();
+    recent.sort_by(|a, b| (b.created_at_ms, b.id.as_str()).cmp(&(a.created_at_ms, a.id.as_str())));
+    let mut floor = base_floor;
+    if recent.len() > SEEN_IDS_CAP {
+        floor = recent[SEEN_IDS_CAP].created_at_ms + 1;
+        recent.retain(|row| row.created_at_ms >= floor);
+    }
+    (floor, recent.into_iter().map(|row| row.id.clone()).collect())
 }
 
 /// Empty filter = absent (passes); non-empty requires a PRESENT, listed
@@ -176,7 +251,8 @@ mod tests {
         let mut unknown = row("id-u", "created", 100);
         unknown.team_id = None;
         let rows = vec![row("id-m", "created", 100), foreign, unknown];
-        let matches = matching_events(&spec(EventKind::Created), "team-1", &rows, (0, ""), 1_000);
+        let cursor = EventCursor::Strict { watermark: (0, "") };
+        let matches = matching_events(&spec(EventKind::Created), "team-1", &rows, cursor, 1_000);
         assert_eq!(
             matches.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
             vec!["id-m"],
@@ -184,6 +260,7 @@ mod tests {
         );
     }
 
+    /// The legacy cursor (states written before EXP-562).
     #[test]
     fn watermark_is_tuple_ordered() {
         let rows = vec![
@@ -192,18 +269,85 @@ mod tests {
             row("id-c", "created", 200),
         ];
         let now = 1_000;
+        let strict = |watermark| {
+            let cursor = EventCursor::Strict { watermark };
+            matching_events(&spec(EventKind::Created), "team-1", &rows, cursor, now)
+        };
         // Equal created_at: only ids ABOVE the watermark id pass.
-        let past_a = matching_events(&spec(EventKind::Created), "team-1", &rows, (100, "id-a"), now);
+        let past_a = strict((100, "id-a"));
         assert_eq!(
             past_a.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
             vec!["id-b", "id-c"]
         );
         // The watermark row itself is excluded (strictly greater).
-        let past_c = matching_events(&spec(EventKind::Created), "team-1", &rows, (200, "id-c"), now);
-        assert!(past_c.is_empty());
+        assert!(strict((200, "id-c")).is_empty());
         // A lower timestamp never passes regardless of id.
-        let fresh = matching_events(&spec(EventKind::Created), "team-1", &rows, (150, ""), now);
+        let fresh = strict((150, ""));
         assert_eq!(fresh.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), vec!["id-c"]);
+    }
+
+    /// EXP-562: the grace cursor is floor-INCLUSIVE and id-deduped, so a
+    /// row that committed early but synced late still fires exactly once.
+    #[test]
+    fn seen_cursor_admits_unseen_rows_at_or_above_floor() {
+        let rows = vec![
+            row("id-below", "created", 99),
+            row("id-floor", "created", 100),
+            row("id-seen", "created", 150),
+            row("id-new", "created", 200),
+        ];
+        let seen = vec!["id-seen".to_string()];
+        let cursor = EventCursor::Seen { floor: 100, seen_ids: &seen };
+        let matches = matching_events(&spec(EventKind::Created), "team-1", &rows, cursor, 1_000);
+        assert_eq!(
+            matches.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
+            vec!["id-floor", "id-new"],
+            "at-the-floor passes, below-the-floor and already-seen do not"
+        );
+    }
+
+    #[test]
+    fn seen_window_keeps_matching_same_team_rows_only() {
+        let mut foreign = row("id-foreign", "created", 200);
+        foreign.team_id = Some("team-2".to_string());
+        let mut unjoined = row("id-unjoined", "created", 200);
+        unjoined.board_id = None;
+        let mut boarded = spec(EventKind::Created);
+        boarded.board_ids = vec!["board-1".to_string()];
+        let rows = vec![
+            row("id-old", "created", 99), // below the base floor
+            row("id-a", "created", 100),
+            row("id-b", "created", 300),
+            row("id-other-kind", "status_changed", 300),
+            foreign,
+            unjoined,
+        ];
+        let (floor, ids) = seen_window(&boarded, "team-1", &rows, 100);
+        assert_eq!(floor, 100, "under the cap the base floor stands");
+        assert_eq!(
+            ids,
+            vec!["id-b".to_string(), "id-a".to_string()],
+            "newest first; other teams, other kinds and sub-floor rows are out — and the \
+             un-joined row is deliberately NOT seen, so it still fires once its issue syncs"
+        );
+    }
+
+    #[test]
+    fn seen_window_cap_raises_floor_past_dropped_rows() {
+        // 3 rows share the oldest ms so the truncation has ties to prune.
+        let mut rows: Vec<EventRow> = (0..SEEN_IDS_CAP as i64)
+            .map(|index| row(&format!("id-new-{index:03}"), "created", 1_000 + index))
+            .collect();
+        for tie in 0..3 {
+            rows.push(row(&format!("id-tie-{tie}"), "created", 500));
+        }
+        let (floor, ids) = seen_window(&spec(EventKind::Created), "team-1", &rows, 0);
+        assert_eq!(floor, 501, "the floor lifts one ms past the oldest kept row");
+        assert_eq!(ids.len(), SEEN_IDS_CAP, "the tied stragglers are all pruned");
+        assert!(
+            !ids.iter().any(|id| id.starts_with("id-tie-")),
+            "same-ms ties go together — a kept-but-forgotten tie would re-fire"
+        );
     }
 
     #[test]
@@ -214,7 +358,8 @@ mod tests {
             row("edge", "created", 500), // exactly at the cutoff — kept
             row("new", "created", now - 1),
         ];
-        let matches = matching_events(&spec(EventKind::Created), "team-1", &rows, (0, ""), now);
+        let cursor = EventCursor::Strict { watermark: (0, "") };
+        let matches = matching_events(&spec(EventKind::Created), "team-1", &rows, cursor, now);
         assert_eq!(
             matches.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
             vec!["edge", "new"]
@@ -228,7 +373,8 @@ mod tests {
             row("id-b", "created", 100),
             row("id-a", "created", 300),
         ];
-        let matches = matching_events(&spec(EventKind::Created), "team-1", &rows, (0, ""), 1_000);
+        let cursor = EventCursor::Strict { watermark: (0, "") };
+        let matches = matching_events(&spec(EventKind::Created), "team-1", &rows, cursor, 1_000);
         assert_eq!(
             matches.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
             vec!["id-b", "id-a", "id-z"]

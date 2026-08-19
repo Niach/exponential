@@ -1095,6 +1095,7 @@ dependencies = [
  "log",
  "serde",
  "serde_json",
+ "sha2",
  "terminal",
  "toml 0.8.23",
  "uuid",

@@ -180,19 +180,25 @@ fn read_id_list(filters: Option<&Value>, key: &str) -> Option<Vec<String>> {
         .collect()
 }
 
-/// Canonical fingerprint of the raw trigger JSON (the
-/// [`crate::launch_defaults_sync::defaults_fingerprint`] idiom). The
-/// workspace's serde_json builds with `preserve_order` (feature-unified via
-/// the gpui graph), so `Value::to_string` is INSERTION-ordered — the
-/// canonical form key-sorts explicitly. A changed fingerprint re-seeds the
-/// automation state (never fires retroactively on an edit).
+/// Canonical fingerprint of the raw trigger JSON — 16 lowercase hex chars.
+/// The workspace's serde_json builds with `preserve_order` (feature-unified
+/// via the gpui graph), so `Value::to_string` is INSERTION-ordered; the
+/// canonical form key-sorts explicitly.
+///
+/// The digest is SHA-256 truncated to 8 bytes, NOT std's `DefaultHasher`
+/// (EXP-562): a changed fingerprint re-seeds the automation state, and
+/// `DefaultHasher`'s output is documented as unstable across Rust releases
+/// AND across builds — a toolchain bump would silently reseed every
+/// automation on every device. The persisted fingerprint must depend on the
+/// trigger JSON alone, so it has to survive a recompile.
 pub fn trigger_fingerprint(value: &Value) -> String {
-    use std::hash::{Hash, Hasher};
+    use sha2::{Digest, Sha256};
     let mut canonical = String::new();
     write_canonical(value, &mut canonical);
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    canonical.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
+    let digest = Sha256::digest(canonical.as_bytes());
+    // 8 bytes keeps the exact string shape the old hasher wrote (16 hex),
+    // so persisted states carry over in width if not in value.
+    digest[..8].iter().map(|byte| format!("{byte:02x}")).collect::<String>()
 }
 
 fn write_canonical(value: &Value, out: &mut String) {
@@ -371,5 +377,21 @@ mod tests {
         let base = trigger_fingerprint(&minute);
         minute["minuteOfDay"] = json!(421);
         assert_ne!(base, trigger_fingerprint(&minute));
+    }
+
+    /// EXP-562 pin: the fingerprint is a pure function of the trigger JSON,
+    /// build- and toolchain-independent (hence SHA-256, not std's
+    /// `DefaultHasher`). Changing this literal means the algorithm moved,
+    /// which RESEEDS every automation on every device once — only ever do
+    /// that deliberately.
+    #[test]
+    fn fingerprint_is_pinned_across_builds() {
+        let trigger: Value = serde_json::from_str(
+            r#"{"kind":"event","deviceId":"dev-1","event":"created",
+                "filters":{"boardIds":["board-1"],"labelIds":[],
+                           "priorities":["urgent"],"toStatusIds":[]}}"#,
+        )
+        .unwrap();
+        assert_eq!(trigger_fingerprint(&trigger), "380c9203a0ba0d73");
     }
 }

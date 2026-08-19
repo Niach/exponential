@@ -97,11 +97,13 @@ it(`keeps the serialized MCP tool context within budget`, () => {
   const total = JSON.stringify(defs).length
   // 23.2k as of EXP-353; 24.6k as of EXP-530 (the ceiling was deliberately
   // raised once for the trigger shape doc — an agent authoring an automation
-  // needs the field vocabulary in-context). If this trips, trim
-  // schemas/descriptions — do not raise the ceiling again: Claude Code's
-  // large-MCP-context warning is ~25k and the remaining headroom IS the
-  // budget.
-  expect(total).toBeLessThan(24_800)
+  // needs the field vocabulary in-context); 24.4k as of EXP-562 (the
+  // actions_create/update prose stopped restating what the emitted inputs
+  // schema already carries, and the ceiling was LOWERED to lock the gain).
+  // If this trips, trim schemas/descriptions — do not raise the ceiling
+  // again: Claude Code's large-MCP-context warning is ~25k and the remaining
+  // headroom IS the budget.
+  expect(total).toBeLessThan(24_600)
   for (const def of defs) {
     // No single tool may reintroduce a fat inline enum or a novella.
     expect(JSON.stringify(def).length, `${def.name}`).toBeLessThan(1_800)
