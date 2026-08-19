@@ -246,6 +246,7 @@
     "ui-team": "users",
     "ui-widget": "megaphone",
     "ui-agent-source": "bot",
+    "ui-mcp": "plug",
     "ui-issue": "file-text",
     "ui-organization": "building-2",
     "ui-checklist": "list-checks",

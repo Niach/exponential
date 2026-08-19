@@ -113,13 +113,18 @@ pub fn revoke_personal_api_key(trpc: &TrpcClient, id: &str) -> Result<(), ApiErr
     Ok(())
 }
 
-/// `users.dismissGettingStarted` — mutation (EXP-470): the one-way per-user
-/// dismissal flag behind the Getting-started rail entry. Callers fire it
-/// best-effort and stamp accounts.json locally (the flag is a session
-/// additionalField, so warm starts never re-read it).
-pub fn dismiss_getting_started(trpc: &TrpcClient) -> Result<(), ApiError> {
-    trpc.mutation_no_input::<serde_json::Value>("users.dismissGettingStarted")
-        .map(|_| ())
+/// `mcpGrants.hasAny` — query (GET): whether the user has authorized any MCP
+/// OAuth client. One half of the getting-started "Connect your tools via
+/// MCP" signal (EXP-548, web parity: a grant OR a personal API key).
+pub fn mcp_grants_has_any(trpc: &TrpcClient) -> Result<bool, ApiError> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct HasAny {
+        #[serde(default)]
+        has_any: bool,
+    }
+    let response: HasAny = trpc.query("mcpGrants.hasAny")?;
+    Ok(response.has_any)
 }
 
 /// `users.timezone` — query (GET). `None` = never captured; the digest sweep
@@ -318,11 +323,11 @@ mod tests {
     }
 
     #[test]
-    fn dismiss_getting_started_posts_without_input() {
-        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
-        dismiss_getting_started(&client(&base)).unwrap();
+    fn mcp_grants_has_any_decodes_and_uses_get() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"hasAny":true}}}"#);
+        assert!(mcp_grants_has_any(&client(&base)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.starts_with("POST /api/trpc/users.dismissGettingStarted HTTP/1.1"));
+        assert!(request.starts_with("GET /api/trpc/mcpGrants.hasAny HTTP/1.1"));
     }
 
     #[test]

@@ -3867,6 +3867,45 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `plug`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "plug",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M12 22v-5"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M9 8V2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M15 8V2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `plus`: ImageVector by lazy {
         ImageVector.Builder(
             name = "plus",
@@ -5804,6 +5843,7 @@ public object ExpIcons {
         "phone" -> `phone`
         "plane" -> `plane`
         "play" -> `play`
+        "plug" -> `plug`
         "plus" -> `plus`
         "progress-1-4" -> `progress-1-4`
         "progress-1-5" -> `progress-1-5`
@@ -6163,6 +6203,8 @@ public object ExpIcons {
     public val uiIssue: ImageVector get() = `file-text`
     /** Concept `ui-loading`. */
     public val uiLoading: ImageVector get() = `loader-circle`
+    /** Concept `ui-mcp`. */
+    public val uiMcp: ImageVector get() = `plug`
     /** Concept `ui-member`. */
     public val uiMember: ImageVector get() = `shield-check`
     /** Concept `ui-minus`. */

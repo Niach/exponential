@@ -48,9 +48,10 @@ pub struct Account {
     /// ISO timestamp when onboarding finished; `None` gates the wizard.
     #[serde(default)]
     pub onboarding_completed_at: Option<String>,
-    /// ISO timestamp of the getting-started checklist dismissal (EXP-470);
-    /// `None` keeps the rail entry visible. Same lifecycle as the onboarding
-    /// stamp: server flag mirrored locally, one-way.
+    /// LEGACY (EXP-548): the old getting-started dismissal stamp (EXP-470).
+    /// Nothing reads it any more — the checklist hides itself once every
+    /// entry is done; kept so existing accounts.json files and the session
+    /// field still deserialize.
     #[serde(default)]
     pub getting_started_dismissed_at: Option<String>,
 }

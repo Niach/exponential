@@ -3,6 +3,9 @@
 //! mirror). Server-only data (never an Electric shape): the row carries
 //! reporter PII that is deliberately kept out of issue descriptions, so it is
 //! fetched on demand, member-gated, and renders nothing on `null`/error.
+//!
+//! Plus `widgets.list` (EXP-548) — the owner-only config list, consumed here
+//! only as an existence signal by the getting-started checklist.
 
 use serde::{Deserialize, Serialize};
 
@@ -118,4 +121,27 @@ mod tests {
             .unwrap();
         assert_eq!(out, None);
     }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ListInput<'a> {
+    team_id: &'a str,
+}
+
+/// One `widgets.list` row, decoded down to its id — the checklist only asks
+/// "does the team have a widget?" (web parity: `widgets.list` non-empty).
+#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct WidgetConfigSummary {
+    pub id: String,
+    pub name: Option<String>,
+}
+
+/// `widgets.list` — OWNER-only on the server (it exposes public keys and
+/// submission counts); callers must gate on the owner role, a member call is
+/// a FORBIDDEN error, never an empty list. Blocking — background executor
+/// only.
+pub fn list(client: &TrpcClient, team_id: &str) -> Result<Vec<WidgetConfigSummary>, ApiError> {
+    client.query_with_input("widgets.list", &ListInput { team_id })
 }

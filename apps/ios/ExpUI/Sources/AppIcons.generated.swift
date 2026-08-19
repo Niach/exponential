@@ -211,6 +211,7 @@ public enum AppIcons {
         "phone",
         "plane",
         "play",
+        "plug",
         "plus",
         "progress-1-4",
         "progress-1-5",
@@ -574,6 +575,8 @@ public enum AppIcons {
     public static let uiIssue: String = "file-text"
     /// Concept `ui-loading`.
     public static let uiLoading: String = "loader-circle"
+    /// Concept `ui-mcp`.
+    public static let uiMcp: String = "plug"
     /// Concept `ui-member`.
     public static let uiMember: String = "shield-check"
     /// Concept `ui-minus`.

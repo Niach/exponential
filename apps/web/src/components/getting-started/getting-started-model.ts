@@ -9,6 +9,7 @@ export type EntryKey =
   | `invite`
   | `board`
   | `coding`
+  | `action`
   | `server`
   | `widget`
   | `helpdesk`
@@ -31,6 +32,8 @@ export interface GettingStartedSignals {
   hasRepoBoard: boolean
   /** Any coding_sessions row in the team (running or ended). */
   hasCodingSession: boolean
+  /** Any synced `actions` row in the team (EXP-548) — the builtins are not rows. */
+  hasAction: boolean
   /** The team-level helpdesk switch (teams.helpdeskEnabled). */
   helpdeskEnabled: boolean
   /** widgets.list non-empty (owner-only signal — false for members). */
@@ -47,13 +50,17 @@ export interface GettingStartedEntry {
 }
 
 // Derive every entry's state, in the single static display order
-// desktop → github → invite → board → coding → server → widget → helpdesk →
-// mcp. Completion always wins over locking (a signal that exists proves the
-// prereq was satisfiable). The invite entry is for members who can mint
-// invites (canManageMembers — teamInvites.create is owner/admin-only), and
-// the widget and helpdesk entries are for owners only — widgets.list and the
-// helpdesk switch are owner-only surfaces; the others neither see those
-// entries nor count them in the total.
+// desktop → github → invite → board → coding → action → server → widget →
+// helpdesk → mcp. Completion always wins over locking (a signal that exists
+// proves the prereq was satisfiable). The invite entry is for members who can
+// mint invites (canManageMembers — teamInvites.create is owner/admin-only),
+// and the action, widget and helpdesk entries are for owners only — action
+// writes, widgets.list and the helpdesk switch are owner-only surfaces; the
+// others neither see those entries nor count them in the total.
+//
+// The desktop IDE mirrors this function byte-for-byte in
+// `crates/ui/src/getting_started.rs` (`derive_entries`, EXP-548: same
+// entries, order, gating and lock chain) — change both together.
 export function deriveEntryStates(
   signals: GettingStartedSignals,
   {
@@ -107,6 +114,18 @@ export function deriveEntryStates(
     })
   }
 
+  // EXP-548: actions are authored by the builtin creator run, which — like
+  // any coding session — needs a machine; the desktop step is the feeder.
+  if (isOwner) {
+    if (signals.hasAction) {
+      entries.push({ key: `action`, state: `done` })
+    } else if (hasDevice) {
+      entries.push({ key: `action`, state: `available` })
+    } else {
+      entries.push({ key: `action`, state: `locked`, lockedBy: `desktop` })
+    }
+  }
+
   entries.push({
     key: `server`,
     state: signals.hasServerDevice ? `done` : `available`,
@@ -139,4 +158,17 @@ export function deriveEntryStates(
     done: entries.filter((entry) => entry.state === `done`).length,
     total: entries.length,
   }
+}
+
+// EXP-548: the checklist has no dismissal — it simply disappears (sidebar
+// entry, empty-board block, IDE rail entry alike) once every visible entry is
+// done. Loading counts as incomplete-unknown and is handled by the callers.
+export function isGettingStartedComplete({
+  done,
+  total,
+}: {
+  done: number
+  total: number
+}): boolean {
+  return total > 0 && done === total
 }

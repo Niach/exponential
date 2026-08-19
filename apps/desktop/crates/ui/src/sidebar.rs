@@ -647,6 +647,7 @@ impl RailView {
         let git_bar = shared.read(cx).git_bar.clone();
         let collections = Store::global(cx).collections().clone();
         let avatar_cache = crate::user_avatar::AvatarCache::global(cx);
+        let getting_started = crate::getting_started::GettingStartedProgress::global(cx);
         let subscriptions = vec![
             cx.observe(&shared, |_, _, cx| cx.notify()),
             cx.observe(&nav, |_, _, cx| cx.notify()),
@@ -664,6 +665,10 @@ impl RailView {
             // (profile image URL) plus the async avatar-byte cache.
             cx.observe(&collections.users, |_, _, cx| cx.notify()),
             cx.observe(&avatar_cache, |_, _, cx| cx.notify()),
+            // EXP-548: the Getting-started entry hides once every checklist
+            // entry is done — the shared progress entity re-notifies on the
+            // synced collections it reads AND on its tRPC one-shots.
+            cx.observe(&getting_started, |_, _, cx| cx.notify()),
         ];
         Self {
             nav,
@@ -806,7 +811,9 @@ impl RailView {
     /// The Getting-started entry (EXP-470): the desktop mirror of the web
     /// sidebar's re-entry point — navigates to the tab-less
     /// [`Screen::GettingStarted`] page, the `rail_actions_entry` shape.
-    /// Rendered conditionally (the Support pattern): hidden once dismissed.
+    /// EXP-548: it sits at the BOTTOM of the rail, right above the
+    /// Settings/Account row (the web sidebar-footer position), and is
+    /// rendered only while the checklist is incomplete — no dismissal.
     fn rail_getting_started_entry(
         &self,
         accent: Hsla,
@@ -1172,9 +1179,9 @@ impl Render for RailView {
                 cx,
             )
         });
-        // Getting-started entry (EXP-470): conditional like Support —
-        // rendered until the account dismisses the checklist.
-        let getting_started_icon = crate::getting_started::getting_started_visible(cx)
+        // Getting-started entry (EXP-470/548): pinned to the rail's bottom
+        // (below), rendered until every checklist entry is done.
+        let getting_started_icon = crate::getting_started::getting_started_visible(&self.nav, cx)
             .then(|| self.rail_getting_started_entry(accent, expanded, cx));
 
         // Projects section (EXP-253 — the top-bar board picker flattened into
@@ -1482,7 +1489,6 @@ impl Render for RailView {
                     // Inbox · Reviews · Agents · Support).
                     .child(self.rail_actions_entry(accent, expanded, cx))
                     .children(support_icon)
-                    .children(getting_started_icon)
                     .child(self.divider(expanded, cx))
                     .children(boards_header)
                     .children(board_icons)
@@ -1512,6 +1518,10 @@ impl Render for RailView {
                         cx,
                     )),
             ))
+            // EXP-548: the Getting-started entry lives down here with
+            // Settings/Account, exactly where the web sidebar footer keeps
+            // it — above the account row, outside the scrolling middle zone.
+            .children(getting_started_icon)
             .map(|this| {
                 if expanded {
                     // EXP-340: one bottom row — the account button fills the

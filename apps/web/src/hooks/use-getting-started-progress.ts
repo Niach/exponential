@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react"
+import { createContext, useContext, useEffect, useMemo, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import { codingSessionCollection } from "@/lib/collections"
+import { actionCollection, codingSessionCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import { useSession } from "@/hooks/use-session"
 import {
@@ -12,22 +12,59 @@ import {
   useTeamPermissions,
   type TeamPermissions,
 } from "@/hooks/use-team-permissions"
-import type { GettingStartedSignals } from "@/components/getting-started/getting-started-model"
+import {
+  deriveEntryStates,
+  isGettingStartedComplete,
+  type GettingStartedEntry,
+  type GettingStartedSignals,
+} from "@/components/getting-started/getting-started-model"
 import type { Team } from "@/db/schema"
 
+export interface GettingStartedProgress {
+  /** Some signal source has not answered yet — render neutral / stay hidden. */
+  loading: boolean
+  signals: GettingStartedSignals
+  permissions: TeamPermissions
+  entries: GettingStartedEntry[]
+  done: number
+  total: number
+  /**
+   * EXP-548: every visible entry is done (never true while loading). The
+   * sidebar entry and the empty-board block hide on this — there is no
+   * dismissal any more.
+   */
+  complete: boolean
+}
+
+// One instance per team layout (`GettingStartedProgressProvider` in
+// `t/$teamSlug/route.tsx`): the sidebar entry, its sheet and the empty-board
+// block all read the same answer, so the one-shots fire once per team, not
+// once per consumer.
+const GettingStartedProgressContext =
+  createContext<GettingStartedProgress | null>(null)
+
+export const GettingStartedProgressProvider =
+  GettingStartedProgressContext.Provider
+
+export function useGettingStartedProgressContext(): GettingStartedProgress {
+  const value = useContext(GettingStartedProgressContext)
+  if (!value) {
+    throw new Error(
+      `useGettingStartedProgressContext must be used inside GettingStartedProgressProvider`
+    )
+  }
+  return value
+}
+
 // Signal gathering for the getting-started checklist (EXP-141). Live signals
-// come from Electric (boards, coding sessions); the rest are one-shot tRPC
-// queries fired on mount (httpBatchLink — imperative .query(), the
+// come from Electric (boards, coding sessions, actions); the rest are one-shot
+// tRPC queries fired on mount (httpBatchLink — imperative .query(), the
 // repositories-section convention). Deliberately NEVER calls
 // repositories.list here: that procedure heals default branches against
 // GitHub per call — far too heavy for a checklist.
 export function useGettingStartedProgress(
   team: Team | null | undefined
-): {
-  loading: boolean
-  signals: GettingStartedSignals
-  permissions: TeamPermissions
-} {
+): GettingStartedProgress {
   const { data: session } = useSession()
   const { members } = useTeamUsers(team?.id)
   const invites = useTeamInvites(team?.id)
@@ -58,6 +95,19 @@ export function useGettingStartedProgress(
         ? query
             .from({ sessions: codingSessionCollection })
             .where(({ sessions }) => eq(sessions.teamId, teamId))
+        : undefined,
+    [teamId]
+  )
+
+  // EXP-548: any synced action row in the team (the two builtins are
+  // constructed client-side, never rows — so this is exactly "an action was
+  // authored").
+  const { data: actionRows, isReady: actionsReady } = useLiveQuery(
+    (query) =>
+      teamId
+        ? query
+            .from({ actions: actionCollection })
+            .where(({ actions }) => eq(actions.teamId, teamId))
         : undefined,
     [teamId]
   )
@@ -190,6 +240,7 @@ export function useGettingStartedProgress(
         (board) => board.repositoryId != null
       ),
       hasCodingSession: (sessionRows ?? []).length > 0,
+      hasAction: (actionRows ?? []).length > 0,
       helpdeskEnabled: team?.helpdeskEnabled === true,
       hasWidget: hasWidget === true,
       mcpConnected: mcpConnected === true,
@@ -201,6 +252,7 @@ export function useGettingStartedProgress(
       invites,
       liveBoards,
       sessionRows,
+      actionRows,
       team?.helpdeskEnabled,
       hasWidget,
       mcpConnected,
@@ -212,10 +264,34 @@ export function useGettingStartedProgress(
   const loading =
     !resolved ||
     !sessionsReady ||
+    !actionsReady ||
     githubInstalled === null ||
     deviceKinds === null ||
     (canManageWidgets && hasWidget === null) ||
     mcpConnected === null
 
-  return { loading, signals, permissions }
+  const { entries, done, total } = useMemo(
+    () =>
+      deriveEntryStates(signals, {
+        canManageWidgets: permissions.canManageWidgets,
+        isOwner: permissions.isOwner,
+        canManageMembers: permissions.canManageMembers,
+      }),
+    [
+      signals,
+      permissions.canManageWidgets,
+      permissions.isOwner,
+      permissions.canManageMembers,
+    ]
+  )
+
+  return {
+    loading,
+    signals,
+    permissions,
+    entries,
+    done,
+    total,
+    complete: !loading && isGettingStartedComplete({ done, total }),
+  }
 }

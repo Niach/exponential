@@ -26,8 +26,3 @@ export function isAdminUser(user: MaybeAppUser): boolean {
 export function hasCompletedOnboarding(user: MaybeAppUser): boolean {
   return user?.onboardingCompletedAt != null
 }
-
-/** Whether the user dismissed the "Getting started" cards (EXP-88). */
-export function hasDismissedGettingStarted(user: MaybeAppUser): boolean {
-  return user?.gettingStartedDismissedAt != null
-}

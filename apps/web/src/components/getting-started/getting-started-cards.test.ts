@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   deriveEntryStates,
+  isGettingStartedComplete,
   type GettingStartedSignals,
 } from "./getting-started-model"
 
@@ -12,6 +13,7 @@ const NONE: GettingStartedSignals = {
   hasBoard: false,
   hasRepoBoard: false,
   hasCodingSession: false,
+  hasAction: false,
   helpdeskEnabled: false,
   hasWidget: false,
   mcpConnected: false,
@@ -34,7 +36,7 @@ function stateOf(
 }
 
 describe(`deriveEntryStates`, () => {
-  it(`emits the single static order desktop → github → invite → board → coding → server → widget → helpdesk → mcp`, () => {
+  it(`emits the single static order desktop → github → invite → board → coding → action → server → widget → helpdesk → mcp`, () => {
     const { entries } = deriveEntryStates(NONE, OWNER)
     expect(entries.map((entry) => entry.key)).toEqual([
       `desktop`,
@@ -42,6 +44,7 @@ describe(`deriveEntryStates`, () => {
       `invite`,
       `board`,
       `coding`,
+      `action`,
       `server`,
       `widget`,
       `helpdesk`,
@@ -49,12 +52,17 @@ describe(`deriveEntryStates`, () => {
     ])
   })
 
-  it(`starts with everything undone: coding locked on desktop, widget locked on board`, () => {
+  it(`starts with everything undone: coding + action locked on desktop, widget locked on board`, () => {
     const { done, total } = deriveEntryStates(NONE, OWNER)
     expect(done).toBe(0)
-    expect(total).toBe(9)
+    expect(total).toBe(10)
     expect(stateOf(NONE, `coding`)).toEqual({
       key: `coding`,
+      state: `locked`,
+      lockedBy: `desktop`,
+    })
+    expect(stateOf(NONE, `action`)).toEqual({
+      key: `action`,
       state: `locked`,
       lockedBy: `desktop`,
     })
@@ -130,6 +138,22 @@ describe(`deriveEntryStates`, () => {
     })
   })
 
+  it(`action unlocks with any machine and completes from a synced action row`, () => {
+    expect(stateOf({ ...NONE, hasServerDevice: true }, `action`)).toEqual({
+      key: `action`,
+      state: `available`,
+    })
+    expect(stateOf({ ...NONE, hasDesktopDevice: true }, `action`)).toEqual({
+      key: `action`,
+      state: `available`,
+    })
+    // Done beats the lock — the row proves a machine existed at some point.
+    expect(stateOf({ ...NONE, hasAction: true }, `action`)).toEqual({
+      key: `action`,
+      state: `done`,
+    })
+  })
+
   it(`widget unlocks once any board exists`, () => {
     const signals = { ...NONE, hasBoard: true }
     expect(stateOf(signals, `widget`)).toEqual({
@@ -173,7 +197,7 @@ describe(`deriveEntryStates`, () => {
     expect(stateOf(signals, `desktop`)?.state).toBe(`available`)
   })
 
-  it(`members get 6 entries — invite, widget and helpdesk are hidden`, () => {
+  it(`members get 6 entries — invite, action, widget and helpdesk are hidden`, () => {
     const { entries, total } = deriveEntryStates(NONE, MEMBER)
     expect(total).toBe(6)
     expect(entries.map((entry) => entry.key)).toEqual([
@@ -198,15 +222,46 @@ describe(`deriveEntryStates`, () => {
       helpdeskEnabled: true,
       mcpConnected: true,
     }
-    // Owner: server + widget still open → 7/9. Member: invite, widget and
-    // helpdesk hidden, server open → 5/6.
+    // Owner: action + server + widget still open → 7/10. Member: invite,
+    // action, widget and helpdesk hidden, server open → 5/6.
     expect(deriveEntryStates(signals, OWNER)).toMatchObject({
       done: 7,
-      total: 9,
+      total: 10,
     })
     expect(deriveEntryStates(signals, MEMBER)).toMatchObject({
       done: 5,
       total: 6,
     })
+  })
+
+  it(`is complete only when every visible entry is done (EXP-548 hide rule)`, () => {
+    const all = {
+      ...NONE,
+      hasDesktopDevice: true,
+      hasServerDevice: true,
+      githubInstalled: true,
+      hasInvitedTeam: true,
+      hasBoard: true,
+      hasRepoBoard: true,
+      hasCodingSession: true,
+      hasAction: true,
+      helpdeskEnabled: true,
+      hasWidget: true,
+      mcpConnected: true,
+    }
+    expect(isGettingStartedComplete(deriveEntryStates(all, OWNER))).toBe(true)
+    expect(isGettingStartedComplete(deriveEntryStates(all, MEMBER))).toBe(true)
+    expect(
+      isGettingStartedComplete(
+        deriveEntryStates({ ...all, hasAction: false }, OWNER)
+      )
+    ).toBe(false)
+    // A member never sees the action entry, so its signal cannot hold them.
+    expect(
+      isGettingStartedComplete(
+        deriveEntryStates({ ...all, hasAction: false }, MEMBER)
+      )
+    ).toBe(true)
+    expect(isGettingStartedComplete({ done: 0, total: 0 })).toBe(false)
   })
 })

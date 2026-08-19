@@ -200,10 +200,10 @@ export const usersRouter = router({
     return { ok: true }
   }),
 
-  // Dismiss the "Getting started" cards on the empty board (EXP-88).
-  // Same contract as dismissDesktopAppCard: one-way per-user timestamp flag
-  // surfaced read-only on the session; the client hides the cards immediately
-  // via local state.
+  // LEGACY (EXP-548): the "Getting started" checklist no longer dismisses on
+  // any client — it hides itself once every entry is done. Kept only so
+  // desktop builds before EXP-548 (which fire it best-effort from their
+  // Dismiss button) keep getting a 200; nothing reads the flag any more.
   dismissGettingStarted: authedProcedure.mutation(async ({ ctx }) => {
     await ctx.db
       .update(users)

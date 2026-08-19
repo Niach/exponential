@@ -13,11 +13,14 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { GettingStartedCards } from "@/components/getting-started/getting-started-cards"
+import { useGettingStartedProgressContext } from "@/hooks/use-getting-started-progress"
 import type { Team } from "@/db/schema"
 
 // Sidebar-footer re-entry point for the "Getting started" cards (EXP-88):
-// the inline block on the empty board disappears once issues exist (or is
-// dismissed), so this keeps the setup guidance reachable.
+// the inline block on the empty board disappears once issues exist, so this
+// keeps the setup guidance reachable. EXP-548: rendered until every entry is
+// done (no dismissal), and not at all while the signals still load — the
+// desktop rail entry follows the exact same rule.
 export function GettingStartedButton({
   teamSlug,
   team,
@@ -26,6 +29,7 @@ export function GettingStartedButton({
   team: Team | null | undefined
 }) {
   const [open, setOpen] = useState(false)
+  const { loading, complete } = useGettingStartedProgressContext()
 
   // Close the sheet when a card's link navigates (e.g. "Set up in team
   // settings") — otherwise it would keep covering the new page.
@@ -33,6 +37,8 @@ export function GettingStartedButton({
   useEffect(() => {
     setOpen(false)
   }, [pathname])
+
+  if (loading || complete) return null
 
   return (
     <SidebarMenuItem>
