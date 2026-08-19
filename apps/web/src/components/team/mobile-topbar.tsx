@@ -30,7 +30,6 @@ import {
 const NavAboutIcon = conceptIcon(`settings-about`)
 const NavAdminIcon = conceptIcon(`nav-admin`)
 const NavChangelogIcon = conceptIcon(`nav-changelog`)
-const NavAccountIcon = conceptIcon(`nav-account`)
 const NavSettingsIcon = conceptIcon(`nav-settings`)
 const NavSignOutIcon = conceptIcon(`nav-sign-out`)
 const NavSupportIcon = conceptIcon(`nav-support`)
@@ -44,10 +43,11 @@ interface TeamMobileTopbarProps {
 
 // Mobile-only chrome (EXP-189), mirroring the native apps' Issues header:
 // a board-switcher control (board name + chevron → bottom sheet) on board
-// surfaces, a static title elsewhere, and the user menu (settings, account,
-// what's new, feedback, sign out) behind the avatar. Primary navigation
-// lives in the floating MobileTabBar; the whole header is `md:hidden` and
-// hides with it on detail routes (which carry their own headers).
+// surfaces, a static title elsewhere, and the user menu (settings, what's
+// new, feedback, sign out) behind the avatar. Account is a settings section
+// since EXP-238, so it gets no second entry here. Primary navigation lives
+// in the floating MobileTabBar; the whole header is `md:hidden` and hides
+// with it on detail routes (which carry their own headers).
 export function TeamMobileTopbar({
   teamSlug,
   team,
@@ -143,17 +143,6 @@ export function TeamMobileTopbar({
             >
               <NavSettingsIcon className="mr-2 size-4" />
               Settings
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() =>
-                navigate({
-                  to: `/t/$teamSlug/settings/account`,
-                  params: { teamSlug },
-                })
-              }
-            >
-              <NavAccountIcon className="mr-2 size-4" />
-              Account
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => setWhatsNewOpen(true)}>
               <NavChangelogIcon className="mr-2 size-4" />
