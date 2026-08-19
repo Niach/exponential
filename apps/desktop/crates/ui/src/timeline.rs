@@ -275,10 +275,6 @@ impl IssueTimeline {
 
     // -- emoji (EXP-551) ------------------------------------------------------
 
-    pub(crate) fn emoji_picker(&self) -> &Entity<crate::emoji_picker::EmojiPicker> {
-        &self.emoji_picker
-    }
-
     pub(crate) fn emoji_open(&self, scope: PendingScope) -> bool {
         self.emoji_open == Some(scope)
     }
@@ -956,6 +952,8 @@ impl Render for IssueTimeline {
                             now_epoch,
                             team_id: self.team_id.as_deref(),
                             images: &self.images,
+                            emoji_picker: &self.emoji_picker,
+                            emoji_open: self.emoji_open(PendingScope::Edit),
                         },
                         cx,
                     );
@@ -972,6 +970,8 @@ impl Render for IssueTimeline {
             self.submitting,
             has_draft,
             &self.pending_attachments,
+            &self.emoji_picker,
+            self.emoji_open(PendingScope::Composer),
             cx,
         );
         // The hairline separating the activity section from the description
@@ -1250,6 +1250,37 @@ fn event_row(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// Desktop 0.14.16 aborted on EVERY issue open: the composer's emoji
+    /// button read the timeline back through `cx.entity().read(cx)` while
+    /// `render` held the entity's lease (gpui `double_lease_panic`). No synced
+    /// issue is needed to reproduce — the composer row renders regardless —
+    /// so this draws a bare timeline under an empty Store and must not panic.
+    #[gpui::test]
+    async fn a_bare_timeline_renders_without_a_double_lease(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+            let store = Store::open(cx, None, None);
+            cx.set_global(store);
+        });
+        let (view, cx) = cx.add_window_view(|window, cx| IssueTimeline::new(window, cx));
+        for _ in 0..2 {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            cx.run_until_parked();
+        }
+        // Open the composer's picker and draw again: the Edit/Composer open
+        // flags ride the same `&self` path.
+        cx.update(|_window, cx| {
+            view.update(cx, |view, cx| {
+                view.set_emoji_open(PendingScope::Composer, true, cx);
+            });
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        view.read_with(cx, |view, _| {
+            assert!(view.emoji_open(PendingScope::Composer));
+        });
+    }
 
     /// The separator must vanish with the time — `relative_time` returns `""`
     /// for a missing/unparseable `created_at`, and a dangling " · " is what

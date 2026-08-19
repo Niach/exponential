@@ -25,6 +25,13 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-desktop-issue-open-crash`,
+    date: `2026-08-19`,
+    title: `Desktop hotfix: opening an issue`,
+    summary: `Desktop 0.14.17 fixes a crash that closed the app whenever an issue was opened.`,
+    body: `- **Desktop crash fix**: opening an issue in the desktop app no longer closes it. The comment composer's emoji button (from the previous release) tripped an internal render check on every issue view; 0.14.17 repairs it, and the desktop app updates itself.`,
+  },
+  {
     id: `2026-08-comment-files-paused-sessions`,
     date: `2026-08-19`,
     title: `Files on comments, paused sessions, getting started`,
