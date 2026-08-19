@@ -35,6 +35,19 @@ const GENERATORS: { filter: string; pkg: string; outputs: string[] }[] = [
       `apps/desktop/crates/theme/src/tokens.generated.rs`,
     ],
   },
+  {
+    // EXP-551 — the shared emoji dataset, one JSON committed into all four
+    // clients so the pickers and `:shortcode` typeaheads search the same
+    // names, shortcodes and tags.
+    filter: `@exp/emoji`,
+    pkg: `packages/emoji`,
+    outputs: [
+      `apps/web/src/lib/emoji.generated.json`,
+      `apps/ios/Exponential/Resources/emoji.json`,
+      `apps/android/app/src/main/assets/emoji.json`,
+      `apps/desktop/assets/emoji.json`,
+    ],
+  },
 ]
 
 describe(`codegen drift`, () => {

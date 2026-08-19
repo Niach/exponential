@@ -1,16 +1,19 @@
 import { Extension } from "@tiptap/core"
 import { Plugin, PluginKey } from "@tiptap/pm/state"
 import type { EditorState } from "@tiptap/pm/state"
+import { matchEmojiToken } from "@/lib/emoji"
 
-// Caret-anchored `@mention` / `#issueRef` autocomplete for the TipTap editor.
+// Caret-anchored `@mention` / `#issueRef` / `:emoji` autocomplete for the
+// TipTap editor.
 // The extension only *detects* an in-progress token at the caret and reports
 // it — candidate lookup, menu rendering, and the final insertion live in
 // React (markdown-editor.tsx), mirroring how MentionTextarea drives the same
 // UX for the plain-textarea comment composer. Selecting a candidate inserts
 // the plain interchange text (`@<email>` / `#<IDENTIFIER>`) — never a custom
-// node — so the GFM markdown round-trip is untouched.
+// node — so the GFM markdown round-trip is untouched. `:shortcode` picks
+// insert the emoji's unicode (EXP-551), likewise plain text.
 
-export type EditorAutocompleteKind = `mention` | `issueRef`
+export type EditorAutocompleteKind = `mention` | `issueRef` | `emoji`
 
 export interface EditorAutocompleteActive {
   kind: EditorAutocompleteKind
@@ -20,6 +23,12 @@ export interface EditorAutocompleteActive {
   from: number
   /** Caret position (end of the in-progress token). */
   to: number
+  /**
+   * `emoji` only: the user has typed the closing colon (`:tada:`). The token
+   * still spans [from, to) including that colon; an exact shortcode match
+   * auto-commits.
+   */
+  closed?: boolean
 }
 
 export interface EditorAutocompleteOptions {
@@ -72,6 +81,16 @@ export function findAutocompleteAtCaret(
       to: $from.pos,
     }
   }
+  const emoji = matchEmojiToken(textBefore)
+  if (emoji) {
+    return {
+      kind: `emoji`,
+      query: emoji.query,
+      from: $from.pos - emoji.length,
+      to: $from.pos,
+      closed: emoji.closed,
+    }
+  }
   return null
 }
 
@@ -81,7 +100,11 @@ function sameActive(
 ) {
   if (a === null || b === null) return a === b
   return (
-    a.kind === b.kind && a.query === b.query && a.from === b.from && a.to === b.to
+    a.kind === b.kind &&
+    a.query === b.query &&
+    a.from === b.from &&
+    a.to === b.to &&
+    Boolean(a.closed) === Boolean(b.closed)
   )
 }
 

@@ -307,6 +307,40 @@ impl Editor {
         });
     }
 
+    /// EXP-551 vendoring: insert `text` at the caret through the normal
+    /// typed-edit path — the emoji picker's insertion point.
+    ///
+    /// Unlike [`Self::replace_text_before_caret`] this resolves through
+    /// [`Self::format_target`]: the picker lives in a popover, so clicking a
+    /// glyph has already blurred the block and the focused-only lookup would
+    /// silently no-op (the toolbar-button problem). The target block is
+    /// re-focused first, exactly like [`Self::apply_format`].
+    pub fn insert_text_at_caret(
+        &mut self,
+        text: &str,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(block) = self.format_target(window, cx) else {
+            return;
+        };
+        self.focus_block(block.entity_id());
+        block.update(cx, |block, cx| {
+            let range = if block.selected_range.is_empty() {
+                let caret = block.cursor_offset().min(block.display_text().len());
+                caret..caret
+            } else {
+                block.selected_range.clone()
+            };
+            if !block.display_text().is_char_boundary(range.start)
+                || !block.display_text().is_char_boundary(range.end)
+            {
+                return;
+            }
+            block.replace_text_in_visible_range(range, text, None, false, cx);
+        });
+    }
+
     /// EXP-261 vendoring: the block a toolbar command acts on. Pressing a
     /// toolbar button moves focus out of the editor, so the last ACTIVE block
     /// stands in — otherwise every button would no-op on the click that

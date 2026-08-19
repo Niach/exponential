@@ -21,8 +21,9 @@ CONTENTS
 
    1. Open-source components
    2. Bundled icons
-   3. Trademarks
-   4. Commercially licensed components
+   3. Bundled data
+   4. Trademarks
+   5. Commercially licensed components
 
 
 ==============================================================================
@@ -1266,7 +1267,51 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 
 ==============================================================================
-3. Trademarks
+3. Bundled data
+==============================================================================
+
+------------------------------------------------------------------------------
+Emojibase
+------------------------------------------------------------------------------
+
+Every client bundles an emoji dataset (labels, GitHub-style shortcodes, search
+tags and skin-tone variants) for its emoji picker and :shortcode autocomplete.
+It is not consumed as a package: packages/emoji projects the emojibase-data
+package into one JSON file (apps/web/src/lib/emoji.generated.json,
+apps/ios/Exponential/Resources/emoji.json,
+apps/android/app/src/main/assets/emoji.json, apps/desktop/assets/emoji.json),
+so the same data is reproduced in all four builds. The emoji themselves are
+Unicode characters; only the descriptive data comes from Emojibase.
+
+..............................................................................
+MIT License — Emojibase
+..............................................................................
+
+MIT License
+
+Copyright (c) 2017-2019 Miles Johnson
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+==============================================================================
+4. Trademarks
 ==============================================================================
 
 The marks below are reproduced NOMINATIVELY: each one identifies the product
@@ -1290,7 +1335,7 @@ affiliated with, endorsed by, or sponsored by any of the owners named below.
 
 
 ==============================================================================
-4. Commercially licensed components
+5. Commercially licensed components
 ==============================================================================
 
 The components below are NOT open source. Each is distributed under its own

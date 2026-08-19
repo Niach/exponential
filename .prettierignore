@@ -14,3 +14,10 @@ apps/web/public/NOTICES.txt
 apps/marketing/public/NOTICES.txt
 apps/ios/Exponential/Resources/NOTICES.txt
 apps/android/app/src/main/assets/NOTICES.txt
+
+# EXP-551 — the generated emoji dataset (packages/emoji), one record per line,
+# byte-compared by apps/web/src/lib/codegen-drift.test.ts.
+apps/web/src/lib/emoji.generated.json
+apps/ios/Exponential/Resources/emoji.json
+apps/android/app/src/main/assets/emoji.json
+apps/desktop/assets/emoji.json

@@ -7,6 +7,9 @@ private let log = Logger(subsystem: "com.exponential", category: "MarkdownToolba
 final class MarkdownToolbar: UIInputView {
     weak var textView: UITextView?
     var onImagePick: (() -> Void)?
+    /// EXP-551 — tapped emoji button. The host presents the picker sheet (the
+    /// toolbar is UIKit chrome and owns no presentation context).
+    var onEmoji: (() -> Void)?
     /// EXP-327: non-nil turns the image button into a "Photo library / Files"
     /// menu — the ONE attach affordance on the screen, which is why the Files
     /// section no longer carries a paperclip of its own. Nil keeps the plain
@@ -86,6 +89,10 @@ final class MarkdownToolbar: UIInputView {
         // round-trip, only the authoring affordance is gone.
         atButton = makeButton(AppIcons.editorMention, #selector(insertMention))
         let hashButton = makeButton(AppIcons.editorIssueRef, #selector(insertIssueRef))
+        // EXP-551 — opens the emoji picker sheet; the typed `:shortcode`
+        // typeahead stays available independently.
+        let emojiButton = makeButton(AppIcons.editorEmoji, #selector(pickEmoji))
+        emojiButton.accessibilityLabel = "Insert emoji"
         bulletListButton = makeButton(AppIcons.editorList, #selector(toggleBulletList))
         orderedListButton = makeButton(AppIcons.editorListOrdered, #selector(toggleOrderedList))
         checklistButton = makeButton(AppIcons.editorListTodo, #selector(toggleChecklist))
@@ -104,7 +111,7 @@ final class MarkdownToolbar: UIInputView {
         let stack = UIStackView(arrangedSubviews: [
             imageButton,
             makeSep(),
-            atButton, hashButton,
+            atButton, hashButton, emojiButton,
             makeSep(),
             bulletListButton, orderedListButton, checklistButton, codeButton, quoteButton,
         ])
@@ -189,6 +196,13 @@ final class MarkdownToolbar: UIInputView {
 
     @objc private func insertIssueRef() {
         textView?.insertText("#")
+    }
+
+    // Unlike @/#, emoji has no useful "type the trigger" affordance — a bare
+    // `:` needs two more characters before it means anything — so the button
+    // opens the full picker instead (EXP-551).
+    @objc private func pickEmoji() {
+        onEmoji?()
     }
 
     // MARK: - Lists

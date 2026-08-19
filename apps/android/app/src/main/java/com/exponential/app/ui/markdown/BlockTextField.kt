@@ -61,6 +61,12 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import com.exponential.app.ui.components.GlassMenuSurface
+import com.exponential.app.ui.emoji.EmojiRecord
+import com.exponential.app.ui.emoji.EmojiTokenMatch
+import com.exponential.app.ui.emoji.applySkinTone
+import com.exponential.app.ui.emoji.matchEmojiToken
+import com.exponential.app.ui.emoji.rememberEmojiData
+import com.exponential.app.ui.emoji.rememberEmojiPrefs
 import com.exponential.app.ui.markdown.model.BlockKind
 import com.exponential.app.ui.markdown.model.ParagraphAttrs
 import com.exponential.app.ui.theme.resolvedStatusColor
@@ -73,6 +79,10 @@ private val MENTION_AT_CARET = Regex("(?:^|\\s)@([A-Za-z0-9._%+-]*)$")
 // In-progress issue reference `#query` at the caret — same shape as the web
 // ISSUE_REF_AT_CARET (mention-textarea.tsx / editor-autocomplete.ts).
 private val ISSUE_REF_AT_CARET = Regex("(?:^|\\s)#([A-Za-z0-9-]*)$")
+
+// How many emoji the `:shortcode` typeahead offers (EXP-551) — the picker
+// sheet's cap is larger; this menu is a keyboard-adjacent shortlist.
+private const val EMOJI_TYPEAHEAD_LIMIT = 8
 
 /**
  * One editable text RUN — every '\n'-separated paragraph between two images in
@@ -208,6 +218,39 @@ fun BlockTextField(
         armed = false
     }
 
+    // `:shortcode` emoji typeahead (EXP-551): the same trigger shape as `@`/`#`,
+    // matched only when neither of those does. Candidates come from the shared
+    // dataset (assets/emoji.json), loaded lazily the first time a token
+    // appears. A pick replaces the WHOLE token with the unicode + a space —
+    // never `:shortcode:` text, because the markdown is shared with clients
+    // that render only unicode.
+    val emojiMatch: EmojiTokenMatch? =
+        if (mentionMatch == null && refMatch == null) matchEmojiToken(beforeCaret) else null
+    val emojiData = rememberEmojiData(enabled = emojiMatch != null)
+    val emojiPrefs = rememberEmojiPrefs()
+    val emojiCandidates =
+        if (emojiMatch != null && emojiData != null) {
+            emojiData.search(emojiMatch.query, limit = EMOJI_TYPEAHEAD_LIMIT)
+        } else {
+            emptyList()
+        }
+
+    fun insertEmoji(record: EmojiRecord, trailingSpace: Boolean) {
+        val match = emojiMatch ?: return
+        val caret = value.selection.start
+        val start = caret - match.length
+        if (start < 0) return
+        val unicode = applySkinTone(record, emojiPrefs.skinTone())
+        val inserted = if (trailingSpace) unicode + " " else unicode
+        val newText = value.text.substring(0, start) + inserted + value.text.substring(caret)
+        val newCaret = start + inserted.length
+        value = TextFieldValue(newText, TextRange(newCaret))
+        model.updateRun(row.id, newText, newCaret)
+        model.updateSelection(row.id, newCaret..newCaret)
+        emojiPrefs.pushRecent(record.unicode)
+        armed = false
+    }
+
     val marks = row.marks
     val paragraphs = row.paragraphs
     // The paragraph under the caret gates the autocomplete (code lines are
@@ -215,18 +258,34 @@ fun BlockTextField(
     val caretAttrs = paragraphs.getOrNull(ParaRemap.paraIndexAt(value.text, value.selection.start))
         ?: ParagraphAttrs.PLAIN
 
-    val menuOpen = shouldOpenAutocomplete(
+    // Whether an autocomplete may show here at all, candidates aside — the
+    // `:shortcode:` auto-commit below rides the same gate (never inside code).
+    val autocompleteEligible = shouldOpenAutocomplete(
         armed = armed,
         hasOsFocus = hasOsFocus,
         isFocusedRow = model.focusedRowId == row.id,
         kind = caretAttrs.kind,
         caretInInlineCode = caretInInlineCode(marks, value.selection.start),
-        hasCandidates = mentionCandidates.isNotEmpty() || refCandidates.isNotEmpty(),
+        hasCandidates = true,
     )
+    val menuOpen = autocompleteEligible &&
+        (mentionCandidates.isNotEmpty() || refCandidates.isNotEmpty() || emojiCandidates.isNotEmpty())
     // The regex stopped matching (caret left the token, whitespace typed, the
     // trigger was deleted) — require a fresh text change to reopen.
-    LaunchedEffect(mentionMatch == null && refMatch == null) {
-        if (mentionMatch == null && refMatch == null) armed = false
+    val noTrigger = mentionMatch == null && refMatch == null && emojiMatch == null
+    LaunchedEffect(noTrigger) {
+        if (noTrigger) armed = false
+    }
+
+    // `:tada:` — the closing colon plus an EXACT shortcode commits immediately
+    // (no trailing space), so a user who habitually types the closed form never
+    // leaves literal shortcode text behind. Web/iOS/desktop parity.
+    val closedShortcode = emojiMatch?.takeIf { it.closed }?.query
+    LaunchedEffect(closedShortcode, emojiData, autocompleteEligible) {
+        val code = closedShortcode ?: return@LaunchedEffect
+        if (!autocompleteEligible) return@LaunchedEffect
+        val record = emojiData?.findShortcode(code) ?: return@LaunchedEffect
+        insertEmoji(record, trailingSpace = false)
     }
 
     // Caret geometry for the menu's anchor, in the text-glyph box's own
@@ -429,8 +488,11 @@ fun BlockTextField(
                             toolbarHeightPx = toolbarHeightPx,
                             mentionCandidates = mentionCandidates,
                             refCandidates = refCandidates,
+                            emojiCandidates = emojiCandidates,
+                            emojiTone = emojiPrefs.skinTone(),
                             onPickMention = ::insertMention,
                             onPickIssueRef = ::insertIssueRef,
+                            onPickEmoji = { insertEmoji(it, trailingSpace = true) },
                         )
                     }
                 }
@@ -449,8 +511,11 @@ private fun AutocompleteMenu(
     toolbarHeightPx: Int,
     mentionCandidates: List<MentionMember>,
     refCandidates: List<IssueRefTarget>,
+    emojiCandidates: List<EmojiRecord>,
+    emojiTone: Int,
     onPickMention: (MentionMember) -> Unit,
     onPickIssueRef: (IssueRefTarget) -> Unit,
+    onPickEmoji: (EmojiRecord) -> Unit,
 ) {
     val density = LocalDensity.current
     val imeBottomPx = WindowInsets.ime.getBottom(density)
@@ -531,6 +596,34 @@ private fun AutocompleteMenu(
                         Spacer(Modifier.width(8.dp))
                         Text(
                             target.title,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+                emojiCandidates.forEach { emoji ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 44.dp)
+                            .clickable { onPickEmoji(emoji) }
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(applySkinTone(emoji, emojiTone), style = MaterialTheme.typography.bodyLarge)
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            ":" + (emoji.shortcodes.firstOrNull() ?: emoji.label) + ":",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 1,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            emoji.label,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,

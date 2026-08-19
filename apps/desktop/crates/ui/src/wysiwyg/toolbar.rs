@@ -4,7 +4,8 @@
 //! (`apps/web/src/components/issue-editor/markdown-editor.tsx`): H1–H3, bold /
 //! italic / strikethrough / code, link, quote, bullet / ordered / task list,
 //! clear formatting, insert image — always visible (discoverability), no
-//! selection bubble. Every button drives the vendored editor's
+//! selection bubble (EXP-551 added the emoji picker between Clear formatting
+//! and Insert image). Every button drives the vendored editor's
 //! [`FormatCommand`] surface, so the document mutates through the same tested
 //! block machinery that typing markdown shortcuts uses.
 
@@ -188,6 +189,22 @@ impl WysiwygDescription {
                     cx,
                 ))
                 .child(separator(cx))
+                // EXP-551: the emoji picker — inserts UNICODE at the caret,
+                // never `:shortcode:` text.
+                .child(crate::emoji_picker::emoji_picker_popover(
+                    "wysiwyg-emoji-popover",
+                    Button::new("wysiwyg-emoji")
+                        .ghost()
+                        .cursor_pointer()
+                        .xsmall()
+                        .icon(Icon::from(registry::EDITOR_EMOJI))
+                        .tooltip("Emoji"),
+                    self.emoji_picker.clone(),
+                    self.emoji_open,
+                    cx.listener(|this, open: &bool, _window, cx| {
+                        this.set_emoji_open(*open, cx);
+                    }),
+                ))
                 .child(
                     Button::new("wysiwyg-image")
                         .ghost().cursor_pointer()

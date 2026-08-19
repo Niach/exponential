@@ -52,6 +52,10 @@ struct IssueDetailBottomBar: View {
     @State private var showPhotoPicker = false
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var showFileImporter = false
+    /// EXP-551: the emoji picker sheet resigns the composer's first responder,
+    /// so the block to re-focus on dismiss is captured before it opens.
+    @State private var showEmojiPicker = false
+    @State private var emojiRefocusTarget: UUID?
     /// EXP-554: photos and files picked for THIS comment. They are never inlined
     /// into the markdown body — they upload on send and ride `attachmentIds`.
     @State private var pendingAttachments: [PendingCommentAttachment] = []
@@ -110,12 +114,17 @@ struct IssueDetailBottomBar: View {
             guard case let .success(urls) = result else { return }
             Task { await ingestFiles(urls) }
         }
+        .sheet(isPresented: $showEmojiPicker, onDismiss: refocusAfterEmojiPicker) {
+            EmojiPickerSheet { unicode in
+                composerEditor.insertTextAtCaret(unicode)
+            }
+        }
         // Blur collapses the composer ONLY when nothing would be lost: empty
         // draft, no pending attachments, and no picker mid-flight (presenting a
         // picker resigns first responder).
         .onChange(of: composerEditor.focusedBlockId) { _, focused in
             guard expanded, focused == nil, !submitting else { return }
-            guard !showPhotoPicker, photoItems.isEmpty, !showFileImporter else { return }
+            guard !showPhotoPicker, photoItems.isEmpty, !showFileImporter, !showEmojiPicker else { return }
             let draft = composerEditor.currentMarkdown().trimmingCharacters(in: .whitespacesAndNewlines)
             guard draft.isEmpty, pendingAttachments.isEmpty, composerEditor.pendingImages.isEmpty else { return }
             collapse()
@@ -338,6 +347,20 @@ struct IssueDetailBottomBar: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Reference an issue")
 
+                // EXP-551 — same picker sheet as the formatting toolbar's
+                // emoji button; inserts unicode at the composer's caret.
+                Button {
+                    emojiRefocusTarget = composerEditor.insertionTargetBlockId
+                    showEmojiPicker = true
+                } label: {
+                    AppIcon(AppIcons.editorEmoji, size: AppIcon.Size.medium)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .frame(width: 36, height: 36)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Insert emoji")
+
                 Spacer(minLength: 0)
 
                 Button {
@@ -366,6 +389,19 @@ struct IssueDetailBottomBar: View {
     }
 
     // MARK: - Expand / collapse
+
+    /// Hand first responder back to the composer after the emoji sheet closes
+    /// (EXP-551) — otherwise the keyboard stays down and the blur-collapse
+    /// guard above would have to keep the composer open forever.
+    private func refocusAfterEmojiPicker() {
+        // A tone change in the sheet has to reach the composer's typeahead too.
+        composerEditor.emojiSkinTone = EmojiPreferences().skinTone
+        guard let target = emojiRefocusTarget else { return }
+        emojiRefocusTarget = nil
+        DispatchQueue.main.async {
+            composerEditor.setFocused(target)
+        }
+    }
 
     private func expand() {
         withAnimation(motion.standard) { expanded = true }

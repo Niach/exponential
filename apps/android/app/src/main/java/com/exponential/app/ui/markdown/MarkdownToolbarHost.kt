@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import com.exponential.app.ui.emoji.EmojiPickerSheet
 import com.exponential.app.ui.theme.GlassTokens
 
 /**
@@ -64,6 +65,24 @@ class MarkdownToolbarController {
      * places itself behind the toolbar (EXP-322).
      */
     var toolbarHeightPx by mutableIntStateOf(0)
+
+    /**
+     * The editor a pending emoji pick belongs to, null when no picker is up
+     * (EXP-551). The sheet is FOCUSABLE — opening it hides the IME, which
+     * unmounts the toolbar overlay and clears [activeModel] — so the target is
+     * captured here at request time and the sheet is hosted by
+     * [ProvideMarkdownToolbar], which stays mounted.
+     */
+    var emojiPickerTarget by mutableStateOf<EditorModel?>(null)
+        private set
+
+    fun requestEmojiPicker(model: EditorModel) {
+        emojiPickerTarget = model
+    }
+
+    fun dismissEmojiPicker() {
+        emojiPickerTarget = null
+    }
 }
 
 val LocalMarkdownToolbarController = compositionLocalOf<MarkdownToolbarController?> { null }
@@ -105,6 +124,20 @@ fun ProvideMarkdownToolbar(content: @Composable () -> Unit) {
                     model = model,
                     modifier = Modifier.align(Alignment.BottomCenter),
                     onHeightChanged = { toolbarHeightPx = it },
+                )
+            }
+            // EXP-551: hosted HERE, not in the toolbar — the sheet takes focus,
+            // the IME goes away and the toolbar overlay leaves composition, so a
+            // sheet owned by the bar would tear itself down as it opened.
+            val emojiTarget = controller.emojiPickerTarget
+            if (emojiTarget != null) {
+                EmojiPickerSheet(
+                    onPick = { unicode ->
+                        // insertPlainText re-asserts focus on the row, so the
+                        // keyboard comes back with the caret after the emoji.
+                        emojiTarget.insertPlainText(unicode)
+                    },
+                    onDismiss = { controller.dismissEmojiPicker() },
                 )
             }
         }

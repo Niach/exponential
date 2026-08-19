@@ -42,6 +42,8 @@ mod create_board_dialog;
 mod create_team_dialog;
 mod debug_board;
 mod description_editor;
+mod emoji;
+mod emoji_picker;
 pub mod diff;
 mod file_tree;
 mod file_viewer;

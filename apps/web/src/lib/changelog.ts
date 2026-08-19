@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-emoji-picker`,
+    date: `2026-08-19`,
+    title: `Emoji, everywhere you write`,
+    summary: `An emoji picker in the description editor and the comment composer on web, desktop, iOS and Android, plus :shortcode autocomplete.`,
+    body: `- **Emoji picker**: a smiley button in the description toolbar and next to the attach button in the comment composer opens a searchable picker on all four apps, with your recent picks first.
+- **:shortcode autocomplete**: type a colon and two letters, like :tad, and pick from the suggestions; typing :tada: in full turns into the emoji straight away, the same way mentions and issue references complete.
+- **Skin tones**: choose a skin tone once in the picker and every hand and person emoji follows it, on that device.
+- **Plain unicode**: emoji are stored as ordinary characters in the markdown, so an emoji added on one app renders the same on every other and in email.`,
+  },
+  {
     id: `2026-08-per-user-repo-sharing`,
     date: `2026-08-19`,
     title: `Your repos, shared with the team`,

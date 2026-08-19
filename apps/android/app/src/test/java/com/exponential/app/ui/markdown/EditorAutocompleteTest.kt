@@ -5,9 +5,11 @@ import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import com.exponential.app.ui.markdown.model.BlockKind
 import com.exponential.app.ui.markdown.model.InlineKind
+import com.exponential.app.ui.emoji.matchEmojiToken
 import com.exponential.app.ui.markdown.model.InlineMark
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -165,5 +167,55 @@ class EditorAutocompleteTest {
         val b = place(anchor = IntRect(40, 620, 1040, 680))
         assertEquals(a.x, b.x)
         assertEquals(a.y + 120, b.y)
+    }
+
+    // --- `:shortcode` emoji trigger (EXP-551) -------------------------------
+    //
+    // The third trigger in the same family as `@`/`#`, so it lives under the
+    // same open rule (armed, focused, never in code). These lock the token
+    // SHAPE: only a colon at start-of-text or after whitespace, at least two
+    // shortcode characters, an optional closing colon.
+
+    @Test
+    fun anEmojiTokenNeedsTwoCharacters() {
+        assertNull(matchEmojiToken(":s"))
+        assertEquals("sm", matchEmojiToken(":sm")?.query)
+        assertEquals("smile", matchEmojiToken("hey :smile")?.query)
+    }
+
+    @Test
+    fun aClosedEmojiTokenIsReportedAsClosed() {
+        val open = matchEmojiToken("go :tada")
+        assertEquals(false, open?.closed)
+        assertEquals(5, open?.length)
+        val closed = matchEmojiToken("go :tada:")
+        assertEquals(true, closed?.closed)
+        assertEquals(6, closed?.length)
+    }
+
+    /** A line start inside a multi-line run counts as whitespace, like `@`/`#`. */
+    @Test
+    fun aLineStartTriggersToo() {
+        assertEquals("sm", matchEmojiToken("first line\n:sm")?.query)
+    }
+
+    @Test
+    fun clockTimesAndPunctuationNeverTrigger() {
+        assertNull(matchEmojiToken("12:30"))
+        assertNull(matchEmojiToken("note:"))
+        assertNull(matchEmojiToken(":)"))
+        assertNull(matchEmojiToken("http://x"))
+        assertNull(matchEmojiToken("see https://example.com"))
+        assertNull(matchEmojiToken("a:bc"))
+    }
+
+    /**
+     * Code is inert for every trigger — the emoji auto-commit rides the same
+     * gate, which is why it is expressed through [shouldOpenAutocomplete].
+     */
+    @Test
+    fun codeStaysInertForEmojiToo() {
+        assertFalse(open(kind = BlockKind.CodeBlock))
+        assertFalse(open(caretInInlineCode = true))
     }
 }

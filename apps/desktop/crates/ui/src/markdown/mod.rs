@@ -15,8 +15,8 @@
 //!   blocks render inline) + the read-only rendered view ([`MarkdownView`])
 //!   with clickable `#IDENT` / `@email` pills and toggleable task checkboxes.
 //! - [`toolbar`] — the static toolbar (**no** selection popover).
-//! - [`autocomplete`] — the caret-anchored `@`-member / `#`-issue completion
-//!   overlay (§4.6).
+//! - [`autocomplete`] — the caret-anchored `@`-member / `#`-issue /
+//!   `:`-emoji completion overlay (§4.6, EXP-551).
 //! - [`image_paste`] — the single image path: clipboard paste /
 //!   file picker → staged `draft://` blocks → atomic upload via
 //!   `/api/issues/{id}/images` → canonical `![alt](/api/attachments/{id})`.
@@ -41,8 +41,9 @@ mod wysiwyg_input;
 mod wysiwyg_parity;
 
 pub use autocomplete::{
-    completion_row_content, detect_trigger, store_completion_source, CompletionDecoration,
-    CompletionItem, CompletionSource, CompletionTrigger, PendingToken,
+    completion_row_content, detect_trigger, emoji_completion_source, exact_emoji,
+    store_completion_source,
+    CompletionDecoration, CompletionItem, CompletionSource, CompletionTrigger, PendingToken,
 };
 pub use blocks::{ContentBlock, RichText};
 pub(crate) use editor::{

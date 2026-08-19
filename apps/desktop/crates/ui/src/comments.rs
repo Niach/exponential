@@ -26,6 +26,7 @@ use domain::rows::{Comment, User};
 use crate::comment_attachments::{
     attach_button, comment_attachments_strip, pending_attachments_strip, MAX_COMMENT_ATTACHMENTS,
 };
+use crate::emoji_picker::emoji_picker_popover;
 use crate::controls::WebControl as _;
 use crate::description_editor::open_issue_by_identifier;
 use crate::icons::{registry, ExpIcon};
@@ -236,6 +237,11 @@ pub(crate) fn comment_row(
                 h_flex()
                     .gap_2()
                     .items_center()
+                    .child(emoji_button(
+                        SharedString::from(format!("comment-edit-emoji-{comment_id}")),
+                        PendingScope::Edit,
+                        cx,
+                    ))
                     .child(attach_button(
                         SharedString::from(format!("comment-edit-attach-{comment_id}")),
                         PendingScope::Edit,
@@ -368,6 +374,7 @@ pub(crate) fn composer_row(
                 // placeholder width at some window sizes; a column stretches
                 // its child to the definite slot width instead.
                 .child(v_flex().flex_1().min_w_0().child(input.clone()))
+                .child(emoji_button("comment-emoji", PendingScope::Composer, cx))
                 .child(attach_button(
                     "comment-attach",
                     PendingScope::Composer,
@@ -386,6 +393,30 @@ pub(crate) fn composer_row(
                         ),
                 ),
         )
+}
+
+/// EXP-551: the emoji trigger both comment composers grow — a smiley that
+/// opens the shared picker; a pick inserts the UNICODE at the cursor.
+fn emoji_button(
+    id: impl Into<gpui::ElementId>,
+    scope: PendingScope,
+    cx: &mut gpui::Context<IssueTimeline>,
+) -> impl IntoElement {
+    let id = id.into();
+    let popover_id = gpui::ElementId::Name(SharedString::from(format!("{id:?}-popover")));
+    emoji_picker_popover(
+        popover_id,
+        Button::new(id)
+            .ghost()
+            .web_icon_sm()
+            .icon(Icon::new(registry::EDITOR_EMOJI).text_color(cx.theme().muted_foreground))
+            .tooltip("Emoji"),
+        cx.entity().read(cx).emoji_picker().clone(),
+        cx.entity().read(cx).emoji_open(scope),
+        cx.listener(move |this, open: &bool, _window, cx| {
+            this.set_emoji_open(scope, *open, cx);
+        }),
+    )
 }
 
 use gpui::prelude::FluentBuilder as _;

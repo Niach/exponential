@@ -141,4 +141,23 @@ class MarkdownRoundTripTest {
 
     @Test fun mentionStaysPlainText() =
         assertStable("ping @dev@example.com about #APP-9")
+
+    // --- Emoji (EXP-551) are ordinary text: unicode in the markdown, so a
+    // surrogate pair, a ZWJ sequence and a skin-tone modifier must all survive
+    // parse+serialize byte-identically (the parser walks UTF-16 offsets). ---
+
+    @Test fun emojiRoundTrips() = assertStable("ship it \uD83D\uDE80")
+
+    @Test fun zwjEmojiRoundTrips() = assertStable("family \uD83D\uDC69\u200D\uD83D\uDCBB here")
+
+    @Test fun skinTonedEmojiRoundTrips() = assertStable("nice \uD83D\uDC4D\uD83C\uDFFD work")
+
+    @Test fun emojiNextToMarksRoundTrips() =
+        assertStable("**bold \uD83C\uDF89** and `code \uD83D\uDE00` and [link \u2764\uFE0F](https://example.com)")
+
+    @Test fun emojiInListItemsRoundTrips() =
+        assertStable("- \uD83C\uDF89 done\n- \uD83D\uDC4D\uD83C\uDFFF next")
+
+    /** A literal `:shortcode:` is plain text — nothing converts it on parse. */
+    @Test fun literalShortcodeStaysPlainText() = assertStable("wrote :tada: by hand")
 }
