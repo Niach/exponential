@@ -345,6 +345,12 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
     public let teamId: String
     public let userId: String
     public let deviceLabel: String?
+    // EXP-549/550: the host machine's steer deviceId (`devices.device_id`),
+    // stamped by the server at start. The LIVE devices row is the label
+    // source (a rename never rewrites the snapshot above) and its
+    // `last_seen_at` freshness is what makes a session read "paused ·
+    // offline" while the machine sleeps.
+    public let deviceId: String?
     public let status: String
     // EXP-545: the batch↔PR linkage — the PR's head branch
     // (`exp/batch-<id8>`), stamped by the server's pr_open batch flip
@@ -376,6 +382,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         teamId: String,
         userId: String,
         deviceLabel: String?,
+        deviceId: String? = nil,
         status: String,
         branch: String? = nil,
         needsInput: Bool = false,
@@ -393,6 +400,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         self.teamId = teamId
         self.userId = userId
         self.deviceLabel = deviceLabel
+        self.deviceId = deviceId
         self.status = status
         self.branch = branch
         self.needsInput = needsInput
@@ -412,6 +420,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         case teamId = "team_id"
         case userId = "user_id"
         case deviceLabel = "device_label"
+        case deviceId = "device_id"
         case needsInput = "needs_input"
         case actionId = "action_id"
         case actionName = "action_name"
@@ -436,6 +445,8 @@ extension CodingSessionEntity: Codable {
         teamId = try c.decode(String.self, forKey: .teamId)
         userId = try c.decode(String.self, forKey: .userId)
         deviceLabel = try c.decodeIfPresent(String.self, forKey: .deviceLabel)
+        // Pre-EXP-549 snapshots omit the key — decode permissively.
+        deviceId = try c.decodeIfPresent(String.self, forKey: .deviceId)
         status = try c.decode(String.self, forKey: .status)
         // Pre-EXP-545 snapshots omit the key — decode permissively.
         branch = try c.decodeIfPresent(String.self, forKey: .branch)

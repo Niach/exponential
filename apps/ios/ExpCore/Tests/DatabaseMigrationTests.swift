@@ -32,7 +32,9 @@ import XCTest
 // tables, shapes 17/18) the fifteenth, v17_coding_session_branch (EXP-545:
 // the batch↔PR head branch ride-along) the sixteenth, and
 // v18_action_automations (EXP-530: actions.trigger +
-// coding_sessions.started_reason) the seventeenth.
+// coding_sessions.started_reason) the seventeenth, and
+// v19_coding_session_device_id (EXP-549/550: the session's host-machine
+// deviceId ride-along) the eighteenth.
 // These tests pin the fresh-install schema and the
 // exact migration identifiers so a new incremental migration is a conscious
 // decision, not an accident.
@@ -77,7 +79,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v11_drop_archived_at", "v12_drop_issue_times",
              "v13_issue_statuses", "v14_drop_board_is_protected",
              "v15_attachment_nullable_uploader", "v16_devices_worktrees",
-             "v17_coding_session_branch", "v18_action_automations"]
+             "v17_coding_session_branch", "v18_action_automations",
+             "v19_coding_session_device_id"]
         )
     }
 
@@ -96,7 +99,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v11_drop_archived_at", "v12_drop_issue_times",
              "v13_issue_statuses", "v14_drop_board_is_protected",
              "v15_attachment_nullable_uploader", "v16_devices_worktrees",
-             "v17_coding_session_branch", "v18_action_automations"]
+             "v17_coding_session_branch", "v18_action_automations",
+             "v19_coding_session_device_id"]
         )
     }
 
@@ -143,7 +147,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v11_drop_archived_at", "v12_drop_issue_times",
              "v13_issue_statuses", "v14_drop_board_is_protected",
              "v15_attachment_nullable_uploader", "v16_devices_worktrees",
-             "v17_coding_session_branch", "v18_action_automations"]
+             "v17_coding_session_branch", "v18_action_automations",
+             "v19_coding_session_device_id"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -210,7 +215,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v11_drop_archived_at", "v12_drop_issue_times",
              "v13_issue_statuses", "v14_drop_board_is_protected",
              "v15_attachment_nullable_uploader", "v16_devices_worktrees",
-             "v17_coding_session_branch", "v18_action_automations"]
+             "v17_coding_session_branch", "v18_action_automations",
+             "v19_coding_session_device_id"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -504,6 +510,56 @@ final class DatabaseMigrationTests: XCTestCase {
         }
     }
 
+    // v19 (EXP-549/550 session host device): a store created before
+    // `coding_sessions.device_id` existed must gain it via the guarded ALTER
+    // and get the coding-sessions shape offset reset (the key has A DASH —
+    // the proxy route name, not the table name) so already-synced rows
+    // re-arrive carrying the host machine's deviceId.
+    func testCodingSessionDeviceIdAddedToExistingStore() throws {
+        let pool = try makePool("session-device-id")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v18_action_automations")
+        try pool.write { db in
+            // Hand-build the pre-v19 state: drop the column today's v1 create
+            // already declares (that overlap is exactly what the guarded
+            // ALTER has to tolerate) + a live offset row.
+            let sessionCols = Set(try db.columns(in: "coding_sessions").map(\.name))
+            if sessionCols.contains("device_id") {
+                try db.alter(table: "coding_sessions") { t in t.drop(column: "device_id") }
+            }
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('coding-sessions', 'h', '0_0', 0, 1)
+                """)
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertTrue(try columnNames(pool, "coding_sessions").contains("device_id"))
+        let deviceIdColumn = try pool.read { db in
+            try db.columns(in: "coding_sessions").first { $0.name == "device_id" }
+        }
+        XCTAssertFalse(deviceIdColumn?.isNotNull ?? true)
+        // The ALTER must force a refetch of the coding-sessions shape.
+        let offset = try pool.read { db in
+            try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT "handle", "offset", "needs_refetch", "is_live"
+                    FROM "electric_offsets" WHERE "shape" = 'coding-sessions'
+                    """
+            )
+        }
+        let handle: String? = offset?["handle"]
+        let offsetValue: String? = offset?["offset"]
+        let needsRefetch: Bool? = offset?["needs_refetch"]
+        let isLive: Bool? = offset?["is_live"]
+        XCTAssertEqual(handle, "")
+        XCTAssertEqual(offsetValue, "-1")
+        XCTAssertEqual(needsRefetch, true)
+        XCTAssertEqual(isLive, false)
+    }
+
     // The end-state schema must expose the tables + key columns sync writes to,
     // so a green migration can't silently produce the wrong shape. This pins
     // the EXP-180 rename: teams/boards/team_members/team_invites exist, the
@@ -576,6 +632,8 @@ final class DatabaseMigrationTests: XCTestCase {
         let sessionCols = try columnNames(pool, "coding_sessions")
         XCTAssertTrue(sessionCols.contains("action_id"))
         XCTAssertTrue(sessionCols.contains("action_name"))
+        // EXP-549/550: the host machine's steer deviceId ride-along.
+        XCTAssertTrue(sessionCols.contains("device_id"))
 
         // The synced actions table (EXP-268, 15th shape) deliberately has NO
         // body column — the shape's allowlist excludes the ≤64KB prompt; tRPC

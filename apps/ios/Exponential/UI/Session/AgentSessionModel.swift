@@ -48,6 +48,10 @@ final class AgentSessionModel {
     private(set) var latestDiff: String?
     /// The synced coding_sessions row — flips to ended via Electric.
     private(set) var session: CodingSessionEntity?
+    /// EXP-549/550: the host machine as it presents right now — the LIVE
+    /// `devices` row's label (renames land; the session's `device_label` is a
+    /// start-time snapshot) and whether that machine stopped heartbeating.
+    private(set) var hostDevice = SessionDevicePresentation(label: nil, offline: false)
     /// Kill-switch failure (EXP-268), surfaced as an inline banner — cleared
     /// on each attempt. Success needs no local state: the synced row flips to
     /// `ended` and the view already reacts.
@@ -68,6 +72,16 @@ final class AgentSessionModel {
     var sessionEnded: Bool {
         guard let session else { return true }
         return session.status == DomainContract.codingSessionStatusEnded
+    }
+
+    /// EXP-550: the host machine is offline while the run is still coding —
+    /// the session is PAUSED, not ended (it resumes when the machine comes
+    /// back), so the viewer shows that instead of an endless "waiting for the
+    /// live stream". Mirrors `SessionDevicePresentation.isPaused`: an
+    /// in_review/merged/ended row is past caring where its machine is.
+    var hostDeviceOffline: Bool {
+        guard hostDevice.offline, let session, !sessionEnded else { return false }
+        return session.status == DomainContract.codingSessionStatusRunning
     }
 
     /// Whether this viewer may kill the session (EXP-268): a live (not-ended)
@@ -150,6 +164,12 @@ final class AgentSessionModel {
     /// the winner's phase.
     private var dialGeneration = 0
     private var sessionObservationTask: Task<Void, Never>?
+    /// EXP-549/550: the synced `devices` rows behind `hostDevice`, plus the
+    /// clock that re-derives offline-ness (GRDB only re-fires on WRITES, and
+    /// a machine going quiet writes nothing).
+    private var deviceObservationTask: Task<Void, Never>?
+    private var deviceLivenessTask: Task<Void, Never>?
+    private var deviceRows: [DeviceEntity] = []
     /// One expiry timer PER locked card (EXP-334) — a single shared task used
     /// to be cancelled by every newer lock, so several pending locks then all
     /// expired together and the stepper rolled back more than one step.
@@ -201,12 +221,15 @@ final class AgentSessionModel {
         self.issueImagesApi = issueImagesApi
         self.db = db
         self.session = session
+        // Snapshot-only until the devices observation lands (EXP-549).
+        self.hostDevice = SessionDevicePresentation.resolve(session: session, devices: [])
     }
 
     /// Bind the synced session row and auto-connect once when presented;
     /// drops after that auto-reconnect (EXP-243).
     func start() {
         startObservingSession()
+        startObservingHostDevice()
         if phase == .idle { connect() }
     }
 
@@ -250,6 +273,7 @@ final class AgentSessionModel {
     func resume() {
         guard stopped else { return }
         startObservingSession()
+        startObservingHostDevice()
         connect()
     }
 
@@ -260,6 +284,10 @@ final class AgentSessionModel {
         cancelAnswerExpiries()
         sessionObservationTask?.cancel()
         sessionObservationTask = nil
+        deviceObservationTask?.cancel()
+        deviceObservationTask = nil
+        deviceLivenessTask?.cancel()
+        deviceLivenessTask = nil
         connected = false
         // Reset to the pre-connection state so a later resume() can redial: the
         // socket is gone, so leaving phase at .live/.connecting would make
@@ -464,6 +492,7 @@ final class AgentSessionModel {
                         // waiting for an `ended` status a deleted row can
                         // never report.
                         self.session = row
+                        self.rebuildHostDevice()
                     }
                     // The sequence only finishes cleanly on cancellation.
                     return
@@ -474,6 +503,52 @@ final class AgentSessionModel {
                 }
             }
         }
+    }
+
+    /// EXP-549/550: watch the synced `devices` rows so the header names the
+    /// machine by its CURRENT label and flips to "paused" when it goes quiet.
+    /// A 30s tick re-derives liveness on its own — the heartbeat stopping is
+    /// the absence of a write, which no ValueObservation can report (the
+    /// AgentsViewModel liveness clock, same cadence against the 90s window).
+    private func startObservingHostDevice() {
+        guard deviceObservationTask == nil else { return }
+        guard let pool = try? db.pool(forAccountId: accountId) else { return }
+        let observation = ValueObservation.tracking { db in
+            try DeviceEntity.fetchAll(db)
+        }
+        deviceObservationTask = Task { [weak self] in
+            // Same re-subscribe loop as the session observation: the GRDB
+            // stream is one-shot, and a dead one would freeze the machine at
+            // its last known state forever.
+            while !Task.isCancelled {
+                do {
+                    for try await rows in observation.values(in: pool) {
+                        guard let self else { return }
+                        self.deviceRows = rows
+                        self.rebuildHostDevice()
+                    }
+                    return
+                } catch is CancellationError {
+                    return
+                } catch {
+                    try? await Task.sleep(for: .seconds(1))
+                }
+            }
+        }
+        deviceLivenessTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(30))
+                guard let self, !Task.isCancelled else { return }
+                self.rebuildHostDevice()
+            }
+        }
+    }
+
+    private func rebuildHostDevice() {
+        guard let session else { return }
+        hostDevice = SessionDevicePresentation.resolve(
+            session: session, devices: deviceRows, now: Date()
+        )
     }
 
     // MARK: - Connect lifecycle

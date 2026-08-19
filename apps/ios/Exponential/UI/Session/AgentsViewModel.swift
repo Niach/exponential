@@ -18,6 +18,11 @@ final class AgentsViewModel {
         /// pattern). Set only on issueless batch rows in review with an
         /// UNAMBIGUOUS match.
         let batchPrIssue: IssueEntity?
+        /// EXP-549/550: the host machine as it presents right now — the LIVE
+        /// devices row's label (a rename never rewrites the session's
+        /// snapshot) plus whether that machine stopped heartbeating, which
+        /// makes a still-coding run read "Paused" instead of live.
+        let device: SessionDevicePresentation
         var id: String { session.id }
     }
 
@@ -136,6 +141,10 @@ final class AgentsViewModel {
                 for try await rows in deviceObservation.values(in: pool) {
                     self?.deviceEntities = rows
                     self?.rebuildDevices()
+                    // EXP-549/550: the session rows carry a device label +
+                    // liveness derived from these — a rename or a machine
+                    // going quiet has to repaint the running list too.
+                    self?.rebuild()
                 }
             } catch {}
         }
@@ -248,6 +257,10 @@ final class AgentsViewModel {
     }
 
     private func rebuild() {
+        // One clock for the whole pass (EXP-550): every row's offline-ness is
+        // read against the same instant.
+        let now = Date()
+        let deviceRows = deviceEntities ?? []
         let issuesById = Dictionary(issues.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         // EXP-535: the active team's open batch PRs, collapsed once per
         // rebuild — each in-review batch row then resolves ITS OWN PR by the
@@ -283,7 +296,10 @@ final class AgentsViewModel {
                         ? BatchPrResolution.resolve(
                             sessionBranch: session.branch,
                             openBatchPrs: openBatchPrs
-                        ) : nil
+                        ) : nil,
+                    device: SessionDevicePresentation.resolve(
+                        session: session, devices: deviceRows, now: now
+                    )
                 )
             }
     }

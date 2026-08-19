@@ -807,10 +807,14 @@ struct AgentsView: View {
         let state = CodingSessionDisplayState.of(
             session: row.session, prState: row.issue?.prState
         )
+        // EXP-550: the host machine stopped heartbeating (lid closed) — the
+        // run is PAUSED, not ended, and resumes when the machine returns. A
+        // pulsing "coding now" dot would be a lie, so it goes neutral.
+        let paused = row.device.isPaused(state)
         HStack(spacing: 12) {
-            if state != .running {
+            if paused || state != .running {
                 Circle()
-                    .fill(stateColor(state))
+                    .fill(paused ? DesignTokens.Semantic.neutral : stateColor(state))
                     .frame(width: 9, height: 9)
             } else {
                 PulsingLiveDot()
@@ -830,13 +834,18 @@ struct AgentsView: View {
                         .lineLimit(1)
                 }
                 HStack(spacing: 6) {
-                    if let label = stateLabel(state) {
+                    if paused {
+                        Text("Paused")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .lineLimit(1)
+                    } else if let label = stateLabel(state) {
                         Text(label)
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(stateColor(state))
                             .lineLimit(1)
                     }
-                    Text(byline(row.session))
+                    Text(byline(row, paused: paused))
                         .font(.caption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .lineLimit(1)
@@ -859,14 +868,13 @@ struct AgentsView: View {
         return row.issue?.title ?? "Untitled issue"
     }
 
-    private func byline(_ session: CodingSessionEntity) -> String {
-        let device: String
-        if let label = session.deviceLabel, !label.isEmpty {
-            device = label
-        } else {
-            device = "Desktop"
-        }
-        let started = relativeDate(session.startedAt)
+    /// EXP-549: the machine name comes from the LIVE devices row (a rename
+    /// never rewrites the session's start-time snapshot). EXP-550: a paused
+    /// row says WHY instead of how long ago it started.
+    private func byline(_ row: AgentsViewModel.Row, paused: Bool) -> String {
+        let device = row.device.displayLabel
+        if paused { return "\(device) · offline" }
+        let started = relativeDate(row.session.startedAt)
         return started.isEmpty ? device : "\(device) · started \(started)"
     }
 
