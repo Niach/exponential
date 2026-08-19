@@ -197,3 +197,49 @@ describe(`boards.listArchived`, () => {
     expect(rows[0]).not.toHaveProperty(`purgeAt`)
   })
 })
+
+// EXP-557: boards.setRepository dropped the owner/admin repo-management gate —
+// pointing a board at an already-shared registry repo is member-level
+// resource wiring (`mutate_resources`), consistent with boards.create.
+describe(`boards.setRepository member gating (EXP-557)`, () => {
+  it(`resolves member access, not ownership`, async () => {
+    const { assertBoardMember, resolveTeamAccess } = await import(
+      `@/lib/team-membership`
+    )
+    vi.mocked(assertBoardMember).mockResolvedValue({
+      id: BOARD,
+      teamId: TEAM,
+    } as never)
+    vi.mocked(resolveTeamAccess).mockResolvedValue(undefined as never)
+
+    const result = await caller().setRepository({
+      boardId: BOARD,
+      repositoryId: null,
+    })
+
+    expect(resolveTeamAccess).toHaveBeenCalledWith(
+      `owner-1`,
+      TEAM,
+      `mutate_resources`
+    )
+    expect(h.assertTeamOwner).not.toHaveBeenCalled()
+    expect(result.board).toBeTruthy()
+  })
+
+  it(`still refuses when membership access resolution fails`, async () => {
+    const { assertBoardMember, resolveTeamAccess } = await import(
+      `@/lib/team-membership`
+    )
+    vi.mocked(assertBoardMember).mockResolvedValue({
+      id: BOARD,
+      teamId: TEAM,
+    } as never)
+    vi.mocked(resolveTeamAccess).mockRejectedValueOnce(
+      new TRPCError({ code: `FORBIDDEN`, message: `nope` })
+    )
+
+    await expect(
+      caller().setRepository({ boardId: BOARD, repositoryId: null })
+    ).rejects.toMatchObject({ code: `FORBIDDEN` })
+  })
+})

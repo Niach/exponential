@@ -435,3 +435,23 @@ describe(`teamInvites.accept — seat gate ordering (REV2-71)`, () => {
     expect(inserts).toHaveLength(0)
   })
 })
+
+// EXP-557: instance admins get NO bypass — invite management is owner-only
+// and the router no longer consults users.is_admin at all.
+describe(`instance-admin bypass removal (EXP-557)`, () => {
+  it(`create refuses a non-owner even when the caller is an instance admin`, async () => {
+    const { isUserAdmin } = await import(`@/lib/admin`)
+    vi.mocked(isUserAdmin).mockResolvedValue(true)
+    const { assertTeamMember } = await import(`@/lib/team-membership`)
+    const { TRPCError } = await import(`@trpc/server`)
+    vi.mocked(assertTeamMember).mockRejectedValueOnce(
+      new TRPCError({ code: `FORBIDDEN`, message: `not an owner` })
+    )
+    await expect(caller().create({ teamId: WS })).rejects.toMatchObject({
+      code: `FORBIDDEN`,
+    })
+    // The old owner-OR-admin helper consulted this first; nothing does now.
+    expect(isUserAdmin).not.toHaveBeenCalled()
+    vi.mocked(isUserAdmin).mockResolvedValue(false)
+  })
+})

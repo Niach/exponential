@@ -261,14 +261,15 @@ fn section_icon(section: &SettingsSection) -> Icon {
     }
 }
 
-/// Web nav `visible` gating: General/board pages/Repositories are owner-only.
+/// Web nav `visible` gating: General/board pages are owner-only.
+/// Repositories is member-visible since EXP-557 (per-user repo sharing:
+/// every member connects their own GitHub and shares repos there).
 fn section_visible(section: &SettingsSection, owner: bool) -> bool {
     match section {
         SettingsSection::General
         | SettingsSection::Storage
         | SettingsSection::Board(_)
-        | SettingsSection::ArchivedBoards
-        | SettingsSection::Repositories => owner,
+        | SettingsSection::ArchivedBoards => owner,
         _ => true,
     }
 }
@@ -1167,13 +1168,18 @@ mod tests {
             SettingsSection::Storage,
             SettingsSection::Board("b-1".to_string()),
             SettingsSection::ArchivedBoards,
-            SettingsSection::Repositories,
         ] {
             assert_eq!(
                 effective_selection(gated, false, any_board),
                 SettingsSection::Members
             );
         }
+        // EXP-557: Repositories is member-visible — the selection sticks
+        // instead of falling back.
+        assert_eq!(
+            effective_selection(SettingsSection::Repositories, false, any_board),
+            SettingsSection::Repositories
+        );
     }
 
     #[test]

@@ -202,7 +202,8 @@ export function GettingStartedCards({
       </div>
     ),
 
-    github: permissions.canManageRepos ? (
+    // EXP-557: every member connects their own GitHub — no role gate.
+    github: (
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" asChild>
           <Link
@@ -214,10 +215,6 @@ export function GettingStartedCards({
           </Link>
         </Button>
       </div>
-    ) : (
-      <p className="text-xs text-muted-foreground">
-        Ask your team owner to connect GitHub.
-      </p>
     ),
 
     board: (

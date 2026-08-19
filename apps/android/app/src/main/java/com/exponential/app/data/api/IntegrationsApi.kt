@@ -34,6 +34,11 @@ data class GithubInstallation(
     // it, so the UI must never nudge one. Default false for servers predating
     // the field.
     val suspended: Boolean = false,
+    // EXP-557 (per-user repo sharing): zero grants from ANY member — a
+    // reconnect can never heal this link, so the UI offers a confirm-first
+    // "Disconnect account" instead of the reconnect nag (which stays for the
+    // viewer's own needsReauth accounts). Default false for older servers.
+    val stale: Boolean = false,
     val hasMore: Boolean = false,
 )
 
@@ -91,6 +96,13 @@ private data class ReposInput(
     val platform: String? = null,
 )
 
+// Internal (not private) so IntegrationsWireFormatTest can lock the payload.
+@Serializable
+internal data class UnlinkInput(
+    val teamId: String,
+    val installationId: Long,
+)
+
 @Singleton
 class IntegrationsApi @Inject constructor(private val trpc: TrpcClient) {
 
@@ -125,5 +137,20 @@ class IntegrationsApi @Inject constructor(private val trpc: TrpcClient) {
             ),
             inputSerializer = ReposInput.serializer(),
             outputSerializer = GithubReposResult.serializer(),
+        )
+
+    /**
+     * Disconnect a linked GitHub account from the team
+     * (`integrations.github.unlink`, EXP-557). Server-enforced
+     * link-creator-or-owner; refused (CONFLICT) while repositories connected
+     * through the account are still in the registry. The `{ ok: true }`
+     * response is ignored.
+     */
+    suspend fun githubUnlink(accountId: String, teamId: String, installationId: Long) =
+        trpc.mutationUnit(
+            accountId,
+            path = "integrations.github.unlink",
+            input = UnlinkInput(teamId = teamId, installationId = installationId),
+            inputSerializer = UnlinkInput.serializer(),
         )
 }

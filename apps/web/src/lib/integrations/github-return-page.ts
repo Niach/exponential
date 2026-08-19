@@ -24,7 +24,7 @@ const ERROR_COPY: Record<string, string> = {
   none: `The Exponential GitHub App isn't installed for any account you can access yet. Return to the app and use Connect GitHub to install it.`,
   notowner: `The authorized GitHub account only has collaborator access to existing installations. Install the App on your own account or organization.`,
   orgperm: `Your organization hasn't approved the App's members-read permission yet. An org admin must accept it on GitHub, then reconnect.`,
-  forbidden: `Only team owners can connect GitHub accounts to a team.`,
+  forbidden: `Only team members can connect GitHub accounts to a team.`,
 }
 
 export function renderGithubConnectedPage(error?: string): string {

@@ -8,7 +8,10 @@ import com.exponential.app.data.db.TeamEntity
 //
 // Permissions are membership-only (EXP-180 removed public boards — nothing
 // is anonymously readable on any client): any member moderates and any
-// member can create. Owner-only controls key off `isOwner`.
+// member can create. Owner-only controls key off `isOwner`. EXP-557:
+// instance admins get NO team-capability bypass (`isAdmin` is console access
+// only, never a team capability) and repo management is no longer a role
+// capability — every member connects/manages their own repos.
 data class TeamPermissions(
     val isAuthed: Boolean,
     val isMember: Boolean,
@@ -16,7 +19,7 @@ data class TeamPermissions(
     val isAdmin: Boolean,
     val canCreate: Boolean,
 ) {
-    val isModerator: Boolean get() = isMember || isAdmin
+    val isModerator: Boolean get() = isMember
 
     fun canMutateIssue(creatorId: String?): Boolean = isModerator
 
@@ -51,7 +54,7 @@ data class TeamPermissions(
                 isMember = isMember,
                 isOwner = memberRole == "owner",
                 isAdmin = isAdmin,
-                canCreate = isAuthed && (isMember || isAdmin),
+                canCreate = isAuthed && isMember,
             )
         }
     }

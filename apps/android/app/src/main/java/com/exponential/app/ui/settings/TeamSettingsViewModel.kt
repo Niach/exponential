@@ -165,6 +165,18 @@ class TeamSettingsViewModel @Inject constructor(
         }
     }
 
+    // Disconnect a linked GitHub account from the team (EXP-557 — the visible
+    // "Disconnect account" action on STALE accounts, which no reconnect can
+    // heal). Link-creator-or-owner server-side; the grant state is re-fetched
+    // either way so the section reflects the outcome.
+    fun unlinkGithub(installationId: Long) = viewModelScope.launch {
+        val accountId = auth.activeAccountId.value ?: return@launch
+        val teamId = selection.selectedId.value ?: return@launch
+        runCatching { integrationsApi.githubUnlink(accountId, teamId, installationId) }
+            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't disconnect the GitHub account") }
+        refreshGithub()
+    }
+
     val state: StateFlow<TeamSettingsState> = combine(
         listOf(
             teamFlow,
@@ -290,8 +302,9 @@ class TeamSettingsViewModel @Inject constructor(
             .onFailure { _transient.value = it.message }
     }
 
-    // Owner-only: register a repo picked from the linked GitHub accounts in the
-    // registry (repositories.add — web parity, EXP-225), then re-fetch.
+    // Member-level since EXP-557: register a repo picked from the caller's own
+    // GitHub connection in the registry (repositories.add — web parity,
+    // EXP-225; connecting shares it with the team), then re-fetch.
     fun addRepository(fullName: String, defaultBranch: String, isPrivate: Boolean) = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
         val teamId = selection.selectedId.value ?: return@launch
@@ -300,8 +313,9 @@ class TeamSettingsViewModel @Inject constructor(
         refreshRepos()
     }
 
-    // Remove a repo from the registry. Blocked server-side (CONFLICT) while any
-    // board still points at it — surface that message verbatim (masterplan §6).
+    // Remove a repo from the registry (sharer-or-owner, EXP-557). Blocked
+    // server-side (CONFLICT) while any board still points at it — surface that
+    // message verbatim (masterplan §6).
     fun removeRepo(repositoryId: String) = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
         runCatching { repositoriesApi.remove(accountId, repositoryId) }
@@ -309,7 +323,7 @@ class TeamSettingsViewModel @Inject constructor(
         refreshRepos()
     }
 
-    // Owner/admin: retarget a board's backing repo (boards.setRepository).
+    // Member-level (EXP-557): retarget a board's backing repo (boards.setRepository).
     fun setBoardRepository(boardId: String, repositoryId: String) = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
         runCatching { repositoriesApi.setRepository(accountId, boardId, repositoryId) }

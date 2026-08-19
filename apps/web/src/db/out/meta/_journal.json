@@ -547,6 +547,13 @@
       "when": 1787015999164,
       "tag": "0077_glossy_magdalene",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1787103637786,
+      "tag": "0078_abnormal_sister_grimm",
+      "breakpoints": true
     }
   ]
 }

@@ -17,7 +17,6 @@ import {
 } from "@/components/board-form-fields"
 import { type PickerRepo } from "@/components/github-repo-picker"
 import { ConnectedRepoPicker } from "@/components/connected-repo-picker"
-import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import type { Board, Team } from "@/db/schema"
 
 // Consolidated per-board settings (EXP-159): everything the create dialog
@@ -35,8 +34,6 @@ export function BoardSettingsDialog({
   onOpenChange: (open: boolean) => void
   onRepoChanged: () => void
 }) {
-  const { canManageRepos } = useTeamPermissions(team)
-
   // Name is the one deferred write (save on blur / close) — swapping it live
   // under the user's caret would fight typing. Everything else mutates
   // immediately off the live row.
@@ -155,25 +152,25 @@ export function BoardSettingsDialog({
               }
             />
 
-            {canManageRepos && (
-              <div className="space-y-2">
-                <Label>Repository</Label>
-                <ConnectedRepoPicker
-                  teamId={team.id}
-                  value={board.repositoryId}
-                  disabled={busyRepo}
-                  onSelectRegistry={(repo) => void applyRepo(repo.id)}
-                  onConnectNew={(picked) => void handleConnect(picked)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  New &ldquo;Start coding&rdquo; launches use the selected repo;
-                  existing worktrees keep working locally.
-                </p>
-                {repoError && (
-                  <p className="text-xs text-destructive">{repoError}</p>
-                )}
-              </div>
-            )}
+            {/* Member-level since EXP-557: retargeting uses the shared
+                registry, and connect-new operates on YOUR OWN repos. */}
+            <div className="space-y-2">
+              <Label>Repository</Label>
+              <ConnectedRepoPicker
+                teamId={team.id}
+                value={board.repositoryId}
+                disabled={busyRepo}
+                onSelectRegistry={(repo) => void applyRepo(repo.id)}
+                onConnectNew={(picked) => void handleConnect(picked)}
+              />
+              <p className="text-xs text-muted-foreground">
+                New &ldquo;Start coding&rdquo; launches use the selected repo;
+                existing worktrees keep working locally.
+              </p>
+              {repoError && (
+                <p className="text-xs text-destructive">{repoError}</p>
+              )}
+            </div>
           </DialogBody>
         )}
       </DialogContent>

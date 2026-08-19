@@ -85,9 +85,22 @@ vi.mock(`@/lib/auth/resolve-bearer`, () => ({
   resolveSessionUserId: () => resolveSessionUserId(),
 }))
 
-const assertCanManageRepos = vi.fn(async () => {})
+// EXP-557: the callback gates on plain membership (link path) and reads the
+// acting member's role for the reap's NULL-creator owner rule. Default: an
+// owner-member, overridden per test.
+const getTeamMember = vi.fn(
+  async (): Promise<{ role: string } | undefined> => ({ role: `owner` })
+)
+vi.mock(`@/lib/team-membership`, () => ({
+  getTeamMember: () => getTeamMember(),
+  assertTeamMember: async () => {
+    const member = await getTeamMember()
+    if (!member) throw new Error(`FORBIDDEN`)
+    return member
+  },
+}))
+
 vi.mock(`@/lib/trpc/integrations`, () => ({
-  assertCanManageRepos: () => assertCanManageRepos(),
   invalidateRepoCache: () => {},
   // The self-heal reap is a link DELETER, so it locks its candidate rows first
   // (EXP-371). The lock's own semantics are covered in integrations.test.ts;
@@ -177,7 +190,7 @@ describe(`github OAuth callback — control-verified claiming (EXP-363)`, () => 
     deletedTables.length = 0
     for (const key of Object.keys(selectRows)) delete selectRows[key]
     resolveSessionUserId.mockResolvedValue(`user-1`)
-    assertCanManageRepos.mockResolvedValue(undefined)
+    getTeamMember.mockResolvedValue({ role: `owner` })
     getAuthenticatedGithubLogin.mockResolvedValue(`octocat`)
     getUserOrgMembershipState.mockResolvedValue(`not-member`)
     listUserInstallations.mockResolvedValue([])
@@ -337,7 +350,7 @@ describe(`github OAuth callback — stale-link self-heal (EXP-365)`, () => {
     deletedTables.length = 0
     for (const key of Object.keys(selectRows)) delete selectRows[key]
     resolveSessionUserId.mockResolvedValue(`user-1`)
-    assertCanManageRepos.mockResolvedValue(undefined)
+    getTeamMember.mockResolvedValue({ role: `owner` })
     getAuthenticatedGithubLogin.mockResolvedValue(`octocat`)
     getUserOrgMembershipState.mockResolvedValue(`not-member`)
     listUserInstallations.mockResolvedValue([userInst(11, `octocat`)])
@@ -429,15 +442,15 @@ describe(`github OAuth callback — stale-link self-heal (EXP-365)`, () => {
     expect(deletedTables).not.toContain(`github_installation_links`)
   })
 
-  it(`skips silently when the user cannot manage repos`, async () => {
+  it(`skips silently when the acting user is no longer a member`, async () => {
     // Two controlled installations reach the ticket hand-off, which does not
-    // gate on manage-repos — isolating the self-heal's own permission guard.
+    // gate on membership — isolating the self-heal's own permission guard.
     listUserInstallations.mockResolvedValue([
       userInst(11, `octocat`),
       orgInst(21, `acme`),
     ])
     getUserOrgMembershipState.mockResolvedValue(`active`)
-    assertCanManageRepos.mockRejectedValue(new Error(`FORBIDDEN`))
+    getTeamMember.mockResolvedValue(undefined)
     selectRows[`github_installation_links`] = [staleLink()]
 
     const res = await handleCallback(callbackRequest(oauthState()))
@@ -446,6 +459,40 @@ describe(`github OAuth callback — stale-link self-heal (EXP-365)`, () => {
       `/integrations/github/claim?ticket=`
     )
     expect(deletedTables).not.toContain(`github_installation_links`)
+  })
+
+  // EXP-557 (the EXP-556 prod bug): legacy links predate created_by_user_id,
+  // so the own-residue filter could never match them and the stale warning
+  // was permanent. An OWNER's re-auth now reaps NULL-creator links too; a
+  // plain member's never does.
+  it(`reaps a NULL-creator legacy link when the acting user is a team owner`, async () => {
+    selectRows[`github_installation_links`] = [
+      staleLink({ createdByUserId: null }),
+    ]
+
+    await handleCallback(callbackRequest(oauthState()))
+
+    expect(deletedTables).toContain(`github_installation_links`)
+  })
+
+  it(`never reaps a NULL-creator link for a plain member`, async () => {
+    getTeamMember.mockResolvedValue({ role: `member` })
+    selectRows[`github_installation_links`] = [
+      staleLink({ createdByUserId: null }),
+    ]
+
+    await handleCallback(callbackRequest(oauthState()))
+
+    expect(deletedTables).not.toContain(`github_installation_links`)
+  })
+
+  it(`a plain member still reaps their OWN residue`, async () => {
+    getTeamMember.mockResolvedValue({ role: `member` })
+    selectRows[`github_installation_links`] = [staleLink()]
+
+    await handleCallback(callbackRequest(oauthState()))
+
+    expect(deletedTables).toContain(`github_installation_links`)
   })
 })
 
@@ -459,7 +506,7 @@ describe(`github OAuth callback — empty-capture retry (EXP-365)`, () => {
     deletedTables.length = 0
     for (const key of Object.keys(selectRows)) delete selectRows[key]
     resolveSessionUserId.mockResolvedValue(`user-1`)
-    assertCanManageRepos.mockResolvedValue(undefined)
+    getTeamMember.mockResolvedValue({ role: `owner` })
     getAuthenticatedGithubLogin.mockResolvedValue(`octocat`)
     getUserOrgMembershipState.mockResolvedValue(`not-member`)
     listUserInstallations.mockResolvedValue([userInst(11, `octocat`)])
@@ -521,7 +568,7 @@ describe(`github OAuth callback — cookie-less mobile flows (EXP-365)`, () => {
     deletedTables.length = 0
     for (const key of Object.keys(selectRows)) delete selectRows[key]
     resolveSessionUserId.mockResolvedValue(null)
-    assertCanManageRepos.mockResolvedValue(undefined)
+    getTeamMember.mockResolvedValue({ role: `owner` })
     getAuthenticatedGithubLogin.mockResolvedValue(`octocat`)
     getUserOrgMembershipState.mockResolvedValue(`not-member`)
     listUserInstallations.mockResolvedValue([userInst(11, `octocat`)])

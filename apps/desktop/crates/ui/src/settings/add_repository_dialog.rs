@@ -162,7 +162,7 @@ impl AddRepositoryDialogView {
         let repos_empty = result.repos.is_empty();
         let stale = !result.installed
             || repos_empty
-            || result.installations.iter().any(|inst| inst.needs_reauth);
+            || result.installations.iter().any(|inst| inst.needs_reconnect());
         if stale {
             self.fetch(true, repos_empty, cx);
         }
@@ -492,15 +492,17 @@ impl Render for AddRepositoryDialogView {
             Load::Ready(result) if result.repos.is_empty() => {
                 // Installed but zero repos — three DISTINCT states (EXP-365):
                 // a suspended installation needs an UNSUSPEND on GitHub (a
-                // reconnect cannot fix it — never nudge the wrong fix), a
-                // stale grant snapshot needs the OAuth reconnect, and an
-                // account with no reachable repos needs neither.
+                // reconnect cannot fix it — never nudge the wrong fix), an
+                // uncaptured grant snapshot needs the OAuth reconnect
+                // (EXP-557: STALE links are excluded — no reconnect can
+                // refresh those; the Repositories pane offers Disconnect),
+                // and an account with no reachable repos needs neither.
                 if result.installations.iter().any(|inst| inst.suspended) {
                     body = body.child(suspended_notice(&result.installations, cx));
                 } else if result
                     .installations
                     .iter()
-                    .any(|inst| inst.needs_reauth && !inst.suspended)
+                    .any(|inst| inst.needs_reconnect())
                 {
                     let suffix = crate::github_connect::reauth_account_suffix(
                         &result.installations,
@@ -530,7 +532,7 @@ impl Render for AddRepositoryDialogView {
                 if result
                     .installations
                     .iter()
-                    .any(|inst| inst.needs_reauth && !inst.suspended)
+                    .any(|inst| inst.needs_reconnect())
                 {
                     body = body.child(self.reconnect_banner(cx));
                 }

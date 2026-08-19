@@ -57,10 +57,29 @@ type ReposResult = {
 // default bordered card.
 
 // The connect hop must open synchronously inside a click handler or popup
-// blockers eat it — shared by the picker and the one-step trigger shortcut.
-function openConnectPopup(url: string | null | undefined) {
-  if (url) window.open(url, `gh-install`, `popup,width=980,height=820`)
+// blockers eat it — shared by the picker, the one-step trigger shortcut and
+// the Repositories settings section. EXP-557 fixes two silent dead ends:
+// window.open with a reused window NAME returns the existing popup without
+// raising it (the button looked broken while the popup sat behind the app),
+// so we keep the handle and focus() it; and a popup-blocked `null` is now
+// reported (returns false) so callers can render an inline hint instead of
+// nothing.
+let githubPopup: Window | null = null
+export function openGithubPopup(url: string | null | undefined): boolean {
+  if (!url) return false
+  if (githubPopup && !githubPopup.closed) {
+    githubPopup.focus()
+    return true
+  }
+  githubPopup = window.open(url, `gh-install`, `popup,width=980,height=820`)
+  if (!githubPopup) return false
+  githubPopup.focus()
+  return true
 }
+
+// The message callers show when openGithubPopup returns false with a URL at
+// hand — one string so every surface says the same thing.
+export const POPUP_BLOCKED_MESSAGE = `Your browser blocked the GitHub window. Allow popups for this site and try again.`
 
 // One-step connect for hosts whose compact "Connect a GitHub repository"
 // trigger expands into this picker (EXP-390): prefetches the team's connect
@@ -88,7 +107,7 @@ export function useGithubConnectShortcut(teamId: string, enabled = true) {
 
   return useCallback(() => {
     if (!data?.configured || data.installed) return
-    openConnectPopup(data.connectUrl ?? data.installUrl)
+    openGithubPopup(data.connectUrl ?? data.installUrl)
   }, [data])
 }
 
@@ -113,6 +132,7 @@ export function GithubRepoPicker({
 }) {
   const [data, setData] = useState<ReposResult | null>(null)
   const [loading, setLoading] = useState(true)
+  const [popupBlocked, setPopupBlocked] = useState(false)
 
   const refresh = useCallback(
     async (force = false) => {
@@ -146,7 +166,10 @@ export function GithubRepoPicker({
   }, [refresh])
 
   const openConnect = () => {
-    openConnectPopup(data?.connectUrl ?? data?.installUrl)
+    setPopupBlocked(
+      !openGithubPopup(data?.connectUrl ?? data?.installUrl) &&
+        Boolean(data?.connectUrl ?? data?.installUrl)
+    )
   }
 
   if (loading && !data) {
@@ -202,6 +225,9 @@ export function GithubRepoPicker({
             I’ve connected
           </Button>
         </div>
+        {popupBlocked && (
+          <p className="text-xs text-destructive">{POPUP_BLOCKED_MESSAGE}</p>
+        )}
       </div>
     )
   }
@@ -250,6 +276,10 @@ export function GithubRepoPicker({
             Reconnect GitHub
           </Button>
         </div>
+      )}
+
+      {popupBlocked && (
+        <p className="text-xs text-destructive">{POPUP_BLOCKED_MESSAGE}</p>
       )}
 
       {!empty && (

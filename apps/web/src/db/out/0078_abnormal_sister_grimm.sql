@@ -1,0 +1,2 @@
+ALTER TABLE "repositories" ADD COLUMN "shared_by_user_id" text;--> statement-breakpoint
+ALTER TABLE "repositories" ADD CONSTRAINT "repositories_shared_by_user_id_users_id_fk" FOREIGN KEY ("shared_by_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;

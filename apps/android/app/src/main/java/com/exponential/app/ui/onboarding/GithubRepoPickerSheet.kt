@@ -135,9 +135,11 @@ fun GithubRepoPickerSheet(
                 // or one whose grants were revoked — is `installed` but returns no
                 // repos until the user re-runs the OAuth connect, so an empty list
                 // gets the full reconnect prompt instead of a "No repositories"
-                // dead-end. (A stale single account always lands here.) When SOME
-                // repos are granted but another account is stale, the list stays
-                // usable and the reconnect notice rides above it as a banner.
+                // dead-end. (`needsReauth` is viewer-scoped since EXP-557 — only
+                // YOUR grant-less accounts nudge here; team-wide STALE accounts
+                // get their Disconnect affordance in settings instead.) When SOME
+                // repos are granted but another account needs reauth, the list
+                // stays usable and the reconnect notice rides above it as a banner.
                 data.repos.isEmpty() && data.installations.any { it.needsReauth && !it.suspended } -> item(key = "reconnect") {
                     ConnectPrompt(
                         data = data,

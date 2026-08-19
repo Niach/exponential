@@ -1,5 +1,4 @@
 import { createFileRoute } from "@tanstack/react-router"
-import { TRPCError } from "@trpc/server"
 import { and, eq, inArray, isNull } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
@@ -27,10 +26,10 @@ import {
   mintGithubSetupState,
 } from "@/lib/integrations/github-setup-state"
 import {
-  assertCanManageRepos,
   invalidateRepoCache,
   lockInstallationLinks,
 } from "@/lib/trpc/integrations"
+import { assertTeamMember, getTeamMember } from "@/lib/team-membership"
 
 // GitHub App OAuth callback — the PRIMARY team claim path. The user
 // arrives from a single lightweight authorize screen (no configure page, no
@@ -243,18 +242,26 @@ export async function handleCallback(request: Request): Promise<Response> {
     // Self-heal pre-EXP-363 residue (EXP-365): the broken pre-fix claim flow
     // could link a stranger's installation to a team, and such a link can
     // never leave on its own — the linking user doesn't control it, so a
-    // re-auth scrubs-only and `needsReauth` warns forever. This re-auth just
-    // proved which installations the user controls, so reap the team's links
-    // that are ALL of: created by this same user (their own residue, never a
-    // teammate's connection), not controlled and not undetermined by this
-    // enumeration, not suspended (REV2-29: links survive suspension, and a
-    // suspended installation may be missing from the enumeration without
-    // proving lost control), and load-bearing for nothing — zero team grants
-    // from ANY member and zero active repository rows (mirrors `unlink`'s
-    // guard: deleting a link kills token minting for its connected repos).
+    // re-auth scrubs-only and `needsReauth`/`stale` warns forever. This
+    // re-auth just proved which installations the user controls, so reap the
+    // team's links that are ALL of: created by this same user (their own
+    // residue, never a teammate's connection) OR carrying a NULL creator
+    // while the acting user is a team OWNER (EXP-557 — legacy rows predate
+    // the created_by column, so nobody's own-residue filter could ever match
+    // them and the EXP-556 stale warning was permanent), not controlled and
+    // not undetermined by this enumeration, not suspended (REV2-29: links
+    // survive suspension, and a suspended installation may be missing from
+    // the enumeration without proving lost control), and load-bearing for
+    // nothing — zero team grants from ANY member and zero active repository
+    // rows (mirrors `unlink`'s guard: deleting a link kills token minting for
+    // its connected repos).
     try {
-      await assertCanManageRepos(actingUserId, teamId)
-      const links = await db
+      // Ex-members (removed since launching the flow) reap nothing — the
+      // links aren't theirs to touch anymore.
+      const actingMember = await getTeamMember(actingUserId, teamId)
+      const actingIsOwner = actingMember?.role === `owner`
+      const links = actingMember
+        ? await db
         .select({
           linkId: githubInstallationLinks.id,
           createdByUserId: githubInstallationLinks.createdByUserId,
@@ -262,14 +269,19 @@ export async function handleCallback(request: Request): Promise<Response> {
           suspendedAt: githubInstallations.suspendedAt,
         })
         .from(githubInstallationLinks)
-        .innerJoin(
-          githubInstallations,
-          eq(githubInstallations.id, githubInstallationLinks.githubInstallationId)
-        )
-        .where(eq(githubInstallationLinks.teamId, teamId))
+            .innerJoin(
+              githubInstallations,
+              eq(
+                githubInstallations.id,
+                githubInstallationLinks.githubInstallationId
+              )
+            )
+            .where(eq(githubInstallationLinks.teamId, teamId))
+        : []
       const candidates = links.filter(
         (link) =>
-          link.createdByUserId === actingUserId &&
+          (link.createdByUserId === actingUserId ||
+            (link.createdByUserId == null && actingIsOwner)) &&
           !controlledIds.has(link.installationId) &&
           !undeterminedIds.has(link.installationId) &&
           link.suspendedAt == null
@@ -332,12 +344,9 @@ export async function handleCallback(request: Request): Promise<Response> {
         })
       }
     } catch (err) {
-      // Not a repo manager (demoted since linking) — leave the links alone.
-      // Anything else (a DB failure mid-heal) is unexpected; log it while
-      // staying fail-safe toward leaving links untouched.
-      if (!(err instanceof TRPCError)) {
-        console.warn(`[github-callback] self-heal aborted unexpectedly:`, err)
-      }
+      // A DB failure mid-heal is unexpected; log it while staying fail-safe
+      // toward leaving links untouched.
+      console.warn(`[github-callback] self-heal aborted unexpectedly:`, err)
     }
 
     // Token's job is done — it never leaves this scope. The grant set just
@@ -372,7 +381,9 @@ export async function handleCallback(request: Request): Promise<Response> {
     if (controlled.length === 1) {
       const rowId = rowIds.get(controlled[0].id)
       try {
-        await assertCanManageRepos(actingUserId, teamId)
+        // Any member links their own controlled installations (EXP-557) —
+        // connecting your GitHub account is how you share your repos.
+        await assertTeamMember(actingUserId, teamId)
       } catch {
         return errorRedirect(`forbidden`)
       }

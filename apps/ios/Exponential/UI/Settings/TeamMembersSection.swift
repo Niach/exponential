@@ -177,9 +177,9 @@ struct TeamMembersSection: View {
         case let .changeRole(member, role):
             let name = memberDisplayName(users.first { $0.id == member.userId }, id: member.userId)
             if role == DomainContract.teamRoleOwner {
-                return "Make \(name) an owner? Owners can delete boards, manage members and repositories, and delete the team."
+                return "Make \(name) an owner? Owners can delete boards, manage members, and delete the team."
             }
-            return "Change \(name) to member? They will no longer be able to manage members, repositories, or delete boards."
+            return "Change \(name) to member? They will no longer be able to manage members or delete boards."
         }
     }
 

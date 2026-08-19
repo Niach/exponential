@@ -765,13 +765,15 @@ impl CreateBoardDialogView {
         let github_repos_empty = github_result
             .map(|result| result.repos.is_empty())
             .unwrap_or(true);
+        // EXP-557: STALE links are excluded — no reconnect can refresh them;
+        // the Repositories settings pane offers Disconnect instead.
         let needs_reconnect = github_result
             .map(|result| {
                 result.installed
                     && result
                         .installations
                         .iter()
-                        .any(|inst| inst.needs_reauth && !inst.suspended)
+                        .any(|inst| inst.needs_reconnect())
             })
             .unwrap_or(false);
         if needs_reconnect {

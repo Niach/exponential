@@ -48,6 +48,7 @@ const installation = (overrides: Record<string, unknown> = {}) => ({
   manageUrl: `https://github.com/settings/installations/1`,
   suspended: false,
   needsReauth: false,
+  stale: false,
   ...overrides,
 })
 
@@ -87,11 +88,34 @@ class ResizeObserverStub {
   disconnect() {}
 }
 
-function renderSection() {
+function renderSection(
+  props: { currentUserId?: string; isOwner?: boolean } = {}
+) {
   globalThis.ResizeObserver ??= ResizeObserverStub as never
   Element.prototype.scrollIntoView ??= () => {}
-  return render(<TeamRepositoriesSection teamId="team-1" />)
+  return render(
+    <TeamRepositoriesSection
+      teamId="team-1"
+      currentUserId={props.currentUserId ?? `user-1`}
+      isOwner={props.isOwner ?? true}
+    />
+  )
 }
+
+const repoRow = (overrides: Record<string, unknown> = {}) => ({
+  id: `repo-1`,
+  teamId: `team-1`,
+  fullName: `siteviewer-app/app`,
+  defaultBranch: `master`,
+  githubDefaultBranch: `master`,
+  defaultBranchOverride: null,
+  private: false,
+  installationId: 1,
+  inaccessibleAt: null,
+  sharedBy: null,
+  boards: [],
+  ...overrides,
+})
 
 describe(`TeamRepositoriesSection`, () => {
   beforeEach(() => {
@@ -178,20 +202,7 @@ describe(`TeamRepositoriesSection`, () => {
   // non-default pick pins it, and picking GitHub's own default clears the pin.
   // EXP-469: it is a searchable Command popover, so opening happens on click.
   it(`the branch badge picks a default branch (default choice clears the pin)`, async () => {
-    mockState.listQuery.mockResolvedValue([
-      {
-        id: `repo-1`,
-        teamId: `team-1`,
-        fullName: `siteviewer-app/app`,
-        defaultBranch: `master`,
-        githubDefaultBranch: `master`,
-        defaultBranchOverride: null,
-        private: false,
-        installationId: 1,
-        inaccessibleAt: null,
-        boards: [],
-      },
-    ])
+    mockState.listQuery.mockResolvedValue([repoRow()])
     renderSection()
 
     const trigger = await screen.findByLabelText(
@@ -226,18 +237,10 @@ describe(`TeamRepositoriesSection`, () => {
 
   it(`picking GitHub's own default sends branch: null`, async () => {
     mockState.listQuery.mockResolvedValue([
-      {
-        id: `repo-1`,
-        teamId: `team-1`,
-        fullName: `siteviewer-app/app`,
+      repoRow({
         defaultBranch: `develop`,
-        githubDefaultBranch: `master`,
         defaultBranchOverride: `develop`,
-        private: false,
-        installationId: 1,
-        inaccessibleAt: null,
-        boards: [],
-      },
+      }),
     ])
     renderSection()
 
@@ -254,6 +257,74 @@ describe(`TeamRepositoriesSection`, () => {
       repositoryId: `repo-1`,
       branch: null,
     })
+  })
+
+  // EXP-557: a stale link (zero grants from anyone) renders a visible
+  // Disconnect button behind a confirm dialog, instead of the reconnect nag.
+  it(`a stale account offers Disconnect (confirm-first) instead of Reconnect`, async () => {
+    mockState.statusQuery.mockResolvedValue(
+      githubStatus([
+        installation(),
+        installation({
+          installationId: 2,
+          accountLogin: `exponential-play-review`,
+          needsReauth: false,
+          stale: true,
+        }),
+      ])
+    )
+    renderSection()
+
+    const disconnect = await screen.findByRole(`button`, {
+      name: `Disconnect account`,
+    })
+    expect(screen.queryByRole(`button`, { name: `Reconnect` })).toBeNull()
+
+    fireEvent.click(disconnect)
+    // Confirm-first: nothing mutates until the dialog's Disconnect.
+    expect(mockState.unlinkMutate).not.toHaveBeenCalled()
+    fireEvent.click(await screen.findByRole(`button`, { name: `Disconnect` }))
+    await waitFor(() =>
+      expect(mockState.unlinkMutate).toHaveBeenCalledTimes(1)
+    )
+    expect(mockState.unlinkMutate.mock.calls[0][0]).toMatchObject({
+      teamId: `team-1`,
+      installationId: 2,
+    })
+  })
+
+  // EXP-557 sharer-or-owner rows: a non-manager sees "Shared by X" but gets
+  // neither the remove button nor the branch picker.
+  it(`a plain member sees Shared by and no manage affordances on a teammate's repo`, async () => {
+    mockState.listQuery.mockResolvedValue([
+      repoRow({
+        sharedBy: { id: `user-2`, name: `Danny`, email: `d@example.com` },
+      }),
+    ])
+    renderSection({ currentUserId: `user-1`, isOwner: false })
+
+    await screen.findByText(/Shared by Danny/)
+    expect(screen.queryByTitle(`Remove repository`)).toBeNull()
+    expect(
+      screen.queryByLabelText(`Default branch for siteviewer-app/app`)
+    ).toBeNull()
+    // The branch still renders read-only.
+    expect(screen.getAllByText(`master`).length).toBeGreaterThan(0)
+  })
+
+  it(`the sharer keeps the manage affordances without being owner`, async () => {
+    mockState.listQuery.mockResolvedValue([
+      repoRow({
+        sharedBy: { id: `user-1`, name: `Me`, email: `me@example.com` },
+      }),
+    ])
+    renderSection({ currentUserId: `user-1`, isOwner: false })
+
+    await screen.findByText(/Shared by Me/)
+    expect(screen.getByTitle(`Remove repository`)).toBeTruthy()
+    expect(
+      screen.getByLabelText(`Default branch for siteviewer-app/app`)
+    ).toBeTruthy()
   })
 
   it(`suspension outranks reconnect and never offers it`, async () => {

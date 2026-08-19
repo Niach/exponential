@@ -51,6 +51,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.exponential.app.data.api.GithubInstallation
 import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.BoardEntity
@@ -85,7 +86,13 @@ private sealed interface SettingsConfirm {
     data class RemoveMember(val row: MemberRow, val isSelf: Boolean) : SettingsConfirm
     data class ChangeRole(val row: MemberRow, val newRole: String) : SettingsConfirm
     data class RemoveRepo(val repo: TeamRepo) : SettingsConfirm
+    // Disconnect a STALE GitHub account (EXP-557): zero grants from any
+    // member, so a reconnect can never heal it — Disconnect is the only fix.
+    data class UnlinkGithub(val installation: GithubInstallation) : SettingsConfirm
 }
+
+private fun installationLabel(inst: GithubInstallation) =
+    inst.accountLogin ?: "Installation ${inst.installationId}"
 
 private data class ConfirmCopy(
     val title: String,
@@ -134,6 +141,12 @@ private fun SettingsConfirmDialog(
             message = "This disconnects ${confirm.repo.fullName} from the team.",
             button = "Remove",
         )
+        is SettingsConfirm.UnlinkGithub -> ConfirmCopy(
+            title = "Disconnect GitHub account",
+            message = "This removes ${installationLabel(confirm.installation)} from the " +
+                "team. Nobody's GitHub connection covers it, so no repositories are lost.",
+            button = "Disconnect",
+        )
         is SettingsConfirm.ChangeRole -> {
             val name = userDisplayName(confirm.row.user, confirm.row.member.userId)
             if (confirm.newRole == DomainContract.teamRoleOwner) {
@@ -146,7 +159,7 @@ private fun SettingsConfirmDialog(
             } else {
                 ConfirmCopy(
                     title = "Change $name to member?",
-                    message = "They will no longer be able to manage members, repositories, or delete boards.",
+                    message = "They will no longer be able to manage members or delete boards.",
                     button = "Change role",
                     destructive = false,
                 )
@@ -165,6 +178,8 @@ private fun SettingsConfirmDialog(
                     is SettingsConfirm.RemoveMember -> viewModel.removeMember(confirm.row.member.id)
                     is SettingsConfirm.ChangeRole -> viewModel.updateRole(confirm.row.member.id, confirm.newRole)
                     is SettingsConfirm.RemoveRepo -> viewModel.removeRepo(confirm.repo.id)
+                    is SettingsConfirm.UnlinkGithub ->
+                        viewModel.unlinkGithub(confirm.installation.installationId)
                 }
                 onDismiss()
             }) {
@@ -371,9 +386,12 @@ private fun DangerZone(
 
 // The server-only repositories registry (masterplan v4 §3/§6): a pure registry
 // listing connected repos with the boards that use each (a repo backs one or
-// more boards). Owners can remove a repo — blocked (CONFLICT) while any
-// board still points at it. Primary-star / per-board link editing is gone
-// (a board = a repository now). Connecting NEW repos happens in-app (EXP-45):
+// more boards). Member-visible since EXP-557 (per-user sharing): the GitHub
+// state is VIEWER-scoped, any member connects/adds their own repos (connecting
+// shares them), and per-row management (remove) is sharer-or-owner — blocked
+// (CONFLICT) while any board still points at it. Primary-star / per-board link
+// editing is gone (a board = a repository now). Connecting NEW repos happens
+// in-app (EXP-45):
 // the OAuth connect / App install hop runs in a Custom Tab, exactly like the
 // repo picker — the web team settings link survives only as a fallback
 // when the GitHub grant state can't be loaded at all.
@@ -392,7 +410,12 @@ private fun RepositoriesSection(
     // no tokens and lists no repos, and a reconnect CANNOT fix it — only
     // unsuspending on GitHub can. Never nudge the wrong fix (EXP-365).
     val suspended = installations.filter { it.suspended }
-    val reauthInstalls = installations.filter { it.needsReauth && !it.suspended }
+    // STALE accounts (EXP-557): zero grants from ANY member — reconnecting can
+    // never refresh them either, so they get a visible "Disconnect account"
+    // row instead of the reconnect warning (which stays for the viewer's own
+    // needsReauth-and-not-stale accounts).
+    val staleAccounts = installations.filter { it.stale && !it.suspended }
+    val reauthInstalls = installations.filter { it.needsReauth && !it.stale && !it.suspended }
     val needsReauth = suspended.isEmpty() && reauthInstalls.isNotEmpty()
     val configured = github != null && github.configured
     val tertiary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
@@ -421,10 +444,12 @@ private fun RepositoriesSection(
                 color = tertiary,
             )
             Spacer(Modifier.weight(1f))
-            // repositories.add is owner-only server-side, and only meaningful
-            // once the server has a GitHub App — the picker itself handles the
-            // not-yet-connected case with its inline connect hop.
-            if (isOwner && configured) {
+            // Member-level since EXP-557 (repositories.add operates on the
+            // viewer's OWN GitHub connection; connecting shares the repo).
+            // Only meaningful once the server has a GitHub App — the picker
+            // itself handles the not-yet-connected case with its inline
+            // connect hop.
+            if (configured) {
                 GlassPillButton(
                     label = "Add repository",
                     icon = ExpIcons.uiAdd,
@@ -447,7 +472,10 @@ private fun RepositoriesSection(
                     repo = repo,
                     boards = state.boards,
                     allRepos = state.repos,
-                    isOwner = isOwner,
+                    // Sharer-or-owner (EXP-557): remove. Everyone else gets a
+                    // read-only row (they can still code on the shared repo).
+                    canManage = isOwner ||
+                        (state.currentUserId != null && repo.sharedBy?.id == state.currentUserId),
                     viewModel = viewModel,
                     onConfirm = onConfirm,
                 )
@@ -455,12 +483,12 @@ private fun RepositoriesSection(
         }
 
         // One GitHub status LINE (EXP-329, byte-identical to web/desktop): the
-        // connection state on the left, the single owner action on the right —
-        // the old accounts card (caption + chips + explainer + manage link) is
-        // gone. Rendered once the grant state has loaded; visible to every member
-        // when an account is linked, and always to an owner (who keeps the
-        // connect entry point).
-        if (github != null && (installations.isNotEmpty() || isOwner)) {
+        // connection state on the left, the single action on the right — the
+        // old accounts card (caption + chips + explainer + manage link) is
+        // gone. Rendered once the grant state has loaded, for EVERY member:
+        // since EXP-557 the state is viewer-scoped and any member may connect
+        // their own GitHub account.
+        if (github != null) {
             // Grant-model connect (web parity, same hop as the repo picker): the
             // single-consent OAuth connect claims the installation for this team
             // AND captures the repo grants; the server's post-connect page fires
@@ -498,29 +526,28 @@ private fun RepositoriesSection(
                     Box(Modifier.size(8.dp).background(Color(0xFF22C55E), CircleShape))
                     Spacer(Modifier.width(8.dp))
                 }
-                val label: (com.exponential.app.data.api.GithubInstallation) -> String =
-                    { it.accountLogin ?: "Installation ${it.installationId}" }
                 Text(
                     when {
                         !configured -> "GitHub isn't configured on this server."
                         suspended.isNotEmpty() ->
                             "GitHub suspended the Exponential app for " +
-                                suspended.joinToString(", ", transform = label) +
+                                suspended.joinToString(", ", transform = ::installationLabel) +
                                 ". Unsuspend it on GitHub."
                         needsReauth ->
                             "Reconnect GitHub to refresh which repositories you can access from " +
-                                reauthInstalls.joinToString(", ", transform = label) + "."
+                                reauthInstalls.joinToString(", ", transform = ::installationLabel) + "."
                         installations.isEmpty() -> "No GitHub account connected"
-                        else -> "GitHub: " + installations.joinToString(", ", transform = label)
+                        else -> "GitHub: " + installations.joinToString(", ", transform = ::installationLabel)
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                     modifier = Modifier.weight(1f),
                 )
-                // Owner-gated action — the connect hop ends in the owner-only team
-                // claim, so a member would dead-end on a forbidden page. Nothing
-                // to offer when the server has no GitHub App at all.
-                if (isOwner && configured) {
+                // Member-level action since EXP-557 — the connect hop claims
+                // the viewer's own GitHub account for the team (sharing its
+                // repos). Nothing to offer when the server has no GitHub App
+                // at all.
+                if (configured) {
                     Spacer(Modifier.width(8.dp))
                     if (suspended.isNotEmpty()) {
                         // Unsuspend happens on GitHub's installation settings
@@ -565,6 +592,32 @@ private fun RepositoriesSection(
                     }
                 }
             }
+            // One row per STALE account (EXP-557): reconnecting can never
+            // refresh it, so the only offered fix is the confirm-first
+            // disconnect (integrations.github.unlink — creator-or-owner
+            // server-side; a member who can't may see the server's message).
+            staleAccounts.forEach { inst ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .glassRow()
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                ) {
+                    Text(
+                        "No one's GitHub connection covers ${installationLabel(inst)} " +
+                            "anymore — reconnecting can't refresh it.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    GlassPillButton(
+                        label = "Disconnect account",
+                        onClick = { onConfirm(SettingsConfirm.UnlinkGithub(inst)) },
+                    )
+                }
+            }
         }
     }
 
@@ -590,7 +643,9 @@ private fun RepositoryRow(
     repo: TeamRepo,
     boards: List<BoardEntity>,
     allRepos: List<TeamRepo>,
-    isOwner: Boolean,
+    // Sharer-or-owner (EXP-557): gates the remove action. Non-managers see
+    // the row read-only.
+    canManage: Boolean,
     viewModel: TeamSettingsViewModel,
     onConfirm: (SettingsConfirm) -> Unit,
 ) {
@@ -617,7 +672,7 @@ private fun RepositoryRow(
                 Spacer(Modifier.width(6.dp))
                 Icon(ExpIcons.uiPrivate, contentDescription = "Private", modifier = Modifier.size(13.dp), tint = tertiary)
             }
-            if (isOwner) {
+            if (canManage) {
                 IconButton(onClick = { onConfirm(SettingsConfirm.RemoveRepo(repo)) }) {
                     Icon(ExpIcons.uiDelete, contentDescription = "Remove repository")
                 }
@@ -647,11 +702,12 @@ private fun RepositoryRow(
             }
             repo.boards.forEach { ref ->
                 val board = boards.firstOrNull { it.id == ref.id }
-                // Owners can retarget a board to a different connected repo
-                // (boards.setRepository) — tap the chip to pick another repo.
+                // Any member can retarget a board to a different connected repo
+                // (boards.setRepository is member-level since EXP-557 — the
+                // registry is shared) — tap the chip to pick another repo.
                 val otherRepos = allRepos.filter { it.id != repo.id }
                 var retargetMenu by remember(ref.id) { mutableStateOf(false) }
-                val chipClickable = isOwner && otherRepos.isNotEmpty()
+                val chipClickable = otherRepos.isNotEmpty()
                 Box {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -693,6 +749,17 @@ private fun RepositoryRow(
                         }
                     }
                 }
+            }
+            // Informational for everyone (EXP-557): who shared this repo with
+            // the team. Web parity: "· Shared by <name or email>" riding the
+            // used-by line.
+            repo.sharedBy?.let { sharer ->
+                Text(
+                    "· Shared by ${sharer.name?.takeIf { it.isNotBlank() } ?: sharer.email ?: "a teammate"}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = tertiary,
+                    modifier = Modifier.padding(vertical = 4.dp),
+                )
             }
         }
     }

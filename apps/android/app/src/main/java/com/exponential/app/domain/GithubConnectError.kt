@@ -16,6 +16,6 @@ fun githubConnectErrorMessage(code: String): String = when (code) {
         "The authorized GitHub account only has collaborator access to existing installations. Install the App on your own account or organization."
     "orgperm" ->
         "Your organization hasn't approved the App's members-read permission yet. An org admin must accept it on GitHub, then reconnect."
-    "forbidden" -> "Only team owners can connect GitHub accounts to a team."
+    "forbidden" -> "Only team members can connect GitHub accounts to a team."
     else -> "Something went wrong while connecting GitHub. Please try again."
 }

@@ -22,6 +22,13 @@
 //! A browser hand-off finishes OUTSIDE the app, so window activation is the
 //! refetch trigger: coming back re-reads the connect state without flashing
 //! the skeleton over a list that is already up.
+//!
+//! EXP-557 per-user sharing: the pane is MEMBER-visible — the status line and
+//! the add dialog show the VIEWER's own GitHub connections/repos (the server
+//! scopes them), connecting a repo shares it with the team, and per-row
+//! management (remove, branch pin) is sharer-or-owner. STALE linked accounts
+//! (zero grants from anyone — no reconnect can ever refresh them) get a
+//! Disconnect affordance via `integrations.github.unlink`.
 
 use std::collections::HashMap;
 
@@ -74,8 +81,34 @@ pub(super) struct RepoRow {
     pub github_default_branch: Option<String>,
     #[serde(default)]
     pub private: bool,
+    /// The member who shared (connected) this repo with the team (EXP-557).
+    /// Drives the "Shared by" line and the sharer-or-owner row gating.
+    /// `None` on pre-sharing rows and older servers — owner-managed only.
+    #[serde(default)]
+    pub shared_by: Option<RepoSharedBy>,
     #[serde(default)]
     pub boards: Vec<RepoBoardRef>,
+}
+
+/// `repositories.list`'s `sharedBy` — the sharer's display identity.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RepoSharedBy {
+    pub id: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub email: Option<String>,
+}
+
+impl RepoSharedBy {
+    /// Name, else email (web parity: `sharedBy.name || sharedBy.email`).
+    fn label(&self) -> Option<String> {
+        self.name
+            .clone()
+            .filter(|name| !name.is_empty())
+            .or_else(|| self.email.clone().filter(|email| !email.is_empty()))
+    }
 }
 
 /// A board this repo backs (`{ id, name, slug }` from `repositories.list`).
@@ -479,6 +512,81 @@ impl RepositoriesPane {
         });
         open_alert(window, cx, spec);
     }
+
+    /// EXP-557: confirm + `integrations.github.unlink` → refetch. Offered on
+    /// STALE links only (zero grants from anyone — a reconnect can never
+    /// refresh them, so disconnecting is the one real fix). The server
+    /// enforces link-creator-or-owner and refuses (CONFLICT) while a
+    /// connected repo still rides the installation — both messages are
+    /// user-presentable and surface verbatim.
+    fn confirm_disconnect(
+        &mut self,
+        installation_id: i64,
+        label: String,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let Some(team_id) = self.loaded_team.clone() else {
+            return;
+        };
+        let view = cx.entity().downgrade();
+        // The OPENER's window — the alert closes on confirm, so a failure
+        // notification has to land back on the settings window.
+        let handle = window.window_handle();
+        let spec = AlertSpec::new(
+            "Disconnect GitHub account",
+            format!(
+                "This removes {label} from the team. Nobody\u{2019}s GitHub connection \
+                 covers it, so no repositories are lost."
+            ),
+            "Disconnect",
+        )
+        .on_ok(move |_, cx| {
+            let Some(trpc) = queries::trpc_client(cx) else {
+                return true;
+            };
+            let _ = view.update(cx, |this, cx| {
+                this.busy = true;
+                cx.notify();
+            });
+            let view = view.clone();
+            let team_id = team_id.clone();
+            let label = label.clone();
+            cx.spawn(async move |cx| {
+                let unlink_team = team_id.clone();
+                let result = cx
+                    .background_executor()
+                    .spawn(async move {
+                        crate::github_connect::github_unlink(&trpc, &unlink_team, installation_id)
+                    })
+                    .await;
+                let _ = view.update(cx, |this, cx| {
+                    this.busy = false;
+                    if result.is_ok() {
+                        this.refresh(cx);
+                    }
+                    cx.notify();
+                });
+                if let Err(error) = result {
+                    log::warn!(
+                        "[ui] integrations.github.unlink({installation_id}) failed: {error}"
+                    );
+                    let message = match &error {
+                        api::ApiError::Http { message, .. } => SharedString::from(message.clone()),
+                        other => SharedString::from(format!(
+                            "Could not disconnect {label}: {other}"
+                        )),
+                    };
+                    let _ = handle.update(cx, |_, window, cx| {
+                        window.push_notification(Notification::error(message), cx);
+                    });
+                }
+            })
+            .detach();
+            true
+        });
+        open_alert(window, cx, spec);
+    }
 }
 
 impl Render for RepositoriesPane {
@@ -532,9 +640,9 @@ impl Render for RepositoriesPane {
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
                     .child(
-                        "Connect GitHub repos so boards in this team can be coded on. Point a \
-                         board at a repo to make it the clone target for \u{201c}Start \
-                         coding\u{201d}.",
+                        "Connect your GitHub repos to share them with the team \u{2014} \
+                         everyone can code on a shared repo. Point a board at one to make \
+                         it the clone target for \u{201c}Start coding\u{201d}.",
                     ),
             );
 
@@ -549,8 +657,10 @@ impl Render for RepositoriesPane {
                 );
             }
             Load::Ready(loaded) => {
-                // GitHub connect state: live server truth, ONE line.
-                body = body.child(github_status_line(loaded.status.as_ref(), cx));
+                // GitHub connect state: live server truth — the precedence-
+                // ordered primary line plus one line per STALE linked account
+                // (EXP-557).
+                body = body.child(self.github_status_line(loaded.status.as_ref(), cx));
 
                 // EXP-368: the browser connect hand-off deep-linked back
                 // with an error.
@@ -579,9 +689,19 @@ impl Render for RepositoriesPane {
                         );
                     }
                     Ok(repos) => {
+                        // Sharer-or-owner row gating (EXP-557): everyone
+                        // else gets a read-only row — they can still code on
+                        // the shared repo.
+                        let owner = super::is_owner(cx, &team_id);
+                        let me = queries::active_account(cx).map(|account| account.user_id);
                         let mut list = v_flex().gap_2();
                         for (index, repo) in repos.iter().enumerate() {
-                            list = list.child(self.render_repo_row(index, repo, cx));
+                            let can_manage = owner
+                                || repo.shared_by.as_ref().is_some_and(|shared| {
+                                    me.as_deref() == Some(shared.id.as_str())
+                                });
+                            list =
+                                list.child(self.render_repo_row(index, repo, can_manage, cx));
                         }
                         body = body.child(list);
                     }
@@ -593,12 +713,86 @@ impl Render for RepositoriesPane {
     }
 }
 
-/// The GitHub connect state as ONE muted line (EXP-329 replaced the stack of
-/// boxed banners): the arms are precedence-ordered, and each carries at most
-/// one hand-off button. Reconnect/Manage open `connect_url` — the OAuth
+impl RepositoriesPane {
+    /// The GitHub connect state: the ONE precedence-ordered muted line
+    /// (EXP-329 replaced the stack of boxed banners), plus one line per
+    /// STALE linked account with a Disconnect affordance (EXP-557 — a
+    /// reconnect can never refresh those, so they must not feed the
+    /// reconnect nag). A method (not the old free function) because the
+    /// Disconnect button needs `cx.listener`.
+    fn github_status_line(
+        &self,
+        status: Option<&GithubStatus>,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl IntoElement {
+        let mut column = v_flex()
+            .gap_2()
+            .child(primary_status_line(status, cx));
+        if let Some(status) = status {
+            for (index, inst) in status
+                .installations
+                .iter()
+                .enumerate()
+                .filter(|(_, inst)| inst.is_stale())
+            {
+                column = column.child(self.stale_account_line(index, inst, cx));
+            }
+        }
+        column
+    }
+
+    /// One stale linked account (EXP-557): name the dead link and offer the
+    /// only real fix — disconnecting it. The server shows foreign stale
+    /// links to owners only; a member sees just their own.
+    fn stale_account_line(
+        &self,
+        index: usize,
+        inst: &crate::github_connect::GithubInstallation,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl IntoElement {
+        let installation_id = inst.installation_id;
+        let label = inst.label();
+        let label_for_click = label.clone();
+        h_flex()
+            .w_full()
+            .flex_wrap()
+            .gap_2()
+            .items_center()
+            .text_xs()
+            .text_color(cx.theme().muted_foreground)
+            .child(
+                Icon::new(registry::UI_WARNING)
+                    .xsmall()
+                    .flex_shrink_0()
+                    .text_color(theme::tokens::YELLOW.to_hsla()),
+            )
+            .child(div().flex_1().min_w_0().child(SharedString::from(format!(
+                "No one\u{2019}s GitHub connection covers {label} anymore \u{2014} \
+                 reconnecting can\u{2019}t refresh it."
+            ))))
+            .child(
+                Button::new(("gh-disconnect-stale", index))
+                    .outline()
+                    .web_xs()
+                    .label("Disconnect account")
+                    .disabled(self.busy)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.confirm_disconnect(
+                            installation_id,
+                            label_for_click.clone(),
+                            window,
+                            cx,
+                        );
+                    })),
+            )
+    }
+}
+
+/// The precedence-ordered primary connect-state line — each arm carries at
+/// most one hand-off button. Reconnect/Manage open `connect_url` — the OAuth
 /// authorize is what re-captures the per-user repo grants; the App install
 /// page does NOT.
-fn github_status_line(status: Option<&GithubStatus>, cx: &gpui::App) -> impl IntoElement {
+fn primary_status_line(status: Option<&GithubStatus>, cx: &gpui::App) -> impl IntoElement {
     let row = h_flex()
         .w_full()
         .flex_wrap()
@@ -677,11 +871,13 @@ fn github_status_line(status: Option<&GithubStatus>, cx: &gpui::App) -> impl Int
 
     // A linked installation whose per-user repo grants were never captured
     // lists no repos until the user re-runs the OAuth connect. Name the
-    // stale accounts so the fix is actionable with several linked (EXP-365).
+    // accounts so the fix is actionable with several linked (EXP-365).
+    // STALE accounts are excluded (EXP-557): a reconnect can't refresh them,
+    // so they get their own Disconnect line instead of this nag.
     if status
         .installations
         .iter()
-        .any(|inst| inst.needs_reauth && !inst.suspended)
+        .any(|inst| inst.needs_reconnect())
     {
         let suffix =
             crate::github_connect::reauth_account_suffix(&status.installations, "from");
@@ -731,11 +927,14 @@ impl RepositoriesPane {
     /// line — one chip per board the repo backs (v4 one-repo-per-board; names
     /// resolved server-side). The server refuses a remove while any board
     /// still points here (FK restrict), so a linked repo's button says so up
-    /// front instead of firing a doomed mutation.
+    /// front instead of firing a doomed mutation. `can_manage` is the
+    /// sharer-or-owner gate (EXP-557): without it the row is read-only — a
+    /// static branch chip, no remove.
     fn render_repo_row(
         &self,
         index: usize,
         repo: &RepoRow,
+        can_manage: bool,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let mut head = h_flex()
@@ -758,31 +957,37 @@ impl RepositoriesPane {
                     .overflow_hidden()
                     .text_ellipsis()
                     .child(SharedString::from(repo.full_name.clone())),
-            )
-            .child(self.branch_picker(index, repo, cx));
+            );
+        head = if can_manage {
+            head.child(self.branch_picker(index, repo, cx))
+        } else {
+            head.child(chip(SharedString::from(repo.default_branch.clone()), cx))
+        };
         if repo.private {
             head = head.child(private_chip(cx));
         }
 
-        let remove = Button::new(("repo-remove", index)).ghost().web_icon_xs().icon(
-            Icon::new(registry::UI_DELETE)
-                .xsmall()
-                .text_color(cx.theme().muted_foreground),
-        );
-        let linked = repo.boards.len();
-        head = head.child(if linked > 0 {
-            let plural = if linked == 1 { "" } else { "s" };
-            remove.disabled(true).tooltip(SharedString::from(format!(
-                "In use by {linked} board{plural}. Change their repository first."
-            )))
-        } else {
-            let repo_for_remove = repo.clone();
-            remove
-                .disabled(self.busy)
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.confirm_remove(&repo_for_remove, window, cx);
-                }))
-        });
+        if can_manage {
+            let remove = Button::new(("repo-remove", index)).ghost().web_icon_xs().icon(
+                Icon::new(registry::UI_DELETE)
+                    .xsmall()
+                    .text_color(cx.theme().muted_foreground),
+            );
+            let linked = repo.boards.len();
+            head = head.child(if linked > 0 {
+                let plural = if linked == 1 { "" } else { "s" };
+                remove.disabled(true).tooltip(SharedString::from(format!(
+                    "In use by {linked} board{plural}. Change their repository first."
+                )))
+            } else {
+                let repo_for_remove = repo.clone();
+                remove
+                    .disabled(self.busy)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.confirm_remove(&repo_for_remove, window, cx);
+                    }))
+            });
+        }
 
         let mut links = h_flex().flex_wrap().gap_1p5().pl_6().items_center();
         if repo.boards.is_empty() {
@@ -815,6 +1020,15 @@ impl RepositoriesPane {
                         .child(SharedString::from(board.name.clone())),
                 );
             }
+        }
+        // EXP-557: name the sharer so read-only rows explain themselves.
+        if let Some(sharer) = repo.shared_by.as_ref().and_then(RepoSharedBy::label) {
+            links = links.child(
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(SharedString::from(format!("\u{b7} Shared by {sharer}"))),
+            );
         }
 
         v_flex()

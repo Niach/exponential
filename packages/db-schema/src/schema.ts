@@ -1281,6 +1281,13 @@ export const repositories = pgTable(
     // verified token mint failed). NULL = accessible as far as we know. Cleared
     // by connect, a webhook re-grant, and the list heal pass.
     inaccessibleAt: timestamp(`inaccessible_at`, { withTimezone: true }),
+    // EXP-557 per-user sharing: the member whose GitHub connection put this
+    // repo into the team. The sharer and team owners manage the row (remove,
+    // branch pin); everyone can code on it. SET NULL (account deletion) and
+    // pre-EXP-557 rows stay NULL = managed by owners only.
+    sharedByUserId: text(`shared_by_user_id`).references(() => users.id, {
+      onDelete: `set null`,
+    }),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     archivedAt: timestamp(`archived_at`, { withTimezone: true }),
     ...timestamps,

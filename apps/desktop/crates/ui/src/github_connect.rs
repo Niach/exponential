@@ -38,7 +38,10 @@
 //! never captured (pre-grant link) — its repos stay hidden until the user
 //! re-runs the OAuth connect. Reconnect/refresh CTAs must open `connect_url`
 //! (the OAuth authorize re-captures grants); the App **install** page does
-//! NOT.
+//! NOT. `installations[].stale` (EXP-557) flags a linked account with zero
+//! grants from ANYONE — no reconnect can refresh it; the fix is severing the
+//! link ([`github_unlink`]), so stale accounts get a Disconnect affordance,
+//! never the reconnect nag.
 
 use gpui::{App, Global};
 use serde::{Deserialize, Serialize};
@@ -72,6 +75,13 @@ pub(crate) struct GithubInstallation {
     pub needs_reauth: bool,
     #[serde(default)]
     pub suspended: bool,
+    /// EXP-557: a linked account with ZERO repo grants from anyone — a
+    /// reconnect can never refresh it; the only fix is disconnecting the
+    /// link ([`github_unlink`]). The server includes foreign stale links
+    /// only for team owners; members can still see their OWN link flagged.
+    /// Absent on older servers (defaults false).
+    #[serde(default)]
+    pub stale: bool,
     /// Only present on the `repos` endpoint's installations (whether that
     /// installation's repo listing was truncated).
     #[serde(default)]
@@ -85,18 +95,34 @@ impl GithubInstallation {
             .clone()
             .unwrap_or_else(|| format!("installation {}", self.installation_id))
     }
+
+    /// The reconnect-nag arm: an OAuth reconnect can actually refresh this
+    /// account's grants. Suspended installs need an unsuspend instead
+    /// (REV2-29), and stale ones (EXP-557) can never be refreshed — both are
+    /// reported separately, never as a reconnect.
+    pub(crate) fn needs_reconnect(&self) -> bool {
+        self.needs_reauth && !self.suspended && !self.stale
+    }
+
+    /// EXP-557: report as stale (Disconnect affordance). Suspension outranks
+    /// it — unsuspend first, then judge staleness.
+    pub(crate) fn is_stale(&self) -> bool {
+        self.stale && !self.suspended
+    }
 }
 
-/// " from a, b" naming the stale (needs-reauth, non-suspended) accounts —
-/// names make the reconnect actionable when several accounts are linked
-/// (EXP-365). Empty when none are known.
+/// " from a, b" naming the reconnectable (needs-reauth, non-suspended,
+/// non-stale) accounts — names make the reconnect actionable when several
+/// accounts are linked (EXP-365). Empty when none are known. Stale accounts
+/// (EXP-557) are excluded: they get a Disconnect affordance, never the
+/// reconnect nag.
 pub(crate) fn reauth_account_suffix(
     installations: &[GithubInstallation],
     preposition: &str,
 ) -> String {
     let names: Vec<String> = installations
         .iter()
-        .filter(|inst| inst.needs_reauth && !inst.suspended)
+        .filter(|inst| inst.needs_reconnect())
         .filter_map(|inst| inst.account_login.clone())
         .collect();
     if names.is_empty() {
@@ -221,6 +247,38 @@ pub(crate) fn fetch_github_repos(
     )
 }
 
+/// `integrations.github.unlink` — mutation (EXP-557): sever ONE linked
+/// installation from the team. Server-gated link-creator-or-owner, and
+/// refused (CONFLICT) while a connected repo still rides the installation —
+/// that message is user-presentable verbatim. The Repositories pane offers
+/// it on STALE links only ([`GithubInstallation::is_stale`]).
+pub(crate) fn github_unlink(
+    trpc: &api::TrpcClient,
+    team_id: &str,
+    installation_id: i64,
+) -> Result<(), api::ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        team_id: &'a str,
+        installation_id: i64,
+    }
+    // `{ ok: true }` on success — nothing the caller consumes.
+    #[derive(Deserialize)]
+    struct Output {
+        #[allow(dead_code)]
+        ok: bool,
+    }
+    let _: Output = trpc.mutation(
+        "integrations.github.unlink",
+        &Input {
+            team_id,
+            installation_id,
+        },
+    )?;
+    Ok(())
+}
+
 /// Outcome of the browser GitHub-connect hand-off, delivered by the
 /// `exponential://github-connected[?error=<code>]` deep link (EXP-365 wire
 /// contract, consumed on desktop since EXP-368).
@@ -303,7 +361,9 @@ pub(crate) fn connect_error_message(code: &str) -> &'static str {
         "orgperm" => {
             "Your organization hasn't approved the App's members-read permission yet. An org admin must accept it on GitHub, then reconnect."
         }
-        "forbidden" => "Only team owners can connect GitHub accounts to a team.",
+        // EXP-557 per-user sharing: connecting is member-level now — the slug
+        // means "not a team member" (web claim-page wording).
+        "forbidden" => "Only team members can connect GitHub accounts to a team.",
         _ => "Something went wrong while connecting GitHub. Please try again.",
     }
 }
@@ -353,6 +413,66 @@ mod tests {
         ] {
             assert_eq!(parse_github_connected_deep_link(url), None, "{url}");
         }
+    }
+
+    fn installation(
+        login: &str,
+        needs_reauth: bool,
+        suspended: bool,
+        stale: bool,
+    ) -> GithubInstallation {
+        GithubInstallation {
+            installation_id: 1,
+            account_login: Some(login.to_string()),
+            account_type: None,
+            manage_url: String::new(),
+            needs_reauth,
+            suspended,
+            stale,
+            has_more: None,
+        }
+    }
+
+    /// EXP-557: `stale` is additive — an older server's installation row
+    /// (no `stale` key) must deserialize with it false.
+    #[test]
+    fn stale_defaults_false_on_old_servers() {
+        let inst: GithubInstallation =
+            serde_json::from_str(r#"{"installationId":7,"accountLogin":"acme"}"#).unwrap();
+        assert!(!inst.stale);
+        assert!(!inst.is_stale());
+    }
+
+    /// A stale account is reported separately from the needs-reauth ones: it
+    /// gets the Disconnect affordance, never the reconnect nag — and
+    /// suspension outranks both (REV2-29).
+    #[test]
+    fn stale_and_reconnect_derivations_are_disjoint() {
+        let reconnect = installation("a", true, false, false);
+        assert!(reconnect.needs_reconnect());
+        assert!(!reconnect.is_stale());
+
+        // Stale wins over needs_reauth — reconnecting can't fix it.
+        let stale = installation("b", true, false, true);
+        assert!(!stale.needs_reconnect());
+        assert!(stale.is_stale());
+
+        let suspended_stale = installation("c", true, true, true);
+        assert!(!suspended_stale.needs_reconnect());
+        assert!(!suspended_stale.is_stale());
+    }
+
+    #[test]
+    fn reauth_suffix_skips_stale_and_suspended_accounts() {
+        let installations = vec![
+            installation("fresh", true, false, false),
+            installation("gone-stale", true, false, true),
+            installation("suspended", true, true, false),
+        ];
+        assert_eq!(reauth_account_suffix(&installations, "from"), " from fresh");
+
+        let all_stale = vec![installation("gone-stale", true, false, true)];
+        assert_eq!(reauth_account_suffix(&all_stale, "from"), "");
     }
 
     #[test]

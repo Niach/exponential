@@ -51,9 +51,11 @@ vi.mock(`@/lib/auth/resolve-bearer`, () => ({
   resolveSessionUserId: () => resolveSessionUserId(),
 }))
 
-const assertCanManageRepos = vi.fn(async () => {})
+const assertTeamMember = vi.fn(async () => ({ role: `member` }))
+vi.mock(`@/lib/team-membership`, () => ({
+  assertTeamMember: () => assertTeamMember(),
+}))
 vi.mock(`@/lib/trpc/integrations`, () => ({
-  assertCanManageRepos: () => assertCanManageRepos(),
   invalidateRepoCache: () => {},
   invalidateRepoCacheForInstallation: async () => {},
 }))
