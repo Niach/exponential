@@ -59,7 +59,7 @@ pub fn run(args: &[String]) -> CommandResult {
     )?;
     println!("Running action: {}", request.action_name);
 
-    let deps = launch::coding_deps(&ctx, HashMap::new());
+    let deps = launch::coding_deps(&ctx, HashMap::new(), launch::LaunchHost::Foreground);
     let sidecars = Sidecars::start();
     let runtime = steer::SteerRuntime::new().ok();
     let personal_key = context::ensure_personal_key(&ctx).ok();

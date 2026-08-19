@@ -45,7 +45,7 @@ pub fn run(args: &[String]) -> CommandResult {
     let request = launch::issue_launch_request(&issue, options, coding::LaunchOrigin::Local, false);
     let mut seeds = HashMap::new();
     seeds.insert(issue.id.clone(), launch::issue_seed(&issue));
-    let deps = launch::coding_deps(&ctx, seeds);
+    let deps = launch::coding_deps(&ctx, seeds, launch::LaunchHost::Foreground);
 
     let sidecars = Sidecars::start();
     let runtime = steer::SteerRuntime::new().ok();

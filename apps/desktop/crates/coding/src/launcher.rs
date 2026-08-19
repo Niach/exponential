@@ -1224,6 +1224,8 @@ pub fn prepare_with_hooks(
                 device_label: Some(issue_req.device_label.clone()),
                 started_by_id: attribution.started_by_id.map(str::to_string),
                 device_id: attribution.device_id.map(str::to_string),
+                // Only action runs automate (EXP-530).
+                started_reason: None,
             }
         }
         PrepareRequest::Batch(batch_req) => {
@@ -1236,6 +1238,8 @@ pub fn prepare_with_hooks(
                 device_label: Some(batch_req.device_label.clone()),
                 started_by_id: attribution.started_by_id.map(str::to_string),
                 device_id: attribution.device_id.map(str::to_string),
+                // Only action runs automate (EXP-530).
+                started_reason: None,
             }
         }
         PrepareRequest::Action(_) => unreachable!("dispatched above"),
@@ -1619,6 +1623,14 @@ fn prepare_action(
                 .started_by_id
                 .map(str::to_string),
             device_id: attribution(&req.origin, deps).device_id.map(str::to_string),
+            // EXP-530: the SAME reason the start stamped, echoed on every
+            // ping so a swept row resurrects still badged Automated (both
+            // hosts arrive here — the GUI automation host and the CLI
+            // daemon's worker both set `req.trigger`).
+            started_reason: req
+                .trigger
+                .as_ref()
+                .map(|note| note.started_reason().to_string()),
         },
         tab_kind: TabKind::Action(req.action_id.clone()),
         bypass_permissions: options.skip_permissions && !options.plan_mode,
@@ -2351,6 +2363,13 @@ mod tests {
         assert!(prompt.contains("## Trigger"));
         assert!(prompt.contains("started automatically by the action's schedule \
 (daily at 07:00, device time)"));
+
+        // The heartbeat carries it too — a row the staleness sweep reaped
+        // must resurrect still badged Automated, not hand-started.
+        assert_eq!(
+            prepared.heartbeat_scope.started_reason.as_deref(),
+            Some("schedule")
+        );
 
         let requests = captured.lock().unwrap();
         assert_eq!(requests.len(), 1, "{requests:?}");

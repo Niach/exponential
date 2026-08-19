@@ -919,7 +919,7 @@ fn remote_issue_start(
         launch::issue_launch_request(&issue, options, origin, start_resume);
     let mut seeds = HashMap::new();
     seeds.insert(issue.id.clone(), launch::issue_seed(&issue));
-    let deps = launch::coding_deps(ctx, seeds);
+    let deps = launch::coding_deps(ctx, seeds, launch::LaunchHost::Daemon);
     let prepared = coding::prepare_with_hooks(
         &PrepareRequest::Issue(request),
         &deps,
@@ -1004,7 +1004,7 @@ fn remote_batch_start(
         origin,
         options,
     };
-    let deps = launch::coding_deps(ctx, seeds);
+    let deps = launch::coding_deps(ctx, seeds, launch::LaunchHost::Daemon);
     let prepared = coding::prepare_with_hooks(
         &PrepareRequest::Batch(request),
         &deps,
@@ -1084,7 +1084,7 @@ fn remote_action_start(
         }
     }
 
-    let deps = launch::coding_deps(ctx, HashMap::new());
+    let deps = launch::coding_deps(ctx, HashMap::new(), launch::LaunchHost::Daemon);
     let prepared = coding::prepare_with_hooks(
         &PrepareRequest::Action(request),
         &deps,
@@ -1786,7 +1786,7 @@ impl AutomationHost {
             coding::LaunchOrigin::Local,
             Some(note),
         )?;
-        let deps = launch::coding_deps(&self.ctx, HashMap::new());
+        let deps = launch::coding_deps(&self.ctx, HashMap::new(), launch::LaunchHost::Daemon);
         let prepared = coding::prepare_with_hooks(
             &PrepareRequest::Action(request),
             &deps,

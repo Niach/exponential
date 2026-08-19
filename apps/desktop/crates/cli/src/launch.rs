@@ -68,9 +68,34 @@ pub fn agent_options(
     Ok(options)
 }
 
+/// Who hosts a launch — the ONE thing that decides whether the session row
+/// may carry this machine's `device_id` (EXP-550).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LaunchHost {
+    /// `exponential daemon`: it heartbeats the `devices` row, so a session
+    /// stamped with this device resolves ONLINE on every client.
+    Daemon,
+    /// A foreground `exponential code` / `run`: nothing keeps the `devices`
+    /// row fresh. Stamping the id there makes a perfectly live session read
+    /// as "Paused, device offline" the moment a past daemon's row goes
+    /// stale, so these runs send NO device id — the server falls back to the
+    /// hostname label (`resolveSessionDevice` → `online: null`, never
+    /// paused).
+    Foreground,
+}
+
+impl LaunchHost {
+    fn device_id(self, ctx: &Ctx) -> Option<String> {
+        match self {
+            LaunchHost::Daemon => Some(ctx.device_id()),
+            LaunchHost::Foreground => None,
+        }
+    }
+}
+
 /// The injected launcher collaborators, seeded with the issues the caller
 /// already fetched (the seed fn runs off-thread inside `prepare`).
-pub fn coding_deps(ctx: &Ctx, seeds: HashMap<String, IssueSeed>) -> CodingDeps {
+pub fn coding_deps(ctx: &Ctx, seeds: HashMap<String, IssueSeed>, host: LaunchHost) -> CodingDeps {
     CodingDeps {
         trpc: Arc::clone(&ctx.trpc),
         token_store: Arc::clone(&ctx.token_store),
@@ -79,7 +104,10 @@ pub fn coding_deps(ctx: &Ctx, seeds: HashMap<String, IssueSeed>) -> CodingDeps {
         issue_seed: Arc::new(move |issue_id: &str| seeds.get(issue_id).cloned()),
         worktrees: Arc::new(GitWorktrees),
         codex_sessions_root: None,
-        device_id: Some(ctx.device_id()),
+        // A relay-origin start still stamps the frame's own deviceId
+        // (`attribution` prefers it) — this is only the fallback for starts
+        // that name no device.
+        device_id: host.device_id(ctx),
         data_dir: ctx.data_dir.clone(),
     }
 }
@@ -303,4 +331,60 @@ pub fn resolve_action_request(
         origin,
         options,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct TempDir(std::path::PathBuf);
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn temp_ctx(name: &str) -> (TempDir, Ctx) {
+        let dir = std::env::temp_dir().join(format!("exp-cli-{name}-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let auth = api::accounts::AuthStore::load(dir.clone());
+        let account = api::accounts::Account {
+            id: "acct-1".to_string(),
+            instance_url: "https://example.test".to_string(),
+            user_id: "user-1".to_string(),
+            email: "dev@example.test".to_string(),
+            name: None,
+            is_admin: false,
+            onboarding_completed_at: None,
+            getting_started_dismissed_at: None,
+        };
+        let trpc = Arc::new(api::trpc::TrpcClient::new(
+            &account.instance_url,
+            auth.token_provider(&account.id),
+        ));
+        let ctx = Ctx {
+            data_dir: dir.clone(),
+            auth,
+            account,
+            trpc,
+            token_store: Arc::new(api::token_store::TokenStore::new(dir.clone())),
+            settings: coding::Settings::default(),
+        };
+        (TempDir(dir), ctx)
+    }
+
+    /// EXP-550: only the daemon heartbeats the `devices` row, so only a
+    /// daemon-hosted run may stamp its session with this machine's device id.
+    /// A foreground `code`/`run` that stamped it would render as "Paused,
+    /// device offline" everywhere the moment a past daemon's row went stale.
+    #[test]
+    fn only_a_daemon_hosted_launch_stamps_the_device_id() {
+        let (_dir, ctx) = temp_ctx("launch-host");
+
+        let hosted = coding_deps(&ctx, HashMap::new(), LaunchHost::Daemon);
+        assert_eq!(hosted.device_id.as_deref(), Some(ctx.device_id().as_str()));
+
+        let foreground = coding_deps(&ctx, HashMap::new(), LaunchHost::Foreground);
+        assert_eq!(foreground.device_id, None);
+    }
 }

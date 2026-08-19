@@ -148,6 +148,11 @@ pub struct HeartbeatScope {
     /// `None` for local/own-device sessions.
     pub started_by_id: Option<String>,
     pub device_id: Option<String>,
+    /// EXP-530: the automation reason (`schedule`/`event`) echoed so a swept
+    /// row resurrects with its "Automated" badge instead of looking
+    /// hand-started. `None` for every user-started run (and for issue/batch
+    /// scopes, which never automate).
+    pub started_reason: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -168,6 +173,8 @@ struct HeartbeatInput<'a> {
     started_by_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     device_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    started_reason: Option<&'a str>,
 }
 
 #[derive(Deserialize)]
@@ -357,6 +364,7 @@ pub fn heartbeat(
             device_label: scope.and_then(|scope| scope.device_label.as_deref()),
             started_by_id: scope.and_then(|scope| scope.started_by_id.as_deref()),
             device_id: scope.and_then(|scope| scope.device_id.as_deref()),
+            started_reason: scope.and_then(|scope| scope.started_reason.as_deref()),
         },
     )?;
     Ok(envelope.alive)
@@ -478,6 +486,7 @@ mod tests {
             device_label: None,
             started_by_id: Some("user-2".to_string()),
             device_id: Some("dev-1".to_string()),
+            started_reason: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -522,6 +531,7 @@ mod tests {
             device_label: Some("testbox".to_string()),
             started_by_id: None,
             device_id: None,
+            started_reason: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -540,6 +550,7 @@ mod tests {
             device_label: None,
             started_by_id: None,
             device_id: None,
+            started_reason: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -643,11 +654,36 @@ mod tests {
             device_label: None,
             started_by_id: None,
             device_id: None,
+            started_reason: None,
         };
         assert!(heartbeat(&client(&base), "sess-a", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(
             r#"{"id":"sess-a","teamId":"ws-1","actionId":"act-1","actionName":"Code review"}"#
+        ));
+    }
+
+    #[test]
+    fn heartbeat_posts_the_automation_reason() {
+        // EXP-530: an automated run echoes its reason on every ping, so a
+        // row the staleness sweep reaped resurrects with its "Automated"
+        // badge instead of looking hand-started. User runs omit the field
+        // entirely (the scope tests above lock that wire).
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"alive":true}}}"#);
+        let scope = HeartbeatScope {
+            issue_id: None,
+            team_id: Some("ws-1".to_string()),
+            action_id: Some("act-1".to_string()),
+            action_name: Some("Code review".to_string()),
+            device_label: None,
+            started_by_id: None,
+            device_id: None,
+            started_reason: Some("schedule".to_string()),
+        };
+        assert!(heartbeat(&client(&base), "sess-a", Some(&scope)).unwrap());
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(
+            r#"{"id":"sess-a","teamId":"ws-1","actionId":"act-1","actionName":"Code review","startedReason":"schedule"}"#
         ));
     }
 

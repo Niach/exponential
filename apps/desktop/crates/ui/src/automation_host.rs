@@ -296,7 +296,7 @@ fn snapshot_for(account_id: &str, cx: &mut App) -> Option<EvalSnapshot> {
     let sessions = LocalSessions::global(cx);
     let hub = CodingHub::global(cx);
 
-    let options = LaunchOptions::defaults(&hub.read(cx).settings);
+    let options = automated_options(&hub.read(cx).settings);
     let live_action_ids = sessions.read(cx).live_action_ids();
     let actions = triggered_actions(collections.actions.read(cx).iter(), &device_id);
     if actions.is_empty() {
@@ -381,6 +381,17 @@ fn snapshot_for(account_id: &str, cx: &mut App) -> Option<EvalSnapshot> {
         now_local,
         options,
     })
+}
+
+/// This device's launch defaults for an AUTOMATED run: the saved default
+/// agent with its model/effort/permission toggles, plan mode forced OFF.
+/// The CLI daemon's rule (`launch::agent_options` with `interactive =
+/// false`, F7): an unattended run must never park at the plan-approval card
+/// waiting for a human who is not watching.
+fn automated_options(settings: &coding::Settings) -> LaunchOptions {
+    let mut options = LaunchOptions::defaults(settings);
+    options.plan_mode = false;
+    options
 }
 
 /// The synced `actions` rows this device evaluates: a parseable trigger bound
@@ -740,6 +751,29 @@ mod tests {
                 title: "Ship it".to_string(),
             },
         )])
+    }
+
+    /// An automated run never launches into plan mode, whatever the device's
+    /// saved default is — the shipped default IS plan mode for claude and pi,
+    /// so an unattended run would park at the plan-approval card forever.
+    #[test]
+    fn automated_options_force_plan_mode_off() {
+        let settings = coding::Settings::default();
+        assert!(
+            settings.plan_mode_for(settings.default_agent),
+            "the shipped default parks claude/pi in plan mode"
+        );
+        let options = automated_options(&settings);
+        assert!(!options.plan_mode);
+
+        // Everything else still follows the device's own defaults — an
+        // automation is this machine's run, exactly like a dialog start.
+        let dialog = LaunchOptions::defaults(&settings);
+        assert_eq!(options.agent, dialog.agent);
+        assert_eq!(options.model, dialog.model);
+        assert_eq!(options.effort, dialog.effort);
+        assert_eq!(options.ultracode, dialog.ultracode);
+        assert_eq!(options.skip_permissions, dialog.skip_permissions);
     }
 
     /// Only THIS device's parseable, team-bound triggers are evaluated —
