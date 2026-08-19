@@ -1636,7 +1636,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_repositories_add`,
     {
-      description: `Register a GitHub repository ("owner/name") in a team so boards can be backed by it. The repo must belong to a GitHub App installation connected to the team (team settings → Repositories). Owner/admin only.`,
+      description: `Register a GitHub repository ("owner/name") in a team so boards can be backed by it. Any member; the repo must be one YOUR GitHub connection grants (team settings → Repositories) — connecting shares it with the team.`,
       inputSchema: {
         teamId: uuidString,
         fullName: z

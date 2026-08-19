@@ -15,7 +15,6 @@ import { assertTeamMember } from "@/lib/team-membership"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { recordConversionEvent } from "@/lib/conversion/events"
 import { assertCanInviteMember } from "@/lib/billing"
-import { isUserAdmin } from "@/lib/admin"
 import { deliveryStatus, sendTeamInviteEmail } from "@/lib/email"
 import { appBaseUrl } from "@/lib/notification-email-policy"
 
@@ -45,9 +44,8 @@ async function countRecentInviteEmails(email: string): Promise<number> {
 }
 
 // Invites are member management, so mint/revoke match assertCanManageMembers
-// (team-members.ts): a team owner OR a global instance admin.
+// (team-members.ts): a team owner. Instance admins get no bypass (EXP-557).
 async function assertCanManageMembers(userId: string, teamId: string) {
-  if (await isUserAdmin(userId)) return
   await assertTeamMember(userId, teamId, [`owner`])
 }
 

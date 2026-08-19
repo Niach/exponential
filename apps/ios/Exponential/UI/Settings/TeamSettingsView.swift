@@ -47,9 +47,13 @@ struct TeamSettingsView: View {
                     // both the GitHub connect (App install / grant capture)
                     // and the grant-model "Reconnect GitHub" hop run in-app
                     // (EXP-45), web parity with repositories-section.tsx.
+                    // Member-visible since EXP-557: any member connects/adds
+                    // (sharing with the team); row removal is sharer-or-owner,
+                    // so the section needs the viewer's id.
                     TeamRepositoriesSection(
                         accountId: accountId,
                         team: team,
+                        currentUserId: deps.auth.userId,
                         isOwner: isOwner,
                         repositoriesApi: deps.repositoriesApi,
                         integrationsApi: deps.integrationsApi,
@@ -142,8 +146,9 @@ struct TeamSettingsView: View {
         }
     }
 
-    /// Repository management is owner-only (the server enforces team-owner
-    /// on the `repositories` router mutations); everyone else reads the registry.
+    /// Owner surface: boards/members management + the danger zone, and the
+    /// owner half of the repos section's sharer-or-owner row gating (EXP-557 —
+    /// connecting/adding repos is member-level now).
     private var isOwner: Bool {
         guard let me = deps.auth.userId else { return false }
         return members.contains { $0.userId == me && $0.role == DomainContract.teamRoleOwner }

@@ -15,17 +15,19 @@ export interface TeamPermissions {
   canCreate: boolean
   canMutateIssue: (issue: Pick<Issue, `creatorId`>) => boolean
   // Capability contract mirrored by the native clients. Server mapping:
-  //   canManageTeam = owner        (teams.update/delete)
-  //   canDeleteBoard   = owner        (boards.delete)
-  //   canManageMembers   = owner||admin (assertCanManageMembers)
-  //   canManageRepos     = owner||admin (assertCanManageRepos)
-  //   canManageWidgets   = owner        (widgets.create/update/delete/list)
+  //   canManageTeam    = owner (teams.update/delete)
+  //   canDeleteBoard   = owner (boards.delete)
+  //   canManageMembers = owner (assertCanManageMembers)
+  //   canManageWidgets = owner (widgets.create/update/delete/list)
+  // EXP-557: instance admins get NO team-capability bypass (admin = console
+  // access only), and repo management is no longer a role capability — every
+  // member connects/manages their OWN repos (sharer-or-owner per row), so
+  // `canManageRepos` is gone.
   // `admin` is the global/instance admin (session), not a team role —
   // team roles are only owner/member.
   canManageTeam: boolean
   canDeleteBoard: boolean
   canManageMembers: boolean
-  canManageRepos: boolean
   canManageWidgets: boolean
   plan: PlanTier | null
   billingPlan: BillingPlan | null
@@ -62,8 +64,7 @@ export function useTeamPermissions(
     const isOwner = currentMember?.role === `owner`
     const canManageTeam = isOwner
     const canDeleteBoard = isOwner
-    const canManageMembers = isOwner || isAdmin
-    const canManageRepos = isOwner || isAdmin
+    const canManageMembers = isOwner
     const canManageWidgets = isOwner
 
     // Seats replaced the old member cap (per-seat model, §3.2); a non-agent
@@ -88,7 +89,6 @@ export function useTeamPermissions(
       canManageTeam,
       canDeleteBoard,
       canManageMembers,
-      canManageRepos,
       canManageWidgets,
       plan: billingPlan?.plan ?? null,
       billingPlan,

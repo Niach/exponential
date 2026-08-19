@@ -13,10 +13,7 @@ import {
   assertTeamOwner,
 } from "@/lib/team-membership"
 import type { db } from "@/db/connection"
-import {
-  assertCanManageRepos,
-  connectRepositoryInTx,
-} from "@/lib/trpc/repositories"
+import { connectRepositoryInTx } from "@/lib/trpc/repositories"
 
 type Tx = Parameters<Parameters<(typeof db)[`transaction`]>[0]>[0]
 
@@ -129,14 +126,10 @@ export const boardsRouter = router({
         `mutate_resources`
       )
       const repositoryInput = input.repository
-      const inlineConnect =
-        repositoryInput != null && `fullName` in repositoryInput
-      if (inlineConnect) {
-        // The inline connect path needs owner/admin (repo management), beyond
-        // the member-level board create. Boards & repos are unlimited on
-        // every tier now (v5 per-seat model), so there is no plan cap here.
-        await assertCanManageRepos(ctx.session.user.id, input.teamId)
-      }
+      // The inline connect path is member-level too (EXP-557): any member may
+      // connect a repo their OWN GitHub grants cover — connectRepositoryInTx
+      // enforces the actor-scoped grant. Boards & repos are unlimited on
+      // every tier (v5 per-seat model), so there is no plan cap here.
       // Symbol/emoji-only names slugify to `` — fall back to the (alphanumeric)
       // prefix, then a generic root, mirroring teams' uniqueSlug fallback,
       // so a board can never insert the unroutable slug '' (EXP-46).
@@ -220,10 +213,12 @@ export const boardsRouter = router({
       return result
     }),
 
-  // Owner/admin: retarget a board's backing repo — or detach it entirely
-  // (repositoryId: null) from a non-dev board. Existing worktrees for
-  // old-repo issues keep working locally (they're just git); new launches use
-  // the new repo.
+  // Member (`mutate_resources`): retarget a board's backing repo — or detach
+  // it entirely (repositoryId: null) from a non-dev board. Pointing a board
+  // at an already-shared registry repo is resource wiring, consistent with
+  // boards.create's registry path (EXP-557). Existing worktrees for old-repo
+  // issues keep working locally (they're just git); new launches use the new
+  // repo.
   setRepository: authedProcedure
     .input(
       z.object({
@@ -236,9 +231,10 @@ export const boardsRouter = router({
         ctx.session.user.id,
         input.boardId
       )
-      await assertCanManageRepos(
+      await resolveTeamAccess(
         ctx.session.user.id,
-        boardRecord.teamId
+        boardRecord.teamId,
+        `mutate_resources`
       )
 
       return await ctx.db.transaction(async (tx) => {

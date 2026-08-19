@@ -56,7 +56,7 @@ const ERROR_COPY: Record<string, { title: string; body: string }> = {
   },
   forbidden: {
     title: `Not allowed`,
-    body: `Only team owners can connect GitHub accounts to this team.`,
+    body: `Only team members can connect GitHub accounts to this team.`,
   },
 }
 

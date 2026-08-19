@@ -1,9 +1,9 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, asc, eq, isNotNull, isNull } from "drizzle-orm"
+import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
 import type { db } from "@/db/connection"
 import { router, authedProcedure } from "@/lib/trpc"
-import { issues, boards, repositories } from "@/db/schema"
+import { issues, boards, repositories, users } from "@/db/schema"
 import { assertTeamMember, getIssueTeamContext } from "@/lib/team-membership"
 import {
   claimPrMerge,
@@ -27,14 +27,9 @@ import {
   type OpenPull,
 } from "@/lib/integrations/github-pr"
 import {
-  assertCanManageRepos,
   assertRepoInstallationAccess,
   isInstallationLinkedToTeam,
 } from "@/lib/trpc/integrations"
-
-// assertCanManageRepos moved to integrations.ts (both routers need it and the
-// import direction only works that way) — re-exported for existing callers.
-export { assertCanManageRepos }
 
 // The default branch-name prefix for issue worktrees: `exp/<IDENTIFIER>`.
 export const BRANCH_PREFIX_DEFAULT = `exp/`
@@ -72,6 +67,21 @@ const fullNameSchema = z
 // anonymous callers never reach these procedures at all.
 async function assertRepoCapability(userId: string, teamId: string) {
   await assertTeamMember(userId, teamId)
+}
+
+// EXP-557 per-user sharing: a connected repo is MANAGED (remove, branch pin)
+// by the member who shared it or a team owner. Pre-EXP-557 rows carry a NULL
+// sharer and fall back to owners only. Exported for tests.
+export async function assertRepoManager(
+  userId: string,
+  repo: { teamId: string; sharedByUserId: string | null }
+) {
+  const member = await assertTeamMember(userId, repo.teamId)
+  if (repo.sharedByUserId === userId || member?.role === `owner`) return
+  throw new TRPCError({
+    code: `FORBIDDEN`,
+    message: `Only the member who shared this repository or a team owner can manage it.`,
+  })
 }
 
 type Db = typeof db
@@ -131,6 +141,7 @@ export async function connectRepositoryInTx(
   const installationId = await assertRepoInstallationAccess(
     tx,
     input.teamId,
+    input.userId,
     input.fullName
   )
 
@@ -143,6 +154,9 @@ export async function connectRepositoryInTx(
       private: input.private ?? false,
       installationId,
       inaccessibleAt: null,
+      // EXP-557: the connector becomes the repo's sharer (manages it
+      // alongside owners).
+      sharedByUserId: input.userId,
     })
     .onConflictDoNothing({
       target: [repositories.teamId, repositories.fullName],
@@ -152,10 +166,18 @@ export async function connectRepositoryInTx(
 
   // Already registered — un-archive, refresh the installation binding, clear
   // any stale no-access flag (a re-connect just proved access), and return the
-  // existing row.
+  // existing row. The sharer only changes when the row was archived or never
+  // had one (EXP-557): re-adding a live repo must not quietly transfer its
+  // manage rights away from the original sharer. SET expressions read the OLD
+  // row, so referencing archived_at next to its own reset is sound.
   const [existing] = await tx
     .update(repositories)
-    .set({ archivedAt: null, installationId, inaccessibleAt: null })
+    .set({
+      archivedAt: null,
+      installationId,
+      inaccessibleAt: null,
+      sharedByUserId: sql`case when ${repositories.archivedAt} is not null or ${repositories.sharedByUserId} is null then ${input.userId} else ${repositories.sharedByUserId} end`,
+    })
     .where(
       and(
         eq(repositories.teamId, input.teamId),
@@ -304,6 +326,7 @@ async function loadRepository(repositoryId: string) {
       defaultBranchOverride: repositories.defaultBranchOverride,
       installationId: repositories.installationId,
       inaccessibleAt: repositories.inaccessibleAt,
+      sharedByUserId: repositories.sharedByUserId,
     })
     .from(repositories)
     .where(eq(repositories.id, repositoryId))
@@ -396,6 +419,27 @@ export const repositoriesRouter = router({
         .from(boards)
         .where(eq(boards.teamId, input.teamId))
 
+      // The sharers' display identity for the ×4 "Shared by" rows (EXP-557).
+      const sharerIds = [
+        ...new Set(
+          repos
+            .map((repo) => repo.sharedByUserId)
+            .filter((id): id is string => Boolean(id))
+        ),
+      ]
+      const sharerRows =
+        sharerIds.length > 0
+          ? await ctx.db
+              .select({
+                id: users.id,
+                name: users.name,
+                email: users.email,
+              })
+              .from(users)
+              .where(inArray(users.id, sharerIds))
+          : []
+      const sharerById = new Map(sharerRows.map((row) => [row.id, row]))
+
       // `defaultBranch` = the effective branch every consumer should act on
       // (old desktop builds included); the raw healed GitHub value rides along
       // as `githubDefaultBranch` for the settings picker.
@@ -403,6 +447,9 @@ export const repositoriesRouter = router({
         ...repo,
         defaultBranch: effectiveDefaultBranch(repo),
         githubDefaultBranch: repo.defaultBranch,
+        sharedBy: repo.sharedByUserId
+          ? (sharerById.get(repo.sharedByUserId) ?? null)
+          : null,
         boards: boardRows
           .filter((p) => p.repositoryId === repo.id)
           .map((p) => ({ id: p.id, name: p.name, slug: p.slug })),
@@ -570,9 +617,10 @@ export const repositoriesRouter = router({
       return { merged: true }
     }),
 
-  // Owner/admin: register a repo reachable through one of the CALLER's GitHub
-  // App installations. The installation id is resolved server-side from
-  // GitHub — clients never supply it.
+  // Any member: register a repo THEIR OWN GitHub connection grants (EXP-557 —
+  // connecting shares it with the team; the actor becomes its sharer). The
+  // installation id is resolved server-side from GitHub — clients never
+  // supply it.
   add: authedProcedure
     .input(
       z.object({
@@ -583,7 +631,7 @@ export const repositoriesRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertCanManageRepos(ctx.session.user.id, input.teamId)
+      await assertTeamMember(ctx.session.user.id, input.teamId)
 
       // The install-check + upsert + un-archive sequence is connectRepositoryInTx
       // (shared with boards.create's inline connect) — call it, then load the
@@ -606,13 +654,13 @@ export const repositoriesRouter = router({
       return { repository }
     }),
 
-  // Owner/admin: hard-delete. Blocked (CONFLICT) while any board still points
-  // at the repo — the `boards.repository_id` FK is `restrict`.
+  // Sharer or owner: hard-delete. Blocked (CONFLICT) while any board still
+  // points at the repo — the `boards.repository_id` FK is `restrict`.
   remove: authedProcedure
     .input(z.object({ repositoryId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const repo = await loadRepository(input.repositoryId)
-      await assertCanManageRepos(ctx.session.user.id, repo.teamId)
+      await assertRepoManager(ctx.session.user.id, repo)
       try {
         await ctx.db
           .delete(repositories)
@@ -633,15 +681,14 @@ export const repositoriesRouter = router({
       return { ok: true as const }
     }),
 
-  // Owner/admin: the repo's branch names for the default-branch picker
-  // (EXP-462). Listed live from GitHub — never persisted. Gated like the
-  // settings surface that renders the picker (assertCanManageRepos), not
-  // plain membership.
+  // Any member: the repo's branch names for the default-branch picker
+  // (EXP-462). Listed live from GitHub — never persisted. A read on a shared
+  // repo, so plain membership (the PIN itself stays sharer/owner).
   listBranches: authedProcedure
     .input(z.object({ repositoryId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const repo = await loadRepository(input.repositoryId)
-      await assertCanManageRepos(ctx.session.user.id, repo.teamId)
+      await assertRepoCapability(ctx.session.user.id, repo.teamId)
       const token = await resolveGatedRepoToken(repo)
       let branches: string[]
       try {
@@ -655,7 +702,7 @@ export const repositoriesRouter = router({
       return { branches }
     }),
 
-  // Owner/admin: pin the branch the product treats as the repo's default
+  // Sharer or owner: pin the branch the product treats as the repo's default
   // (EXP-462) — PR base, worktree base, trunk sync, diffs. `branch: null`
   // clears the pin (follow GitHub again), and picking GitHub's current
   // default normalizes to null so such a repo keeps tracking GitHub renames.
@@ -669,7 +716,7 @@ export const repositoriesRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const repo = await loadRepository(input.repositoryId)
-      await assertCanManageRepos(ctx.session.user.id, repo.teamId)
+      await assertRepoManager(ctx.session.user.id, repo)
 
       let override = input.branch
       let live: string | null = null

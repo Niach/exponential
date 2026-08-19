@@ -15,10 +15,10 @@ import {
   mintGithubSetupState,
 } from "@/lib/integrations/github-setup-state"
 import {
-  assertCanManageRepos,
   invalidateRepoCache,
   invalidateRepoCacheForInstallation,
 } from "@/lib/trpc/integrations"
+import { assertTeamMember } from "@/lib/team-membership"
 
 // GitHub App install "Setup URL": GitHub redirects the user's browser here after
 // they install (or, with "Redirect on update" enabled, reconfigure) the App,
@@ -127,9 +127,10 @@ export async function handleSetup(request: Request): Promise<Response> {
           // stays recorded but unlinked (claimable later via the OAuth flow).
         } else {
           // Self-hosted fallback (no OAuth client secret ⇒ no proof-of-control
-          // path exists). Single-tenant/trusted only.
+          // path exists). Single-tenant/trusted only. Member-level like the
+          // OAuth claim path (EXP-557).
           try {
-            await assertCanManageRepos(claim.userId, claim.teamId)
+            await assertTeamMember(claim.userId, claim.teamId)
             await db
               .insert(githubInstallationLinks)
               .values({
@@ -141,7 +142,7 @@ export async function handleSetup(request: Request): Promise<Response> {
             invalidateRepoCache(claim.teamId)
           } catch (err) {
             console.warn(
-              `[github-setup] link skipped (cannot manage team ${claim.teamId}):`,
+              `[github-setup] link skipped (not a member of team ${claim.teamId}):`,
               err
             )
           }

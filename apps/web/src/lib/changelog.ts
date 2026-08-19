@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-per-user-repo-sharing`,
+    date: `2026-08-19`,
+    title: `Your repos, shared with the team`,
+    summary: `Every member connects their own GitHub repos and shares them with the team, and stale GitHub accounts finally show a Disconnect button.`,
+    body: `- **Per-user repo sharing**: any member can now connect GitHub and add repositories, not just owners. You see and connect the repos your own GitHub account can access; connecting one shares it with the team so everyone can code on it.
+- **Shared by**: repository rows now show who shared them. The sharer and team owners manage a repo (remove it, pin its default branch); everyone else codes on it.
+- **Disconnect stale accounts**: a linked GitHub account that no reconnect can refresh now shows a visible Disconnect button for owners instead of warning forever.
+- **Reconnect self-heals**: reconnecting GitHub as an owner also cleans up orphaned account links left behind by old versions, so the reconnect warning actually goes away.`,
+  },
+  {
     id: `2026-08-action-automations`,
     date: `2026-08-18`,
     title: `Actions run themselves`,

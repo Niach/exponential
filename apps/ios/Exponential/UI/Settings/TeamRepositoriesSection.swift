@@ -5,21 +5,26 @@ import SwiftUI
 
 /// The server-only repositories registry (masterplan §6 / §5.3). v4: a pure
 /// registry — each row shows `owner/name`, the default branch, and the boards
-/// it backs ("used by" chips from `repositories.list().boards`). Owners can
-/// remove a repo; removal is blocked server-side (CONFLICT) while any board
-/// still points at it, and that message is surfaced inline. The primary-star and
-/// per-board link/unlink UI is gone (a board now owns exactly one repo, set
-/// at creation or via the boards section's "Change repository"). Connecting
-/// GitHub (the App install / grant-capture OAuth hop) runs fully IN-APP
-/// (EXP-45), same ASWebAuthenticationSession flow as GithubRepoPicker — the
-/// old "connect on the web" Safari bounce survives only as a fallback when the
-/// server has no GitHub App configured. The grant-model reconnect (re-capturing
-/// which repos the user can access) uses the same hop — a team linked
-/// before per-user grants existed lists zero repos until the owner re-runs the
-/// OAuth connect (web parity: repositories-section.tsx).
+/// it backs ("used by" chips from `repositories.list().boards`). Member-visible
+/// since EXP-557 (per-user sharing): the status line and the pickers show the
+/// VIEWER's own GitHub connections/repos (the server scopes them), any member
+/// connects GitHub / adds a repo (connecting SHARES it with the team), and
+/// removal is sharer-or-owner per row. Removal is blocked server-side
+/// (CONFLICT) while any board still points at it, and that message is surfaced
+/// inline. The primary-star and per-board link/unlink UI is gone (a board now
+/// owns exactly one repo, set at creation or via the boards section's "Change
+/// repository"). Connecting GitHub (the App install / grant-capture OAuth hop)
+/// runs fully IN-APP (EXP-45), same ASWebAuthenticationSession flow as
+/// GithubRepoPicker — the old "connect on the web" Safari bounce survives only
+/// as a fallback when the server has no GitHub App configured. The grant-model
+/// reconnect (re-capturing which repos the user can access) uses the same hop —
+/// an installation whose grants were never captured lists zero repos until its
+/// user re-runs the OAuth connect (web parity: repositories-section.tsx).
 struct TeamRepositoriesSection: View {
     let accountId: String
     let team: TeamEntity?
+    /// The viewer — sharer-or-owner row gating needs it (EXP-557).
+    let currentUserId: String?
     let isOwner: Bool
     let repositoriesApi: RepositoriesApi
     let integrationsApi: IntegrationsApi
@@ -35,11 +40,17 @@ struct TeamRepositoriesSection: View {
     // repositories.list failures — rendered from the same inline slot.
     @State private var loadErrorText: String?
     @State private var removeTarget: TeamRepo?
+    // Stale-account disconnect confirmation (EXP-557).
+    @State private var disconnectTarget: GithubInstallation?
     // GitHub grant state — drives the connect button + reconnect notice.
     // Fetched via the `repos` endpoint (not `status`) because only it accepts
     // `platform: "mobile"`, so the minted connect URL deep-links back via
     // `exponential://github-connected` and auto-dismisses the in-app session.
     @State private var github: GithubReposResult?
+    // The `status` endpoint result rides along ONLY for its `stale` marks
+    // (EXP-557) — the `repos` endpoint never emits them (an owner's stale
+    // extras aren't part of the viewer's own connections).
+    @State private var githubStatus: GithubStatusResult?
     // A failed grant query must not silently hide the whole GitHub surface
     // (connect button included) — keep the last good value and offer a retry.
     @State private var githubLoadFailed = false
@@ -69,11 +80,11 @@ struct TeamRepositoriesSection: View {
                 Spacer()
 
                 // "Add repository" moved into the header (Boards' "New board"
-                // pattern, EXP-228). Owner-gated like the connect hop
-                // (repositories.add is assertCanManageRepos server-side) and
-                // only once the server has a GitHub App — the picker itself
-                // handles the not-yet-connected case with its inline connect hop.
-                if isOwner, let github, github.configured {
+                // pattern, EXP-228). Member-level since EXP-557 (connecting a
+                // repo SHARES it with the team) and only once the server has a
+                // GitHub App — the picker itself handles the not-yet-connected
+                // case with its inline connect hop.
+                if let github, github.configured {
                     Button {
                         showAddRepo = true
                     } label: {
@@ -114,12 +125,19 @@ struct TeamRepositoriesSection: View {
 
             // One GitHub status line (EXP-329, byte-identical to web/desktop).
             // Only rendered once `github` is loaded (non-nil) to keep the
-            // flicker-free behavior. Visible when any account is linked (every
-            // member) OR the viewer is an owner (owners always see the connect
-            // entry point); hidden for non-owners with zero installations.
-            if let github, (!github.installations.isEmpty || isOwner) {
+            // flicker-free behavior. Every member sees it since EXP-557 — the
+            // connect entry point is member-level (you connect your OWN
+            // GitHub) and the line shows the viewer's own connections.
+            if let github {
                 githubStatusLine(github)
-            } else if github == nil, githubLoadFailed, isOwner {
+                // Stale accounts (EXP-557): linked installations no
+                // reconnect can ever refresh (zero grants from anyone) — the
+                // server scopes who sees them; render a Disconnect instead of
+                // the permanent reconnect nag (EXP-556).
+                ForEach(staleAccounts) { installation in
+                    staleAccountRow(installation)
+                }
+            } else if github == nil, githubLoadFailed {
                 // The grant query failed and nothing was ever loaded — say so
                 // instead of silently hiding the connect entry point.
                 HStack(spacing: 8) {
@@ -205,6 +223,28 @@ struct TeamRepositoriesSection: View {
         } message: {
             Text("This disconnects \(removeTarget?.fullName ?? "this repository") from the team.")
         }
+        // Confirm-first stale-account disconnect (EXP-557, web parity).
+        .alert("Disconnect GitHub account", isPresented: Binding(
+            get: { disconnectTarget != nil },
+            set: { if !$0 { disconnectTarget = nil } }
+        )) {
+            Button("Cancel", role: .cancel) { disconnectTarget = nil }
+            Button("Disconnect", role: .destructive) {
+                if let installation = disconnectTarget, let teamId = team?.id {
+                    Task {
+                        await mutate(refreshGithub: true) {
+                            try await integrationsApi.githubUnlink(
+                                accountId: accountId,
+                                teamId: teamId,
+                                installationId: installation.installationId
+                            )
+                        }
+                    }
+                }
+            }
+        } message: {
+            Text("This removes \(disconnectTarget.map { installationLabel($0) } ?? "this account") from the team. Nobody's GitHub connection covers it, so no repositories are lost.")
+        }
     }
 
     // MARK: - Row
@@ -228,9 +268,10 @@ struct TeamRepositoriesSection: View {
                     AppIcon(AppIcons.uiPrivate, size: 11)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
-                // Owner-only removal (the server refuses it while any board
-                // still points at the repo); the tap opens a confirmation.
-                if isOwner {
+                // Sharer-or-owner removal (EXP-557; the server refuses it
+                // while any board still points at the repo); the tap opens a
+                // confirmation.
+                if canManage(repo) {
                     Button {
                         removeTarget = repo
                     } label: {
@@ -239,6 +280,13 @@ struct TeamRepositoriesSection: View {
                     }
                     .buttonStyle(.plain)
                 }
+            }
+
+            // Who shared the repo with the team (EXP-557, web parity).
+            if let sharer = repo.sharedBy {
+                Text("Shared by \(sharerLabel(sharer))")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
 
             // "Used by" board chips (v4 — computed from boards.repositoryId).
@@ -274,7 +322,7 @@ struct TeamRepositoriesSection: View {
 
     // One status LINE, byte-identical to web and desktop: the connection state
     // on the left (green dot when connected, amber glyph when a grant went
-    // stale) and the single owner action on the right. It replaces the old
+    // stale) and the single member-level action on the right. It replaces the old
     // accounts card — caption, installation chips and reconnect explainer all
     // collapse into this one row.
     @ViewBuilder
@@ -283,11 +331,16 @@ struct TeamRepositoriesSection: View {
         // mints no tokens and lists no repos, and a reconnect CANNOT fix it —
         // only unsuspending on GitHub can. Never nudge the wrong fix.
         let suspended = github.installations.filter { $0.isSuspended }
-        // A linked installation with no captured grants yields zero repos until
-        // the owner re-runs the OAuth connect (grant-model fail-closed state).
-        let reauthInstalls = github.installations.filter { $0.needsReauth && !$0.isSuspended }
+        // A linked installation with no captured grants yields zero repos
+        // until its user re-runs the OAuth connect (grant-model fail-closed
+        // state). STALE installations are excluded (EXP-557): reconnecting can
+        // never refresh them — they get the Disconnect row instead.
+        let staleIds = Set(staleAccounts.map { $0.installationId })
+        let reauthInstalls = github.installations.filter {
+            $0.needsReauth && !$0.isSuspended && !staleIds.contains($0.installationId)
+        }
         let needsReauth = suspended.isEmpty && !reauthInstalls.isEmpty
-        let label: (GithubInstallation) -> String = { $0.accountLogin ?? "Installation \($0.installationId)" }
+        let label: (GithubInstallation) -> String = { installationLabel($0) }
         let logins = github.installations.map(label).joined(separator: ", ")
         let status: String = { () -> String in
             if !github.configured { return "GitHub isn't configured on this server." }
@@ -317,11 +370,10 @@ struct TeamRepositoriesSection: View {
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .lineLimit(3)
             Spacer()
-            // Owner-gated action: the connect hop always ends in the owner-only
-            // team claim (assertCanManageRepos), so a member would dead-end on a
-            // forbidden page — non-owners see just the status. Nothing to offer
-            // when the server has no GitHub App at all.
-            if isOwner, github.configured {
+            // Member-level action since EXP-557: any member connects their
+            // OWN GitHub (connecting shares repos with the team). Nothing to
+            // offer when the server has no GitHub App at all.
+            if github.configured {
                 if !suspended.isEmpty {
                     // Unsuspend happens on GitHub's installation settings page.
                     if let url = URL(string: suspended[0].manageUrl) {
@@ -370,6 +422,64 @@ struct TeamRepositoriesSection: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .glassRow()
+    }
+
+    // MARK: - Stale accounts (EXP-557)
+
+    // Linked installations with zero grants from ANY member — a reconnect can
+    // never refresh them. Only the `status` endpoint carries the mark; on old
+    // servers it decodes absent → no rows. Suspended installs are excluded
+    // (their fix is an unsuspend on GitHub, REV2-29).
+    private var staleAccounts: [GithubInstallation] {
+        (githubStatus?.installations ?? []).filter { $0.isStale && !$0.isSuspended }
+    }
+
+    // One row per stale account: what's wrong + the confirm-first Disconnect.
+    // Visible to whoever the server sends the entry (owners see every stale
+    // link; a member sees their own) — the unlink itself is server-enforced
+    // link-creator-or-owner.
+    @ViewBuilder
+    private func staleAccountRow(_ installation: GithubInstallation) -> some View {
+        HStack(spacing: 8) {
+            AppIcon(AppIcons.uiWarning, size: AppIcon.Size.small)
+                .foregroundStyle(.yellow.opacity(0.8))
+            Text("No one's GitHub connection covers \(installationLabel(installation)) anymore — reconnecting can't refresh it.")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .lineLimit(3)
+            Spacer()
+            Button {
+                disconnectTarget = installation
+            } label: {
+                Text("Disconnect account")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .glassButton()
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .glassRow()
+    }
+
+    private func installationLabel(_ installation: GithubInstallation) -> String {
+        installation.accountLogin ?? "Installation \(installation.installationId)"
+    }
+
+    // Sharer-or-owner (EXP-557): who may remove the row. Mirrors the server's
+    // assertCanManageRepository (sharedBy.id == viewer OR team owner).
+    private func canManage(_ repo: TeamRepo) -> Bool {
+        if isOwner { return true }
+        guard let me = currentUserId, let sharer = repo.sharedBy?.id else { return false }
+        return sharer == me
+    }
+
+    private func sharerLabel(_ sharer: RepoSharer) -> String {
+        if let name = sharer.name, !name.isEmpty { return name }
+        return sharer.email ?? "a teammate"
     }
 
     // The in-app OAuth connect hop (ASWebAuthenticationSession, same flow as
@@ -430,9 +540,20 @@ struct TeamRepositoriesSection: View {
         } catch {
             githubLoadFailed = true
         }
+        // Stale marks ride ONLY the `status` endpoint (EXP-557) — fetched
+        // separately and non-fatal: on old servers or failure the Disconnect
+        // rows simply don't render. Keep the last good value on failure.
+        do {
+            githubStatus = try await integrationsApi.githubStatus(
+                accountId: accountId,
+                teamId: teamId
+            )
+        } catch {}
     }
 
-    private func mutate(_ operation: () async throws -> Void) async {
+    // `refreshGithub` bypasses the server's per-user repo cache on the
+    // post-mutation reload — the stale-account unlink changes the linked set.
+    private func mutate(refreshGithub: Bool = false, _ operation: () async throws -> Void) async {
         errorText = nil
         do {
             try await operation()
@@ -447,6 +568,7 @@ struct TeamRepositoriesSection: View {
             errorText = error.trpcUserMessage
         }
         removeTarget = nil
-        await reload()
+        disconnectTarget = nil
+        await reload(refreshGithub: refreshGithub)
     }
 }

@@ -76,16 +76,15 @@ struct TeamBoardsSection: View {
                             repositoryId: board.repositoryId
                         )
 
-                        // Owner-only retarget → boards.setRepository.
-                        if isOwner {
-                            Button {
-                                repoTarget = board
-                            } label: {
-                                AppIcon(AppIcons.uiSwap, size: AppIcon.Size.small)
-                                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            }
-                            .buttonStyle(.plain)
+                        // Member-level retarget → boards.setRepository
+                        // (mutate_resources server-side; EXP-557 web parity).
+                        Button {
+                            repoTarget = board
+                        } label: {
+                            AppIcon(AppIcons.uiSwap, size: AppIcon.Size.small)
+                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         }
+                        .buttonStyle(.plain)
 
                         // Delete (→ trash) — owner-only (the server refuses for
                         // everyone else). Hidden for non-owners entirely (full
@@ -152,7 +151,7 @@ private struct ChangeRepositorySheet: View {
                             HStack { Spacer(); ProgressView().tint(.white); Spacer() }
                                 .padding(.vertical, 24)
                         } else if repos.isEmpty {
-                            Text("No repositories connected. Connect one in the team settings on the web first.")
+                            Text("No repositories connected. Add one in team settings → Repositories first.")
                                 .font(.subheadline)
                                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         } else {

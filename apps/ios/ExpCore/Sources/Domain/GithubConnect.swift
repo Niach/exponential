@@ -33,7 +33,7 @@ public enum GithubConnect {
         case "orgperm":
             return "Your organization hasn't approved the App's members-read permission yet. An org admin must accept it on GitHub, then reconnect."
         case "forbidden":
-            return "Only team owners can connect GitHub accounts to a team."
+            return "Only team members can connect GitHub accounts to a team."
         default:
             return "Something went wrong while connecting GitHub. Please try again."
         }

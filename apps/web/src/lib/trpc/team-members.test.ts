@@ -309,3 +309,30 @@ describe(`teamMembers.updateRole — last-owner demote guard (REV-23)`, () => {
     expect(selectInTx).toEqual([false, true])
   })
 })
+
+// EXP-557: instance admins get NO bypass — member management is owner-only
+// and the router no longer consults users.is_admin at all.
+describe(`instance-admin bypass removal (EXP-557)`, () => {
+  it(`updateRole refuses a non-owner even when the caller is an instance admin`, async () => {
+    const { isUserAdmin } = await import(`@/lib/admin`)
+    vi.mocked(isUserAdmin).mockResolvedValue(true)
+    selectQueue.push([
+      { id: MEMBER_ID, teamId: WS, userId: `user-x`, role: `member` },
+    ])
+    assertTeamMember.mockImplementationOnce(async () => {
+      throw new TRPCError({
+        code: `FORBIDDEN`,
+        message: `You do not have permission to perform this action`,
+      })
+    })
+    await expect(
+      callerFor(`instance-admin`).updateRole({
+        memberId: MEMBER_ID,
+        role: `owner`,
+      })
+    ).rejects.toMatchObject({ code: `FORBIDDEN` })
+    // The old owner-OR-admin helper consulted this first; nothing does now.
+    expect(isUserAdmin).not.toHaveBeenCalled()
+    vi.mocked(isUserAdmin).mockResolvedValue(false)
+  })
+})

@@ -52,6 +52,10 @@ public struct GithubStatusResult: Decodable, Sendable {
 /// reconnect cannot fix it, so the UI must never nudge one. Optional so
 /// servers predating the field decode as "not suspended".
 /// `hasMore` exists only on the `repos` endpoint (nil on `status`).
+/// `stale` (EXP-557, `status` endpoint only) marks a linked installation with
+/// zero grants from ANY member — a reconnect can never refresh it, so the UI
+/// offers a Disconnect instead of the reconnect nag. Optional so servers (and
+/// endpoints) predating the field decode as "not stale".
 public struct GithubInstallation: Decodable, Sendable, Identifiable {
     public var id: Int { installationId }
     public let installationId: Int
@@ -60,10 +64,14 @@ public struct GithubInstallation: Decodable, Sendable, Identifiable {
     public let manageUrl: String
     public let needsReauth: Bool
     public let suspended: Bool?
+    public let stale: Bool?
     public let hasMore: Bool?
 
     /// Suspension with the servers-predating-the-field default applied.
     public var isSuspended: Bool { suspended ?? false }
+
+    /// Staleness with the servers-predating-the-field default applied.
+    public var isStale: Bool { stale ?? false }
 }
 
 /// One repo the user's GitHub App can connect (mirrors web `InstallationRepo`).
@@ -148,6 +156,22 @@ public final class IntegrationsApi: Sendable {
             accountId: accountId,
             path: "integrations.github.repos",
             input: Input(platform: "mobile", teamId: teamId, refresh: refresh ? true : nil)
+        )
+    }
+
+    /// Disconnect a GitHub account (App installation) from the team
+    /// (EXP-557). Server-enforced link-creator-or-owner; the primary surface
+    /// is the STALE-account row (zero grants from anyone — a reconnect can
+    /// never refresh it, so disconnecting is the only fix).
+    public func githubUnlink(accountId: String, teamId: String, installationId: Int) async throws {
+        struct Input: Encodable {
+            let teamId: String
+            let installationId: Int
+        }
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "integrations.github.unlink",
+            input: Input(teamId: teamId, installationId: installationId)
         )
     }
 }

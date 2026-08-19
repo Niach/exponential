@@ -186,10 +186,10 @@ function callerFor(userId: string) {
 const tx = db as never
 
 // The default mock passes every membership check as owner (which keeps the
-// unrelated tests free of membership plumbing) — so the owner gate itself is
-// only observable by flipping it for exactly ONE call, the way the real
-// assertTeamMember rejects a plain member.
-function denyOwnerOnce() {
+// unrelated tests free of membership plumbing) — so a gate is only observable
+// by flipping it for exactly ONE call, the way the real assertTeamMember
+// rejects a non-member.
+function denyMembershipOnce() {
   assertTeamMember.mockImplementationOnce(async () => {
     throw new TRPCError({
       code: `FORBIDDEN`,
@@ -350,7 +350,7 @@ describe(`assertRepoInstallationAccess grant gate`, () => {
     selectQueue.push(DEFAULT_ROWS) // linked installations
     selectQueue.push([]) // grant lookup → none
     await expect(
-      assertRepoInstallationAccess(tx, freshTeamId(), `acme/other-private`)
+      assertRepoInstallationAccess(tx, freshTeamId(), `user-connect`, `acme/other-private`)
     ).rejects.toThrow(/Reconnect GitHub in team settings/)
   })
 
@@ -359,7 +359,7 @@ describe(`assertRepoInstallationAccess grant gate`, () => {
     selectQueue.push(DEFAULT_ROWS)
     selectQueue.push([{ id: `grant-1` }])
     await expect(
-      assertRepoInstallationAccess(tx, freshTeamId(), `acme/repo`)
+      assertRepoInstallationAccess(tx, freshTeamId(), `user-connect`, `acme/repo`)
     ).resolves.toBe(1)
   })
 
@@ -369,7 +369,7 @@ describe(`assertRepoInstallationAccess grant gate`, () => {
     selectQueue.push(DEFAULT_ROWS) // linked installations
     selectQueue.push([]) // grant lookup after the scan hit → none
     await expect(
-      assertRepoInstallationAccess(tx, freshTeamId(), `acme/repo`)
+      assertRepoInstallationAccess(tx, freshTeamId(), `user-connect`, `acme/repo`)
     ).rejects.toThrow(/Reconnect GitHub in team settings/)
     // The scan itself ran (installation-wide listing) — the DENY came from the
     // missing grant, not from the repo being absent.
@@ -381,7 +381,7 @@ describe(`assertRepoInstallationAccess grant gate`, () => {
     selectQueue.push(DEFAULT_ROWS)
     selectQueue.push([{ id: `link-1` }]) // the link lock
     await expect(
-      assertRepoInstallationAccess(tx, freshTeamId(), `acme/repo`)
+      assertRepoInstallationAccess(tx, freshTeamId(), `user-connect`, `acme/repo`)
     ).resolves.toBe(1)
     // Exactly two selects — the linked installations and the lock. A grant
     // lookup wrongly running would show up as an extra unlocked one between
@@ -396,19 +396,23 @@ describe(`integrations.github.repos grant scoping (OAuth configured)`, () => {
     const teamId = freshTeamId()
     selectQueue.push(DEFAULT_ROWS) // linked installations
     selectQueue.push([
-      // Two grant rows for the same repo (two members proved access) — the
-      // picker output dedups by fullName.
+      // Two grant rows for the same repo from the SAME viewer (e.g. two
+      // captures) — the picker output dedups by fullName. grantedByUserId
+      // attribution is what puts the installation in the viewer's set
+      // (EXP-557).
       {
         installationId: 1,
         fullName: `acme/granted`,
         private: true,
         defaultBranch: `dev`,
+        grantedByUserId: `user-grant`,
       },
       {
         installationId: 1,
         fullName: `acme/granted`,
         private: true,
         defaultBranch: `dev`,
+        grantedByUserId: `user-grant`,
       },
     ])
     const result = await callerFor(`user-grant`).github.repos({ teamId })
@@ -430,20 +434,119 @@ describe(`integrations.github.repos grant scoping (OAuth configured)`, () => {
     expect(listAllInstallationRepos).not.toHaveBeenCalled()
   })
 
-  it(`returns an empty list + needsReauth for a linked installation with zero grants`, async () => {
+  it(`returns an empty list + needsReauth for YOUR linked installation with zero grants`, async () => {
     githubOAuthConfigured.mockReturnValue(true)
     const teamId = freshTeamId()
-    selectQueue.push(DEFAULT_ROWS) // linked installations
+    // The viewer's own link (createdByUserId) — that alone puts the
+    // installation in their set even before any grant lands (EXP-557).
+    selectQueue.push([
+      {
+        id: `link-1`,
+        linkId: `link-1`,
+        installationId: 1,
+        accountLogin: `acme`,
+        accountType: `User`,
+        createdByUserId: `user-grant`,
+      },
+    ])
     selectQueue.push([]) // no grants (e.g. a pre-grant legacy link)
     const result = await callerFor(`user-grant`).github.repos({ teamId })
     expect(result.repos).toEqual([])
     expect(result.installations[0]).toMatchObject({ needsReauth: true })
     expect(listAllInstallationRepos).not.toHaveBeenCalled()
 
-    // Cached serve preserves the grant-derived list and the needsReauth flag.
+    // Cached serve preserves the grant-derived list and the needsReauth flag
+    // (the viewer-scope resolution still reads links + grants pre-cache, so
+    // seed the same rows again).
+    selectQueue.push([
+      {
+        id: `link-1`,
+        linkId: `link-1`,
+        installationId: 1,
+        accountLogin: `acme`,
+        accountType: `User`,
+        createdByUserId: `user-grant`,
+      },
+    ])
+    selectQueue.push([])
     const cached = await callerFor(`user-grant`).github.repos({ teamId })
     expect(cached.repos).toEqual([])
     expect(cached.installations[0]).toMatchObject({ needsReauth: true })
+  })
+
+  // EXP-557: discovery is VIEWER-scoped — a teammate's connection and grants
+  // are simply not yours to browse.
+  it(`excludes a teammate's installations and grants from the viewer's list`, async () => {
+    githubOAuthConfigured.mockReturnValue(true)
+    const teamId = freshTeamId()
+    selectQueue.push([
+      {
+        id: `link-1`,
+        linkId: `link-1`,
+        installationId: 1,
+        accountLogin: `acme`,
+        accountType: `User`,
+        createdByUserId: `teammate`,
+      },
+    ])
+    selectQueue.push([
+      {
+        installationId: 1,
+        fullName: `acme/their-repo`,
+        private: true,
+        defaultBranch: `main`,
+        grantedByUserId: `teammate`,
+      },
+    ])
+    const result = await callerFor(`user-viewer`).github.repos({ teamId })
+    expect(result.installed).toBe(false)
+    expect(result.repos).toEqual([])
+    expect(result.installations).toEqual([])
+    // The connect URLs still mint — the member's way in is connecting their
+    // OWN account.
+    expect(result.connectUrl).toBe(`https://oauth.example`)
+  })
+
+  it(`keys the cache per (team, user) — two members never share an entry`, async () => {
+    githubOAuthConfigured.mockReturnValue(true)
+    const teamId = freshTeamId()
+    const linkRow = (createdByUserId: string) => [
+      {
+        id: `link-1`,
+        linkId: `link-1`,
+        installationId: 1,
+        accountLogin: `acme`,
+        accountType: `User`,
+        createdByUserId,
+      },
+    ]
+    selectQueue.push(linkRow(`user-a`))
+    selectQueue.push([
+      {
+        installationId: 1,
+        fullName: `acme/a-repo`,
+        private: false,
+        defaultBranch: `main`,
+        grantedByUserId: `user-a`,
+      },
+    ])
+    const forA = await callerFor(`user-a`).github.repos({ teamId })
+    expect(forA.repos.map((r) => r.fullName)).toEqual([`acme/a-repo`])
+
+    // user-b hits the DB (their own empty view), never user-a's cache entry.
+    selectQueue.push(linkRow(`user-a`))
+    selectQueue.push([
+      {
+        installationId: 1,
+        fullName: `acme/a-repo`,
+        private: false,
+        defaultBranch: `main`,
+        grantedByUserId: `user-a`,
+      },
+    ])
+    const forB = await callerFor(`user-b`).github.repos({ teamId })
+    expect(forB.installed).toBe(false)
+    expect(forB.repos).toEqual([])
   })
 })
 
@@ -525,24 +628,63 @@ describe(`integrations.github.claimLinks guards`, () => {
     expect(deletes).toHaveLength(0)
   })
 
-  it(`refuses a member who isn't a team owner`, async () => {
+  it(`refuses a non-member`, async () => {
+    const teamId = freshTeamId()
+    const ticket = mintGithubClaimTicket({
+      u: `user-outsider`,
+      w: teamId,
+      ids: [1],
+    })!
+    denyMembershipOnce()
+    await expect(
+      callerFor(`user-outsider`).github.claimLinks({ ticket, linkIds: [1] })
+    ).rejects.toMatchObject({ code: `FORBIDDEN` })
+    // The ticket proves GitHub control, never team authority — membership is
+    // what decides who may claim installations for a team (EXP-557: any
+    // member links their own).
+    expect(assertTeamMember).toHaveBeenCalledWith(`user-outsider`, teamId)
+    expect(inserted).toHaveLength(0)
+    expect(deletes).toHaveLength(0)
+  })
+
+  // EXP-557: the unlink side is creator-or-owner per link — a plain member
+  // can't sweep a teammate's connection out through the claim page.
+  it(`refuses a plain member unlinking a teammate's link`, async () => {
     const teamId = freshTeamId()
     const ticket = mintGithubClaimTicket({
       u: `user-member`,
       w: teamId,
       ids: [1],
     })!
-    denyOwnerOnce()
-    await expect(
-      callerFor(`user-member`).github.claimLinks({ ticket, linkIds: [1] })
-    ).rejects.toMatchObject({ code: `FORBIDDEN` })
-    // The ticket proves GitHub control, never team authority — the owner gate
-    // is what decides who may rewrite a team's installation links.
-    expect(assertTeamMember).toHaveBeenCalledWith(`user-member`, teamId, [
-      `owner`,
+    assertTeamMember.mockImplementationOnce(async () => ({ role: `member` }))
+    selectQueue.push([
+      { linkId: `link-1`, installationId: 1, createdByUserId: `teammate` },
     ])
-    expect(inserted).toHaveLength(0)
+    await expect(
+      callerFor(`user-member`).github.claimLinks({ ticket, unlinkIds: [1] })
+    ).rejects.toMatchObject({ code: `FORBIDDEN` })
     expect(deletes).toHaveLength(0)
+  })
+
+  it(`a plain member may unlink their OWN link`, async () => {
+    const teamId = freshTeamId()
+    const ticket = mintGithubClaimTicket({
+      u: `user-member`,
+      w: teamId,
+      ids: [1],
+    })!
+    assertTeamMember.mockImplementationOnce(async () => ({ role: `member` }))
+    selectQueue.push([
+      { linkId: `link-1`, installationId: 1, createdByUserId: `user-member` },
+    ])
+    selectQueue.push([{ id: `link-1` }]) // lock → still there
+    selectQueue.push([]) // in-use check
+    const result = await callerFor(`user-member`).github.claimLinks({
+      ticket,
+      unlinkIds: [1],
+    })
+    expect(result).toEqual({ linked: 0, unlinked: 1, teamId })
+    expect(deletes).toHaveLength(1)
   })
 })
 
@@ -692,20 +834,18 @@ describe(`integrations.github.claimPreview (EXP-370)`, () => {
     ])
   })
 
-  it(`refuses a member who isn't a team owner`, async () => {
+  it(`refuses a non-member (members may preview their own claim — EXP-557)`, async () => {
     const teamId = freshTeamId()
     const ticket = mintGithubClaimTicket({
-      u: `user-member`,
+      u: `user-outsider`,
       w: teamId,
       ids: [1],
     })!
-    denyOwnerOnce()
+    denyMembershipOnce()
     await expect(
-      callerFor(`user-member`).github.claimPreview({ ticket })
+      callerFor(`user-outsider`).github.claimPreview({ ticket })
     ).rejects.toMatchObject({ code: `FORBIDDEN` })
-    expect(assertTeamMember).toHaveBeenCalledWith(`user-member`, teamId, [
-      `owner`,
-    ])
+    expect(assertTeamMember).toHaveBeenCalledWith(`user-outsider`, teamId)
   })
 })
 
@@ -765,6 +905,155 @@ describe(`integrations.github.unlink`, () => {
     expect(result).toEqual({ ok: true })
     expect(deletes).toHaveLength(0)
   })
+
+  // EXP-557: creator-or-owner. The default membership mock answers as owner,
+  // so the member-side rules flip it for exactly one call.
+  it(`a plain member may unlink their OWN link`, async () => {
+    assertTeamMember.mockImplementationOnce(async () => ({ role: `member` }))
+    selectQueue.push([
+      { linkId: `link-1`, installationId: 1, createdByUserId: `user-unlink` },
+    ])
+    selectQueue.push([{ id: `link-1` }])
+    selectQueue.push([])
+    const result = await callerFor(`user-unlink`).github.unlink({
+      teamId: freshTeamId(),
+      installationId: 1,
+    })
+    expect(result).toEqual({ ok: true })
+    expect(deletes).toHaveLength(1)
+  })
+
+  it(`refuses a plain member unlinking a teammate's link`, async () => {
+    assertTeamMember.mockImplementationOnce(async () => ({ role: `member` }))
+    selectQueue.push([
+      { linkId: `link-1`, installationId: 1, createdByUserId: `teammate` },
+    ])
+    await expect(
+      callerFor(`user-unlink`).github.unlink({
+        teamId: freshTeamId(),
+        installationId: 1,
+      })
+    ).rejects.toMatchObject({ code: `FORBIDDEN` })
+    expect(deletes).toHaveLength(0)
+  })
+
+  it(`an owner may unlink a NULL-creator legacy link (the stale-account Disconnect)`, async () => {
+    selectQueue.push([
+      { linkId: `link-1`, installationId: 1, createdByUserId: null },
+    ])
+    selectQueue.push([{ id: `link-1` }])
+    selectQueue.push([])
+    const result = await callerFor(`user-owner`).github.unlink({
+      teamId: freshTeamId(),
+      installationId: 1,
+    })
+    expect(result).toEqual({ ok: true })
+    expect(deletes).toHaveLength(1)
+  })
+
+  // EXP-557: instance admins get NO bypass anywhere in this router — a
+  // non-member is refused even when users.is_admin is set (the old
+  // assertCanManageRepos consulted it; nothing does now).
+  it(`refuses a non-member even when they are an instance admin`, async () => {
+    const { isUserAdmin } = await import(`@/lib/admin`)
+    vi.mocked(isUserAdmin).mockResolvedValue(true)
+    denyMembershipOnce()
+    await expect(
+      callerFor(`user-instance-admin`).github.unlink({
+        teamId: freshTeamId(),
+        installationId: 1,
+      })
+    ).rejects.toMatchObject({ code: `FORBIDDEN` })
+    expect(deletes).toHaveLength(0)
+    vi.mocked(isUserAdmin).mockResolvedValue(false)
+  })
+})
+
+// EXP-557 viewer scoping on github.status: you see YOUR connections; owners
+// additionally see stale links (zero grants from anyone) with a `stale` flag
+// driving the Disconnect affordance.
+describe(`integrations.github.status viewer scoping (EXP-557)`, () => {
+  const link = (
+    installationId: number,
+    createdByUserId: string | null,
+    accountLogin = `acct-${installationId}`
+  ) => ({
+    linkId: `link-${installationId}`,
+    installationId,
+    accountLogin,
+    accountType: `User`,
+    suspendedAt: null,
+    createdByUserId,
+  })
+
+  it(`an owner sees their own installations plus stale foreign links`, async () => {
+    githubOAuthConfigured.mockReturnValue(true)
+    const teamId = freshTeamId()
+    selectQueue.push([link(1, `user-o`), link(2, null, `play-review`)])
+    selectQueue.push([
+      {
+        installationId: 1,
+        fullName: `acme/repo`,
+        private: false,
+        defaultBranch: `main`,
+        grantedByUserId: `user-o`,
+      },
+    ])
+    const result = await callerFor(`user-o`).github.status({ teamId })
+    expect(result.installed).toBe(true)
+    expect(result.installations).toHaveLength(2)
+    expect(result.installations[0]).toMatchObject({
+      installationId: 1,
+      needsReauth: false,
+      stale: false,
+    })
+    // The exponential-play-review case: linked, zero grants from anyone,
+    // NULL creator — surfaced to the owner with the stale flag.
+    expect(result.installations[1]).toMatchObject({
+      installationId: 2,
+      needsReauth: false,
+      stale: true,
+    })
+    expect(result.accounts).toEqual([`acct-1`, `play-review`])
+  })
+
+  it(`a plain member never sees a teammate's or a foreign stale link`, async () => {
+    githubOAuthConfigured.mockReturnValue(true)
+    const teamId = freshTeamId()
+    assertTeamMember.mockImplementationOnce(async () => ({ role: `member` }))
+    selectQueue.push([link(1, `user-m`), link(2, null, `play-review`)])
+    selectQueue.push([]) // no grants at all
+    const result = await callerFor(`user-m`).github.status({ teamId })
+    expect(result.installations.map((i) => i.installationId)).toEqual([1])
+    // Their own zero-grant link still nags for a reconnect AND carries the
+    // stale flag (the creator may disconnect it themselves).
+    expect(result.installations[0]).toMatchObject({
+      needsReauth: true,
+      stale: true,
+    })
+  })
+
+  it(`your installation with a TEAMMATE's grants but none of yours needs YOUR reconnect`, async () => {
+    githubOAuthConfigured.mockReturnValue(true)
+    const teamId = freshTeamId()
+    selectQueue.push([link(1, `user-me`)])
+    selectQueue.push([
+      {
+        installationId: 1,
+        fullName: `acme/repo`,
+        private: false,
+        defaultBranch: `main`,
+        grantedByUserId: `teammate`,
+      },
+    ])
+    const result = await callerFor(`user-me`).github.status({ teamId })
+    expect(result.installations[0]).toMatchObject({
+      installationId: 1,
+      needsReauth: true,
+      // A teammate's grant keeps the link load-bearing — not stale.
+      stale: false,
+    })
+  })
 })
 
 // The connect side of the same lock: assertRepoInstallationAccess runs inside
@@ -775,7 +1064,7 @@ describe(`assertRepoInstallationAccess link lock (EXP-371)`, () => {
     selectQueue.push(DEFAULT_ROWS) // linked installations
     selectQueue.push([{ id: `link-1` }]) // lock → still linked
     await expect(
-      assertRepoInstallationAccess(tx, freshTeamId(), `acme/repo`)
+      assertRepoInstallationAccess(tx, freshTeamId(), `user-connect`, `acme/repo`)
     ).resolves.toBe(1)
     expect(selectLocks).toEqual([false, true])
   })
@@ -784,7 +1073,7 @@ describe(`assertRepoInstallationAccess link lock (EXP-371)`, () => {
     selectQueue.push(DEFAULT_ROWS) // linked installations
     selectQueue.push([]) // lock → the row is gone
     await expect(
-      assertRepoInstallationAccess(tx, freshTeamId(), `acme/repo`)
+      assertRepoInstallationAccess(tx, freshTeamId(), `user-connect`, `acme/repo`)
     ).rejects.toMatchObject({
       code: `CONFLICT`,
       message: expect.stringContaining(`was disconnected from this team`),
@@ -798,7 +1087,7 @@ describe(`assertRepoInstallationAccess link lock (EXP-371)`, () => {
     selectQueue.push(DEFAULT_ROWS) // linked installations
     selectQueue.push([]) // lock → gone
     await expect(
-      assertRepoInstallationAccess(tx, freshTeamId(), `acme/repo`)
+      assertRepoInstallationAccess(tx, freshTeamId(), `user-connect`, `acme/repo`)
     ).rejects.toMatchObject({ code: `CONFLICT` })
     expect(listAllInstallationRepos).toHaveBeenCalledTimes(1)
   })
@@ -881,7 +1170,7 @@ describe(`suspended installations (REV2-29)`, () => {
     listAllInstallationRepos.mockRejectedValueOnce(new Error(`suspended`))
 
     await expect(
-      assertRepoInstallationAccess(tx, freshTeamId(), `acme/repo`)
+      assertRepoInstallationAccess(tx, freshTeamId(), `user-connect`, `acme/repo`)
     ).rejects.toThrow(/GitHub suspended the Exponential app for acme/)
     // Refused before any per-repo resolution — nothing to resolve through.
     expect(installationIdForRepo).not.toHaveBeenCalled()
@@ -896,7 +1185,7 @@ describe(`suspended installations (REV2-29)`, () => {
     installationIdForRepo.mockResolvedValueOnce(904)
 
     await expect(
-      assertRepoInstallationAccess(tx, freshTeamId(), `acme/repo`)
+      assertRepoInstallationAccess(tx, freshTeamId(), `user-connect`, `acme/repo`)
     ).rejects.toThrow(/suspended the Exponential app for acme, which owns acme\/repo/)
   })
 })

@@ -5,18 +5,17 @@ import { and, eq, sql } from "drizzle-orm"
 import { TRPCError } from "@trpc/server"
 import { assertTeamMember } from "@/lib/team-membership"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
-import { isUserAdmin } from "@/lib/admin"
 import { endForeignHostedSessions } from "@/lib/coding-session-kill"
 
 // v7: the self-service `join` procedure is gone with public teams —
 // membership is invite-only everywhere; the only anonymous write path is
 // the embedded widget (non-members have no read access at all).
 
-/** Member management is allowed for a team owner OR a global admin. */
+/**
+ * Member management is owner-only. Instance admins get NO bypass (EXP-557):
+ * they differ from normal users only by admin-console access.
+ */
 async function assertCanManageMembers(userId: string, teamId: string) {
-  if (await isUserAdmin(userId)) {
-    return
-  }
   await assertTeamMember(userId, teamId, [`owner`])
 }
 

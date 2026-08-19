@@ -62,17 +62,29 @@ public struct RepoBoardSummary: Decodable, Sendable, Equatable, Identifiable {
     enum CodingKeys: String, CodingKey { case id, name, slug }
 }
 
+/// The member who shared a repo with the team (EXP-557 per-user sharing,
+/// `repositories.list` row's `sharedBy`). `name`/`email` are display-only and
+/// may be null server-side.
+public struct RepoSharer: Decodable, Sendable, Equatable {
+    public let id: String
+    public let name: String?
+    public let email: String?
+}
+
 /// One connected repo in the team registry (`repositories.list` row).
 /// Decoded defensively — the server spreads the full DB row; we read only the
 /// fields the settings surface needs. `private` is a Swift keyword, mapped to
 /// `isPrivate`. `boards` are the boards this repo backs (v4 — no more
-/// per-board links / primary star).
+/// per-board links / primary star). `sharedBy` is the member who connected
+/// the repo (EXP-557) — nil on old servers and for legacy sharer-less rows;
+/// row management is sharer-or-owner.
 public struct TeamRepo: Decodable, Sendable, Identifiable, Equatable {
     public let id: String
     public let fullName: String
     public let defaultBranch: String
     public let isPrivate: Bool
     public let boards: [RepoBoardSummary]
+    public let sharedBy: RepoSharer?
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -81,10 +93,11 @@ public struct TeamRepo: Decodable, Sendable, Identifiable, Equatable {
         defaultBranch = (try? c.decode(String.self, forKey: .defaultBranch)) ?? "main"
         isPrivate = (try? c.decode(Bool.self, forKey: .isPrivate)) ?? false
         boards = (try? c.decode([RepoBoardSummary].self, forKey: .boards)) ?? []
+        sharedBy = (try? c.decodeIfPresent(RepoSharer.self, forKey: .sharedBy)) ?? nil
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, fullName, defaultBranch, boards
+        case id, fullName, defaultBranch, boards, sharedBy
         case isPrivate = "private"
     }
 }
@@ -140,10 +153,10 @@ public final class RepositoriesApi: Sendable {
         )
     }
 
-    /// Owner-only (server-enforced): register a repo reachable through one of
-    /// the team's linked GitHub accounts (`repositories.add`, web parity —
-    /// repositories-section.tsx). The `{repository}` response is discarded;
-    /// callers re-fetch the registry list.
+    /// Member-level (EXP-557 — connecting SHARES the repo with the team):
+    /// register a repo reachable through the caller's own GitHub connection
+    /// (`repositories.add`, web parity — repositories-section.tsx). The
+    /// `{repository}` response is discarded; callers re-fetch the registry list.
     public func add(
         accountId: String,
         teamId: String,
@@ -163,8 +176,9 @@ public final class RepositoriesApi: Sendable {
         )
     }
 
-    /// Owner-only (server-enforced): remove a repo. Blocked (CONFLICT) while any
-    /// board still points at it — the caller surfaces the server message.
+    /// Sharer-or-owner (server-enforced, EXP-557): remove a repo. Blocked
+    /// (CONFLICT) while any board still points at it — the caller surfaces the
+    /// server message.
     public func remove(accountId: String, repositoryId: String) async throws {
         try await trpc.mutationVoid(
             accountId: accountId,

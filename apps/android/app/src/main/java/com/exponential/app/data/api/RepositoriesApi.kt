@@ -26,6 +26,19 @@ data class RepoBoardRef(
 )
 
 /**
+ * The member who shared this repo with the team (EXP-557 per-user sharing —
+ * `sharedBy` on `repositories.list` rows). Null for pre-sharing legacy rows,
+ * and absent entirely on older servers. Row management (remove, default-branch
+ * pin) is sharer-or-owner; the row is informational for everyone else.
+ */
+@Serializable
+data class RepoSharedBy(
+    val id: String,
+    val name: String? = null,
+    val email: String? = null,
+)
+
+/**
  * One connected repo in the team registry (`repositories.list` row).
  * `private` is a Kotlin keyword so it's mapped via @SerialName.
  */
@@ -37,6 +50,8 @@ data class TeamRepo(
     @SerialName("private") val isPrivate: Boolean = false,
     // v4: the boards backed by this repo (many for a monorepo).
     val boards: List<RepoBoardRef> = emptyList(),
+    // EXP-557: who connected the repo (and thereby shared it with the team).
+    val sharedBy: RepoSharedBy? = null,
 )
 
 @Serializable
@@ -76,10 +91,11 @@ class RepositoriesApi @Inject constructor(private val trpc: TrpcClient) {
         )
 
     /**
-     * Owner-only (server-enforced): register a repo reachable through one of the
-     * team's linked GitHub accounts (`repositories.add`, web parity —
-     * repositories-section.tsx). The `{repository}` response is discarded;
-     * callers re-fetch the registry list.
+     * Member-level since EXP-557 (per-user sharing): register a repo reachable
+     * through the caller's OWN GitHub connection (`repositories.add`, web
+     * parity — repositories-section.tsx); connecting shares it with the team.
+     * The `{repository}` response is discarded; callers re-fetch the registry
+     * list.
      */
     suspend fun add(
         accountId: String,
@@ -96,9 +112,9 @@ class RepositoriesApi @Inject constructor(private val trpc: TrpcClient) {
         )
 
     /**
-     * Owner-only (server-enforced): remove a repo. Blocked (CONFLICT — "repository
-     * backs N boards") while any board still points at it, via the
-     * `boards.repository_id` FK `restrict`.
+     * Sharer-or-owner (server-enforced, EXP-557): remove a repo. Blocked
+     * (CONFLICT — "repository backs N boards") while any board still points at
+     * it, via the `boards.repository_id` FK `restrict`.
      */
     suspend fun remove(accountId: String, repositoryId: String) =
         trpc.mutationUnit(
@@ -109,8 +125,9 @@ class RepositoriesApi @Inject constructor(private val trpc: TrpcClient) {
         )
 
     /**
-     * Owner/admin: retarget a board's backing repo (masterplan v4 §3.2 —
-     * `boards.setRepository`, replacing the deleted link/unlink/setPrimary).
+     * Member-level (EXP-557): retarget a board's backing repo (masterplan v4
+     * §3.2 — `boards.setRepository`, replacing the deleted
+     * link/unlink/setPrimary).
      */
     suspend fun setRepository(accountId: String, boardId: String, repositoryId: String) =
         trpc.mutationUnit(

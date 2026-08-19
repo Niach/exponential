@@ -1,9 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { TeamRepositoriesSection } from "@/components/team/repositories-section"
-import {
-  SettingsSectionGuard,
-  useSettingsPage,
-} from "@/routes/t/$teamSlug/settings/-shared"
+import { useSettingsPage } from "@/routes/t/$teamSlug/settings/-shared"
 
 export const Route = createFileRoute(
   `/t/$teamSlug/settings/repositories`
@@ -11,16 +8,22 @@ export const Route = createFileRoute(
   component: SettingsRepositories,
 })
 
+// Member-visible since EXP-557 (per-user sharing): every member manages their
+// own GitHub connection and the repos they shared here. Row-level rights
+// (remove, branch pin, stale-account disconnect) are gated inside the section.
 function SettingsRepositories() {
   const { teamSlug } = Route.useParams()
-  const { team, permissions, resolved } = useSettingsPage(teamSlug)
+  const { session, team, permissions } = useSettingsPage(teamSlug)
 
   return (
-    <SettingsSectionGuard
-      resolved={resolved}
-      allowed={permissions.canManageRepos}
-    >
-      {team && <TeamRepositoriesSection teamId={team.id} />}
-    </SettingsSectionGuard>
+    <>
+      {team && (
+        <TeamRepositoriesSection
+          teamId={team.id}
+          currentUserId={session?.user?.id}
+          isOwner={permissions.isOwner}
+        />
+      )}
+    </>
   )
 }

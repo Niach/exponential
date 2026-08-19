@@ -19,11 +19,23 @@ vi.mock(`@/lib/integrations/github-app`, async (importOriginal) => {
 // connect tests drive it directly.
 vi.mock(`@/lib/trpc/integrations`, () => ({
   assertRepoInstallationAccess: vi.fn(),
-  assertCanManageRepos: vi.fn(),
   isInstallationLinkedToTeam: vi.fn(async () => true),
 }))
 
+// assertRepoManager resolves the actor's membership — mocked so the
+// sharer-or-owner rules are testable without a db.
+const assertTeamMember = vi.fn(
+  async (..._args: unknown[]): Promise<{ role: string }> => ({
+    role: `member`,
+  })
+)
+vi.mock(`@/lib/team-membership`, () => ({
+  assertTeamMember: (...args: unknown[]) => assertTeamMember(...args),
+  getIssueTeamContext: vi.fn(),
+}))
+
 import {
+  assertRepoManager,
   BRANCH_PREFIX_DEFAULT,
   connectRepositoryInTx,
   effectiveDefaultBranch,
@@ -322,9 +334,16 @@ describe(`connectRepositoryInTx`, () => {
     // The gate runs on THIS transaction (EXP-371) — it leaves the
     // installation's link row locked for the insert below, which is the whole
     // reason a concurrent unlink can't strand the row.
-    expect(mockAssertRepoAccess).toHaveBeenCalledWith(tx, `ws1`, `acme/app`)
+    expect(mockAssertRepoAccess).toHaveBeenCalledWith(
+      tx,
+      `ws1`,
+      `u1`,
+      `acme/app`
+    )
     // The persisted id is GitHub's authoritative one, never a client claim.
     expect(captured.values?.installationId).toBe(7)
+    // EXP-557: the connector becomes the sharer.
+    expect(captured.values?.sharedByUserId).toBe(`u1`)
   })
 
   it(`resolves the live default branch when the caller supplies none`, async () => {
@@ -530,5 +549,51 @@ describe(`effectiveDefaultBranch (EXP-462)`, () => {
         defaultBranchOverride: null,
       })
     ).toBe(`master`)
+  })
+})
+
+// EXP-557 per-user sharing: `remove` and `setDefaultBranch` route through this
+// single gate — the member who shared the repo or a team owner.
+describe(`assertRepoManager (EXP-557)`, () => {
+  beforeEach(() => {
+    assertTeamMember.mockClear()
+    assertTeamMember.mockResolvedValue({ role: `member` })
+  })
+
+  it(`allows the sharer (a plain member)`, async () => {
+    await expect(
+      assertRepoManager(`u1`, { teamId: `ws1`, sharedByUserId: `u1` })
+    ).resolves.toBeUndefined()
+    expect(assertTeamMember).toHaveBeenCalledWith(`u1`, `ws1`)
+  })
+
+  it(`allows an owner who is not the sharer`, async () => {
+    assertTeamMember.mockResolvedValue({ role: `owner` })
+    await expect(
+      assertRepoManager(`owner-1`, { teamId: `ws1`, sharedByUserId: `u1` })
+    ).resolves.toBeUndefined()
+  })
+
+  it(`refuses a plain member who is not the sharer`, async () => {
+    await expect(
+      assertRepoManager(`u2`, { teamId: `ws1`, sharedByUserId: `u1` })
+    ).rejects.toMatchObject({ code: `FORBIDDEN` })
+  })
+
+  it(`a NULL sharer (pre-EXP-557 row) is owner-only`, async () => {
+    await expect(
+      assertRepoManager(`u1`, { teamId: `ws1`, sharedByUserId: null })
+    ).rejects.toMatchObject({ code: `FORBIDDEN` })
+    assertTeamMember.mockResolvedValue({ role: `owner` })
+    await expect(
+      assertRepoManager(`owner-1`, { teamId: `ws1`, sharedByUserId: null })
+    ).resolves.toBeUndefined()
+  })
+
+  it(`membership itself is still required (non-member throws through)`, async () => {
+    assertTeamMember.mockRejectedValue(new Error(`FORBIDDEN`))
+    await expect(
+      assertRepoManager(`stranger`, { teamId: `ws1`, sharedByUserId: `stranger` })
+    ).rejects.toThrow(/FORBIDDEN/)
   })
 })

@@ -18,7 +18,6 @@ const permissionsFor = (role: `owner` | `member`): TeamPermissions => {
     canManageTeam: isOwner,
     canDeleteBoard: isOwner,
     canManageMembers: isOwner,
-    canManageRepos: isOwner,
     canManageWidgets: isOwner,
     plan: null,
     billingPlan: null,
@@ -106,5 +105,17 @@ describe(`SETTINGS_NAV General visibility`, () => {
     expect(firstVisible(permissionsFor(`member`), team)?.to).toBe(
       `/t/$teamSlug/settings/members`
     )
+  })
+})
+
+// EXP-557 per-user sharing: every member manages their own GitHub connection
+// in the Repositories section, so it is member-visible like Members/Labels.
+describe(`SETTINGS_NAV Repositories visibility (EXP-557)`, () => {
+  const team: SettingsNavContext = { isCloud: false }
+  const repositories = items.find((item) => item.label === `Repositories`)!
+
+  it(`is visible to owners and plain members alike`, () => {
+    expect(repositories.visible(permissionsFor(`owner`), team)).toBe(true)
+    expect(repositories.visible(permissionsFor(`member`), team)).toBe(true)
   })
 })

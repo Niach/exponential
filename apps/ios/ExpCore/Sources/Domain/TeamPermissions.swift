@@ -12,17 +12,20 @@ public struct TeamPermissions: Sendable {
     public let isAuthed: Bool
     public let isMember: Bool
     public let isOwner: Bool
+    /// The GLOBAL/instance admin flag (console access). EXP-557: it grants NO
+    /// team capabilities — non-members get no mutation affordances, admin or
+    /// not (mirrors the server's resolveTeamAccess).
     public let isAdmin: Bool
 
-    /// Members and admins moderate. There is no longer a lesser "participant"
-    /// tier — membership is invite-only again.
-    public var isModerator: Bool { isMember || isAdmin }
+    /// Members moderate. There is no longer a lesser "participant" tier —
+    /// membership is invite-only again.
+    public var isModerator: Bool { isMember }
 
     public let canCreate: Bool
 
     public func canMutateIssue(creatorId: String?) -> Bool {
         guard isAuthed else { return false }
-        return isMember || isAdmin
+        return isMember
     }
 
     fileprivate let currentUserId: String?
@@ -68,7 +71,7 @@ extension TeamPermissions {
         }()
         let isMember = memberRole != nil
         let isOwner = memberRole == "owner"
-        let canCreate = isAuthed && (isMember || isAdmin)
+        let canCreate = isMember
 
         return TeamPermissions(
             isAuthed: isAuthed,

@@ -62,6 +62,8 @@ import {
 } from "@/components/ui/tooltip"
 import {
   GithubRepoPicker,
+  openGithubPopup,
+  POPUP_BLOCKED_MESSAGE,
   type PickerRepo,
 } from "@/components/github-repo-picker"
 
@@ -72,10 +74,25 @@ type GithubStatus = Awaited<
 >
 type GithubInstallation = GithubStatus[`installations`][number]
 
-export function TeamRepositoriesSection({ teamId }: { teamId: string }) {
+// Member-visible since EXP-557 (per-user sharing): the status line and the
+// pickers show the VIEWER's own GitHub connections/repos (the server scopes
+// them), connecting shares a repo with the team, and row management (remove,
+// branch pin) is sharer-or-owner. Owners additionally get a Disconnect button
+// on STALE accounts — linked installations no reconnect can ever refresh.
+export function TeamRepositoriesSection({
+  teamId,
+  currentUserId,
+  isOwner,
+}: {
+  teamId: string
+  currentUserId: string | undefined
+  isOwner: boolean
+}) {
   const [repos, setRepos] = useState<RepoList | null>(null)
   const [connectOpen, setConnectOpen] = useState(false)
   const [removeTarget, setRemoveTarget] = useState<RepoRowData | null>(null)
+  const [disconnectTarget, setDisconnectTarget] =
+    useState<GithubInstallation | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Set when the last failure was a plan cap (PRECONDITION_FAILED from
@@ -136,13 +153,14 @@ export function TeamRepositoriesSection({ teamId }: { teamId: string }) {
     return () => window.removeEventListener(`focus`, onFocus)
   }, [refresh, refreshGithubStatus])
 
-  const openGithubPopup = (url: string | null | undefined) => {
+  // Connect/install URLs carry a signed single-use state token (it drives
+  // the team claim and the self-closing landing page) — never append query
+  // params. The focus listener above re-detects when the popup hands focus
+  // back. openGithubPopup re-focuses an already-open popup and reports a
+  // popup-blocked null so the button never silently does nothing (EXP-557).
+  const openConnectHop = (url: string | null | undefined) => {
     if (!url) return
-    // Connect/install URLs carry a signed single-use state token (it drives
-    // the team claim and the self-closing landing page) — never append
-    // query params. The focus listener above re-detects when the popup hands
-    // focus back.
-    window.open(url, `gh-install`, `popup,width=980,height=820`)
+    setError(openGithubPopup(url) ? null : POPUP_BLOCKED_MESSAGE)
   }
 
   const run = async (fn: () => Promise<unknown>) => {
@@ -241,9 +259,9 @@ export function TeamRepositoriesSection({ teamId }: { teamId: string }) {
             </Badge>
           </CardTitle>
           <CardDescription>
-            Connect GitHub repos so boards in this team can be coded on.
-            Point a board at a repo to make it the clone target for
-            &ldquo;Start coding&rdquo;.
+            Connect your GitHub repos to share them with the team — everyone
+            can code on a shared repo. Point a board at one to make it the
+            clone target for &ldquo;Start coding&rdquo;.
           </CardDescription>
           <CardAction>
             <Button size="sm" onClick={() => setConnectOpen(true)}>
@@ -258,8 +276,9 @@ export function TeamRepositoriesSection({ teamId }: { teamId: string }) {
             busy={busy}
             canUnlink
             connectHopUrl={connectHopUrl}
-            onConnect={() => openGithubPopup(connectHopUrl)}
+            onConnect={() => openConnectHop(connectHopUrl)}
             onUnlink={handleUnlink}
+            onDisconnectStale={setDisconnectTarget}
           />
 
           {error && (
@@ -297,6 +316,11 @@ export function TeamRepositoriesSection({ teamId }: { teamId: string }) {
                   key={repo.id}
                   repo={repo}
                   busy={busy}
+                  canManage={
+                    isOwner ||
+                    (currentUserId != null &&
+                      repo.sharedBy?.id === currentUserId)
+                  }
                   manageUrl={manageUrlForRepo(repo)}
                   installationSuspended={suspendedForRepo(repo)}
                   onRemove={() => setRemoveTarget(repo)}
@@ -402,6 +426,41 @@ export function TeamRepositoriesSection({ teamId }: { teamId: string }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AlertDialog
+        open={disconnectTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDisconnectTarget(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Disconnect GitHub account</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes{` `}
+              {disconnectTarget
+                ? installationLabel(disconnectTarget)
+                : `this account`}
+              {` `}from the team. Nobody&rsquo;s GitHub connection covers it, so
+              no repositories are lost.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={busy}
+              onClick={() => {
+                const target = disconnectTarget
+                setDisconnectTarget(null)
+                if (!target) return
+                void handleUnlink(target.installationId)
+              }}
+            >
+              Disconnect
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }
@@ -422,6 +481,7 @@ function GithubStatusLine({
   connectHopUrl,
   onConnect,
   onUnlink,
+  onDisconnectStale,
 }: {
   status: GithubStatus | null
   busy: boolean
@@ -429,6 +489,7 @@ function GithubStatusLine({
   connectHopUrl: string | null
   onConnect: () => void
   onUnlink: (installationId: number) => void
+  onDisconnectStale: (installation: GithubInstallation) => void
 }) {
   if (!status) return null
 
@@ -484,10 +545,17 @@ function GithubStatusLine({
   }
 
   // The account line ALWAYS renders when installed (EXP-365): it carries the
-  // per-account unlink ✕ — the only affordance that can remove a stale link,
-  // which is exactly what a permanent reconnect warning needs. The warning is
-  // an ADDITIONAL line naming the offending accounts, never a replacement.
-  const needingReauth = installations.filter((inst) => inst.needsReauth)
+  // per-account unlink ✕. STALE accounts (zero grants from anyone — EXP-557)
+  // get their own line with a visible Disconnect button instead of the
+  // reconnect nag: reconnecting can never refresh them, which is exactly how
+  // the warning got permanent (EXP-556).
+  const staleAccounts = installations.filter(
+    (inst) => inst.stale && !inst.suspended
+  )
+  const staleIds = new Set(staleAccounts.map((inst) => inst.installationId))
+  const needingReauth = installations.filter(
+    (inst) => inst.needsReauth && !staleIds.has(inst.installationId)
+  )
 
   return (
     <div className="space-y-2">
@@ -542,6 +610,27 @@ function GithubStatusLine({
           )}
         </div>
       )}
+      {staleAccounts.map((inst) => (
+        <div
+          key={inst.installationId}
+          className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
+        >
+          <span className="w-3.5 shrink-0" aria-hidden />
+          <span className="min-w-0 flex-1">
+            No one&rsquo;s GitHub connection covers{` `}
+            {installationLabel(inst)} anymore — reconnecting can&rsquo;t
+            refresh it.
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy}
+            onClick={() => onDisconnectStale(inst)}
+          >
+            Disconnect account
+          </Button>
+        </div>
+      ))}
     </div>
   )
 }
@@ -549,6 +638,7 @@ function GithubStatusLine({
 function RepoRow({
   repo,
   busy,
+  canManage,
   manageUrl,
   installationSuspended,
   onRemove,
@@ -556,6 +646,9 @@ function RepoRow({
 }: {
   repo: RepoRowData
   busy: boolean
+  // Sharer-or-owner (EXP-557): remove and the branch pin. Everyone else gets
+  // a read-only row (they can still code on the shared repo).
+  canManage: boolean
   manageUrl: string | null
   installationSuspended: boolean
   onRemove: () => void
@@ -570,18 +663,27 @@ function RepoRow({
         <span className="min-w-0 flex-1 truncate text-sm font-medium">
           {repo.fullName}
         </span>
-        <DefaultBranchMenu
-          repo={repo}
-          busy={busy}
-          onPick={onSetDefaultBranch}
-        />
+        {canManage ? (
+          <DefaultBranchMenu
+            repo={repo}
+            busy={busy}
+            onPick={onSetDefaultBranch}
+          />
+        ) : (
+          <Badge
+            variant="outline"
+            className="h-5 shrink-0 rounded-md px-1.5 font-mono text-xs font-normal"
+          >
+            {repo.defaultBranch}
+          </Badge>
+        )}
         {repo.private && (
           <Badge variant="secondary" className="shrink-0 gap-1 text-xs">
             <Lock className="h-3 w-3" />
             Private
           </Badge>
         )}
-        {inUse ? (
+        {!canManage ? null : inUse ? (
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -657,6 +759,11 @@ function RepoRow({
         ) : (
           <span className="text-xs text-muted-foreground">
             Not used by any board
+          </span>
+        )}
+        {repo.sharedBy && (
+          <span className="text-xs text-muted-foreground">
+            · Shared by {repo.sharedBy.name || repo.sharedBy.email}
           </span>
         )}
       </div>

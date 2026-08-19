@@ -106,11 +106,13 @@ export const SETTINGS_NAV: { group: string; items: SettingsNavItem[] }[] = [
         icon: conceptIcon(`settings-boards`),
         visible: (permissions) => permissions.isOwner,
       },
+      // EXP-557 per-user sharing: every member manages their own GitHub
+      // connection and shares repos here, so the section is member-visible.
       {
         label: `Repositories`,
         to: `/t/$teamSlug/settings/repositories`,
         icon: conceptIcon(`settings-repositories`),
-        visible: (permissions) => permissions.canManageRepos,
+        visible: () => true,
       },
     ],
   },

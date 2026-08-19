@@ -282,6 +282,71 @@ final class WireDecodingTests: XCTestCase {
         XCTAssertNil(AuthApi.forgotPasswordUrl(instanceUrl: nil))
     }
 
+    // MARK: - GithubInstallation (`stale` rides only the `status` endpoint, EXP-557)
+
+    func testGithubInstallationDecodesStaleTrue() throws {
+        let installation = try decode(GithubInstallation.self, #"""
+        {
+          "installationId": 42, "accountLogin": "octo", "accountType": "User",
+          "manageUrl": "https://github.com/settings/installations/42",
+          "needsReauth": false, "suspended": false, "stale": true
+        }
+        """#)
+        XCTAssertTrue(installation.isStale)
+        XCTAssertFalse(installation.isSuspended)
+    }
+
+    func testGithubInstallationStaleAbsentDefaultsFalse() throws {
+        // The `repos` endpoint (and pre-EXP-557 servers) never emit `stale` —
+        // absent must decode as "not stale", never a decode failure.
+        let installation = try decode(GithubInstallation.self, #"""
+        {
+          "installationId": 42, "accountLogin": "octo", "accountType": "User",
+          "manageUrl": "https://github.com/settings/installations/42",
+          "needsReauth": true
+        }
+        """#)
+        XCTAssertFalse(installation.isStale)
+        XCTAssertTrue(installation.needsReauth)
+    }
+
+    // MARK: - TeamRepo (`sharedBy` — per-user repo sharing, EXP-557)
+
+    func testTeamRepoDecodesSharedByWithNullName() throws {
+        let repo = try decode(TeamRepo.self, #"""
+        {
+          "id": "r1", "fullName": "acme/app", "defaultBranch": "main",
+          "private": true,
+          "boards": [{"id": "b1", "name": "App", "slug": "app"}],
+          "sharedBy": {"id": "u1", "name": null, "email": "dev@acme.test"}
+        }
+        """#)
+        XCTAssertEqual(repo.sharedBy?.id, "u1")
+        XCTAssertNil(repo.sharedBy?.name)
+        XCTAssertEqual(repo.sharedBy?.email, "dev@acme.test")
+        XCTAssertTrue(repo.isPrivate)
+    }
+
+    func testTeamRepoSharedByAbsentOrNullIsNil() throws {
+        // Old servers omit the key; legacy sharer-less rows send null — both
+        // must decode with a nil sharedBy (row management falls to owners).
+        let absent = try decode(TeamRepo.self, #"""
+        {
+          "id": "r1", "fullName": "acme/app", "defaultBranch": "main",
+          "private": false, "boards": []
+        }
+        """#)
+        XCTAssertNil(absent.sharedBy)
+
+        let null = try decode(TeamRepo.self, #"""
+        {
+          "id": "r2", "fullName": "acme/site", "defaultBranch": "main",
+          "private": false, "boards": [], "sharedBy": null
+        }
+        """#)
+        XCTAssertNil(null.sharedBy)
+    }
+
     // MARK: - Helper edges
 
     func testWireIntThrowsOnUnparseableString() {

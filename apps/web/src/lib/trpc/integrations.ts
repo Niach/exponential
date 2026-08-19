@@ -12,7 +12,6 @@ import {
   githubInstallations,
   repositories,
 } from "@/db/schema"
-import { isUserAdmin } from "@/lib/admin"
 import { assertTeamMember } from "@/lib/team-membership"
 import { TRPCError } from "@trpc/server"
 import {
@@ -38,14 +37,11 @@ type Tx = Parameters<Parameters<Db[`transaction`]>[0]>[0]
 // locks of — the transaction that writes the repository row (EXP-371).
 type Executor = Pick<Db, `select`>
 
-// Repo management (connect/remove/claim/unlink) is owner-or-instance-admin,
-// mirroring member management. Lives here (not repositories.ts) because both
-// routers need it and repositories.ts already imports from this module —
-// repositories.ts re-exports it for its existing callers.
-export async function assertCanManageRepos(userId: string, teamId: string) {
-  if (await isUserAdmin(userId)) return
-  await assertTeamMember(userId, teamId, [`owner`])
-}
+// EXP-557 per-user sharing: connecting a repo is something any member does
+// with THEIR OWN GitHub connection (grant rows scoped to the actor), and a
+// connected repo is managed by its sharer or a team owner. The old
+// owner-or-instance-admin `assertCanManageRepos` gate is gone — instance
+// admins differ from normal users only by admin-console access.
 
 // --- The link row lock (EXP-371) --------------------------------------------
 // Unlinking guards on "no connected repo uses this installation"
@@ -84,12 +80,19 @@ async function teamLinkRows(
   exec: Executor,
   teamId: string,
   installationIds: number[]
-): Promise<Array<{ linkId: string; installationId: number }>> {
+): Promise<
+  Array<{
+    linkId: string
+    installationId: number
+    createdByUserId: string | null
+  }>
+> {
   if (installationIds.length === 0) return []
   return exec
     .select({
       linkId: githubInstallationLinks.id,
       installationId: githubInstallations.installationId,
+      createdByUserId: githubInstallationLinks.createdByUserId,
     })
     .from(githubInstallationLinks)
     .innerJoin(
@@ -185,6 +188,10 @@ interface ResolvedInstallation {
   // survives a suspension — only `installation.deleted` drops it — so this is
   // the health signal every surface reads, never the claim itself.
   suspendedAt: Date | null
+  // Who linked this installation to the team (EXP-557 viewer scoping: a link
+  // you created counts as YOUR installation even before any grant lands).
+  // NULL on legacy rows.
+  createdByUserId: string | null
 }
 
 // The installations a team may browse/connect: exactly its claimed links.
@@ -202,6 +209,7 @@ async function resolveTeamInstallations(
       accountLogin: githubInstallations.accountLogin,
       accountType: githubInstallations.accountType,
       suspendedAt: githubInstallations.suspendedAt,
+      createdByUserId: githubInstallationLinks.createdByUserId,
     })
     .from(githubInstallationLinks)
     .innerJoin(
@@ -218,15 +226,18 @@ async function resolveTeamInstallations(
 // `GET /user/installations/{id}/repositories`) records what the connecting
 // user could actually access; when the App's OAuth secret is configured, repo
 // DISCOVERY (the `repos` query) and CONNECT (assertRepoInstallationAccess)
-// are confined to granted repos. Without the OAuth secret there is no
-// user-scoped capture path at all (single-tenant/trusted self-host), so the
-// installation-wide behavior stays — exactly mirroring setup.ts's
-// githubOAuthConfigured() split. Token minting is deliberately NOT grant-gated
-// (already-connected repos keep working; the gate is for discovery/connect).
+// are confined to the ACTING USER's granted repos (EXP-557: you browse and
+// connect only what your own OAuth proved — connecting then SHARES the repo
+// with the team). Without the OAuth secret there is no user-scoped capture
+// path at all (single-tenant/trusted self-host), so the installation-wide
+// behavior stays — exactly mirroring setup.ts's githubOAuthConfigured()
+// split. Token minting is deliberately NOT grant-gated (already-connected
+// repos keep working; the gate is for discovery/connect).
 
-// Every granted (installationId, fullName, …) for a team, restricted to
-// the given linked installation ids. Any member's grant counts — entitlement
-// is the union across members.
+// Every granted (installationId, fullName, …, grantedByUserId) for a team,
+// restricted to the given linked installation ids. Callers slice per viewer
+// (discovery, needsReauth) or across everyone (the owner's stale-link
+// detection) from the same rows.
 async function teamGrantRows(
   exec: Executor,
   teamId: string,
@@ -237,6 +248,7 @@ async function teamGrantRows(
     fullName: string
     private: boolean
     defaultBranch: string | null
+    grantedByUserId: string | null
   }>
 > {
   if (installationIds.length === 0) return []
@@ -246,6 +258,7 @@ async function teamGrantRows(
       fullName: githubInstallationRepoGrants.fullName,
       private: githubInstallationRepoGrants.private,
       defaultBranch: githubInstallationRepoGrants.defaultBranch,
+      grantedByUserId: githubInstallationRepoGrants.grantedByUserId,
     })
     .from(githubInstallationRepoGrants)
     .where(
@@ -256,11 +269,14 @@ async function teamGrantRows(
     )
 }
 
-// The connect-time grant gate. No-op when the OAuth secret isn't configured
-// (no capture path exists — trusted single-tenant fallback).
+// The connect-time grant gate, ACTING-USER-scoped (EXP-557): only a grant the
+// actor's own OAuth captured entitles them to connect the repo — a teammate's
+// grant doesn't. No-op when the OAuth secret isn't configured (no capture
+// path exists — trusted single-tenant fallback).
 async function assertRepoGrant(
   exec: Executor,
   teamId: string,
+  userId: string,
   installationId: number,
   fullName: string
 ): Promise<void> {
@@ -272,7 +288,8 @@ async function assertRepoGrant(
       and(
         eq(githubInstallationRepoGrants.teamId, teamId),
         eq(githubInstallationRepoGrants.installationId, installationId),
-        eq(githubInstallationRepoGrants.fullName, fullName)
+        eq(githubInstallationRepoGrants.fullName, fullName),
+        eq(githubInstallationRepoGrants.grantedByUserId, userId)
       )
     )
     .limit(1)
@@ -283,9 +300,9 @@ async function assertRepoGrant(
   })
 }
 
-// Short-lived in-process cache of a team's installable repos so
-// re-opening the board dialog doesn't hammer GitHub (and its secondary rate
-// limits). Keyed per team.
+// Short-lived in-process cache of the installable repos so re-opening the
+// board dialog doesn't hammer GitHub (and its secondary rate limits). Keyed
+// per (team, user) since EXP-557 — discovery is viewer-scoped.
 const REPOS_TTL_MS = 60_000
 interface CachedRepos {
   repos: InstallationRepo[]
@@ -297,11 +314,19 @@ interface CachedRepos {
 }
 const repoCache = new Map<string, CachedRepos>()
 
-// Drop a team's cached repo list so the next `repos` query re-hits
-// GitHub. Called after a claim/link lands or when the UI asks for a forced
-// refresh, both of which mean the installable set just changed.
+// `\0` can't appear in a uuid or a Better Auth user id, so the compound key
+// never collides across teams.
+function repoCacheKey(teamId: string, userId: string): string {
+  return `${teamId}\0${userId}`
+}
+
+// Drop a team's cached repo lists (every member's entry) so the next `repos`
+// query re-hits the DB/GitHub. Called after a claim/link lands or when the UI
+// asks for a forced refresh, both of which mean the installable set changed.
 export function invalidateRepoCache(teamId: string): void {
-  repoCache.delete(teamId)
+  for (const key of repoCache.keys()) {
+    if (key.startsWith(`${teamId}\0`)) repoCache.delete(key)
+  }
 }
 
 // Installation-wide invalidation (webhooks: repos granted/removed, install
@@ -369,6 +394,26 @@ async function healSuspendedInstallations(
   )
 }
 
+// EXP-557 viewer scoping: the installations that count as YOURS — links you
+// created ∪ installations where your own OAuth captured at least one grant.
+// Callers only reach for this when OAuth is configured (grants exist); the
+// trusted non-OAuth self-host keeps the whole team-linked set for everyone.
+function viewerInstallations(
+  installs: ResolvedInstallation[],
+  userId: string,
+  grants: Array<{ installationId: number; grantedByUserId: string | null }>
+): ResolvedInstallation[] {
+  const mine = new Set(
+    grants
+      .filter((g) => g.grantedByUserId === userId)
+      .map((g) => g.installationId)
+  )
+  return installs.filter(
+    (inst) =>
+      inst.createdByUserId === userId || mine.has(inst.installationId)
+  )
+}
+
 // The suspended installations' account labels, for actionable error copy.
 function suspendedLabel(installs: ResolvedInstallation[]): string {
   const logins = installs
@@ -406,10 +451,10 @@ async function lockResolvedLink(
 // the client-supplied one. When GitHub's per-repo lookup 404s (it's flaky when
 // the App spans several accounts), fall back to scanning the team's
 // linked installations' repo lists — bounded, connect-time only.
-// On OAuth-configured instances the resolved installation must ALSO carry a
-// user-scoped grant for this exact repo (assertRepoGrant) — the link alone is
-// installation-granular, and a single-repo collaborator must not connect the
-// rest of the account's repos.
+// On OAuth-configured instances the resolved installation must ALSO carry the
+// ACTING USER's grant for this exact repo (assertRepoGrant, EXP-557) — the
+// link alone is installation-granular, and neither a single-repo collaborator
+// nor a teammate riding someone else's grant may connect through it.
 // A SUSPENDED installation is refused with its own actionable message
 // (REV2-29): it can't mint a token, so connecting through it would register a
 // repo row that fails at the first clone with a misleading "reconnect" error.
@@ -420,6 +465,7 @@ async function lockResolvedLink(
 export async function assertRepoInstallationAccess(
   tx: Tx,
   teamId: string,
+  userId: string,
   fullName: string
 ): Promise<number> {
   const linked = await resolveTeamInstallations(tx, teamId)
@@ -453,9 +499,9 @@ export async function assertRepoInstallationAccess(
           : `${fullName} belongs to a GitHub App installation that isn't connected to this team. Connect that GitHub account in team settings → Repositories first.`,
       })
     }
-    // The link alone is installation-granular; the grant (captured user-scoped
-    // at OAuth time) proves a member can actually access THIS repo.
-    await assertRepoGrant(tx, teamId, repoInstallationId, fullName)
+    // The link alone is installation-granular; the ACTOR's grant (captured
+    // user-scoped at OAuth time) proves they can actually access THIS repo.
+    await assertRepoGrant(tx, teamId, userId, repoInstallationId, fullName)
     return lockResolvedLink(tx, matched, fullName)
   }
   for (const inst of installs) {
@@ -470,7 +516,7 @@ export async function assertRepoInstallationAccess(
       // A revoked/suspended installation must not fail the whole scan.
     }
     if (found) {
-      await assertRepoGrant(tx, teamId, inst.installationId, fullName)
+      await assertRepoGrant(tx, teamId, userId, inst.installationId, fullName)
       return lockResolvedLink(tx, inst, fullName)
     }
   }
@@ -541,7 +587,7 @@ export const integrationsRouter = router({
         const userId = ctx.session.user.id
         const { teamId } = input
         const mobile = input.platform === `mobile`
-        await assertTeamMember(userId, teamId)
+        const member = await assertTeamMember(userId, teamId)
         if (!githubAppConfigured()) {
           return {
             configured: false as const,
@@ -550,45 +596,78 @@ export const integrationsRouter = router({
             connectUrl: null as string | null,
             accounts: [] as string[],
             installations: [] as Array<
-              ReturnType<typeof installationSummary> & { needsReauth: boolean }
+              ReturnType<typeof installationSummary> & {
+                needsReauth: boolean
+                stale: boolean
+              }
             >,
           }
         }
         // Suspended links are probed (and self-healed) here too — this is the
         // settings section's only data source, so a stale mark would strand the
         // whole GitHub surface behind a suspension banner (REV2-29).
-        const installs = await healSuspendedInstallations(
+        const linked = await healSuspendedInstallations(
           await resolveTeamInstallations(ctx.db, teamId)
         )
-        // Additive UX signal: a linked installation with ZERO grants for this
-        // team (e.g. linked before grants existed) yields no repos and
-        // refuses connects until a member re-runs the OAuth connect flow —
-        // surface that as `needsReauth` so the settings UI can prompt.
-        const grantedIds = githubOAuthConfigured()
-          ? new Set(
-              (
-                await teamGrantRows(
-                  ctx.db,
-                  teamId,
-                  installs.map((i) => i.installationId)
-                )
-              ).map((g) => g.installationId)
+        const oauth = githubOAuthConfigured()
+        const grants = oauth
+          ? await teamGrantRows(
+              ctx.db,
+              teamId,
+              linked.map((i) => i.installationId)
             )
-          : null
+          : []
+        // EXP-557 viewer scoping: you see YOUR GitHub connections (links you
+        // created ∪ installations your grants attribute to you). Owners
+        // additionally see every STALE link — linked but with zero grants
+        // from ANYONE (a legacy/orphaned claim that can only warn forever) —
+        // so they can disconnect it. Non-OAuth instances keep the whole
+        // team-linked set (no grants exist to scope by).
+        const anyGrantIds = new Set(grants.map((g) => g.installationId))
+        const myGrantIds = new Set(
+          grants
+            .filter((g) => g.grantedByUserId === userId)
+            .map((g) => g.installationId)
+        )
+        const mine = oauth ? viewerInstallations(linked, userId, grants) : linked
+        const mineIds = new Set(mine.map((i) => i.installationId))
+        const staleExtra =
+          oauth && member?.role === `owner`
+            ? linked.filter(
+                (inst) =>
+                  !mineIds.has(inst.installationId) &&
+                  !anyGrantIds.has(inst.installationId)
+              )
+            : []
+        const visible = [...mine, ...staleExtra]
         return {
           configured: true as const,
-          installed: installs.length > 0,
+          installed: visible.length > 0,
           installUrl: installUrlFor(userId, teamId, { mobile }),
           connectUrl: connectUrlFor(userId, teamId, { mobile }),
-          // Login-only convenience mirror of `installations`.
-          accounts: installs
+          // Login-only convenience mirror of `installations` — kept ONLY for
+          // shipped native builds that decode it non-optionally (the iOS build
+          // in App Review). Cleanup: EXP-558.
+          accounts: visible
             .map((r) => r.accountLogin)
             .filter((a): a is string => Boolean(a)),
-          installations: installs.map((inst) => ({
+          installations: visible.map((inst) => ({
             ...installationSummary(inst),
-            needsReauth: grantedIds
-              ? !grantedIds.has(inst.installationId)
-              : false,
+            // Per-viewer: YOUR installation with zero grants FROM YOU needs a
+            // reconnect (suspended installs need an unsuspend instead —
+            // never nudge for the wrong fix, parity with `repos`).
+            needsReauth:
+              oauth &&
+              inst.suspendedAt == null &&
+              mineIds.has(inst.installationId) &&
+              !myGrantIds.has(inst.installationId),
+            // Zero grants from ANY member: reconnecting can never heal this
+            // link — the UI renders a Disconnect affordance instead
+            // (server-enforced link-creator-or-owner on `unlink`).
+            stale:
+              oauth &&
+              inst.suspendedAt == null &&
+              !anyGrantIds.has(inst.installationId),
           })),
         }
       }),
@@ -636,9 +715,27 @@ export const integrationsRouter = router({
         // healthy account's repos: `installed` still counts the LINK, but a
         // still-suspended installation contributes no connectable repos —
         // connecting through it would register a repo row that can't clone.
-        const installs = await healSuspendedInstallations(
+        const linked = await healSuspendedInstallations(
           await resolveTeamInstallations(ctx.db, teamId)
         )
+        // EXP-557 viewer scoping (OAuth instances): the pickers list YOUR
+        // installations and YOUR granted repos only — connecting shares the
+        // repo with the team, but discovery never unions across members.
+        // Non-OAuth self-hosts have no grants to scope by and keep the
+        // team-linked set. Grants are read for ALL linked installations —
+        // they also ATTRIBUTE a suspended installation to the viewer (so its
+        // banner still renders); the repo merge below skips inactive ids.
+        const oauthScoped = githubOAuthConfigured()
+        const grants = oauthScoped
+          ? await teamGrantRows(
+              ctx.db,
+              teamId,
+              linked.map((i) => i.installationId)
+            )
+          : []
+        const installs = oauthScoped
+          ? viewerInstallations(linked, userId, grants)
+          : linked
         const urls = {
           installUrl: installUrlFor(userId, teamId, { mobile }),
           connectUrl: connectUrlFor(userId, teamId, { mobile }),
@@ -660,7 +757,8 @@ export const integrationsRouter = router({
           }
         }
 
-        const cached = repoCache.get(teamId)
+        const cacheKey = repoCacheKey(teamId, userId)
+        const cached = repoCache.get(cacheKey)
         if (cached && cached.expiresAt > Date.now()) {
           return {
             configured: true as const,
@@ -689,18 +787,20 @@ export const integrationsRouter = router({
             .filter((i) => i.suspendedAt == null)
             .map((i) => i.installationId)
         )
-        if (githubOAuthConfigured()) {
+        if (oauthScoped) {
           // Grant path (OAuth configured): the pickers list exactly the repos
-          // some member proved USER-SCOPED access to at OAuth time — never the
-          // installation-wide selection (which leaks every repo of an account
-          // to a single-repo collaborator), and with zero GitHub round-trips.
-          // The grant snapshot is bounded (capture pages are capped), so
-          // hasMore is always false here; re-running the connect flow is the
-          // refresh. A linked installation with no grants at all needs exactly
-          // that — surfaced as `needsReauth`.
-          const grants = await teamGrantRows(ctx.db, teamId, [...activeIds])
-          const grantedIds = new Set(grants.map((g) => g.installationId))
-          for (const grant of grants) {
+          // THE VIEWER proved user-scoped access to at OAuth time (EXP-557) —
+          // never the installation-wide selection (which leaks every repo of
+          // an account to a single-repo collaborator) and never a teammate's
+          // grants, with zero GitHub round-trips. The grant snapshot is
+          // bounded (capture pages are capped), so hasMore is always false
+          // here; re-running the connect flow is the refresh. Your linked
+          // installation with no grants from you needs exactly that —
+          // surfaced as `needsReauth`.
+          const myGrants = grants.filter((g) => g.grantedByUserId === userId)
+          const myGrantIds = new Set(myGrants.map((g) => g.installationId))
+          for (const grant of myGrants) {
+            if (!activeIds.has(grant.installationId)) continue
             if (seen.has(grant.fullName)) continue
             seen.add(grant.fullName)
             merged.push({
@@ -718,7 +818,7 @@ export const integrationsRouter = router({
               // re-auth — never nudge for the wrong fix.
               needsReauth:
                 inst.suspendedAt == null &&
-                !grantedIds.has(inst.installationId),
+                !myGrantIds.has(inst.installationId),
             })
           }
         } else {
@@ -749,7 +849,7 @@ export const integrationsRouter = router({
           }
         }
         merged.sort((a, b) => a.fullName.localeCompare(b.fullName))
-        repoCache.set(teamId, {
+        repoCache.set(cacheKey, {
           repos: merged,
           hasMore,
           installations: withMeta,
@@ -782,7 +882,10 @@ export const integrationsRouter = router({
             message: `This claim link expired or belongs to another session. Restart the connect flow from team settings.`,
           })
         }
-        await assertCanManageRepos(ctx.session.user.id, claim.w)
+        // Any member may claim the installations their own OAuth proved
+        // control of (EXP-557) — connecting your account is how you share
+        // your repos with the team.
+        await assertTeamMember(ctx.session.user.id, claim.w)
         const rows = await ctx.db
           .select({
             id: githubInstallations.id,
@@ -882,17 +985,29 @@ export const integrationsRouter = router({
             message: `Selection links and unlinks the same installation.`,
           })
         }
-        await assertCanManageRepos(userId, claim.w)
+        // Linking is member-level (EXP-557: you claim your own controlled
+        // installations); the unlink side below additionally requires the
+        // actor to be each link's creator or a team owner.
+        const member = await assertTeamMember(userId, claim.w)
+        const isOwner = member?.role === `owner`
         // One transaction for the whole save, opened by the LOCK on every link
         // this save would delete (EXP-371) — the in-use guards below are only
         // race-free while that lock is held, and a CONFLICT now rolls the
         // link inserts back instead of relying on statement ordering.
         const result = await ctx.db.transaction(async (tx) => {
+          const unlinkRows = await teamLinkRows(tx, claim.w, input.unlinkIds)
+          const foreign = unlinkRows.filter(
+            (row) => !isOwner && row.createdByUserId !== userId
+          )
+          if (foreign.length > 0) {
+            throw new TRPCError({
+              code: `FORBIDDEN`,
+              message: `Only the member who connected a GitHub account or a team owner can disconnect it.`,
+            })
+          }
           const lockedLinkIds = await lockInstallationLinks(
             tx,
-            (await teamLinkRows(tx, claim.w, input.unlinkIds)).map(
-              (row) => row.linkId
-            )
+            unlinkRows.map((row) => row.linkId)
           )
           for (const installationId of input.unlinkIds) {
             await assertInstallationNotInUse(tx, claim.w, installationId)
@@ -932,8 +1047,9 @@ export const integrationsRouter = router({
         return result
       }),
 
-    // Remove a team ↔ installation link. Blocked (CONFLICT) while the
-    // team still has connected repos under that installation — mirroring
+    // Remove a team ↔ installation link. Allowed for the link's creator or a
+    // team owner (EXP-557). Blocked (CONFLICT) while the team still has
+    // connected repos under that installation — mirroring
     // repositories.remove's boards-restrict — so no repo row silently loses
     // its token path.
     unlink: authedProcedure
@@ -944,17 +1060,32 @@ export const integrationsRouter = router({
         })
       )
       .mutation(async ({ ctx, input }) => {
-        await assertCanManageRepos(ctx.session.user.id, input.teamId)
+        const userId = ctx.session.user.id
+        const member = await assertTeamMember(userId, input.teamId)
+        const isOwner = member?.role === `owner`
         await ctx.db.transaction(async (tx) => {
           // Lock BEFORE the guard (EXP-371): a repositories.add racing this
           // unlink is now either already committed — so the guard below sees
           // its repo row and CONFLICTs — or blocked on this lock until the
           // link is gone, which fails its own connect closed.
+          const linkRows = await teamLinkRows(tx, input.teamId, [
+            input.installationId,
+          ])
+          // Creator-or-owner: a member may only sever links they created
+          // themselves (NULL-creator legacy links are owner-only).
+          if (
+            linkRows.some(
+              (row) => !isOwner && row.createdByUserId !== userId
+            )
+          ) {
+            throw new TRPCError({
+              code: `FORBIDDEN`,
+              message: `Only the member who connected this GitHub account or a team owner can disconnect it.`,
+            })
+          }
           const lockedLinkIds = await lockInstallationLinks(
             tx,
-            (await teamLinkRows(tx, input.teamId, [input.installationId])).map(
-              (row) => row.linkId
-            )
+            linkRows.map((row) => row.linkId)
           )
           await assertInstallationNotInUse(
             tx,
