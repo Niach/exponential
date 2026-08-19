@@ -162,6 +162,11 @@ export function AgentDock({
       board,
       user: undefined,
       batchPrIssue: undefined,
+      // A row held open past its live listing (ended while expanded): the
+      // snapshot label suffices and nothing there is "paused" — the session
+      // view resolves the live device itself.
+      device: { label: expandedSession.deviceLabel, online: null },
+      paused: false,
     }
   }, [expandedSession, runningById, expandedIssueRows, boards])
 
@@ -358,7 +363,7 @@ function DockTab({
   expanded: boolean
   onClick: () => void
 }) {
-  const { session, issue } = row
+  const { session, issue, device, paused } = row
   // Action runs label their tab with the action-name snapshot (EXP-253).
   const label = issue?.identifier ?? session.actionName ?? `Batch`
   return (
@@ -367,12 +372,20 @@ function DockTab({
       onClick={onClick}
       className={cn(
         `h-9 shrink-0 gap-1.5 rounded-none border-r border-border px-3 text-xs font-normal`,
-        expanded && `bg-muted`
+        expanded && `bg-muted`,
+        // EXP-550: the host machine is offline — the agent is parked, the
+        // tab greys out instead of pinging "live".
+        paused && `opacity-60`
       )}
+      title={
+        paused ? `Paused · ${device.label ?? `the device`} is offline` : undefined
+      }
     >
-      {session.status === `running` ||
-      session.status === `in_review` ||
-      session.status === `merged` ? (
+      {paused ? (
+        <span className="size-2 shrink-0 rounded-full bg-muted-foreground/40" />
+      ) : session.status === `running` ||
+        session.status === `in_review` ||
+        session.status === `merged` ? (
         (() => {
           // EXP-214 display split: needs-input amber beats everything, a
           // merged PR/session renders blue, review stays green.
@@ -390,9 +403,9 @@ function DockTab({
         <span className="size-2 shrink-0 rounded-full bg-muted-foreground/40" />
       )}
       <span className="max-w-[10rem] truncate font-mono">{label}</span>
-      {session.deviceLabel && (
+      {device.label && (
         <span className="max-w-[8rem] truncate text-muted-foreground">
-          {` · ${session.deviceLabel}`}
+          {` · ${device.label}`}
         </span>
       )}
     </Button>

@@ -1,10 +1,20 @@
 import { useMemo } from "react"
 import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
-import { codingSessionCollection, issueCollection } from "@/lib/collections"
+import {
+  codingSessionCollection,
+  deviceCollection,
+  issueCollection,
+} from "@/lib/collections"
 import { useTeamBoards, useTeamUsers } from "@/hooks/use-team-data"
-import type { CodingSession, Issue, Board, User } from "@/db/schema"
+import type { CodingSession, Device, Issue, Board, User } from "@/db/schema"
 import { isCodingSessionStale } from "@exp/db-schema/domain"
 import { useNow } from "@/hooks/use-now"
+import { sessionDisplayState } from "@/lib/coding-session-display"
+import {
+  resolveSessionDevice,
+  sessionIsPaused,
+  type SessionDevice,
+} from "@/lib/session-device"
 
 export interface AgentSessionRow {
   session: CodingSession
@@ -18,6 +28,12 @@ export interface AgentSessionRow {
    * Set only on issueless batch rows in review whose OWN PR (matched by the
    * stamped session branch, EXP-545) is open and unambiguous. */
   batchPrIssue: Issue | undefined
+  /** EXP-549/550: the host machine as the synced devices row knows it (the
+   * RENAMED label, live online-ness) — falls back to the row's snapshot. */
+  device: SessionDevice
+  /** EXP-550: running/needs-input on an OFFLINE machine — the agent is
+   * parked and resumes when the device returns; render grey, never live. */
+  paused: boolean
 }
 
 // Team Agents page + dock data: the caller's OWN live coding sessions in the
@@ -103,9 +119,24 @@ export function useAgentsData(
     [teamId, needsBatchPr]
   )
 
+  // EXP-549/550: the caller's own + team-shared device rows (the devices
+  // shape is already server-scoped) resolve each session's live label and
+  // online-ness. Ticks every 30 s against the 90 s online window (the
+  // use-remote-start idiom) — also fine-grained enough for the staleness
+  // guard below.
+  const { data: deviceRows } = useLiveQuery(
+    (query) =>
+      teamId && currentUserId ? query.from({ d: deviceCollection }) : undefined,
+    [teamId, currentUserId]
+  )
+  const devices = useMemo(
+    () => (deviceRows ?? []) as Device[],
+    [deviceRows]
+  )
+
   const boards = useTeamBoards(teamId)
   const { userMap } = useTeamUsers(teamId)
-  const now = useNow()
+  const now = useNow(30_000)
 
   return useMemo(() => {
     const issueMap = new Map(
@@ -151,6 +182,7 @@ export function useAgentsData(
       // (status in_review — flipped in the pr_open transaction) gets the
       // resolved batch PR for its Merge button.
       const isBatch = !session.issueId && session.actionName == null
+      const device = resolveSessionDevice(session, devices, now)
       return {
         session,
         issue,
@@ -160,6 +192,11 @@ export function useAgentsData(
           isBatch && session.status === `in_review`
             ? resolveBatchPr(session.branch)
             : undefined,
+        device,
+        paused: sessionIsPaused(
+          sessionDisplayState(session, issue?.prState),
+          device
+        ),
       }
     }
 
@@ -192,6 +229,7 @@ export function useAgentsData(
     openPrIssueRows,
     boards,
     userMap,
+    devices,
     isReady,
     teamId,
     currentUserId,

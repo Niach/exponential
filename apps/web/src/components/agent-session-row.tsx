@@ -64,7 +64,19 @@ const STATE_LABEL: Record<
   done: { text: `Done`, className: `text-sky-400` },
 }
 
-export function RunningIndicator({ state }: { state: SessionDisplayState }) {
+export function RunningIndicator({
+  state,
+  paused = false,
+}: {
+  state: SessionDisplayState
+  /** EXP-550: the host machine is offline — a steady grey dot, no ping. */
+  paused?: boolean
+}) {
+  if (paused) {
+    return (
+      <span className="inline-flex size-2 rounded-full bg-muted-foreground/40" />
+    )
+  }
   if (state !== `running`) {
     return (
       <span
@@ -192,6 +204,10 @@ export function SessionRow({
   // issue (use-agents-data) — same button, same server call as issue rows.
   const prIssue = issue ?? row.batchPrIssue
   const displayState = sessionDisplayState(session, issue?.prState)
+  // EXP-549/550: the host machine per the synced devices row — its RENAMED
+  // label, and greyed-out "Paused" while it is offline (the agent is parked,
+  // not gone; it resumes when the machine comes back).
+  const { device, paused } = row
 
   // FEED-15: the native two-line row — dot | identifier + title, then the
   // parked-state label + "device · started …" byline | icon-only Merge and
@@ -200,12 +216,13 @@ export function SessionRow({
   // (EXP-312), so the byline names the machine, never the person.
   return (
     <div
-      className="group/row flex cursor-pointer items-center gap-3 border-b border-border/30 px-3 py-2 hover:bg-muted/50"
+      className={`group/row flex cursor-pointer items-center gap-3 border-b border-border/30 px-3 py-2 hover:bg-muted/50 ${paused ? `opacity-60` : ``}`}
       onClick={onOpen}
       data-testid={`agent-session-${issue?.identifier ?? session.id}`}
+      title={paused ? `${device.label ?? `The device`} is offline` : undefined}
     >
       <span className="flex w-3 shrink-0 items-center justify-center">
-        <RunningIndicator state={displayState} />
+        <RunningIndicator state={displayState} paused={paused} />
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5 text-sm">
@@ -240,15 +257,19 @@ export function SessionRow({
           </span>
         </div>
         <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-          {displayState !== `running` && (
-            <span
-              className={`shrink-0 font-medium ${STATE_LABEL[displayState].className}`}
-            >
-              {STATE_LABEL[displayState].text}
-            </span>
+          {paused ? (
+            <span className="shrink-0 font-medium">Paused</span>
+          ) : (
+            displayState !== `running` && (
+              <span
+                className={`shrink-0 font-medium ${STATE_LABEL[displayState].className}`}
+              >
+                {STATE_LABEL[displayState].text}
+              </span>
+            )
           )}
           <span className="truncate">
-            {`${session.deviceLabel || `Desktop`} · started ${relativeTime(session.startedAt)}`}
+            {`${device.label || session.deviceLabel || `Desktop`}${paused ? ` (offline)` : ``} · started ${relativeTime(session.startedAt)}`}
           </span>
         </div>
       </div>

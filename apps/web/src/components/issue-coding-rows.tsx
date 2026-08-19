@@ -14,6 +14,8 @@ import { conceptIcon } from "@/lib/icons.generated"
 import type { CodingSession, Issue, Board, User } from "@/db/schema"
 import { isCodingSessionStale } from "@exp/db-schema/domain"
 import { useNow } from "@/hooks/use-now"
+import { useSessionDevice } from "@/hooks/use-session-device"
+import { sessionIsPaused } from "@/lib/session-device"
 import {
   codingSessionCollection,
   teamMemberCollection,
@@ -135,12 +137,28 @@ export function SessionStatusBadge({
   session,
   prState,
   count = 1,
+  paused = false,
 }: {
   session: Pick<CodingSession, `status` | `needsInput`>
   prState: string | null | undefined
   count?: number
+  /** EXP-550: the host machine is offline — the agent is parked, not gone.
+   * Renders a grey "Paused" instead of the live/needs-input badge. */
+  paused?: boolean
 }) {
   const state = sessionDisplayState(session, prState)
+  if (paused) {
+    return (
+      <Badge
+        variant="outline"
+        className="gap-1.5 border-border text-muted-foreground"
+      >
+        <StateDot className="bg-muted-foreground/40" />
+        Paused
+        {count > 1 ? ` (·${count})` : ``}
+      </Badge>
+    )
+  }
   if (state === `running`) {
     return (
       <Badge
@@ -370,20 +388,32 @@ function AgentRow({
       new Date(row.startedAt) > new Date(newest.startedAt) ? row : newest
     )
   }, [sessions, currentUserId])
+  // EXP-549/550: the latest session's host machine per the synced devices
+  // row — renamed label, and "Paused" while that machine is offline.
+  const latestDevice = useSessionDevice(latest)
 
   if (latest) {
     const owner = users.find((u) => u.id === latest.userId)
+    const paused = sessionIsPaused(
+      sessionDisplayState(latest, issue.prState),
+      latestDevice
+    )
     const codingBadge = (
       <SessionStatusBadge
         session={latest}
         prState={issue.prState}
         count={sessions.length}
+        paused={paused}
       />
     )
     const ownerLabel = (
-      <span className="truncate text-xs text-muted-foreground">
+      <span
+        className="truncate text-xs text-muted-foreground"
+        title={paused ? `${latestDevice.label ?? `The device`} is offline` : undefined}
+      >
         {displayUserName(owner, latest.userId)}
-        {latest.deviceLabel ? ` · ${latest.deviceLabel}` : ``}
+        {latestDevice.label ? ` · ${latestDevice.label}` : ``}
+        {paused ? ` (offline)` : ``}
       </span>
     )
 
