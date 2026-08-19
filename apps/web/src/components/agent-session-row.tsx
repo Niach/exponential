@@ -7,10 +7,8 @@ import {
   type SessionDisplayState,
 } from "@/components/issue-coding-rows"
 import { relativeTime } from "@/components/comment-rows/format"
-import { displayUserName } from "@/lib/user-display"
 import { trpc } from "@/lib/trpc-client"
 import { Button } from "@/components/ui/button"
-import { BoardGlyph } from "@/components/board-glyph"
 import {
   Dialog,
   DialogContent,
@@ -123,15 +121,17 @@ function SessionMergeButton({
     <>
       <Button
         variant="outline"
-        size="sm"
+        size="icon"
+        className="size-8"
         disabled={merging}
+        aria-label={merging ? `Merging…` : `Merge pull request`}
+        title={merging ? `Merging…` : `Merge`}
         onClick={(e) => {
           e.stopPropagation()
           setConfirmOpen(true)
         }}
       >
         {merging ? <LoaderCircle className="animate-spin" /> : <GitMerge />}
-        {merging ? `Merging…` : `Merge`}
       </Button>
       <Dialog
         open={confirmOpen}
@@ -185,7 +185,7 @@ export function SessionRow({
   teamSlug: string
   onOpen: () => void
 }) {
-  const { session, issue, board, user } = row
+  const { session, issue, board } = row
   const isAction = session.actionName != null
   const isBatch = !session.issueId
   // EXP-535: batch rows merge through their resolved PR's representative
@@ -193,72 +193,66 @@ export function SessionRow({
   const prIssue = issue ?? row.batchPrIssue
   const displayState = sessionDisplayState(session, issue?.prState)
 
+  // FEED-15: the native two-line row — dot | identifier + title, then the
+  // parked-state label + "device · started …" byline | icon-only Merge and
+  // Watch — instead of the old four-column grid whose inline state label
+  // collided with the buttons on phones. Every row is the caller's own
+  // (EXP-312), so the byline names the machine, never the person.
   return (
     <div
-      className="group/row grid cursor-pointer grid-cols-[1.5rem_4.5rem_1fr_auto] items-center border-b border-border/30 px-3 py-2 hover:bg-muted/50"
+      className="group/row flex cursor-pointer items-center gap-3 border-b border-border/30 px-3 py-2 hover:bg-muted/50"
       onClick={onOpen}
       data-testid={`agent-session-${issue?.identifier ?? session.id}`}
     >
-      <span className="flex items-center">
+      <span className="flex w-3 shrink-0 items-center justify-center">
         <RunningIndicator state={displayState} />
       </span>
-      <span className="truncate font-mono text-xs text-muted-foreground">
-        {isAction ? (
-          `Action`
-        ) : issue && board ? (
-          <Link
-            to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
-            params={{
-              teamSlug,
-              boardSlug: board.slug,
-              issueIdentifier: issue.identifier,
-            }}
-            onClick={(e) => e.stopPropagation()}
-            className="hover:underline"
-          >
-            {issue.identifier}
-          </Link>
-        ) : isBatch ? (
-          `Batch`
-        ) : (
-          `—`
-        )}
-      </span>
-      <div className="min-w-0 pr-2">
+      <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5 text-sm">
-          <span className="truncate">
+          <span className="shrink-0 font-mono text-xs text-muted-foreground">
+            {isAction ? (
+              `Action`
+            ) : issue && board ? (
+              <Link
+                to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
+                params={{
+                  teamSlug,
+                  boardSlug: board.slug,
+                  issueIdentifier: issue.identifier,
+                }}
+                onClick={(e) => e.stopPropagation()}
+                className="hover:underline"
+              >
+                {issue.identifier}
+              </Link>
+            ) : isBatch ? (
+              `Batch`
+            ) : (
+              `—`
+            )}
+          </span>
+          <span className="truncate font-medium">
             {isAction
               ? session.actionName
               : isBatch
                 ? `Batch session`
                 : (issue?.title ?? `Issue syncing…`)}
           </span>
+        </div>
+        <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
           {displayState !== `running` && (
             <span
-              className={`shrink-0 text-xs ${STATE_LABEL[displayState].className}`}
+              className={`shrink-0 font-medium ${STATE_LABEL[displayState].className}`}
             >
               {STATE_LABEL[displayState].text}
             </span>
           )}
-        </div>
-        <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-          {board && (
-            <span className="inline-flex min-w-0 items-center gap-1">
-              <BoardGlyph board={board} className="size-3" />
-              <span className="truncate">{board.name}</span>
-              <span aria-hidden>·</span>
-            </span>
-          )}
           <span className="truncate">
-            {displayUserName(user, session.userId)}
-            {session.deviceLabel ? ` · ${session.deviceLabel}` : ``}
-          </span>
-          <span className="shrink-0 whitespace-nowrap">
-            {`· started ${relativeTime(session.startedAt)}`}
+            {`${session.deviceLabel || `Desktop`} · started ${relativeTime(session.startedAt)}`}
           </span>
         </div>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center gap-1">
         {prIssue && (
           <SessionMergeButton
             prState={prIssue.prState}
@@ -269,14 +263,16 @@ export function SessionRow({
         {canWatch && (
           <Button
             variant="outline"
-            size="sm"
+            size="icon"
+            className="size-8"
+            aria-label="Watch session"
+            title="Watch"
             onClick={(e) => {
               e.stopPropagation()
               onOpen()
             }}
           >
             <MonitorPlay />
-            Watch
           </Button>
         )}
       </div>
