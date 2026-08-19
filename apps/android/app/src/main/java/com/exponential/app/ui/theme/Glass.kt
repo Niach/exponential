@@ -42,7 +42,7 @@ object GlassTokens {
      * arbitrary scrolling content (EXP-165/332/357). Compose has no cheap
      * backdrop blur, so the translucent fills above ghost whatever scrolls
      * behind them; anything that must stay READABLE while content moves under
-     * it (menus, floating captions, the review bar's failure banner) uses this.
+     * it (menus, floating captions) uses this.
      */
     val OpaqueCardFill: Color = CardFill.compositeOver(DesignTokens.Palette.Card)
 

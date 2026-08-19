@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -32,6 +33,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,11 +42,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -74,10 +77,10 @@ import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.steer.ActionRunState
 import com.exponential.app.ui.steer.SteerLaunchDelegate
 import com.exponential.app.ui.steer.SteerRunCaptionRow
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
-import com.exponential.app.ui.theme.glassCard
 import com.exponential.app.ui.theme.glassSection
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -328,12 +331,22 @@ fun ChangesScreen(
         val expanded = remember(loadedFiles) { mutableStateMapOf<String, Boolean>() }
         var mergeConfirmOpen by remember { mutableStateOf(false) }
         var closeConfirmOpen by remember { mutableStateOf(false) }
+        // The floating bar grows when it captions a refusal (and the conflict
+        // recovery run under it), so the list's bottom clearance follows the
+        // bar's MEASURED height instead of the fixed pill-only inset — the
+        // last file rows scroll clear of the notice instead of under it
+        // (EXP-559). Never less than BottomBarInset, the shared floor.
+        var barHeightPx by remember { mutableIntStateOf(0) }
+        val barClearance = with(LocalDensity.current) { barHeightPx.toDp() } + 20.dp
 
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                    start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset,
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = 4.dp,
+                    bottom = maxOf(BottomBarInset, barClearance),
                 ),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
@@ -403,7 +416,9 @@ fun ChangesScreen(
                 onMerge = { mergeConfirmOpen = true },
                 onClosePr = { closeConfirmOpen = true },
                 onFixConflicts = { fixSheetOpen = true },
-                modifier = Modifier.align(Alignment.BottomCenter),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .onSizeChanged { barHeightPx = it.height },
             )
         }
 
@@ -504,51 +519,11 @@ private fun ChangesBottomBar(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         if (actionError != null) {
-            // OPAQUE glass (EXP-357): this banner floats over the diff list, and
-            // the translucent section fill let the file rows read straight
-            // through the failure message — the one thing on screen that must
-            // be legible. Full width so it reads as the bar's own header
-            // instead of a wrap-width blob dropped on the changed files.
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .glassCard(opaque = true)
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-            ) {
-                Text(
-                    actionError,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                    textAlign = TextAlign.Center,
-                )
-                // A conflict is the common refusal, so the recovery run sits
-                // right where the failure was reported (EXP-323, desktop parity).
-                if (canFixConflicts) {
-                    Spacer(Modifier.height(8.dp))
-                    Row(
-                        modifier = Modifier
-                            .glassButton()
-                            .clickable(onClick = onFixConflicts)
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            ExpIcons.uiBranch,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp),
-                            tint = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            "Fix conflicts",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                        )
-                    }
-                }
-            }
+            ChangesRefusalNotice(
+                message = actionError,
+                canFixConflicts = canFixConflicts,
+                onFixConflicts = onFixConflicts,
+            )
         }
         // Floating: this caption sits on top of the scrolling diff too.
         SteerRunCaptionRow(runState, modifier = Modifier.padding(top = 6.dp), floating = true)
@@ -614,6 +589,79 @@ private fun ChangesBottomBar(
                         contentDescription = "Open PR on GitHub",
                         modifier = Modifier.size(20.dp),
                         tint = Color.White.copy(alpha = TextEmphasis.Secondary),
+                    )
+                }
+            }
+        }
+    }
+}
+
+// The bar's refusal notice (EXP-559): a failed merge/close captions the bar
+// that produced it, with the conflict-recovery run right under the message
+// (EXP-323, desktop parity). It floats over the diff list, so it wears the
+// SAME near-opaque pill fill + hairline as the circles below it and reads as
+// the bar's own header — the lighter opaque card fill it used to have looked
+// like a stray file row dropped on the changed files. Semantics come from a
+// red warning glyph rather than a wall of red text: GitHub's refusals run to
+// several sentences (stale base, stacked PR, rebase instructions), and those
+// stay legible left-aligned in the primary text color. Wrap-width, so a short
+// message is a compact centered chip and a long one grows to the bar's width.
+@Composable
+private fun ChangesRefusalNotice(
+    message: String,
+    canFixConflicts: Boolean,
+    onFixConflicts: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(GlassTokens.CardRadius)
+    val stroke = Color.White.copy(alpha = 0.12f)
+    Row(
+        modifier = modifier
+            .widthIn(max = 480.dp)
+            .clip(shape)
+            .background(BottomBarPillFill, shape)
+            .border(GlassTokens.Hairline, stroke, shape)
+            .padding(start = 14.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Icon(
+            ExpIcons.uiWarning,
+            contentDescription = null,
+            modifier = Modifier.padding(top = 1.dp).size(16.dp),
+            tint = DesignTokens.Semantic.Red,
+        )
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            // A conflict is the common refusal, so the recovery run sits
+            // right where the failure was reported — the iOS capsule's
+            // 0.08 fill / 0.12 stroke, which the bar's own hairline shares.
+            if (canFixConflicts) {
+                val pill = RoundedCornerShape(percent = 50)
+                Row(
+                    modifier = Modifier
+                        .clip(pill)
+                        .background(Color.White.copy(alpha = 0.08f), pill)
+                        .border(GlassTokens.Hairline, stroke, pill)
+                        .clickable(onClick = onFixConflicts)
+                        .padding(horizontal = 12.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(
+                        ExpIcons.uiBranch,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        "Fix conflicts",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
                     )
                 }
             }
