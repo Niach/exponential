@@ -184,11 +184,16 @@ export function AutomationSection({
   onChange,
   devices,
   teamId,
+  hasRequiredInputs = false,
 }: {
   draft: AutomationDraft
   onChange: (draft: AutomationDraft) => void
   devices: SteerDevice[]
   teamId: string
+  /** The action declares a required input — an automated run has no values to
+   * fill it with, so the server refuses an ENABLED trigger. The switch is
+   * locked off with a reason instead of failing at save. */
+  hasRequiredInputs?: boolean
 }) {
   const set = (patch: Partial<AutomationDraft>) =>
     onChange({ ...draft, ...patch })
@@ -337,10 +342,17 @@ export function AutomationSection({
             <Label htmlFor="automation-enabled">Enabled</Label>
             <Switch
               id="automation-enabled"
-              checked={draft.enabled}
+              checked={draft.enabled && !hasRequiredInputs}
+              disabled={hasRequiredInputs}
               onCheckedChange={(enabled) => set({ enabled })}
             />
           </div>
+          {hasRequiredInputs && (
+            <p className="text-xs text-muted-foreground">
+              This action has required inputs, and an automated run has none to
+              fill them with. Make the inputs optional to enable it.
+            </p>
+          )}
         </>
       )}
     </div>

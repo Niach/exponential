@@ -19,6 +19,7 @@ import { and, asc, desc, eq, ne, inArray, or, sql } from "drizzle-orm"
 import { contract } from "@exp/domain-contract"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import {
+  actions,
   codingSessions,
   deviceCommands,
   deviceLaunchDefaultsSchema,
@@ -29,7 +30,7 @@ import {
   type DeviceAgentLaunchDefaults,
   type DeviceLaunchDefaults,
 } from "@/db/schema"
-import { assertTeamMember } from "@/lib/team-membership"
+import { assertTeamMember, getTeamMember } from "@/lib/team-membership"
 import { versionPayload } from "@/lib/client-version"
 import { endForeignHostedSessions } from "@/lib/coding-session-kill"
 import {
@@ -939,12 +940,43 @@ export const devicesRouter = router({
       if (input.teamId) {
         await assertTeamMember(ctx.session.user.id, input.teamId)
       }
+      // EXP-530 follow-up: an automation bound to this device by one of the
+      // OLD team's owners keeps firing on the device owner's credentials once
+      // the share is withdrawn (there is no server scheduler — the device
+      // self-selects triggers off Electric), and the toggle is owner-only, so
+      // the machine's owner cannot stop it. Withdrawing the share disables
+      // those triggers in the same transaction as the column write. Skipped
+      // when the device owner is an OWNER of that team: then the bindings are
+      // plausibly their own, and they keep the toggle to undo them.
+      const revoked = row.sharedTeamId
+      const disableAutomations =
+        revoked !== null &&
+        revoked !== input.teamId &&
+        (await getTeamMember(ctx.session.user.id, revoked))?.role !== `owner`
       const txid = await ctx.db.transaction(async (tx) => {
         const id = await generateTxId(tx)
         await tx
           .update(devices)
           .set({ sharedTeamId: input.teamId, updatedAt: new Date() })
           .where(eq(devices.id, row.id))
+        if (disableAutomations && revoked) {
+          await tx
+            .update(actions)
+            .set({
+              trigger: sql`jsonb_set(${actions.trigger}, '{enabled}', 'false'::jsonb)`,
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(actions.teamId, revoked),
+                sql`${actions.trigger}->>'deviceId' = ${input.deviceId}`,
+                // Already-off triggers stay untouched (no needless Electric
+                // op); a MISSING flag counts as on, matching the hosts'
+                // tolerant parse.
+                sql`${actions.trigger}->>'enabled' IS DISTINCT FROM 'false'`
+              )
+            )
+        }
         return id
       })
       // EXP-445: withdrawing the share must end the runs it was the consent

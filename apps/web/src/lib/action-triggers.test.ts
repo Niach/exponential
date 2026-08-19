@@ -267,7 +267,7 @@ describe(`formatTriggerBlock`, () => {
   it(`emits the machine-readable block with the exact JSON`, () => {
     const trigger = schedule({ minuteOfDay: 420 })
     expect(formatTriggerBlock(trigger)).toBe(
-      `\n\nAutomation — set exactly this trigger via the \`trigger\` field on exponential_actions_create: \`${JSON.stringify(trigger)}\``
+      `\n\nAutomation — set exactly this trigger via the \`trigger\` field on exponential_actions_create: \`${JSON.stringify(trigger)}\`. An automated run fills no inputs, so declare none as required.`
     )
   })
 })

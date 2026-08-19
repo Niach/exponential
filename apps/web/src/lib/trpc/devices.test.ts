@@ -107,6 +107,7 @@ const h = vi.hoisted(() => {
     relayGetDevices: vi.fn(),
     relayPostNudge: vi.fn(async () => ({ delivered: true })),
     assertTeamMember: vi.fn(),
+    getTeamMember: vi.fn(async () => ({ role: `member` }) as unknown),
     endForeignHostedSessions: vi.fn(async () => [] as string[]),
   }
 })
@@ -120,6 +121,7 @@ vi.mock(`@/lib/steer`, () => ({
 }))
 vi.mock(`@/lib/team-membership`, () => ({
   assertTeamMember: h.assertTeamMember,
+  getTeamMember: h.getTeamMember,
 }))
 vi.mock(`@/lib/coding-session-kill`, () => ({
   endForeignHostedSessions: h.endForeignHostedSessions,
@@ -185,6 +187,7 @@ beforeEach(() => {
   })
   h.relayGetDevices.mockResolvedValue({ devices: [] })
   h.endForeignHostedSessions.mockResolvedValue([])
+  h.getTeamMember.mockResolvedValue({ role: `member` })
 })
 
 describe(`devices.register`, () => {
@@ -559,7 +562,9 @@ describe(`devices.setShared — kill fan-out`, () => {
   it(`ends the old team's hosted sessions when the share is cleared`, async () => {
     h.state.selectQueue = sharedProbe(TEAM_A)
     // The column write must land FIRST — once shared_team_id has moved, no
-    // new foreign attribution can slip in behind the fan-out.
+    // new foreign attribution can slip in behind the fan-out. Two updates by
+    // then: the share column plus the automation disarm that rides the same
+    // transaction.
     let updatesWhenKilled = -1
     h.endForeignHostedSessions.mockImplementation(async () => {
       updatesWhenKilled = h.state.updates.length
@@ -569,7 +574,7 @@ describe(`devices.setShared — kill fan-out`, () => {
     await caller.setShared({ deviceId: `dev-1`, teamId: null })
 
     expect(h.endForeignHostedSessions).toHaveBeenCalledWith(`actor`, TEAM_A)
-    expect(updatesWhenKilled).toBe(1)
+    expect(updatesWhenKilled).toBe(2)
   })
 
   it(`ends the OLD team's sessions when the device moves to another team`, async () => {
@@ -595,6 +600,58 @@ describe(`devices.setShared — kill fan-out`, () => {
     await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_A })
 
     expect(h.endForeignHostedSessions).not.toHaveBeenCalled()
+  })
+})
+
+// EXP-530 follow-up: withdrawing a share must also stop the teammate-created
+// automations bound to this device — the device self-selects triggers off
+// Electric, and the enable toggle is owner-only.
+describe(`devices.setShared — automation disarm`, () => {
+  const TEAM_A = `11111111-1111-4111-8111-111111111111`
+  const TEAM_B = `22222222-2222-4222-8222-222222222222`
+
+  // The trigger-disabling UPDATE, if it ran (the device row write is first).
+  const automationUpdate = () => h.state.updates[1]
+
+  it(`disables the old team's triggers when the share is cleared`, async () => {
+    h.state.selectQueue = sharedProbe(TEAM_A)
+
+    await caller.setShared({ deviceId: `dev-1`, teamId: null })
+
+    expect(h.getTeamMember).toHaveBeenCalledWith(`actor`, TEAM_A)
+    expect(h.state.updates).toHaveLength(2)
+    expect(Object.keys(automationUpdate()!.set as object)).toContain(`trigger`)
+  })
+
+  it(`disables the old team's triggers when the device moves teams`, async () => {
+    h.state.selectQueue = sharedProbe(TEAM_A)
+
+    await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_B })
+
+    expect(h.getTeamMember).toHaveBeenCalledWith(`actor`, TEAM_A)
+    expect(h.state.updates).toHaveLength(2)
+  })
+
+  it(`leaves triggers alone when the device owner OWNS the old team`, async () => {
+    h.state.selectQueue = sharedProbe(TEAM_A)
+    h.getTeamMember.mockResolvedValue({ role: `owner` })
+
+    await caller.setShared({ deviceId: `dev-1`, teamId: null })
+
+    expect(h.state.updates).toHaveLength(1)
+  })
+
+  it(`touches nothing on a first share or a same-team re-share`, async () => {
+    h.state.selectQueue = sharedProbe(null)
+    await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_A })
+    expect(h.state.updates).toHaveLength(1)
+
+    h.state.updates = []
+    h.state.updateReturning = [[{ id: `row-1` }]]
+    h.state.selectQueue = sharedProbe(TEAM_A)
+    await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_A })
+    expect(h.state.updates).toHaveLength(1)
+    expect(h.getTeamMember).not.toHaveBeenCalled()
   })
 })
 

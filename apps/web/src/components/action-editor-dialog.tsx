@@ -91,6 +91,10 @@ export function ActionEditorDialog({
   const [nameError, setNameError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  // Inputs are authored by the creator run, not editable here — a static
+  // property of the action for the Automation section's enable rule.
+  const hasRequiredInputs = (action.inputs ?? []).some((def) => def.required)
+
   // Seed the edited action's fields on OPEN; the body comes from tRPC.
   useEffect(() => {
     if (!open) return
@@ -98,7 +102,11 @@ export function ActionEditorDialog({
     setDescription(action.description ?? ``)
     setRepoValue(action.repositoryId ?? NO_REPO)
     setIcon((action.icon as BoardIcon | null) ?? BOARD_ICON_OPTIONS[0].name)
-    setAutomation(draftFromTrigger(parseActionTrigger(action.trigger)))
+    // An action with required inputs can never run automated (the server
+    // refuses an enabled trigger), so the seeded draft comes in switched off.
+    const seeded = draftFromTrigger(parseActionTrigger(action.trigger))
+    if (hasRequiredInputs) seeded.enabled = false
+    setAutomation(seeded)
     setBody(``)
     setBodyLoading(true)
     setSubmitting(false)
@@ -255,6 +263,7 @@ export function ActionEditorDialog({
                 onChange={setAutomation}
                 devices={devices}
                 teamId={action.teamId}
+                hasRequiredInputs={hasRequiredInputs}
               />
             </div>
 

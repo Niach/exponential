@@ -233,5 +233,5 @@ export function nextScheduleRun(
  * talks to the server itself).
  */
 export function formatTriggerBlock(trigger: ActionTrigger): string {
-  return `\n\nAutomation — set exactly this trigger via the \`trigger\` field on exponential_actions_create: \`${JSON.stringify(trigger)}\``
+  return `\n\nAutomation — set exactly this trigger via the \`trigger\` field on exponential_actions_create: \`${JSON.stringify(trigger)}\`. An automated run fills no inputs, so declare none as required.`
 }

@@ -141,29 +141,42 @@ async function assertTriggerValid(
 
   if (trigger.deviceId !== unchangedDeviceId) {
     const rows = await db
-      .select({ userId: devices.userId, sharedTeamId: devices.sharedTeamId })
+      .select({
+        userId: devices.userId,
+        sharedTeamId: devices.sharedTeamId,
+        caps: devices.caps,
+      })
       .from(devices)
       .where(eq(devices.deviceId, trigger.deviceId))
-    let usable = rows.some((row) => row.userId === callerUserId)
-    if (!usable) {
-      const sharedOwners = rows
-        .filter((row) => row.sharedTeamId === teamId)
-        .map((row) => row.userId)
-      if (sharedOwners.length > 0) {
+    let usableRows = rows.filter((row) => row.userId === callerUserId)
+    if (usableRows.length === 0) {
+      const shared = rows.filter((row) => row.sharedTeamId === teamId)
+      if (shared.length > 0) {
         const members = await db
           .select({ userId: teamMembers.userId })
           .from(teamMembers)
           .where(
             and(
               eq(teamMembers.teamId, teamId),
-              inArray(teamMembers.userId, sharedOwners)
+              inArray(
+                teamMembers.userId,
+                shared.map((row) => row.userId)
+              )
             )
           )
-        usable = members.length > 0
+        const memberIds = new Set(members.map((m) => m.userId))
+        usableRows = shared.filter((row) => memberIds.has(row.userId))
       }
     }
-    if (!usable) {
+    if (usableRows.length === 0) {
       throw bad(`Trigger device must be yours or shared with this team`)
+    }
+    // Same server-side cap gate as steer.startSession: the pickers on web and
+    // mobile already hide devices without it, but MCP actions_create/update
+    // can name any device id, and a pre-EXP-530 build would accept the binding
+    // and never fire. Caps are per build, so the persisted row is accurate.
+    if (!usableRows.some((row) => (row.caps ?? []).includes(`automations`))) {
+      throw bad(`Trigger device runs an older build without automation support`)
     }
   }
 
@@ -186,6 +199,38 @@ async function assertTriggerValid(
     await assertIdsInTeam(trigger.filters?.labelIds, labels, `labels`)
     await assertIdsInTeam(trigger.filters?.toStatusIds, issueStatuses, `statuses`)
   }
+}
+
+// EXP-530 follow-up: there is no server scheduler — the bound device selects
+// its own actions off Electric and self-starts the run with NO input values.
+// An enabled automation on an action declaring required inputs would therefore
+// run a prompt referencing values nobody ever provided, so refuse the pairing
+// at write time (both tRPC and MCP, which funnels through this router).
+// Deliberately tolerant readers: `existing.trigger`/`existing.inputs` are
+// jsonb, and a stored shape from a newer client must not crash the check.
+export const AUTOMATION_REQUIRED_INPUTS_MESSAGE = `Automations can't run actions with required inputs. Make the inputs optional first.`
+
+function isTriggerEnabled(trigger: unknown): boolean {
+  if (!trigger || typeof trigger !== `object`) return false
+  return (trigger as { enabled?: unknown }).enabled === true
+}
+
+function hasRequiredInput(inputs: unknown): boolean {
+  if (!Array.isArray(inputs)) return false
+  return inputs.some(
+    (def) =>
+      Boolean(def) &&
+      typeof def === `object` &&
+      (def as { required?: unknown }).required === true
+  )
+}
+
+function assertAutomationRunnable(trigger: unknown, inputs: unknown): void {
+  if (!isTriggerEnabled(trigger) || !hasRequiredInput(inputs)) return
+  throw new TRPCError({
+    code: `BAD_REQUEST`,
+    message: AUTOMATION_REQUIRED_INPUTS_MESSAGE,
+  })
 }
 
 function duplicateNameError(name: string): TRPCError {
@@ -294,6 +339,7 @@ export const actionsRouter = router({
       if (input.repositoryId) {
         await assertRepoInTeam(input.repositoryId, input.teamId)
       }
+      assertAutomationRunnable(input.trigger, input.inputs)
       if (input.trigger) {
         await assertTriggerValid(input.trigger, input.teamId, ctx.session.user.id)
       }
@@ -351,6 +397,13 @@ export const actionsRouter = router({
       if (input.repositoryId) {
         await assertRepoInTeam(input.repositoryId, existing.teamId)
       }
+      // Both halves of the pairing are post-update values: adding a required
+      // input to an already-automated action is refused just like enabling an
+      // automation on an action that already declares one.
+      assertAutomationRunnable(
+        input.trigger === undefined ? existing.trigger : input.trigger,
+        input.inputs === undefined ? existing.inputs : input.inputs
+      )
       // Whole-object replace, so even an enabled-only flip re-validates the
       // filters — but an UNCHANGED device binding is accepted as-is, so any
       // co-owner can edit/toggle an automation bound to a teammate's device.
