@@ -661,13 +661,18 @@ export const integrationsRouter = router({
               inst.suspendedAt == null &&
               mineIds.has(inst.installationId) &&
               !myGrantIds.has(inst.installationId),
-            // Zero grants from ANY member: reconnecting can never heal this
-            // link — the UI renders a Disconnect affordance instead
-            // (server-enforced link-creator-or-owner on `unlink`).
+            // Zero grants from ANY member AND not the viewer's own link:
+            // reconnecting can never heal this one — the UI renders a
+            // Disconnect affordance instead (server-enforced
+            // link-creator-or-owner on `unlink`). A zero-grant link the VIEWER
+            // created IS healed by a plain reconnect (the next OAuth writes
+            // their grants), so it keeps the `needsReauth` nudge above —
+            // covers the EXP-365 empty-capture race and legacy pre-0012 links.
             stale:
               oauth &&
               inst.suspendedAt == null &&
-              !anyGrantIds.has(inst.installationId),
+              !anyGrantIds.has(inst.installationId) &&
+              inst.createdByUserId !== userId,
           })),
         }
       }),

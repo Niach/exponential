@@ -1025,11 +1025,40 @@ describe(`integrations.github.status viewer scoping (EXP-557)`, () => {
     selectQueue.push([]) // no grants at all
     const result = await callerFor(`user-m`).github.status({ teamId })
     expect(result.installations.map((i) => i.installationId)).toEqual([1])
-    // Their own zero-grant link still nags for a reconnect AND carries the
-    // stale flag (the creator may disconnect it themselves).
+    // Their OWN zero-grant link nags for a reconnect and is NOT stale — the
+    // next OAuth writes their grants (EXP-365 empty-capture race / legacy
+    // pre-0012 links both heal that way).
     expect(result.installations[0]).toMatchObject({
       needsReauth: true,
+      stale: false,
+    })
+  })
+
+  it(`a zero-grant link the VIEWER created is reconnectable, not stale`, async () => {
+    githubOAuthConfigured.mockReturnValue(true)
+    const teamId = freshTeamId()
+    selectQueue.push([link(1, `user-me`)])
+    selectQueue.push([]) // no grants at all — the empty-capture race
+    const result = await callerFor(`user-me`).github.status({ teamId })
+    expect(result.installations[0]).toMatchObject({
+      installationId: 1,
+      stale: false,
+      needsReauth: true,
+    })
+  })
+
+  it(`a zero-grant link ANOTHER user created is stale for the viewing owner`, async () => {
+    githubOAuthConfigured.mockReturnValue(true)
+    const teamId = freshTeamId()
+    selectQueue.push([link(1, `user-other`)])
+    selectQueue.push([]) // no grants at all
+    const result = await callerFor(`user-o`).github.status({ teamId })
+    // Not the viewer's link, nobody's grants: reconnecting can't heal it, so
+    // the owner gets the Disconnect affordance.
+    expect(result.installations[0]).toMatchObject({
+      installationId: 1,
       stale: true,
+      needsReauth: false,
     })
   })
 

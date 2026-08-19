@@ -1062,9 +1062,11 @@ export const githubInstallationLinks = pgTable(
 // `GET /user/installations/{id}/repositories` (the only moment a user-scoped
 // token exists — it is transient, never persisted). A row means "team W
 // may see/connect repo `fullName` under installation I because user U proved
-// user-scoped GitHub access". Effective entitlement = EXISTS(any grant for
-// (W, I, fullName)) — union across members; the per-user unique key makes each
-// re-auth a clean per-user REPLACE. Keyed on GitHub's NUMERIC installation id
+// user-scoped GitHub access". Since EXP-557 the entitlement is ACTOR-SCOPED,
+// not a union across members: effective entitlement for user U = EXISTS(grant
+// for (W, I, fullName, U)) — a teammate's grant never entitles U (see
+// `assertRepoGrant` in lib/trpc/integrations.ts). The per-user unique key
+// makes each re-auth a clean per-user REPLACE. Keyed on GitHub's NUMERIC id
 // (like repositories.installation_id) so capture never depends on link-row
 // creation timing. Gates DISCOVERY (integrations.repos) and CONNECT
 // (assertRepoInstallationAccess) only — never token minting.
@@ -1080,11 +1082,10 @@ export const githubInstallationRepoGrants = pgTable(
     fullName: text(`full_name`).notNull(),
     private: boolean().notNull().default(false),
     defaultBranch: text(`default_branch`),
-    // Cascade, never set-null: a grant row means "THIS user proved access",
-    // and the entitlement check (assertRepoGrant) matches on
-    // team+installation+repo alone. A set-null here would leave an
-    // ownerless row that keeps entitling the team to the departed
-    // user's private repos while being unreachable by the per-user re-auth
+    // Cascade, never set-null: a grant row means "THIS user proved access".
+    // A set-null here would leave an ownerless row that entitles nobody yet
+    // still counts as a grant on the link — masking the stale/Disconnect
+    // state forever — while being unreachable by the per-user re-auth
     // REPLACE and every other cleanup path.
     grantedByUserId: text(`granted_by_user_id`).references(() => users.id, {
       onDelete: `cascade`,

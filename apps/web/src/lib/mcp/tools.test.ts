@@ -15,7 +15,12 @@ const h = vi.hoisted(() => {
     comments: { update: vi.fn(), delete: vi.fn() },
     subscriptions: { subscribe: vi.fn(), unsubscribe: vi.fn() },
     notifications: { markRead: vi.fn(), markAllRead: vi.fn() },
-    repositories: { list: vi.fn(), add: vi.fn(), branchDiff: vi.fn() },
+    repositories: {
+      list: vi.fn(),
+      add: vi.fn(),
+      branchDiff: vi.fn(),
+      forIssue: vi.fn(),
+    },
     actions: {
       list: vi.fn(),
       create: vi.fn(),
@@ -52,6 +57,7 @@ const h = vi.hoisted(() => {
   const db = {
     select: vi.fn(() => queryBuilder),
     insert: vi.fn(() => ({ values: insertValues })),
+    transaction: vi.fn(),
   }
 
   const membership = {
@@ -130,6 +136,17 @@ vi.mock(`@/lib/billing`, () => ({
 vi.mock(`@/lib/integrations/github-pr`, () => ({ createPullRequest: vi.fn() }))
 vi.mock(`@/lib/integrations/github-app`, () => ({
   resolveRepoInstallationToken: vi.fn(),
+  resolveRepoInstallationTokenInfo: vi.fn(),
+}))
+vi.mock(`@/lib/trpc/integrations`, () => ({
+  isInstallationLinkedToTeam: vi.fn(),
+}))
+vi.mock(`@/lib/integrations/pr-sync`, () => ({
+  applyPrLifecycleStatusInTx: vi.fn(),
+}))
+vi.mock(`@/lib/integrations/pr-actor-claims`, () => ({
+  claimPrOpen: vi.fn(),
+  releasePrOpenClaim: vi.fn(),
 }))
 vi.mock(`@/lib/integrations/activity`, () => ({ recordIssueEvent: vi.fn() }))
 vi.mock(`@/lib/integrations/notifications`, () => ({
@@ -139,6 +156,9 @@ vi.mock(`@/lib/widget/agent-report`, () => ({
   createAgentBugReport: h.createAgentBugReport,
 }))
 
+import { createPullRequest } from "@/lib/integrations/github-pr"
+import { resolveRepoInstallationTokenInfo } from "@/lib/integrations/github-app"
+import { isInstallationLinkedToTeam } from "@/lib/trpc/integrations"
 import { registerExponentialTools } from "@/lib/mcp/tools"
 import { FULL_ACCESS } from "@/lib/mcp/scope"
 import type { McpUser } from "@/lib/mcp/server"
@@ -775,5 +795,68 @@ describe(`exponential_report_bug`, () => {
     } finally {
       vi.unstubAllEnvs()
     }
+  })
+})
+
+// ── pr_open batch session flip (EXP-194 / EXP-545) ───────────────────────────
+// Batch coding sessions carry no issue linkage, so the PR-open flip finds them
+// by `issue_id IS NULL` on the caller's running rows. Action runs are issue-less
+// too — they must never be flipped to in_review or stamped with the PR branch.
+describe(`exponential_pr_open batch session flip`, () => {
+  function armPrOpen(): Array<{ set: Record<string, unknown>; where: unknown }> {
+    const updates: Array<{ set: Record<string, unknown>; where: unknown }> = []
+    caller.repositories.forIssue.mockResolvedValue({
+      repositoryId: REPO,
+      fullName: `acme/app`,
+      defaultBranch: `main`,
+    })
+    vi.mocked(resolveRepoInstallationTokenInfo).mockResolvedValue({
+      token: `tok`,
+      installationId: 42,
+    } as never)
+    vi.mocked(isInstallationLinkedToTeam).mockResolvedValue(true)
+    vi.mocked(createPullRequest).mockResolvedValue({
+      url: `https://github.com/acme/app/pull/7`,
+      number: 7,
+    } as never)
+    db.transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      const txSelect: Record<string, unknown> = {}
+      for (const method of [`from`, `where`, `limit`]) {
+        txSelect[method] = () => txSelect
+      }
+      ;(txSelect as { then: unknown }).then = (
+        resolve: (v: unknown) => unknown,
+        reject: (e: unknown) => unknown
+      ) => Promise.resolve([{ status: `todo` }]).then(resolve, reject)
+      return fn({
+        select: () => txSelect,
+        update: () => ({
+          set: (values: Record<string, unknown>) => ({
+            where: async (cond: unknown) => {
+              updates.push({ set: values, where: cond })
+            },
+          }),
+        }),
+      })
+    })
+    return updates
+  }
+
+  it(`excludes ACTION runs from the issue-less flip`, async () => {
+    const updates = armPrOpen()
+    const result = await tool(`exponential_pr_open`)({
+      issueIds: [UUID, PROJ],
+      title: `Batch PR`,
+      head: `exp/batch-abcd1234`,
+    })
+    expect(parseOk(result)).toMatchObject({ number: 7 })
+    const flip = updates.find((u) => u.set.status === `in_review`)
+    expect(flip).toBeDefined()
+    // The branch stamp is the batch↔PR linkage — it must not land on an
+    // action row, whose `branch` is NULL by contract.
+    expect(flip!.set.branch).toBe(`exp/batch-abcd1234`)
+    const { sql } = new PgDialect().sqlToQuery(flip!.where as never)
+    expect(sql).toContain(`"issue_id" is null`)
+    expect(sql).toContain(`"action_id" is null`)
   })
 })

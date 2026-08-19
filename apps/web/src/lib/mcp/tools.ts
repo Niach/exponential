@@ -1247,6 +1247,10 @@ export function registerExponentialTools(
                     ...new Set(teamIdByIssue.values()),
                   ]),
                   isNull(codingSessions.issueId),
+                  // Action runs are issue-less too, and one may well be
+                  // running alongside the batch — never flip or stamp those
+                  // (schema: `branch` is NULL on action rows).
+                  isNull(codingSessions.actionId),
                   eq(codingSessions.status, `running`)
                 )
               )
