@@ -167,9 +167,12 @@ import androidx.room.RoomDatabase
     //      targets its OWN PR instead of the team's sole open batch PR.
     // v37 (EXP-530): actions.trigger + coding_sessions.started_reason —
     //      additive columns; destructive fallback wipes + resyncs
+    // v38 (EXP-549/550): coding_sessions.device_id — the host machine's steer
+    //      deviceId, joining a session to its LIVE devices row (renamed label,
+    //      offline → paused). Additive; destructive fallback wipes + resyncs.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so an additive shape column just wipes and re-syncs from Electric.
-    version = 37,
+    version = 38,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

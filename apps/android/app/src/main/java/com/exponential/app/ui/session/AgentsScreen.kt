@@ -47,6 +47,7 @@ import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.SessionDevicePresentation
 import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.GlassDropdownMenu
@@ -241,6 +242,7 @@ fun AgentsScreen(
                             AgentSessionRow(
                                 session = row.session,
                                 issue = row.issue,
+                                device = row.device,
                                 mergeIssue = mergeIssue,
                                 merging = mergeIssue?.id in merging,
                                 errorMessage = mergeIssue?.id?.let(mergeErrors::get),
@@ -657,6 +659,9 @@ private fun startStateCaption(state: SteerStartState): StartCaption? = when (sta
 private fun AgentSessionRow(
     session: CodingSessionEntity,
     issue: IssueEntity?,
+    // EXP-549/550: the host machine resolved against its live devices row —
+    // the current label, and offline = the run is paused until it returns.
+    device: SessionDevicePresentation,
     // EXP-535: the issue the merge shortcut acts through — the linked issue,
     // or a batch row's client-resolved representative (AgentRow.batchPrIssue).
     // The label/status rendering keeps reading [issue] alone.
@@ -675,6 +680,10 @@ private fun AgentSessionRow(
     // (EXP-535); an already-merged PR, or a batch row with no unambiguous
     // resolution, has nothing to merge.
     val canMerge = mergeIssue?.prState == DomainContract.prStateOpen
+    // EXP-550: the machine went away (lid closed) — the run is not lost and
+    // not ended, it continues when the machine comes back. Grey, never a live
+    // dot.
+    val paused = device.isPaused(state)
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
@@ -686,13 +695,17 @@ private fun AgentSessionRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // running → pulsing green; parked states → static dot: review green,
-            // done/merged blue, needs-input amber (EXP-194/EXP-214/EXP-358).
-            when (state) {
-                CodingSessionDisplayState.Running -> PulsingDot()
-                CodingSessionDisplayState.NeedsInput -> StaticDot(NeedsInputAmber)
-                CodingSessionDisplayState.Review -> StaticDot(ReviewGreen)
-                CodingSessionDisplayState.Done -> StaticDot(DoneBlue)
-                CodingSessionDisplayState.Merged -> StaticDot(DoneBlue)
+            // done/merged blue, needs-input amber (EXP-194/EXP-214/EXP-358);
+            // paused-on-an-offline-machine → static grey (EXP-550).
+            when {
+                paused -> StaticDot(LostGray)
+                else -> when (state) {
+                    CodingSessionDisplayState.Running -> PulsingDot()
+                    CodingSessionDisplayState.NeedsInput -> StaticDot(NeedsInputAmber)
+                    CodingSessionDisplayState.Review -> StaticDot(ReviewGreen)
+                    CodingSessionDisplayState.Done -> StaticDot(DoneBlue)
+                    CodingSessionDisplayState.Merged -> StaticDot(DoneBlue)
+                }
             }
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -721,24 +734,32 @@ private fun AgentSessionRow(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                val device = session.deviceLabel?.takeIf { it.isNotBlank() } ?: "Desktop"
+                // EXP-549: the LIVE machine label, so a rename lands here
+                // instead of the row keeping the original hostname forever.
+                val deviceName = device.displayLabel
                 Text(
-                    when (state) {
-                        CodingSessionDisplayState.NeedsInput -> "Needs input · $device"
-                        CodingSessionDisplayState.Review -> "Ready for review · $device"
-                        CodingSessionDisplayState.Done -> "Done · $device"
-                        CodingSessionDisplayState.Merged -> "Merged · $device"
-                        CodingSessionDisplayState.Running ->
-                            "$device · started ${relativeTime(session.startedAt)}"
+                    when {
+                        paused -> "Paused · $deviceName"
+                        else -> when (state) {
+                            CodingSessionDisplayState.NeedsInput -> "Needs input · $deviceName"
+                            CodingSessionDisplayState.Review -> "Ready for review · $deviceName"
+                            CodingSessionDisplayState.Done -> "Done · $deviceName"
+                            CodingSessionDisplayState.Merged -> "Merged · $deviceName"
+                            CodingSessionDisplayState.Running ->
+                                "$deviceName · started ${relativeTime(session.startedAt)}"
+                        }
                     },
                     style = MaterialTheme.typography.bodySmall,
-                    color = when (state) {
-                        CodingSessionDisplayState.NeedsInput -> NeedsInputAmber
-                        CodingSessionDisplayState.Review -> ReviewGreen
-                        CodingSessionDisplayState.Done -> DoneBlue
-                        CodingSessionDisplayState.Merged -> DoneBlue
-                        CodingSessionDisplayState.Running ->
-                            MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+                    color = when {
+                        paused -> MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+                        else -> when (state) {
+                            CodingSessionDisplayState.NeedsInput -> NeedsInputAmber
+                            CodingSessionDisplayState.Review -> ReviewGreen
+                            CodingSessionDisplayState.Done -> DoneBlue
+                            CodingSessionDisplayState.Merged -> DoneBlue
+                            CodingSessionDisplayState.Running ->
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+                        }
                     },
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
