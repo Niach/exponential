@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url"
 
 import {
   COMMERCIAL,
+  DATA,
   FONTS,
   ICONS,
   MPL_STATEMENT,
@@ -309,6 +310,10 @@ export function buildNotice(client: Client): string {
   const icons = forClient(ICONS, client)
   if (icons.length > 0) {
     sections.push({ title: `Bundled icons`, lines: renderCurated(icons) })
+  }
+  const data = forClient(DATA, client)
+  if (data.length > 0) {
+    sections.push({ title: `Bundled data`, lines: renderCurated(data) })
   }
   const vendored = forClient(VENDORED, client)
   if (vendored.length > 0) {

@@ -240,6 +240,7 @@ public enum AppIcons {
         "signal-low",
         "signal-medium",
         "sliders-horizontal",
+        "smile",
         "sparkles",
         "square-kanban",
         "square-pen",
@@ -310,6 +311,8 @@ public enum AppIcons {
     public static let editorClearFormatting: String = "remove-formatting"
     /// Concept `editor-code`.
     public static let editorCode: String = "code"
+    /// Concept `editor-emoji`.
+    public static let editorEmoji: String = "smile"
     /// Concept `editor-heading-1`.
     public static let editorHeading1: String = "heading-1"
     /// Concept `editor-heading-2`.

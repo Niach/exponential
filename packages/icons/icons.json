@@ -179,6 +179,7 @@
     "editor-clear-formatting": "remove-formatting",
     "editor-mention": "at-sign",
     "editor-issue-ref": "hash",
+    "editor-emoji": "smile",
 
     "action-default": "zap",
     "action-run": "play",

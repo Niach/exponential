@@ -111,6 +111,28 @@ export const ICONS: CuratedEntry[] = [
 ]
 
 // ---------------------------------------------------------------------------
+// Bundled data — MIT
+// ---------------------------------------------------------------------------
+//
+// EXP-551: the emoji dataset is not a package on any client. packages/emoji
+// reads emojibase-data (a devDependency of that generator only) and emits one
+// JSON of names, shortcodes, tags and skin-tone variants into all four apps,
+// so no collector will ever see it — this entry is the attribution route.
+
+export const DATA: CuratedEntry[] = [
+  {
+    title: `Emojibase`,
+    clients: [`android`, `desktop`, `ios`, `web`],
+    body: [
+      `Every client bundles an emoji dataset (labels, GitHub-style shortcodes, search tags and skin-tone variants) for its emoji picker and :shortcode autocomplete. It is not consumed as a package: packages/emoji projects the emojibase-data package into one JSON file (apps/web/src/lib/emoji.generated.json, apps/ios/Exponential/Resources/emoji.json, apps/android/app/src/main/assets/emoji.json, apps/desktop/assets/emoji.json), so the same data is reproduced in all four builds. The emoji themselves are Unicode characters; only the descriptive data comes from Emojibase.`,
+    ],
+    reproduce: [
+      { label: `MIT License — Emojibase`, path: `packages/emoji/LICENSE-emojibase.txt` },
+    ],
+  },
+]
+
+// ---------------------------------------------------------------------------
 // Vendored source
 // ---------------------------------------------------------------------------
 //

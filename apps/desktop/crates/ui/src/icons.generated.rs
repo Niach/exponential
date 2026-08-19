@@ -245,6 +245,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "signal-low" => ExpIcon::SignalLow,
         "signal-medium" => ExpIcon::SignalMedium,
         "sliders-horizontal" => ExpIcon::SlidersHorizontal,
+        "smile" => ExpIcon::Smile,
         "sparkles" => ExpIcon::Sparkles,
         "square-kanban" => ExpIcon::SquareKanban,
         "square-pen" => ExpIcon::SquarePen,
@@ -312,6 +313,8 @@ pub const EDITOR_BOLD: ExpIcon = ExpIcon::Bold;
 pub const EDITOR_CLEAR_FORMATTING: ExpIcon = ExpIcon::RemoveFormatting;
 /// Registry concept `editor-code` -> Lucide `code`.
 pub const EDITOR_CODE: ExpIcon = ExpIcon::Code;
+/// Registry concept `editor-emoji` -> Lucide `smile`.
+pub const EDITOR_EMOJI: ExpIcon = ExpIcon::Smile;
 /// Registry concept `editor-heading-1` -> Lucide `heading-1`.
 pub const EDITOR_HEADING_1: ExpIcon = ExpIcon::Heading1;
 /// Registry concept `editor-heading-2` -> Lucide `heading-2`.

@@ -4753,6 +4753,45 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `smile`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "smile",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M2 12A10 10 0 1 0 22 12A10 10 0 1 0 2 12Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M8 14s1.5 2 4 2 4-2 4-2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M9 9L9.01 9"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M15 9L15.01 9"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `sparkles`: ImageVector by lazy {
         ImageVector.Builder(
             name = "sparkles",
@@ -5833,6 +5872,7 @@ public object ExpIcons {
         "signal-low" -> `signal-low`
         "signal-medium" -> `signal-medium`
         "sliders-horizontal" -> `sliders-horizontal`
+        "smile" -> `smile`
         "sparkles" -> `sparkles`
         "square-kanban" -> `square-kanban`
         "square-pen" -> `square-pen`
@@ -5899,6 +5939,8 @@ public object ExpIcons {
     public val editorClearFormatting: ImageVector get() = `remove-formatting`
     /** Concept `editor-code`. */
     public val editorCode: ImageVector get() = `code`
+    /** Concept `editor-emoji`. */
+    public val editorEmoji: ImageVector get() = `smile`
     /** Concept `editor-heading-1`. */
     public val editorHeading1: ImageVector get() = `heading-1`
     /** Concept `editor-heading-2`. */

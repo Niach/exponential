@@ -174,6 +174,13 @@
       "name": "@exp/electric-protocol",
       "version": "0.0.0",
     },
+    "packages/emoji": {
+      "name": "@exp/emoji",
+      "version": "0.0.0",
+      "devDependencies": {
+        "emojibase-data": "^16.0.3",
+      },
+    },
     "packages/icons": {
       "name": "@exp/icons",
       "version": "0.0.0",
@@ -510,6 +517,8 @@
     "@exp/domain-contract": ["@exp/domain-contract@workspace:packages/domain-contract"],
 
     "@exp/electric-protocol": ["@exp/electric-protocol@workspace:packages/electric-protocol"],
+
+    "@exp/emoji": ["@exp/emoji@workspace:packages/emoji"],
 
     "@exp/icons": ["@exp/icons@workspace:packages/icons"],
 
@@ -1774,6 +1783,10 @@
     "emoji-regex": ["emoji-regex@10.6.0", "", {}, "sha512-toUI84YS5YmxW219erniWD0CIVOo46xGKColeNQRgOzDorgBi1v4D71/OFzgD9GO2UGKIv1C3Sp8DAn0+j5w7A=="],
 
     "emoji-regex-xs": ["emoji-regex-xs@2.0.1", "", {}, "sha512-1QFuh8l7LqUcKe24LsPUNzjrzJQ7pgRwp1QMcZ5MX6mFplk2zQ08NVCM84++1cveaUUYtcCYHmeFEuNg16sU4g=="],
+
+    "emojibase": ["emojibase@17.0.0", "", {}, "sha512-bXdpf4HPY3p41zK5swVKZdC/VynsMZ4LoLxdYDE+GucqkFwzcM1GVc4ODfYAlwoKaf2U2oNNUoOO78N96ovpBA=="],
+
+    "emojibase-data": ["emojibase-data@16.0.3", "", { "peerDependencies": { "emojibase": "*" } }, "sha512-MopInVCDZeXvqBMPJxnvYUyKw9ImJZqIDr2sABo6acVSPev5IDYX+mf+0tsu96JJyc3INNvgIf06Eso7bdTX2Q=="],
 
     "encodeurl": ["encodeurl@2.0.0", "", {}, "sha512-Q0n9HRi4m6JuGIV1eFlmvJB7ZEVxu93IrMyiMsGC0lrMJMWzRgx6WGquyfQgZVb31vhGgXnfmPNNXmxnOkRBrg=="],
 
