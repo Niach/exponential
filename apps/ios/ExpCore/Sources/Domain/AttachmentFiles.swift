@@ -30,6 +30,16 @@ public enum AttachmentFiles {
     /// a long upload.
     public static let maxFileUploadBytes = 50 * 1024 * 1024
 
+    /// 10 MB — the server's cap for the inline-image types
+    /// (`maxImageUploadBytes`). Checked client-side for the same reason as the
+    /// file cap; every composer that queues images (steer, comments) shares it.
+    public static let maxImageUploadBytes = 10 * 1024 * 1024
+
+    /// EXP-554 — how many attachments one comment may carry. Mirrors
+    /// `MAX_COMMENT_ATTACHMENTS` in packages/db-schema/src/domain.ts, which the
+    /// `comments.create`/`comments.update` inputs enforce server-side.
+    public static let maxCommentAttachments = 10
+
     /// Fallback content type for a pick whose extension maps to no UTI.
     public static let fallbackContentType = "application/octet-stream"
 

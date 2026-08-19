@@ -1,12 +1,12 @@
-import { useState } from "react"
 import { Ellipsis } from "lucide-react"
-import type { Comment, User } from "@/db/schema"
+import type { Attachment, Comment, User } from "@/db/schema"
 import { getCommentBodyText } from "@/lib/domain"
 import { getInitials } from "@/lib/utils"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
-import { MentionTextarea } from "@/components/mention-textarea"
+import { CommentComposer } from "@/components/comment-composer"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
+import { CommentAttachments } from "@/components/comment-rows/attachments"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,12 +18,14 @@ import { authorLabel, relativeTime } from "./format"
 export interface RegularCommentRowProps {
   author: User | undefined
   comment: Comment
+  // Attachments linked to this comment (attachments.comment_id, EXP-554).
+  attachments: Attachment[]
   canModify: boolean
   editing: boolean
   onDelete: () => void
   onEdit: () => void
   onCancelEdit: () => void
-  onSaveEdit: (text: string) => Promise<void>
+  onSaveEdit: (text: string, attachmentIds: string[]) => Promise<void>
   // Team members for the edit composer's @-mention autocomplete.
   users: User[]
 }
@@ -31,6 +33,7 @@ export interface RegularCommentRowProps {
 export function RegularCommentRow({
   author,
   comment,
+  attachments,
   canModify,
   editing,
   onDelete,
@@ -78,82 +81,38 @@ export function RegularCommentRow({
           )}
         </div>
         {editing ? (
-          <CommentEditComposer
-            bodyText={bodyText}
-            users={users}
-            onCancel={onCancelEdit}
-            onSave={onSaveEdit}
-          />
-        ) : (
-          <div className="mt-0.5 text-sm text-foreground">
-            <MarkdownEditor markdown={bodyText} editable={false} onChange={() => {}} />
+          // Mounted only while the row is in edit mode: mounting seeds the
+          // draft from the body/attachments as they are at edit-start (so a
+          // remotely synced update is picked up instead of a value captured at
+          // row mount), and unmounting on cancel discards abandoned drafts.
+          <div className="mt-1">
+            <CommentComposer
+              autoFocus
+              issueId={comment.issueId}
+              users={users}
+              initialText={bodyText}
+              initialAttachments={attachments}
+              onCancel={onCancelEdit}
+              onSubmit={onSaveEdit}
+            />
           </div>
+        ) : (
+          <>
+            {bodyText.trim().length > 0 && (
+              <div className="mt-0.5 text-sm text-foreground">
+                <MarkdownEditor
+                  markdown={bodyText}
+                  editable={false}
+                  onChange={() => {}}
+                />
+              </div>
+            )}
+            <CommentAttachments
+              attachments={attachments}
+              canModify={canModify}
+            />
+          </>
         )}
-      </div>
-    </div>
-  )
-}
-
-// Mounted only while the row is in edit mode: mounting seeds the draft from
-// the body as it is at edit-start (so a remotely synced update is picked up
-// instead of a value captured at row mount), and unmounting on cancel
-// discards abandoned drafts instead of resurfacing them on the next edit.
-function CommentEditComposer({
-  bodyText,
-  users,
-  onCancel,
-  onSave,
-}: {
-  bodyText: string
-  users: User[]
-  onCancel: () => void
-  onSave: (text: string) => Promise<void>
-}) {
-  const [draft, setDraft] = useState(bodyText)
-  const [saving, setSaving] = useState(false)
-
-  const handleSave = async () => {
-    const trimmed = draft.trim()
-    if (!trimmed || trimmed === bodyText) {
-      onCancel()
-      return
-    }
-    setSaving(true)
-    try {
-      await onSave(trimmed)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className="mt-1 space-y-2">
-      <MentionTextarea
-        autoFocus
-        value={draft}
-        onValueChange={setDraft}
-        users={users}
-        className="min-h-16 text-sm"
-        disabled={saving}
-      />
-      <div className="flex items-center gap-2">
-        <Button
-          type="button"
-          size="xs"
-          onClick={() => void handleSave()}
-          disabled={saving || !draft.trim()}
-        >
-          Save
-        </Button>
-        <Button
-          type="button"
-          size="xs"
-          variant="ghost"
-          onClick={onCancel}
-          disabled={saving}
-        >
-          Cancel
-        </Button>
       </div>
     </div>
   )

@@ -1,0 +1,270 @@
+package com.exponential.app.ui.components
+
+import android.graphics.BitmapFactory
+import android.net.Uri
+import android.text.format.Formatter
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import coil3.compose.AsyncImage
+import com.exponential.app.data.db.AttachmentEntity
+import com.exponential.app.domain.isInlineImage
+import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.theme.GlassTokens
+import com.exponential.app.ui.theme.TextEmphasis
+
+/**
+ * A file the user picked for the next send (EXP-554), generalizing the steer
+ * composer's pending image (EXP-511) to any content type.
+ *
+ * [uploadedId] is stamped once the upload succeeded, so retrying after a
+ * mid-batch failure never re-uploads what already landed.
+ */
+data class PendingAttachment(
+    val uri: Uri,
+    val bytes: ByteArray,
+    val filename: String,
+    /** Already canonicalized (`canonicalContentType`) by whoever built this. */
+    val contentType: String,
+    /** True for the five inline-embeddable raster types — the ones that upload
+     *  to `/images` and render as a thumbnail. */
+    val isImage: Boolean,
+    val uploadedId: String? = null,
+) {
+    // ByteArray breaks data-class equality; compare by the scalar fields only.
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is PendingAttachment) return false
+        return uri == other.uri && filename == other.filename &&
+            contentType == other.contentType && isImage == other.isImage &&
+            uploadedId == other.uploadedId
+    }
+
+    override fun hashCode(): Int {
+        var result = uri.hashCode()
+        result = 31 * result + filename.hashCode()
+        result = 31 * result + contentType.hashCode()
+        result = 31 * result + isImage.hashCode()
+        result = 31 * result + (uploadedId?.hashCode() ?: 0)
+        return result
+    }
+}
+
+/** The square side every attachment thumbnail uses, on every composer. */
+private val TileSize = 64.dp
+private val TileShape = RoundedCornerShape(8.dp)
+
+/**
+ * Thumbnails of the attachments queued for the next send — the steer
+ * composer's strip (EXP-511) generalized to files, shared by the comment
+ * composer and the comment editor (EXP-554).
+ */
+@Composable
+fun PendingAttachmentStrip(
+    items: List<PendingAttachment>,
+    enabled: Boolean,
+    onRemove: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (items.isEmpty()) return
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(bottom = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        items.forEachIndexed { index, item ->
+            Box {
+                if (item.isImage) {
+                    val bitmap = remember(item.uri, item.bytes) {
+                        BitmapFactory.decodeByteArray(item.bytes, 0, item.bytes.size)
+                            ?.asImageBitmap()
+                    }
+                    Box(modifier = Modifier.size(TileSize)) {
+                        if (bitmap != null) {
+                            Image(
+                                bitmap = bitmap,
+                                contentDescription = item.filename,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize().clip(TileShape),
+                            )
+                        } else {
+                            PlaceholderTile()
+                        }
+                    }
+                } else {
+                    FileTile(filename = item.filename, subtitle = null)
+                }
+                RemoveBadge(
+                    contentDescription = "Remove ${item.filename}",
+                    enabled = enabled,
+                    onClick = { onRemove(index) },
+                    modifier = Modifier.align(Alignment.TopEnd),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The attachments linked to a posted comment (EXP-554): squared image thumbs
+ * and file chips, never inlined into the markdown body. Images load straight
+ * from the stored relative `/api/attachments/{id}` URL — the Coil
+ * InstanceUrlInterceptor absolutizes it against the owning account and
+ * attaches its bearer token.
+ *
+ * [onRemove] is non-null only in edit mode, where removing a tile just drops
+ * it from the set the save will send (the server hard-deletes what is absent).
+ */
+@Composable
+fun CommentAttachmentsStrip(
+    attachments: List<AttachmentEntity>,
+    onOpen: (AttachmentEntity) -> Unit,
+    modifier: Modifier = Modifier,
+    onRemove: ((AttachmentEntity) -> Unit)? = null,
+) {
+    if (attachments.isEmpty()) return
+    val context = LocalContext.current
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(top = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        attachments.forEach { attachment ->
+            Box {
+                if (isInlineImage(attachment.contentType)) {
+                    AsyncImage(
+                        model = attachment.url,
+                        contentDescription = attachment.filename,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(TileSize)
+                            .clip(TileShape)
+                            .clickable { onOpen(attachment) },
+                    )
+                } else {
+                    FileTile(
+                        filename = attachment.filename,
+                        subtitle = Formatter.formatShortFileSize(context, attachment.sizeBytes),
+                        modifier = Modifier.clickable { onOpen(attachment) },
+                    )
+                }
+                if (onRemove != null) {
+                    RemoveBadge(
+                        contentDescription = "Remove ${attachment.filename}",
+                        enabled = true,
+                        onClick = { onRemove(attachment) },
+                        modifier = Modifier.align(Alignment.TopEnd),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** A non-image tile: type icon over a truncated name (and size, when known). */
+@Composable
+private fun FileTile(
+    filename: String,
+    subtitle: String?,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .widthIn(min = TileSize, max = 140.dp)
+            .clip(TileShape)
+            .background(GlassTokens.RowFill)
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            ExpIcons.uiFile,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+            tint = Color.White.copy(alpha = TextEmphasis.Secondary),
+        )
+        Spacer(Modifier.size(4.dp))
+        Text(
+            filename,
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.White.copy(alpha = TextEmphasis.Secondary),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (subtitle != null) {
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.White.copy(alpha = TextEmphasis.Tertiary),
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlaceholderTile() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .clip(TileShape)
+            .background(GlassTokens.RowFill),
+    )
+}
+
+/** The black circle-X badge every removable tile carries (steer parity). */
+@Composable
+private fun RemoveBadge(
+    contentDescription: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .padding(2.dp)
+            .size(18.dp)
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.55f))
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            ExpIcons.uiClose,
+            contentDescription = contentDescription,
+            modifier = Modifier.size(12.dp),
+            tint = Color.White,
+        )
+    }
+}

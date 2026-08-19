@@ -44,6 +44,16 @@ fun canonicalContentType(raw: String?): String {
 const val MAX_FILE_UPLOAD_BYTES: Long = 50L * 1024 * 1024
 
 /**
+ * Inline-image upload cap (the server's `maxImageUploadBytes`) — refuse
+ * locally rather than push megabytes over a mobile uplink only to be rejected.
+ * Shared by the steer composer (EXP-511) and comment attachments (EXP-554).
+ */
+const val MAX_IMAGE_UPLOAD_BYTES: Long = 10L * 1024 * 1024
+
+/** Attachments one comment can carry (the server's `MAX_COMMENT_ATTACHMENTS`). */
+const val MAX_COMMENT_ATTACHMENTS: Int = 10
+
+/**
  * Make a server-supplied filename safe to use as a local cache filename:
  * strip path separators (so `../../x` can never escape the per-attachment
  * directory), control characters, and the path-traversal names themselves.

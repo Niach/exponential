@@ -885,7 +885,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_comments_list`,
     {
-      description: `List comments on an issue (oldest first) by UUID or human identifier (e.g. "MET-12"). The MCP user must have access to the issue's team.`,
+      description: `List comments on an issue (oldest first) by UUID or human identifier (e.g. "MET-12"). Rows include their linked attachments. The MCP user must have access to the issue's team.`,
       inputSchema: {
         issueId: z.string().min(1),
         limit: z.number().int().min(1).max(200).default(100),
@@ -905,7 +905,33 @@ export function registerExponentialTools(
           .orderBy(asc(comments.createdAt))
           .limit(limit)
           .offset(offset)
-        return ok(rows)
+        const linked =
+          rows.length > 0
+            ? await db
+                .select({
+                  id: attachments.id,
+                  commentId: attachments.commentId,
+                  filename: attachments.filename,
+                  contentType: attachments.contentType,
+                  sizeBytes: attachments.sizeBytes,
+                  url: attachments.url,
+                })
+                .from(attachments)
+                .where(
+                  inArray(
+                    attachments.commentId,
+                    rows.map((row) => row.id)
+                  )
+                )
+            : []
+        return ok(
+          rows.map((row) => ({
+            ...row,
+            attachments: linked
+              .filter((a) => a.commentId === row.id)
+              .map(({ commentId: _commentId, ...rest }) => rest),
+          }))
+        )
       } catch (e) {
         return err(e)
       }

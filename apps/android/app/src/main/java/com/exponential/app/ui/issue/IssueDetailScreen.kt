@@ -177,6 +177,8 @@ fun IssueDetailScreen(
     LaunchedEffect(issueId) { commentViewModel.bind(issueId) }
     val commentDraft by commentViewModel.draft.collectAsStateWithLifecycle()
     val commentSending by commentViewModel.sending.collectAsStateWithLifecycle()
+    // Files queued for the next comment (EXP-554) — they upload on send.
+    val commentAttachments by commentViewModel.pendingAttachments.collectAsStateWithLifecycle()
 
     LaunchedEffect(titleSync, issue?.title) {
         issue?.title?.let { titleSync.syncRemote(it) }
@@ -754,7 +756,9 @@ fun IssueDetailScreen(
                         onDraftChange = commentViewModel::updateDraft,
                         sending = commentSending,
                         onSend = { commentViewModel.send { composerExpanded = false } },
-                        onUploadImage = { uri -> commentViewModel.uploadImage(uri) },
+                        pendingAttachments = commentAttachments,
+                        onAddAttachment = commentViewModel::addPendingAttachment,
+                        onRemoveAttachment = commentViewModel::removePendingAttachment,
                         mentionMembers = mentionMembers,
                         showMentionButton = soloMemberId == null,
                     )

@@ -4,6 +4,7 @@ import ExpCore
 import PhotosUI
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 /// How the bar's right-hand Start-coding circle renders (EXP-240). Computed by
 /// IssueDetailView from the view model's steer state so the bar stays dumb.
@@ -49,7 +50,12 @@ struct IssueDetailBottomBar: View {
     @State private var submitting = false
     @State private var composerHasText = false
     @State private var showPhotoPicker = false
-    @State private var photoItem: PhotosPickerItem?
+    @State private var photoItems: [PhotosPickerItem] = []
+    @State private var showFileImporter = false
+    /// EXP-554: photos and files picked for THIS comment. They are never inlined
+    /// into the markdown body — they upload on send and ride `attachmentIds`.
+    @State private var pendingAttachments: [PendingCommentAttachment] = []
+    @State private var attachmentError: String?
     @State private var showNoDeviceAlert = false
     // True while ANY keyboard is up (title, description, or a comment-edit
     // editor included — they all install the markdown toolbar as the keyboard
@@ -86,19 +92,32 @@ struct IssueDetailBottomBar: View {
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
             keyboardVisible = false
         }
-        .photosPicker(isPresented: $showPhotoPicker, selection: $photoItem, matching: .images)
-        .onChange(of: photoItem) { _, newItem in
-            guard let newItem else { return }
-            Task { await ingestPhoto(newItem) }
+        .photosPicker(
+            isPresented: $showPhotoPicker,
+            selection: $photoItems,
+            maxSelectionCount: AttachmentFiles.maxCommentAttachments,
+            matching: .images
+        )
+        .onChange(of: photoItems) { _, newItems in
+            guard !newItems.isEmpty else { return }
+            Task { await ingestPhotos(newItems) }
+        }
+        .fileImporter(
+            isPresented: $showFileImporter,
+            allowedContentTypes: [.item],
+            allowsMultipleSelection: true
+        ) { result in
+            guard case let .success(urls) = result else { return }
+            Task { await ingestFiles(urls) }
         }
         // Blur collapses the composer ONLY when nothing would be lost: empty
-        // draft, no pending images, and no picker mid-flight (presenting the
-        // photo picker resigns first responder).
+        // draft, no pending attachments, and no picker mid-flight (presenting a
+        // picker resigns first responder).
         .onChange(of: composerEditor.focusedBlockId) { _, focused in
             guard expanded, focused == nil, !submitting else { return }
-            guard !showPhotoPicker, photoItem == nil else { return }
+            guard !showPhotoPicker, photoItems.isEmpty, !showFileImporter else { return }
             let draft = composerEditor.currentMarkdown().trimmingCharacters(in: .whitespacesAndNewlines)
-            guard draft.isEmpty, composerEditor.pendingImages.isEmpty else { return }
+            guard draft.isEmpty, pendingAttachments.isEmpty, composerEditor.pendingImages.isEmpty else { return }
             collapse()
         }
         .alert("No desktop online", isPresented: $showNoDeviceAlert) {
@@ -223,6 +242,14 @@ struct IssueDetailBottomBar: View {
 
     // MARK: - Expanded composer
 
+    /// EXP-554: an attachment-only comment is legal (the server accepts an empty
+    /// body when `attachmentIds` is non-empty), so text is no longer required.
+    private var canSend: Bool { composerHasText || !pendingAttachments.isEmpty }
+
+    private var attachmentsFull: Bool {
+        pendingAttachments.count >= AttachmentFiles.maxCommentAttachments
+    }
+
     private var expandedComposer: some View {
         VStack(spacing: 0) {
             MarkdownEditor(
@@ -240,6 +267,26 @@ struct IssueDetailBottomBar: View {
             )
             .boundedEditorHeight(minHeight: 44, maxHeight: 140)
 
+            // EXP-554: queued attachments live INSIDE the card, above the action
+            // row — never inlined into the body markdown.
+            if !pendingAttachments.isEmpty {
+                PendingAttachmentStrip(items: pendingAttachments) { id in
+                    pendingAttachments.removeAll { $0.id == id }
+                    attachmentError = nil
+                }
+                .padding(.horizontal, 8)
+                .padding(.bottom, 4)
+            }
+
+            if let attachmentError {
+                Text(attachmentError)
+                    .font(.caption2)
+                    .foregroundStyle(DesignTokens.Semantic.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 4)
+            }
+
             HStack(spacing: 2) {
                 Button {
                     showPhotoPicker = true
@@ -250,7 +297,22 @@ struct IssueDetailBottomBar: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .disabled(attachmentsFull)
+                .opacity(attachmentsFull ? 0.4 : 1)
                 .accessibilityLabel("Add photo")
+
+                Button {
+                    showFileImporter = true
+                } label: {
+                    AppIcon(AppIcons.uiAttach, size: AppIcon.Size.medium)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .frame(width: 36, height: 36)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(attachmentsFull)
+                .opacity(attachmentsFull ? 0.4 : 1)
+                .accessibilityLabel("Attach a file")
 
                 if !singleMemberTeam {
                     Button {
@@ -283,13 +345,13 @@ struct IssueDetailBottomBar: View {
                 } label: {
                     AppIcon(AppIcons.uiSend, size: 28)
                         .foregroundStyle(
-                            submitting || !composerHasText
+                            submitting || !canSend
                                 ? Color.white.opacity(0.3)
                                 : Accent.indigo
                         )
                 }
                 .buttonStyle(.plain)
-                .disabled(submitting || !composerHasText)
+                .disabled(submitting || !canSend)
                 .accessibilityLabel("Send comment")
             }
             .padding(.horizontal, 8)
@@ -339,35 +401,51 @@ struct IssueDetailBottomBar: View {
     private func resetComposer() {
         composerEditor = IssueEditorModel()
         composerHasText = false
+        pendingAttachments = []
+        attachmentError = nil
         configureComposer()
     }
 
+    /// EXP-554 — upload on send, then link. Pending items stamp their
+    /// `uploadedId` as they land, so a failure half-way keeps the strip and a
+    /// retry only uploads what is left. The comment is only cleared once
+    /// `comments.create` succeeds.
     private func submit() async {
+        guard !submitting else { return }
         submitting = true
         defer { submitting = false }
-        // All-or-nothing image commit before deriving markdown (mirrors the
-        // description save path).
-        let ok = await composerEditor.commitPendingImages(uploader: makeCommentImageUploader())
-        guard ok, !composerEditor.hasUncommittedDrafts else { return }
         let md = composerEditor.currentMarkdown().trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !md.isEmpty else { return }
+        guard !md.isEmpty || !pendingAttachments.isEmpty else { return }
+        attachmentError = nil
+
+        var attachmentIds: [String] = []
+        if !pendingAttachments.isEmpty {
+            let outcome = await CommentAttachmentUploads.uploadAll(
+                pendingAttachments,
+                accountId: accountId,
+                issueId: issue.id,
+                issueImagesApi: deps.issueImagesApi,
+                attachmentsApi: deps.attachmentsApi
+            )
+            pendingAttachments = outcome.items
+            if let failure = outcome.failure {
+                attachmentError = failure
+                return
+            }
+            attachmentIds = outcome.items.compactMap(\.uploadedId)
+        }
+
         do {
-            try await deps.commentsApi.create(accountId: accountId, issueId: issue.id, text: md)
+            try await deps.commentsApi.create(
+                accountId: accountId,
+                issueId: issue.id,
+                text: md,
+                attachmentIds: attachmentIds
+            )
             resetComposer()
             collapse()
-        } catch {}
-    }
-
-    private func makeCommentImageUploader() -> @Sendable (PendingImage) async throws -> String {
-        let api = deps.issueImagesApi
-        let acc = accountId
-        let issueId = issue.id
-        return { image in
-            let uploaded = try await api.upload(
-                accountId: acc, issueId: issueId,
-                data: image.data, filename: image.filename, contentType: image.contentType
-            )
-            return uploaded.url
+        } catch {
+            attachmentError = error.localizedDescription
         }
     }
 
@@ -391,23 +469,45 @@ struct IssueDetailBottomBar: View {
         IssueRefLookup.search(query, scope: .issue(id: issue.id), db: deps.db, accountId: accountId)
     }
 
-    private func ingestPhoto(_ item: PhotosPickerItem) async {
-        defer { photoItem = nil }
-        guard let data = try? await item.loadTransferable(type: Data.self) else { return }
-        let contentType = item.supportedContentTypes.first?.preferredMIMEType ?? "image/jpeg"
-        let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
-        let filename = "image-\(Int(Date().timeIntervalSince1970)).\(ext)"
-        let (width, height) = pixelSize(of: data)
-        composerEditor.insertImage(
-            data: data, filename: filename, contentType: contentType,
-            width: width, height: height
-        )
+    /// EXP-554: a photo pick becomes a PENDING attachment, not an inline
+    /// `![](…)` in the body. Normalization (HEIC→JPEG) and the 10 MB cap are the
+    /// shared ones the steer composer uses.
+    private func ingestPhotos(_ items: [PhotosPickerItem]) async {
+        defer { photoItems = [] }
+        attachmentError = nil
+        for item in items {
+            guard !attachmentsFull else {
+                attachmentError = "A comment can carry \(AttachmentFiles.maxCommentAttachments) attachments."
+                break
+            }
+            guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
+            let type = item.supportedContentTypes.first
+            let outcome = AttachmentPicks.normalizedPhoto(
+                data: data,
+                contentTypeHint: type?.preferredMIMEType,
+                filenameExtensionHint: type?.preferredFilenameExtension
+            )
+            if let attachment = outcome.attachment {
+                pendingAttachments.append(attachment)
+            } else {
+                attachmentError = outcome.failure
+            }
+        }
     }
 
-    private func pixelSize(of data: Data) -> (Int?, Int?) {
-        guard let image = UIImage(data: data) else { return (nil, nil) }
-        let w = Int(image.size.width * image.scale)
-        let h = Int(image.size.height * image.scale)
-        return (w > 0 ? w : nil, h > 0 ? h : nil)
+    private func ingestFiles(_ urls: [URL]) async {
+        attachmentError = nil
+        for url in urls {
+            guard !attachmentsFull else {
+                attachmentError = "A comment can carry \(AttachmentFiles.maxCommentAttachments) attachments."
+                break
+            }
+            let outcome = await AttachmentPicks.readPickedFile(at: url)
+            if let attachment = outcome.attachment {
+                pendingAttachments.append(attachment)
+            } else {
+                attachmentError = outcome.failure
+            }
+        }
     }
 }

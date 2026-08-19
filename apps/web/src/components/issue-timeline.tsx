@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import { Send } from "lucide-react"
 import type {
+  Attachment,
   Comment,
   Issue,
   IssueEvent,
@@ -11,17 +11,18 @@ import type {
 } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
 import {
+  attachmentCollection,
   commentCollection,
   issueEventCollection,
   labelCollection,
   boardCollection,
 } from "@/lib/collections"
-import { Button } from "@/components/ui/button"
-import { MentionTextarea } from "@/components/mention-textarea"
+import { CommentComposer } from "@/components/comment-composer"
 import { EventRow } from "@/components/comment-rows/event"
 import { RegularCommentRow } from "@/components/comment-rows/regular"
 import { relativeTime } from "@/components/comment-rows/format"
 import { displayUserName } from "@/lib/user-display"
+import { getCommentBodyText } from "@/lib/domain"
 
 interface IssueTimelineProps {
   issue: Issue
@@ -63,6 +64,32 @@ export function IssueTimeline({
     query.from({ boards: boardCollection })
   )
 
+  // Comment attachments (EXP-554): linked rows ride attachments.comment_id,
+  // grouped per comment for the strips below each body.
+  const { data: issueAttachments } = useLiveQuery(
+    (query) =>
+      query
+        .from({ attachments: attachmentCollection })
+        .where(({ attachments }) => eq(attachments.issueId, issue.id)),
+    [issue.id]
+  )
+  const commentAttachmentMap = useMemo(() => {
+    const map = new Map<string, Attachment[]>()
+    for (const row of (issueAttachments ?? []) as Attachment[]) {
+      if (!row.commentId) continue
+      const list = map.get(row.commentId) ?? []
+      list.push(row)
+      map.set(row.commentId, list)
+    }
+    for (const list of map.values()) {
+      list.sort(
+        (a, b) =>
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      )
+    }
+    return map
+  }, [issueAttachments])
+
   const userMap = useMemo(() => new Map(users.map((u) => [u.id, u])), [users])
   const labelMap = useMemo(
     () => new Map((labels ?? []).map((l) => [l.id, l as Label])),
@@ -74,12 +101,8 @@ export function IssueTimeline({
   )
 
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
-  const [draft, setDraft] = useState(``)
-  const [submitting, setSubmitting] = useState(false)
 
   const list = (comments ?? []) as Comment[]
-
-  const composerPlaceholder = `Leave a reply…`
 
   type TimelineItem =
     | { kind: `comment`; at: number; comment: Comment }
@@ -106,27 +129,33 @@ export function IssueTimeline({
     return items
   }, [list, events])
 
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault()
-    const trimmed = draft.trim()
-    if (!trimmed) return
-    setSubmitting(true)
-    try {
-      await trpc.comments.create.mutate({
-        issueId: issue.id,
-        body: trimmed,
-      })
-      setDraft(``)
-    } finally {
-      setSubmitting(false)
-    }
+  const handleSubmit = async (body: string, attachmentIds: string[]) => {
+    await trpc.comments.create.mutate({
+      issueId: issue.id,
+      body,
+      attachmentIds,
+    })
   }
 
-  const handleEditSave = async (commentId: string, nextText: string) => {
-    await trpc.comments.update.mutate({
-      id: commentId,
-      body: nextText,
-    })
+  const handleEditSave = async (
+    comment: Comment,
+    nextText: string,
+    attachmentIds: string[]
+  ) => {
+    const currentIds = (commentAttachmentMap.get(comment.id) ?? []).map(
+      (row) => row.id
+    )
+    const unchanged =
+      nextText === getCommentBodyText(comment.body) &&
+      attachmentIds.length === currentIds.length &&
+      attachmentIds.every((id) => currentIds.includes(id))
+    if (!unchanged) {
+      await trpc.comments.update.mutate({
+        id: comment.id,
+        body: nextText,
+        attachmentIds,
+      })
+    }
     setEditingCommentId(null)
   }
 
@@ -192,44 +221,26 @@ export function IssueTimeline({
             key={comment.id}
             author={author}
             comment={comment}
+            attachments={commentAttachmentMap.get(comment.id) ?? []}
             canModify={canModify}
             users={users}
             editing={editingCommentId === comment.id}
             onCancelEdit={() => setEditingCommentId(null)}
             onDelete={() => void handleDelete(comment.id)}
             onEdit={() => setEditingCommentId(comment.id)}
-            onSaveEdit={(text) => handleEditSave(comment.id, text)}
+            onSaveEdit={(text, attachmentIds) =>
+              handleEditSave(comment, text, attachmentIds)
+            }
           />
         )
       })}
-      <form onSubmit={handleSubmit} className="mt-2 flex items-end gap-2">
-        <MentionTextarea
-          placeholder={composerPlaceholder}
-          value={draft}
-          onValueChange={setDraft}
+      <div className="mt-2">
+        <CommentComposer
+          issueId={issue.id}
           users={users}
-          className="min-h-16 text-sm"
-          disabled={submitting}
-          onKeyDown={(event) => {
-            if (
-              event.key === `Enter` &&
-              (event.metaKey || event.ctrlKey) &&
-              draft.trim()
-            ) {
-              event.preventDefault()
-              void handleSubmit(event)
-            }
-          }}
+          onSubmit={handleSubmit}
         />
-        <Button
-          type="submit"
-          size="icon"
-          aria-label="Send comment"
-          disabled={submitting || !draft.trim()}
-        >
-          <Send className="size-4" />
-        </Button>
-      </form>
+      </div>
     </div>
   )
 }

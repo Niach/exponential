@@ -1,9 +1,5 @@
 package com.exponential.app.ui.issue
 
-import android.content.ActivityNotFoundException
-import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import android.text.format.Formatter
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -33,13 +29,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.AttachmentEntity
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.icons.ExpIcons
-import java.io.File
 import kotlinx.coroutines.launch
 
 /**
@@ -272,39 +266,4 @@ private fun PendingFileRow(
             }
         }
     }
-}
-
-private fun fileProviderUri(context: Context, file: File): Uri =
-    FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-
-/**
- * Hand the cached bytes to whatever app can render them. The chooser carries
- * the read grant; if the device has nothing at all for the type we fall back
- * to a share sheet, which at least lets the user save it somewhere.
- */
-private fun openFile(context: Context, file: File, contentType: String) {
-    val uri = fileProviderUri(context, file)
-    val view = Intent(Intent.ACTION_VIEW).apply {
-        setDataAndType(uri, contentType.ifBlank { "*/*" })
-        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    }
-    val chooser = Intent.createChooser(view, "Open with")
-        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    try {
-        context.startActivity(chooser)
-    } catch (_: ActivityNotFoundException) {
-        shareFile(context, file, contentType)
-    }
-}
-
-private fun shareFile(context: Context, file: File, contentType: String) {
-    val uri = fileProviderUri(context, file)
-    val send = Intent(Intent.ACTION_SEND).apply {
-        type = contentType.ifBlank { "*/*" }
-        putExtra(Intent.EXTRA_STREAM, uri)
-        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    }
-    val chooser = Intent.createChooser(send, "Share file")
-        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    runCatching { context.startActivity(chooser) }
 }
