@@ -18326,6 +18326,10 @@ Host integration seams (EXP-261 — additive API for the Exponential desktop)
 - src/editor/window_state.rs: caret accessors for host autocomplete —
   `focused_text_before_caret`, `replace_text_before_caret` (typed-edit path),
   `caret_viewport_bounds`.
+- (EXP-551) src/editor/window_state.rs: `insert_text_at_caret` — inserts host
+  text (the emoji picker's glyph) at the caret through the same typed-edit
+  path, resolving the target through `format_target` and re-focusing it so a
+  popover click, which has already blurred the block, still lands.
 - src/theme.rs: `ThemeFonts { ui_family, mono_family }` (upstream hardcoded
   `.SystemUIFont`; code had no monospace); editor/render.rs + block
   element/render read the theme families.
