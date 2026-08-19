@@ -132,6 +132,20 @@ public final class IssueEditorModel {
     /// recent). nil disables the #-autocomplete.
     public var issueRefSearch: ((String) -> [IssueRefCandidate])?
 
+    /// EXP-551 — emoji search backing the `:shortcode` typeahead (set by the
+    /// host from `EmojiCatalog`). nil disables it, which is also the state
+    /// while the bundled dataset is still decoding off-main.
+    public var emojiSearch: ((String) -> [EmojiRecord])?
+
+    /// EXP-551 — the user's skin-tone preference (0 = none, 1...5 light to
+    /// dark), applied to every emoji this model inserts. Hosts mirror
+    /// `EmojiPreferences.skinTone` into it.
+    public var emojiSkinTone: Int = 0
+
+    /// EXP-551 — fired after an emoji is committed from the typeahead so the
+    /// host can record it in the shared recents list.
+    public var onEmojiInserted: ((EmojiRecord) -> Void)?
+
     /// Active @-mention candidates for the focused block's caret query, recomputed
     /// on edit/selection. Empty when no mention token is being typed.
     public private(set) var mentionCandidates: [MentionMember] = []
@@ -140,12 +154,20 @@ public final class IssueEditorModel {
     /// recomputed on edit/selection. Empty when no #-token is being typed.
     public private(set) var issueRefCandidates: [IssueRefCandidate] = []
 
+    /// Active `:shortcode` emoji candidates for the focused block's caret
+    /// query, recomputed on edit/selection (EXP-551).
+    public private(set) var emojiCandidates: [EmojiRecord] = []
+
     // The @-token currently being edited: where the `@` is and how long the query
     // after it is, in the focused block.
     private var activeMention: (blockId: UUID, atOffset: Int, queryLength: Int)?
 
     // The #-token currently being edited (mirrors `activeMention`).
     private var activeIssueRef: (blockId: UUID, hashOffset: Int, queryLength: Int)?
+
+    // The `:shortcode` token currently being edited. `closingColonLength` is 1
+    // once the user typed the closing `:`, so the replacement covers it.
+    private var activeEmoji: (blockId: UUID, colonOffset: Int, queryLength: Int, closingColonLength: Int)?
 
     // An @mention at the caret: `@` preceded by start-of-text or whitespace, then
     // an email-ish run. Mirrors the web/Android regex.
@@ -157,6 +179,16 @@ public final class IssueEditorModel {
     // then an identifier-ish run. Mirrors the web `ISSUE_REF_AT_CARET`.
     private static let issueRefAtCaretRegex = try! NSRegularExpression(
         pattern: "(?:^|\\s)#([A-Za-z0-9-]*)$"
+    )
+
+    // EXP-551 — a `:shortcode` at the caret. Byte-identical to the shared
+    // trigger every client uses (`packages/emoji/README.md`): the colon must
+    // start the line or follow whitespace, at least two shortcode characters
+    // must follow, and a closing colon is optional. `12:30`, `note:`, `http://x`
+    // and `:)` deliberately never trigger.
+    private static let emojiAtCaretRegex = try! NSRegularExpression(
+        pattern: "(?:^|\\s):([a-z0-9_+-]{2,})(:?)$",
+        options: [.caseInsensitive]
     )
 
     /// If `text` (the focused block's content up to the caret) ends in an @mention
@@ -179,6 +211,19 @@ public final class IssueEditorModel {
         }
         let q = m.range(at: 1)
         return (ns.substring(with: q), q.location - 1)
+    }
+
+    /// If `text` (the focused block's content up to the caret) ends in a
+    /// `:shortcode` token, return the query (text after the `:`), the opening
+    /// `:` character offset and whether the closing `:` has been typed
+    /// (EXP-551).
+    public static func emojiMatch(beforeCaret text: String) -> (query: String, colonOffset: Int, closed: Bool)? {
+        let ns = text as NSString
+        guard let m = emojiAtCaretRegex.firstMatch(in: text, range: NSRange(location: 0, length: ns.length)) else {
+            return nil
+        }
+        let q = m.range(at: 1)
+        return (ns.substring(with: q), q.location - 1, m.range(at: 2).length == 1)
     }
 
     // Monotonic content revisions, bumped ONLY for external/structural changes
@@ -352,13 +397,14 @@ public final class IssueEditorModel {
         guard let idx = blocks.firstIndex(where: { $0.id == id }) else { return }
         blocks[idx] = .text(id: id, attributedContent: content)
         if let selection { self.selection = (id, selection) }
-        // The active `@`/`#` token's offset is now stale. Remapping it would
+        // The active `@`/`#`/`:` token's offset is now stale. Remapping it would
         // mean replaying every insertion, and the bar is cheap to reopen (the
         // next keystroke arms it again) — whereas a stale replace range EATS
         // the character before the trigger, which then gets saved. Close it.
         if lengthDelta != 0 {
             clearMention()
             clearIssueRef()
+            clearEmoji()
         }
     }
 
@@ -449,12 +495,16 @@ public final class IssueEditorModel {
               case let .text(_, content) = block else {
             clearMention()
             clearIssueRef()
+            clearEmoji()
             return
         }
         let caret = max(0, min(sel.range.location, content.length))
         let before = (content.string as NSString).substring(to: caret)
         recomputeMention(blockId: sel.blockId, beforeCaret: before, armed: armed)
         recomputeIssueRef(blockId: sel.blockId, beforeCaret: before, armed: armed)
+        // LAST on purpose: the closed-colon auto-commit below mutates `blocks`,
+        // so the other two must have read the pre-commit content already.
+        recomputeEmoji(blockId: sel.blockId, beforeCaret: before, armed: armed)
     }
 
     private func recomputeMention(blockId: UUID, beforeCaret before: String, armed: Bool) {
@@ -489,9 +539,41 @@ public final class IssueEditorModel {
         issueRefCandidates = issueRefSearch(match.query)
     }
 
+    /// EXP-551 — `:shortcode` typeahead. Mirrors the mention/issue-ref
+    /// recompute, plus the auto-commit every client implements: once the
+    /// CLOSING colon has been typed and the query is an exact shortcode, the
+    /// token is replaced immediately (no trailing space, no menu).
+    private func recomputeEmoji(blockId: UUID, beforeCaret before: String, armed: Bool) {
+        guard let emojiSearch, let match = Self.emojiMatch(beforeCaret: before) else {
+            clearEmoji()
+            return
+        }
+        guard armed || activeEmoji?.blockId == blockId else {
+            clearEmoji()
+            return
+        }
+        let closingColonLength = match.closed ? 1 : 0
+        activeEmoji = (blockId, match.colonOffset, match.query.count, closingColonLength)
+        let results = emojiSearch(match.query)
+        if match.closed, let exact = results.first(where: { $0.hasShortcode(match.query) }) {
+            emojiCandidates = []
+            applyEmoji(exact, trailingSpace: false)
+            return
+        }
+        // A closed `:code:` that resolves to nothing is just text the user
+        // typed — never offer a menu for it.
+        emojiCandidates = match.closed ? [] : results
+        if emojiCandidates.isEmpty, match.closed { activeEmoji = nil }
+    }
+
     private func clearMention() {
         activeMention = nil
         if !mentionCandidates.isEmpty { mentionCandidates = [] }
+    }
+
+    private func clearEmoji() {
+        activeEmoji = nil
+        if !emojiCandidates.isEmpty { emojiCandidates = [] }
     }
 
     private func clearIssueRef() {
@@ -560,6 +642,56 @@ public final class IssueEditorModel {
         notifyEdit()
     }
 
+    /// EXP-551 — replace the active `:query` (plus its closing colon, when
+    /// typed) with the emoji's UNICODE. Same revision + desiredSelection
+    /// machinery as `applyMention`, so the text view re-applies without losing
+    /// first responder and the markdown stays plain GFM.
+    ///
+    /// [trailingSpace] mirrors the shared contract: a MENU pick inserts
+    /// `unicode + " "`, while the exact-`:code:` auto-commit inserts the bare
+    /// unicode (the user already typed a delimiter).
+    public func applyEmoji(_ record: EmojiRecord, trailingSpace: Bool = true) {
+        guard let active = activeEmoji,
+              let idx = blocks.firstIndex(where: { $0.id == active.blockId }),
+              case let .text(id, content) = blocks[idx] else {
+            clearEmoji()
+            return
+        }
+        let token = record.applyingTone(emojiSkinTone) + (trailingSpace ? " " : "")
+        let replaceRange = NSRange(
+            location: active.colonOffset,
+            length: 1 + active.queryLength + active.closingColonLength
+        )
+        guard replaceRange.location >= 0, NSMaxRange(replaceRange) <= content.length else {
+            clearEmoji()
+            return
+        }
+        let mutable = NSMutableAttributedString(attributedString: content)
+        mutable.replaceCharacters(
+            in: replaceRange,
+            with: NSAttributedString(string: token, attributes: MarkdownStyle.baseAttributes)
+        )
+        blocks[idx] = .text(id: id, attributedContent: mutable)
+        bumpRevision(id)
+        let caret = active.colonOffset + (token as NSString).length
+        desiredSelection = (id, caret)
+        // Keep the model's caret in step: the auto-commit path runs INSIDE a
+        // text-change recompute, so the text view's next selection callback
+        // still carries the pre-commit range.
+        selection = (id, NSRange(location: caret, length: 0))
+        clearEmoji()
+        onEmojiInserted?(record)
+        notifyEdit()
+    }
+
+    /// The block a caret insertion would land in. Hosts read it BEFORE opening
+    /// a picker sheet — presenting one resigns first responder and clears
+    /// `focusedBlockId`, so this is what gets re-focused afterwards (EXP-551).
+    public var insertionTargetBlockId: UUID? {
+        let fallbackId = blocks.last(where: { if case .text = $0 { true } else { false } })?.id
+        return focusedBlockId ?? selection?.blockId ?? fallbackId
+    }
+
     /// Insert plain text at the caret of the focused text block (replacing any
     /// selection), falling back to appending to the last text block when no
     /// caret is known — powers the composer's `@` affordance (EXP-240). Follows
@@ -567,8 +699,7 @@ public final class IssueEditorModel {
     /// view re-applies without losing first responder, plus a selection update
     /// so the autocomplete recomputes against the new caret immediately.
     public func insertTextAtCaret(_ text: String) {
-        let fallbackId = blocks.last(where: { if case .text = $0 { true } else { false } })?.id
-        guard let targetId = focusedBlockId ?? selection?.blockId ?? fallbackId,
+        guard let targetId = insertionTargetBlockId,
               let idx = blocks.firstIndex(where: { $0.id == targetId }),
               case let .text(id, content) = blocks[idx] else { return }
         let range: NSRange

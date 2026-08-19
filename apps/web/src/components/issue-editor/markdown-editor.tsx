@@ -52,9 +52,20 @@ import {
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import { useMentions } from "@/components/mention-provider"
 import {
+  EmojiCandidateRow,
   IssueCandidateRow,
   UserCandidateRow,
 } from "@/components/autocomplete-rows"
+import { EmojiPickerPopover } from "@/components/emoji-picker"
+import { conceptIcon } from "@/lib/icons.generated"
+import {
+  applySkinTone,
+  findEmojiByShortcode,
+  pushRecentEmoji,
+  readSkinTone,
+  searchEmoji,
+  useEmojiData,
+} from "@/lib/emoji"
 import {
   acceptedImageContentTypes,
   isAcceptedImageContentType,
@@ -382,6 +393,51 @@ function ToolbarActions({ editor }: { editor: Editor }) {
   )
 }
 
+// The toolbar is a multi-client surface (desktop mirrors it), so the emoji
+// glyph is a concept icon, not a raw lucide import (EXP-317).
+const EmojiIcon = conceptIcon(`editor-emoji`)
+
+/** Emoji button (static toolbar only) — EXP-551: opens the shared picker and
+ *  inserts the picked unicode at the caret as plain text. Opening the popover
+ *  blurs the editor (the detail page's blur-save no-ops when nothing changed);
+ *  ProseMirror keeps the selection across the blur, so `focus()` in the pick
+ *  handler lands the emoji where the caret was. */
+function EmojiControl({ editor }: { editor: Editor }) {
+  const insert = (unicode: string) => {
+    const { selection } = editor.state
+    editor
+      .chain()
+      .focus()
+      .command(({ tr }) => {
+        // A selected image (NodeSelection) would be REPLACED by the text —
+        // insert after it instead, mirroring insertImage.
+        if (selection instanceof NodeSelection) {
+          tr.insertText(unicode, selection.to, selection.to)
+        } else {
+          tr.insertText(unicode)
+        }
+        return true
+      })
+      .run()
+  }
+  return (
+    <EmojiPickerPopover onPick={insert}>
+      {/* Same shape as ToolbarButton (`.static-toolbar button` styles it) —
+          the mousedown preventDefault keeps focus off the button; Radix
+          toggles the popover on click, so it still opens. */}
+      <button
+        type="button"
+        tabIndex={-1}
+        onMouseDown={(e) => e.preventDefault()}
+        title="Emoji"
+        aria-label="Insert emoji"
+      >
+        <EmojiIcon className="size-3.5" />
+      </button>
+    </EmojiPickerPopover>
+  )
+}
+
 /** Image button (static toolbar only) — opens a file picker routed through the
  *  same upload path as paste/drop. */
 function ImageControl({
@@ -466,6 +522,8 @@ function StaticToolbar({
   return (
     <div className="static-toolbar">
       <ToolbarActions editor={editor} />
+      <div className="toolbar-separator" />
+      <EmojiControl editor={editor} />
       <ImageControl imageUpload={imageUpload} />
       <AttachControl imageUpload={imageUpload} />
     </div>
@@ -785,26 +843,48 @@ export const MarkdownEditor = forwardRef<
       autocomplete?.kind === `issueRef` && issueRefs
         ? issueRefs.search(autocomplete.query, { limit: 6 })
         : []
+    // EXP-551: `:shortcode` candidates from the lazily loaded emoji dataset
+    // (the chunk starts loading the first time a `:xx` token appears).
+    const emojiData = useEmojiData(autocomplete?.kind === `emoji`)
+    const emojiCandidates =
+      autocomplete?.kind === `emoji` && emojiData
+        ? searchEmoji(emojiData, autocomplete.query, 8)
+        : []
     const candidateCount =
       autocomplete?.kind === `mention`
         ? mentionCandidates.length
-        : issueCandidates.length
+        : autocomplete?.kind === `issueRef`
+          ? issueCandidates.length
+          : emojiCandidates.length
 
     // Replace the in-progress `@query`/`#query` token with the canonical
     // plain-text interchange form (`@<email>` / `#<IDENTIFIER>`). insertText
     // keeps it plain text — never a custom node — so the markdown round-trip
     // stays untouched.
-    const insertToken = (token: string) => {
+    const insertToken = (token: string, trailingSpace = true) => {
       const range = autocomplete
       if (!range || !editor) return
       editor
         .chain()
         .focus()
         .command(({ tr }) => {
-          tr.insertText(`${token} `, range.from, range.to)
+          tr.insertText(
+            trailingSpace ? `${token} ` : token,
+            range.from,
+            range.to
+          )
           return true
         })
         .run()
+    }
+
+    // An emoji pick inserts the (skin-toned) unicode — never the shortcode.
+    const insertEmoji = (
+      emoji: (typeof emojiCandidates)[number],
+      trailingSpace: boolean
+    ) => {
+      pushRecentEmoji(emoji.u)
+      insertToken(applySkinTone(emoji, readSkinTone()), trailingSpace)
     }
 
     const insertActive = (index: number) => {
@@ -812,8 +892,29 @@ export const MarkdownEditor = forwardRef<
         insertToken(`@${mentionCandidates[index].email}`)
       } else if (autocomplete?.kind === `issueRef` && issueCandidates[index]) {
         insertToken(`#${issueCandidates[index].identifier}`)
+      } else if (autocomplete?.kind === `emoji` && emojiCandidates[index]) {
+        insertEmoji(emojiCandidates[index], true)
       }
     }
+
+    // `:tada:` typed in full (closing colon) commits the exact shortcode
+    // immediately, without the trailing space — the habitual GitHub/Slack
+    // gesture must not leave literal shortcode text behind. Runs once the
+    // dataset is loaded; the token stays reported until then.
+    const autoCommitRef = useRef<string | null>(null)
+    useEffect(() => {
+      if (!autocomplete || autocomplete.kind !== `emoji`) {
+        autoCommitRef.current = null
+        return
+      }
+      if (!autocomplete.closed || !emojiData) return
+      const key = `${autocomplete.from}:${autocomplete.query}`
+      if (autoCommitRef.current === key) return
+      const exact = findEmojiByShortcode(emojiData, autocomplete.query)
+      if (!exact) return
+      autoCommitRef.current = key
+      insertEmoji(exact, false)
+    }, [autocomplete, emojiData])
 
     keyHandlerRef.current = (event) => {
       if (!autocomplete || candidateCount === 0) return false
@@ -825,7 +926,11 @@ export const MarkdownEditor = forwardRef<
         setActiveIndex((i) => (i - 1 + candidateCount) % candidateCount)
         return true
       }
-      if (event.key === `Enter` || event.key === `Tab`) {
+      if (
+        (event.key === `Enter` || event.key === `Tab`) &&
+        !event.metaKey &&
+        !event.ctrlKey
+      ) {
         insertActive(activeIndex)
         return true
       }
@@ -948,6 +1053,18 @@ export const MarkdownEditor = forwardRef<
                     <IssueCandidateRow
                       key={issue.id}
                       issue={issue}
+                      active={i === activeIndex}
+                      onSelect={() => insertActive(i)}
+                      onHover={() => setActiveIndex(i)}
+                    />
+                  ))}
+                {autocomplete.kind === `emoji` &&
+                  emojiCandidates.map((emoji, i) => (
+                    <EmojiCandidateRow
+                      key={emoji.u}
+                      emoji={emoji}
+                      unicode={applySkinTone(emoji, readSkinTone())}
+                      query={autocomplete.query}
                       active={i === activeIndex}
                       onSelect={() => insertActive(i)}
                       onHover={() => setActiveIndex(i)}

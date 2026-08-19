@@ -4,8 +4,9 @@ import { displayUserName } from "@/lib/user-display"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 import type { ResolvedIssueRef } from "@/components/issue-ref-provider"
+import type { EmojiRecord } from "@/lib/emoji"
 
-// The candidate rows of the @mention / #issue autocomplete menus — shared
+// The candidate rows of the @mention / #issue / :emoji autocomplete menus — shared
 // between the comment composer (mention-textarea.tsx) and the TipTap markdown
 // editor (issue-editor/markdown-editor.tsx) so both popups look identical.
 // Selection uses onMouseDown+preventDefault so the editor/textarea keeps
@@ -81,6 +82,53 @@ export function IssueCandidateRow({
         {issue.identifier}
       </span>
       <span className="truncate">{issue.title}</span>
+    </button>
+  )
+}
+
+/** EXP-551: a `:shortcode` candidate — the glyph, the shortcode it completes
+ *  and the emoji's label. `unicode` is what the pick inserts (skin tone
+ *  already applied by the caller). */
+export function EmojiCandidateRow({
+  emoji,
+  unicode,
+  query,
+  active,
+  onSelect,
+  onHover,
+}: {
+  emoji: EmojiRecord
+  unicode: string
+  /** The typed query — the shortcode that matches it is the one shown. */
+  query?: string
+  active: boolean
+  onSelect: () => void
+  onHover: () => void
+}) {
+  const q = query?.toLowerCase() ?? ``
+  const shortcode =
+    emoji.s.find((code) => code.toLowerCase().startsWith(q)) ?? emoji.s[0]
+  return (
+    <button
+      type="button"
+      onMouseDown={(e) => {
+        e.preventDefault()
+        onSelect()
+      }}
+      onMouseEnter={onHover}
+      className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm ${
+        active ? `bg-accent` : ``
+      }`}
+    >
+      <span className="emoji-glyph w-6 shrink-0 text-center text-base leading-none">
+        {unicode}
+      </span>
+      {shortcode && (
+        <span className="shrink-0 font-mono text-xs text-muted-foreground">
+          :{shortcode}:
+        </span>
+      )}
+      <span className="truncate text-muted-foreground">{emoji.l}</span>
     </button>
   )
 }

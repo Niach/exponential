@@ -376,4 +376,60 @@ class EditorModelTest {
         m.updateRun(row.id, "abc", 3)
         assertEquals("abc", m.currentMarkdown())
     }
+
+    // --- Emoji inserts (EXP-551) --------------------------------------------
+    //
+    // insertPlainText is the ONE path every emoji affordance uses (toolbar,
+    // comment composer, comment editor). Emoji are multi-UTF-16-unit, so these
+    // lock that the caret lands AFTER the whole sequence and that marks around
+    // the insertion point shift by its full UTF-16 length.
+
+    @Test
+    fun insertingASurrogatePairEmojiLandsTheCaretAfterIt() {
+        val m = model("ab")
+        val row = run(m)
+        m.setFocused(row.id)
+        m.updateSelection(row.id, 1..1)
+        m.insertPlainText("\uD83C\uDF89")
+        assertEquals("a\uD83C\uDF89b", run(m).text)
+        // 1 + the emoji's two UTF-16 units.
+        assertEquals(row.id to 3, m.desiredSelection)
+    }
+
+    @Test
+    fun insertingAZwjSequenceKeepsItIntact() {
+        val m = model("")
+        val row = run(m)
+        m.setFocused(row.id)
+        val family = "\uD83D\uDC69\u200D\uD83D\uDCBB"
+        m.insertPlainText(family)
+        assertEquals(family, run(m).text)
+        assertEquals(family, m.currentMarkdown())
+        assertEquals(row.id to family.length, m.desiredSelection)
+    }
+
+    @Test
+    fun insertingASkinTonedEmojiShiftsMarksByItsFullLength() {
+        val m = model("**ab**")
+        val row = run(m)
+        assertEquals("ab", row.text)
+        m.setFocused(row.id)
+        m.updateSelection(row.id, 0..0)
+        val toned = "\uD83D\uDC4D\uD83C\uDFFD"
+        m.insertPlainText(toned)
+        // The bold run still covers exactly "ab", now pushed right by 4 units.
+        assertEquals(toned + "**ab**", m.currentMarkdown())
+    }
+
+    @Test
+    fun anEmojiInsertNeverArmsTheAutocomplete() {
+        val m = model("hi")
+        val row = run(m)
+        m.setFocused(row.id)
+        m.insertPlainText("\uD83C\uDF89")
+        assertTrue(!m.consumeAutocompleteArm(row.id))
+        // The `@`/`#` affordances still do.
+        m.insertPlainText("@")
+        assertTrue(m.consumeAutocompleteArm(row.id))
+    }
 }

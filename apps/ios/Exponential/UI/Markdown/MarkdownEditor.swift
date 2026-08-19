@@ -53,6 +53,12 @@ struct MarkdownEditor: View {
     @State private var showPhotoPicker = false
     @State private var showFileImporter = false
     @State private var toolbar = MarkdownToolbar()
+    /// EXP-551 — the toolbar's emoji button opens a sheet, which resigns the
+    /// text view's first responder; `emojiRefocusTarget` is the block to hand
+    /// focus back to once it dismisses.
+    @State private var showEmojiPicker = false
+    @State private var emojiRefocusTarget: UUID?
+    private let emojiPreferences = EmojiPreferences()
 
     // NOTE: deliberately no internal ScrollView. Every usage embeds this
     // editor inside an outer ScrollView (issue detail, create sheet, comment
@@ -111,6 +117,13 @@ struct MarkdownEditor: View {
                 mentionBar
             } else if !isReadOnly, !model.issueRefCandidates.isEmpty {
                 issueRefBar
+            } else if !isReadOnly, !model.emojiCandidates.isEmpty {
+                emojiBar
+            }
+        }
+        .sheet(isPresented: $showEmojiPicker, onDismiss: refocusAfterEmojiPicker) {
+            EmojiPickerSheet(preferences: emojiPreferences) { unicode in
+                model.insertTextAtCaret(unicode)
             }
         }
         .onChange(of: mentionMembers) { _, newValue in model.mentionMembers = newValue }
@@ -136,7 +149,22 @@ struct MarkdownEditor: View {
                 toolbar.onFilePick = nil
             }
             toolbar.showsMentionButton = showsMentionButton
+            toolbar.onEmoji = {
+                // Captured while the text view is still first responder.
+                emojiRefocusTarget = model.insertionTargetBlockId
+                showEmojiPicker = true
+            }
             model.mentionMembers = mentionMembers
+            // EXP-551: decode the bundled dataset off-main once, then wire the
+            // `:shortcode` typeahead + the tone preference into the model.
+            EmojiCatalog.shared.preload()
+            model.emojiSkinTone = emojiPreferences.skinTone
+            model.emojiSearch = { query in
+                EmojiCatalog.shared.search(query, limit: EmojiCatalog.typeaheadLimit)
+            }
+            model.onEmojiInserted = { record in
+                EmojiPreferences().recordRecent(record.unicode)
+            }
         }
         // Membership can sync in after mount and flip the solo-team gate.
         .onChange(of: showsMentionButton) { _, newValue in
@@ -210,6 +238,52 @@ struct MarkdownEditor: View {
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .padding(.horizontal, 8)
+    }
+
+    // `:shortcode` emoji autocomplete: the same non-focus-stealing capsule bar
+    // as mentions/issue refs. Tapping inserts the UNICODE (toned by the user's
+    // preference) through the model, so the keyboard never collapses and the
+    // markdown stays plain GFM (EXP-551).
+    private var emojiBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(model.emojiCandidates) { record in
+                    Button {
+                        model.applyEmoji(record)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text(record.applyingTone(model.emojiSkinTone))
+                                .font(.system(size: 17))
+                            Text(":\(record.shortcodes.first ?? record.label):")
+                                .font(.caption2)
+                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                                .lineLimit(1)
+                        }
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(Color.white.opacity(0.1), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+        }
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .padding(.horizontal, 8)
+    }
+
+    /// The picker sheet took first responder; hand it back so the keyboard
+    /// returns with the caret where the emoji landed (EXP-551).
+    private func refocusAfterEmojiPicker() {
+        // The sheet may have changed the tone preference; the typeahead reads
+        // it off the model, so pull it back through.
+        model.emojiSkinTone = emojiPreferences.skinTone
+        guard let target = emojiRefocusTarget else { return }
+        emojiRefocusTarget = nil
+        DispatchQueue.main.async {
+            model.setFocused(target)
+        }
     }
 
     private func isSolePlaceholderBlock(_ id: UUID) -> Bool {

@@ -18,7 +18,16 @@ import {
   isInlineImageAttachment,
 } from "@/lib/attachment-files"
 import { Button } from "@/components/ui/button"
-import { MentionTextarea } from "@/components/mention-textarea"
+import {
+  MentionTextarea,
+  type MentionTextareaHandle,
+} from "@/components/mention-textarea"
+import { EmojiPickerPopover } from "@/components/emoji-picker"
+import { conceptIcon } from "@/lib/icons.generated"
+
+// Multi-client surface (the natives mirror this row) — concept icon, not a
+// raw lucide import (EXP-317).
+const EmojiIcon = conceptIcon(`editor-emoji`)
 
 /** A file picked into the composer, or (in edit mode) an already-linked row.
  *  `uploadedId` survives a failed send so a retry never re-uploads; `existing`
@@ -70,6 +79,7 @@ export function CommentComposer({
   )
   const [submitting, setSubmitting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const textareaRef = useRef<MentionTextareaHandle>(null)
 
   const pendingRef = useRef(pending)
   pendingRef.current = pending
@@ -225,6 +235,7 @@ export function CommentComposer({
         </div>
       )}
       <MentionTextarea
+        ref={textareaRef}
         autoFocus={autoFocus}
         placeholder={placeholder}
         value={text}
@@ -271,6 +282,24 @@ export function CommentComposer({
         >
           <Paperclip />
         </Button>
+        {/* EXP-551: the picker inserts at the textarea's caret; the popover
+            keeps focus off its trigger on close and insertText re-focuses. */}
+        <EmojiPickerPopover
+          side="top"
+          onPick={(unicode) => textareaRef.current?.insertText(unicode)}
+        >
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="text-muted-foreground"
+            aria-label="Insert emoji"
+            title="Insert emoji"
+            disabled={submitting}
+          >
+            <EmojiIcon />
+          </Button>
+        </EmojiPickerPopover>
         <div className="ml-auto flex items-center gap-2">
           {onCancel && (
             <Button

@@ -61,6 +61,7 @@ fun MarkdownToolbar(
 ) {
     val activeRowId = model.activeRowId
     val attrs = model.attrsAtCaret()
+    val toolbarController = LocalMarkdownToolbarController.current
     var attachMenuOpen by remember { mutableStateOf(false) }
 
     Column(modifier = modifier.fillMaxWidth()) {
@@ -126,6 +127,15 @@ fun MarkdownToolbar(
                 }
                 ToolbarButton(ExpIcons.editorIssueRef, "Reference an issue", active = false) {
                     model.insertPlainText("#")
+                }
+                // EXP-551: the picker sheet is FOCUSABLE, which drops the IME
+                // and unmounts this whole overlay — so the sheet's open state
+                // lives on the controller (hosted by ProvideMarkdownToolbar,
+                // which stays mounted) and this button only requests it.
+                if (toolbarController != null) {
+                    ToolbarButton(ExpIcons.editorEmoji, "Insert emoji", active = false) {
+                        toolbarController.requestEmojiPicker(model)
+                    }
                 }
                 Separator()
                 ToolbarButton(ExpIcons.editorList, "Bullet list", active = attrs?.listType == ListType.Bullet) {

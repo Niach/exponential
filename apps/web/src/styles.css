@@ -951,6 +951,26 @@ html {
   }
 }
 
+/* ── Emoji picker (EXP-551) ── */
+
+/* Glyphs render from the platform colour-emoji font, never the UI face —
+   Inter has no emoji, and a fallback chain that reaches a monochrome symbol
+   font first would draw ☺-style outlines. */
+@utility emoji-glyph {
+  font-family:
+    "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji",
+    "Twemoji Mozilla", "EmojiOne Color", sans-serif;
+  font-variant-emoji: emoji;
+}
+
+/* One section per group: ~1900 cells mount at once, so let the browser skip
+   layout/paint of the off-screen groups. The intrinsic size only seeds the
+   scrollbar until a section is measured for real. */
+.emoji-picker-section {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 18rem;
+}
+
 /* Inline link editor (inside the toolbar) */
 .toolbar-link-edit {
   display: inline-flex;

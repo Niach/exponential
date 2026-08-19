@@ -37,7 +37,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -53,6 +56,7 @@ import com.exponential.app.domain.MAX_COMMENT_ATTACHMENTS
 import com.exponential.app.ui.components.BottomBarPillFill
 import com.exponential.app.ui.components.PendingAttachment
 import com.exponential.app.ui.components.PendingAttachmentStrip
+import com.exponential.app.ui.emoji.EmojiPickerSheet
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.EditorModel
 import com.exponential.app.ui.markdown.MarkdownEditor
@@ -113,6 +117,26 @@ fun IssueDetailBottomBar(
     // rotation and re-navigation).
     val composerModel = remember { EditorModel() }
 
+    // EXP-551: the emoji sheet is hosted at BAR level, above the expand/collapse
+    // AnimatedContent — it is focusable, so opening it drops the keyboard, and
+    // collapse-on-blur would otherwise fold the composer (and the sheet with
+    // it) away underneath the picker.
+    var emojiPickerOpen by remember { mutableStateOf(false) }
+    val emojiPickerOpenState = rememberUpdatedState(emojiPickerOpen)
+    if (emojiPickerOpen) {
+        EmojiPickerSheet(
+            onPick = { unicode -> composerModel.insertPlainText(unicode) },
+            onDismiss = {
+                emojiPickerOpen = false
+                // Hand focus back so a dismissed picker leaves the composer
+                // exactly as it was found (keyboard up, caret where it was).
+                composerModel.setFocused(
+                    composerModel.activeRowId ?: composerModel.rows.firstOrNull()?.id,
+                )
+            },
+        )
+    }
+
     // Collapse-on-blur: only once focus is gone AND the keyboard is fully down
     // (toolbar taps transiently null focusedRowId with the IME still up), only
     // after a ~200ms quiet period, only with an empty draft (never lose one),
@@ -128,13 +152,20 @@ fun IssueDetailBottomBar(
         if (!expanded) return@LaunchedEffect
         var hadFocus = false
         snapshotFlow {
-            (composerModel.focusedRowId != null) to imeVisibleState.value
-        }.collectLatest { (focused, ime) ->
+            Triple(
+                composerModel.focusedRowId != null,
+                imeVisibleState.value,
+                emojiPickerOpenState.value,
+            )
+        }.collectLatest { (focused, ime, emojiOpen) ->
             if (focused) {
                 hadFocus = true
                 return@collectLatest
             }
-            if (!hadFocus || ime) return@collectLatest
+            // The emoji picker takes focus AND the keyboard by design
+            // (EXP-551) — collapsing under it would unmount the composer the
+            // pick is meant to land in.
+            if (!hadFocus || ime || emojiOpen) return@collectLatest
             delay(200)
             val empty = draftState.value.isBlank() && pendingState.value.isEmpty() &&
                 composerModel.currentMarkdown().isBlank()
@@ -171,6 +202,7 @@ fun IssueDetailBottomBar(
                 onRemoveAttachment = onRemoveAttachment,
                 mentionMembers = mentionMembers,
                 showMentionButton = showMentionButton,
+                onRequestEmoji = { emojiPickerOpen = true },
                 onCollapse = { onExpandedChange(false) },
             )
         } else {
@@ -301,6 +333,10 @@ private fun ExpandedCommentComposer(
     onRemoveAttachment: (Int) -> Unit,
     mentionMembers: List<MentionMember>,
     showMentionButton: Boolean,
+    // EXP-551: the composer opts out of the floating toolbar, so the bar hosts
+    // the emoji sheet for it (hosting it HERE would let collapse-on-blur
+    // unmount the sheet the moment it takes focus off the editor).
+    onRequestEmoji: () -> Unit,
     onCollapse: () -> Unit,
 ) {
     BackHandler(onBack = onCollapse)
@@ -397,6 +433,14 @@ private fun ExpandedCommentComposer(
                 Icon(
                     ExpIcons.editorIssueRef,
                     contentDescription = "Reference an issue",
+                    modifier = Modifier.size(20.dp),
+                    tint = Color.White.copy(alpha = TextEmphasis.Secondary),
+                )
+            }
+            IconButton(onClick = onRequestEmoji) {
+                Icon(
+                    ExpIcons.editorEmoji,
+                    contentDescription = "Insert emoji",
                     modifier = Modifier.size(20.dp),
                     tint = Color.White.copy(alpha = TextEmphasis.Secondary),
                 )

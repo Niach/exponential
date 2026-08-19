@@ -45,7 +45,9 @@ import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.PendingAttachment
 import com.exponential.app.ui.components.PendingAttachmentStrip
 import com.exponential.app.ui.components.userDisplayName
+import com.exponential.app.ui.emoji.EmojiPickerSheet
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.markdown.EditorModel
 import com.exponential.app.ui.markdown.MarkdownEditor
 import com.exponential.app.ui.markdown.MarkdownView
 import com.exponential.app.ui.markdown.MentionMember
@@ -99,6 +101,17 @@ internal fun RegularCommentRow(
     val filePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri: Uri? -> uri?.let { onAddEditAttachment(it, keptIds.size) } }
+    // EXP-551: a hoisted model so the emoji button can insert at the caret of
+    // THIS editor (the shared toolbar controller's slot is last-focus-wins and
+    // may point at another editor on the screen).
+    val editModel = remember(comment.id) { EditorModel() }
+    var emojiPickerOpen by remember { mutableStateOf(false) }
+    if (emojiPickerOpen) {
+        EmojiPickerSheet(
+            onPick = { unicode -> editModel.insertPlainText(unicode) },
+            onDismiss = { emojiPickerOpen = false },
+        )
+    }
 
     Row(
         modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
@@ -203,6 +216,7 @@ internal fun RegularCommentRow(
                     minHeight = 40.dp,
                     mentionMembers = mentionMembers,
                     mentionEnabled = mentionEnabled,
+                    model = editModel,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 CommentAttachmentsStrip(
@@ -243,6 +257,16 @@ internal fun RegularCommentRow(
                         modifier = Modifier
                             .clip(RoundedCornerShape(percent = 50))
                             .clickable { filePicker.launch(arrayOf("*/*")) }
+                            .padding(4.dp)
+                            .size(18.dp),
+                    )
+                    Icon(
+                        ExpIcons.editorEmoji,
+                        contentDescription = "Insert emoji",
+                        tint = Color.White.copy(alpha = TextEmphasis.Secondary),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(percent = 50))
+                            .clickable { emojiPickerOpen = true }
                             .padding(4.dp)
                             .size(18.dp),
                     )
