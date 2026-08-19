@@ -1010,6 +1010,22 @@ export function AgentSessionView({
       phase.kind === `closed`)
   const pausedTitle = `${device.label ?? `The device`} is offline`
   const pausedBody = `The agent is paused on that machine and continues when it comes back online.`
+  // The `closed` phase (relay `bye publisher_lost`) does not redial on its
+  // own — a viewer that watched the lid close would sit on "Disconnected"
+  // after the machine woke. Redial once the device flips back online so the
+  // stream resumes without a click (the `starting` loop already retries).
+  const deviceOnline = device.online
+  const wasOfflineRef = useRef(false)
+  useEffect(() => {
+    if (deviceOnline === false) {
+      wasOfflineRef.current = true
+      return
+    }
+    if (deviceOnline === true && wasOfflineRef.current) {
+      wasOfflineRef.current = false
+      if (phase.kind === `closed` && !sessionEnded) setAttempt((n) => n + 1)
+    }
+  }, [deviceOnline, phase.kind, sessionEnded])
 
   return (
     <div className="flex h-full min-h-0 flex-col">
