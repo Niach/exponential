@@ -305,6 +305,10 @@ impl IssueDetailView {
         // moved to the issue header with the cluster — EXP-277.)
         subscriptions.push(cx.observe(&collections.boards, |_, _, cx| cx.notify()));
         subscriptions.push(cx.observe(&collections.coding_sessions, |_, _, cx| cx.notify()));
+        // EXP-549/550: the coding-now pill resolves the host machine's live
+        // label and online-ness from the devices rows, so heartbeats (and
+        // renames) must re-render it.
+        subscriptions.push(cx.observe(&collections.devices, |_, _, cx| cx.notify()));
         subscriptions.push(cx.observe(&collections.users, |_, _, cx| cx.notify()));
         subscriptions.push(cx.observe(&collections.attachments, |_, _, cx| cx.notify()));
 
@@ -2045,6 +2049,11 @@ pub(crate) fn issue_web_url(issue: &Issue, cx: &App) -> Option<String> {
 /// "ready for review" (the in_review issue-status tint), done BLUE once the
 /// PR merges, needs-input YELLOW while the agent waits on a plan-approval /
 /// question picker.
+///
+/// EXP-549/550: the machine name is RESOLVED against the synced `devices`
+/// rows (so a rename shows immediately, not the start-time hostname), and an
+/// in-flight session whose host went offline (lid closed) reads "paused" in
+/// neutral grey instead of claiming to be live.
 pub(crate) fn coding_now_pill(issue_id: &str, cx: &App) -> Option<impl IntoElement> {
     let collections = Store::global(cx).collections();
     let now = chrono::Utc::now().timestamp();
@@ -2063,8 +2072,16 @@ pub(crate) fn coding_now_pill(issue_id: &str, cx: &App) -> Option<impl IntoEleme
         .read(cx)
         .get(issue_id)
         .and_then(|issue| issue.pr_state.clone());
-    let (verb, tone) =
-        match crate::queries::coding_session_display(&session, pr_state.as_deref()) {
+    let display = crate::queries::coding_session_display(&session, pr_state.as_deref());
+    let presentation = crate::queries::session_device_presentation(
+        &session,
+        collections.devices.read(cx).iter(),
+        now * 1_000,
+    );
+    let (verb, tone) = if crate::queries::session_is_paused(display, &presentation) {
+        ("paused", theme::tokens::NEUTRAL)
+    } else {
+        match display {
             crate::queries::CodingSessionDisplay::NeedsInput => {
                 ("needs input", theme::tokens::YELLOW)
             }
@@ -2074,14 +2091,15 @@ pub(crate) fn coding_now_pill(issue_id: &str, cx: &App) -> Option<impl IntoEleme
             crate::queries::CodingSessionDisplay::Merged => ("merged", theme::tokens::BLUE),
             crate::queries::CodingSessionDisplay::Done => ("done", theme::tokens::BLUE),
             crate::queries::CodingSessionDisplay::Running => ("coding now", theme::tokens::GREEN),
-        };
+        }
+    };
 
     let who = session
         .user_id
         .as_deref()
         .and_then(|id| collections.users.read(cx).get(id).cloned())
         .map(|user| comments::author_label(Some(&user)));
-    let label = match (who, session.device_label.as_deref()) {
+    let label = match (who, presentation.label.as_deref()) {
         (Some(who), Some(device)) => format!("{who} {verb} · {device}"),
         (Some(who), None) => format!("{who} {verb}"),
         (None, Some(device)) => {

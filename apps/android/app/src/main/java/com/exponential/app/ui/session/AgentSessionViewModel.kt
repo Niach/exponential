@@ -11,13 +11,17 @@ import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
+import com.exponential.app.data.db.DeviceEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.CodingSessionLiveness
+import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.INLINE_IMAGE_CONTENT_TYPES
 import com.exponential.app.domain.MAX_IMAGE_UPLOAD_BYTES
+import com.exponential.app.domain.SessionDevicePresentation
 import com.exponential.app.domain.canonicalContentType
+import com.exponential.app.domain.resolveSessionDevice
 import com.exponential.app.ui.components.PendingAttachment
 import com.exponential.app.ui.markdown.AttachmentDims
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -38,6 +42,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -830,6 +835,41 @@ class AgentSessionViewModel @Inject constructor(
         dbFlow.scopedQuery<CodingSessionEntity?>(null) {
             it.codingSessionDao().observeById(codingSessionId)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * EXP-549/550: the session's host machine, joined to its LIVE devices row
+     * — the CURRENT label (a rename must land here, not the start-time
+     * snapshot) and whether the machine dropped offline. Recomputed on the
+     * device ticker, since Room flows only re-emit on writes and the 90s
+     * freshness window elapses on its own.
+     */
+    val hostDevice: StateFlow<SessionDevicePresentation> = combine(
+        session,
+        dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() },
+        DeviceLiveness.ticker(),
+    ) { row, devices, now ->
+        if (row == null) {
+            SessionDevicePresentation.Unknown
+        } else {
+            resolveSessionDevice(row, devices, now)
+        }
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        SessionDevicePresentation.Unknown,
+    )
+
+    /**
+     * EXP-550: the machine running this session is offline while the session
+     * is still supposed to be WORKING — the run is paused (lid closed), not
+     * lost and not ended, and it continues when the machine comes back. A row
+     * already in review / merged / ended is parked on its own outcome, so its
+     * machine's presence says nothing. The relay redial loop is untouched:
+     * this only changes what the screen says while it keeps trying.
+     */
+    val hostDeviceOffline: StateFlow<Boolean> = combine(hostDevice, session) { device, row ->
+        device.offline && row != null && row.status == DomainContract.codingSessionStatusRunning
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /**
      * Probed sizes of the linked issue's attachments (REV2-79) — the feed

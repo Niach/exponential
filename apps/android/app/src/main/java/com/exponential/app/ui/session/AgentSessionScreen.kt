@@ -77,6 +77,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -118,11 +119,26 @@ import kotlinx.coroutines.withContext
 
 private val LiveGreen = Color(0xFF34D399)
 private val ConnectingYellow = Color(0xFFFBBF24)
-private val LostGray = Color(0xFF71717A)
+// Package-visible: the Agents list paints a paused (offline-machine) session
+// with the same neutral grey (EXP-550).
+internal val LostGray = Color(0xFF71717A)
 /** Accent for the "Plan ready" card + header cue (EXP-97). */
 private val PlanAccent = DesignTokens.Semantic.Blue
 /** Hairline around the steer composer card — the comment composer's stroke. */
 private val ComposerStroke = Color.White.copy(alpha = 0.12f)
+
+/** EXP-550: the one explanation of a paused (offline-machine) session. */
+private const val DEVICE_OFFLINE_DETAIL =
+    "The agent is paused on that machine and continues when it comes back online."
+
+/**
+ * EXP-550: the phases whose caption is "we are waiting for the publisher" —
+ * exactly the ones an offline host explains. Live and a terminal end are not
+ * waiting on anything.
+ */
+private val AgentPhase.isWaitingForStream: Boolean
+    get() = this == AgentPhase.Idle || this == AgentPhase.Connecting ||
+        this == AgentPhase.Starting || (this is AgentPhase.Closed && reconnecting)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -132,6 +148,12 @@ fun AgentSessionScreen(
 ) {
     val session by viewModel.session.collectAsStateWithLifecycle()
     val phase by viewModel.phase.collectAsStateWithLifecycle()
+    // EXP-549/550: the host machine via its LIVE devices row — the current
+    // label, and "offline" = the run is PAUSED on a machine that went away
+    // (lid closed). It is not ended and nothing here stops redialing; only
+    // what the screen says changes, and it resumes when the machine returns.
+    val hostDevice by viewModel.hostDevice.collectAsStateWithLifecycle()
+    val hostOffline by viewModel.hostDeviceOffline.collectAsStateWithLifecycle()
     val activity by viewModel.activity.collectAsStateWithLifecycle()
     val feed = activity.feed
     val latestDiff = activity.latestDiff
@@ -212,8 +234,9 @@ fun AgentSessionScreen(
                 title = {
                     SessionStatusTitle(
                         phase = phase,
-                        deviceLabel = session?.deviceLabel,
+                        deviceLabel = hostDevice.displayLabel,
                         awaitingInput = awaitingInput,
+                        paused = hostOffline && phase.isWaitingForStream,
                     )
                 },
                 navigationIcon = {
@@ -256,6 +279,29 @@ fun AgentSessionScreen(
             // ── The activity feed (bottom-anchored, follow-scroll) ───────────
             Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
                 when {
+                    // EXP-550: the machine is gone — an endless "waiting for
+                    // the live stream" spinner was the bug. The run is parked,
+                    // and it picks up when the machine comes back.
+                    feed.isEmpty() && hostOffline && phase.isWaitingForStream ->
+                        CenteredState {
+                            Icon(
+                                ExpIcons.uiDeviceOffline,
+                                contentDescription = null,
+                                tint = LostGray,
+                                modifier = Modifier.size(22.dp),
+                            )
+                            Text(
+                                "${hostDevice.displayLabel} is offline",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                DEVICE_OFFLINE_DETAIL,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                                textAlign = TextAlign.Center,
+                            )
+                        }
                     feed.isEmpty() && (phase == AgentPhase.Connecting || phase == AgentPhase.Starting) ->
                         CenteredState {
                             CircularProgressIndicator(
@@ -332,45 +378,76 @@ fun AgentSessionScreen(
             }
 
             // ── Status banners (feed retained above) ─────────────────────────
-            when (val p = phase) {
-                is AgentPhase.Ended -> BannerRow {
-                    Text(
-                        p.detail ?: "Session ended",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    )
-                }
-                is AgentPhase.Closed -> BannerRow {
-                    if (p.reconnecting) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(13.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
-                    Text(
-                        p.detail
-                            ?: if (p.reconnecting) "Connection lost. Reconnecting…" else "Disconnected",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                AgentPhase.Starting -> if (feed.isNotEmpty()) {
+            val pausedBanner = hostOffline && phase.isWaitingForStream
+            // EXP-550: an offline host outranks the "reconnecting" /
+            // "starting" captions — the reason the stream is quiet is the
+            // machine, not the connection, and the run resumes when it is
+            // back. Only shown with a feed above it; an empty feed already
+            // renders the centered offline state.
+            if (pausedBanner) {
+                if (feed.isNotEmpty()) {
                     BannerRow {
-                        CircularProgressIndicator(
+                        Icon(
+                            ExpIcons.uiDeviceOffline,
+                            contentDescription = null,
+                            tint = LostGray,
                             modifier = Modifier.size(13.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onSurface,
                         )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "${hostDevice.displayLabel} is offline",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                DEVICE_OFFLINE_DETAIL,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                            )
+                        }
+                    }
+                }
+            } else {
+                when (val p = phase) {
+                    is AgentPhase.Ended -> BannerRow {
                         Text(
-                            "The agent is starting. Waiting for the live stream…",
+                            p.detail ?: "Session ended",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                         )
                     }
+                    is AgentPhase.Closed -> BannerRow {
+                        if (p.reconnecting) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(13.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
+                        Text(
+                            p.detail
+                                ?: if (p.reconnecting) "Connection lost. Reconnecting…" else "Disconnected",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    AgentPhase.Starting -> if (feed.isNotEmpty()) {
+                        BannerRow {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(13.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                "The agent is starting. Waiting for the live stream…",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                            )
+                        }
+                    }
+                    else -> Unit
                 }
-                else -> Unit
             }
 
             // A failed kill call (EXP-268) — success needs no banner: the
@@ -509,12 +586,20 @@ private fun SessionStatusTitle(
     /** Live but blocked on a trailing question/plan — waiting for a human
      *  answer, not stuck (EXP-97). */
     awaitingInput: Boolean = false,
+    /** EXP-550: the host machine is offline while we wait for its stream —
+     *  the run is parked on it, so nothing here reads as connecting. */
+    paused: Boolean = false,
 ) {
-    // Auto-reconnecting after a drop reads as connecting (EXP-243).
-    val connecting = phase == AgentPhase.Connecting || phase == AgentPhase.Starting ||
-        (phase is AgentPhase.Closed && phase.reconnecting)
+    // Auto-reconnecting after a drop reads as connecting (EXP-243) — unless
+    // the machine itself is offline, which is a paused run, not a connection
+    // problem (EXP-550).
+    val connecting = !paused && (
+        phase == AgentPhase.Connecting || phase == AgentPhase.Starting ||
+            (phase is AgentPhase.Closed && phase.reconnecting)
+        )
     val awaiting = phase == AgentPhase.Live && awaitingInput
     val dotColor = when {
+        paused -> LostGray
         phase == AgentPhase.Live -> if (awaiting) ConnectingYellow else LiveGreen
         connecting -> ConnectingYellow
         else -> LostGray
@@ -536,16 +621,19 @@ private fun SessionStatusTitle(
                 .alpha(if (connecting) pulse else 1f)
                 .background(dotColor, CircleShape),
         )
+        val label = deviceLabel?.takeIf { it.isNotBlank() }
         Text(
-            when (phase) {
-                AgentPhase.Live -> {
-                    val prefix = if (awaiting) "Needs your input" else "Live"
-                    val label = deviceLabel?.takeIf { it.isNotBlank() }
-                    if (label != null) "$prefix · $label" else prefix
+            when {
+                paused -> if (label != null) "Paused · $label" else "Paused"
+                else -> when (phase) {
+                    AgentPhase.Live -> {
+                        val prefix = if (awaiting) "Needs your input" else "Live"
+                        if (label != null) "$prefix · $label" else prefix
+                    }
+                    AgentPhase.Connecting, AgentPhase.Starting, AgentPhase.Idle -> "Connecting…"
+                    is AgentPhase.Ended -> "Session ended"
+                    is AgentPhase.Closed -> if (phase.reconnecting) "Reconnecting…" else "Disconnected"
                 }
-                AgentPhase.Connecting, AgentPhase.Starting, AgentPhase.Idle -> "Connecting…"
-                is AgentPhase.Ended -> "Session ended"
-                is AgentPhase.Closed -> if (phase.reconnecting) "Reconnecting…" else "Disconnected"
             },
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,

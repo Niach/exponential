@@ -449,6 +449,23 @@ mod tests {
     }
 
     #[test]
+    fn start_posts_device_id_without_started_by() {
+        // EXP-549: every start now carries this machine's steer deviceId so
+        // the server stamps `coding_sessions.device_id` and snapshots the
+        // machine's CURRENT (renamed) label — no `startedById` on an
+        // own-device start.
+        let (base, captured) = one_shot_server(200, SESSION_BODY);
+        let attribution = Attribution {
+            started_by_id: None,
+            device_id: Some("dev-1"),
+        };
+        let _ = start(&client(&base), "issue-1", Some("testbox"), attribution).unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request
+            .ends_with(r#"{"issueId":"issue-1","deviceLabel":"testbox","deviceId":"dev-1"}"#));
+    }
+
+    #[test]
     fn heartbeat_posts_shared_device_attribution() {
         // EXP-432: the scope echoes attribution so a swept row resurrects
         // requester-owned.

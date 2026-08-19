@@ -359,6 +359,10 @@ pub const SHAPES: [ShapeSpec; 18] = [
             "team_id",
             "user_id",
             "device_label",
+            // EXP-549/550: the host machine's steer deviceId — joins the
+            // synced `devices` row for its live label and online-ness
+            // (heal_missing_columns ALTERs it onto existing stores).
+            "device_id",
             "status",
             "needs_input",
             // EXP-530 automation attribution: `action_id`/`action_name` scope
@@ -577,6 +581,17 @@ mod tests {
         assert!(spec.columns.contains(&"action_id"));
         assert!(spec.columns.contains(&"action_name"));
         assert!(spec.columns.contains(&"started_reason"));
+    }
+
+    #[test]
+    fn coding_sessions_sync_the_host_device_id() {
+        // EXP-549/550: the coding-now pill joins this to the `devices` row
+        // for the machine's renamed label and its online-ness — dropping it
+        // silently reverts every session to the stale hostname snapshot and
+        // shows lid-closed hosts as live.
+        let spec = shape_by_name("coding_sessions").unwrap();
+        assert!(spec.columns.contains(&"device_id"));
+        assert!(spec.columns.contains(&"device_label"), "the snapshot stays");
     }
 
     #[test]

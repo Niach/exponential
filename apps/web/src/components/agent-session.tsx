@@ -24,6 +24,8 @@ import {
 import { conceptIcon } from "@/lib/icons.generated"
 import type { CodingSession } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
+import { useSessionDevice } from "@/hooks/use-session-device"
+import type { SessionDevice } from "@/lib/session-device"
 import {
   ackAnswer,
   activeQuestionIds,
@@ -95,6 +97,7 @@ const CodingPlanIcon = conceptIcon(`coding-plan`)
 const CodingStopIcon = conceptIcon(`coding-stop`)
 const CodingSubagentIcon = conceptIcon(`coding-subagent`)
 const CodingToolIcon = conceptIcon(`coding-tool`)
+const UiDeviceOfflineIcon = conceptIcon(`ui-device-offline`)
 const UiHelpIcon = conceptIcon(`ui-help`)
 const UiLoadingIcon = conceptIcon(`ui-loading`)
 const UiPermissionIcon = conceptIcon(`ui-permission`)
@@ -989,6 +992,40 @@ export function AgentSessionView({
    *  the user (no active question card, synced needs_input clear; all three
    *  agents drive the flag). Mobile parity. */
   const working = live && !sessionEnded && !awaitingInput && !session.needsInput
+  /** EXP-549/550: the host machine per the synced devices row — its RENAMED
+   *  label, and whether it is offline right now. */
+  const device = useSessionDevice(session)
+  /** EXP-550: no live stream AND the host machine is offline (lid closed,
+   *  usage-limit pause…) — the agent is PAUSED on that machine, not starting
+   *  and not gone. The synced row stays `running`, so it resumes when the
+   *  device returns; the redial loop below keeps trying and picks the stream
+   *  back up on its own. Renders grey with honest copy instead of an endless
+   *  "Agent starting…" spinner. */
+  const paused =
+    device.online === false &&
+    !sessionEnded &&
+    (phase.kind === `starting` ||
+      phase.kind === `connecting` ||
+      phase.kind === `idle` ||
+      phase.kind === `closed`)
+  const pausedTitle = `${device.label ?? `The device`} is offline`
+  const pausedBody = `The agent is paused on that machine and continues when it comes back online.`
+  // The `closed` phase (relay `bye publisher_lost`) does not redial on its
+  // own — a viewer that watched the lid close would sit on "Disconnected"
+  // after the machine woke. Redial once the device flips back online so the
+  // stream resumes without a click (the `starting` loop already retries).
+  const deviceOnline = device.online
+  const wasOfflineRef = useRef(false)
+  useEffect(() => {
+    if (deviceOnline === false) {
+      wasOfflineRef.current = true
+      return
+    }
+    if (deviceOnline === true && wasOfflineRef.current) {
+      wasOfflineRef.current = false
+      if (phase.kind === `closed` && !sessionEnded) setAttempt((n) => n + 1)
+    }
+  }, [deviceOnline, phase.kind, sessionEnded])
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -997,11 +1034,12 @@ export function AgentSessionView({
       <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
         <PhaseIndicator
           phase={phase}
-          deviceLabel={session.deviceLabel}
+          device={device}
           awaitingInput={awaitingInput}
+          paused={paused}
         />
         <div className="min-w-0 flex-1 truncate text-sm">{title}</div>
-        {phase.kind === `closed` && (
+        {phase.kind === `closed` && !paused && (
           <Button
             variant="outline"
             size="sm"
@@ -1075,8 +1113,18 @@ export function AgentSessionView({
               onScroll={handleFeedScroll}
               className="h-full overflow-y-auto"
             >
-              {feed.length === 0 &&
-              (phase.kind === `connecting` || phase.kind === `starting`) ? (
+              {feed.length === 0 && paused ? (
+                <CenteredState>
+                  <UiDeviceOfflineIcon className="size-5 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">
+                    {pausedTitle}
+                  </span>
+                  <span className="max-w-xs text-xs text-muted-foreground/70">
+                    {pausedBody}
+                  </span>
+                </CenteredState>
+              ) : feed.length === 0 &&
+                (phase.kind === `connecting` || phase.kind === `starting`) ? (
                 <CenteredState>
                   <UiLoadingIcon className="size-4 animate-spin text-muted-foreground" />
                   <span className="text-xs text-muted-foreground">
@@ -1207,12 +1255,20 @@ export function AgentSessionView({
               {phase.detail ?? `The session has ended.`}
             </div>
           )}
-          {phase.kind === `closed` && (
+          {paused && feed.length > 0 && (
+            <div className="flex items-center gap-1.5 border-t border-border/60 px-3 py-2 text-xs text-muted-foreground">
+              <UiDeviceOfflineIcon className="size-3 shrink-0" />
+              <span>
+                {`Paused — ${pausedTitle}. ${pausedBody}`}
+              </span>
+            </div>
+          )}
+          {phase.kind === `closed` && !paused && (
             <div className="border-t border-border/60 px-3 py-2 text-xs text-muted-foreground">
               {phase.detail ?? `Connection lost.`}
             </div>
           )}
-          {phase.kind === `starting` && feed.length > 0 && (
+          {phase.kind === `starting` && !paused && feed.length > 0 && (
             <div className="flex items-center gap-1.5 border-t border-border/60 px-3 py-2 text-xs text-muted-foreground">
               <UiLoadingIcon className="size-3 animate-spin" />
               The agent is starting. Waiting for the live stream…
@@ -1270,7 +1326,7 @@ export function AgentSessionView({
             <DialogTitle>Kill this coding session?</DialogTitle>
             <DialogDescription>
               This force-terminates the terminal
-              {session.deviceLabel ? ` on ${session.deviceLabel}` : ``} and
+              {device.label ? ` on ${device.label}` : ``} and
               ends the session. Uncommitted work in the worktree is kept, but
               the agent stops immediately.
             </DialogDescription>
@@ -1302,19 +1358,27 @@ export function AgentSessionView({
 
 function PhaseIndicator({
   phase,
-  deviceLabel,
+  device,
   awaitingInput = false,
+  paused = false,
 }: {
   phase: ViewerPhase
-  deviceLabel: string | null
+  /** EXP-549: the host machine per the synced devices row (renamed label). */
+  device: SessionDevice
   /** Live but blocked on a trailing question/plan — the session is waiting
    *  for a human, not stuck (EXP-97). */
   awaitingInput?: boolean
+  /** EXP-550: no stream and the host machine is offline — steady grey dot,
+   *  "Paused" copy, never the pulsing "starting" amber. */
+  paused?: boolean
 }) {
-  const connecting = phase.kind === `connecting` || phase.kind === `starting`
+  const deviceLabel = device.label
+  const connecting =
+    !paused && (phase.kind === `connecting` || phase.kind === `starting`)
   const awaiting = phase.kind === `live` && awaitingInput
-  const label =
-    phase.kind === `live`
+  const label = paused
+    ? `Paused · ${deviceLabel ?? `device`} is offline`
+    : phase.kind === `live`
       ? awaiting
         ? deviceLabel
           ? `Needs your input · ${deviceLabel}`
@@ -1330,7 +1394,10 @@ function PhaseIndicator({
             ? `Session ended`
             : `Disconnected`
   return (
-    <span className="inline-flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+    <span
+      className="inline-flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
+      title={paused ? `${deviceLabel ?? `The device`} is offline` : undefined}
+    >
       <span
         className={cn(
           `size-2 shrink-0 rounded-full`,

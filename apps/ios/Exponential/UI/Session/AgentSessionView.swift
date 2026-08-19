@@ -99,7 +99,8 @@ struct AgentSessionView: View {
                 HStack(spacing: 6) {
                     StatusDot(
                         phase: model?.phase ?? .connecting,
-                        awaiting: model?.awaitingInput ?? false
+                        awaiting: model?.awaitingInput ?? false,
+                        paused: hostPaused
                     )
                     Text(headerTitle)
                         .font(.caption.weight(.medium))
@@ -189,9 +190,29 @@ struct AgentSessionView: View {
         )
     }
 
+    /// EXP-550: the host machine is asleep and the run is parked on it — the
+    /// screen says paused (grey), not "Connecting…" forever.
+    private var hostPaused: Bool {
+        guard model?.hostDeviceOffline == true else { return false }
+        switch model?.phase {
+        case .starting, .connecting, .idle, .none: return true
+        case let .closed(_, reconnecting): return reconnecting
+        default: return false
+        }
+    }
+
+    /// EXP-549: the CURRENT machine label off the synced devices row — the
+    /// session's own `device_label` is a start-time snapshot a rename never
+    /// rewrites.
+    private var hostLabel: String {
+        model?.hostDevice.displayLabel
+            ?? SessionDevicePresentation.resolve(session: session, devices: []).displayLabel
+    }
+
     private var headerTitle: String {
-        let label = (model?.session ?? session).deviceLabel
+        let label = model?.hostDevice.label ?? session.deviceLabel
         let device = (label?.isEmpty == false) ? " · \(label!)" : ""
+        if hostPaused { return "Paused\(device)" }
         switch model?.phase {
         case .live:
             // A trailing question/plan means the session is blocked on a
@@ -209,8 +230,13 @@ struct AgentSessionView: View {
 
     @ViewBuilder
     private func feedArea(_ model: AgentSessionModel) -> some View {
-        if model.feed.isEmpty,
-           model.phase == .connecting || model.phase == .starting || model.phase == .idle {
+        if model.feed.isEmpty, hostPaused {
+            // EXP-550: the machine hosting this run is asleep. The session is
+            // NOT over — it resumes when the machine comes back — so say that
+            // instead of spinning on "waiting for the live stream" forever.
+            centeredState { hostOfflineState }
+        } else if model.feed.isEmpty,
+                  model.phase == .connecting || model.phase == .starting || model.phase == .idle {
             centeredState {
                 ProgressView().tint(.white)
                 Text(model.phase == .starting
@@ -567,6 +593,24 @@ struct AgentSessionView: View {
                     .foregroundStyle(DesignTokens.Semantic.red)
             }
         }
+        // EXP-550: an offline host outranks every reconnect/starting banner —
+        // the redial loops keep running underneath (untouched), they just
+        // stop being what the viewer is told about.
+        if hostPaused, !model.feed.isEmpty {
+            bannerRow {
+                AppIcon(AppIcons.uiDeviceOffline, size: AppIcon.Size.small)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                Text("\(hostLabel) is offline. The agent is paused on that machine and continues when it comes back online.")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            }
+        } else {
+            phaseBanner(model)
+        }
+    }
+
+    @ViewBuilder
+    private func phaseBanner(_ model: AgentSessionModel) -> some View {
         switch model.phase {
         case let .ended(detail):
             bannerRow {
@@ -593,6 +637,21 @@ struct AgentSessionView: View {
         default:
             EmptyView()
         }
+    }
+
+    /// EXP-550: the "your machine is asleep" empty state — the same glyph the
+    /// machines list draws for an offline device (`ui-device-offline`).
+    @ViewBuilder
+    private var hostOfflineState: some View {
+        AppIcon(AppIcons.uiDeviceOffline, size: AppIcon.Size.large)
+            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+        Text("\(hostLabel) is offline")
+            .font(.subheadline)
+            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+        Text("The agent is paused on that machine and continues when it comes back online.")
+            .font(.caption)
+            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            .multilineTextAlignment(.center)
     }
 
     private func bannerRow(@ViewBuilder content: () -> some View) -> some View {
@@ -1606,21 +1665,27 @@ private struct StatusDot: View {
     /// Live but blocked on a trailing question/plan — waiting for a human
     /// answer, not stuck (EXP-97).
     var awaiting: Bool = false
+    /// EXP-550: the host machine is offline — the run is parked, so the dot
+    /// goes static neutral instead of pulsing "connecting".
+    var paused: Bool = false
 
     @Environment(\.motion) private var motion
     @State private var pulsing = false
 
     private var connecting: Bool {
+        // A run parked on a sleeping machine isn't connecting to anything.
+        if paused { return false }
         // Auto-reconnecting after a drop reads as connecting (EXP-243).
         if case .closed(_, true) = phase { return true }
         return phase == .connecting || phase == .starting || phase == .idle
     }
 
     private var color: Color {
+        if paused { return DesignTokens.Semantic.neutral }
         switch phase {
-        case .live: awaiting ? DesignTokens.Semantic.yellow : DesignTokens.Semantic.green
-        case .connecting, .starting, .idle, .closed(_, true): DesignTokens.Semantic.yellow
-        default: DesignTokens.Semantic.neutral
+        case .live: return awaiting ? DesignTokens.Semantic.yellow : DesignTokens.Semantic.green
+        case .connecting, .starting, .idle, .closed(_, true): return DesignTokens.Semantic.yellow
+        default: return DesignTokens.Semantic.neutral
         }
     }
 

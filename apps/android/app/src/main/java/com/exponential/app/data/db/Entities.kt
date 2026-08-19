@@ -243,6 +243,12 @@ data class CodingSessionEntity(
     @ColumnInfo(name = "board_id") @SerialName("board_id") @JsonNames("boardId") val boardId: String? = null,
     @ColumnInfo(name = "user_id") @SerialName("user_id") @JsonNames("userId") val userId: String,
     @ColumnInfo(name = "device_label") @SerialName("device_label") @JsonNames("deviceLabel") val deviceLabel: String? = null,
+    // EXP-549/550: the host machine's steer deviceId (= devices.device_id),
+    // stamped at start. Joins the row to its LIVE devices row, so the list
+    // shows the machine's CURRENT label (device_label is only the start-time
+    // snapshot) and a session whose machine went offline renders as paused
+    // instead of forever "starting". NULL on rows started before the stamp.
+    @ColumnInfo(name = "device_id") @SerialName("device_id") @JsonNames("deviceId") val deviceId: String? = null,
     val status: String = "running",
     // EXP-545: the batch↔PR linkage — the PR's head branch (`exp/batch-<id8>`),
     // stamped by the server's pr_open batch flip alongside the in_review

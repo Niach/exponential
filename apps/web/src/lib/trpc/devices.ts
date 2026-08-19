@@ -15,10 +15,11 @@
 // members can remote-start on them.
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, asc, desc, eq, ne, inArray, sql } from "drizzle-orm"
+import { and, asc, desc, eq, ne, inArray, or, sql } from "drizzle-orm"
 import { contract } from "@exp/domain-contract"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import {
+  codingSessions,
   deviceCommands,
   deviceLaunchDefaultsSchema,
   devices,
@@ -972,6 +973,27 @@ export const devicesRouter = router({
             and(
               eq(devices.userId, ctx.session.user.id),
               eq(devices.deviceId, input.deviceId)
+            )
+          )
+        // EXP-549: refresh the `device_label` SNAPSHOT on this machine's live
+        // sessions too. New clients resolve the label off the synced devices
+        // row by `device_id`; old builds (and any surface that only holds the
+        // row) render the snapshot, so a rename must reach it — otherwise a
+        // running session keeps showing the hostname the device stamped at
+        // start. Own-hosted rows (user_id) plus shared-device rows this
+        // account hosts for teammates (host_user_id); ended rows keep their
+        // historical label.
+        await tx
+          .update(codingSessions)
+          .set({ deviceLabel: input.label })
+          .where(
+            and(
+              eq(codingSessions.deviceId, input.deviceId),
+              or(
+                eq(codingSessions.userId, ctx.session.user.id),
+                eq(codingSessions.hostUserId, ctx.session.user.id)
+              ),
+              ne(codingSessions.status, `ended`)
             )
           )
         return id

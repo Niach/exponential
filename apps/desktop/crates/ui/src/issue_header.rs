@@ -148,6 +148,9 @@ impl IssueHeader {
             cx.observe(&collections.team_members, |_, _, cx| cx.notify()),
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
             cx.observe(&collections.coding_sessions, |_, _, cx| cx.notify()),
+            // EXP-549/550: the pill's machine name + paused state come from
+            // the devices rows — heartbeats and renames re-render it.
+            cx.observe(&collections.devices, |_, _, cx| cx.notify()),
             cx.observe(&collections.issue_subscribers, |_, _, cx| cx.notify()),
             // EXP-314: a status rename/recolor re-renders the status control.
             cx.observe(&collections.issue_statuses, |_, _, cx| cx.notify()),

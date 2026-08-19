@@ -388,6 +388,10 @@ public final class DatabaseManager: @unchecked Sendable {
                 // EXP-545: the pr_open batch flip's stamped head branch — the
                 // batch row's own-PR linkage for the Merge shortcut.
                 t.column("branch", .text)
+                // EXP-549/550: the host machine's steer deviceId — the join
+                // key onto the live `devices` row (renamed label + offline
+                // detection).
+                t.column("device_id", .text)
                 t.column("needs_input", .boolean).notNull().defaults(to: false)
                 // Action run linkage (EXP-253): both NULL on ordinary
                 // issue/batch sessions; action_name outlives a deleted action
@@ -950,6 +954,36 @@ public final class DatabaseManager: @unchecked Sendable {
                     SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
                     WHERE "shape" = 'actions'
                     """)
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'coding-sessions'
+                    """)
+            }
+        }
+
+        // v19 (EXP-549/EXP-550 session host device): `coding_sessions.device_id`
+        // rides along on the coding-sessions shape — the host machine's steer
+        // deviceId, which joins a session to its LIVE `devices` row so the
+        // Agents list shows the RENAMED label (not the start-time hostname
+        // snapshot) and a session whose machine stopped heartbeating reads
+        // "paused · offline" instead of a live dot. Additive ALTER for stores
+        // created before the column existed; guarded on table + column
+        // presence so fresh installs (which get it from the v1 create above)
+        // and migration-fixture DBs converge on the same schema.
+        migrator.registerMigration("v19_coding_session_device_id") { db in
+            guard try db.tableExists("coding_sessions") else { return }
+            let existing = Set(try db.columns(in: "coding_sessions").map(\.name))
+            if !existing.contains("device_id") {
+                try db.alter(table: "coding_sessions") { t in
+                    t.add(column: "device_id", .text)
+                }
+            }
+            // Force a re-snapshot so already-synced rows pick up the new
+            // column (the v17/v18 precedent). NOTE: the shape key is
+            // 'coding-sessions' WITH A DASH (the proxy route name), not the
+            // SQLite table name.
+            if try db.tableExists("electric_offsets") {
                 try db.execute(sql: """
                     UPDATE "electric_offsets"
                     SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0

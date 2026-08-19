@@ -23,8 +23,10 @@ import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.SessionDevicePresentation
 import com.exponential.app.domain.StartedRunKey
 import com.exponential.app.domain.StartedRunMatch
+import com.exponential.app.domain.resolveSessionDevice
 import com.exponential.app.domain.toSteerDevice
 import com.exponential.app.ui.issue.StartIssueOption
 import com.exponential.app.ui.issue.SteerStartState
@@ -55,6 +57,10 @@ import kotlinx.coroutines.launch
 data class AgentRow(
     val session: CodingSessionEntity,
     val issue: IssueEntity?,
+    // EXP-549/550: the host machine resolved against its LIVE devices row —
+    // the CURRENT label (not the start-time snapshot) plus whether the machine
+    // dropped offline, which renders the row as paused rather than live.
+    val device: SessionDevicePresentation = SessionDevicePresentation.Unknown,
     // EXP-535: a batch session's resolved open PR, as a representative linked
     // issue (merging through it merges the ONE batch PR — Reviews pattern).
     // Set only on issueless batch rows in review with an UNAMBIGUOUS match.
@@ -136,17 +142,27 @@ class AgentsViewModel @Inject constructor(
         dbFlow.scopedQuery(emptyList()) { it.boardDao().observeAll() },
     ) { sessions, issues, boards -> Triple(sessions, issues, boards) }
 
+    // EXP-549/550: the machine rows every session row joins to — current
+    // labels and last_seen_at freshness.
+    private val steerEnabledAndDevices = combine(
+        _steerEnabled,
+        dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() },
+    ) { steerEnabled, devices -> steerEnabled to devices }
+
     val state: StateFlow<AgentsState> = combine(
         liveSessionsIssuesAndBoards,
-        _steerEnabled,
+        steerEnabledAndDevices,
         // Heartbeat-stale rows render as absent (EXP-153); the ticker clears
-        // them once the liveness window elapses without a sync delta.
-        CodingSessionLiveness.minuteTicker(),
+        // them once the liveness window elapses without a sync delta. The
+        // DEVICE window is only 90s (EXP-550), so this ticks at its 30s
+        // cadence — a minute tick could lag the paused flip by two-thirds of
+        // the window.
+        DeviceLiveness.ticker(),
         auth.userId,
         selection.selectedId,
-    ) { (sessions, issues, boards), steerEnabled, now, userId, teamId ->
+    ) { (sessions, issues, boards), (steerEnabled, devices), now, userId, teamId ->
         AgentsState(
-            rows = agentRows(sessions, issues, boards, userId, teamId, now),
+            rows = agentRows(sessions, issues, boards, userId, teamId, now, devices),
             steerEnabled = steerEnabled,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AgentsState())
@@ -402,6 +418,10 @@ fun agentRows(
     currentUserId: String?,
     teamId: String?,
     nowMs: Long,
+    // EXP-549/550: the synced machine rows, for the live label + offline flip.
+    // Defaulted so a caller that only cares about the session/issue join
+    // (tests, and any future non-device surface) stays unchanged.
+    devices: List<DeviceEntity> = emptyList(),
 ): List<AgentRow> {
     if (currentUserId == null || teamId == null) return emptyList()
     val issuesById = issues.associateBy { it.id }
@@ -425,6 +445,7 @@ fun agentRows(
         AgentRow(
             session = session,
             issue = session.issueId?.let(issuesById::get),
+            device = resolveSessionDevice(session, devices, nowMs),
             batchPrIssue = if (session.isBatchInReview) {
                 resolveBatchPrIssue(batchPrReps, session.branch)
             } else {

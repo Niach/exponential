@@ -656,7 +656,16 @@ export const codingSessions = pgTable(
       onDelete: `set null`,
     }),
     // Human label of the host device ("Dennis's MacBook"), shown on the badge.
+    // Since EXP-549 a SNAPSHOT of the devices row's `label` at start/heartbeat
+    // time (server-resolved from `device_id`; the client-sent hostname is the
+    // fallback) — clients prefer the live devices row (see `deviceId`).
     deviceLabel: varchar(`device_label`, { length: 255 }),
+    // EXP-549/550: the steer deviceId of the machine hosting the session
+    // (= `devices.device_id` of the caller's own row; no FK — devices rows are
+    // per (user, deviceId) and removable). Synced, so clients join the live
+    // devices row for the RENAMED label and its `last_seen_at` freshness (the
+    // "paused — device offline" state). NULL on rows from pre-EXP-549 clients.
+    deviceId: varchar(`device_id`, { length: 128 }),
     status: codingSessionStatusEnum().notNull().default(`running`),
     // EXP-545: the batch↔PR linkage. Stamped with the PR's head branch
     // (`exp/batch-<id8>`) when the MCP pr_open batch flip parks the row in
