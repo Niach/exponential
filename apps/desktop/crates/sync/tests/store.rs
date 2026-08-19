@@ -543,3 +543,66 @@ fn hydrate_coerces_text_to_native() {
     assert_eq!(issue.assignee_id, None); // SQL NULL → None
     assert_eq!(issue.due_date.as_deref(), Some("2026-05-20"));
 }
+
+// ---------------------------------------------------------------------------
+// Time-windowed reads (EXP-562)
+// ---------------------------------------------------------------------------
+
+/// `read_where_ge` is a raw TEXT-order pre-filter, and the contract it owes
+/// its callers is SUPERSET-ness: never drop a row that is really inside the
+/// window, over-include freely. The two wire forms differ only at the
+/// separator (`'T' > ' '`), so a same-day RFC 3339 row rides along below the
+/// bound — the caller re-filters exactly — while the previous day's row and
+/// SQL NULLs are excluded.
+#[test]
+fn read_where_ge_is_a_text_order_superset() {
+    let db = TempDb::new();
+    let store = db.open();
+    let events = shape_by_name("issue_events").unwrap();
+
+    store
+        .apply_batch(
+            events,
+            &[
+                insert(
+                    "space-above",
+                    json!({"id": "space-above", "issue_id": "i1", "created_at": "2026-08-18 08:00:00+00"}),
+                ),
+                insert(
+                    "space-below",
+                    json!({"id": "space-below", "issue_id": "i1", "created_at": "2026-08-18 06:00:00+00"}),
+                ),
+                insert(
+                    "t-form",
+                    json!({"id": "t-form", "issue_id": "i1", "created_at": "2026-08-18T06:00:00Z"}),
+                ),
+                insert(
+                    "yesterday",
+                    json!({"id": "yesterday", "issue_id": "i1", "created_at": "2026-08-17 23:00:00+00"}),
+                ),
+                insert(
+                    "timeless",
+                    json!({"id": "timeless", "issue_id": "i1", "created_at": null}),
+                ),
+            ],
+            None,
+        )
+        .unwrap();
+
+    let mut ids: Vec<String> = store
+        .read_where_ge(events, "created_at", "2026-08-18 07:00:00")
+        .unwrap()
+        .iter()
+        .map(|row| row["id"].as_str().unwrap().to_string())
+        .collect();
+    ids.sort();
+    assert_eq!(
+        ids,
+        vec!["space-above".to_string(), "t-form".to_string()],
+        "the space form filters exactly; the same-day T form is over-included, never lost"
+    );
+
+    // A column outside the shape's allowlist is a programming error, not a
+    // silently empty scan — the name is interpolated into the SQL.
+    assert!(store.read_where_ge(events, "not_a_column", "x").is_err());
+}

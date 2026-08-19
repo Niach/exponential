@@ -25,6 +25,10 @@ import { Switch } from "@/components/ui/switch"
 
 const AutomationIcon = conceptIcon(`action-automation`)
 
+// Same sentence the action dialog's Automation section shows — one reason,
+// one wording, wherever the enabled switch is locked.
+const REQUIRED_INPUTS_HINT = `This action has required inputs, and an automated run has none to fill them with. Make the inputs optional to enable it.`
+
 const SESSION_STATUS_LABELS: Record<string, string> = {
   running: `Running`,
   in_review: `In review`,
@@ -67,6 +71,11 @@ function AutomationRow({
   const device = devices.find((d) => d.deviceId === trigger.deviceId)
   const next =
     trigger.kind === `schedule` ? nextScheduleRun(trigger, new Date()) : null
+  // An automated run has nobody to type required inputs, so the server refuses
+  // to ENABLE such a trigger — but a legacy row that is already on must stay
+  // switchable OFF.
+  const hasRequiredInputs = (action.inputs ?? []).some((def) => def.required)
+  const locked = hasRequiredInputs && !trigger.enabled
 
   const flipEnabled = async (enabled: boolean) => {
     setFlipping(true)
@@ -113,12 +122,18 @@ function AutomationRow({
             </span>
           )}
         </div>
+        {locked && (
+          <p className="text-xs text-muted-foreground">
+            {REQUIRED_INPUTS_HINT}
+          </p>
+        )}
       </div>
       <Switch
         checked={trigger.enabled}
-        disabled={!isOwner || flipping}
+        disabled={!isOwner || flipping || locked}
         onCheckedChange={(enabled) => void flipEnabled(enabled)}
         aria-label={`Automation enabled for ${action.name}`}
+        title={locked ? REQUIRED_INPUTS_HINT : undefined}
       />
     </div>
   )

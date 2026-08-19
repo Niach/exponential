@@ -110,7 +110,17 @@ impl ActionEditorDialogView {
             state.set_value(action.description.clone().unwrap_or_default(), window, cx);
         });
         let mut automation = AutomationEditorState::new(action.team_id.clone(), window, cx);
+        // Inputs are authored by the creator run, not editable here — a
+        // static property of the action for the Automation section's enable
+        // rule, so it is set BEFORE the seed reads the stored trigger.
+        automation.has_required_inputs = action.inputs.iter().any(|input| input.required);
         automation.seed(action.trigger.as_ref(), window, cx);
+        // An action with required inputs can never run automated (the server
+        // refuses an enabled trigger), so the seeded draft comes in off — the
+        // dialog saves the WHOLE trigger, not just the fields touched.
+        if automation.has_required_inputs {
+            automation.enabled = false;
+        }
         let body = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .placeholder("The markdown prompt the agent runs with…")

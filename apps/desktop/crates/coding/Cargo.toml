@@ -31,6 +31,10 @@ wait-timeout = "0.2"
 # Batch-run ids (`exp/batch-<id8>`) — already in the tree via the app crate.
 uuid = { workspace = true }
 serde_json = { workspace = true }
+# EXP-562: automation trigger fingerprints. std's DefaultHasher is explicitly
+# NOT stable across Rust releases, and a fingerprint that shifts under the
+# compiler reseeds every automation on the next build — SHA-256 pins it.
+sha2 = { workspace = true }
 anyhow = { workspace = true }
 dirs = { workspace = true }
 # §7.5 stop semantics: SIGTERM → grace → SIGKILL (run_launch.rs) —

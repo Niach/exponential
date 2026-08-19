@@ -298,6 +298,11 @@ struct ActionsListView: View {
         let boundDevice = trigger.flatMap { t in
             vm.allDevices.first { $0.deviceId == t.deviceId }
         }
+        // An automated run has nobody to type required inputs, so the server
+        // refuses to ENABLE such a trigger — but a legacy row that is already
+        // on must stay switchable OFF.
+        let hasRequired = action.inputs?.contains(where: \.isRequired) == true
+        let locked = hasRequired && !(trigger?.enabled ?? false)
         return HStack(alignment: .top, spacing: 12) {
             AppIcon(action.icon ?? AppIcons.actionDefault, size: AppIcon.Size.medium)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
@@ -329,6 +334,12 @@ struct ActionsListView: View {
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     }
                 }
+                if locked {
+                    Text("This action has required inputs, and an automated run has none to fill them with. Make the inputs optional to enable it.")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             Spacer(minLength: 0)
@@ -339,7 +350,7 @@ struct ActionsListView: View {
                 set: { vm.setTriggerEnabled(action: action, enabled: $0) }
             ))
             .labelsHidden()
-            .disabled(!vm.permissions.isOwner || vm.triggerBusyActionId != nil)
+            .disabled(!vm.permissions.isOwner || vm.triggerBusyActionId != nil || locked)
             .accessibilityLabel("Automation enabled")
         }
         .padding(.horizontal, 12)
