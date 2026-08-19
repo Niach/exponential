@@ -12,7 +12,10 @@
 //! - Every injection is CHIP-LOCAL and never a replacement: the leading icon
 //!   gutter (EXP-423) sits immediately before the token and the title suffix
 //!   immediately after it, so offsets inside the token stay linear and the
-//!   caret can still sit between `#EXP` and `-238`.
+//!   caret can still sit between `#EXP` and `-238`. Both injections BELONG to
+//!   the token's document range (EXP-547): a caret at the token start renders
+//!   left of the whole pill and a caret at the token end renders right of it
+//!   — never between the identifier and its title.
 //! - Injected pieces contain no `\n`, so the document and the shaped text
 //!   have the SAME hard-line structure. Every doc→pixel path funnels through
 //!   `hard_line_ranges` + `line_index_for_offset`, which therefore need no
@@ -47,6 +50,18 @@ pub(crate) const ICON_GUTTER: &str = "\u{00a0}\u{00a0}\u{00a0}\u{00a0}";
 /// so it neither fills with pill paint nor hit-tests as the chip.
 pub(crate) const CHIP_MARGIN: &str = "\u{00a0}";
 
+/// EXP-547: which side of a document offset an injection sits on — i.e.
+/// where a caret AT that offset renders relative to the injected glyphs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InsertSide {
+    /// Injected at a token START (icon gutter + leading margin): a caret at
+    /// the offset renders BEFORE the injection, left of the pill.
+    AfterCaret,
+    /// Injected at a token END (title suffix + trailing margin): a caret at
+    /// the offset renders AFTER the injection, right of the pill.
+    BeforeCaret,
+}
+
 /// The text actually shaped for a block, plus the map back to document offsets.
 #[derive(Clone, Debug)]
 pub(crate) struct ChipShapedText {
@@ -55,9 +70,11 @@ pub(crate) struct ChipShapedText {
     doc: SharedString,
     text: SharedString,
     spans: Vec<ReferenceSpan>,
-    /// `(document byte offset of the insertion point, inserted byte length)`,
-    /// ascending and non-overlapping.
-    insertions: Vec<(usize, usize)>,
+    /// `(document byte offset of the insertion point, inserted byte length,
+    /// side)`, ascending and non-overlapping. Two insertions may share an
+    /// offset only as `BeforeCaret` (a chip's tail) followed by `AfterCaret`
+    /// (the next chip's head).
+    insertions: Vec<(usize, usize, InsertSide)>,
     /// Shaped range of each chip (icon gutter + token + injected suffix),
     /// parallel to `spans`.
     chip_ranges: Vec<std::ops::Range<usize>>,
@@ -136,17 +153,21 @@ impl ChipShapedText {
             text.push_str(&source[last..start]);
             let mut chip_start = text.len();
             // EXP-423: the leading icon gutter — blank NBSP glyphs the paint
-            // pass draws the status icon over. Inserted AT the token start:
-            // `to_shaped` is strictly-`<` there, so a caret at the token
-            // start renders before the gutter (left of the pill), and
-            // `to_doc` snaps clicks inside the gutter to the token start.
+            // pass draws the status icon over. Inserted AT the token start
+            // on the `AfterCaret` side, so a caret at the token start renders
+            // before the gutter (left of the pill), and `to_doc` snaps clicks
+            // inside the gutter to the token start.
             // EXP-469: a `CHIP_MARGIN` rides the same insertion but stays
             // BEFORE `chip_start`, so the pill quad never paints over it.
             if span.icon.is_some() {
                 text.push_str(CHIP_MARGIN);
                 chip_start = text.len();
                 text.push_str(ICON_GUTTER);
-                insertions.push((start, CHIP_MARGIN.len() + ICON_GUTTER.len()));
+                insertions.push((
+                    start,
+                    CHIP_MARGIN.len() + ICON_GUTTER.len(),
+                    InsertSide::AfterCaret,
+                ));
             }
             let token_start = text.len();
             text.push_str(&source[start..end]);
@@ -167,8 +188,11 @@ impl ChipShapedText {
                 text.push_str(CHIP_MARGIN);
                 trailing_margin = CHIP_MARGIN.len();
             }
+            // EXP-547: the tail rides the `BeforeCaret` side — a caret at
+            // the token end renders AFTER the title and margin, right of the
+            // pill, instead of wedged between the identifier and its title.
             if inserted + trailing_margin > 0 {
-                insertions.push((end, inserted + trailing_margin));
+                insertions.push((end, inserted + trailing_margin, InsertSide::BeforeCaret));
             }
             chip_ranges.push(chip_start..token_end + inserted);
             token_ranges.push(token_start..token_end);
@@ -234,18 +258,24 @@ impl ChipShapedText {
         (chip.start < token.start).then(|| chip.start..token.start)
     }
 
-    /// Document → shaped. Strictly `<` at an insertion point, so a caret at a
-    /// token's end renders BEFORE the title (ProseMirror parity: the caret sits
-    /// between the text node and its `::after`), and typing there extends the
-    /// token.
+    /// Document → shaped. Every injection belongs to its token's document
+    /// range: a head insertion (gutter) at the token start is counted only
+    /// for offsets strictly PAST it, so a caret at the token start renders
+    /// left of the pill; a tail insertion (title + margin) at the token end
+    /// is counted for the end offset itself, so a caret at the token end
+    /// renders right of the pill (EXP-547 — it used to sit between the
+    /// identifier and its title, visually INSIDE the chip). Typing at the
+    /// token end still extends the token document-wise (a trailing word
+    /// char un-resolves the reference and the chip drops, a space keeps it).
     pub(crate) fn to_shaped(&self, doc: usize) -> usize {
         let doc = doc.min(self.doc_len());
         let mut delta = 0usize;
-        for (at, len) in &self.insertions {
-            if *at < doc {
-                delta += len;
-            } else {
+        for (at, len, side) in &self.insertions {
+            if *at > doc {
                 break;
+            }
+            if *at < doc || *side == InsertSide::BeforeCaret {
+                delta += len;
             }
         }
         (doc + delta).min(self.text.len())
@@ -258,11 +288,11 @@ impl ChipShapedText {
     }
 
     /// Shaped → document. Anything inside an injected title snaps to the token
-    /// end, so clicking the title puts the caret right after the identifier.
+    /// end, so clicking the title puts the caret right after the chip.
     pub(crate) fn to_doc(&self, shaped: usize) -> usize {
         let shaped = shaped.min(self.text.len());
         let mut delta = 0usize;
-        for (at, len) in &self.insertions {
+        for (at, len, _) in &self.insertions {
             let insert_start = at + delta;
             if shaped <= insert_start {
                 return shaped - delta;
@@ -335,11 +365,24 @@ mod tests {
     }
 
     #[test]
-    fn a_caret_at_the_token_end_maps_before_the_suffix() {
+    fn a_caret_at_the_token_end_maps_after_the_suffix() {
+        // EXP-547: the caret sits BEHIND the chip, never between the
+        // identifier and its title.
         let doc = SharedString::from("see #EXP-1 now");
         let shaped = ChipShapedText::build(&doc, vec![span(4..10, Some("Title"))]);
-        assert_eq!(shaped.to_shaped(10), 10);
-        assert_eq!(shaped.to_shaped(11), 11 + "\u{00a0}Title".len());
+        let injected = "\u{00a0}Title".len();
+        assert_eq!(shaped.to_shaped(9), 9);
+        assert_eq!(shaped.to_shaped(10), 10 + injected);
+        assert_eq!(shaped.to_shaped(11), 11 + injected);
+        // The chip range ends exactly where the caret lands.
+        assert_eq!(shaped.chip_range(0).expect("chip").end, shaped.to_shaped(10));
+    }
+
+    #[test]
+    fn a_selection_over_the_token_covers_the_whole_chip() {
+        let doc = SharedString::from("see #EXP-1 now");
+        let shaped = ChipShapedText::build(&doc, vec![span(4..10, Some("Title"))]);
+        assert_eq!(shaped.to_shaped_range(4..10), shaped.chip_range(0).expect("chip"));
     }
 
     #[test]
@@ -461,11 +504,44 @@ mod tests {
     fn a_caret_at_the_token_start_maps_before_the_gutter() {
         let doc = SharedString::from("see #EXP-1 now");
         let shaped = ChipShapedText::build(&doc, vec![icon_span(4..10, Some("Title"))]);
-        // Strictly-`<` at the insertion point: the caret renders LEFT of the
-        // pill (and its margin), not between gutter and `#`.
+        // The head insertion sits AFTER the caret: the caret renders LEFT of
+        // the pill (and its margin), not between gutter and `#`.
         assert_eq!(shaped.to_shaped(4), 4);
         // One byte into the token is past the insertion → shifted.
         assert_eq!(shaped.to_shaped(5), 5 + CHIP_MARGIN.len() + ICON_GUTTER.len());
+    }
+
+    #[test]
+    fn a_caret_at_the_token_end_maps_after_the_trailing_margin() {
+        // EXP-547: with a gutter AND a title, the caret at the token end
+        // lands past the title and the trailing margin — right of the pill,
+        // symmetric to the token-start caret sitting left of the leading one.
+        let doc = SharedString::from("see #EXP-1 now");
+        let shaped = ChipShapedText::build(&doc, vec![icon_span(4..10, Some("Title"))]);
+        let head = CHIP_MARGIN.len() + ICON_GUTTER.len();
+        let tail = "\u{00a0}Title".len() + CHIP_MARGIN.len();
+        assert_eq!(shaped.to_shaped(10), 10 + head + tail);
+        assert_eq!(&shaped.text()[shaped.to_shaped(10)..], " now");
+        // Whole-token selection = the pill plus both margins.
+        assert_eq!(shaped.to_shaped_range(4..10), 4..10 + head + tail);
+    }
+
+    #[test]
+    fn adjacent_chips_keep_tail_before_and_head_after_the_shared_offset() {
+        // A chip's tail and the next chip's head can share one document
+        // offset; the caret there renders between the two pills.
+        let doc = SharedString::from("#EXP-1#EXP-2");
+        let shaped = ChipShapedText::build(
+            &doc,
+            vec![icon_span(0..6, Some("A")), icon_span(6..12, Some("B"))],
+        );
+        let head = CHIP_MARGIN.len() + ICON_GUTTER.len();
+        let tail_a = "\u{00a0}A".len() + CHIP_MARGIN.len();
+        assert_eq!(shaped.to_shaped(6), 6 + head + tail_a);
+        assert_eq!(shaped.to_doc(shaped.to_shaped(6)), 6);
+        assert_eq!(shaped.chip_range(0).expect("a").end + CHIP_MARGIN.len(), shaped.to_shaped(6));
+        // The chip range starts at B's gutter, one leading margin later.
+        assert_eq!(shaped.chip_range(1).expect("b").start - CHIP_MARGIN.len(), shaped.to_shaped(6));
     }
 
     #[test]

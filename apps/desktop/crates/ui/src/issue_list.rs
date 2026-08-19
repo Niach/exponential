@@ -31,7 +31,6 @@ use gpui::{
     Size, StatefulInteractiveElement as _, Styled, WeakEntity, Window,
 };
 use gpui_component::{
-    avatar::Avatar,
     button::{Button, ButtonVariants as _},
     checkbox::Checkbox,
     h_flex,
@@ -1434,26 +1433,29 @@ fn resolve_in(issue: &Issue, statuses: &[ResolvedStatus]) -> ResolvedStatus {
 /// Assignee dropdown (web `AssigneeDropdown`): avatar trigger when assigned,
 /// dashed placeholder circle otherwise; menu = Unassign + the team's
 /// human members (current assignee first — web `orderedUsers`).
-fn assignee_dropdown(issue: &Issue, cx: &App) -> impl IntoElement {
+fn assignee_dropdown(issue: &Issue, cx: &mut App) -> impl IntoElement {
     let assignee = issue
         .assignee_id
         .as_deref()
         .and_then(|id| Store::global(cx).collections().users.read(cx).get(id).cloned());
 
     let trigger = match issue.assignee_id.as_deref() {
-        // Assigned — the avatar seeds from the member's name, or `Member
-        // <LAST4>` when the co-member's user row didn't sync.
+        // Assigned — the shared avatar: the member's profile picture when it
+        // has landed, hue-hashed initials from the name otherwise (or `Member
+        // <LAST4>` when the co-member's user row didn't sync). EXP-547: the
+        // row used to draw initials ONLY, so two members sharing initials
+        // (Danny/Dennis S.) rendered the same "DS" glyph and the row looked
+        // assigned to the wrong person — web's `AssigneeDropdown` shows the
+        // picture, so does the picker menu below.
         Some(id) => Button::new(row_id("assignee", &issue.id))
             .ghost().cursor_pointer()
             .xsmall()
-            .child(
-                Avatar::new()
-                    .name(SharedString::from(crate::comments::user_label(
-                        id,
-                        assignee.as_ref(),
-                    )))
-                    .xsmall(),
-            ),
+            .child(crate::user_avatar::user_avatar(
+                &crate::comments::user_label(id, assignee.as_ref()),
+                assignee.as_ref().and_then(|user| user.image.as_deref()),
+                gpui_component::Size::XSmall,
+                cx,
+            )),
         None => Button::new(row_id("assignee", &issue.id)).ghost().cursor_pointer().xsmall().child(
             div()
                 .size_4()
