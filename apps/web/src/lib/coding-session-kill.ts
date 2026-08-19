@@ -5,12 +5,12 @@
 // deleting an account left the agent alive on the host's machine with no client
 // able to reach it.
 //
-// The predicate deliberately carries NO device identity: `coding_sessions`
-// holds only a `device_label` SNAPSHOT (a rename makes it stale), and an
-// under-kill would recreate exactly the lifecycle gap this closes. So an owner
-// who shares TWO servers with the SAME team over-kills the other box's sessions
-// when unsharing one — rare, and recoverable by restarting on the still-shared
-// device.
+// The predicate deliberately carries NO device identity: rows written by
+// pre-EXP-549 clients carry only a `device_label` SNAPSHOT (`device_id` is
+// NULL there), and an under-kill would recreate exactly the lifecycle gap this
+// closes. So an owner who shares TWO servers with the SAME team over-kills the
+// other box's sessions when unsharing one — rare, and recoverable by restarting
+// on the still-shared device.
 import { and, eq, inArray, ne } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { codingSessions } from "@/db/schema"

@@ -192,6 +192,7 @@ describe(`codingSessions.start — issue path`, () => {
       // EXP-432: an unattributed start is host-less — the row is the
       // caller's own.
       hostUserId: null,
+      deviceId: null,
       deviceLabel: `MacBook`,
       status: `running`,
     })
@@ -226,6 +227,7 @@ describe(`codingSessions.start — batch path`, () => {
       teamId: TEAM_ID,
       userId: `actor`,
       hostUserId: null,
+      deviceId: null,
       deviceLabel: `MacBook`,
       status: `running`,
     })
@@ -282,6 +284,7 @@ describe(`codingSessions.start — action path (EXP-253)`, () => {
       startedReason: null,
       userId: `actor`,
       hostUserId: null,
+      deviceId: null,
       deviceLabel: `MacBook`,
       status: `running`,
     })
@@ -863,18 +866,100 @@ describe(`codingSessions.start — shared-device attribution (EXP-432)`, () => {
     expect(inserts).toHaveLength(0)
   })
 
-  it(`self-attribution stays the plain host-less path (no device lookup)`, async () => {
+  it(`self-attribution stays the plain host-less path (no share lookup)`, async () => {
     await caller.start({
       issueId: ISSUE_ID,
       deviceId: DEVICE_ID,
       startedById: `actor`,
     })
 
-    expect(selectWheres).toHaveLength(0)
+    // The only select is EXP-549's device-label stamp (below) — never the
+    // share verification.
+    expect(selectWheres).toHaveLength(1)
     expect(inserts[0]!.values).toMatchObject({
       userId: `actor`,
       hostUserId: null,
+      deviceId: DEVICE_ID,
     })
+  })
+})
+
+// EXP-549: the session row carries the host machine's steer deviceId, and
+// its `device_label` snapshot prefers the registry row's label (the user's
+// RENAME) over the hostname the client stamps — resolved among the CALLER's
+// own device rows. Rows from clients that send no deviceId keep the old
+// hostname-only behaviour.
+describe(`codingSessions — device stamp (EXP-549)`, () => {
+  it(`start stamps deviceId and prefers the registry label over the sent hostname`, async () => {
+    selectResults.push([{ label: `macbook` }])
+
+    await caller.start({
+      issueId: ISSUE_ID,
+      deviceId: DEVICE_ID,
+      deviceLabel: `MacBook-Pro-von-Danny.local`,
+    })
+
+    expect(whereShape(selectWheres[0])).toEqual([
+      `col:user_id`,
+      `actor`,
+      `col:device_id`,
+      DEVICE_ID,
+    ])
+    expect(inserts[0]!.values).toMatchObject({
+      deviceId: DEVICE_ID,
+      deviceLabel: `macbook`,
+    })
+  })
+
+  it(`start keeps the sent label when the caller has no registry row for the device`, async () => {
+    selectResults.push([])
+
+    await caller.start({
+      teamId: TEAM_ID,
+      deviceId: DEVICE_ID,
+      deviceLabel: `fresh-box`,
+    })
+
+    expect(inserts[0]!.values).toMatchObject({
+      deviceId: DEVICE_ID,
+      deviceLabel: `fresh-box`,
+    })
+  })
+
+  it(`start without a deviceId (old client) stamps NULL and no lookup`, async () => {
+    await caller.start({ issueId: ISSUE_ID, deviceLabel: `old-host` })
+
+    expect(selectWheres).toHaveLength(0)
+    expect(inserts[0]!.values).toMatchObject({
+      deviceId: null,
+      deviceLabel: `old-host`,
+    })
+  })
+
+  it(`heartbeat refreshes the device stamp on an existing row when the deviceId rides along`, async () => {
+    selectResults.push([{ userId: `actor`, hostUserId: null, status: `running` }])
+    selectResults.push([{ label: `macbook` }])
+
+    const result = await caller.heartbeat({
+      id: SESSION_ID,
+      deviceId: DEVICE_ID,
+      deviceLabel: `MacBook-Pro-von-Danny.local`,
+    })
+
+    expect(result).toEqual({ alive: true })
+    expect(updates).toHaveLength(1)
+    expect(updates[0]!.values).toMatchObject({
+      deviceId: DEVICE_ID,
+      deviceLabel: `macbook`,
+    })
+  })
+
+  it(`heartbeat without a deviceId only advances updated_at`, async () => {
+    selectResults.push([{ userId: `actor`, hostUserId: null, status: `running` }])
+
+    await caller.heartbeat({ id: SESSION_ID })
+
+    expect(Object.keys(updates[0]!.values)).toEqual([`updatedAt`])
   })
 })
 

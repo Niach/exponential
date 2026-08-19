@@ -11,8 +11,11 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // `action_id`/`action_name` were appended for EXP-253, `branch` for EXP-545
 // (the batch↔PR linkage: stamped by the MCP pr_open batch flip so clients tie
 // a batch row's Merge shortcut to its OWN PR), `started_reason` for EXP-530
-// (the "Automated" badge + Automations run history) — each a ONE-TIME shape-
-// identity rotation (benign: small table, full resync; land in one deploy).
+// (the "Automated" badge + Automations run history), `device_id` for
+// EXP-549/550 (the hosting machine's steer deviceId — clients join the synced
+// devices row for the renamed label and its online-ness) — each a ONE-TIME
+// shape-identity rotation (benign: small table, full resync; land in one
+// deploy).
 // Old native builds drop unknown columns safely (verified: iOS filters to
 // its SQLite schema, Android ignoreUnknownKeys + partial-plan filter,
 // desktop serde non-strict).
@@ -26,6 +29,7 @@ const CODING_SESSION_COLUMNS = [
   `started_reason`,
   `user_id`,
   `device_label`,
+  `device_id`,
   `status`,
   `branch`,
   `needs_input`,

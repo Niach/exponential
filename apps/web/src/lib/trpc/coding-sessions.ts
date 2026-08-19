@@ -74,6 +74,34 @@ async function resolveStartAttribution(
   return { userId: input.startedById, hostUserId: callerId }
 }
 
+// EXP-549: the session's host-device stamp. The device sends its steer
+// `deviceId` plus its OS hostname as `deviceLabel`; the registry row's `label`
+// (the user's RENAME, `devices.rename`) wins for the snapshot whenever the
+// caller — the hosting account in both self-hosted and shared-device runs —
+// owns a row for that deviceId. Clients still prefer the live devices row via
+// `device_id`; the snapshot is what old builds and legacy rows render. One
+// select, only when a deviceId rides along (pre-EXP-549 clients send none).
+async function resolveSessionDevice(
+  db: Context[`db`],
+  callerId: string,
+  input: { deviceId?: string; deviceLabel?: string }
+): Promise<{ deviceId: string | null; deviceLabel: string | null }> {
+  if (!input.deviceId) {
+    return { deviceId: null, deviceLabel: input.deviceLabel ?? null }
+  }
+  const [device] = await db
+    .select({ label: devices.label })
+    .from(devices)
+    .where(
+      and(eq(devices.userId, callerId), eq(devices.deviceId, input.deviceId))
+    )
+    .limit(1)
+  return {
+    deviceId: input.deviceId,
+    deviceLabel: device?.label ?? input.deviceLabel ?? null,
+  }
+}
+
 // The desktop launcher's live "coding now" record (§4a step 7). One row per
 // interactive session; synced to every client as an Electric shape.
 // Three subjects: issue-scoped (issueId), batch-scoped (teamId — the
@@ -194,6 +222,11 @@ export const codingSessionsRouter = router({
           input,
           input.teamId!
         )
+        const device = await resolveSessionDevice(
+          ctx.db,
+          ctx.session.user.id,
+          input
+        )
 
         const [session] = await ctx.db
           .insert(codingSessions)
@@ -205,7 +238,7 @@ export const codingSessionsRouter = router({
             actionName: builtinActionName(input.actionId),
             userId: attribution.userId,
             hostUserId: attribution.hostUserId,
-            deviceLabel: input.deviceLabel ?? null,
+            ...device,
             status: `running`,
           })
           .returning()
@@ -239,6 +272,11 @@ export const codingSessionsRouter = router({
           input,
           action.teamId
         )
+        const device = await resolveSessionDevice(
+          ctx.db,
+          ctx.session.user.id,
+          input
+        )
 
         const [session] = await ctx.db
           .insert(codingSessions)
@@ -250,7 +288,7 @@ export const codingSessionsRouter = router({
             startedReason: input.startedReason ?? null,
             userId: attribution.userId,
             hostUserId: attribution.hostUserId,
-            deviceLabel: input.deviceLabel ?? null,
+            ...device,
             status: `running`,
           })
           .returning()
@@ -267,6 +305,11 @@ export const codingSessionsRouter = router({
           input,
           issueCtx.teamId
         )
+        const device = await resolveSessionDevice(
+          ctx.db,
+          ctx.session.user.id,
+          input
+        )
 
         const [session] = await ctx.db
           .insert(codingSessions)
@@ -278,7 +321,7 @@ export const codingSessionsRouter = router({
             boardId: issueCtx.boardId,
             userId: attribution.userId,
             hostUserId: attribution.hostUserId,
-            deviceLabel: input.deviceLabel ?? null,
+            ...device,
             status: `running`,
           })
           .returning()
@@ -293,6 +336,11 @@ export const codingSessionsRouter = router({
         input,
         input.teamId!
       )
+      const device = await resolveSessionDevice(
+        ctx.db,
+        ctx.session.user.id,
+        input
+      )
 
       const [session] = await ctx.db
         .insert(codingSessions)
@@ -303,7 +351,7 @@ export const codingSessionsRouter = router({
           teamId: input.teamId!,
           userId: attribution.userId,
           hostUserId: attribution.hostUserId,
-          deviceLabel: input.deviceLabel ?? null,
+          ...device,
           status: `running`,
         })
         .returning()
@@ -398,6 +446,11 @@ export const codingSessionsRouter = router({
               .where(eq(issues.id, input.issueId))
               .limit(1)
             const merged = issue?.prState === `merged`
+            const device = await resolveSessionDevice(
+              ctx.db,
+              ctx.session.user.id,
+              input
+            )
             await ctx.db.insert(codingSessions).values({
               id: input.id,
               issueId: input.issueId,
@@ -405,7 +458,7 @@ export const codingSessionsRouter = router({
               boardId: issueCtx.boardId,
               userId: attribution.userId,
               hostUserId: attribution.hostUserId,
-              deviceLabel: input.deviceLabel ?? null,
+              ...device,
               status: merged
                 ? `ended`
                 : issue?.status === `in_review`
@@ -420,6 +473,11 @@ export const codingSessionsRouter = router({
               ctx.session.user.id,
               input,
               input.teamId!
+            )
+            const device = await resolveSessionDevice(
+              ctx.db,
+              ctx.session.user.id,
+              input
             )
             // Action rows re-create from the client snapshot. If the action
             // was deleted meanwhile, a dangling-FK insert would 23503 —
@@ -462,7 +520,7 @@ export const codingSessionsRouter = router({
                   : null,
               userId: attribution.userId,
               hostUserId: attribution.hostUserId,
-              deviceLabel: input.deviceLabel ?? null,
+              ...device,
               // Batch/action rows have no issue to re-derive review state
               // from — a resurrected session degrades to `running` (badge
               // label only; rare suspend edge, never kills anything).
@@ -490,10 +548,17 @@ export const codingSessionsRouter = router({
       // Status-conditioned so a heartbeat racing a kill/end can never
       // resurrect the row's freshness after it ended. The SET touches only
       // updatedAt — never status — so a ping cannot downgrade an
-      // `in_review`/`merged` row back to `running`.
+      // `in_review`/`merged` row back to `running`. EXP-549: a ping carrying
+      // the deviceId also refreshes the device stamp (id + the registry
+      // label), so rows started by older builds pick up their identity and a
+      // rename converges within one beat even for clients that only render
+      // the snapshot.
+      const device = input.deviceId
+        ? await resolveSessionDevice(ctx.db, ctx.session.user.id, input)
+        : null
       const updated = await ctx.db
         .update(codingSessions)
-        .set({ updatedAt: new Date() })
+        .set({ updatedAt: new Date(), ...(device ?? {}) })
         .where(
           and(
             eq(codingSessions.id, input.id),
