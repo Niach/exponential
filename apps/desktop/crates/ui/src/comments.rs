@@ -15,7 +15,6 @@
 
 use gpui::{div, Entity, FontWeight, IntoElement, ParentElement, SharedString, Styled};
 use gpui_component::{
-    avatar::Avatar,
     button::{Button, ButtonVariants as _},
     h_flex,
     menu::{DropdownMenu as _, PopupMenuItem},
@@ -312,7 +311,14 @@ pub(crate) fn comment_row(
         .py_2()
         .gap_2p5()
         .items_start()
-        .child(Avatar::new().name(SharedString::from(name)).small())
+        // EXP-547: picture + initials fallback (web `RegularCommentRow`
+        // renders `AvatarImage`), so same-initials authors stay distinct.
+        .child(crate::user_avatar::user_avatar(
+            &name,
+            props.author.and_then(|user| user.image.as_deref()),
+            gpui_component::Size::Small,
+            cx,
+        ))
         .child(v_flex().flex_1().min_w_0().child(header).child(body))
 }
 
