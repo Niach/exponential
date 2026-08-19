@@ -43,6 +43,7 @@ vi.mock(`@/lib/storage/issue-attachment-cleanup`, () => ({
   deleteStorageObjects: h.deleteStorageObjects,
 }))
 
+import { comments as commentsTable, issues as issuesTable } from "@/db/schema"
 import { commentsRouter } from "@/lib/trpc/comments"
 import { extractMentionEmails } from "@/lib/mention-refs"
 
@@ -65,6 +66,19 @@ const state = {
   // the same tx). Empty queue falls back to the previous-body row the update
   // path reads, so the mention tests stay oblivious.
   selectQueue: [] as unknown[][],
+  // Team markdown the placeholder rewrite scans before any attachment hard
+  // delete (lib/storage/attachment-references), plus what it wrote back.
+  issueRows: [] as { id: string; description: string | null }[],
+  commentRows: [] as { id: string; body: string }[],
+  issueUpdates: [] as Record<string, unknown>[],
+  commentUpdates: [] as Record<string, unknown>[],
+}
+
+function resetMarkdownState() {
+  state.issueRows = []
+  state.commentRows = []
+  state.issueUpdates = []
+  state.commentUpdates = []
 }
 
 const nextSelectRows = () =>
@@ -72,26 +86,37 @@ const nextSelectRows = () =>
     ? state.selectQueue.shift()!
     : [{ body: state.previousBody }]
 
+// The rewrite scan reads `id` + text from issues and comments; every other
+// tx-scope select rides the FIFO queue.
+function selectRowsFor(fields: Record<string, unknown>, table: unknown) {
+  if (table === issuesTable) return state.issueRows
+  if (table === commentsTable && `id` in fields) return state.commentRows
+  return nextSelectRows()
+}
+
 const fakeTx = {
   execute: async () => ({ rows: [{ txid: `42` }] }),
-  select: () => ({
-    from: () => ({
+  select: (fields: Record<string, unknown> = {}) => ({
+    from: (table?: unknown) => ({
       where: () => {
         // Drizzle builders are awaitable at every stage: `.where()` is awaited
         // directly by the attachment queries and `.limit()` by the body read.
-        const rows = nextSelectRows()
+        const rows = selectRowsFor(fields, table)
         return Object.assign(Promise.resolve(rows), {
           limit: async () => rows,
         })
       },
     }),
   }),
-  update: () => ({
+  update: (table?: unknown) => ({
     set: (values: Record<string, unknown>) => ({
-      where: () =>
-        Object.assign(Promise.resolve(undefined), {
+      where: () => {
+        if (table === issuesTable) state.issueUpdates.push(values)
+        else if (table === commentsTable) state.commentUpdates.push(values)
+        return Object.assign(Promise.resolve(undefined), {
           returning: async () => [{ id: COMMENT_ID, ...values }],
-        }),
+        })
+      },
     }),
   }),
   insert: () => ({
@@ -132,6 +157,7 @@ describe(`comments.update mention resolution (REV2-26)`, () => {
     state.previousBody = ``
     state.authorId = `actor`
     state.selectQueue = []
+    resetMarkdownState()
     h.resolveMentions.mockReset()
     h.resolveMentions.mockImplementation(async (...args: unknown[]) =>
       extractMentionEmails(args[1] as string)
@@ -230,6 +256,7 @@ describe(`comments are author-only`, () => {
     state.previousBody = `someone else's words`
     state.authorId = `not-actor`
     state.selectQueue = []
+    resetMarkdownState()
     h.resolveTeamAccess.mockClear()
   })
 
@@ -275,6 +302,7 @@ describe(`comment attachments (EXP-554)`, () => {
     state.previousBody = ``
     state.authorId = `actor`
     state.selectQueue = []
+    resetMarkdownState()
     h.getIssueTeamContext.mockImplementation(async () => ({
       issueId: ISSUE_ID,
       boardId: `proj-1`,
@@ -361,8 +389,8 @@ describe(`comment attachments (EXP-554)`, () => {
       [uploadedRow(ATTACHMENT_A, { commentId: COMMENT_ID })],
       // ...then currently linked: kept + one to remove.
       [
-        { id: ATTACHMENT_A, storageKey: `key-a` },
-        { id: ATTACHMENT_B, storageKey: `key-b` },
+        { id: ATTACHMENT_A, filename: `a.png`, storageKey: `key-a` },
+        { id: ATTACHMENT_B, filename: `b.png`, storageKey: `key-b` },
       ],
     ]
 
@@ -377,11 +405,88 @@ describe(`comment attachments (EXP-554)`, () => {
 
   it(`delete cascades linked attachments and reclaims their blobs`, async () => {
     state.selectQueue = [
-      [{ storageKey: `key-a` }, { storageKey: `key-b` }],
+      [
+        { id: ATTACHMENT_A, filename: `a.png`, storageKey: `key-a` },
+        { id: ATTACHMENT_B, filename: `b.png`, storageKey: `key-b` },
+      ],
     ]
 
     await caller.delete({ id: COMMENT_ID })
 
     expect(h.deleteStorageObjects).toHaveBeenCalledWith([`key-a`, `key-b`])
+  })
+
+  // The link gate only asks for same issue + same uploader + unclaimed, so an
+  // attachment that is ALSO embedded inline (issue description, or a comment
+  // body written by an old client) can end up linked to a comment. Hard
+  // deleting it without the attachments.delete placeholder rewrite would leave
+  // a dead `![](/api/attachments/{id})` behind, and the next issues.update
+  // would 400 on the round-trip guard.
+  it(`unlinking via update rewrites inline references to the placeholder`, async () => {
+    state.previousBody = `old`
+    state.selectQueue = [
+      [{ body: `old` }],
+      [uploadedRow(ATTACHMENT_A, { commentId: COMMENT_ID })],
+      [
+        { id: ATTACHMENT_A, filename: `a.png`, storageKey: `key-a` },
+        { id: ATTACHMENT_B, filename: `dropped.png`, storageKey: `key-b` },
+      ],
+    ]
+    state.issueRows = [
+      {
+        id: ISSUE_ID,
+        description: `before ![shot](/api/attachments/${ATTACHMENT_B}) after`,
+      },
+    ]
+    state.commentRows = [
+      { id: OTHER_COMMENT, body: `old client ![](/api/attachments/${ATTACHMENT_B})` },
+    ]
+
+    await caller.update({
+      id: COMMENT_ID,
+      body: `new`,
+      attachmentIds: [ATTACHMENT_A],
+    })
+
+    expect(state.issueUpdates).toEqual([
+      { description: `before *(deleted image: shot)* after` },
+    ])
+    // No alt text — the placeholder falls back to the stored filename.
+    expect(state.commentUpdates).toContainEqual({
+      body: `old client *(deleted image: dropped.png)*`,
+    })
+    expect(h.deleteStorageObjects).toHaveBeenCalledWith([`key-b`])
+  })
+
+  it(`delete cascade rewrites inline references to the placeholder`, async () => {
+    state.selectQueue = [
+      [{ id: ATTACHMENT_A, filename: `cascade.png`, storageKey: `key-a` }],
+    ]
+    state.issueRows = [
+      {
+        id: ISSUE_ID,
+        description: `see ![](/api/attachments/${ATTACHMENT_A}?w=480)`,
+      },
+    ]
+
+    await caller.delete({ id: COMMENT_ID })
+
+    expect(state.issueUpdates).toEqual([
+      { description: `see *(deleted image: cascade.png)*` },
+    ])
+    expect(h.deleteStorageObjects).toHaveBeenCalledWith([`key-a`])
+  })
+
+  it(`leaves a body the exact markdown parser does not match alone`, async () => {
+    state.selectQueue = [
+      [{ id: ATTACHMENT_A, filename: `cascade.png`, storageKey: `key-a` }],
+    ]
+    // Matched by the LIKE prefilter (bare id in the text) but not by the
+    // markdown parser — nothing to rewrite.
+    state.issueRows = [{ id: ISSUE_ID, description: `mentions ${ATTACHMENT_A}` }]
+
+    await caller.delete({ id: COMMENT_ID })
+
+    expect(state.issueUpdates).toEqual([])
   })
 })

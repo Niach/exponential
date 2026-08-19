@@ -7,10 +7,9 @@ import { assertTeamMember, assertTeamOwner } from "@/lib/team-membership"
 import {
   collectReferencedAttachmentIds,
   isAcceptedImageContentType,
-  replaceAttachmentReferencesWithPlaceholder,
 } from "@/lib/storage/issue-attachments"
 import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
-import { escapeLikePattern } from "@/lib/like-pattern"
+import { replaceAttachmentReferencesInTx } from "@/lib/storage/attachment-references"
 
 // Grace window for the owner-triggered sweep: an image uploaded moments ago
 // may still be sitting in an unsaved editor draft, so never reclaim anything
@@ -103,7 +102,6 @@ export const attachmentsRouter = router({
       await assertTeamMember(ctx.session.user.id, membershipRow.teamId)
 
       const origin = ctx.request.url
-      const idPattern = `%${escapeLikePattern(input.id)}%`
 
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
@@ -126,61 +124,11 @@ export const attachmentsRouter = router({
           })
         }
 
-        // LIKE prefilter (the id string), exact rewrite by the markdown parser.
-        const [issueRows, commentRows] = await Promise.all([
-          tx
-            .select({ id: issues.id, description: issues.description })
-            .from(issues)
-            .where(
-              and(
-                eq(issues.teamId, row.teamId),
-                ilike(issues.description, idPattern)
-              )
-            ),
-          tx
-            .select({ id: comments.id, body: comments.body })
-            .from(comments)
-            .where(
-              and(
-                eq(comments.teamId, row.teamId),
-                ilike(comments.body, idPattern)
-              )
-            ),
-        ])
-
-        for (const issueRow of issueRows) {
-          const rewritten = replaceAttachmentReferencesWithPlaceholder(
-            issueRow.description ?? ``,
-            input.id,
-            origin,
-            row.filename
-          )
-          if (!rewritten.changed) continue
-
-          // Direct tx.update rather than issues.update: this write is the one
-          // legitimate way to produce a description that no longer matches the
-          // attachment it used to reference. The update_updated_at trigger
-          // still bumps the row so every client re-syncs the new text.
-          await tx
-            .update(issues)
-            .set({ description: rewritten.text })
-            .where(eq(issues.id, issueRow.id))
-        }
-
-        for (const commentRow of commentRows) {
-          const rewritten = replaceAttachmentReferencesWithPlaceholder(
-            commentRow.body,
-            input.id,
-            origin,
-            row.filename
-          )
-          if (!rewritten.changed) continue
-
-          await tx
-            .update(comments)
-            .set({ body: rewritten.text })
-            .where(eq(comments.id, commentRow.id))
-        }
+        await replaceAttachmentReferencesInTx(tx, {
+          targets: [{ id: input.id, filename: row.filename }],
+          teamId: row.teamId,
+          origin,
+        })
 
         await tx.delete(attachments).where(eq(attachments.id, input.id))
 

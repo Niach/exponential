@@ -10,6 +10,7 @@ import {
 } from "@/lib/domain"
 import { resolveTeamAccess, getIssueTeamContext } from "@/lib/team-membership"
 import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
+import { replaceAttachmentReferencesInTx } from "@/lib/storage/attachment-references"
 import {
   fireAndForgetCommentNotify,
   fireAndForgetIssueMentionNotify,
@@ -59,7 +60,9 @@ async function syncCommentAttachmentsInTx(
   args: {
     commentId: string
     issueId: string
+    teamId: string
     userId: string
+    origin: string
     attachmentIds: string[]
   }
 ): Promise<{ deletedStorageKeys: string[] }> {
@@ -94,7 +97,11 @@ async function syncCommentAttachmentsInTx(
   }
 
   const linked = await tx
-    .select({ id: attachments.id, storageKey: attachments.storageKey })
+    .select({
+      id: attachments.id,
+      filename: attachments.filename,
+      storageKey: attachments.storageKey,
+    })
     .from(attachments)
     .where(eq(attachments.commentId, args.commentId))
 
@@ -110,6 +117,16 @@ async function syncCommentAttachmentsInTx(
       .where(inArray(attachments.id, toAdd))
   }
   if (toRemove.length > 0) {
+    // A comment attachment may ALSO be embedded inline in the issue
+    // description or in an old-client comment body (the link gate only asks
+    // for same issue + same uploader + unclaimed). Rewrite those references to
+    // the deleted placeholder in this same tx, exactly like attachments.delete
+    // does, or the next issues.update 400s on the round-trip guard.
+    await replaceAttachmentReferencesInTx(tx, {
+      targets: toRemove.map((row) => ({ id: row.id, filename: row.filename })),
+      teamId: args.teamId,
+      origin: args.origin,
+    })
     await tx.delete(attachments).where(
       inArray(
         attachments.id,
@@ -196,7 +213,9 @@ export const commentsRouter = router({
           await syncCommentAttachmentsInTx(tx, {
             commentId: comment.id,
             issueId: input.issueId,
+            teamId: issueContext.teamId,
             userId: ctx.session.user.id,
+            origin: ctx.request.url,
             attachmentIds: input.attachmentIds,
           })
         }
@@ -300,7 +319,9 @@ export const commentsRouter = router({
             ? await syncCommentAttachmentsInTx(tx, {
                 commentId: input.id,
                 issueId: existing.issueId,
+                teamId: existing.teamId,
                 userId: ctx.session.user.id,
+                origin: ctx.request.url,
                 attachmentIds: input.attachmentIds,
               })
             : { deletedStorageKeys: [] }
@@ -346,10 +367,25 @@ export const commentsRouter = router({
         // delete BEFORE the comment row goes — the FK is ON DELETE SET NULL,
         // which would silently unlink them into the issue's Files rail.
         const linked = await tx
-          .select({ storageKey: attachments.storageKey })
+          .select({
+            id: attachments.id,
+            filename: attachments.filename,
+            storageKey: attachments.storageKey,
+          })
           .from(attachments)
           .where(eq(attachments.commentId, input.id))
         if (linked.length > 0) {
+          // Same reason as the unlink path in syncCommentAttachmentsInTx: a
+          // linked row may still be embedded inline somewhere, so rewrite
+          // those references to the placeholder before the row dies.
+          await replaceAttachmentReferencesInTx(tx, {
+            targets: linked.map((row) => ({
+              id: row.id,
+              filename: row.filename,
+            })),
+            teamId: existing.teamId,
+            origin: ctx.request.url,
+          })
           await tx
             .delete(attachments)
             .where(eq(attachments.commentId, input.id))
