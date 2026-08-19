@@ -1,6 +1,7 @@
 //! The lightweight mention-capable textarea (masterplan-v3 §4.2 comment
 //! composer / §4.6 autocomplete) — a `TextareaState` wrapper carrying the same
-//! caret-anchored `@`-member / `#`-issue completion the markdown editor has,
+//! caret-anchored `@`-member / `#`-issue / `:`-emoji completion the markdown
+//! editor has,
 //! **without** the block model, toolbar or image path (comments have none on
 //! web; this is explicitly "not the heavy block editor").
 //!
@@ -21,13 +22,59 @@ use gpui_component::input::{self, InputEvent, Textarea, TextareaState};
 use gpui_component::{h_flex, v_flex, ActiveTheme as _};
 
 use crate::markdown::{
-    byte_offset_to_position, detect_trigger, CompletionItem, CompletionSource, PendingToken,
+    byte_offset_to_position, detect_trigger, exact_emoji, CompletionItem, CompletionSource,
+    PendingToken,
 };
 
 struct ActiveCompletion {
     token: PendingToken,
     items: Vec<CompletionItem>,
     selected: usize,
+}
+
+/// Replace `token` in `input` with `replacement`, optionally followed by the
+/// trailing space menu acceptance adds (the emoji auto-commit adds none —
+/// the user is still typing the sentence).
+fn replace_token(
+    input: &Entity<TextareaState>,
+    token: &PendingToken,
+    replacement: &str,
+    trailing_space: bool,
+    window: &mut Window,
+    cx: &mut gpui::App,
+) {
+    input.update(cx, |state, cx| {
+        let Some((new_value, caret)) =
+            replaced_token_text(state.value().as_ref(), token, replacement, trailing_space)
+        else {
+            return;
+        };
+        let position = byte_offset_to_position(&new_value, caret);
+        state.set_value(new_value, window, cx);
+        state.set_cursor_position(position, window, cx);
+    });
+}
+
+/// The pure half of [`replace_token`]: the resulting value plus the caret's
+/// byte offset in it, or `None` when the token no longer fits the value
+/// (a race between the keystroke and the acceptance).
+fn replaced_token_text(
+    value: &str,
+    token: &PendingToken,
+    replacement: &str,
+    trailing_space: bool,
+) -> Option<(String, usize)> {
+    let start = token.start;
+    if start > value.len() || !value.is_char_boundary(start) {
+        return None;
+    }
+    let end = (start + token.token_len()).min(value.len());
+    if !value.is_char_boundary(end) {
+        return None;
+    }
+    let tail = if trailing_space { " " } else { "" };
+    let new_value = format!("{}{replacement}{tail}{}", &value[..start], &value[end..]);
+    Some((new_value, start + replacement.len() + tail.len()))
 }
 
 /// A multi-line input with the §4.6 autocomplete layered on. Build with the
@@ -38,6 +85,9 @@ pub struct MentionInput {
     bounds: Rc<Cell<Bounds<Pixels>>>,
     source: Option<Rc<dyn CompletionSource>>,
     completion: Option<ActiveCompletion>,
+    /// EXP-551: a queued `:tada:` auto-commit (token + the unicode replacing
+    /// it), drained on the next render.
+    pending_commit: Option<(PendingToken, String)>,
     _subscription: Subscription,
 }
 
@@ -58,6 +108,7 @@ impl MentionInput {
             bounds: Rc::new(Cell::new(Bounds::default())),
             source: None,
             completion: None,
+            pending_commit: None,
             _subscription: subscription,
         }
     }
@@ -67,6 +118,15 @@ impl MentionInput {
     pub fn set_source(&mut self, source: Option<Rc<dyn CompletionSource>>) {
         self.source = source;
         self.completion = None;
+        self.pending_commit = None;
+    }
+
+    /// EXP-551: insert picked text (the emoji picker's glyph) at the cursor.
+    /// `TextareaState::insert` is undo-atomic, so one ⌘Z removes the glyph.
+    pub fn insert_text(&mut self, text: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.input
+            .update(cx, |state, cx| state.insert(text.to_string(), window, cx));
+        cx.notify();
     }
 
     fn refresh_completion(&mut self, input: &Entity<TextareaState>, cx: &mut gpui::Context<Self>) {
@@ -82,6 +142,16 @@ impl MentionInput {
             self.completion = None;
             return;
         };
+        // EXP-551: `:tada:` — a CLOSED emoji token whose query is an exact
+        // shortcode commits immediately (no menu, no trailing space), so the
+        // habit of typing both colons never leaves literal shortcode text.
+        if token.closed {
+            if let Some(unicode) = exact_emoji(&token.query, cx) {
+                self.completion = None;
+                self.pending_commit = Some((token, unicode));
+                return;
+            }
+        }
         let items = source.query(token.trigger, &token.query, cx);
         if items.is_empty() {
             self.completion = None;
@@ -101,20 +171,19 @@ impl MentionInput {
         let Some(item) = completion.items.get(completion.selected).cloned() else {
             return;
         };
-        self.input.update(cx, |state, cx| {
-            let value = state.value().to_string();
-            let start = completion.token.start;
-            let end = (start + 1 + completion.token.query.len()).min(value.len());
-            if start > value.len() {
-                return;
-            }
-            let new_value = format!("{}{} {}", &value[..start], item.insert, &value[end..]);
-            let caret = start + item.insert.len() + 1;
-            let position = byte_offset_to_position(&new_value, caret);
-            state.set_value(new_value, window, cx);
-            state.set_cursor_position(position, window, cx);
-        });
+        replace_token(&self.input, &completion.token, &item.insert, true, window, cx);
         cx.notify();
+    }
+
+    /// EXP-551: run the auto-commit the last `refresh_completion` queued. It
+    /// cannot fire inside the `Change` subscription — replacing the value
+    /// there would re-enter the same input update — so the render pass that
+    /// follows the keystroke drains it.
+    fn drain_pending_commit(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let Some((token, unicode)) = self.pending_commit.take() else {
+            return;
+        };
+        replace_token(&self.input, &token, &unicode, false, window, cx);
     }
 
     fn move_completion(&mut self, delta: isize, cx: &mut gpui::Context<Self>) {
@@ -288,6 +357,7 @@ use gpui::prelude::FluentBuilder as _;
 
 impl Render for MentionInput {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        self.drain_pending_commit(window, cx);
         let bounds = self.bounds.clone();
         let completion = self.render_completion(window, cx);
 
@@ -314,5 +384,79 @@ impl Render for MentionInput {
                 .size_full(),
             )
             .when_some(completion, |el, completion| el.child(completion))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! The composer's completion EDIT is unit-tested here; the end-to-end
+    //! trigger→menu→insert path is locked by the WYSIWYG host's `#[gpui::test]`
+    //! suite (`wysiwyg/description.rs`), which shares `detect_trigger` and
+    //! `exact_emoji`. Drawing a gpui-component text input in a test window is
+    //! not possible (the macOS content-type sync wants a real platform
+    //! window), so nothing here builds a view.
+
+    use super::*;
+    use crate::markdown::CompletionTrigger;
+
+    fn token(trigger: CompletionTrigger, start: usize, query: &str, closed: bool) -> PendingToken {
+        PendingToken {
+            trigger,
+            start,
+            query: query.to_string(),
+            closed,
+        }
+    }
+
+    /// EXP-551: accepting an emoji row replaces the whole `:query` token with
+    /// the unicode plus the trailing space the `@`/`#` rows add.
+    #[test]
+    fn accepting_an_emoji_row_replaces_the_token() {
+        let value = "ship :tada";
+        let token = token(CompletionTrigger::Emoji, 5, "tada", false);
+        let (next, caret) = replaced_token_text(value, &token, "🎉", true).expect("edit");
+        assert_eq!(next, "ship 🎉 ");
+        assert_eq!(&next[..caret], "ship 🎉 ");
+    }
+
+    /// EXP-551: the `:tada:` auto-commit eats the CLOSING colon too and adds
+    /// no trailing space — the user is mid-sentence.
+    #[test]
+    fn the_auto_commit_eats_the_closing_colon() {
+        let value = "ship :tada:";
+        let token = token(CompletionTrigger::Emoji, 5, "tada", true);
+        let (next, caret) = replaced_token_text(value, &token, "🎉", false).expect("edit");
+        assert_eq!(next, "ship 🎉");
+        assert_eq!(caret, next.len());
+    }
+
+    /// Text after the caret survives (the token ends at the caret, not at the
+    /// end of the line).
+    #[test]
+    fn trailing_text_survives_the_replacement() {
+        let value = "a :tada rest";
+        let token = token(CompletionTrigger::Emoji, 2, "tada", false);
+        let (next, _) = replaced_token_text(value, &token, "🎉", true).expect("edit");
+        assert_eq!(next, "a 🎉  rest");
+    }
+
+    /// `@`/`#` tokens keep the old arithmetic (trigger char + query).
+    #[test]
+    fn mention_tokens_replace_trigger_plus_query() {
+        let value = "cc @ja";
+        let token = token(CompletionTrigger::Mention, 3, "ja", false);
+        let (next, _) =
+            replaced_token_text(value, &token, "@jane@example.com", true).expect("edit");
+        assert_eq!(next, "cc @jane@example.com ");
+    }
+
+    /// A stale token (the value shrank under it) is a no-op, never a panic.
+    #[test]
+    fn a_stale_token_is_dropped() {
+        let stale = token(CompletionTrigger::Emoji, 40, "tada", false);
+        assert!(replaced_token_text("short", &stale, "🎉", true).is_none());
+        // Mid-multibyte start offsets are refused too.
+        let split = token(CompletionTrigger::Emoji, 1, "tada", false);
+        assert!(replaced_token_text("é:tada", &split, "🎉", true).is_none());
     }
 }

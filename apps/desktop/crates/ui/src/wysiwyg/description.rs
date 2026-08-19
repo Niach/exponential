@@ -28,8 +28,9 @@ use super::images::{self, SharedImageState, WysiwygImageResolver, WysiwygPasteHa
 use super::refs::{refresh_ref_state, SharedRefState, WysiwygReferenceDecorator};
 use crate::markdown::image_paste::{markdown_for_save, DRAFT_SCHEME};
 use crate::markdown::{
-    detect_trigger, download_image, normalize_for_wysiwyg, restore_blank_line_markers,
-    store_completion_source, CompletionItem, CompletionSource, ImageCache, ImageSlot, StagedImage,
+    detect_trigger, download_image, emoji_completion_source, normalize_for_wysiwyg,
+    restore_blank_line_markers, store_completion_source, CompletionItem, CompletionSource,
+    ImageCache, ImageSlot, StagedImage,
 };
 use crate::queries;
 
@@ -93,6 +94,11 @@ pub struct WysiwygDescription {
     /// so Enter commits: gpui-component binds Enter to its own `Input` action,
     /// so the keystroke never reaches this view's key handler.
     pub(super) link_input: Option<(Entity<InputState>, Subscription)>,
+    /// EXP-551: the shared emoji picker behind the toolbar's smiley. The
+    /// popover's open state is HOST-owned (like `link_input`) so a pick can
+    /// close it from `insert_emoji`.
+    pub(super) emoji_picker: Entity<crate::emoji_picker::EmojiPicker>,
+    pub(super) emoji_open: bool,
     /// Vendored-editor revision at the last load/save. The vendored engine
     /// NORMALIZES many render-equivalent forms (`_i_`→`*i*`, setext→ATX,
     /// `1)`→`1.`, …), so re-serialized bytes differing from the loaded
@@ -130,9 +136,12 @@ impl WysiwygDescription {
         let images = cx.new(|_| ImageCache::new(transport));
         let shared = Arc::new(SharedImageState::default());
         let refs = Arc::new(SharedRefState::default());
-        let completion_source: Option<Rc<dyn CompletionSource>> = team_id
-            .clone()
-            .map(|team_id| store_completion_source(team_id) as Rc<dyn CompletionSource>);
+        // EXP-551: emoji need no team data, so the `:` typeahead is live even
+        // in a team-less host (only `@`/`#` fall away with the team).
+        let completion_source: Option<Rc<dyn CompletionSource>> = Some(match team_id.clone() {
+            Some(team_id) => store_completion_source(team_id),
+            None => emoji_completion_source(),
+        });
         // Resize writes a `?w=` param back into the document — only sensible
         // in detail mode where the image is (or becomes) a real attachment.
         let enable_image_resize = upload_issue.is_some();
@@ -315,6 +324,22 @@ impl WysiwygDescription {
                 .update(cx, |editor, cx| editor.set_theme(theme, cx));
         }));
 
+        // EXP-551: the picker inserts through the host so the vendored
+        // editor's caret machinery (not the popover's focus) decides where.
+        let emoji_host = cx.weak_entity();
+        let emoji_picker = cx.new(|cx| {
+            crate::emoji_picker::EmojiPicker::new(
+                Rc::new(move |unicode: &str, window: &mut Window, cx: &mut App| {
+                    let unicode = unicode.to_string();
+                    emoji_host
+                        .update(cx, |this, cx| this.insert_emoji(&unicode, window, cx))
+                        .ok();
+                }),
+                window,
+                cx,
+            )
+        });
+
         let clean_revision = editor.read(cx).revision();
         let mut this = Self {
             editor,
@@ -329,6 +354,8 @@ impl WysiwygDescription {
             staged: Vec::new(),
             image_menu: None,
             link_input: None,
+            emoji_picker,
+            emoji_open: false,
             clean_revision,
             refs,
             refs_refresh_scheduled: false,
@@ -895,6 +922,26 @@ impl WysiwygDescription {
         .detach();
     }
 
+    // -- emoji --------------------------------------------------------------
+
+    /// EXP-551: insert a picked glyph at the caret and close the popover.
+    /// Goes through the vendored `insert_text_at_caret`, which re-focuses the
+    /// block the popover click blurred.
+    pub(super) fn insert_emoji(&mut self, unicode: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.editor.update(cx, |editor, cx| {
+            editor.insert_text_at_caret(unicode, window, cx);
+        });
+        self.emoji_open = false;
+        cx.notify();
+    }
+
+    pub(super) fn set_emoji_open(&mut self, open: bool, cx: &mut Context<Self>) {
+        if self.emoji_open != open {
+            self.emoji_open = open;
+            cx.notify();
+        }
+    }
+
     // -- autocomplete -------------------------------------------------------
 
     fn refresh_completion(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -903,6 +950,25 @@ impl WysiwygDescription {
         if let Some(source) = self.completion_source.clone() {
             if let Some(text) = self.editor.read(cx).focused_text_before_caret(window, cx) {
                 if let Some(token) = detect_trigger(&text, text.len()) {
+                    // EXP-551: `:tada:` — a CLOSED token whose query is an
+                    // exact shortcode commits straight away, so the habit of
+                    // typing both colons never leaves literal shortcode text.
+                    if token.closed {
+                        if let Some(unicode) = crate::markdown::exact_emoji(&token.query, cx) {
+                            self.editor.update(cx, |editor, cx| {
+                                editor.replace_text_before_caret(
+                                    text.len() - token.start,
+                                    &unicode,
+                                    window,
+                                    cx,
+                                );
+                            });
+                            if had {
+                                cx.notify();
+                            }
+                            return;
+                        }
+                    }
                     let items = source.query(token.trigger, &token.query, cx);
                     if !items.is_empty() {
                         self.completion = Some(ActiveCompletion {
@@ -1658,6 +1724,120 @@ mod tests {
                 view.markdown(cx).trim_end(),
                 "#EXP-42 #EXP-42",
                 "tab accepted the item in place of the pending token"
+            );
+        });
+    }
+
+    // EXP-551: the `:shortcode` typeahead runs on the REAL catalog source
+    // (emoji need no team), and Enter inserts the UNICODE — never
+    // `:shortcode:` text, which no client expands.
+    #[gpui::test]
+    async fn emoji_typeahead_inserts_unicode(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+            cx.bind_keys(gpui_markdown_editor::default_key_bindings());
+        });
+        let (view, cx) = cx.add_window_view(|window, cx| {
+            WysiwygDescription::new(None, None, "Add description...", "", None, window, cx)
+        });
+
+        let draw_frames = |cx: &mut gpui::VisualTestContext| {
+            for _ in 0..2 {
+                cx.update(|window, cx| window.draw(cx).clear(cx));
+                cx.run_until_parked();
+            }
+        };
+
+        cx.update(|window, cx| view.update(cx, |view, cx| view.focus(window, cx)));
+        draw_frames(cx);
+
+        cx.update(|window, cx| {
+            view.update(cx, |view, cx| {
+                view.editor.update(cx, |editor, cx| {
+                    editor.replace_text_before_caret(0, ":tada", window, cx);
+                });
+            });
+        });
+        draw_frames(cx);
+        view.read_with(cx, |view, _| {
+            let completion = view.completion.as_ref().expect("`:tada` opens the popup");
+            assert_eq!(completion.items[0].insert, "🎉");
+            assert_eq!(completion.items[0].label, ":tada:");
+        });
+
+        cx.simulate_keystrokes("enter");
+        view.read_with(cx, |view, cx| {
+            assert!(view.completion.is_none(), "enter closed the popup");
+            assert_eq!(view.markdown(cx).trim_end(), "🎉");
+        });
+    }
+
+    // EXP-551: typing the CLOSING colon on an exact shortcode commits
+    // immediately — no menu, no trailing space — so the `:tada:` habit never
+    // leaves literal shortcode text in the stored markdown.
+    #[gpui::test]
+    async fn a_closed_exact_shortcode_auto_commits(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+            cx.bind_keys(gpui_markdown_editor::default_key_bindings());
+        });
+        let (view, cx) = cx.add_window_view(|window, cx| {
+            WysiwygDescription::new(None, None, "Add description...", "", None, window, cx)
+        });
+
+        let draw_frames = |cx: &mut gpui::VisualTestContext| {
+            for _ in 0..2 {
+                cx.update(|window, cx| window.draw(cx).clear(cx));
+                cx.run_until_parked();
+            }
+        };
+        cx.update(|window, cx| view.update(cx, |view, cx| view.focus(window, cx)));
+        draw_frames(cx);
+
+        cx.update(|window, cx| {
+            view.update(cx, |view, cx| {
+                view.editor.update(cx, |editor, cx| {
+                    editor.replace_text_before_caret(0, "ship :tada:", window, cx);
+                });
+            });
+        });
+        draw_frames(cx);
+        view.read_with(cx, |view, cx| {
+            assert!(view.completion.is_none(), "the auto-commit opens no popup");
+            assert_eq!(view.markdown(cx), "ship 🎉");
+        });
+    }
+
+    // EXP-551: the toolbar picker inserts through the vendored
+    // `insert_text_at_caret`, which re-resolves the target block the popover
+    // click blurred (`format_target`) instead of no-oping.
+    #[gpui::test]
+    async fn the_picker_inserts_at_the_caret(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+            cx.bind_keys(gpui_markdown_editor::default_key_bindings());
+        });
+        let (view, cx) = cx.add_window_view(|window, cx| {
+            WysiwygDescription::new(None, None, "Add description...", "ship it", None, window, cx)
+        });
+        for _ in 0..2 {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            cx.run_until_parked();
+        }
+        cx.update(|window, cx| {
+            view.update(cx, |view, cx| {
+                view.emoji_open = true;
+                view.insert_emoji("🎉", window, cx);
+            });
+        });
+        view.read_with(cx, |view, cx| {
+            assert!(!view.emoji_open, "a pick closes the popover");
+            assert!(
+                view.markdown(cx).contains('🎉'),
+                "the glyph landed in the document"
             );
         });
     }

@@ -192,6 +192,24 @@ impl CodingHub {
         result
     }
 
+    /// EXP-551: persist a purely LOCAL ui preference (the emoji skin tone +
+    /// recents) into the same per-install file — WITHOUT the doctor re-run
+    /// and the launch-defaults push [`save_settings`] does. Neither field is
+    /// a launcher knob, and an emoji pick must not spawn `--version` probes.
+    ///
+    /// [`save_settings`]: Self::save_settings
+    pub fn save_ui_prefs(hub: &Entity<CodingHub>, settings: Settings, cx: &mut App) {
+        let result = hub.update(cx, |this, cx| {
+            let result = settings.save(&this.settings_path);
+            this.settings = settings;
+            cx.notify();
+            result
+        });
+        if let Err(err) = result {
+            log::warn!("[ui] persisting the emoji prefs failed: {err}");
+        }
+    }
+
     /// The §7.1-step-1 gate half the button ANDs in: git green + at least
     /// one usable agent CLI (EXP-201 — the dialog gates the SELECTED agent).
     pub fn doctor_ok(&self) -> bool {

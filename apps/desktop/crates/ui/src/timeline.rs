@@ -126,6 +126,11 @@ pub struct IssueTimeline {
     images: Entity<ImageCache>,
     submitting: bool,
     editing: Option<EditState>,
+    /// EXP-551: the emoji picker both composers share, plus which of them
+    /// currently has it open (`None` = closed). One picker is enough — only
+    /// one popover can be up at a time.
+    emoji_picker: Entity<crate::emoji_picker::EmojiPicker>,
+    emoji_open: Option<PendingScope>,
     /// EXP-554: files picked for the NEXT comment, uploaded on send.
     pending_attachments: Vec<PendingCommentAttachment>,
     next_pending_key: u64,
@@ -141,6 +146,23 @@ impl IssueTimeline {
         });
         let composer_mention = cx.new(|cx| MentionInput::new(composer.clone(), cx));
         let images = cx.new(|_| ImageCache::new(None));
+        // EXP-551: the picker hands the glyph back here so it lands in
+        // whichever composer opened it.
+        let emoji_host = cx.weak_entity();
+        let emoji_picker = cx.new(|cx| {
+            crate::emoji_picker::EmojiPicker::new(
+                std::rc::Rc::new(
+                    move |unicode: &str, window: &mut Window, cx: &mut gpui::App| {
+                        let unicode = unicode.to_string();
+                        emoji_host
+                            .update(cx, |this, cx| this.insert_emoji(&unicode, window, cx))
+                            .ok();
+                    },
+                ),
+                window,
+                cx,
+            )
+        });
 
         let mut subscriptions = Vec::new();
         // Cmd/Ctrl+Enter submits (web `onKeyDown` metaKey/ctrlKey gate).
@@ -186,6 +208,8 @@ impl IssueTimeline {
             images,
             submitting: false,
             editing: None,
+            emoji_picker,
+            emoji_open: None,
             pending_attachments: Vec::new(),
             next_pending_key: 0,
             _subscriptions: subscriptions,
@@ -228,7 +252,12 @@ impl IssueTimeline {
             return;
         }
         self.team_id = team_id.clone();
-        let source = team_id.map(store_completion_source);
+        // EXP-551: with no team resolved yet the `:` emoji typeahead still
+        // works — only `@`/`#` need synced data.
+        let source = Some(match team_id {
+            Some(team_id) => store_completion_source(team_id),
+            None => crate::markdown::emoji_completion_source(),
+        });
         self.composer_mention.update(cx, |mention, _| {
             mention.set_source(source.clone());
         });
@@ -242,6 +271,43 @@ impl IssueTimeline {
         self.images.update(cx, |images, _| {
             images.set_transport(transport);
         });
+    }
+
+    // -- emoji (EXP-551) ------------------------------------------------------
+
+    pub(crate) fn emoji_picker(&self) -> &Entity<crate::emoji_picker::EmojiPicker> {
+        &self.emoji_picker
+    }
+
+    pub(crate) fn emoji_open(&self, scope: PendingScope) -> bool {
+        self.emoji_open == Some(scope)
+    }
+
+    pub(crate) fn set_emoji_open(
+        &mut self,
+        scope: PendingScope,
+        open: bool,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let next = open.then_some(scope);
+        if self.emoji_open != next {
+            self.emoji_open = next;
+            cx.notify();
+        }
+    }
+
+    /// Insert a picked glyph into whichever composer opened the picker, then
+    /// close it. `TextareaState::insert` is undo-atomic — one ⌘Z removes it.
+    fn insert_emoji(&mut self, unicode: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let target = match self.emoji_open {
+            Some(PendingScope::Edit) => self.editing.as_ref().map(|editing| editing.mention.clone()),
+            _ => Some(self.composer_mention.clone()),
+        };
+        if let Some(mention) = target {
+            mention.update(cx, |mention, cx| mention.insert_text(unicode, window, cx));
+        }
+        self.emoji_open = None;
+        cx.notify();
     }
 
     // -- mutations ------------------------------------------------------------
@@ -497,7 +563,10 @@ impl IssueTimeline {
         });
         let mention = cx.new(|cx| {
             let mut mention = MentionInput::new(input.clone(), cx);
-            mention.set_source(self.team_id.clone().map(store_completion_source));
+            mention.set_source(Some(match self.team_id.clone() {
+                Some(team_id) => store_completion_source(team_id),
+                None => crate::markdown::emoji_completion_source(),
+            }));
             mention
         });
         self.editing = Some(EditState {

@@ -1,4 +1,5 @@
-//! Caret-anchored `@`-member / `#`-issue autocomplete (masterplan-v3 §4.6).
+//! Caret-anchored `@`-member / `#`-issue / `:`-emoji autocomplete
+//! (masterplan-v3 §4.6; EXP-551 added the emoji trigger).
 //!
 //! gpui-component's built-in `completion_menu` is LSP-bound, so this is the
 //! standalone reusable overlay: [`detect_trigger`] finds a pending `@query`
@@ -7,8 +8,10 @@
 //! (keyboard: ↑/↓ select, Enter/Tab accept, Esc dismiss — wired in
 //! `editor.rs`). Accepting inserts the canonical interchange form: `@<email>`
 //! for mentions (`apps/web/src/lib/integrations/mentions.ts` resolves it
-//! server-side on save) or `#<IDENTIFIER>` for issue refs
-//! (`apps/web/src/lib/issue-refs.ts`).
+//! server-side on save), `#<IDENTIFIER>` for issue refs
+//! (`apps/web/src/lib/issue-refs.ts`) or — for `:shortcode` — the emoji's
+//! UNICODE, never the `:shortcode:` text (EXP-551: stored markdown is plain
+//! GFM shared with clients that expand nothing).
 
 use std::rc::Rc;
 
@@ -23,6 +26,8 @@ pub enum CompletionTrigger {
     Mention,
     /// `#` — issues; inserts `#<IDENTIFIER>`.
     IssueRef,
+    /// `:` — emoji shortcodes (EXP-551); inserts the emoji UNICODE.
+    Emoji,
 }
 
 /// One row of the completion popover.
@@ -48,6 +53,9 @@ pub enum CompletionDecoration {
     Status(domain::statuses::ResolvedStatus),
     /// The member's profile image URL (`None` = initials fallback).
     User { image_url: Option<String> },
+    /// EXP-551: the emoji glyph itself (already skin-toned — it IS what the
+    /// row inserts).
+    Emoji { glyph: SharedString },
 }
 
 /// The shared row body every completion popover renders (EXP-426):
@@ -68,6 +76,9 @@ pub fn completion_row_content(item: &CompletionItem, cx: &mut App) -> gpui::AnyE
                 gpui_component::Size::XSmall,
                 cx,
             ));
+        }
+        Some(CompletionDecoration::Emoji { glyph }) => {
+            row = row.child(div().text_base().child(glyph.clone()));
         }
         None => {}
     }
@@ -91,14 +102,26 @@ pub fn completion_row_content(item: &CompletionItem, cx: &mut App) -> gpui::AnyE
     .into_any_element()
 }
 
-/// A `@`/`#` token being typed behind the caret.
+/// A `@`/`#`/`:` token being typed behind the caret.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PendingToken {
     pub trigger: CompletionTrigger,
-    /// Byte offset of the `@`/`#` character in the input text.
+    /// Byte offset of the `@`/`#`/`:` character in the input text.
     pub start: usize,
     /// The query typed so far (without the trigger char).
     pub query: String,
+    /// EXP-551, [`CompletionTrigger::Emoji`] only: the CLOSING colon has been
+    /// typed (`:tada:`). An exact shortcode then auto-commits instead of
+    /// leaving literal shortcode text behind. Always `false` for `@`/`#`.
+    pub closed: bool,
+}
+
+impl PendingToken {
+    /// Byte length of the whole token (trigger char + query + the emoji
+    /// token's optional closing colon) — what acceptance replaces.
+    pub fn token_len(&self) -> usize {
+        1 + self.query.len() + usize::from(self.closed)
+    }
 }
 
 /// Live item lookup for the popover — re-queried on every keystroke against
@@ -111,12 +134,18 @@ pub trait CompletionSource {
 const MAX_ITEMS: usize = 8;
 const MAX_QUERY_LEN: usize = 64;
 
+/// Minimum `:shortcode` query length (EXP-551 — web `EMOJI_AT_CARET`'s
+/// `{2,}`). Two characters are what keep `12:30`, `note:` and `:)` from ever
+/// opening a menu.
+const MIN_EMOJI_QUERY_LEN: usize = 2;
+
 /// Find a pending completion token ending at `cursor` (a byte offset into
 /// `text`). Mirrors the web trigger rules: the token must start at the
 /// beginning of a line or after whitespace (so `foo#EXP-1` and mid-email `@`s
 /// don't trigger — the web `#` regex demands `(?<![\w#])`), and the query may
 /// only contain the token charset (`[A-Za-z0-9._%+-@]` for mentions —
-/// emails — and `[A-Za-z0-9-]` for issue refs).
+/// emails — `[A-Za-z0-9-]` for issue refs, and `[a-z0-9_+-]{2,}` plus an
+/// optional closing colon for emoji, web `EMOJI_AT_CARET`).
 pub fn detect_trigger(text: &str, cursor: usize) -> Option<PendingToken> {
     if cursor > text.len() || !text.is_char_boundary(cursor) {
         return None;
@@ -132,9 +161,19 @@ pub fn detect_trigger(text: &str, cursor: usize) -> Option<PendingToken> {
     let trigger = match chars.next() {
         Some('@') => CompletionTrigger::Mention,
         Some('#') => CompletionTrigger::IssueRef,
+        Some(':') => CompletionTrigger::Emoji,
         _ => return None,
     };
-    let query = chars.as_str();
+    let mut query = chars.as_str();
+    // The emoji token may carry the CLOSING colon (`:tada:`); everything
+    // after it is no longer part of the query.
+    let mut closed = false;
+    if trigger == CompletionTrigger::Emoji {
+        if let Some(stripped) = query.strip_suffix(':') {
+            closed = true;
+            query = stripped;
+        }
+    }
     if query.len() > MAX_QUERY_LEN {
         return None;
     }
@@ -145,6 +184,12 @@ pub fn detect_trigger(text: &str, cursor: usize) -> Option<PendingToken> {
         CompletionTrigger::IssueRef => query
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-'),
+        CompletionTrigger::Emoji => {
+            query.len() >= MIN_EMOJI_QUERY_LEN
+                && query
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "_+-".contains(c))
+        }
     };
     if !valid {
         return None;
@@ -153,32 +198,48 @@ pub fn detect_trigger(text: &str, cursor: usize) -> Option<PendingToken> {
         trigger,
         start: token_start,
         query: query.to_string(),
+        closed,
     })
 }
 
 /// The default [`CompletionSource`]: team members (⨝ users) for `@`,
-/// the team's issues for `#`, both read live from the §05 collections.
+/// the team's issues for `#`, both read live from the §05 collections, plus
+/// the team-independent emoji catalog for `:` (EXP-551).
 pub fn store_completion_source(team_id: impl Into<String>) -> Rc<dyn CompletionSource> {
     Rc::new(StoreCompletionSource {
-        team_id: team_id.into(),
+        team_id: Some(team_id.into()),
     })
 }
 
+/// EXP-551: the `:`-only source for hosts with no team in hand — emoji need
+/// no synced data, so a team-less composer still gets the typeahead.
+pub fn emoji_completion_source() -> Rc<dyn CompletionSource> {
+    Rc::new(StoreCompletionSource { team_id: None })
+}
+
 struct StoreCompletionSource {
-    team_id: String,
+    /// `None` = emoji only (no team scope for members/issues).
+    team_id: Option<String>,
 }
 
 impl CompletionSource for StoreCompletionSource {
     fn query(&self, trigger: CompletionTrigger, query: &str, cx: &App) -> Vec<CompletionItem> {
+        let Some(team_id) = self.team_id.as_deref() else {
+            return match trigger {
+                CompletionTrigger::Emoji => emoji_items(query, cx),
+                _ => Vec::new(),
+            };
+        };
         let collections = Store::global(cx).collections();
         match trigger {
+            CompletionTrigger::Emoji => emoji_items(query, cx),
             CompletionTrigger::Mention => {
                 let needle = query.to_lowercase();
                 let members = collections.team_members.read(cx);
                 let users = collections.users.read(cx);
                 let mut items: Vec<CompletionItem> = members
                     .iter()
-                    .filter(|m| m.team_id == self.team_id)
+                    .filter(|m| m.team_id == team_id)
                     .filter_map(|m| users.get(&m.user_id))
                     .filter_map(|user| {
                         let email = user.email.clone()?;
@@ -200,7 +261,7 @@ impl CompletionSource for StoreCompletionSource {
                 items
             }
             CompletionTrigger::IssueRef => {
-                let mut issues = collections.issues_in_team(&self.team_id, cx);
+                let mut issues = collections.issues_in_team(team_id, cx);
                 filter_and_rank_issue_refs(&mut issues, query);
                 issues.truncate(MAX_ITEMS);
                 issues
@@ -219,6 +280,45 @@ impl CompletionSource for StoreCompletionSource {
             }
         }
     }
+}
+
+/// EXP-551: the `:shortcode` candidates — the shared catalog's ranking, the
+/// saved skin tone applied to what each row inserts. The row reads
+/// glyph · `:shortcode:` · label, so the shortcode a user half-remembers is
+/// always visible.
+fn emoji_items(query: &str, cx: &App) -> Vec<CompletionItem> {
+    let tone = crate::emoji::skin_tone(cx);
+    let catalog = crate::emoji::catalog();
+    catalog
+        .search(query, MAX_ITEMS)
+        .into_iter()
+        .filter_map(|index| catalog.get(index))
+        .map(|emoji| {
+            let glyph = crate::emoji::apply_skin_tone(emoji, tone).to_string();
+            let shortcode = emoji
+                .shortcodes
+                .first()
+                .cloned()
+                .unwrap_or_else(|| emoji.label.clone());
+            CompletionItem {
+                trigger: CompletionTrigger::Emoji,
+                insert: glyph.clone(),
+                label: format!(":{shortcode}:").into(),
+                detail: emoji.label.clone().into(),
+                decoration: Some(CompletionDecoration::Emoji {
+                    glyph: glyph.into(),
+                }),
+            }
+        })
+        .collect()
+}
+
+/// EXP-551: the skin-toned unicode for an EXACT shortcode, or `None`. Both
+/// hosts call this on a closed `:tada:` token to auto-commit; nothing else
+/// expands shortcodes (stored markdown keeps literal `:text:` literal).
+pub fn exact_emoji(shortcode: &str, cx: &App) -> Option<String> {
+    let emoji = crate::emoji::catalog().find_shortcode(shortcode)?;
+    Some(crate::emoji::apply_skin_tone(emoji, crate::emoji::skin_tone(cx)).to_string())
 }
 
 /// Match a `@` candidate the way the web `MentionProvider.search` does (iOS
@@ -321,6 +421,73 @@ mod tests {
     fn cursor_mid_multibyte_char_is_safe() {
         // "é" is 2 bytes; offset 2 is inside it.
         assert_eq!(detect_trigger("@é", 2), None);
+    }
+
+    // -- `:shortcode` emoji trigger (EXP-551, web EMOJI_AT_CARET parity) ---
+
+    #[test]
+    fn detects_emoji_shortcode() {
+        let token = detect_trigger("ship :sm", 8).expect("trigger");
+        assert_eq!(token.trigger, CompletionTrigger::Emoji);
+        assert_eq!(token.start, 5);
+        assert_eq!(token.query, "sm");
+        assert!(!token.closed);
+        assert_eq!(token.token_len(), 3);
+    }
+
+    #[test]
+    fn detects_a_closed_emoji_shortcode() {
+        let token = detect_trigger(":smile:", 7).expect("trigger");
+        assert_eq!(token.query, "smile");
+        assert!(token.closed);
+        // The closing colon is part of what acceptance replaces.
+        assert_eq!(token.token_len(), 7);
+    }
+
+    #[test]
+    fn emoji_queries_are_case_insensitive_and_take_the_shortcode_charset() {
+        assert_eq!(detect_trigger(":SM", 3).expect("trigger").query, "SM");
+        assert_eq!(detect_trigger(":+1", 3).expect("trigger").query, "+1");
+        assert_eq!(
+            detect_trigger(":thumbs_up", 10).expect("trigger").query,
+            "thumbs_up"
+        );
+        assert_eq!(
+            detect_trigger(":e-mail", 7).expect("trigger").query,
+            "e-mail"
+        );
+    }
+
+    #[test]
+    fn clock_times_urls_and_smileys_never_trigger() {
+        // A colon glued to a word is not a trigger (the web regex demands
+        // start-of-text or whitespace before it).
+        assert_eq!(detect_trigger("12:30", 5), None);
+        assert_eq!(detect_trigger("note:", 5), None);
+        assert_eq!(detect_trigger("http://x", 8), None);
+        // `:)` — one non-shortcode char, below the 2-char floor.
+        assert_eq!(detect_trigger(":)", 2), None);
+        // A single character is below the floor even when it IS in the charset.
+        assert_eq!(detect_trigger(":a", 2), None);
+        // Double colons are not a token either.
+        assert_eq!(detect_trigger("::sm", 4), None);
+        assert_eq!(detect_trigger(":smile::", 8), None);
+    }
+
+    #[test]
+    fn emoji_cursor_mid_multibyte_char_is_safe() {
+        // "é" is 2 bytes; offset 2 is inside it.
+        assert_eq!(detect_trigger(":é", 2), None);
+        // A token behind an emoji already in the text still resolves.
+        let token = detect_trigger("🎉 :ta", 8).expect("trigger");
+        assert_eq!(token.query, "ta");
+    }
+
+    #[test]
+    fn mention_and_issue_ref_tokens_are_never_closed() {
+        assert!(!detect_trigger("@ja", 3).expect("trigger").closed);
+        assert!(!detect_trigger("#EXP-1", 6).expect("trigger").closed);
+        assert_eq!(detect_trigger("@ja", 3).expect("trigger").token_len(), 3);
     }
 
     // -- mention_matches (web MentionProvider.search parity) ----------------
