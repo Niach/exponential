@@ -22,11 +22,6 @@
 
 .exp-panel {
   position: fixed;
-  /* --exp-vv-inset/--exp-vv-height mirror the visual viewport (set from
-     App.tsx while the panel is mounted): mobile on-screen keyboards shrink
-     only the visual viewport, so without them the panel's lower half sat
-     behind the keyboard. Both default to keyboard-less values on desktop. */
-  bottom: calc(76px + var(--exp-vv-inset, 0px));
   width: 380px;
   max-width: calc(100vw - 32px);
   max-height: min(calc(var(--exp-vv-height, 100vh) * 0.85), 640px);
@@ -39,14 +34,28 @@
   overflow: hidden;
 }
 
-.exp-panel.exp-right { right: 20px; }
-.exp-panel.exp-left { left: 20px; }
+/* Anchoring follows the launcher position (EXP-569). The 76px clears a
+   corner launcher (20px offset + 44px button + 12px gap); a vertically
+   centered panel sits beside a middle launcher instead, so its horizontal
+   offset (--exp-panel-side, set from App.tsx) does the clearing there.
+   --exp-vv-inset/--exp-vv-height mirror the visual viewport (set from
+   App.tsx while the panel is mounted): mobile on-screen keyboards shrink
+   only the visual viewport, so without them the panel's lower half sat
+   behind the keyboard. Both default to keyboard-less values on desktop. */
+.exp-panel.exp-bottom { bottom: calc(76px + var(--exp-vv-inset, 0px)); }
+.exp-panel.exp-top { top: 76px; }
+.exp-panel.exp-vmid { top: 50%; transform: translateY(-50%); }
+.exp-panel.exp-right { right: var(--exp-panel-side, 20px); }
+.exp-panel.exp-left { left: var(--exp-panel-side, 20px); }
 
 @media (max-width: 480px) {
+  /* Full-width bottom sheet regardless of the anchor classes above. */
   .exp-panel {
     left: 0 !important;
     right: 0 !important;
-    bottom: var(--exp-vv-inset, 0px);
+    top: auto !important;
+    transform: none !important;
+    bottom: var(--exp-vv-inset, 0px) !important;
     width: 100%;
     max-width: none;
     border-radius: var(--exp-radius) var(--exp-radius) 0 0;

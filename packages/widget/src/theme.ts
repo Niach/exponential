@@ -82,22 +82,6 @@ function luminanceOf(rgb: [number, number, number]): number {
   return 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
 }
 
-// Linear channel mix of two #rrggbb colors; `amount` 0 → base, 1 → into.
-// Non-hex6 inputs return the base unchanged (palette derivation must never
-// throw over a junk config value).
-export function mixHex(base: string, into: string, amount: number): string {
-  const from = parseHex(base)
-  const to = parseHex(into)
-  if (!from || !to) return base
-  const channel = (index: number) =>
-    Math.round(from[index] + (to[index] - from[index]) * amount)
-  return `#${[0, 1, 2]
-    .map((index) =>
-      Math.min(255, Math.max(0, channel(index))).toString(16).padStart(2, `0`)
-    )
-    .join(``)}`
-}
-
 // The first valid theme value wins; junk (old configs, bad API calls) falls
 // through to dark — the pre-theme behavior.
 export function resolveThemePreference(
@@ -131,50 +115,11 @@ export function resolveThemeMode(pref: ThemePreference): ThemeMode {
   return `dark`
 }
 
-// The mode's palette with the owner's custom panel/text colors applied
-// (EXP-435). A custom color replaces the surface it names; every dependent
-// shade (inset fields, hovers, borders, muted text) is re-derived from the
-// pair so any combination stays readable.
-export function paletteFor(
-  mode: ThemeMode,
-  overrides?: {
-    backgroundColor?: string | null
-    textColor?: string | null
-  }
-): WidgetPalette {
-  const base = mode === `light` ? lightPalette : darkPalette
-  const customCard =
-    typeof overrides?.backgroundColor === `string` &&
-    hex6Pattern.test(overrides.backgroundColor.trim())
-      ? overrides.backgroundColor.trim()
-      : null
-  const customText =
-    typeof overrides?.textColor === `string` &&
-    hex6Pattern.test(overrides.textColor.trim())
-      ? overrides.textColor.trim()
-      : null
-  if (!customCard && !customText) return base
-
-  const card = customCard ?? base.card
-  const foreground = customText ?? base.foreground
-  const cardRgb = parseHex(card)
-  const cardIsDark = cardRgb ? luminanceOf(cardRgb) <= 140 : true
-  return {
-    ...base,
-    card,
-    // Inset surfaces sit below the panel: darker on a dark panel, the panel
-    // color itself on a light one (matching the stock light palette).
-    background: customCard
-      ? cardIsDark
-        ? mixHex(card, `#000000`, 0.5)
-        : card
-      : base.background,
-    foreground,
-    mutedForeground: mixHex(foreground, card, 0.35),
-    secondary: mixHex(card, foreground, 0.1),
-    border: mixHex(card, foreground, 0.12),
-    input: mixHex(card, foreground, 0.16),
-  }
+// The mode's palette. Custom panel/text color overrides (EXP-435) were
+// removed by EXP-569 — the theme presets plus one accent color are the whole
+// palette surface now.
+export function paletteFor(mode: ThemeMode): WidgetPalette {
+  return mode === `light` ? lightPalette : darkPalette
 }
 
 // Shared by the loader's standalone button and the bundle's Preact button so
@@ -228,6 +173,26 @@ button.exp-fab .exp-fab-label {
 }
 button.exp-fab:hover .exp-fab-label,
 button.exp-fab:focus-visible .exp-fab-label { max-width: 180px; opacity: 1; }
+/* Edge tab ("nudge", EXP-569): a 44px square flush against the viewport
+   edge — its wrapper anchors at left:0/right:0, so the hover width-growth
+   extends inward. No scale (a flush tab must not lift off the edge), no
+   label, square + borderless on the edge side (a 1px hairline against the
+   viewport edge reads as a rendering artifact). */
+button.exp-fab.exp-tab {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  transition: width 0.16s ease, box-shadow 0.16s ease;
+}
+button.exp-fab.exp-tab:hover {
+  transform: none;
+  gap: 0;
+  width: 52px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.5);
+}
+button.exp-fab.exp-tab svg { width: 18px; height: 18px; }
+button.exp-tab-right { border-radius: 10px 0 0 10px; border-right: none; }
+button.exp-tab-left { border-radius: 0 10px 10px 0; border-left: none; }
 `
 }
 
@@ -238,4 +203,8 @@ export function pickForeground(color: string): string {
   return luminanceOf(rgb) > 140 ? `#171717` : `#fafafa`
 }
 
-export const megaphoneIconSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>`
+// The built-in launcher glyph (fallback when the config picks no icon).
+// Byte-matches the shared icon registry's `megaphone` art (EXP-569:
+// packages/icons pickable-svg output) so picking "megaphone" and picking
+// nothing render identically.
+export const megaphoneIconSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 6a13 13 0 0 0 8.4-2.8A1 1 0 0 1 21 4v12a1 1 0 0 1-1.6.8A13 13 0 0 0 11 14H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/><path d="M6 14a12 12 0 0 0 2.4 7.2 2 2 0 0 0 3.2-2.4A8 8 0 0 1 10 14"/><path d="M8 6v8"/></svg>`

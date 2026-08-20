@@ -5,12 +5,36 @@
 // prefers-color-scheme; absent = the widget config's theme, else dark.
 export type ExponentialWidgetTheme = `dark` | `light` | `auto`
 
+// Launcher appearance (EXP-569). `fab` is the floating pill (icon-only,
+// hover-reveals its label); `tab` is a small edge-flush square with no label.
+export type WidgetLauncherMode = `fab` | `tab`
+export type WidgetLauncherPosition =
+  | `top-left`
+  | `top-right`
+  | `middle-left`
+  | `middle-right`
+  | `bottom-left`
+  | `bottom-right`
+export interface WidgetLauncherPlacement {
+  mode: WidgetLauncherMode
+  position: WidgetLauncherPosition
+}
+
 export interface ExponentialWidgetInitOptions {
   key: string
   // Override the API/bundle origin. Defaults to the origin the loader script
   // was served from.
   host?: string
+  // Legacy launcher position (pre-EXP-569): a bottom-corner FAB on both
+  // devices. Ignored entirely when `launcher` is present.
   position?: `bottom-right` | `bottom-left`
+  // Per-device launcher override (EXP-569). A field set here wins over the
+  // widget config and the defaults (desktop: fab bottom-right, mobile: tab
+  // middle-right); devices split at 767px viewport width.
+  launcher?: {
+    desktop?: Partial<WidgetLauncherPlacement>
+    mobile?: Partial<WidgetLauncherPlacement>
+  }
   // Accent color for the floating button / primary actions (#rrggbb).
   color?: string
   // Button text; empty string renders an icon-only button.
@@ -113,6 +137,9 @@ export interface WidgetRemoteLabel {
 export interface WidgetRemoteForm {
   buttonLabel: string | null
   accentColor: string | null
+  // Legacy launcher position, still served for cached pre-EXP-569 bundles;
+  // current clients read `launcher` and only fall back here against old
+  // self-hosted servers.
   position: `bottom-right` | `bottom-left`
   emailRequired: boolean
   // EXP-244 field toggles — absent on older servers: collectEmail defaults
@@ -122,11 +149,18 @@ export interface WidgetRemoteForm {
   nameRequired?: boolean
   customFields?: WidgetCustomField[]
   // EXP-435 additions — absent on older servers: theme null/absent = dark,
-  // no custom colors, no labels.
+  // no labels.
   theme?: ExponentialWidgetTheme | null
-  backgroundColor?: string | null
-  textColor?: string | null
   labels?: WidgetRemoteLabel[]
+  // EXP-569 — server-resolved per-device launcher placements (absent on
+  // older servers). `iconSvg` is the owner-picked icon's markup, rendered
+  // server-side from the shared icon registry; null/absent = the built-in
+  // megaphone.
+  launcher?: {
+    desktop: WidgetLauncherPlacement
+    mobile: WidgetLauncherPlacement
+    iconSvg?: string | null
+  }
 }
 
 // Which entry points the panel offers (EXP-130).

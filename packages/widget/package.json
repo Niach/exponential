@@ -6,6 +6,7 @@
   "exports": {
     "./types": "./src/types.ts",
     "./theme": "./src/theme.ts",
+    "./launcher": "./src/launcher.ts",
     "./widget.css": "./src/ui/widget.css"
   },
   "scripts": {

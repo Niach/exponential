@@ -1,10 +1,10 @@
 // EXP-435 theming: the .exp-root custom properties follow the resolved
 // theme — config-served, init-option, and runtime setTheme (themeOverride +
-// stateChanged) — including the custom panel/text color overrides.
+// stateChanged). Custom panel/text color overrides were removed by EXP-569.
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { render } from "preact"
 import type { WidgetRemoteConfig, WidgetRuntimeState } from "../types"
-import { darkPalette, lightPalette, mixHex } from "../theme"
+import { darkPalette, lightPalette } from "../theme"
 
 vi.mock(`../capture/engine`, () => ({
   captureScreenshot: vi.fn(async () => null),
@@ -99,7 +99,7 @@ describe(`EXP-435 theme resolution`, () => {
     expect(rootVar(`--exp-card`)).toBe(lightPalette.card)
   })
 
-  it(`custom panel/text colors land in the derived vars`, async () => {
+  it(`legacy custom panel/text colors from an old server are ignored`, async () => {
     await mount({
       enabled: true,
       form: {
@@ -108,9 +108,8 @@ describe(`EXP-435 theme resolution`, () => {
         textColor: `#e2e8f0`,
       } as never,
     })
-    expect(rootVar(`--exp-card`)).toBe(`#101828`)
-    expect(rootVar(`--exp-foreground`)).toBe(`#e2e8f0`)
-    expect(rootVar(`--exp-secondary`)).toBe(mixHex(`#101828`, `#e2e8f0`, 0.1))
+    expect(rootVar(`--exp-card`)).toBe(darkPalette.card)
+    expect(rootVar(`--exp-foreground`)).toBe(darkPalette.foreground)
   })
 
   it(`an explicit accent survives every theme`, async () => {

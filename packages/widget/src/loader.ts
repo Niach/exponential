@@ -22,6 +22,14 @@ import {
   resolveThemePreference,
   theme,
 } from "./theme"
+import {
+  isMobileViewport,
+  launcherButtonClass,
+  launcherOrigin,
+  launcherPlacementCss,
+  resolveLauncher,
+  watchMobileViewport,
+} from "./launcher"
 import { submitFeedback, submitSupportRequest } from "./api-client"
 import { collectEnvMeta } from "./env-meta"
 import { maxUploadedImages } from "./uploads"
@@ -99,26 +107,34 @@ function start(): void {
     if (!state || state.options.showButton === false) return
     if (state.loaderButtonHost || state.disabled) return
 
+    const launcher = resolveLauncher(
+      state.options,
+      state.config,
+      isMobileViewport()
+    )
     const host = document.createElement(`div`)
     host.setAttribute(`data-exponential-widget`, ``)
     // Mounted on <html> (not <body>) with explicit pointer-events so the
     // launcher stays clickable even while a host-page modal sets
     // pointer-events:none on <body> (Radix dialogs do exactly this).
-    host.style.cssText = `all:initial;position:fixed;bottom:20px;${
-      resolvedPosition() === `bottom-left` ? `left:20px` : `right:20px`
-    };z-index:${
-      state.options.zIndex ?? defaultZIndex
-    };pointer-events:auto;`
+    host.style.cssText = `all:initial;position:fixed;${launcherPlacementCss(
+      launcher
+    )}z-index:${state.options.zIndex ?? defaultZIndex};pointer-events:auto;`
 
     const root = host.attachShadow({ mode: `open` })
     const style = document.createElement(`style`)
     style.textContent = buttonCss(resolvedAccent(), resolvedThemeMode())
     const button = document.createElement(`button`)
-    button.className = `exp-fab`
+    button.className = launcherButtonClass(launcher)
+    if (launcher.mode === `fab`) {
+      button.style.transformOrigin = launcherOrigin(launcher.position)
+    }
     button.setAttribute(`aria-label`, `Send feedback`)
     button.setAttribute(`aria-haspopup`, `dialog`)
-    button.innerHTML = `${megaphoneIconSvg}${
-      resolvedLabel() ? `<span class="exp-fab-label"></span>` : ``
+    button.innerHTML = `${launcher.iconSvg ?? megaphoneIconSvg}${
+      launcher.mode === `fab` && resolvedLabel()
+        ? `<span class="exp-fab-label"></span>`
+        : ``
     }`
     const labelSpan = button.querySelector(`span`)
     if (labelSpan) labelSpan.textContent = resolvedLabel()
@@ -152,12 +168,6 @@ function start(): void {
     const label =
       state?.options.label ?? state?.config?.form?.buttonLabel ?? `Feedback`
     return label
-  }
-
-  function resolvedPosition(): `bottom-right` | `bottom-left` {
-    return (
-      state?.options.position ?? state?.config?.form?.position ?? `bottom-left`
-    )
   }
 
   function restyleButton(): void {
@@ -230,6 +240,11 @@ function start(): void {
       })
 
       whenBodyReady(renderButton)
+      // Per-device launcher settings (EXP-569): re-render when the viewport
+      // crosses the desktop/mobile breakpoint. Never unsubscribed — the
+      // loader lives for the page, and restyleButton no-ops once the bundle
+      // owns the button.
+      watchMobileViewport(restyleButton)
     },
 
     identify(identity) {

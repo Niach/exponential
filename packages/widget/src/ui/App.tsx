@@ -22,6 +22,15 @@ import {
   resolveThemeMode,
   resolveThemePreference,
 } from "../theme"
+import {
+  isMobileViewport,
+  launcherButtonClass,
+  launcherOrigin,
+  launcherPlacementCss,
+  panelSideOffset,
+  resolveLauncher,
+  watchMobileViewport,
+} from "../launcher"
 import { Annotator } from "./Annotator"
 import { ownCustomValue } from "./custom-values"
 import { Panel } from "./Panel"
@@ -153,18 +162,23 @@ export function App({ state }: { state: WidgetRuntimeState }) {
     state.options.theme,
     state.config?.form?.theme
   )
-  const palette = paletteFor(resolveThemeMode(themePref), {
-    backgroundColor: state.config?.form?.backgroundColor,
-    textColor: state.config?.form?.textColor,
-  })
+  const palette = paletteFor(resolveThemeMode(themePref))
   const accent =
     state.options.color ??
     state.config?.form?.accentColor ??
     palette.defaultAccent
-  const position =
-    state.options.position ?? state.config?.form?.position ?? `bottom-left`
   const label =
     state.options.label ?? state.config?.form?.buttonLabel ?? `Feedback`
+
+  // Per-device launcher appearance (EXP-569), re-resolved when the viewport
+  // crosses the desktop/mobile breakpoint. Must agree with the loader's
+  // resolution or the button jumps at bundle hand-off.
+  const [isMobile, setIsMobile] = useState(isMobileViewport)
+  useEffect(
+    () => watchMobileViewport(() => setIsMobile(isMobileViewport())),
+    []
+  )
+  const launcher = resolveLauncher(state.options, state.config, isMobile)
 
   // Live auto-switching: while the preference is `auto`, follow the OS
   // scheme. Guarded for environments without matchMedia (happy-dom tests).
@@ -721,18 +735,21 @@ export function App({ state }: { state: WidgetRuntimeState }) {
         "--exp-radius": palette.radius,
         "--exp-accent": accent,
         "--exp-accent-foreground": pickForeground(accent),
+        "--exp-panel-side": panelSideOffset(launcher),
       }}
     >
       {showButton && (
-        <div
-          style={{
-            position: `fixed`,
-            bottom: `20px`,
-            [position === `bottom-left` ? `left` : `right`]: `20px`,
-          }}
-        >
+        // The wrapper carries placement (incl. middle centering), the button
+        // carries hover transforms — the same split as the loader's render,
+        // via the same launcherPlacementCss string.
+        <div style={`position:fixed;${launcherPlacementCss(launcher)}`}>
           <button
-            className="exp-fab"
+            className={launcherButtonClass(launcher)}
+            style={
+              launcher.mode === `fab`
+                ? { transformOrigin: launcherOrigin(launcher.position) }
+                : undefined
+            }
             aria-label="Send feedback"
             aria-haspopup="dialog"
             aria-expanded={panelVisible}
@@ -741,9 +758,13 @@ export function App({ state }: { state: WidgetRuntimeState }) {
             <span
               style={{ display: `flex` }}
               // eslint-disable-next-line react/no-danger
-              dangerouslySetInnerHTML={{ __html: megaphoneIconSvg }}
+              dangerouslySetInnerHTML={{
+                __html: launcher.iconSvg ?? megaphoneIconSvg,
+              }}
             />
-            {label ? <span className="exp-fab-label">{label}</span> : null}
+            {launcher.mode === `fab` && label ? (
+              <span className="exp-fab-label">{label}</span>
+            ) : null}
           </button>
         </div>
       )}
@@ -762,7 +783,7 @@ export function App({ state }: { state: WidgetRuntimeState }) {
           successEmailDelivered={
             phase.kind === `success` ? phase.emailDelivered : null
           }
-          position={position}
+          position={launcher.position}
           screenshot={screenshot}
           flattening={flattening}
           captureFailed={captureFailed}

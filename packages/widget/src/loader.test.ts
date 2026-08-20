@@ -228,6 +228,119 @@ describe(`loader`, () => {
   })
 })
 
+// EXP-569 launcher appearance: per-device mode/position, the edge tab, and
+// the served icon.
+describe(`loader launcher rendering`, () => {
+  const hostOf = () =>
+    document.querySelector<HTMLElement>(`[data-exponential-widget]`)!
+  const buttonOf = () =>
+    hostOf().shadowRoot!.querySelector<HTMLButtonElement>(`button`)!
+
+  // happy-dom's matchMedia doesn't evaluate queries; stub one that flags the
+  // launcher's breakpoint via `mobile` and leaves prefers-color-scheme dark.
+  const stubViewport = (mobile: { value: boolean }) => {
+    const listeners: (() => void)[] = []
+    vi.stubGlobal(
+      `matchMedia`,
+      vi.fn((query: string) => ({
+        get matches() {
+          return query === `(max-width: 767px)` && mobile.value
+        },
+        addEventListener: (_: string, listener: () => void) => {
+          listeners.push(listener)
+        },
+        removeEventListener: vi.fn(),
+      }))
+    )
+    return listeners
+  }
+
+  it(`desktop default renders a labeled bottom-right fab`, async () => {
+    stubViewport({ value: false })
+    installSnippetStub()
+    window.ExponentialWidget!.init({ key: `expw_${`a`.repeat(32)}` })
+    await importLoader()
+
+    expect(hostOf().style.cssText).toContain(`right: 20px`)
+    // happy-dom drops the calc(env()) refinement; the plain-20px fallback
+    // declaration is what survives its parser (and pre-env browsers).
+    expect(hostOf().style.cssText).toContain(`bottom: 20px`)
+    expect(buttonOf().className).toBe(`exp-fab`)
+    expect(buttonOf().querySelector(`.exp-fab-label`)).not.toBeNull()
+  })
+
+  it(`mobile default renders a label-less middle-right edge tab`, async () => {
+    stubViewport({ value: true })
+    installSnippetStub()
+    window.ExponentialWidget!.init({ key: `expw_${`a`.repeat(32)}` })
+    await importLoader()
+
+    expect(hostOf().style.cssText).toContain(`top: 50%`)
+    expect(hostOf().style.cssText).toContain(`right: 0`)
+    expect(buttonOf().className).toBe(`exp-fab exp-tab exp-tab-right`)
+    expect(buttonOf().querySelector(`.exp-fab-label`)).toBeNull()
+  })
+
+  it(`re-renders when the viewport crosses the breakpoint`, async () => {
+    const mobile = { value: false }
+    const listeners = stubViewport(mobile)
+    installSnippetStub()
+    window.ExponentialWidget!.init({ key: `expw_${`a`.repeat(32)}` })
+    await importLoader()
+    expect(buttonOf().className).toBe(`exp-fab`)
+
+    mobile.value = true
+    for (const listener of listeners) listener()
+    expect(buttonOf().className).toBe(`exp-fab exp-tab exp-tab-right`)
+  })
+
+  it(`renders the served iconSvg, falling back on a hostile one`, async () => {
+    const servedSvg = `<svg viewBox="0 0 24 24"><path d="M2 2"></path></svg>`
+    const serve = (iconSvg: string) =>
+      vi.stubGlobal(
+        `fetch`,
+        vi.fn(() =>
+          Promise.resolve({
+            ok: true,
+            json: () =>
+              Promise.resolve({
+                enabled: true,
+                form: {
+                  launcher: {
+                    desktop: { mode: `fab`, position: `bottom-right` },
+                    mobile: { mode: `tab`, position: `middle-right` },
+                    iconSvg,
+                  },
+                },
+              }),
+          })
+        )
+      )
+    stubViewport({ value: false })
+    serve(servedSvg)
+    installSnippetStub()
+    window.ExponentialWidget!.init({ key: `expw_${`a`.repeat(32)}` })
+    await importLoader()
+    await window.__expWidget!.configPromise
+    expect(buttonOf().innerHTML).toContain(`d="M2 2"`)
+
+    // A script-shaped icon from a hijacked `host` falls back to the built-in
+    // megaphone instead of reaching innerHTML.
+    document
+      .querySelectorAll(`[data-exponential-widget]`)
+      .forEach((element) => element.remove())
+    delete (window as { ExponentialWidget?: unknown }).ExponentialWidget
+    delete (window as { __expWidget?: unknown }).__expWidget
+    serve(`<svg><script>alert(1)</script></svg>`)
+    installSnippetStub()
+    window.ExponentialWidget!.init({ key: `expw_${`a`.repeat(32)}` })
+    await importLoader()
+    await window.__expWidget!.configPromise
+    expect(buttonOf().innerHTML).not.toContain(`script`)
+    expect(buttonOf().innerHTML).toContain(`<svg`)
+  })
+})
+
 describe(`loader identity + custom data clamp`, () => {
   const initAndImport = async () => {
     installSnippetStub()
