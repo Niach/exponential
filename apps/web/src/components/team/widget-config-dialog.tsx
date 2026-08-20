@@ -1,13 +1,24 @@
 import { useEffect, useState } from "react"
 import { Trash2 } from "lucide-react"
 import { useLiveQuery, eq } from "@tanstack/react-db"
+import { isPickableIcon, type PickableIcon } from "@exp/icons"
+import { PICKABLE_ICON_SVG } from "@exp/icons/pickable-svg"
+import { defaultLauncher } from "@exp/widget/launcher"
+import type {
+  WidgetLauncherMode,
+  WidgetLauncherPlacement,
+  WidgetLauncherPosition,
+} from "@exp/widget/types"
 import { trpc } from "@/lib/trpc-client"
 import { labelCollection } from "@/lib/collections"
+import { cn } from "@/lib/utils"
 import {
   DEFAULT_ACCENT,
-  WidgetLauncherPreview,
+  WidgetLauncherPreviewViewport,
 } from "@/components/widget-launcher-preview"
 import { WidgetPanelPreview } from "@/components/widget-panel-preview"
+import { IconSwatchGrid } from "@/components/ui/icon-swatch-grid"
+import type { BoardIcon } from "@exp/db-schema/domain"
 import { LabelPicker } from "@/components/issue-properties/label-picker"
 import { Button } from "@/components/ui/button"
 import {
@@ -52,8 +63,18 @@ export function parseDomains(value: string): string[] {
     .filter((domain) => domain.length > 0)
 }
 
-type WidgetPosition = `bottom-left` | `bottom-right`
 type WidgetThemeChoice = `dark` | `light` | `auto`
+type WidgetDevice = `desktop` | `mobile`
+
+// Row-major picker order for the 3×2 position grid.
+const launcherPositionGrid: WidgetLauncherPosition[] = [
+  `top-left`,
+  `top-right`,
+  `middle-left`,
+  `middle-right`,
+  `bottom-left`,
+  `bottom-right`,
+]
 // The settings-facing shape of formConfig.modes: a single pick instead of a
 // multi-select (there are only three valid combinations).
 type WidgetModeChoice = `feedback` | `support` | `both`
@@ -80,12 +101,53 @@ function slugifyFieldKey(label: string): string {
   return slug || `field`
 }
 
+// The stored launcher blob (EXP-569), mirroring the server's precedence: a
+// stored per-device entry > the legacy two-value `position` (an explicit
+// pre-EXP-569 corner choice, honored as a fab) > the defaults.
+function readLauncher(raw: Record<string, unknown> | null): {
+  desktop: WidgetLauncherPlacement
+  mobile: WidgetLauncherPlacement
+  icon: PickableIcon | ``
+} {
+  const launcher =
+    raw?.launcher !== null && typeof raw?.launcher === `object`
+      ? (raw.launcher as Record<string, unknown>)
+      : {}
+  const legacy =
+    raw?.position === `bottom-left` || raw?.position === `bottom-right`
+      ? ({ mode: `fab`, position: raw.position } as const)
+      : null
+  const device = (key: WidgetDevice): WidgetLauncherPlacement => {
+    const entry = launcher[key]
+    if (entry !== null && typeof entry === `object`) {
+      const { mode, position } = entry as Record<string, unknown>
+      if (
+        (mode === `fab` || mode === `tab`) &&
+        typeof position === `string` &&
+        launcherPositionGrid.includes(position as WidgetLauncherPosition)
+      ) {
+        return { mode, position: position as WidgetLauncherPosition }
+      }
+    }
+    return legacy ?? defaultLauncher[key]
+  }
+  return {
+    desktop: device(`desktop`),
+    mobile: device(`mobile`),
+    icon:
+      typeof launcher.icon === `string` && isPickableIcon(launcher.icon)
+        ? launcher.icon
+        : ``,
+  }
+}
+
 // The styling knobs stored in widget_configs.form_config (jsonb) — read
 // defensively, rows may predate any of the fields.
 function readFormConfig(raw: Record<string, unknown> | null): {
   buttonLabel: string
   accentColor: string
-  position: WidgetPosition
+  launcher: { desktop: WidgetLauncherPlacement; mobile: WidgetLauncherPlacement }
+  icon: PickableIcon | ``
   emailRequired: boolean
   collectEmail: boolean
   collectName: boolean
@@ -94,8 +156,6 @@ function readFormConfig(raw: Record<string, unknown> | null): {
   mode: WidgetModeChoice
   labelIds: string[]
   theme: WidgetThemeChoice
-  backgroundColor: string
-  textColor: string
 } {
   const modes = Array.isArray(raw?.modes) ? raw.modes : []
   const hasSupport = modes.includes(`support`)
@@ -110,10 +170,12 @@ function readFormConfig(raw: Record<string, unknown> | null): {
   })
   const readHex = (value: unknown): string =>
     typeof value === `string` && /^#[0-9a-fA-F]{6}$/.test(value) ? value : ``
+  const launcher = readLauncher(raw)
   return {
     buttonLabel: typeof raw?.buttonLabel === `string` ? raw.buttonLabel : ``,
     accentColor: readHex(raw?.accentColor),
-    position: raw?.position === `bottom-right` ? `bottom-right` : `bottom-left`,
+    launcher: { desktop: launcher.desktop, mobile: launcher.mobile },
+    icon: launcher.icon,
     emailRequired: raw?.emailRequired === true,
     collectEmail: raw?.collectEmail !== false,
     collectName: raw?.collectName === true,
@@ -125,8 +187,6 @@ function readFormConfig(raw: Record<string, unknown> | null): {
       .slice(0, maxWidgetLabels),
     // Absent = dark, the pre-theme behavior.
     theme: raw?.theme === `light` || raw?.theme === `auto` ? raw.theme : `dark`,
-    backgroundColor: readHex(raw?.backgroundColor),
-    textColor: readHex(raw?.textColor),
   }
 }
 
@@ -161,11 +221,15 @@ export function WidgetConfigDialog({
   const [formButtonLabel, setFormButtonLabel] = useState(``)
   // Empty string = "use the widget default" (the color key is omitted).
   const [formAccent, setFormAccent] = useState(``)
-  const [formBackground, setFormBackground] = useState(``)
-  const [formText, setFormText] = useState(``)
   const [formTheme, setFormTheme] = useState<WidgetThemeChoice>(`dark`)
-  const [formPosition, setFormPosition] =
-    useState<WidgetPosition>(`bottom-left`)
+  // Per-device launcher appearance (EXP-569) + the shared icon (empty = the
+  // built-in megaphone, omitted from the blob).
+  const [formLauncher, setFormLauncher] = useState<
+    Record<WidgetDevice, WidgetLauncherPlacement>
+  >({ desktop: defaultLauncher.desktop, mobile: defaultLauncher.mobile })
+  const [formIcon, setFormIcon] = useState<PickableIcon | ``>(``)
+  // Which device the launcher controls + preview show (UI-only).
+  const [launcherDevice, setLauncherDevice] = useState<WidgetDevice>(`desktop`)
   const [formEmailRequired, setFormEmailRequired] = useState(false)
   const [formCollectEmail, setFormCollectEmail] = useState(true)
   const [formCollectName, setFormCollectName] = useState(false)
@@ -185,10 +249,10 @@ export function WidgetConfigDialog({
     setFormDomains(editTarget?.allowedDomains.join(`\n`) ?? ``)
     setFormButtonLabel(config.buttonLabel)
     setFormAccent(config.accentColor)
-    setFormBackground(config.backgroundColor)
-    setFormText(config.textColor)
     setFormTheme(config.theme)
-    setFormPosition(config.position)
+    setFormLauncher(config.launcher)
+    setFormIcon(config.icon)
+    setLauncherDevice(`desktop`)
     setFormEmailRequired(config.emailRequired)
     setFormCollectEmail(config.collectEmail)
     setFormCollectName(config.collectName)
@@ -250,9 +314,10 @@ export function WidgetConfigDialog({
   }
 
   // Defaults are omitted to keep the jsonb blob lean (collectEmail true,
-  // collectName/nameRequired false, theme dark, no custom colors/labels).
-  // Required always implies collect on the server, so a hidden email field
-  // never re-enforces.
+  // collectName/nameRequired false, theme dark, no icon/labels). The
+  // launcher is always written — reading it back is what keeps a row stable
+  // once the serve-time defaults change again. Required always implies
+  // collect on the server, so a hidden email field never re-enforces.
   const buildFormConfig = () => {
     const customFields = buildCustomFields()
     const labelIds = selectedLabels.map((label: TeamLabel) => label.id)
@@ -261,7 +326,16 @@ export function WidgetConfigDialog({
         ? { buttonLabel: formButtonLabel.trim() }
         : {}),
       ...(formAccent ? { accentColor: formAccent } : {}),
-      position: formPosition,
+      launcher: {
+        desktop: formLauncher.desktop,
+        mobile: formLauncher.mobile,
+        ...(formIcon ? { icon: formIcon } : {}),
+      },
+      // Legacy two-value position for cached pre-EXP-569 widget bundles:
+      // the desktop launcher's corner.
+      position: formLauncher.desktop.position.endsWith(`left`)
+        ? (`bottom-left` as const)
+        : (`bottom-right` as const),
       emailRequired: formCollectEmail && formEmailRequired,
       ...(formCollectEmail ? {} : { collectEmail: false }),
       ...(formCollectName ? { collectName: true } : {}),
@@ -270,10 +344,14 @@ export function WidgetConfigDialog({
       modes: modesForChoice(formMode),
       ...(labelIds.length > 0 ? { labelIds } : {}),
       ...(formTheme !== `dark` ? { theme: formTheme } : {}),
-      ...(formBackground ? { backgroundColor: formBackground } : {}),
-      ...(formText ? { textColor: formText } : {}),
     }
   }
+
+  const updateLauncher = (patch: Partial<WidgetLauncherPlacement>) =>
+    setFormLauncher((previous) => ({
+      ...previous,
+      [launcherDevice]: { ...previous[launcherDevice], ...patch },
+    }))
 
   // A feedback board is required whenever the widget offers feedback mode; a
   // support-only widget has none (tickets go to the team support inbox).
@@ -692,66 +770,129 @@ export function WidgetConfigDialog({
                       }
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label>Position</Label>
-                    <Select
-                      value={formPosition}
-                      onValueChange={(value) =>
-                        setFormPosition(value as WidgetPosition)
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="bottom-left">Bottom left</SelectItem>
-                        <SelectItem value="bottom-right">
-                          Bottom right
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
                   {colorField(
                     `widget-accent`,
-                    `Accent color`,
+                    `Button color`,
                     formAccent,
                     DEFAULT_ACCENT,
                     setFormAccent
                   )}
-                  {colorField(
-                    `widget-background`,
-                    `Background color`,
-                    formBackground,
-                    formTheme === `light` ? `#ffffff` : `#171717`,
-                    setFormBackground
-                  )}
-                  {colorField(
-                    `widget-text`,
-                    `Text color`,
-                    formText,
-                    formTheme === `light` ? `#171717` : `#fafafa`,
-                    setFormText
-                  )}
-                  <div className="flex items-center justify-between rounded-md border bg-muted/30 px-3 py-3">
-                    <span className="text-xs text-muted-foreground">
-                      Launcher
-                    </span>
-                    <WidgetLauncherPreview
-                      accentColor={formAccent || undefined}
-                      label={formButtonLabel.trim() || undefined}
-                      theme={formTheme === `light` ? `light` : `dark`}
+                  <div className="space-y-2">
+                    <Label>Icon</Label>
+                    <IconSwatchGrid
+                      // PickableIcon and BoardIcon are byte-equal by
+                      // construction (locked by lib/icons.test.ts).
+                      value={(formIcon || `megaphone`) as BoardIcon}
+                      onChange={(icon) =>
+                        // The megaphone IS the default — store nothing.
+                        setFormIcon(
+                          icon === `megaphone` ? `` : (icon as PickableIcon)
+                        )
+                      }
                     />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Launcher</Label>
+                    <Tabs
+                      value={launcherDevice}
+                      onValueChange={(value) =>
+                        setLauncherDevice(value as WidgetDevice)
+                      }
+                    >
+                      <TabsList className="w-full">
+                        <TabsTrigger value="desktop" className="flex-1">
+                          Desktop
+                        </TabsTrigger>
+                        <TabsTrigger value="mobile" className="flex-1">
+                          Mobile
+                        </TabsTrigger>
+                      </TabsList>
+                    </Tabs>
+                    <div className="flex items-center justify-between gap-3 pt-1">
+                      <div className="flex flex-col gap-1">
+                        {(
+                          [
+                            [`fab`, `Floating button`],
+                            [`tab`, `Edge tab`],
+                          ] as Array<[WidgetLauncherMode, string]>
+                        ).map(([mode, label]) => (
+                          <Button
+                            key={mode}
+                            type="button"
+                            size="sm"
+                            variant={
+                              formLauncher[launcherDevice].mode === mode
+                                ? `secondary`
+                                : `ghost`
+                            }
+                            className="justify-start"
+                            onClick={() => updateLauncher({ mode })}
+                          >
+                            {label}
+                          </Button>
+                        ))}
+                      </div>
+                      <div
+                        className="grid grid-cols-2 gap-1 rounded-md border bg-muted/30 p-1"
+                        role="radiogroup"
+                        aria-label="Launcher position"
+                      >
+                        {launcherPositionGrid.map((position) => {
+                          const selected =
+                            formLauncher[launcherDevice].position === position
+                          return (
+                            <button
+                              key={position}
+                              type="button"
+                              role="radio"
+                              aria-checked={selected}
+                              aria-label={position.replace(`-`, ` `)}
+                              title={position.replace(`-`, ` `)}
+                              className={cn(
+                                `flex h-7 w-9 items-center justify-center rounded-sm transition-colors`,
+                                selected ? `bg-accent` : `hover:bg-muted`
+                              )}
+                              onClick={() => updateLauncher({ position })}
+                            >
+                              <span
+                                className={cn(
+                                  `h-2 w-2 rounded-full`,
+                                  selected
+                                    ? `bg-foreground`
+                                    : `bg-muted-foreground/40`
+                                )}
+                              />
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Defaults: floating button bottom right on desktop, edge
+                      tab middle right on mobile.
+                    </p>
                   </div>
                 </div>
                 <div className="space-y-2">
+                  <span className="text-xs text-muted-foreground">
+                    Launcher preview (
+                    {launcherDevice === `desktop` ? `desktop` : `mobile`}) —
+                    hover it
+                  </span>
+                  <WidgetLauncherPreviewViewport
+                    mode={formLauncher[launcherDevice].mode}
+                    position={formLauncher[launcherDevice].position}
+                    accentColor={formAccent || undefined}
+                    label={formButtonLabel.trim() || undefined}
+                    theme={formTheme === `light` ? `light` : `dark`}
+                    iconSvg={formIcon ? PICKABLE_ICON_SVG[formIcon] : undefined}
+                  />
                   <span className="text-xs text-muted-foreground">
                     Widget preview
                   </span>
                   <WidgetPanelPreview
                     theme={formTheme}
                     accentColor={formAccent}
-                    backgroundColor={formBackground}
-                    textColor={formText}
                     labels={selectedLabels.map((label: TeamLabel) => ({
                       id: label.id,
                       name: label.name,

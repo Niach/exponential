@@ -353,6 +353,37 @@ export function isPickableIcon(value: string): value is PickableIcon {
 )
 
 // ---------------------------------------------------------------------------
+// 1b. Web (server) — packages/icons/src/pickable-svg.generated.ts
+// ---------------------------------------------------------------------------
+
+// EXP-569 — the pickable set rendered to standalone SVG strings, for servers
+// that embed the markup directly (the widget config endpoint serves the
+// launcher icon as resolved SVG so the size-budgeted widget loader never
+// bundles the icon set). Kept out of src/generated.ts on purpose: that module
+// is imported by client bundles, which must not pull 60 SVG strings along
+// with the name lists. `aria-hidden` matches the widget's hardcoded fallback
+// glyph (packages/widget/src/theme.ts `megaphoneIconSvg`).
+write(
+  join(pkgRoot, "src/pickable-svg.generated.ts"),
+  `${HEADER_COMMENT}
+
+import type { PickableIcon } from "./generated"
+
+/** Pickable icon name -> standalone \`currentColor\` SVG markup. */
+export const PICKABLE_ICON_SVG: Record<PickableIcon, string> = {
+${registry.pickable
+  .map(
+    (n) =>
+      `  "${n}": \`${toSvg(geometry.get(n)!, "currentColor")
+        .trim()
+        .replace(`<svg `, `<svg aria-hidden="true" `)}\`,`
+  )
+  .join("\n")}
+}
+`
+)
+
+// ---------------------------------------------------------------------------
 // 2. Web — apps/web/src/lib/icons.generated.ts (name -> lucide-react component)
 // ---------------------------------------------------------------------------
 

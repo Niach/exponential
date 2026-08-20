@@ -31,8 +31,6 @@ export interface WidgetPanelPreviewLabel {
 export function WidgetPanelPreview({
   theme,
   accentColor,
-  backgroundColor,
-  textColor,
   labels,
   collectEmail,
   emailRequired,
@@ -43,8 +41,6 @@ export function WidgetPanelPreview({
   theme: ThemePreference
   // Empty string = the theme default (matches the settings form state).
   accentColor?: string
-  backgroundColor?: string
-  textColor?: string
   labels: WidgetPanelPreviewLabel[]
   collectEmail: boolean
   emailRequired: boolean
@@ -68,10 +64,7 @@ export function WidgetPanelPreview({
   }, [])
 
   const mode = resolveThemeMode(theme)
-  const palette = paletteFor(mode, {
-    backgroundColor: backgroundColor || null,
-    textColor: textColor || null,
-  })
+  const palette = paletteFor(mode)
   const accent = accentColor || palette.defaultAccent
 
   const replica = (

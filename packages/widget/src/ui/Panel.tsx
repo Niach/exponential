@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from "preact/hooks"
-import type { WidgetCustomField, WidgetRemoteLabel } from "../types"
+import type {
+  WidgetCustomField,
+  WidgetLauncherPosition,
+  WidgetRemoteLabel,
+} from "../types"
 import { acceptedUploadImageTypes, maxUploadedImages } from "../uploads"
 import { ownCustomValue } from "./custom-values"
 import type { Screenshot, UploadedImage } from "./App"
@@ -57,7 +61,9 @@ export function Panel(props: {
   // `null` (feedback, or a server that doesn't report it) keeps the
   // optimistic copy.
   successEmailDelivered: boolean | null
-  position: `bottom-right` | `bottom-left`
+  // The resolved launcher position — the panel anchors itself to the same
+  // region (EXP-569).
+  position: WidgetLauncherPosition
   screenshot: Screenshot | null
   // The annotated screenshot is still being encoded; sending now would
   // submit the un-annotated (uncropped) base image.
@@ -329,13 +335,22 @@ export function Panel(props: {
     />
   )
 
-  const sideClass = props.position === `bottom-left` ? `exp-left` : `exp-right`
+  // Panel anchoring follows the launcher (EXP-569): horizontal side plus a
+  // vertical class (top / centered / bottom) that widget.css turns into the
+  // matching fixed offsets. The <480px bottom sheet overrides all of it.
+  const sideClass = props.position.endsWith(`left`) ? `exp-left` : `exp-right`
+  const verticalClass = props.position.startsWith(`top`)
+    ? `exp-top`
+    : props.position.startsWith(`middle`)
+      ? `exp-vmid`
+      : `exp-bottom`
+  const panelClass = `exp-panel ${sideClass} ${verticalClass}`
 
   if (props.phase === `success`) {
     return (
       <div
         ref={panelRef}
-        className={`exp-panel ${sideClass}`}
+        className={panelClass}
         role="dialog"
         aria-modal="true"
         aria-label={
@@ -389,7 +404,7 @@ export function Panel(props: {
   return (
     <div
       ref={panelRef}
-      className={`exp-panel ${sideClass}`}
+      className={panelClass}
       style={props.hidden ? { display: `none` } : undefined}
       role="dialog"
       aria-modal="true"

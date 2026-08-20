@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto"
 import { TRPCError } from "@trpc/server"
 import { and, asc, eq, inArray } from "drizzle-orm"
 import { z } from "zod"
+import { isPickableIcon, type PickableIcon } from "@exp/icons"
+import { PICKABLE_ICON_SVG } from "@exp/icons/pickable-svg"
 import { db } from "@/db/connection"
 import {
   attachments,
@@ -233,6 +235,80 @@ export function sanitizeWidgetHexColor(value: unknown): string | null {
   return typeof value === `string` && /^#[0-9a-fA-F]{6}$/.test(value)
     ? value
     : null
+}
+
+// Launcher appearance (EXP-569): per-device mode/position plus an optional
+// pickable icon. Values are shared verbatim with packages/widget's launcher
+// resolution — the widget re-validates everything it receives.
+export const widgetLauncherModes = [`fab`, `tab`] as const
+export const widgetLauncherPositions = [
+  `top-left`,
+  `top-right`,
+  `middle-left`,
+  `middle-right`,
+  `bottom-left`,
+  `bottom-right`,
+] as const
+export type WidgetLauncherMode = (typeof widgetLauncherModes)[number]
+export type WidgetLauncherPosition = (typeof widgetLauncherPositions)[number]
+export interface WidgetLauncherPlacement {
+  mode: WidgetLauncherMode
+  position: WidgetLauncherPosition
+}
+
+// Must stay byte-equal to packages/widget's defaultLauncher — a mismatch
+// makes the launcher jump when the config fetch resolves.
+export const defaultWidgetLauncher: Record<
+  `desktop` | `mobile`,
+  WidgetLauncherPlacement
+> = {
+  desktop: { mode: `fab`, position: `bottom-right` },
+  mobile: { mode: `tab`, position: `middle-right` },
+}
+
+export interface WidgetLauncherConfig {
+  desktop: WidgetLauncherPlacement
+  mobile: WidgetLauncherPlacement
+  icon: PickableIcon | null
+}
+
+// The EFFECTIVE launcher a row resolves to. Precedence per device: a stored
+// `launcher` entry > the stored legacy two-value `position` (an explicit
+// pre-EXP-569 corner choice, honored as a fab on both devices) > the new
+// defaults. Same defensive-read rule as every sibling sanitizer.
+export function sanitizeWidgetLauncher(
+  formConfig: Record<string, unknown> | null | undefined
+): WidgetLauncherConfig {
+  const raw =
+    formConfig?.launcher !== null && typeof formConfig?.launcher === `object`
+      ? (formConfig.launcher as Record<string, unknown>)
+      : {}
+  const legacy =
+    formConfig?.position === `bottom-left` ||
+    formConfig?.position === `bottom-right`
+      ? ({ mode: `fab`, position: formConfig.position } as const)
+      : null
+  const device = (key: `desktop` | `mobile`): WidgetLauncherPlacement => {
+    const entry = raw[key]
+    if (entry !== null && typeof entry === `object`) {
+      const { mode, position } = entry as Record<string, unknown>
+      if (
+        (widgetLauncherModes as readonly unknown[]).includes(mode) &&
+        (widgetLauncherPositions as readonly unknown[]).includes(position)
+      ) {
+        return { mode, position } as WidgetLauncherPlacement
+      }
+    }
+    return legacy ?? defaultWidgetLauncher[key]
+  }
+  return {
+    desktop: device(`desktop`),
+    mobile: device(`mobile`),
+    icon:
+      typeof raw.icon === `string` && isPickableIcon(raw.icon)
+        ? raw.icon
+        : null,
+  }
 }
 
 // The configured labels resolved to live team rows, in the team's label
@@ -1026,12 +1102,23 @@ export async function handleWidgetConfig(request: Request): Promise<Response> {
       form: {
         buttonLabel:
           typeof form.buttonLabel === `string` ? form.buttonLabel : null,
-        accentColor:
-          typeof form.accentColor === `string` ? form.accentColor : null,
-        // Default matches the loader's pre-config render (bottom-left) so the
-        // launcher doesn't jump sides when the config fetch resolves.
+        accentColor: sanitizeWidgetHexColor(form.accentColor),
+        // Legacy two-value position, kept ONLY for cached pre-EXP-569
+        // bundles (whose pre-config render defaults bottom-left — hence the
+        // bottom-left default here). Current bundles read `launcher` below.
         position:
           form.position === `bottom-right` ? `bottom-right` : `bottom-left`,
+        // EXP-569 — the resolved per-device launcher. ADDITIVE (cached older
+        // bundles ignore it); `iconSvg` is server-rendered markup from the
+        // shared icon registry, never stored content.
+        launcher: (() => {
+          const launcher = sanitizeWidgetLauncher(config.formConfig)
+          return {
+            desktop: launcher.desktop,
+            mobile: launcher.mobile,
+            iconSvg: launcher.icon ? PICKABLE_ICON_SVG[launcher.icon] : null,
+          }
+        })(),
         emailRequired: toggles.emailRequired,
         // ADDITIVE toggles — cached pre-fields bundles ignore them.
         collectEmail: toggles.collectEmail,
@@ -1039,10 +1126,9 @@ export async function handleWidgetConfig(request: Request): Promise<Response> {
         nameRequired: toggles.nameRequired,
         customFields: sanitizeWidgetCustomFields(config.formConfig),
         // EXP-435 additions — cached pre-theme/pre-labels bundles ignore
-        // them. Absent theme = dark (every pre-theme config).
+        // them. Absent theme = dark (every pre-theme config). The EXP-435
+        // backgroundColor/textColor overrides were removed by EXP-569.
         theme: sanitizeWidgetTheme(config.formConfig),
-        backgroundColor: sanitizeWidgetHexColor(form.backgroundColor),
-        textColor: sanitizeWidgetHexColor(form.textColor),
         labels: await resolveWidgetConfigLabels(config),
       },
       // maxImages/maxImageBytes are ADDITIVE (FEED-5) — cached pre-images

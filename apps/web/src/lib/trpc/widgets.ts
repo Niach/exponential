@@ -17,11 +17,14 @@ import {
   getIssueTeamContext,
   getBoardTeamId,
 } from "@/lib/team-membership"
+import { PICKABLE_ICONS } from "@exp/icons"
 import { generateWidgetKey } from "@/lib/widget/key"
 import {
   maxWidgetCustomFields,
   maxWidgetLabels,
   widgetCustomFieldKeyPattern,
+  widgetLauncherModes,
+  widgetLauncherPositions,
 } from "@/lib/widget/service"
 import { assertCanCreateWidget, assertCanUseHelpdesk } from "@/lib/billing"
 
@@ -42,6 +45,12 @@ const domainPatternSchema = z
 // (EXP-209 removed allow-all), so every config must name its domains.
 const allowedDomainsSchema = z.array(domainPatternSchema).min(1).max(20)
 
+// One device's launcher placement (EXP-569).
+const launcherPlacementSchema = z.object({
+  mode: z.enum(widgetLauncherModes),
+  position: z.enum(widgetLauncherPositions),
+})
+
 const formConfigSchema = z
   .object({
     buttonLabel: z.string().trim().max(40).optional(),
@@ -49,7 +58,19 @@ const formConfigSchema = z
       .string()
       .regex(/^#[0-9a-fA-F]{6}$/)
       .optional(),
+    // Legacy two-value launcher position, still written by the dialog
+    // (derived from the desktop launcher setting) for cached pre-EXP-569
+    // widget bundles; `launcher` is the current field.
     position: z.enum([`bottom-right`, `bottom-left`]).optional(),
+    // Per-device launcher appearance (EXP-569). Absent devices fall back to
+    // the legacy `position` (as a fab) and then the serve-time defaults.
+    launcher: z
+      .object({
+        desktop: launcherPlacementSchema.optional(),
+        mobile: launcherPlacementSchema.optional(),
+        icon: z.enum(PICKABLE_ICONS).optional(),
+      })
+      .optional(),
     emailRequired: z.boolean().optional(),
     // EXP-244 field toggles: collectEmail defaults true (absent = legacy
     // behavior), collectName defaults false. The config route normalizes the
@@ -90,15 +111,10 @@ const formConfigSchema = z
       })
       .optional(),
     // Panel theme (EXP-435); absent = dark (every pre-theme config).
+    // The EXP-435 backgroundColor/textColor overrides were removed by
+    // EXP-569 (one accent color + the theme presets are the whole palette
+    // surface); a data migration stripped them from stored rows.
     theme: z.enum([`dark`, `light`, `auto`]).optional(),
-    backgroundColor: z
-      .string()
-      .regex(/^#[0-9a-fA-F]{6}$/)
-      .optional(),
-    textColor: z
-      .string()
-      .regex(/^#[0-9a-fA-F]{6}$/)
-      .optional(),
   })
   .optional()
 

@@ -1,11 +1,10 @@
-// EXP-435 theme engine: palette derivation, mode resolution, and the
+// EXP-435 theme engine: palette selection, mode resolution, and the
 // buttonCss var-fallback contract the loader FAB depends on.
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   buttonCss,
   darkPalette,
   lightPalette,
-  mixHex,
   paletteFor,
   pickForeground,
   resolveThemeMode,
@@ -15,19 +14,6 @@ import {
 
 afterEach(() => {
   vi.unstubAllGlobals()
-})
-
-describe(`mixHex`, () => {
-  it(`interpolates channels linearly`, () => {
-    expect(mixHex(`#000000`, `#ffffff`, 0)).toBe(`#000000`)
-    expect(mixHex(`#000000`, `#ffffff`, 1)).toBe(`#ffffff`)
-    expect(mixHex(`#000000`, `#ffffff`, 0.5)).toBe(`#808080`)
-  })
-
-  it(`returns the base unchanged on non-hex6 input`, () => {
-    expect(mixHex(`rgba(0,0,0,.5)`, `#ffffff`, 0.5)).toBe(`rgba(0,0,0,.5)`)
-    expect(mixHex(`#ffffff`, `junk`, 0.5)).toBe(`#ffffff`)
-  })
 })
 
 describe(`resolveThemePreference`, () => {
@@ -65,42 +51,11 @@ describe(`resolveThemeMode`, () => {
 })
 
 describe(`paletteFor`, () => {
-  it(`returns the stock palettes untouched without overrides`, () => {
+  it(`returns the stock palettes`, () => {
     expect(paletteFor(`dark`)).toBe(darkPalette)
     expect(paletteFor(`light`)).toBe(lightPalette)
     // The back-compat alias stays the dark palette.
     expect(theme).toBe(darkPalette)
-  })
-
-  it(`a custom dark background derives darker insets and readable shades`, () => {
-    const palette = paletteFor(`dark`, { backgroundColor: `#101828` })
-    expect(palette.card).toBe(`#101828`)
-    // Inset surfaces mix toward black on a dark panel.
-    expect(palette.background).toBe(mixHex(`#101828`, `#000000`, 0.5))
-    expect(palette.secondary).toBe(
-      mixHex(`#101828`, darkPalette.foreground, 0.1)
-    )
-    // Untouched slots keep their stock values.
-    expect(palette.destructive).toBe(darkPalette.destructive)
-  })
-
-  it(`a light custom background keeps the panel color for insets`, () => {
-    const palette = paletteFor(`light`, { backgroundColor: `#fdf6e3` })
-    expect(palette.card).toBe(`#fdf6e3`)
-    expect(palette.background).toBe(`#fdf6e3`)
-  })
-
-  it(`a custom text color re-derives the muted shade`, () => {
-    const palette = paletteFor(`dark`, { textColor: `#ffd700` })
-    expect(palette.foreground).toBe(`#ffd700`)
-    expect(palette.mutedForeground).toBe(
-      mixHex(`#ffd700`, darkPalette.card, 0.35)
-    )
-  })
-
-  it(`ignores junk overrides`, () => {
-    expect(paletteFor(`dark`, { backgroundColor: `red`, textColor: `#fff` }))
-      .toBe(darkPalette)
   })
 })
 
@@ -119,6 +74,20 @@ describe(`buttonCss`, () => {
     expect(css).toContain(`var(--exp-border, ${lightPalette.border})`)
     expect(css).toContain(
       `var(--exp-foreground, ${lightPalette.foreground})`
+    )
+  })
+
+  it(`carries the edge-tab rules (EXP-569)`, () => {
+    const css = buttonCss(`#336699`, `dark`)
+    expect(css).toContain(`button.exp-fab.exp-tab {`)
+    // The tab must never lift off the edge on hover.
+    expect(css).toMatch(/exp-tab:hover \{\n {2}transform: none;/)
+    // Inner-side-only rounding, edge side borderless.
+    expect(css).toContain(
+      `button.exp-tab-right { border-radius: 10px 0 0 10px; border-right: none; }`
+    )
+    expect(css).toContain(
+      `button.exp-tab-left { border-radius: 0 10px 10px 0; border-left: none; }`
     )
   })
 })
