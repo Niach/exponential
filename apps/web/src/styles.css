@@ -932,17 +932,6 @@ html {
   border-color: var(--ring);
 }
 
-/* EXP-449: the feedback-widget launcher pins itself bottom-right with inline
-   styles (packages/widget loader host, `div[data-exponential-widget]`), which
-   lands exactly on the mobile tab bar's compose FAB. Its z-index is maxed by
-   design, so the launcher is what moves: lift it above the floating tab-bar
-   band on phones. Desktop keeps the stock 20px corner. */
-@media (max-width: 767px) {
-  div[data-exponential-widget] {
-    bottom: calc(5.5rem + env(safe-area-inset-bottom)) !important;
-  }
-}
-
 /* Safari ignores scrollbar-width, and the universal ::-webkit-scrollbar rules
    below switch WebKit from overlay to always-visible classic bars — which
    would eat a row of the rail. Hide it there too. */

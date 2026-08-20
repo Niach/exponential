@@ -67,9 +67,15 @@ export function FeedbackWidgetProvider() {
     window.ExponentialWidget!.init({
       key: widget.widgetKey,
       // Dogfood the floating launcher like any customer site (EXP-163). The
-      // sidebar's FeedbackButton stays as a second entry point. Pinned
-      // bottom-right: the remote config's default is bottom-left, which the
-      // app sidebar occupies.
+      // sidebar's FeedbackButton stays as a second entry point. Desktop is
+      // pinned to the bottom-right fab regardless of the remote config;
+      // mobile is deliberately left to the config/default (edge tab, middle
+      // right — EXP-569), which is what replaced the EXP-449 tab-bar-
+      // collision CSS hack.
+      launcher: { desktop: { mode: `fab`, position: `bottom-right` } },
+      // Cache-skew bridge: a cached pre-EXP-569 loader ignores `launcher`
+      // and still honors this; the new loader ignores `position` whenever
+      // `launcher` is present.
       position: `bottom-right`,
     })
     window.ExponentialWidget!.setCustomData({

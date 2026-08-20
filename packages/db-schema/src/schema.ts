@@ -1549,8 +1549,12 @@ export const widgetConfigs = pgTable(
       .notNull()
       .default(sql`'[]'::jsonb`),
     enabled: boolean().notNull().default(true),
-    // Appearance/behavior overrides served to the widget loader:
-    // { buttonLabel?, accentColor?, position?, emailRequired? }.
+    // Appearance/behavior overrides served to the widget loader. Validated
+    // by formConfigSchema (apps/web lib/trpc/widgets.ts) on write and
+    // re-sanitized field-by-field on read (lib/widget/service.ts):
+    // { buttonLabel?, accentColor?, position?, launcher?, emailRequired?,
+    //   collectEmail?, collectName?, nameRequired?, customFields?, modes?,
+    //   labelIds?, theme? }.
     formConfig: jsonb(`form_config`).$type<Record<string, unknown>>(),
     createdByUserId: text(`created_by_user_id`).references(() => users.id, {
       onDelete: `set null`,

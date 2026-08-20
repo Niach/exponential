@@ -163,6 +163,7 @@ import { uploadObject, deleteObject } from "@/lib/storage"
 import {
   createWidgetSubmission,
   createWidgetSupportSubmission,
+  defaultWidgetLauncher,
   effectiveWidgetModes,
   handleWidgetConfig,
   normalizedWidgetFormToggles,
@@ -171,11 +172,13 @@ import {
   sanitizeWidgetCustomFields,
   sanitizeWidgetHexColor,
   sanitizeWidgetLabelIds,
+  sanitizeWidgetLauncher,
   sanitizeWidgetTheme,
   resetWidgetSupportGateCacheForTest,
   WidgetRequestError,
   type WidgetConfigWithBoard,
 } from "@/lib/widget/service"
+import { defaultLauncher as widgetPackageDefaultLauncher } from "@exp/widget/launcher"
 
 // The support plan gate is memoized per team (REV-25) and the tests below
 // flip h.assertCanUseHelpdesk between tests while reusing one teamId — start
@@ -1184,6 +1187,64 @@ describe(`sanitizeWidgetLabelIds / theme / hex color`, () => {
     expect(sanitizeWidgetHexColor(`#fff`)).toBeNull()
     expect(sanitizeWidgetHexColor(`red`)).toBeNull()
     expect(sanitizeWidgetHexColor(7)).toBeNull()
+  })
+
+  // EXP-569 launcher resolution: stored launcher > stored legacy position
+  // (as a fab on both devices) > the new defaults; junk degrades per device.
+  it(`sanitizeWidgetLauncher defaults bare rows to the new placements`, () => {
+    expect(sanitizeWidgetLauncher(null)).toEqual({
+      desktop: { mode: `fab`, position: `bottom-right` },
+      mobile: { mode: `tab`, position: `middle-right` },
+      icon: null,
+    })
+    expect(sanitizeWidgetLauncher({})).toEqual({
+      ...defaultWidgetLauncher,
+      icon: null,
+    })
+    // The widget package ships the same defaults — a mismatch makes the
+    // launcher jump when the config fetch resolves over the pre-config
+    // render.
+    expect(widgetPackageDefaultLauncher).toEqual(defaultWidgetLauncher)
+  })
+
+  it(`sanitizeWidgetLauncher honors a stored legacy position on both devices`, () => {
+    expect(sanitizeWidgetLauncher({ position: `bottom-left` })).toEqual({
+      desktop: { mode: `fab`, position: `bottom-left` },
+      mobile: { mode: `fab`, position: `bottom-left` },
+      icon: null,
+    })
+    // Junk legacy values fall through to the defaults.
+    expect(sanitizeWidgetLauncher({ position: `top-center` })).toEqual({
+      ...defaultWidgetLauncher,
+      icon: null,
+    })
+  })
+
+  it(`sanitizeWidgetLauncher prefers stored launcher entries, per device`, () => {
+    expect(
+      sanitizeWidgetLauncher({
+        position: `bottom-left`,
+        launcher: {
+          desktop: { mode: `tab`, position: `middle-left` },
+          mobile: { mode: `pill`, position: `middle-left` },
+          icon: `bug`,
+        },
+      })
+    ).toEqual({
+      desktop: { mode: `tab`, position: `middle-left` },
+      // The invalid mobile entry degrades to the legacy position tier.
+      mobile: { mode: `fab`, position: `bottom-left` },
+      icon: `bug`,
+    })
+  })
+
+  it(`sanitizeWidgetLauncher validates the icon against the pickable set`, () => {
+    const launcherWithIcon = (icon: unknown) =>
+      sanitizeWidgetLauncher({ launcher: { icon } }).icon
+    expect(launcherWithIcon(`megaphone`)).toBe(`megaphone`)
+    expect(launcherWithIcon(`not-an-icon`)).toBeNull()
+    expect(launcherWithIcon(7)).toBeNull()
+    expect(sanitizeWidgetLauncher({ launcher: `junk` }).icon).toBeNull()
   })
 })
 
