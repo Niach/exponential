@@ -206,7 +206,22 @@ internal class ChipVisualTransformation(
             // and start-of-next-line carets at DISTINCT display offsets (the
             // zero-width char still occupies one), and the copy/IME path never
             // sees it — those work on the source TextFieldValue.
-            append(transform.display.replace('\n', '\u200B'))
+            //
+            // The ONE exception is a FINAL trailing '\n' (EXP-567): the empty
+            // last line owns no display character, so no ParagraphStyle range
+            // can stand in for it: substituted away, the layout simply lacked
+            // that line, the caret stayed visually on the previous line after
+            // Enter, and the line only popped in once a character landed on
+            // it. Keeping the last '\n' real makes StaticLayout render exactly
+            // that one trailing empty line (the behavior the substitution
+            // avoids everywhere else, wanted here), still 1:1 on offsets.
+            val display = transform.display
+            if (display.endsWith('\n')) {
+                append(display.substring(0, display.length - 1).replace('\n', '\u200B'))
+                append('\n')
+            } else {
+                append(display.replace('\n', '\u200B'))
+            }
             addLineStyles(this, source, transform)
             InlineMarks.addStyles(this, transform.display.length, remapped)
             addChipStyles(this, transform)
@@ -220,8 +235,11 @@ internal class ChipVisualTransformation(
      * EVERY line gets a ParagraphStyle range (plain lines an empty one): with
      * newlines substituted away (see [filter]) the ranges are what break the
      * text into paragraphs at all. Ranges INCLUDE the substituted newline so
-     * they tile the display exactly. The paragraphs list can lag the text by a
-     * frame; every index is guarded and a missing entry styles as plain.
+     * they tile the display exactly. The one line WITHOUT a range is a
+     * trailing EMPTY line — it has no display character to range over, so it
+     * rides the previous line's range as that paragraph's real final '\n'
+     * instead (see [filter], EXP-567). The paragraphs list can lag the text
+     * by a frame; every index is guarded and a missing entry styles as plain.
      */
     private fun addLineStyles(
         builder: AnnotatedString.Builder,
