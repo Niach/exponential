@@ -28,7 +28,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -68,6 +67,7 @@ import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.domain.issuePriorityOrder
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.BottomBarInset
+import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.LoadingState
@@ -78,6 +78,7 @@ import com.exponential.app.ui.markdown.EditorModel
 import com.exponential.app.ui.markdown.IssueRefHandler
 import com.exponential.app.ui.markdown.LocalAttachmentDims
 import com.exponential.app.ui.markdown.LocalIssueRefs
+import com.exponential.app.ui.markdown.LocalMarkdownToolbarController
 import com.exponential.app.ui.markdown.LocalMentions
 import com.exponential.app.ui.markdown.MarkdownEditor
 import com.exponential.app.ui.markdown.MentionMember
@@ -294,11 +295,16 @@ fun IssueDetailScreen(
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text("Issue") },
+                // EXP-568: the identifier titles the bar (it used to be a chip
+                // in the content, under a generic "Issue" title).
+                title = { Text(issue?.identifier ?: "") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(ExpIcons.uiBack, contentDescription = "Back")
-                    }
+                    CircleIconButton(
+                        ExpIcons.uiBack,
+                        "Back",
+                        onClick = onBack,
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
                 },
                 actions = {
                     if (issue != null) {
@@ -308,10 +314,14 @@ fun IssueDetailScreen(
                         // Move to board. The MENU is available to everyone;
                         // only the mutating items are moderator-gated.
                         val url = shareUrl
+                        // The Box stays: it anchors the dropdown to the button.
                         Box {
-                            IconButton(onClick = { overflowOpen = true }) {
-                                Icon(ExpIcons.uiMoreVertical, contentDescription = "Issue actions")
-                            }
+                            CircleIconButton(
+                                ExpIcons.uiMoreVertical,
+                                "Issue actions",
+                                onClick = { overflowOpen = true },
+                                modifier = Modifier.padding(end = 8.dp),
+                            )
                             GlassDropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }) {
                                 if (url != null) {
                                     GlassMenuItem(
@@ -457,7 +467,15 @@ fun IssueDetailScreen(
         // The bar yields to the title/description keyboard (the markdown
         // toolbar owns that space); its own composer keeps it visible.
         val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
-        val barVisible = composerExpanded || !imeVisible
+        // EXP-568: another markdown editor (the description, or a comment being
+        // edited) holding the keyboard. The composer opts out of the floating
+        // toolbar, so it never registers as the controller's activeModel — a
+        // registered focused model is therefore always some OTHER editor. Two
+        // editors used to stack on screen at once because the expanded composer
+        // stayed up while the description took focus.
+        val toolbarController = LocalMarkdownToolbarController.current
+        val otherEditorFocused = toolbarController?.activeModel?.focusedRowId != null
+        val barVisible = (composerExpanded || !imeVisible) && !otherEditorFocused
 
         // Tap-outside keyboard dismissal (EXP-246): a tap on dead space clears
         // focus and drops the IME. Children (chips, editors, the bar) consume
@@ -492,28 +510,19 @@ fun IssueDetailScreen(
             ) {
             SyncBannerRow(syncBanner)
             if (syncBanner != SyncBanner.None) Spacer(Modifier.height(8.dp))
-            // Header: identifier chip (actions live in the nav bar). The repo
-            // chip renders once, above the agent/PR card (EXP-170).
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            // Header: the origin chip only — the identifier moved to the nav
+            // bar title (EXP-568). Origin chip: issues filed via the feedback
+            // widget (source == "widget") or by a coding agent over MCP
+            // (source == "agent", EXP-496) carry no user creator. Read-only
+            // indicator. The repo chip renders once, above the agent/PR card
+            // (EXP-170).
+            if (issue.source == DomainContract.issueSourceWidget ||
+                issue.source == DomainContract.issueSourceAgent
             ) {
-                Text(
-                    issue.identifier,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    modifier = Modifier
-                        .glassButton()
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                )
-                // Origin chip: issues filed via the feedback widget
-                // (source == "widget") or by a coding agent over MCP
-                // (source == "agent", EXP-496) carry no user creator.
-                // Read-only indicator.
-                if (issue.source == DomainContract.issueSourceWidget ||
-                    issue.source == DomainContract.issueSourceAgent
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     OriginChip(isAgent = issue.source == DomainContract.issueSourceAgent)
                 }
@@ -654,7 +663,6 @@ fun IssueDetailScreen(
                 onUploadImage = if (isModerator) { uri -> viewModel.uploadImage(uri) } else null,
                 imageUploadEnabled = isModerator,
                 mentionMembers = mentionMembers,
-                mentionEnabled = soloMemberId == null,
                 onFocusChanged = { descriptionSync.setFocused(it) },
                 // EXP-327: the description editor is the ONE attach affordance;
                 // non-image picks land in the Files section below.
@@ -711,7 +719,6 @@ fun IssueDetailScreen(
             CommentThread(
                 issueId = issue.id,
                 viewModel = commentViewModel,
-                mentionEnabled = soloMemberId == null,
             )
 
             // Clearance so the last timeline row scrolls out from under the
@@ -761,6 +768,7 @@ fun IssueDetailScreen(
                         onRemoveAttachment = commentViewModel::removePendingAttachment,
                         mentionMembers = mentionMembers,
                         showMentionButton = soloMemberId == null,
+                        otherEditorFocused = otherEditorFocused,
                     )
                 }
             }

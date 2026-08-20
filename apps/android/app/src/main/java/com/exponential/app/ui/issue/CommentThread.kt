@@ -77,9 +77,6 @@ internal val TimelineRail = Color.White.copy(alpha = 0.08f)
 fun CommentThread(
     issueId: String,
     viewModel: CommentThreadViewModel,
-    // Solo teams hide the comment-edit toolbar's @ button (EXP-246) — threaded
-    // explicitly from the screen's soloMemberId gate, like the assignee chip.
-    mentionEnabled: Boolean = true,
     // Horizontal padding of the hosting column, escaped by the top rule so the
     // line runs edge to edge (EXP-327). Compose has no negative padding.
     hostPadding: Dp = 20.dp,
@@ -230,7 +227,6 @@ fun CommentThread(
                                 },
                                 onRemoveEditAttachment = viewModel::removeEditAttachment,
                                 mentionMembers = mentionMembers,
-                                mentionEnabled = mentionEnabled,
                             )
                         }
                     }

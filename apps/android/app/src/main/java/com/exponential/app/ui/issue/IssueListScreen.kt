@@ -54,7 +54,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
@@ -77,6 +76,7 @@ import com.exponential.app.domain.issuePriorityOrder
 import com.exponential.app.domain.priorityIcon
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.BottomBarInset
+import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetRow
@@ -819,28 +819,6 @@ private fun BoardSwitcherControl(
             tint = MaterialTheme.colorScheme.onSurface.copy(
                 alpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Quaternary,
             ),
-        )
-    }
-}
-
-// Circular glass icon button (iOS .ultraThinMaterial nav circle) — same fill +
-// hairline stroke combination as Modifier.glassRow, just on a circle.
-@Composable
-private fun CircleIconButton(icon: ImageVector, contentDescription: String, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .size(38.dp)
-            .clip(CircleShape)
-            .background(GlassTokens.RowFill, CircleShape)
-            .border(GlassTokens.Hairline, GlassTokens.StrokeRow, CircleShape)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            icon,
-            contentDescription = contentDescription,
-            modifier = Modifier.size(20.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
         )
     }
 }

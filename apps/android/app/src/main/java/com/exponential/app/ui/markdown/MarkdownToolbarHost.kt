@@ -30,6 +30,14 @@ import com.exponential.app.ui.emoji.EmojiPickerSheet
 import com.exponential.app.ui.theme.GlassTokens
 
 /**
+ * Which set of controls the one rail shows (EXP-568) — the Android half of the
+ * shared main/text/link rail the web and iOS editors grew at the same time.
+ * `Main` is the block/insert rail, `Text` the inline-formatting rail, `Link`
+ * the URL field.
+ */
+enum class RailMode { Main, Text, Link }
+
+/**
  * Hosts the markdown formatting toolbar so it can float directly above the
  * keyboard (the Compose analog of iOS's UITextView.inputAccessoryView). The
  * inline editor [MarkdownEditor] can't pin a child above the IME because it
@@ -43,6 +51,9 @@ class MarkdownToolbarController {
     /** The editor whose field currently has focus (last-focus-wins). */
     var activeModel by mutableStateOf<EditorModel?>(null)
 
+    /** Which rail the toolbar shows; reset to [RailMode.Main] on editor switch. */
+    var railMode by mutableStateOf(RailMode.Main)
+
     /** Image-picker action + flag for the active editor (its picker launcher lives in that editor's composition). */
     var onPickImage by mutableStateOf<() -> Unit>({})
     var imageEnabled by mutableStateOf(false)
@@ -55,9 +66,6 @@ class MarkdownToolbarController {
      * comment composer, and any editor whose host can't take an attachment).
      */
     var onPickFile by mutableStateOf<(() -> Unit)?>(null)
-
-    /** Whether the active editor offers the @-mention button (solo teams hide it, EXP-246). */
-    var mentionEnabled by mutableStateOf(true)
 
     /**
      * Measured height of the visible bar, 0 while it is hidden. The `@`/`#`
@@ -83,6 +91,40 @@ class MarkdownToolbarController {
     fun dismissEmojiPicker() {
         emojiPickerTarget = null
     }
+
+    /**
+     * The editor a pending LINK edit belongs to, with the selection captured at
+     * request time — the same survival trick [emojiPickerTarget] documents.
+     * Focusing the rail's URL field takes OS focus off the editor, which nulls
+     * its `focusedRowId` (and hence [activeModel]) and would otherwise unmount
+     * the overlay mid-edit; the host keeps rendering against this target while
+     * it is non-null.
+     */
+    var linkEditTarget by mutableStateOf<EditorModel?>(null)
+        private set
+
+    /** (rowId, range) the link applies to — the editor's selection is gone by then. */
+    var linkEditSelection by mutableStateOf<Pair<String, IntRange>?>(null)
+        private set
+
+    /** Existing href under the captured selection, prefilled into the URL field. */
+    var linkEditInitialUrl by mutableStateOf("")
+        private set
+
+    fun requestLinkEditor(model: EditorModel) {
+        val sel = model.activeSelection() ?: return
+        linkEditSelection = sel
+        linkEditInitialUrl = model.linkHrefAt(sel.first, sel.second).orEmpty()
+        linkEditTarget = model
+        railMode = RailMode.Link
+    }
+
+    fun dismissLinkEditor() {
+        linkEditTarget = null
+        linkEditSelection = null
+        linkEditInitialUrl = ""
+        railMode = RailMode.Main
+    }
 }
 
 val LocalMarkdownToolbarController = compositionLocalOf<MarkdownToolbarController?> { null }
@@ -101,7 +143,24 @@ fun ProvideMarkdownToolbar(content: @Composable () -> Unit) {
         // animation.
         val model = controller.activeModel
         val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
-        val toolbarVisible = model?.focusedRowId != null && imeVisible
+        // EXP-568: the link rail's URL field owns the focus while it is up, so
+        // `activeModel` is null then — the captured link target keeps the rail
+        // mounted (and is what it renders against).
+        val railModel = model ?: controller.linkEditTarget
+        val toolbarVisible =
+            (model?.focusedRowId != null || controller.linkEditTarget != null) && imeVisible
+        // A genuinely DIFFERENT editor taking focus resets the rail to main.
+        // Null transitions are ignored on purpose: every rail tap briefly drops
+        // the field's OS focus (see EditorModel.toggleMark), which would
+        // otherwise kick the user out of the text rail on every bold tap.
+        val railOwner = remember { mutableStateOf<EditorModel?>(null) }
+        LaunchedEffect(model) {
+            val m = model ?: return@LaunchedEffect
+            if (m !== railOwner.value) {
+                railOwner.value = m
+                if (controller.linkEditTarget == null) controller.railMode = RailMode.Main
+            }
+        }
         // While the bar is up it floats OVER the bottom of the content, so the
         // content is inset by the bar's measured height — otherwise the bar
         // covers exactly the focused line / the comment composer's send row
@@ -118,10 +177,10 @@ fun ProvideMarkdownToolbar(content: @Composable () -> Unit) {
             Box(Modifier.fillMaxSize().padding(bottom = bottomInset)) {
                 content()
             }
-            if (toolbarVisible && model != null) {
+            if (toolbarVisible && railModel != null) {
                 MarkdownToolbarOverlay(
                     controller = controller,
-                    model = model,
+                    model = railModel,
                     modifier = Modifier.align(Alignment.BottomCenter),
                     onHeightChanged = { toolbarHeightPx = it },
                 )
@@ -178,7 +237,6 @@ private fun MarkdownToolbarOverlay(
                 onPickImage = controller.onPickImage,
                 onPickFile = controller.onPickFile,
                 imageEnabled = controller.imageEnabled,
-                mentionEnabled = controller.mentionEnabled,
             )
         }
     }

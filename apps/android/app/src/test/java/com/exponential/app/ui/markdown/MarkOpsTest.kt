@@ -45,6 +45,21 @@ class MarkOpsTest {
         assertEquals(listOf(InlineMark(1, 6, InlineKind.Bold)), local)
     }
 
+    // EXP-568: what EditorModel.clearFormatting does — one removeMark pass per
+    // kind over the selection has to leave the range completely bare, links
+    // (which carry an href) included.
+    @Test fun removingEveryKindOverARangeStripsItBare() {
+        var marks = listOf(
+            InlineMark(0, 5, InlineKind.Bold),
+            InlineMark(0, 5, InlineKind.Italic),
+            InlineMark(1, 4, InlineKind.Strikethrough),
+            InlineMark(2, 5, InlineKind.InlineCode),
+            InlineMark(0, 5, InlineKind.Link, "https://example.com"),
+        )
+        for (kind in InlineKind.entries) marks = MarkOps.removeMark(marks, 0, 5, kind)
+        assertTrue(marks.isEmpty())
+    }
+
     @Test fun offsetShiftsAll() {
         val base = listOf(InlineMark(0, 3, InlineKind.Bold))
         assertEquals(listOf(InlineMark(5, 8, InlineKind.Bold)), MarkOps.offset(base, 5))
