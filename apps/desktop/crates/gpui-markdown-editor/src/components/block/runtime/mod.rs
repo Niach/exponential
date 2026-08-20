@@ -139,6 +139,13 @@ pub struct Block {
     pub selected_range: Range<usize>,
     pub selection_reversed: bool,
     pub(crate) editor_selection_range: Option<Range<usize>>,
+    /// EXP-568 vendoring: the selection pair the last
+    /// [`BlockEvent::SelectionUiChanged`] reported. Render diffs the live pair
+    /// against it and emits only on a real move — a payload-free signal that
+    /// re-fires every frame would be a render loop, since the host repaints on
+    /// it. Seeded with the construction-time pair so a freshly built block is
+    /// silent.
+    pub(crate) last_reported_selection: (Range<usize>, Option<Range<usize>>),
     pub marked_range: Option<Range<usize>>,
     pub last_layout: Option<Vec<WrappedLine>>,
     /// EXP-322 vendoring: the document↔shaped offset map the `last_layout`
@@ -282,6 +289,7 @@ impl Block {
             selected_range: 0..0,
             selection_reversed: false,
             editor_selection_range: None,
+            last_reported_selection: (0..0, None),
             marked_range: None,
             last_layout: None,
             last_shaped: None,
@@ -2643,6 +2651,32 @@ impl Block {
             line_height,
             text,
             shaped.to_shaped_range(active_range),
+            self.text_align(),
+        )
+    }
+
+    /// EXP-568 vendoring: window bounds of this block's SELECTION only —
+    /// `None` when nothing is selected here (the caret alone never anchors the
+    /// floating rail). Mirrors [`Self::active_range_or_cursor_bounds`] but
+    /// prefers the editor-driven cross-block range, so every block a sweep
+    /// touches reports the slice it actually paints highlighted.
+    pub(crate) fn selection_bounds(&self) -> Option<Bounds<Pixels>> {
+        let bounds = self.last_bounds?;
+        let lines = self.last_layout.as_ref()?;
+        let range = self
+            .editor_selection_range
+            .clone()
+            .unwrap_or_else(|| self.selected_range.clone());
+        if range.is_empty() {
+            return None;
+        }
+        let shaped = self.shaped_for_layout();
+        super::element::range_bounds(
+            lines,
+            bounds,
+            self.last_line_height,
+            shaped.text().as_ref(),
+            shaped.to_shaped_range(range),
             self.text_align(),
         )
     }

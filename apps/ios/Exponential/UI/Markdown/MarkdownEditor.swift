@@ -31,9 +31,6 @@ struct MarkdownEditor: View {
     /// the bottom-bar comment composer keeps only its own photo/@/# row
     /// (EXP-246).
     var showsFormattingToolbar: Bool = true
-    /// Solo teams hide the toolbar's @ button (nobody to mention but
-    /// yourself); the typed `@` autocomplete stays functional (EXP-246).
-    var showsMentionButton: Bool = true
     /// Caps embedded image blocks — compact contexts (the comment composer)
     /// would otherwise be dominated by a single image (EXP-246).
     var imageMaxHeight: CGFloat?
@@ -148,7 +145,6 @@ struct MarkdownEditor: View {
             } else {
                 toolbar.onFilePick = nil
             }
-            toolbar.showsMentionButton = showsMentionButton
             toolbar.onEmoji = {
                 // Captured while the text view is still first responder.
                 emojiRefocusTarget = model.insertionTargetBlockId
@@ -166,15 +162,12 @@ struct MarkdownEditor: View {
                 EmojiPreferences().recordRecent(record.unicode)
             }
         }
-        // Membership can sync in after mount and flip the solo-team gate.
-        .onChange(of: showsMentionButton) { _, newValue in
-            toolbar.showsMentionButton = newValue
-        }
-        // Same race for the attach gate: `onAttachFile` is derived from
-        // membership too, and on a cold start the editor mounts before the
-        // team_members rows land. Without this the "Files" entry would stay
-        // missing for the life of the view — and EXP-327 removed the Files
-        // section's own paperclip, so there is no other way in.
+        // Membership can sync in after mount and flip the attach gate:
+        // `onAttachFile` is derived from membership, and on a cold start the
+        // editor mounts before the team_members rows land. Without this the
+        // "Files" entry would stay missing for the life of the view — and
+        // EXP-327 removed the Files section's own paperclip, so there is no
+        // other way in.
         .onChange(of: onAttachFile == nil) { _, isNil in
             toolbar.onFilePick = isNil ? nil : { showFileImporter = true }
         }
@@ -694,6 +687,9 @@ private struct BlockTextEditor: UIViewRepresentable {
         }
 
         func textViewDidEndEditing(_ tv: UITextView) {
+            // The rail must never come back mid-mode (EXP-568); it stays in
+            // link mode on purpose while its own URL field holds the responder.
+            (tv.inputAccessoryView as? MarkdownToolbar)?.handleHostEndedEditing()
             guard let blockId else { return }
             model?.clearFocusIfMatches(blockId)
         }
@@ -871,6 +867,29 @@ private struct BlockTextEditor: UIViewRepresentable {
             // Enter in a list → continue or exit.
             guard text == "\n" else { return true }
             let paraRange = nsString.safeParagraphRange(at: range.location)
+
+            // Enter at the end of a heading starts a BODY paragraph (EXP-568).
+            // UITextView otherwise carries the heading font AND
+            // `.markdownHeadingLevel` into the new line, so the next paragraph
+            // silently serialized as a second heading.
+            if let attrs = storage.attributesIfInBounds(at: paraRange.location),
+               let level = attrs[.markdownHeadingLevel] as? Int, level > 0 {
+                let tail = nsString
+                    .substring(with: NSRange(
+                        location: range.location,
+                        length: max(0, NSMaxRange(paraRange) - range.location)))
+                    .trimmingCharacters(in: .newlines)
+                if tail.isEmpty {
+                    let base = MarkdownStyle.baseAttributes
+                    storage.replaceCharacters(
+                        in: range, with: NSAttributedString(string: "\n", attributes: base))
+                    tv.selectedRange = NSRange(location: range.location + 1, length: 0)
+                    tv.typingAttributes = base
+                    textViewDidChange(tv)
+                    return false
+                }
+            }
+
             guard let attrs = storage.attributesIfInBounds(at: paraRange.location),
                   let listType = attrs[.markdownListType] as? String else { return true }
 

@@ -47,6 +47,29 @@ pub(crate) fn tab_chip(selected: bool, cx: &App) -> Div {
     }
 }
 
+/// EXP-568: a horizontal glass TRAY — the card recipe at row scale, holding a
+/// WRAPPING group of chips as one object. The issue header's property cluster
+/// wears it so the properties read as a unit beside the leading Start-coding
+/// launcher.
+///
+/// The fill is `FILL_SECTION`, not the card's `FILL_CARD`: most chips inside
+/// are ghost buttons (transparent at rest), but the static ones ([`glass_chip`]
+/// — Origin, a single-board team's Board) already carry `FILL_CARD`, and
+/// stacking that on itself composites near-opaque and reads as a different
+/// material. The `STROKE_CARD` hairline keeps the tray's edge card-crisp.
+pub(crate) fn glass_tray() -> Div {
+    gpui_component::h_flex()
+        .flex_wrap()
+        .items_center()
+        .gap_1()
+        .px_1p5()
+        .py_1()
+        .rounded(px(t::radius::LG))
+        .border_1()
+        .border_color(t::glass::STROKE_CARD.to_hsla())
+        .bg(t::glass::FILL_SECTION.to_hsla())
+}
+
 /// A NON-interactive chip (EXP-417): the glass fill + radius the interactive
 /// `pickers::chip_button` triggers read as, sized to its content. The detail
 /// headers' read-only properties (Origin, a single-board team's Board, an

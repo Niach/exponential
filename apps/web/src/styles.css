@@ -863,8 +863,18 @@ html {
   height: 0;
 }
 
-/* ── Editor toolbar ── */
-.static-toolbar button {
+/* ── Formatting rail (EXP-568) ──
+   One button recipe for both chromes: the desktop selection bubble
+   (BubbleMenu → document.body) and the phone keyboard bar. Same 28×28 glyph
+   buttons the static toolbar used, so the muscle memory carries over. */
+.formatting-rail {
+  padding: 3px 4px;
+  /* The rail never wraps — it scrolls sideways instead (EXP-247's rule,
+     kept: a second row would eat a line of a phone's writing space). */
+  scrollbar-width: none;
+}
+
+.formatting-rail button {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -881,17 +891,23 @@ html {
   flex-shrink: 0;
 }
 
-.static-toolbar button:hover {
+@media (prefers-reduced-motion: reduce) {
+  .formatting-rail button {
+    transition: none;
+  }
+}
+
+.formatting-rail button:hover {
   color: var(--foreground);
   background: var(--accent);
 }
 
-.static-toolbar button.is-active {
+.formatting-rail button.is-active {
   color: var(--accent-foreground);
   background: var(--accent);
 }
 
-.toolbar-separator {
+.rail-separator {
   width: 1px;
   height: 16px;
   background: var(--border);
@@ -899,29 +915,21 @@ html {
   flex-shrink: 0;
 }
 
-/* ── Static (always-visible) toolbar above editable editors ── */
-.static-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 1px;
-  flex-wrap: wrap;
-  padding: 2px 1rem;
-  margin-bottom: 0.125rem;
-  border-bottom: 1px solid var(--border);
+/* The link mode's URL field — the rail's only text input. */
+.rail-link-input {
+  width: 12rem;
+  max-width: 60vw;
+  background: var(--muted);
+  border: 1px solid var(--input);
+  border-radius: 5px;
+  padding: 2px 7px;
+  font-size: 0.8rem;
+  color: var(--foreground);
+  outline: none;
 }
 
-/* Inside the issue dialogs the editor lives in a scroll region — keep the
-   toolbar pinned while long descriptions scroll underneath it. No background
-   tint (EXP-335: the old 78% --background mix read as a dark banner against
-   the frosted-glass dialog surface — the toolbar must look identical to the
-   detail page's); the backdrop blur alone keeps the glyphs legible over
-   scrolled-under text. */
-.editor-scroll-region .static-toolbar {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
+.rail-link-input:focus {
+  border-color: var(--ring);
 }
 
 /* EXP-449: the feedback-widget launcher pins itself bottom-right with inline
@@ -935,20 +943,11 @@ html {
   }
 }
 
-/* On phones the toolbar stays a single horizontally scrollable line instead
-   of wrapping to two rows (EXP-247 — native-create parity). */
-@media (max-width: 767px) {
-  .static-toolbar {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  /* Safari ignores scrollbar-width, and the universal ::-webkit-scrollbar
-     rules below switch WebKit from overlay to always-visible classic bars —
-     which would eat a row of the toolbar. Hide it there too. */
-  .static-toolbar::-webkit-scrollbar {
-    display: none;
-  }
+/* Safari ignores scrollbar-width, and the universal ::-webkit-scrollbar rules
+   below switch WebKit from overlay to always-visible classic bars — which
+   would eat a row of the rail. Hide it there too. */
+.formatting-rail::-webkit-scrollbar {
+  display: none;
 }
 
 /* ── Emoji picker (EXP-551) ── */
@@ -969,29 +968,6 @@ html {
 .emoji-picker-section {
   content-visibility: auto;
   contain-intrinsic-size: auto 18rem;
-}
-
-/* Inline link editor (inside the toolbar) */
-.toolbar-link-edit {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.toolbar-link-input {
-  width: 11rem;
-  max-width: 40vw;
-  background: var(--muted);
-  border: 1px solid var(--input);
-  border-radius: 5px;
-  padding: 2px 7px;
-  font-size: 0.8rem;
-  color: var(--foreground);
-  outline: none;
-}
-
-.toolbar-link-input:focus {
-  border-color: var(--ring);
 }
 
 /* ── Slim glass scrollbars (EXP-269) ──

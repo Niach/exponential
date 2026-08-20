@@ -102,6 +102,7 @@ pub const PICKABLE_ICONS: &[&str] = &[
 /// callers can apply their own fallback.
 pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
     Some(match name {
+        "a-large-small" => ExpIcon::ALargeSmall,
         "activity" => ExpIcon::Activity,
         "archive" => ExpIcon::Archive,
         "arrow-down-left" => ExpIcon::ArrowDownLeft,
@@ -260,6 +261,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "trash-2" => ExpIcon::Trash2,
         "triangle-alert" => ExpIcon::TriangleAlert,
         "trophy" => ExpIcon::Trophy,
+        "type" => ExpIcon::Type,
         "undo-2" => ExpIcon::Undo2,
         "unlink" => ExpIcon::Unlink,
         "upload" => ExpIcon::Upload,
@@ -342,6 +344,10 @@ pub const EDITOR_MENTION: ExpIcon = ExpIcon::AtSign;
 pub const EDITOR_QUOTE: ExpIcon = ExpIcon::Quote;
 /// Registry concept `editor-strikethrough` -> Lucide `strikethrough`.
 pub const EDITOR_STRIKETHROUGH: ExpIcon = ExpIcon::Strikethrough;
+/// Registry concept `editor-text` -> Lucide `type`.
+pub const EDITOR_TEXT: ExpIcon = ExpIcon::Type;
+/// Registry concept `editor-text-format` -> Lucide `a-large-small`.
+pub const EDITOR_TEXT_FORMAT: ExpIcon = ExpIcon::ALargeSmall;
 /// Registry concept `editor-unlink` -> Lucide `unlink`.
 pub const EDITOR_UNLINK: ExpIcon = ExpIcon::Unlink;
 /// Registry concept `event-assignee-changed` -> Lucide `user-plus`.

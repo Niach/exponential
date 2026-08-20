@@ -308,10 +308,7 @@ impl CreateIssueDialogView {
             window,
             cx,
         );
-        // EXP-285: the dialog pins the formatting bar ABOVE its scroll
-        // region (a long description must not scroll the toolbar away).
-        description.update(cx, |description, _| description.use_external_toolbar());
-        // EXP-335: the toolbar's attach button — image picks embed inline via
+        // EXP-335: the rail's attach button — image picks embed inline via
         // the editor itself; non-image picks land here and queue for the
         // post-create upload (web draftFiles parity).
         {
@@ -1134,16 +1131,6 @@ impl Render for CreateIssueDialogView {
                             .text_lg()
                             .font_weight(FontWeight::MEDIUM),
                     ),
-            )
-            .child(
-                // EXP-285: the formatting bar sits ABOVE the scroll region so
-                // a long description never scrolls it away. Same px_3 as the
-                // slot: 12 + the toolbar's own glyph-align inset lands the
-                // first glyph on the shared 24px text edge.
-                div().px_3().children(
-                    self.description
-                        .update(cx, |description, cx| description.toolbar_row(window, cx)),
-                ),
             )
             .child(
                 // Only this region scrolls; header/chips/footer pinned.

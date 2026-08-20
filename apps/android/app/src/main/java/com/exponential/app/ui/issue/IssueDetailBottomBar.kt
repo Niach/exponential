@@ -59,6 +59,7 @@ import com.exponential.app.ui.components.PendingAttachmentStrip
 import com.exponential.app.ui.emoji.EmojiPickerSheet
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.EditorModel
+import com.exponential.app.ui.markdown.LocalMarkdownToolbarController
 import com.exponential.app.ui.markdown.MarkdownEditor
 import com.exponential.app.ui.markdown.MentionMember
 import com.exponential.app.ui.theme.LocalReduceMotion
@@ -80,6 +81,15 @@ sealed interface StartButtonUi {
 }
 
 private val BarStroke = Color.White.copy(alpha = 0.12f)
+
+// The four signals collapse-on-blur watches, as one snapshotFlow value (Kotlin
+// stops at Triple, and all four have to be observed together).
+private data class ComposerBlurState(
+    val focused: Boolean,
+    val ime: Boolean,
+    val emojiOpen: Boolean,
+    val otherEditorFocused: Boolean,
+)
 
 /**
  * The floating three-element bottom bar of the issue detail (EXP-240), cloning
@@ -110,6 +120,11 @@ fun IssueDetailBottomBar(
     // Solo teams hide the @ button (nobody else to mention, EXP-246) — same
     // gate the assignee chip uses, threaded explicitly from the screen.
     showMentionButton: Boolean = true,
+    // EXP-568: another markdown editor on the screen (the description, or a
+    // comment being edited) holds the keyboard. The screen computes it from the
+    // toolbar controller's activeModel; the composer opts out of that toolbar,
+    // so it is never the registered model itself (re-checked below by identity).
+    otherEditorFocused: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     // The composer's editor model lives at bar level so the block document
@@ -148,16 +163,25 @@ fun IssueDetailBottomBar(
     // strip while the files stay queued in the VM.
     val pendingState = rememberUpdatedState(pendingAttachments)
     val lifecycle = LocalLifecycleOwner.current.lifecycle
+    // Identity re-check (EXP-568): the composer never registers with the shared
+    // toolbar (showToolbar = false), so a registered model is by definition some
+    // other editor — but assert it rather than trust it, since a future opt-in
+    // would otherwise make the composer collapse itself.
+    val toolbarController = LocalMarkdownToolbarController.current
+    val otherEditorFocusedState = rememberUpdatedState(
+        otherEditorFocused && toolbarController?.activeModel !== composerModel,
+    )
     LaunchedEffect(expanded) {
         if (!expanded) return@LaunchedEffect
         var hadFocus = false
         snapshotFlow {
-            Triple(
+            ComposerBlurState(
                 composerModel.focusedRowId != null,
                 imeVisibleState.value,
                 emojiPickerOpenState.value,
+                otherEditorFocusedState.value,
             )
-        }.collectLatest { (focused, ime, emojiOpen) ->
+        }.collectLatest { (focused, ime, emojiOpen, otherFocused) ->
             if (focused) {
                 hadFocus = true
                 return@collectLatest
@@ -165,7 +189,14 @@ fun IssueDetailBottomBar(
             // The emoji picker takes focus AND the keyboard by design
             // (EXP-551) — collapsing under it would unmount the composer the
             // pick is meant to land in.
-            if (!hadFocus || ime || emojiOpen) return@collectLatest
+            //
+            // EXP-568: a still-visible keyboard normally means a transient
+            // toolbar-tap blur, so it blocks the collapse — UNLESS another
+            // editor is what took it, in which case the composer must fold away
+            // instead of stacking a second editor on screen. The draft is never
+            // lost either way: a non-empty one keeps the composer expanded (and
+            // the VM holds the text regardless).
+            if (!hadFocus || (ime && !otherFocused) || emojiOpen) return@collectLatest
             delay(200)
             val empty = draftState.value.isBlank() && pendingState.value.isEmpty() &&
                 composerModel.currentMarkdown().isBlank()

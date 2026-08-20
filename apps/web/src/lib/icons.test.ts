@@ -369,6 +369,7 @@ describe(`icon call sites`, () => {
     const kebab = (name: string) =>
       name
         .replace(/(?<=[a-z])(?=[A-Z])/g, `-`)
+        .replace(/(?<=[A-Z])(?=[A-Z][a-z])/g, `-`)
         .replace(/(?<=[A-Za-z])(?=[0-9])/g, `-`)
         .toLowerCase()
     const bad: string[] = []

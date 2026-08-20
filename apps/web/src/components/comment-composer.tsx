@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react"
-import { ArrowUp, Paperclip, X } from "lucide-react"
 import { toast } from "sonner"
 import type { Attachment, User } from "@/db/schema"
 import { MAX_COMMENT_ATTACHMENTS } from "@/lib/domain"
 import {
+  acceptedImageContentTypes,
   isAcceptedImageContentType,
   maxFileUploadBytes,
   maxImageUploadBytes,
@@ -24,10 +24,16 @@ import {
 } from "@/components/mention-textarea"
 import { EmojiPickerPopover } from "@/components/emoji-picker"
 import { conceptIcon } from "@/lib/icons.generated"
+import { issueRefInsertionText } from "@/components/issue-editor/formatting-rail"
 
-// Multi-client surface (the natives mirror this row) — concept icon, not a
-// raw lucide import (EXP-317).
+// Multi-client surface (the natives mirror this row) — concept icons, never
+// raw lucide imports (EXP-317).
 const EmojiIcon = conceptIcon(`editor-emoji`)
+const ImageIcon = conceptIcon(`editor-image`)
+const AttachIcon = conceptIcon(`ui-attach`)
+const IssueRefIcon = conceptIcon(`editor-issue-ref`)
+const SubmitIcon = conceptIcon(`ui-submit`)
+const CloseIcon = conceptIcon(`ui-close`)
 
 /** A file picked into the composer, or (in edit mode) an already-linked row.
  *  `uploadedId` survives a failed send so a retry never re-uploads; `existing`
@@ -53,6 +59,12 @@ interface CommentComposerProps {
   onCancel?: () => void
   placeholder?: string
   autoFocus?: boolean
+  /**
+   * Focus left the composer card while it held nothing worth keeping — no
+   * text, no pending attachments, no file chooser in flight. The phone bottom
+   * bar (EXP-568) collapses back to its "+ Comment" pill on this.
+   */
+  onEmptyBlur?: () => void
 }
 
 /**
@@ -72,6 +84,7 @@ export function CommentComposer({
   onCancel,
   placeholder = `Leave a reply…`,
   autoFocus = false,
+  onEmptyBlur,
 }: CommentComposerProps) {
   const [text, setText] = useState(initialText)
   const [pending, setPending] = useState<PendingCommentAttachment[]>(() =>
@@ -79,7 +92,20 @@ export function CommentComposer({
   )
   const [submitting, setSubmitting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const imageInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<MentionTextareaHandle>(null)
+  // A file chooser steals focus without moving it anywhere in the document,
+  // so the focusout below would read as "user left the composer". Latched on
+  // the click that opens one, released when it resolves either way.
+  const filePickerOpenRef = useRef(false)
+
+  useEffect(() => {
+    const release = () => {
+      filePickerOpenRef.current = false
+    }
+    window.addEventListener(`focus`, release)
+    return () => window.removeEventListener(`focus`, release)
+  }, [])
 
   const pendingRef = useRef(pending)
   pendingRef.current = pending
@@ -177,7 +203,16 @@ export function CommentComposer({
 
   return (
     <div
-      className="rounded-lg border border-border bg-muted/40"
+      className="rounded-2xl border border-border bg-muted/40"
+      onBlur={(event) => {
+        if (!onEmptyBlur) return
+        // focusout bubbles; ignore focus moves WITHIN the card.
+        const next = event.relatedTarget
+        if (next instanceof Node && event.currentTarget.contains(next)) return
+        if (filePickerOpenRef.current) return
+        if (text.trim().length > 0 || pending.length > 0) return
+        onEmptyBlur()
+      }}
       onDrop={(event) => {
         if (event.dataTransfer.files.length === 0) return
         event.preventDefault()
@@ -205,7 +240,7 @@ export function CommentComposer({
                 onClick={() => removeItem(item.key)}
                 className="absolute -right-1.5 -top-1.5 rounded-full border border-border bg-background p-0.5 text-muted-foreground hover:text-foreground"
               >
-                <X className="size-3" />
+                <CloseIcon className="size-3" />
               </button>
             )
             if (imageSrc) {
@@ -259,13 +294,26 @@ export function CommentComposer({
           addFiles(Array.from(event.clipboardData.files))
         }}
       />
-      <div className="flex items-center gap-1 px-1.5 pb-1.5">
+      <div className="flex items-center gap-0.5 px-1.5 pb-1.5">
+        <input
+          ref={imageInputRef}
+          type="file"
+          accept={acceptedImageContentTypes.join(`,`)}
+          multiple
+          className="hidden"
+          onChange={(event) => {
+            filePickerOpenRef.current = false
+            if (event.target.files) addFiles(Array.from(event.target.files))
+            event.target.value = ``
+          }}
+        />
         <input
           ref={fileInputRef}
           type="file"
           multiple
           className="hidden"
           onChange={(event) => {
+            filePickerOpenRef.current = false
             if (event.target.files) addFiles(Array.from(event.target.files))
             event.target.value = ``
           }}
@@ -275,12 +323,48 @@ export function CommentComposer({
           variant="ghost"
           size="icon"
           className="text-muted-foreground"
+          aria-label="Add image"
+          title="Add image"
+          disabled={submitting}
+          onClick={() => {
+            filePickerOpenRef.current = true
+            imageInputRef.current?.click()
+          }}
+        >
+          <ImageIcon />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="text-muted-foreground"
           aria-label="Attach files"
           title="Attach files"
           disabled={submitting}
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => {
+            filePickerOpenRef.current = true
+            fileInputRef.current?.click()
+          }}
         >
-          <Paperclip />
+          <AttachIcon />
+        </Button>
+        {/* The `#` picker only opens at a TOKEN start, so a `#` typed right
+            after a word needs a leading space (shared helper, EXP-568). */}
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="text-muted-foreground"
+          aria-label="Insert issue reference"
+          title="Insert issue reference"
+          disabled={submitting}
+          onClick={() =>
+            textareaRef.current?.insertText(
+              issueRefInsertionText(textareaRef.current.charBeforeCaret())
+            )
+          }
+        >
+          <IssueRefIcon />
         </Button>
         {/* EXP-551: the picker inserts at the textarea's caret; the popover
             keeps focus off its trigger on close and insertText re-focuses. */}
@@ -300,7 +384,7 @@ export function CommentComposer({
             <EmojiIcon />
           </Button>
         </EmojiPickerPopover>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-1">
           {onCancel && (
             <Button
               type="button"
@@ -312,15 +396,18 @@ export function CommentComposer({
               Cancel
             </Button>
           )}
+          {/* `ui-submit` IS the circled arrow — a filled button around it
+              would draw a second ring. */}
           <Button
             type="button"
             size="icon"
-            className="shrink-0"
+            variant="ghost"
+            className="shrink-0 rounded-full text-primary hover:text-primary disabled:opacity-40"
             aria-label="Send comment"
             disabled={submitting || !canSubmit}
             onClick={() => void submit()}
           >
-            <ArrowUp />
+            <SubmitIcon className="!size-6" />
           </Button>
         </div>
       </div>

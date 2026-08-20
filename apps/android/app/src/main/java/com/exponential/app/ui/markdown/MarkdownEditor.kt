@@ -63,10 +63,6 @@ fun MarkdownEditor(
     // Whether the floating formatting toolbar registers for this editor. The
     // comment composer opts out (EXP-246) — it carries its own image/@/# row.
     showToolbar: Boolean = true,
-    // Whether the toolbar offers the @-mention button. Solo teams pass false
-    // (nobody else to mention) — explicit, mirroring imageUploadEnabled, never
-    // inferred from mentionMembers' contents.
-    mentionEnabled: Boolean = true,
     // Reports whether any field of this editor holds focus. Lets the host gate a
     // live remote-apply on "not currently editing" (issue detail description).
     onFocusChanged: ((Boolean) -> Unit)? = null,
@@ -143,7 +139,6 @@ fun MarkdownEditor(
                 toolbarController.onPickImage = pickImage
                 toolbarController.onPickFile = pickFile
                 toolbarController.imageEnabled = imageEnabledFlag
-                toolbarController.mentionEnabled = mentionEnabled
             } else if (toolbarController.activeModel === model) {
                 toolbarController.activeModel = null
             }

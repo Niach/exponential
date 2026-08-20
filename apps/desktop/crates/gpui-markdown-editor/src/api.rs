@@ -54,6 +54,12 @@ pub enum FormatCommand {
     Italic,
     Strikethrough,
     Code,
+    /// EXP-568 vendoring: force the block back to a plain paragraph — the
+    /// floating rail's "Text" entry, which must READ as a single-select
+    /// sibling of H1/H2/H3 rather than a toggle. Unlike every other block
+    /// command this one is idempotent: re-applying it on a paragraph leaves
+    /// a paragraph.
+    Paragraph,
     /// CommonMark heading level; the toolbar offers 1–3 like web.
     Heading(u8),
     BulletList,

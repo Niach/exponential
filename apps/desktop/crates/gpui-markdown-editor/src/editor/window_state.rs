@@ -374,6 +374,11 @@ impl Editor {
                 block.toggle_inline_format(InlineFormat::Strikethrough, cx)
             }
             FormatCommand::Code => block.toggle_inline_format(InlineFormat::Code, cx),
+            // EXP-568 vendoring: `set_block_kind` already returns a block to a
+            // paragraph when the requested kind IS the current one, so asking
+            // for `Paragraph` is the same no-op-on-a-paragraph /
+            // demote-everything-else the rail's Text entry needs.
+            FormatCommand::Paragraph => block.set_block_kind(BlockKind::Paragraph, cx),
             FormatCommand::Heading(level) => block.set_block_kind(BlockKind::Heading { level }, cx),
             FormatCommand::BulletList => block.set_block_kind(BlockKind::BulletedListItem, cx),
             FormatCommand::OrderedList => block.set_block_kind(BlockKind::NumberedListItem, cx),
@@ -416,6 +421,55 @@ impl Editor {
     pub fn caret_viewport_bounds(&self, window: &Window, cx: &App) -> Option<gpui::Bounds<Pixels>> {
         let block = self.focused_edit_target(window, cx)?;
         block.read(cx).active_range_or_cursor_bounds()
+    }
+
+    /// EXP-568 vendoring: is anything selected right now — inside one block
+    /// or across several? Drives the host's floating format rail, which is a
+    /// SELECTION affordance: a bare caret must never summon it.
+    ///
+    /// Resolved through [`Self::format_target`], not the focused block, for
+    /// the same reason the format commands are: clicking a rail button blurs
+    /// the block, and a focus-only lookup would make the rail dismiss itself
+    /// on its own first click.
+    pub fn has_nonempty_selection(&self, window: &Window, cx: &App) -> bool {
+        if self.cross_block_selection.is_some() {
+            return true;
+        }
+        self.format_target(window, cx)
+            .is_some_and(|block| block.read(cx).has_selection())
+    }
+
+    /// EXP-568 vendoring: window bounds of the current SELECTION — the
+    /// floating rail's anchor. `None` when nothing is selected, or while the
+    /// selected blocks are off-screen (no painted layout to measure).
+    ///
+    /// A cross-block sweep unions the per-block highlight rectangles, so the
+    /// anchor tracks the whole span rather than whichever block happens to
+    /// hold focus.
+    pub fn selection_viewport_bounds(
+        &self,
+        window: &Window,
+        cx: &App,
+    ) -> Option<gpui::Bounds<Pixels>> {
+        if self.cross_block_selection.is_some() {
+            let mut union: Option<gpui::Bounds<Pixels>> = None;
+            let mut seen = HashSet::new();
+            for visible in self.document.visible_blocks() {
+                if !seen.insert(visible.entity.entity_id()) {
+                    continue;
+                }
+                if let Some(bounds) = visible.entity.read(cx).selection_bounds() {
+                    union = Some(match union {
+                        Some(union) => union.union(&bounds),
+                        None => bounds,
+                    });
+                }
+            }
+            if union.is_some() {
+                return union;
+            }
+        }
+        self.format_target(window, cx)?.read(cx).selection_bounds()
     }
 
     /// EXP-288: hand the editor the HOST's tracked scroll handle (embedded

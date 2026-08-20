@@ -40,6 +40,45 @@ import androidx.compose.ui.graphics.vector.addPathNodes
 import androidx.compose.ui.unit.dp
 
 public object ExpIcons {
+    public val `a-large-small`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "a-large-small",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("m15 16 2.536-7.328a1.02 1.02 1 0 1 1.928 0L22 16"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M15.697 14h5.606"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("m2 16 4.039-9.69a.5.5 0 0 1 .923 0L11 16"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M3.304 13h6.392"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `activity`: ImageVector by lazy {
         ImageVector.Builder(
             name = "activity",
@@ -5297,6 +5336,38 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `type`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "type",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M12 4v16"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M9 20h6"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `undo-2`: ImageVector by lazy {
         ImageVector.Builder(
             name = "undo-2",
@@ -5768,6 +5839,7 @@ public object ExpIcons {
 
     /** Registry name -> glyph. Null for an unknown name (caller falls back). */
     public fun byName(name: String): ImageVector? = when (name) {
+        "a-large-small" -> `a-large-small`
         "activity" -> `activity`
         "archive" -> `archive`
         "arrow-down-left" -> `arrow-down-left`
@@ -5926,6 +5998,7 @@ public object ExpIcons {
         "trash-2" -> `trash-2`
         "triangle-alert" -> `triangle-alert`
         "trophy" -> `trophy`
+        "type" -> `type`
         "undo-2" -> `undo-2`
         "unlink" -> `unlink`
         "upload" -> `upload`
@@ -6007,6 +6080,10 @@ public object ExpIcons {
     public val editorQuote: ImageVector get() = `quote`
     /** Concept `editor-strikethrough`. */
     public val editorStrikethrough: ImageVector get() = `strikethrough`
+    /** Concept `editor-text`. */
+    public val editorText: ImageVector get() = `type`
+    /** Concept `editor-text-format`. */
+    public val editorTextFormat: ImageVector get() = `a-large-small`
     /** Concept `editor-unlink`. */
     public val editorUnlink: ImageVector get() = `unlink`
     /** Concept `event-assignee-changed`. */

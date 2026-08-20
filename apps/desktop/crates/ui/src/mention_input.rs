@@ -88,6 +88,10 @@ pub struct MentionInput {
     /// EXP-551: a queued `:tada:` auto-commit (token + the unicode replacing
     /// it), drained on the next render.
     pending_commit: Option<(PendingToken, String)>,
+    /// EXP-568: draw the textarea's own border/background? The comment
+    /// composer turns it OFF — it lives inside a glass card that already owns
+    /// the chrome, and a nested box-in-box read as two stacked inputs.
+    appearance: bool,
     _subscription: Subscription,
 }
 
@@ -109,8 +113,15 @@ impl MentionInput {
             source: None,
             completion: None,
             pending_commit: None,
+            appearance: true,
             _subscription: subscription,
         }
+    }
+
+    /// EXP-568: see [`Self::appearance`]. Off = no border, no background —
+    /// the host's card supplies both.
+    pub fn set_appearance(&mut self, appearance: bool) {
+        self.appearance = appearance;
     }
 
     /// The completion source (re-pointed on issue/team change; `None`
@@ -374,7 +385,7 @@ impl Render for MentionInput {
             // wrapper is a flex ROW — without an explicit width an empty
             // input collapses to its content (the tiny comment composer,
             // EXP-67).
-            .child(Textarea::new(&self.input).w_full())
+            .child(Textarea::new(&self.input).w_full().appearance(self.appearance))
             .child(
                 canvas(
                     move |element_bounds, _, _| bounds.set(element_bounds),

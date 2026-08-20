@@ -383,6 +383,43 @@ class EditorModel {
         pendingAnchor == rowId to caret && kind in pendingMarks
 
     /**
+     * Strip every inline mark over [range] and drop any queued pending marks —
+     * the rail's "Clear formatting" (web parity: `unsetAllMarks`). A COLLAPSED
+     * range has no inline run to strip, so it clears the touched paragraph's
+     * block formatting instead (web's `clearNodes`), which is the only thing a
+     * caret-only tap can meaningfully undo.
+     */
+    fun clearFormatting(rowId: String, range: IntRange) {
+        val idx = rows.indexOfFirst { it.id == rowId }
+        if (idx < 0) return
+        val row = rows[idx] as? EditorRow.TextRun ?: return
+        val start = range.first.coerceIn(0, row.text.length)
+        val end = range.last.coerceIn(start, row.text.length)
+        pendingMarks = emptySet()
+        pendingAnchor = null
+        if (end > start) {
+            var marks = row.marks
+            for (kind in InlineKind.entries) marks = MarkOps.removeMark(marks, start, end, kind)
+            replaceRow(idx, row.copy(marks = marks))
+        } else {
+            val index = ParaRemap.paraIndexAt(row.text, start)
+            val paras = row.paragraphs.toMutableList()
+            if (index !in paras.indices) return
+            paras[index] = ParagraphAttrs.PLAIN
+            replaceRow(idx, row.copy(paragraphs = paras))
+            // Only the paragraph path reseeds: attrs drive indent / text size,
+            // and the text itself is untouched so a live selection survives.
+            bump(row.id)
+            desiredSelection = row.id to start
+            renumberOrdered()
+        }
+        // Re-assert focus for the same reason [toggleMark] does — the rail tap
+        // took OS focus off the field.
+        setFocused(rowId)
+        notifyEdit()
+    }
+
+    /**
      * Insert plain text at the caret of the active row (falls back to the end of
      * the last text run) — the comment composer's `@` affordance (EXP-240).
      * Mirrors [insertLinkText] sans the mark; re-asserts focus so the mention
@@ -426,6 +463,19 @@ class EditorModel {
     fun marksFor(rowId: String): List<com.exponential.app.ui.markdown.model.InlineMark> =
         (rows.firstOrNull { it.id == rowId } as? EditorRow.TextRun)?.marks ?: emptyList()
 
+    /**
+     * The href of a link covering the START of [range] in [rowId], if any — the
+     * link rail prefills its URL field with it so editing an existing link
+     * replaces rather than blanks it.
+     */
+    fun linkHrefAt(rowId: String, range: IntRange): String? {
+        val row = rows.firstOrNull { it.id == rowId } as? EditorRow.TextRun ?: return null
+        val at = range.first
+        return row.marks
+            .firstOrNull { it.kind == InlineKind.Link && it.start <= at && it.end > at }
+            ?.href
+    }
+
     /** The paragraph under the caret (start of the active selection) — toolbar tint. */
     fun attrsAtCaret(): ParagraphAttrs? {
         val (rid, range) = activeSelection() ?: return null
@@ -439,15 +489,18 @@ class EditorModel {
     // per-run restructure unlocks. All-or-nothing semantics: if every touched
     // paragraph already has the target kind, all clear to plain.
 
-    fun cycleHeading(rowId: String) = mutateParaRange(rowId) { attrs ->
-        val a = attrs.first()
-        val next = when {
-            a.kind != BlockKind.Heading -> 1
-            a.headingLevel >= 3 -> 0
-            else -> a.headingLevel + 1
-        }
-        val v = if (next == 0) ParagraphAttrs.PLAIN
-        else ParagraphAttrs(kind = BlockKind.Heading, headingLevel = next)
+    /**
+     * Set every touched paragraph to heading [level] (1..3), or to a plain
+     * paragraph for level 0 — the rail's single-select Text/H1/H2/H3 group.
+     * Re-tapping the level every touched paragraph already has clears it, so
+     * the active button doubles as its own off switch (web/iOS parity).
+     */
+    fun setHeading(rowId: String, level: Int) = mutateParaRange(rowId) { attrs ->
+        val target = level.coerceIn(0, 3)
+        val alreadyThatLevel = target > 0 &&
+            attrs.all { it.kind == BlockKind.Heading && it.headingLevel == target }
+        val v = if (target == 0 || alreadyThatLevel) ParagraphAttrs.PLAIN
+        else ParagraphAttrs(kind = BlockKind.Heading, headingLevel = target)
         attrs.map { v }
     }
 

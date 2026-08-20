@@ -1057,14 +1057,9 @@ impl IssueHeader {
         // which would still occupy a gap slot in the row.
         let start_coding = self.start_coding.read(cx).is_visible(cx);
 
-        h_flex()
-            .w_full()
-            .flex_wrap()
-            .gap_1()
-            .items_center()
-            .px(px(DETAIL_GUTTER))
-            .pb_1()
-            .when(start_coding, |row| row.child(self.start_coding.clone()))
+        // EXP-568: the properties live in one glass tray; Start coding stays
+        // OUTSIDE it, leading — it is an action, not a property of the issue.
+        let properties = crate::surface::glass_tray()
             .child(self.status_control(issue, cx))
             .child(self.priority_control(issue, cx))
             .when(!solo_team, |row| {
@@ -1073,7 +1068,21 @@ impl IssueHeader {
             .child(self.labels_control(issue, cx))
             .child(self.due_control(issue, cx))
             .children(self.board_chip(issue, cx))
-            .children(self.origin_chip(issue, cx))
+            .children(self.origin_chip(issue, cx));
+
+        h_flex()
+            .w_full()
+            .flex_wrap()
+            .gap_1p5()
+            .items_center()
+            .px(px(DETAIL_GUTTER))
+            .pb_1()
+            .when(start_coding, |row| row.child(self.start_coding.clone()))
+            // flex_1 + min_w_0: the tray takes the width left beside the
+            // launcher, which is what gives its own `flex_wrap` a definite
+            // width to wrap the chips against (a shrink-to-fit tray would size
+            // to max-content and paint past the reading column instead).
+            .child(properties.flex_1().min_w_0())
             .into_any_element()
     }
 

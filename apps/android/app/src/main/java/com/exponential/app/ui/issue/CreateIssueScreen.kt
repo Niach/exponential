@@ -355,7 +355,6 @@ fun CreateIssueScreen(
                         users
                             .map { MentionMember(it.name ?: it.email, it.email) }
                     },
-                    mentionEnabled = !isSoloTeam,
                     // EXP-327: the same attach menu as issue detail — images go
                     // into the description, other files become draft
                     // attachments uploaded once the issue exists.

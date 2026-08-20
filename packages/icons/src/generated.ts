@@ -26,6 +26,7 @@
 
 /** Every Lucide name the registry ships, on every client. */
 export const ICON_NAMES = [
+  `a-large-small`,
   `activity`,
   `archive`,
   `arrow-down-left`,
@@ -184,6 +185,7 @@ export const ICON_NAMES = [
   `trash-2`,
   `triangle-alert`,
   `trophy`,
+  `type`,
   `undo-2`,
   `unlink`,
   `upload`,
@@ -311,6 +313,8 @@ export const SEMANTIC_ICONS = {
   "editor-mention": `at-sign`,
   "editor-quote": `quote`,
   "editor-strikethrough": `strikethrough`,
+  "editor-text": `type`,
+  "editor-text-format": `a-large-small`,
   "editor-unlink": `unlink`,
   "event-assignee-changed": `user-plus`,
   "event-board-moved": `move`,

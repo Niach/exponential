@@ -4,6 +4,7 @@ import com.exponential.app.ui.markdown.model.BlockKind
 import com.exponential.app.ui.markdown.model.InlineKind
 import com.exponential.app.ui.markdown.model.ListType
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -148,6 +149,106 @@ class EditorModelTest {
         val row = run(m)
         m.toggleMark(row.id, 0..5, InlineKind.Bold)
         assertEquals("**hello** world", m.currentMarkdown())
+    }
+
+    // -- Rail ops: headings + clear formatting (EXP-568) ---------------------
+
+    @Test
+    fun setHeadingAppliesTheLevelToTheCaretParagraph() {
+        val m = model("hello")
+        val row = run(m)
+        m.setFocused(row.id)
+        m.updateSelection(row.id, 0..0)
+        m.setHeading(row.id, 2)
+        assertEquals(listOf(BlockKind.Heading), run(m).paragraphs.map { it.kind })
+        assertEquals(2, run(m).paragraphs.first().headingLevel)
+        assertEquals("## hello", m.currentMarkdown())
+    }
+
+    @Test
+    fun setHeadingToTheActiveLevelClearsIt() {
+        val m = model("## hello")
+        val row = run(m)
+        m.setFocused(row.id)
+        m.updateSelection(row.id, 0..0)
+        // Tapping the already-active level is its own off switch.
+        m.setHeading(row.id, 2)
+        assertEquals(listOf(BlockKind.Paragraph), run(m).paragraphs.map { it.kind })
+        assertEquals("hello", m.currentMarkdown())
+    }
+
+    @Test
+    fun setHeadingZeroReturnsToAPlainParagraph() {
+        val m = model("### hello")
+        val row = run(m)
+        m.setFocused(row.id)
+        m.updateSelection(row.id, 0..0)
+        m.setHeading(row.id, 0)
+        assertEquals(listOf(BlockKind.Paragraph), run(m).paragraphs.map { it.kind })
+        assertEquals("hello", m.currentMarkdown())
+    }
+
+    @Test
+    fun setHeadingCoversEveryParagraphTheSelectionTouches() {
+        val m = model("a\n\nb\n\nc")
+        val row = run(m)
+        m.setFocused(row.id)
+        m.updateSelection(row.id, 0..3) // "a\nb"
+        m.setHeading(row.id, 1)
+        assertEquals(
+            listOf(BlockKind.Heading, BlockKind.Heading, BlockKind.Paragraph),
+            run(m).paragraphs.map { it.kind },
+        )
+        assertEquals("# a\n\n# b\n\nc", m.currentMarkdown())
+    }
+
+    @Test
+    fun clearFormattingStripsEveryInlineMarkOverTheSelection() {
+        val m = model("hello world")
+        val row = run(m)
+        m.toggleMark(row.id, 0..5, InlineKind.Bold)
+        m.toggleMark(row.id, 0..5, InlineKind.Italic)
+        m.toggleMark(row.id, 6..11, InlineKind.Link, "https://example.com")
+        assertTrue(m.currentMarkdown() != "hello world")
+        m.clearFormatting(row.id, 0..11)
+        assertEquals("hello world", m.currentMarkdown())
+        assertTrue(run(m).marks.isEmpty())
+    }
+
+    @Test
+    fun clearFormattingLeavesMarksOutsideTheSelectionAlone() {
+        val m = model("hello world")
+        val row = run(m)
+        m.toggleMark(row.id, 0..5, InlineKind.Bold)
+        m.toggleMark(row.id, 6..11, InlineKind.Bold)
+        m.clearFormatting(row.id, 6..11)
+        assertEquals("**hello** world", m.currentMarkdown())
+    }
+
+    @Test
+    fun clearFormattingAtACollapsedCaretResetsTheParagraph() {
+        val m = model("> quoted")
+        val row = run(m)
+        assertEquals(listOf(BlockKind.Blockquote), row.paragraphs.map { it.kind })
+        m.setFocused(row.id)
+        m.updateSelection(row.id, 0..0)
+        // Nothing inline to strip, so the block formatting is what clears
+        // (web parity: unsetAllMarks + clearNodes).
+        m.clearFormatting(row.id, 0..0)
+        assertEquals(listOf(BlockKind.Paragraph), run(m).paragraphs.map { it.kind })
+        assertEquals("quoted", m.currentMarkdown())
+    }
+
+    @Test
+    fun clearFormattingDropsQueuedPendingMarks() {
+        val m = model("hello")
+        val row = run(m)
+        m.setFocused(row.id)
+        m.updateSelection(row.id, 5..5)
+        m.togglePendingMark(row.id, 5, InlineKind.Bold)
+        assertTrue(m.pendingMarkActive(row.id, 5, InlineKind.Bold))
+        m.clearFormatting(row.id, 5..5)
+        assertFalse(m.pendingMarkActive(row.id, 5, InlineKind.Bold))
     }
 
     // -- Paragraph-kind toggles over a selection (multi-paragraph, EXP-534) --

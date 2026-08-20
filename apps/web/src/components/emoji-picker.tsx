@@ -245,6 +245,9 @@ interface EmojiPickerPopoverProps {
   onPick: (unicode: string, emoji: EmojiRecord) => void
   align?: `start` | `center` | `end`
   side?: `top` | `bottom`
+  /** Mirrors the popover's open state to the host (EXP-568: the formatting
+   *  rail must stay alive across the editor blur that opening this causes). */
+  onOpenChange?: (open: boolean) => void
 }
 
 /**
@@ -257,11 +260,16 @@ export function EmojiPickerPopover({
   onPick,
   align = `start`,
   side,
+  onOpenChange,
 }: EmojiPickerPopoverProps) {
   const [open, setOpen] = useState(false)
   const isMobile = useIsMobile()
+  const setOpenState = (next: boolean) => {
+    setOpen(next)
+    onOpenChange?.(next)
+  }
   return (
-    <MobilePopover open={open} onOpenChange={setOpen}>
+    <MobilePopover open={open} onOpenChange={setOpenState}>
       <MobilePopoverTrigger asChild>{children}</MobilePopoverTrigger>
       <MobilePopoverContent
         className="w-[21rem] max-w-[calc(100vw-1rem)] p-0"
@@ -275,7 +283,7 @@ export function EmojiPickerPopover({
             autoFocusSearch={!isMobile}
             onPick={(unicode, emoji) => {
               onPick(unicode, emoji)
-              setOpen(false)
+              setOpenState(false)
             }}
           />
         )}

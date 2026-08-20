@@ -5,8 +5,9 @@
 //! duplicate-of banner, then a FIXED header — the
 //! [`crate::issue_header::IssueHeader`]'s top row (switcher · copy link ·
 //! subscribe · `…`), the borderless title input (save-on-blur), its chip row
-//! and agent row, and the description editor's formatting toolbar — over the
-//! ONE scrolling body: description + files rail + timeline.
+//! and agent row — over the ONE scrolling body: description + files rail +
+//! timeline. EXP-568 retired the pinned formatting toolbar that used to close
+//! the header; formatting rides a selection-triggered floating rail instead.
 //!
 //! **Description editor seam (§4.5).** The from-scratch GFM block editor
 //! lands concurrently in `markdown_editor.rs`; this file must not depend on
@@ -88,8 +89,8 @@ pub(crate) const DETAIL_COLUMN_W: f32 = 768.;
 /// hosts the self-padding WYSIWYG editor.
 pub(crate) const DETAIL_GUTTER: f32 = 16.;
 
-/// The vendored WYSIWYG editor's own per-block horizontal padding —
-/// shared with the toolbar compensation (EXP-285), see `wysiwyg::mod`.
+/// The vendored WYSIWYG editor's own per-block horizontal padding — the
+/// description slot's inset compensation, see `wysiwyg::mod`.
 pub(crate) use crate::wysiwyg::WYSIWYG_BLOCK_PADDING_X;
 
 pub(crate) fn centered_column(column: gpui::Div) -> gpui::Div {
@@ -122,13 +123,6 @@ pub trait DescriptionEditor {
     fn is_focused(&self, window: &Window, cx: &App) -> bool;
     /// The element to mount in the description slot.
     fn element(&self, window: &mut Window, cx: &mut App) -> gpui::AnyElement;
-    /// EXP-417: the pinned formatting toolbar, for hosts that render it
-    /// OUTSIDE the editor (the fixed header) so a long description never
-    /// scrolls it away. `None` (the default) = the editor keeps its own
-    /// inline bar.
-    fn toolbar_element(&self, _window: &mut Window, _cx: &mut App) -> Option<gpui::AnyElement> {
-        None
-    }
     /// Move keyboard focus into the editor (Tab from the title lands here —
     /// web EXP-10 parity).
     fn focus(&self, window: &mut Window, cx: &mut App);
@@ -1656,8 +1650,8 @@ impl IssueDetailView {
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let column = v_flex()
-            // EXP-426: breathing room under the pinned toolbar's border —
-            // the embedded editor deliberately carries no insets of its own.
+            // EXP-426: breathing room under the header's border — the
+            // embedded editor deliberately carries no insets of its own.
             .pt_2()
             .child(self.render_description(issue, window, cx))
             // EXP-297: the files rail sits under the description and above
@@ -1682,9 +1676,11 @@ impl IssueDetailView {
             .child(self.timeline.clone())
     }
 
-    /// The FIXED header (EXP-417): top row · title · chips · agent row ·
-    /// formatting toolbar. Only the body below it scrolls, so a long
-    /// description never scrolls the title or the toolbar away.
+    /// The FIXED header (EXP-417): top row · title · chips · agent row. Only
+    /// the body below it scrolls, so a long description never scrolls the
+    /// title away. EXP-568 retired the pinned formatting bar that used to
+    /// close this stack — formatting now rides the selection-triggered
+    /// floating rail the editor renders itself.
     ///
     /// The header entity's rows are built through `entity.update` from this
     /// render (the `render_tab_strip` precedent) — they must never call back
@@ -1692,7 +1688,7 @@ impl IssueDetailView {
     fn render_header(
         &mut self,
         issue: &Issue,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let header = self.header.clone();
@@ -1703,16 +1699,6 @@ impl IssueDetailView {
                 header.agent_row(issue, cx),
             )
         });
-        // EXP-285: the same inset as the editor slot — the toolbar's own
-        // glyph-align padding lands the first glyph on the shared 16px edge.
-        let toolbar = div()
-            .px(px(DETAIL_GUTTER - WYSIWYG_BLOCK_PADDING_X))
-            .children(
-                self.editor
-                    .clone()
-                    .and_then(|editor| editor.toolbar_element(window, cx)),
-            );
-
         v_flex()
             .w_full()
             .flex_shrink_0()
@@ -1723,8 +1709,7 @@ impl IssueDetailView {
                     .child(top_row)
                     .child(self.render_title(cx))
                     .child(chip_row)
-                    .children(agent_row)
-                    .child(toolbar),
+                    .children(agent_row),
             ))
     }
 }

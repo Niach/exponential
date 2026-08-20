@@ -2017,6 +2017,20 @@ impl Render for Block {
         if self.sync_image_focus_state(focused) {
             cx.notify();
         }
+        // EXP-568 vendoring: the ONE place every selection route converges.
+        // `set_source_selection` (the host-driven path) already emits, but a
+        // drag, a shift-arrow or a plain click only mutate `selected_range` /
+        // `editor_selection_range` — nothing told the host. The diff guard is
+        // mandatory: the host repaints on the forwarded event, so an
+        // unconditional emit here would spin.
+        let selection_now = (
+            self.selected_range.clone(),
+            self.editor_selection_range.clone(),
+        );
+        if self.last_reported_selection != selection_now {
+            self.last_reported_selection = selection_now;
+            cx.emit(BlockEvent::SelectionUiChanged);
+        }
 
         let showing_rendered_image = self.showing_rendered_image();
         // Inline math stays in the projected view while focused (its `$...$`

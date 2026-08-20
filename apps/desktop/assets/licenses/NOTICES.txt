@@ -18330,6 +18330,23 @@ Host integration seams (EXP-261 — additive API for the Exponential desktop)
   text (the emoji picker's glyph) at the caret through the same typed-edit
   path, resolving the target through `format_target` and re-focusing it so a
   popover click, which has already blurred the block, still lands.
+- (EXP-568) src/components/block/state.rs + src/components/block/render.rs +
+  src/editor/events.rs: `BlockEvent::SelectionUiChanged` — upstream reported a
+  selection to the host only when the HOST set one (`set_source_selection`), so
+  a pointer drag or shift-arrow was invisible outside the engine. Block render
+  now diffs `(selected_range, editor_selection_range)` against
+  `last_reported_selection` and emits on a real move; the editor forwards it as
+  the existing `MarkdownEditorEvent::SelectionChanged`. The diff guard is
+  load-bearing — hosts repaint on the event, so an unguarded emit would spin.
+- (EXP-568) src/editor/window_state.rs: `has_nonempty_selection` and
+  `selection_viewport_bounds`, plus
+  src/components/block/runtime/mod.rs `selection_bounds` — the anchor geometry
+  for a host's selection-triggered floating toolbar. Unlike
+  `caret_viewport_bounds` these answer `None` for a bare caret, and a
+  cross-block sweep unions the per-block highlight rectangles.
+- (EXP-568) src/api.rs + src/editor/window_state.rs: `FormatCommand::Paragraph`
+  — an explicit demote-to-paragraph, so a "Text" entry can read as a
+  single-select sibling of H1/H2/H3 instead of a toggle.
 - src/theme.rs: `ThemeFonts { ui_family, mono_family }` (upstream hardcoded
   `.SystemUIFont`; code had no monospace); editor/render.rs + block
   element/render read the theme families.

@@ -180,6 +180,8 @@
     "editor-mention": "at-sign",
     "editor-issue-ref": "hash",
     "editor-emoji": "smile",
+    "editor-text-format": "a-large-small",
+    "editor-text": "type",
 
     "action-default": "zap",
     "action-run": "play",

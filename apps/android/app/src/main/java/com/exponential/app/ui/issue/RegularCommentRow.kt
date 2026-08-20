@@ -81,7 +81,6 @@ internal fun RegularCommentRow(
     onAddEditAttachment: (Uri, Int) -> Unit,
     onRemoveEditAttachment: (Int) -> Unit,
     mentionMembers: List<MentionMember>,
-    mentionEnabled: Boolean = true,
 ) {
     val bodyText = remember(comment.body) { getCommentBodyText(comment.body) }
     var draft by remember(comment.id, isEditing) { mutableStateOf(bodyText) }
@@ -215,7 +214,6 @@ internal fun RegularCommentRow(
                     placeholder = "Edit comment…",
                     minHeight = 40.dp,
                     mentionMembers = mentionMembers,
-                    mentionEnabled = mentionEnabled,
                     model = editModel,
                     modifier = Modifier.fillMaxWidth(),
                 )

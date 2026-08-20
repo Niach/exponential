@@ -107,7 +107,6 @@ struct CreateIssueSheet: View {
                             accountId: accountId,
                             httpClient: deps.httpClient,
                             mentionMembers: users.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) },
-                            showsMentionButton: !singleMemberTeam,
                             // EXP-327: the same attach menu as issue detail —
                             // images go into the description, other files
                             // become drafts uploaded once the issue exists.

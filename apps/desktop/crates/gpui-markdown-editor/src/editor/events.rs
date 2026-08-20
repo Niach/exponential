@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use super::Editor;
-use crate::api::MarkdownEditorEvent;
+use crate::api::{MarkdownEditorEvent, SourceSelection};
 use crate::components::markdown::paste::should_split_plain_multiline_paste;
 use crate::components::{
     BlockEvent, BlockKind, BlockRecord, CollapsedCaretAffinity, IndentBlock, InlineTextTree,
@@ -1435,6 +1435,19 @@ impl Editor {
             return;
         }
 
+        // EXP-568 vendoring: a selection move (drag, shift-arrow, click)
+        // becomes the host-facing `SelectionChanged`. Handled ahead of the
+        // table-cell branch so cells report too, and it mutates nothing —
+        // purely a notification.
+        if matches!(event, BlockEvent::SelectionUiChanged) {
+            let snapshot = self.capture_source_selection_snapshot(cx);
+            cx.emit(MarkdownEditorEvent::SelectionChanged(SourceSelection {
+                range: snapshot.range,
+                reversed: snapshot.reversed,
+            }));
+            return;
+        }
+
         if let BlockEvent::RequestReplaceCrossBlockSelection {
             text,
             selected_range_relative,
@@ -2440,6 +2453,8 @@ impl Editor {
             }
             BlockEvent::RequestRenderedSelectAll => {}
             BlockEvent::PrepareUndo { .. } => {}
+            // EXP-568 vendoring: forwarded above, ahead of every mutation.
+            BlockEvent::SelectionUiChanged => {}
         }
     }
 }

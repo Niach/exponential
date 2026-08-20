@@ -50,6 +50,7 @@ import {
 import { IssuePropertiesPanel } from "@/components/issue-properties-panel"
 import { IssueTimeline } from "@/components/issue-timeline"
 import { IssueCodingControl, IssuePrRow } from "@/components/issue-coding-rows"
+import { IssueDetailMobileBar } from "@/components/issue-detail-mobile-bar"
 import { IssueFilesSection } from "@/components/issue-files-section"
 import { SubscribeToggle } from "@/components/subscribe-toggle"
 import { WidgetSubmissionCard } from "@/components/widget-submission-card"
@@ -243,11 +244,9 @@ export function IssueDetailView({
   const [attachmentStatus, setAttachmentStatus] = useState<string | null>(null)
   const [activeUploadCount, setActiveUploadCount] = useState(0)
   const [linkCopied, setLinkCopied] = useState(false)
-  // EXP-422: the desktop scrollport's sticky band hosts the editor's toolbar
-  // (portaled out of MarkdownEditor), so title and toolbar stick as one unit
-  // — a wrapping title (EXP-189) would make two stacked sticky offsets
-  // measurement-dependent.
-  const [toolbarHost, setToolbarHost] = useState<HTMLDivElement | null>(null)
+  // EXP-568: the floating phone bar steps aside while the description is being
+  // written — the keyboard formatting rail owns the bottom edge then.
+  const [descriptionFocused, setDescriptionFocused] = useState(false)
   // The band's measured height feeds the editor's scroll-into-view insets so
   // the caret never hides under it; a ResizeObserver tracks it live (the
   // title wraps, the toolbar row wraps — the height is dynamic).
@@ -506,24 +505,36 @@ export function IssueDetailView({
 
   const dueDate = issue.dueDate ? parseLocalDate(issue.dueDate) : undefined
 
-  // Coding "coding now" / remote-start control (EXP-184): an unlabeled sidebar
-  // property group on desktop, the classic full-width row on mobile. The
-  // component owns the repo/membership/relay gating and focuses the global
-  // dock rather than mounting the live viewer inline.
-  const codingControl = currentUserId ? (
-    <IssueCodingControl
-      issue={issue}
-      board={board}
-      teamId={teamId}
-      currentUserId={currentUserId}
-      users={users}
-      variant={isMobile ? `row` : `sidebar`}
-    />
-  ) : null
+  // Coding "coding now" / remote-start control (EXP-184): a main-column row on
+  // desktop, one circle in the floating bar on phones (EXP-568). The component
+  // owns the repo/membership/relay gating and focuses the global dock rather
+  // than mounting the live viewer inline.
+  const codingControl =
+    currentUserId && !isMobile ? (
+      <IssueCodingControl
+        issue={issue}
+        board={board}
+        teamId={teamId}
+        currentUserId={currentUserId}
+        users={users}
+        variant="row"
+      />
+    ) : null
+
+  const codingFab =
+    currentUserId && isMobile ? (
+      <IssueCodingControl
+        issue={issue}
+        board={board}
+        teamId={teamId}
+        currentUserId={currentUserId}
+        users={users}
+        variant="fab"
+      />
+    ) : null
 
   const propsPanel = (
     <IssuePropertiesPanel
-      layout={isMobile ? `chiprow` : `sidebar`}
       status={statusOption}
       onStatusChange={handleStatusChange}
       priority={issue.priority}
@@ -556,7 +567,6 @@ export function IssueDetailView({
         })
       }}
       source={issue.source}
-      boardName={board.name}
       boardColor={board.color}
       boardPrefix={board.prefix}
       boardIcon={board.icon}
@@ -584,9 +594,151 @@ export function IssueDetailView({
         })
       }}
       disabled={readOnly}
-      codingSlot={isMobile ? undefined : codingControl}
     />
   )
+
+  // EXP-568: properties live at the TOP of the reading column on every
+  // viewport, inside their own glass card — no sidebar, no border-to-border
+  // band welded to the header.
+  const propsBand = (
+    <div className="mx-auto w-full max-w-3xl px-4 pt-3">
+      <div className="rounded-xl border border-glass-stroke-card bg-popover/40">
+        {propsPanel}
+      </div>
+    </div>
+  )
+
+  // Header actions shared by the desktop breadcrumb and the compact phone
+  // header below — one definition each, two arrangements.
+  const switcherButtons = position ? (
+    <>
+      <IconTooltip label="Previous issue" shortcut="K">
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          className="text-muted-foreground"
+          aria-label="Previous issue (K)"
+          disabled={!position.prevIdentifier}
+          onClick={() => navigateToIssue(position.prevIdentifier)}
+        >
+          <ChevronUp className="size-4" />
+        </Button>
+      </IconTooltip>
+      <IconTooltip label="Next issue" shortcut="J">
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          className="text-muted-foreground"
+          aria-label="Next issue (J)"
+          disabled={!position.nextIdentifier}
+          onClick={() => navigateToIssue(position.nextIdentifier)}
+        >
+          <ChevronDown className="size-4" />
+        </Button>
+      </IconTooltip>
+    </>
+  ) : null
+
+  // The label follows the icon into its copied state, so the tooltip confirms
+  // the copy rather than repeating the invitation to click.
+  const copyLinkButton = (
+    <IconTooltip label={linkCopied ? `Link copied` : `Copy link to issue`}>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        className="text-muted-foreground"
+        aria-label="Copy link to issue"
+        onClick={() => {
+          if (typeof navigator === `undefined` || !navigator.clipboard) {
+            return
+          }
+          const url = `${window.location.origin}/t/${teamSlug}/boards/${board.slug}/issues/${issue.identifier}`
+          navigator.clipboard.writeText(url).then(
+            () => {
+              setLinkCopied(true)
+              setTimeout(() => setLinkCopied(false), 1500)
+            },
+            () => {
+              // Clipboard denied (permissions/insecure context) — no success state.
+            }
+          )
+        }}
+      >
+        {linkCopied ? (
+          <Check className="size-4 text-primary" />
+        ) : (
+          <Link2 className="size-4" />
+        )}
+      </Button>
+    </IconTooltip>
+  )
+
+  // EXP-426: the only remaining "…" item is the conditional duplicate unmark
+  // — delete moved out to its own always-visible icon.
+  const unmarkDuplicateMenu =
+    !readOnly && issue.duplicateOfId ? (
+      <DropdownMenu>
+        <IconTooltip label="More actions">
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="text-muted-foreground"
+              aria-label="Issue actions"
+            >
+              <Ellipsis className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+        </IconTooltip>
+        <DropdownMenuContent align="end" className="w-[13rem]">
+          <DropdownMenuItem
+            onSelect={() => {
+              void trpc.issues.update.mutate({
+                id: issue.id,
+                duplicateOfId: null,
+              })
+            }}
+          >
+            <Undo2 className="size-4" />
+            Unmark duplicate
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    ) : null
+
+  // Destructive → confirm on a second click, matching the issue-row context
+  // menu's delete pattern (EXP-59).
+  const deleteMenu = !readOnly ? (
+    <DropdownMenu>
+      <IconTooltip label="Delete issue">
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="text-muted-foreground"
+            aria-label="Delete issue"
+          >
+            <Trash2 className="size-4" />
+          </Button>
+        </DropdownMenuTrigger>
+      </IconTooltip>
+      <DropdownMenuContent align="end" className="w-[14rem]">
+        <DropdownMenuItem
+          variant="destructive"
+          onSelect={() => {
+            void handleDeleteIssue()
+          }}
+        >
+          <Trash2 className="size-4" />
+          Confirm delete
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  ) : null
+
+  const subscribeToggle = currentUserId ? (
+    <SubscribeToggle issueId={issue.id} currentUserId={currentUserId} />
+  ) : null
 
   const breadcrumb = (
     <div className="flex items-center gap-1.5 text-xs text-muted-foreground px-4 py-2 border-b border-border min-w-0">
@@ -615,127 +767,48 @@ export function IssueDetailView({
             <span className="hidden px-0.5 font-mono tabular-nums whitespace-nowrap sm:inline">
               {position.index} / {position.total}
             </span>
-            <IconTooltip label="Previous issue" shortcut="K">
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                className="text-muted-foreground"
-                aria-label="Previous issue (K)"
-                disabled={!position.prevIdentifier}
-                onClick={() => navigateToIssue(position.prevIdentifier)}
-              >
-                <ChevronUp className="size-4" />
-              </Button>
-            </IconTooltip>
-            <IconTooltip label="Next issue" shortcut="J">
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                className="text-muted-foreground"
-                aria-label="Next issue (J)"
-                disabled={!position.nextIdentifier}
-                onClick={() => navigateToIssue(position.nextIdentifier)}
-              >
-                <ChevronDown className="size-4" />
-              </Button>
-            </IconTooltip>
+            {switcherButtons}
             <Separator orientation="vertical" className="mx-1 !h-3.5" />
           </>
         )}
-        {/* The label follows the icon into its copied state, so the tooltip
-            confirms the copy rather than repeating the invitation to click. */}
-        <IconTooltip label={linkCopied ? `Link copied` : `Copy link to issue`}>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            className="text-muted-foreground"
-            aria-label="Copy link to issue"
-            onClick={() => {
-              if (typeof navigator === `undefined` || !navigator.clipboard) {
-                return
-              }
-              const url = `${window.location.origin}/t/${teamSlug}/boards/${board.slug}/issues/${issue.identifier}`
-              navigator.clipboard.writeText(url).then(
-                () => {
-                  setLinkCopied(true)
-                  setTimeout(() => setLinkCopied(false), 1500)
-                },
-                () => {
-                  // Clipboard denied (permissions/insecure context) — no success state.
-                }
-              )
-            }}
-          >
-            {linkCopied ? (
-              <Check className="size-4 text-primary" />
-            ) : (
-              <Link2 className="size-4" />
-            )}
-          </Button>
-        </IconTooltip>
-        {currentUserId && (
-          <SubscribeToggle issueId={issue.id} currentUserId={currentUserId} />
+        {copyLinkButton}
+        {subscribeToggle}
+        {unmarkDuplicateMenu}
+        {deleteMenu}
+      </div>
+    </div>
+  )
+
+  // EXP-568 phone header: one line, no room for a board NAME or an "N / total"
+  // counter — the board glyph stands in for the crumb, and the identifier +
+  // title carry the rest.
+  const mobileHeader = (
+    <div className="flex items-center gap-1.5 border-b border-border px-3 py-2 text-xs text-muted-foreground min-w-0">
+      <Link
+        to="/t/$teamSlug/boards/$boardSlug"
+        params={{ teamSlug, boardSlug: board.slug }}
+        search={{
+          status: filterSearch?.status,
+          priority: filterSearch?.priority,
+          labels: filterSearch?.labels,
+        }}
+        aria-label={board.name}
+        className="inline-flex shrink-0 items-center hover:text-foreground"
+      >
+        <BoardGlyph board={board} className="size-4" />
+      </Link>
+      <ChevronRight className="size-3 shrink-0 text-muted-foreground/50" />
+      <span className="shrink-0 font-mono">{issue.identifier}</span>
+      <span className="truncate text-foreground">{title}</span>
+      <div className="ml-auto flex shrink-0 items-center">
+        {switcherButtons}
+        {position && (
+          <Separator orientation="vertical" className="mx-1 !h-3.5" />
         )}
-        {/* EXP-426: the only remaining "…" item is the conditional duplicate
-            unmark — delete moved out to its own always-visible icon below. */}
-        {!readOnly && issue.duplicateOfId && (
-          <DropdownMenu>
-            <IconTooltip label="More actions">
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  className="text-muted-foreground"
-                  aria-label="Issue actions"
-                >
-                  <Ellipsis className="size-4" />
-                </Button>
-              </DropdownMenuTrigger>
-            </IconTooltip>
-            <DropdownMenuContent align="end" className="w-[13rem]">
-              <DropdownMenuItem
-                onSelect={() => {
-                  void trpc.issues.update.mutate({
-                    id: issue.id,
-                    duplicateOfId: null,
-                  })
-                }}
-              >
-                <Undo2 className="size-4" />
-                Unmark duplicate
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-        {!readOnly && (
-          <DropdownMenu>
-            <IconTooltip label="Delete issue">
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  className="text-muted-foreground"
-                  aria-label="Delete issue"
-                >
-                  <Trash2 className="size-4" />
-                </Button>
-              </DropdownMenuTrigger>
-            </IconTooltip>
-            {/* Destructive → confirm on a second click, matching the issue-row
-                context menu's delete pattern (EXP-59). */}
-            <DropdownMenuContent align="end" className="w-[14rem]">
-              <DropdownMenuItem
-                variant="destructive"
-                onSelect={() => {
-                  void handleDeleteIssue()
-                }}
-              >
-                <Trash2 className="size-4" />
-                Confirm delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
+        {copyLinkButton}
+        {subscribeToggle}
+        {unmarkDuplicateMenu}
+        {deleteMenu}
       </div>
     </div>
   )
@@ -789,9 +862,7 @@ export function IssueDetailView({
         onChange={setDescriptionValue}
         onBlur={() => void handleDescriptionBlur()}
         placeholder="Add description..."
-        // Desktop parks the toolbar in the sticky title band below; on mobile
-        // it stays inline (no sticky band — phone vertical space is scarce).
-        toolbarHost={isMobile ? undefined : toolbarHost}
+        onFocusChange={setDescriptionFocused}
         topScrollInset={isMobile ? undefined : stickyBandHeight}
         imageUpload={{
           enabled: !readOnly,
@@ -803,8 +874,8 @@ export function IssueDetailView({
     </div>
   )
 
-  // The attachments strip is gone (EXP-256) — the editor's toolbar/paste/drop
-  // and the image node menu cover add/remove; only upload errors still need a
+  // The attachments strip is gone (EXP-256) — the editor's rail/paste/drop and
+  // the image node menu cover add/remove; only upload errors still need a
   // surface.
   const attachmentError = attachmentStatus ? (
     <p className="px-5 py-2 text-xs text-destructive">{attachmentStatus}</p>
@@ -841,8 +912,22 @@ export function IssueDetailView({
       issue={issue}
       currentUserId={currentUserId}
       users={users}
+      hideComposer={isMobile}
     />
   ) : null
+
+  // Same mutation the timeline's own composer runs (EXP-568: on phones the
+  // composer moved into the floating bar, which sits outside the timeline).
+  const handleCommentSubmit = async (
+    body: string,
+    attachmentIds: string[]
+  ) => {
+    await trpc.comments.create.mutate({
+      issueId: issue.id,
+      body,
+      attachmentIds,
+    })
+  }
 
   // EXP-42b: reporter/page/env metadata of widget-filed issues, members-only
   // (the server gates it; anonymous viewers never even fetch).
@@ -853,19 +938,29 @@ export function IssueDetailView({
   if (isMobile) {
     return (
       <div className="flex flex-col h-full min-h-0">
-        {breadcrumb}
+        {mobileHeader}
         {duplicateBanner}
-        {propsPanel}
-        <div className="flex-1 overflow-y-auto">
+        {/* pb-24 clears the floating bar so the last comment stays readable. */}
+        <div className="flex-1 overflow-y-auto pb-24">
+          {propsBand}
           {titleField}
           {editor}
           {attachmentError}
           {filesSection}
-          {codingControl}
           {prRow}
           {widgetCard}
           {timeline}
         </div>
+        {currentUserId && (
+          <IssueDetailMobileBar
+            issueId={issue.id}
+            users={users}
+            propertiesNode={propsPanel}
+            codingNode={codingFab}
+            onSubmitComment={handleCommentSubmit}
+            hidden={descriptionFocused}
+          />
+        )}
         {duplicatePicker}
       </div>
     )
@@ -882,26 +977,20 @@ export function IssueDetailView({
               ref={setStickyBand}
               className="sticky top-0 z-10 glass-chrome-top"
             >
-              <div className="mx-auto max-w-3xl">
-                {titleField}
-                {/* The editor portals its toolbar in here; the toolbar's own
-                    bottom border is the band's rule. `px-1` keeps the glyphs
-                    on the title's gutter, exactly where the inline toolbar
-                    sat inside the editor's own wrapper. */}
-                {!readOnly && <div className="px-1" ref={setToolbarHost} />}
-              </div>
+              <div className="mx-auto max-w-3xl">{titleField}</div>
             </div>
             <div className="mx-auto max-w-3xl">
+              {propsBand}
               {editor}
               {attachmentError}
               {filesSection}
+              {codingControl}
               {prRow}
               {widgetCard}
               {timeline}
             </div>
           </div>
         </div>
-        {propsPanel}
       </div>
       {duplicatePicker}
     </div>

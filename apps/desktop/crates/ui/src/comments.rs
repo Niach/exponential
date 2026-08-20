@@ -29,7 +29,7 @@ use crate::comment_attachments::{
 use crate::emoji_picker::{emoji_picker_popover, EmojiPicker};
 use crate::controls::WebControl as _;
 use crate::description_editor::open_issue_by_identifier;
-use crate::icons::{registry, ExpIcon};
+use crate::icons::registry;
 use crate::markdown::{ImageCache, MarkdownView, RefResolver};
 use crate::mention_input::MentionInput;
 use crate::timeline::{IssueTimeline, PendingCommentAttachment, PendingScope};
@@ -220,9 +220,15 @@ pub(crate) fn comment_row(
         });
 
     let body: gpui::AnyElement = match props.editing {
+        // EXP-568: same card treatment as the create composer below.
         Some(editor) => v_flex()
             .mt_1()
-            .gap_2()
+            .gap_1p5()
+            .p_2()
+            .rounded_lg()
+            .border_1()
+            .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+            .bg(theme::tokens::glass::FILL_CARD.to_hsla())
             .child(editor.clone())
             // EXP-554: kept attachments (with the staging ✕) + this edit's
             // picks, above the Save/Cancel row.
@@ -352,10 +358,14 @@ fn edit_attachments_full(props: &CommentRowProps<'_>, cx: &gpui::App) -> bool {
     kept + props.edit_pending.len() >= MAX_COMMENT_ATTACHMENTS
 }
 
-/// The composer strip: pending-attachment chips over an auto-growing
-/// mention-capable input flanked by the attach + Send buttons. State (the
-/// `InputState` entity, the submitting flag, the pending picks, the PressEnter
-/// subscription) lives on [`IssueTimeline`]; this only lays out the rows.
+/// EXP-568: the composer CARD — attachment chips on top, the borderless
+/// auto-growing mention input in the middle, and the tool row along the
+/// bottom (image · attach · `#` · emoji … submit). One glass card instead of
+/// the old input-plus-buttons strip, so the whole thing reads as a single
+/// compose surface the way the web and mobile composers do.
+///
+/// State (the `InputState` entity, the submitting flag, the pending picks, the
+/// PressEnter subscription) lives on [`IssueTimeline`]; this only lays it out.
 pub(crate) fn composer_row(
     input: &Entity<MentionInput>,
     submitting: bool,
@@ -369,19 +379,46 @@ pub(crate) fn composer_row(
     v_flex()
         .w_full()
         .mt_2()
-        .gap_2()
+        .gap_1p5()
+        .p_2()
+        .rounded_lg()
+        .border_1()
+        .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+        .bg(theme::tokens::glass::FILL_CARD.to_hsla())
         .children(pending_attachments_strip(pending, PendingScope::Composer, cx))
+        // EXP-525: a flex-COLUMN slot, not a nested row — the view child's
+        // percent width resolved against unclamped avail in a row hop
+        // (EXP-436 class) and the composer collapsed to placeholder width at
+        // some window sizes; a column stretches its child to the definite slot
+        // width instead.
+        .child(v_flex().w_full().min_w_0().child(input.clone()))
         .child(
             h_flex()
                 .w_full()
-                .gap_2()
-                .items_end()
-                // EXP-525: a flex-COLUMN slot, not a nested row — the view
-                // child's percent width resolved against unclamped avail in a
-                // row hop (EXP-436 class) and the composer collapsed to
-                // placeholder width at some window sizes; a column stretches
-                // its child to the definite slot width instead.
-                .child(v_flex().flex_1().min_w_0().child(input.clone()))
+                .gap_1()
+                .items_center()
+                .child(composer_tool(
+                    "comment-image",
+                    registry::EDITOR_IMAGE,
+                    "Insert image",
+                    cx,
+                ).on_click(cx.listener(|this, _, window, cx| {
+                    this.pick_comment_images(PendingScope::Composer, window, cx);
+                })))
+                .child(attach_button(
+                    "comment-attach",
+                    PendingScope::Composer,
+                    full,
+                    cx,
+                ))
+                .child(composer_tool(
+                    "comment-issue-ref",
+                    registry::EDITOR_ISSUE_REF,
+                    "Link an issue",
+                    cx,
+                ).on_click(cx.listener(|this, _, window, cx| {
+                    this.insert_issue_ref_trigger(PendingScope::Composer, window, cx);
+                })))
                 .child(emoji_button(
                     "comment-emoji",
                     PendingScope::Composer,
@@ -389,17 +426,12 @@ pub(crate) fn composer_row(
                     emoji_open,
                     cx,
                 ))
-                .child(attach_button(
-                    "comment-attach",
-                    PendingScope::Composer,
-                    full,
-                    cx,
-                ))
+                .child(div().flex_1())
                 .child(
                     Button::new("comment-submit")
                         .primary()
                         .web_icon_sm()
-                        .icon(Icon::from(ExpIcon::Send))
+                        .icon(Icon::from(registry::UI_SUBMIT))
                         .loading(submitting)
                         .disabled(submitting || !has_draft)
                         .on_click(
@@ -407,6 +439,21 @@ pub(crate) fn composer_row(
                         ),
                 ),
         )
+}
+
+/// A composer tool button: the muted ghost treatment `attach_button` and
+/// `emoji_button` already wear, for the entries that need no extra state.
+fn composer_tool(
+    id: &'static str,
+    icon: crate::icons::ExpIcon,
+    tooltip: &'static str,
+    cx: &mut gpui::Context<IssueTimeline>,
+) -> Button {
+    Button::new(id)
+        .ghost()
+        .web_icon_sm()
+        .icon(Icon::new(icon).text_color(cx.theme().muted_foreground))
+        .tooltip(tooltip)
 }
 
 /// EXP-551: the emoji trigger both comment composers grow — a smiley that
