@@ -1979,11 +1979,6 @@ struct SteerState {
     /// Fallback subagent-card identity when a `Task` hook payload carries no
     /// `tool_use_id` (EXP-350 — the card used to be dropped entirely).
     task_seq: u32,
-    /// EXP-275: the session runs with permissions bypassed
-    /// (`--dangerously-skip-permissions` / codex bypass). A real permission
-    /// prompt cannot happen then, so a permission-flavored Notification is
-    /// claude parked on input — never a blocked-on-approval card.
-    bypass_permissions: bool,
     /// EXP-347: a question/plan resolution was learned since the last
     /// [`Self::take_resolution`] — the emitter clears the publisher's
     /// grid-picker flag on it instead of waiting for the next grid tick
@@ -2344,12 +2339,14 @@ impl SteerState {
                 if self.ask.is_some() || self.plan.is_some() {
                     return;
                 }
-                // Bypass mode cannot hit a real permission prompt — whatever
-                // sent this, claude is merely parked on human input.
-                if self.bypass_permissions {
-                    self.attention = Some(Attention::Idle);
-                    return;
-                }
+                // Bypass mode used to downgrade this to an idle nudge on the
+                // assumption skip-permissions can never prompt (EXP-275) —
+                // false since claude flags DANGEROUS commands even under
+                // `--dangerously-skip-permissions` ("Dangerous rm operation
+                // on possibly-empty variable path", verified live on
+                // v2.1.237), and the swallowed hold left those sessions
+                // parked with nothing on the relay at all (EXP-564). A
+                // bypass prompt now arms exactly like any other.
                 self.attention = Some(Attention::Permission);
                 // EXP-455: hold the informational card — the grid watcher
                 // publishes the dialog as an ANSWERABLE question when it
@@ -3249,8 +3246,10 @@ pub struct EmitterConfig {
     /// when the sidecar never came up (the pi feed then degrades to diffs).
     pub pi_events: Option<flume::Receiver<crate::pi_observer::PiEvent>>,
     /// EXP-275: the session was launched with permissions bypassed
-    /// (`--dangerously-skip-permissions` / codex bypass) — permission-flavored
-    /// Notifications then never become "blocked on approval" cards.
+    /// (`--dangerously-skip-permissions` / codex bypass). Feeds the launch
+    /// narration only — a bypass session still hits REAL permission prompts
+    /// (claude flags dangerous commands even then, EXP-564), so the
+    /// permission machinery runs identically in both postures.
     pub bypass_permissions: bool,
     /// EXP-529: the session launched into plan mode (claude
     /// `--permission-mode plan` / pi's plan extension) — mutually exclusive
@@ -3383,6 +3382,29 @@ pub(crate) fn launch_narration(bypass_permissions: bool, plan_mode: bool) -> &'s
     }
 }
 
+/// EXP-564: re-arm the permission watcher when its published question was
+/// retired while the dialog is still on the grid. The Stop hook retires the
+/// question on the "turn over ⇒ no dialog" assumption — false for a
+/// BACKGROUND subagent's dialog, which outlives the main turn (and claude
+/// prompts for dangerous commands even in bypass mode, so a fan-out session
+/// can park on one exactly like this). Unlatched, the steady dialog re-fires
+/// `Show` a debounce later and re-publishes as a fresh question; a dialog
+/// that really left the grid re-fires nothing. A pending ask/plan keeps the
+/// watcher latched — their screens own the story, and the Show-suppression
+/// path already unlatches when they clear (EXP-458).
+fn reconcile_permission_watcher(
+    watcher: &mut PermissionPickerWatcher,
+    steer: &SteerState,
+) {
+    if watcher.is_pending()
+        && steer.permission.is_none()
+        && steer.ask.is_none()
+        && steer.plan.is_none()
+    {
+        watcher.unlatch();
+    }
+}
+
 fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<AtomicBool>) {
     let mut exact_secrets = secrets_from_worktree(&config.worktree);
     exact_secrets.extend(config.extra_secrets.iter().cloned());
@@ -3416,10 +3438,7 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
         suppress_task_headlines: config.hooks.is_some(),
         ..TranscriptState::default()
     };
-    let mut steer = SteerState {
-        bypass_permissions: config.bypass_permissions,
-        ..SteerState::default()
-    };
+    let mut steer = SteerState::default();
     // EXP-443: pinned from tick zero — with the spawn-minted `--session-id`
     // seeded, `owns_main` never falls back to the blanket "newest file in
     // the cwd" and a foreign claude sharing the cwd is never tailed. If
@@ -3753,14 +3772,16 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
                 }
                 None => {}
             }
-            // EXP-455: permission dialogs. A session launched without
-            // bypass-permissions parks on them, and remote viewers used to
-            // get only the informational card — the dialog becomes an
+            // EXP-455: permission dialogs. A session parks on them (bypass
+            // mode included — claude flags dangerous commands even under
+            // skip-permissions, EXP-564), and remote viewers used to get
+            // only the informational card — the dialog becomes an
             // answerable question instead. Runs after the other watchers
             // (the detector rejects their screens outright). Lenient while
             // the hooks hold an unconfirmed prompt or the published question
             // is live (EXP-529) — the hook drain in step 2 already ran, so a
             // hold armed this tick is visible here.
+            reconcile_permission_watcher(&mut permission_watcher, &steer);
             let permission_lenient = steer.permission_grid_leniency();
             match permission_watcher.tick(&lines, grid_offset, permission_lenient) {
                 Some(permission_picker::Transition::Show(snapshot)) => {
@@ -7688,14 +7709,14 @@ mod tests {
     }
 
     #[test]
-    fn bypass_permissions_downgrades_permission_prompts_to_idle() {
-        // With --dangerously-skip-permissions a real permission prompt cannot
-        // happen — whatever notified, claude is merely parked on input.
+    fn a_bypass_mode_permission_prompt_arms_like_any_other() {
+        // EXP-564, reversing EXP-275's downgrade: claude flags dangerous
+        // commands even under --dangerously-skip-permissions ("Dangerous rm
+        // operation on possibly-empty variable path"), so a bypass session's
+        // permission Notification is a REAL prompt — hold the informational
+        // card, arm the grid leniency + degraded fallback, mark blocked.
         let (sender, rx) = ActivitySender::test_pair();
-        let mut steer = SteerState {
-            bypass_permissions: true,
-            ..SteerState::default()
-        };
+        let mut steer = SteerState::default();
         let mut transcript = TranscriptState::default();
         steer.apply_hook(
             hook(HookEventKind::PermissionPrompt {
@@ -7706,11 +7727,82 @@ mod tests {
             &Redactor::new(vec![]),
             &mut transcript,
         );
-        assert!(drained(&rx).is_empty(), "no permission card in bypass mode");
+        assert!(drained(&rx).is_empty(), "the card is held for the grid");
         assert!(
-            steer.attention == Some(Attention::Idle),
-            "parked on input, not blocked"
+            steer.attention == Some(Attention::Permission),
+            "blocked on approval, not idle"
         );
+        assert!(steer.pending_permission.is_some(), "the hold is armed");
+    }
+
+    #[test]
+    fn a_stop_retired_question_republishes_while_the_dialog_persists() {
+        // EXP-564: a BACKGROUND subagent's permission dialog outlives the
+        // main turn — the Stop hook retires the published question on the
+        // "turn over ⇒ no dialog" assumption, and the still-latched watcher
+        // then never re-fired, leaving the session parked with nothing on
+        // the relay. The reconcile unlatches so the steady dialog
+        // re-publishes as a fresh question.
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        let mut watcher = crate::permission_picker::PermissionPickerWatcher::new();
+        let dialog = permission_dialog_rows();
+
+        // The subagent's dialog settles on the grid and publishes.
+        assert!(watcher.tick(&dialog, 0, false).is_none());
+        let snapshot = match watcher.tick(&dialog, 0, false) {
+            Some(crate::permission_picker::Transition::Show(snapshot)) => snapshot,
+            other => panic!("expected Show, got {other:?}"),
+        };
+        steer.publish_permission_question(snapshot, &sender, &redactor);
+        match &drained(&rx)[..] {
+            [ActivityEvent::Question { id, .. }] => {
+                assert_eq!(id.as_deref(), Some("permission:1"));
+            }
+            other => panic!("expected the question, got {other:?}"),
+        }
+
+        // A live question keeps the watcher latched.
+        reconcile_permission_watcher(&mut watcher, &steer);
+        assert!(watcher.is_pending());
+
+        // The main turn ends while the dialog is still up — Stop retires it.
+        steer.apply_hook(hook(HookEventKind::Stop), &sender, &redactor, &mut transcript);
+        match &drained(&rx)[..] {
+            [ActivityEvent::QuestionResolved { id, .. }] => {
+                assert_eq!(id.as_deref(), Some("permission:1"));
+            }
+            other => panic!("expected the retirement, got {other:?}"),
+        }
+        assert!(watcher.is_pending(), "the watcher still latches the dialog");
+
+        // The reconcile unlatches; the steady dialog re-fires Show a
+        // debounce later and re-publishes as a fresh question.
+        reconcile_permission_watcher(&mut watcher, &steer);
+        assert!(!watcher.is_pending());
+        assert!(watcher.tick(&dialog, 0, false).is_none());
+        let snapshot = match watcher.tick(&dialog, 0, false) {
+            Some(crate::permission_picker::Transition::Show(snapshot)) => snapshot,
+            other => panic!("expected the re-Show, got {other:?}"),
+        };
+        steer.publish_permission_question(snapshot, &sender, &redactor);
+        match &drained(&rx)[..] {
+            [ActivityEvent::Question { id, .. }] => {
+                assert_eq!(id.as_deref(), Some("permission:2"));
+            }
+            other => panic!("expected the fresh question, got {other:?}"),
+        }
+
+        // A pending ask owns the screen story — the reconcile never
+        // unlatches under it (the Show-suppression path handles that arc).
+        steer.resolve_permission(&sender);
+        drained(&rx);
+        steer.apply_hook(ask_hook(), &sender, &redactor, &mut transcript);
+        drained(&rx);
+        reconcile_permission_watcher(&mut watcher, &steer);
+        assert!(watcher.is_pending(), "latched while the ask is pending");
     }
 
     #[test]

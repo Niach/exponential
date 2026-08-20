@@ -1,7 +1,9 @@
 //! Claude permission-dialog detection on the live terminal grid (EXP-455).
 //!
-//! A session launched WITHOUT `--dangerously-skip-permissions` blocks on
-//! claude's interactive permission dialog ("Do you want to proceed?") — a
+//! A session blocks on claude's interactive permission dialog ("Do you want
+//! to proceed?") — bypass mode included: `--dangerously-skip-permissions`
+//! still prompts for commands claude's safety check flags, e.g. "Dangerous
+//! rm operation on possibly-empty variable path" (EXP-564) — a
 //! screen that renders only on the grid, never in the transcript, exactly
 //! like the plan picker (EXP-150) and the login flow (EXP-430). The hooks
 //! sidecar's permission-flavored `Notification` says a prompt is UP but not
@@ -467,6 +469,34 @@ mod tests {
         ])
     }
 
+    /// The bypass-mode dangerous-command dialog as captured live on claude
+    /// v2.1.237 (EXP-564): `--dangerously-skip-permissions` still prompts
+    /// for commands its safety check flags ("Dangerous rm operation on
+    /// possibly-empty variable path"), here raised by a background subagent
+    /// while the main agent's turn is already over.
+    fn bypass_dangerous_rm_screen_v2_1_237() -> Vec<String> {
+        screen(&[
+            "● Engine diff reads well. Waiting on the hosts agent, then the churn cleanup.",
+            "",
+            "✻ Waiting for 1 background agent to finish",
+            "",
+            "──────────────────────────────────────────────────────────────────────────────",
+            " Bash command · from the general-purpose agent",
+            "",
+            "   │ SP=/private/tmp/scratchpad/fmtcheck; rm -f $SP/*_*.rs; i=0; for f in",
+            "   │ a_x.rs b_y.rs; do i=$((i+1)); echo CLEAN $i $f; done",
+            "   Remove matching .rs files then echo CLEAN lines",
+            "",
+            " Dangerous rm operation on possibly-empty variable path: $SP/*_*.rs",
+            "",
+            " Do you want to proceed?",
+            " ❯ 1. Yes",
+            "   2. No",
+            "",
+            " Esc to cancel · Tab to amend · ctrl+e to explain",
+        ])
+    }
+
     /// The Write dialog as captured live on claude v2.1.233: the file
     /// preview rides between `╌` rules instead of a bordered box.
     fn write_permission_screen_v2_1_233() -> Vec<String> {
@@ -522,6 +552,27 @@ mod tests {
             Some("Bash command · from the general-purpose agent")
         );
         assert_eq!(snap.options.len(), 3);
+    }
+
+    #[test]
+    fn detects_the_v2_1_237_bypass_dangerous_command_dialog() {
+        let snap = detect(&bypass_dangerous_rm_screen_v2_1_237()).expect("dialog detected");
+        assert_eq!(
+            snap.header.as_deref(),
+            Some("Bash command · from the general-purpose agent")
+        );
+        assert_eq!(snap.question, "Do you want to proceed?");
+        assert_eq!(
+            snap.options
+                .iter()
+                .map(|o| (o.key.as_str(), o.label.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("1", "Yes"), ("2", "No")]
+        );
+        assert!(snap
+            .context
+            .iter()
+            .any(|line| line.contains("Dangerous rm operation")));
     }
 
     #[test]
@@ -905,6 +956,7 @@ mod tests {
             write_permission_screen(),
             bash_permission_screen_v2_1_233(),
             write_permission_screen_v2_1_233(),
+            bypass_dangerous_rm_screen_v2_1_237(),
         ] {
             assert_eq!(detect(&lines), detect_lenient(&lines));
         }

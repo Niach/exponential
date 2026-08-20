@@ -1075,9 +1075,9 @@ enum SteerUiEvent {
 /// by `coding_flow::spawn_into_window` before the spawn consumes it.
 pub struct SteerSessionInfo {
     /// EXP-275: the launch's resolved permission posture (skip-permissions
-    /// on, plan mode off) — the emitter keeps permission-flavored
-    /// notifications from becoming "blocked on approval" cards in bypass
-    /// mode.
+    /// on, plan mode off) — feeds the emitter's launch narration. Bypass
+    /// sessions still hit real permission prompts (claude flags dangerous
+    /// commands even then, EXP-564), so nothing else keys on it.
     pub bypass_permissions: bool,
     /// EXP-529: the launch started in plan mode — stamped into the emitter's
     /// launch narration so remote viewers can tell the run's posture.
