@@ -73,3 +73,24 @@ describe(`MarkdownEditor chat appearance`, () => {
     expect(container.querySelector(`br`)).toBeFalsy()
   })
 })
+
+// EXP-568: an editable instance mounts the floating selection rail (a TipTap
+// BubbleMenu portaled to <body>). Its plugin registers against the live
+// editor, so a wiring mistake here breaks every editable editor at mount.
+describe(`MarkdownEditor formatting rail`, () => {
+  it(`mounts an editable editor with the selection rail attached`, async () => {
+    const { container, unmount } = render(
+      <MarkdownEditor markdown={`hello`} onChange={() => {}} />
+    )
+    await mountedContent(container)
+    // The rail's element stays DETACHED until a selection shows it (the
+    // BubbleMenu plugin appends it to <body> on show), so the assertion here
+    // is simply that registering the plugin against a live editor works and
+    // the editable content came up.
+    expect(
+      container.querySelector(`.tiptap-content[contenteditable="true"]`)
+    ).toBeTruthy()
+    expect(document.querySelector(`[data-editor-rail]`)).toBeNull()
+    unmount()
+  })
+})

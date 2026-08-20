@@ -28,6 +28,9 @@ interface IssueTimelineProps {
   issue: Issue
   currentUserId: string
   users: User[]
+  /** EXP-568: on phones the composer lives in the floating bottom bar, so the
+   *  timeline must not render a second one at the end of the thread. */
+  hideComposer?: boolean
 }
 
 // The comment thread + activity events (status/assignee/label/PR), rendered as
@@ -36,6 +39,7 @@ export function IssueTimeline({
   issue,
   currentUserId,
   users,
+  hideComposer = false,
 }: IssueTimelineProps) {
   const { data: comments } = useLiveQuery(
     (query) =>
@@ -234,13 +238,15 @@ export function IssueTimeline({
           />
         )
       })}
-      <div className="mt-2">
-        <CommentComposer
-          issueId={issue.id}
-          users={users}
-          onSubmit={handleSubmit}
-        />
-      </div>
+      {!hideComposer && (
+        <div className="mt-2">
+          <CommentComposer
+            issueId={issue.id}
+            users={users}
+            onSubmit={handleSubmit}
+          />
+        </div>
+      )}
     </div>
   )
 }

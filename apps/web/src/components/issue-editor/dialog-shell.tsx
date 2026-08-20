@@ -19,14 +19,16 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { Input } from "@/components/ui/input"
 
 // The editor's @/# autocomplete popup portals to document.body (EXP-54 — the
-// dialog's scroll region would clip it), so Radix sees interactions with it as
-// OUTSIDE the modal content and would close the dialog. Whitelist them.
+// dialog's scroll region would clip it), and EXP-568's formatting rail does
+// the same, so Radix sees interactions with either as OUTSIDE the modal
+// content and would close the dialog. Whitelist them.
 function isEditorAutocompleteInteraction(event: {
   target: EventTarget | null
 }): boolean {
   return (
     event.target instanceof Element &&
-    event.target.closest(`[data-editor-autocomplete]`) !== null
+    (event.target.closest(`[data-editor-autocomplete]`) !== null ||
+      event.target.closest(`[data-editor-rail]`) !== null)
   )
 }
 
@@ -45,7 +47,8 @@ function isEditorInnerLayerEscape(event: {
   }
   return (
     event.target instanceof Element &&
-    event.target.closest(`[data-editor-link-edit]`) !== null
+    (event.target.closest(`[data-editor-link-edit]`) !== null ||
+      event.target.closest(`[data-editor-rail]`) !== null)
   )
 }
 

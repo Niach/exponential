@@ -33,7 +33,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { PropertyGroup } from "@/components/issue-properties-panel"
 import { useSteerConfig } from "@/components/agent-session"
 import { useAgentDock } from "@/components/agent-dock/agent-dock-provider"
 import { useRemoteStart } from "@/hooks/use-remote-start"
@@ -42,15 +41,21 @@ import { LaunchDialog } from "@/components/launch-dialog/launch-dialog"
 // EXP-317: the "no desktop online" hint draws the same glyph here and in
 // the native apps (`ui-device-offline`).
 const UiDeviceOfflineIcon = conceptIcon(`ui-device-offline`)
+// The phone bar's start button — the same glyph the Actions surfaces run with.
+const ActionRunIcon = conceptIcon(`action-run`)
+
+// EXP-568: the floating mobile bar's 52px circles (issue-detail-mobile-bar.tsx
+// owns the bar itself; the coding circle's gating lives here).
+const FAB_CIRCLE_CLASS = `pointer-events-auto flex size-[52px] shrink-0 items-center justify-center rounded-full border border-glass-stroke-card bg-popover/85 shadow-lg shadow-black/40 backdrop-blur-xl`
 
 // The coding affordances of the issue detail (EXP-106): a compact "coding now"
 // / remote-start control that FOCUSES the global dock (never mounts the live
 // viewer itself), plus a PR / pushed-branch row that links to the review-detail
 // route. Repo presence + membership + relay availability gate them (the same
 // signals the server enforces); everything degrades to nothing when absent.
-// EXP-184 split them: IssueCodingControl renders as an unlabeled sidebar
-// property group on desktop (variant='sidebar') or the classic full-width row
-// on mobile (variant='row'); IssuePrRow always stays a main-column row.
+// EXP-184 split them: IssueCodingControl renders as the full-width main-column
+// row (variant='row', both viewports since EXP-568) or as the phone bottom
+// bar's circle (variant='fab'); IssuePrRow always stays a main-column row.
 
 /** PR-state pill — open emerald / merged purple / closed rose / draft secondary. */
 export function PrStateBadge({ state }: { state: string | null | undefined }) {
@@ -181,7 +186,7 @@ export function SessionStatusBadge({
   )
 }
 
-export type CodingControlVariant = `row` | `sidebar`
+export type CodingControlVariant = `row` | `fab`
 
 // Sidebar merge affordance (EXP-268): full-width Merge button + confirm
 // dialog for an issue whose linked PR is open. Mirrors the reviews pages'
@@ -217,7 +222,7 @@ function IssueMergeButton({ issue }: { issue: Issue }) {
       <Button
         variant="outline"
         size="sm"
-        className="w-full"
+        className="shrink-0"
         onClick={() => setConfirmOpen(true)}
         disabled={merging}
       >
@@ -271,7 +276,7 @@ function useIsTeamMember(teamId: string, currentUserId: string) {
   return (memberRows?.length ?? 0) > 0
 }
 
-/** The "coding now" / remote-start control — sidebar property group or row. */
+/** The "coding now" / remote-start control — main-column row or phone circle. */
 export function IssueCodingControl({
   issue,
   board,
@@ -398,6 +403,41 @@ function AgentRow({
       sessionDisplayState(latest, issue.prState),
       latestDevice
     )
+
+    // EXP-568 phone bar: one 52px circle, no words. Own live session → tap to
+    // open the dock; someone else's → a static badge circle that says "busy,
+    // not yours" (EXP-312 keeps live sessions owner-only).
+    if (variant === `fab`) {
+      if (ownLatest && steerEnabled) {
+        return (
+          <button
+            type="button"
+            aria-label="Open coding session"
+            onClick={() => dock?.openDock(ownLatest.id)}
+            className={cn(FAB_CIRCLE_CLASS, `text-emerald-400`)}
+          >
+            {paused ? (
+              <StateDot className="bg-muted-foreground/40" />
+            ) : (
+              <RunningPing />
+            )}
+          </button>
+        )
+      }
+      return (
+        <div
+          aria-label="Coding session running"
+          className={cn(FAB_CIRCLE_CLASS, `text-muted-foreground`)}
+        >
+          {paused ? (
+            <StateDot className="bg-muted-foreground/40" />
+          ) : (
+            <RunningPing />
+          )}
+        </div>
+      )
+    }
+
     const codingBadge = (
       <SessionStatusBadge
         session={latest}
@@ -417,39 +457,8 @@ function AgentRow({
       </span>
     )
 
-    if (variant === `sidebar`) {
-      return (
-        <PropertyGroup>
-          <div className="w-full space-y-2">
-            <div className="flex min-w-0 items-center gap-2">
-              {codingBadge}
-              {ownerLabel}
-            </div>
-            {ownLatest && steerEnabled ? (
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full"
-                onClick={() => dock?.openDock(ownLatest.id)}
-              >
-                <MonitorPlay />
-                Watch
-              </Button>
-            ) : ownLatest && steerEnabled === false ? (
-              <p className="text-xs text-muted-foreground">
-                Live steering is unavailable on this instance.
-              </p>
-            ) : null}
-            {isMember && issue.prState === `open` && (
-              <IssueMergeButton issue={issue} />
-            )}
-          </div>
-        </PropertyGroup>
-      )
-    }
-
     return (
-      <div className="flex min-w-0 items-center gap-2 border-t border-border px-4 py-3">
+      <div className="flex min-w-0 flex-wrap items-center gap-2 border-t border-border px-4 py-3">
         {codingBadge}
         {ownerLabel}
         {ownLatest && steerEnabled ? (
@@ -467,6 +476,10 @@ function AgentRow({
             Live steering is unavailable on this instance.
           </span>
         ) : null}
+        {/* EXP-568: the sidebar is gone, so its Merge button lives here. */}
+        {isMember && issue.prState === `open` && (
+          <IssueMergeButton issue={issue} />
+        )}
       </div>
     )
   }
@@ -477,15 +490,13 @@ function AgentRow({
   // non-member / steer-off / repo-less / already-running issue view never fires
   // an ungated steer.myDevices round-trip.
   if (!isMember || !steerEnabled || !board.repositoryId) {
-    // An open PR still deserves its sidebar Merge button (EXP-268) even when
-    // remote start can't render (steer off / repo-less board).
-    if (isMember && variant === `sidebar` && issue.prState === `open`) {
+    // An open PR still deserves its Merge button (EXP-268) even when remote
+    // start can't render (steer off / repo-less board).
+    if (isMember && variant === `row` && issue.prState === `open`) {
       return (
-        <PropertyGroup>
-          <div className="w-full space-y-2">
-            <IssueMergeButton issue={issue} />
-          </div>
-        </PropertyGroup>
+        <div className="flex items-center gap-2 border-t border-border px-4 py-3">
+          <IssueMergeButton issue={issue} />
+        </div>
       )
     }
     return null
@@ -519,44 +530,20 @@ function RemoteStartRow({
   // Presence lookup still in flight — keep the section quiet.
   if (remote.devices === null) return null
   if (remote.devices.length === 0) {
-    if (variant === `sidebar`) {
-      return (
-        <PropertyGroup>
-          <div className="w-full space-y-2">
-            <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
-              <UiDeviceOfflineIcon className="mt-0.5 size-3.5 shrink-0" />
-              <span>
-                No desktop online. Open the Exponential desktop app to run
-                this issue there.
-              </span>
-            </div>
-            {issue.prState === `open` && <IssueMergeButton issue={issue} />}
-          </div>
-        </PropertyGroup>
-      )
-    }
+    // Nothing to start on: the phone bar simply drops the circle rather than
+    // spending one of its three slots on an explanation.
+    if (variant === `fab`) return null
     return (
-      <div className="flex items-center gap-2 border-t border-border px-4 py-3 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-3 text-xs text-muted-foreground">
         <UiDeviceOfflineIcon className="size-3.5 shrink-0" />
         No desktop online. Open the Exponential desktop app to run this issue
         there.
+        {issue.prState === `open` && <IssueMergeButton issue={issue} />}
       </div>
     )
   }
 
   const busy = remote.starting || remote.sentTo !== null
-  const startButton = (
-    <Button
-      variant="outline"
-      size="sm"
-      className={variant === `sidebar` ? `w-full` : undefined}
-      onClick={() => setDialogOpen(true)}
-      disabled={busy}
-    >
-      {remote.starting ? <LoaderCircle className="animate-spin" /> : <MonitorUp />}
-      Start coding
-    </Button>
-  )
   const dialog = (
     <LaunchDialog
       open={dialogOpen}
@@ -580,27 +567,39 @@ function RemoteStartRow({
     />
   )
 
-  if (variant === `sidebar`) {
+  if (variant === `fab`) {
     return (
-      <PropertyGroup>
-        <div className="w-full space-y-2">
-          {startButton}
-          {issue.prState === `open` && <IssueMergeButton issue={issue} />}
-          {dialog}
-          {remote.sentTo && (
-            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <LoaderCircle className="size-3 shrink-0 animate-spin" />
-              Start sent to {remote.sentTo}. Waiting for the desktop…
-            </p>
+      <>
+        <button
+          type="button"
+          aria-label="Start coding"
+          disabled={busy}
+          onClick={() => setDialogOpen(true)}
+          className={cn(FAB_CIRCLE_CLASS, `text-foreground disabled:opacity-60`)}
+        >
+          {busy ? (
+            <LoaderCircle className="size-5 animate-spin" />
+          ) : (
+            <ActionRunIcon className="size-5" />
           )}
-        </div>
-      </PropertyGroup>
+        </button>
+        {dialog}
+      </>
     )
   }
 
   return (
-    <div className="flex items-center gap-2 border-t border-border px-4 py-3">
-      {startButton}
+    <div className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-3">
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => setDialogOpen(true)}
+        disabled={busy}
+      >
+        {remote.starting ? <LoaderCircle className="animate-spin" /> : <MonitorUp />}
+        Start coding
+      </Button>
+      {issue.prState === `open` && <IssueMergeButton issue={issue} />}
       {dialog}
       {remote.sentTo && (
         <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">

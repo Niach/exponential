@@ -53,6 +53,11 @@ export interface MentionTextareaHandle {
   /** Inserts `text` at the caret (replacing any selection), moves the caret
    *  behind it and re-focuses the textarea. */
   insertText: (text: string) => void
+  /** The character immediately before the caret, or undefined at the very
+   *  start. The `#` button needs it: the issue-ref autocomplete only triggers
+   *  at a token start, so a `#` typed straight after a word needs a space in
+   *  front of it (EXP-568). */
+  charBeforeCaret: () => string | undefined
 }
 
 // A Textarea with @-mention, #-issue-reference and :emoji autocomplete.
@@ -201,6 +206,11 @@ export const MentionTextarea = forwardRef<
       const start = el?.selectionStart ?? value.length
       const end = el?.selectionEnd ?? start
       splice(start, end, text)
+    },
+    charBeforeCaret: () => {
+      const el = textareaRef.current
+      const start = el?.selectionStart ?? value.length
+      return start > 0 ? value.slice(start - 1, start) : undefined
     },
   }))
 

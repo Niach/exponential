@@ -12,11 +12,21 @@ const BACKLOG_STATUS = defaultStatusOptions().find(
 
 const editorFocus = vi.fn()
 
+// The dismiss guards live on DialogContent's Radix props, which the mock below
+// would otherwise swallow — capture them so the whitelist can be exercised.
+const captured = vi.hoisted(() => ({
+  dialogContent: null as Record<string, unknown> | null,
+}))
+
 vi.mock(`@/components/ui/dialog`, () => ({
   Dialog: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  DialogContent: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
-  ),
+  DialogContent: ({
+    children,
+    ...rest
+  }: { children: ReactNode } & Record<string, unknown>) => {
+    captured.dialogContent = rest
+    return <div>{children}</div>
+  },
   DialogTitle: ({ children }: { children: ReactNode }) => <h2>{children}</h2>,
 }))
 
@@ -225,5 +235,47 @@ describe(`IssueEditorDialogShell`, () => {
       key: `Tab`,
     })
     expect(editorFocus).not.toHaveBeenCalled()
+  })
+
+  // EXP-568: the formatting rail portals to document.body, so Radix reads
+  // every click on it as an interaction OUTSIDE the dialog — and used to
+  // close the dialog under the user's finger.
+  it(`keeps the dialog open for interactions inside the formatting rail`, () => {
+    render(<IssueEditorDialogShell {...baseShellProps()} />)
+
+    const rail = document.createElement(`div`)
+    rail.setAttribute(`data-editor-rail`, ``)
+    const button = document.createElement(`button`)
+    rail.appendChild(button)
+    document.body.appendChild(rail)
+
+    const interact = { target: button, preventDefault: vi.fn() }
+    ;(
+      captured.dialogContent?.onInteractOutside as (event: unknown) => void
+    )(interact)
+    expect(interact.preventDefault).toHaveBeenCalled()
+
+    const escape = { target: button, preventDefault: vi.fn() }
+    ;(
+      captured.dialogContent?.onEscapeKeyDown as (event: unknown) => void
+    )(escape)
+    expect(escape.preventDefault).toHaveBeenCalled()
+
+    rail.remove()
+  })
+
+  it(`still dismisses on a genuine outside interaction`, () => {
+    render(<IssueEditorDialogShell {...baseShellProps()} />)
+
+    const outside = document.createElement(`div`)
+    document.body.appendChild(outside)
+
+    const interact = { target: outside, preventDefault: vi.fn() }
+    ;(
+      captured.dialogContent?.onInteractOutside as (event: unknown) => void
+    )(interact)
+    expect(interact.preventDefault).not.toHaveBeenCalled()
+
+    outside.remove()
   })
 })

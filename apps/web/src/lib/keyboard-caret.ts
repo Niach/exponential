@@ -14,7 +14,7 @@ import type { EditorView } from "@tiptap/pm/view"
 
 /** Keyboard heights start well above this; URL-bar show/hide resizes the
  *  layout viewport itself and stays near 0. */
-const KEYBOARD_MIN_OCCLUSION = 80
+export const KEYBOARD_MIN_OCCLUSION = 80
 /** Clearance under the caret so the line being written (and a hint of the
  *  next one) stays visible above the keyboard. */
 const CARET_BOTTOM_MARGIN = 56

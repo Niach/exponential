@@ -1,4 +1,4 @@
-import { CalendarDays, Megaphone, Plus, Tag } from "lucide-react"
+import { CalendarDays, Megaphone } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
 import type { User } from "@/db/schema"
 import {
@@ -9,7 +9,7 @@ import {
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import type { StatusRowOption } from "@/lib/team-statuses"
 import { Badge } from "@/components/ui/badge"
-import { formatDate } from "@/lib/utils"
+import { cn, formatDate } from "@/lib/utils"
 import { OptionDropdownMenu } from "@/components/option-dropdown-menu"
 import {
   priorities,
@@ -29,7 +29,6 @@ import {
 } from "@/components/ui/popover"
 
 export interface IssuePropertiesPanelProps {
-  layout: `sidebar` | `chiprow`
   // EXP-314: the RESOLVED team status row. The duplicate-category row stays in
   // the menu (the picker intercepts it), matching the pre-EXP-314 control.
   status: StatusRowOption
@@ -47,7 +46,6 @@ export interface IssuePropertiesPanelProps {
   // Where the issue came from. Only `widget` renders anything (a muted
   // "Feedback widget" pill); `user` (the default) shows nothing.
   source?: IssueSource
-  boardName: string
   boardColor: string
   boardPrefix: string
   // Board glyph inputs for the read-only chip (EXP-449: icon+color instead
@@ -62,20 +60,18 @@ export interface IssuePropertiesPanelProps {
   // Names the issue in the move confirmation; only read alongside a picker.
   issueIdentifier?: string | null
   disabled?: boolean
-  // Coding section (EXP-184) — sidebar layout only. The slot owns its own
-  // unlabeled PropertyGroup (its gating lives in issue-coding-rows.tsx, so the
-  // panel can't know whether it renders anything).
-  codingSlot?: React.ReactNode
+  /** Extra classes for the chip row's own container, so hosts can drop it
+   *  into their own card without fighting a baked-in border. */
+  className?: string
 }
 
 function DueDateControl({
-  layout,
   disabled,
   dueDate,
   onDueDateSelect,
 }: Pick<
   IssuePropertiesPanelProps,
-  `layout` | `disabled` | `dueDate` | `onDueDateSelect`
+  `disabled` | `dueDate` | `onDueDateSelect`
 >) {
   const triggerLabel = dueDate ? formatDate(dueDate) : `Due date`
   return (
@@ -84,11 +80,7 @@ function DueDateControl({
         <Button
           variant="ghost"
           size="xs"
-          className={
-            layout === `sidebar`
-              ? `justify-start text-muted-foreground hover:text-foreground`
-              : `text-muted-foreground shrink-0`
-          }
+          className="text-muted-foreground shrink-0"
           disabled={disabled}
         >
           <CalendarDays className="size-3" />
@@ -109,27 +101,14 @@ function DueDateControl({
 function BoardChip({
   boardColor,
   boardPrefix,
-  boardName,
   boardIcon,
   boardRepositoryId,
-  layout,
 }: Pick<
   IssuePropertiesPanelProps,
-  | `boardColor`
-  | `boardPrefix`
-  | `boardName`
-  | `boardIcon`
-  | `boardRepositoryId`
-  | `layout`
+  `boardColor` | `boardPrefix` | `boardIcon` | `boardRepositoryId`
 >) {
   return (
-    <div
-      className={
-        layout === `sidebar`
-          ? `inline-flex items-center gap-1.5 rounded-md bg-accent/40 px-2 py-1 text-xs font-medium text-foreground`
-          : `inline-flex items-center gap-1.5 rounded-md bg-accent/50 px-2 py-0.5 text-xs font-medium text-foreground shrink-0`
-      }
-    >
+    <div className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-accent/50 px-2 py-0.5 text-xs font-medium text-foreground">
       <BoardGlyph
         board={{
           icon: boardIcon,
@@ -138,7 +117,7 @@ function BoardChip({
         }}
         className="size-3.5"
       />
-      {layout === `sidebar` ? boardName : boardPrefix}
+      {boardPrefix}
     </div>
   )
 }
@@ -163,7 +142,6 @@ function SourceChip({ source }: { source: string }) {
 
 export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
   const {
-    layout,
     status,
     onStatusChange,
     priority,
@@ -202,11 +180,7 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
           <Button
             variant="ghost"
             size="xs"
-            className={
-              layout === `sidebar`
-                ? `justify-start text-muted-foreground hover:text-foreground`
-                : `text-muted-foreground shrink-0`
-            }
+            className="text-muted-foreground shrink-0"
             disabled={disabled}
           >
             <Icon
@@ -234,11 +208,7 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
         <Button
           variant="ghost"
           size="xs"
-          className={
-            layout === `sidebar`
-              ? `justify-start text-muted-foreground hover:text-foreground`
-              : `text-muted-foreground shrink-0`
-          }
+          className="text-muted-foreground shrink-0"
           disabled={disabled}
         >
           <PriorityIcon priority={selected.value} className="!h-3 !w-3" />
@@ -254,66 +224,20 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
       users={users}
       selectedUserId={assigneeId}
       onSelect={onAssigneeChange}
-      triggerClassName={
-        layout === `sidebar` ? `justify-start hover:text-foreground` : undefined
-      }
     />
   )
 
-  // Sidebar (EXP-427): Linear-style label chips + a "+" affordance under the
-  // Labels heading; the whole row opens the picker. Chiprow keeps the compact
-  // dots-and-names default trigger.
-  const labelControl =
-    layout === `sidebar` ? (
-      <LabelPicker
-        disabled={disabled}
-        teamId={teamId}
-        selectedLabelIds={selectedLabelIds}
-        onToggle={onToggleLabel}
-        renderTrigger={(selectedLabels) => (
-          <Button
-            variant="ghost"
-            size="xs"
-            className="h-auto max-w-full justify-start py-1 text-muted-foreground hover:text-foreground"
-            disabled={disabled}
-          >
-            {selectedLabels.length > 0 ? (
-              <span className="flex flex-wrap items-center gap-1">
-                {selectedLabels.map((label) => (
-                  <span
-                    key={label.id}
-                    className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-border px-2 py-0.5 text-xs text-foreground"
-                  >
-                    <span
-                      className="h-2 w-2 shrink-0 rounded-full"
-                      style={{ backgroundColor: label.color }}
-                    />
-                    <span className="truncate">{label.name}</span>
-                  </span>
-                ))}
-                <Plus className="size-3" />
-              </span>
-            ) : (
-              <>
-                <Tag className="size-3" />
-                Add label
-              </>
-            )}
-          </Button>
-        )}
-      />
-    ) : (
-      <LabelPicker
-        disabled={disabled}
-        teamId={teamId}
-        selectedLabelIds={selectedLabelIds}
-        onToggle={onToggleLabel}
-      />
-    )
+  const labelControl = (
+    <LabelPicker
+      disabled={disabled}
+      teamId={teamId}
+      selectedLabelIds={selectedLabelIds}
+      onToggle={onToggleLabel}
+    />
+  )
 
   const dueDateControl = (
     <DueDateControl
-      layout={layout}
       disabled={disabled}
       dueDate={props.dueDate}
       onDueDateSelect={props.onDueDateSelect}
@@ -333,10 +257,8 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
       <BoardChip
         boardColor={props.boardColor}
         boardPrefix={props.boardPrefix}
-        boardName={props.boardName}
         boardIcon={props.boardIcon}
         boardRepositoryId={props.boardRepositoryId}
-        layout={layout}
       />
     )
 
@@ -346,31 +268,17 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
       <SourceChip source={source} />
     ) : null
 
-  // EXP-422: no left rule (the reading column's own width already reads as the
-  // boundary), and the sidebar scrolls on its own so a tall property stack
-  // stays reachable without moving the description.
-  // EXP-427: Linear-style grouping — one "Properties" stack without per-field
-  // titles, a Labels section, then the (unlabeled) coding slot.
-  if (layout === `sidebar`) {
-    return (
-      <aside className="w-72 shrink-0 overflow-y-auto overscroll-contain px-4 py-4 space-y-5 text-sm">
-        <PropertyGroup label="Properties">
-          {statusControl}
-          {priorityControl}
-          {!isSolo && assigneeControl}
-          {dueDateControl}
-          {boardChip}
-          {sourceChip}
-        </PropertyGroup>
-        <PropertyGroup label="Labels">{labelControl}</PropertyGroup>
-        {props.codingSlot}
-      </aside>
-    )
-  }
-
-  // chiprow — horizontal scroll on overflow
+  // EXP-568: ONE layout. The properties moved to the top of the reading
+  // column on every viewport (the desktop sidebar is gone), so the row owns no
+  // chrome of its own — the host wraps it in the glass card that separates it
+  // from the title above and the description below.
   return (
-    <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 border-b border-border">
+    <div
+      className={cn(
+        `flex flex-wrap items-center gap-1.5 px-3 py-2`,
+        props.className
+      )}
+    >
       {statusControl}
       {priorityControl}
       {!isSolo && assigneeControl}
@@ -378,25 +286,6 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
       {dueDateControl}
       {boardChip}
       {sourceChip}
-    </div>
-  )
-}
-
-// A sidebar section (EXP-427): an optional Linear-style muted heading over a
-// stacked run of rows. No label = just the stack (the coding slot).
-export function PropertyGroup({
-  label,
-  children,
-}: {
-  label?: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className="space-y-1.5">
-      {label && (
-        <div className="text-xs font-medium text-muted-foreground">{label}</div>
-      )}
-      <div className="flex flex-col items-start gap-1">{children}</div>
     </div>
   )
 }

@@ -1,6 +1,5 @@
 import {
   forwardRef,
-  useCallback,
   useEffect,
   useImperativeHandle,
   useRef,
@@ -21,25 +20,6 @@ import { Markdown } from "tiptap-markdown"
 // `common` covers ~35 popular languages incl. ts/tsx/js/jsx/json/bash/css/html/
 // python/rust/go — enough for plan code blocks without pulling all 200 grammars.
 const lowlight = createLowlight(common)
-import {
-  Bold,
-  Italic,
-  Strikethrough,
-  Link as LinkIcon,
-  Unlink,
-  Check,
-  Image as ImageIcon,
-  Paperclip,
-  Quote,
-  RemoveFormatting,
-  Code,
-  List,
-  ListOrdered,
-  ListTodo,
-  Heading1,
-  Heading2,
-  Heading3,
-} from "lucide-react"
 import { MarkdownImage } from "@/lib/markdown-image"
 import { MarkdownParagraph } from "@/components/issue-editor/markdown-paragraph"
 import { ArrowInputRules } from "@/lib/arrow-input-rules"
@@ -56,8 +36,9 @@ import {
   IssueCandidateRow,
   UserCandidateRow,
 } from "@/components/autocomplete-rows"
-import { EmojiPickerPopover } from "@/components/emoji-picker"
-import { conceptIcon } from "@/lib/icons.generated"
+import { EditorSelectionRail } from "@/components/issue-editor/selection-rail"
+import { EditorMobileFormattingBar } from "@/components/issue-editor/mobile-formatting-bar"
+import { useIsMobile } from "@/hooks/use-mobile"
 import {
   applySkinTone,
   findEmojiByShortcode,
@@ -66,10 +47,7 @@ import {
   searchEmoji,
   useEmojiData,
 } from "@/lib/emoji"
-import {
-  acceptedImageContentTypes,
-  isAcceptedImageContentType,
-} from "@/lib/storage/issue-attachments"
+import { isAcceptedImageContentType } from "@/lib/storage/issue-attachments"
 import {
   releaseKeyboardClearance,
   revealCaretAboveKeyboard,
@@ -129,12 +107,11 @@ interface MarkdownEditorProps {
   /** Accessible name of the editable/readonly region. */
   ariaLabel?: string
   /**
-   * Renders the formatting toolbar into a host-provided element instead of
-   * inline above the content (EXP-422: the issue detail page parks it in a
-   * sticky band together with the title). Undefined/null keeps the inline
-   * toolbar, so every dialog host is unaffected.
+   * Fired when the editable content gains/loses focus (EXP-568: the issue
+   * detail page hides its floating mobile bar while the description is being
+   * written, so the keyboard rail is the only chrome on screen).
    */
-  toolbarHost?: HTMLElement | null
+  onFocusChange?: (focused: boolean) => void
   /**
    * Height (px) of a sticky overlay at the TOP of the scrollport the editor
    * lives in. ProseMirror's scroll-into-view treats the region under such an
@@ -172,362 +149,12 @@ function getEditorMarkdown(editor: Editor | null) {
  * accepted set — the only types the markdown pipeline may reference) and
  * everything else, which routes to the Files-section flow via onOtherFiles.
  */
-function partitionUploadFiles(fileList: FileList | null | undefined) {
+export function partitionUploadFiles(fileList: FileList | null | undefined) {
   const files = Array.from(fileList ?? [])
   return {
     images: files.filter((file) => isAcceptedImageContentType(file.type)),
     others: files.filter((file) => !isAcceptedImageContentType(file.type)),
   }
-}
-
-// ── Pieces of the static toolbar above the editor ──
-
-function ToolbarButton({
-  active,
-  onClick,
-  title,
-  children,
-}: {
-  active?: boolean
-  onClick: () => void
-  title: string
-  children: React.ReactNode
-}) {
-  return (
-    <button
-      type="button"
-      // Keep the whole formatting toolbar out of the tab order — Tab from the
-      // title must land in the editor content, not cycle these buttons
-      // (EXP-10). They stay mouse/toolbar-accessible; the underlying actions
-      // all have keyboard shortcuts inside the editor.
-      tabIndex={-1}
-      onMouseDown={(e) => e.preventDefault()}
-      onClick={onClick}
-      className={active ? `is-active` : ``}
-      title={title}
-    >
-      {children}
-    </button>
-  )
-}
-
-/** Inline link editor — replaces the old `window.prompt`. Rendered inside the
- *  toolbar so focus stays within it. */
-function LinkControl({ editor }: { editor: Editor }) {
-  const [editing, setEditing] = useState(false)
-  const [url, setUrl] = useState(``)
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  const open = useCallback(() => {
-    const href = editor.getAttributes(`link`).href
-    setUrl(typeof href === `string` ? href : ``)
-    setEditing(true)
-    requestAnimationFrame(() => inputRef.current?.focus())
-  }, [editor])
-
-  const apply = useCallback(() => {
-    const href = url.trim()
-    if (href) {
-      editor.chain().focus().extendMarkRange(`link`).setLink({ href }).run()
-    } else {
-      editor.chain().focus().extendMarkRange(`link`).unsetLink().run()
-    }
-    setEditing(false)
-  }, [editor, url])
-
-  const remove = useCallback(() => {
-    editor.chain().focus().extendMarkRange(`link`).unsetLink().run()
-    setEditing(false)
-  }, [editor])
-
-  if (editing) {
-    return (
-      <span className="toolbar-link-edit" data-editor-link-edit="">
-        <input
-          ref={inputRef}
-          className="toolbar-link-input"
-          value={url}
-          placeholder="https://…"
-          onMouseDown={(e) => e.stopPropagation()}
-          onChange={(e) => setUrl(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === `Enter`) {
-              e.preventDefault()
-              apply()
-            } else if (e.key === `Escape`) {
-              e.preventDefault()
-              setEditing(false)
-            }
-          }}
-          onBlur={() => {
-            // Commit on blur so clicking back into the editor keeps the link.
-            setTimeout(() => setEditing(false), 120)
-          }}
-        />
-        <button
-          type="button"
-          tabIndex={-1}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={apply}
-          title="Apply link"
-        >
-          <Check className="size-3.5" />
-        </button>
-        {editor.isActive(`link`) ? (
-          <button
-            type="button"
-            tabIndex={-1}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={remove}
-            title="Remove link"
-          >
-            <Unlink className="size-3.5" />
-          </button>
-        ) : null}
-      </span>
-    )
-  }
-
-  return (
-    <ToolbarButton active={editor.isActive(`link`)} onClick={open} title="Link">
-      <LinkIcon className="size-3.5" />
-    </ToolbarButton>
-  )
-}
-
-/** The common formatting controls of the toolbar. */
-function ToolbarActions({ editor }: { editor: Editor }) {
-  return (
-    <>
-      <ToolbarButton
-        active={editor.isActive(`heading`, { level: 1 })}
-        onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
-        title="Heading 1"
-      >
-        <Heading1 className="size-3.5" />
-      </ToolbarButton>
-      <ToolbarButton
-        active={editor.isActive(`heading`, { level: 2 })}
-        onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
-        title="Heading 2"
-      >
-        <Heading2 className="size-3.5" />
-      </ToolbarButton>
-      <ToolbarButton
-        active={editor.isActive(`heading`, { level: 3 })}
-        onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
-        title="Heading 3"
-      >
-        <Heading3 className="size-3.5" />
-      </ToolbarButton>
-      <div className="toolbar-separator" />
-      <ToolbarButton
-        active={editor.isActive(`bold`)}
-        onClick={() => editor.chain().focus().toggleBold().run()}
-        title="Bold"
-      >
-        <Bold className="size-3.5" />
-      </ToolbarButton>
-      <ToolbarButton
-        active={editor.isActive(`italic`)}
-        onClick={() => editor.chain().focus().toggleItalic().run()}
-        title="Italic"
-      >
-        <Italic className="size-3.5" />
-      </ToolbarButton>
-      <ToolbarButton
-        active={editor.isActive(`strike`)}
-        onClick={() => editor.chain().focus().toggleStrike().run()}
-        title="Strikethrough"
-      >
-        <Strikethrough className="size-3.5" />
-      </ToolbarButton>
-      <ToolbarButton
-        active={editor.isActive(`code`)}
-        onClick={() => editor.chain().focus().toggleCode().run()}
-        title="Code"
-      >
-        <Code className="size-3.5" />
-      </ToolbarButton>
-      <div className="toolbar-separator" />
-      <LinkControl editor={editor} />
-      <ToolbarButton
-        active={editor.isActive(`blockquote`)}
-        onClick={() => editor.chain().focus().toggleBlockquote().run()}
-        title="Quote"
-      >
-        <Quote className="size-3.5" />
-      </ToolbarButton>
-      <div className="toolbar-separator" />
-      <ToolbarButton
-        active={editor.isActive(`bulletList`)}
-        onClick={() => editor.chain().focus().toggleBulletList().run()}
-        title="Bullet list"
-      >
-        <List className="size-3.5" />
-      </ToolbarButton>
-      <ToolbarButton
-        active={editor.isActive(`orderedList`)}
-        onClick={() => editor.chain().focus().toggleOrderedList().run()}
-        title="Numbered list"
-      >
-        <ListOrdered className="size-3.5" />
-      </ToolbarButton>
-      <ToolbarButton
-        active={editor.isActive(`taskList`)}
-        onClick={() => editor.chain().focus().toggleTaskList().run()}
-        title="Task list"
-      >
-        <ListTodo className="size-3.5" />
-      </ToolbarButton>
-      <div className="toolbar-separator" />
-      <ToolbarButton
-        onClick={() =>
-          editor.chain().focus().unsetAllMarks().clearNodes().run()
-        }
-        title="Clear formatting"
-      >
-        <RemoveFormatting className="size-3.5" />
-      </ToolbarButton>
-    </>
-  )
-}
-
-// The toolbar is a multi-client surface (desktop mirrors it), so the emoji
-// glyph is a concept icon, not a raw lucide import (EXP-317).
-const EmojiIcon = conceptIcon(`editor-emoji`)
-
-/** Emoji button (static toolbar only) — EXP-551: opens the shared picker and
- *  inserts the picked unicode at the caret as plain text. Opening the popover
- *  blurs the editor (the detail page's blur-save no-ops when nothing changed);
- *  ProseMirror keeps the selection across the blur, so `focus()` in the pick
- *  handler lands the emoji where the caret was. */
-function EmojiControl({ editor }: { editor: Editor }) {
-  const insert = (unicode: string) => {
-    const { selection } = editor.state
-    editor
-      .chain()
-      .focus()
-      .command(({ tr }) => {
-        // A selected image (NodeSelection) would be REPLACED by the text —
-        // insert after it instead, mirroring insertImage.
-        if (selection instanceof NodeSelection) {
-          tr.insertText(unicode, selection.to, selection.to)
-        } else {
-          tr.insertText(unicode)
-        }
-        return true
-      })
-      .run()
-  }
-  return (
-    <EmojiPickerPopover onPick={insert}>
-      {/* Same shape as ToolbarButton (`.static-toolbar button` styles it) —
-          the mousedown preventDefault keeps focus off the button; Radix
-          toggles the popover on click, so it still opens. */}
-      <button
-        type="button"
-        tabIndex={-1}
-        onMouseDown={(e) => e.preventDefault()}
-        title="Emoji"
-        aria-label="Insert emoji"
-      >
-        <EmojiIcon className="size-3.5" />
-      </button>
-    </EmojiPickerPopover>
-  )
-}
-
-/** Image button (static toolbar only) — opens a file picker routed through the
- *  same upload path as paste/drop. */
-function ImageControl({
-  imageUpload,
-}: {
-  imageUpload?: MarkdownEditorImageUploadConfig
-}) {
-  const inputRef = useRef<HTMLInputElement>(null)
-  if (!imageUpload?.enabled) return null
-  return (
-    <>
-      <div className="toolbar-separator" />
-      <input
-        ref={inputRef}
-        type="file"
-        accept={acceptedImageContentTypes.join(`,`)}
-        multiple
-        hidden
-        onChange={(event) => {
-          const { images, others } = partitionUploadFiles(event.target.files)
-          if (images.length > 0) void imageUpload.onFiles(images)
-          if (others.length > 0) void imageUpload.onOtherFiles?.(others)
-          event.target.value = ``
-        }}
-      />
-      <ToolbarButton
-        onClick={() => inputRef.current?.click()}
-        title="Insert image"
-      >
-        <ImageIcon className="size-3.5" />
-      </ToolbarButton>
-    </>
-  )
-}
-
-/** Attach-file button (static toolbar only) — EXP-335: the one file picker,
- *  any type. Inline-image picks embed at the caret like the image button;
- *  everything else routes to the host's Files flow (detail: immediate upload,
- *  create dialog: queued draft files). Hidden when the host has no non-image
- *  destination. */
-function AttachControl({
-  imageUpload,
-}: {
-  imageUpload?: MarkdownEditorImageUploadConfig
-}) {
-  const inputRef = useRef<HTMLInputElement>(null)
-  if (!imageUpload?.enabled || !imageUpload.onOtherFiles) return null
-  return (
-    <>
-      <input
-        ref={inputRef}
-        type="file"
-        multiple
-        hidden
-        onChange={(event) => {
-          const { images, others } = partitionUploadFiles(event.target.files)
-          if (images.length > 0) void imageUpload.onFiles(images)
-          if (others.length > 0) void imageUpload.onOtherFiles?.(others)
-          event.target.value = ``
-        }}
-      />
-      <ToolbarButton
-        onClick={() => inputRef.current?.click()}
-        title="Attach file"
-      >
-        <Paperclip className="size-3.5" />
-      </ToolbarButton>
-    </>
-  )
-}
-
-/** Always-visible toolbar above the editor (discoverability; houses the image
- *  and attach-file buttons). */
-function StaticToolbar({
-  editor,
-  imageUpload,
-}: {
-  editor: Editor | null
-  imageUpload?: MarkdownEditorImageUploadConfig
-}) {
-  if (!editor) return null
-  return (
-    <div className="static-toolbar">
-      <ToolbarActions editor={editor} />
-      <div className="toolbar-separator" />
-      <EmojiControl editor={editor} />
-      <ImageControl imageUpload={imageUpload} />
-      <AttachControl imageUpload={imageUpload} />
-    </div>
-  )
 }
 
 export const MarkdownEditor = forwardRef<
@@ -543,17 +170,20 @@ export const MarkdownEditor = forwardRef<
       autoFocus,
       imageUpload,
       editable = true,
-      toolbarHost,
       topScrollInset,
       appearance = `document`,
       linkify,
       hardBreaks,
       ariaLabel,
+      onFocusChange,
     },
     ref
   ) => {
+    const isMobile = useIsMobile()
     const onChangeRef = useRef(onChange)
     onChangeRef.current = onChange
+    const onFocusChangeRef = useRef(onFocusChange)
+    onFocusChangeRef.current = onFocusChange
     const imageUploadRef = useRef(imageUpload)
     imageUploadRef.current = imageUpload
     // useEditor captures editorProps once, so the drop/paste handlers below
@@ -810,15 +440,23 @@ export const MarkdownEditor = forwardRef<
         cancelAnimationFrame(frame)
         releaseKeyboardClearance()
       }
+      const onFocus = () => {
+        onFocusChangeRef.current?.(true)
+        reveal()
+      }
+      const onBlurred = () => {
+        onFocusChangeRef.current?.(false)
+        release()
+      }
       editor.on(`selectionUpdate`, reveal)
-      editor.on(`focus`, reveal)
-      editor.on(`blur`, release)
+      editor.on(`focus`, onFocus)
+      editor.on(`blur`, onBlurred)
       const vv = window.visualViewport
       vv?.addEventListener(`resize`, reveal)
       return () => {
         editor.off(`selectionUpdate`, reveal)
-        editor.off(`focus`, reveal)
-        editor.off(`blur`, release)
+        editor.off(`focus`, onFocus)
+        editor.off(`blur`, onBlurred)
         vv?.removeEventListener(`resize`, reveal)
         release()
       }
@@ -1013,14 +651,16 @@ export const MarkdownEditor = forwardRef<
       <div
         className={cn(`tiptap-wrapper`, appearance === `chat` && `tiptap-chat`)}
       >
-        {editable ? (
-          toolbarHost ? (
-            createPortal(
-              <StaticToolbar editor={editor} imageUpload={imageUpload} />,
-              toolbarHost
-            )
+        {/* EXP-568: no always-on toolbar — the formatting rail floats over a
+            selection on desktop and rides the keyboard on phones. */}
+        {editable && editor ? (
+          isMobile ? (
+            <EditorMobileFormattingBar
+              editor={editor}
+              imageUpload={imageUpload}
+            />
           ) : (
-            <StaticToolbar editor={editor} imageUpload={imageUpload} />
+            <EditorSelectionRail editor={editor} imageUpload={imageUpload} />
           )
         ) : null}
         <EditorContent editor={editor} />
