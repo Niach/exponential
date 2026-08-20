@@ -97,6 +97,7 @@ public enum AppIcons {
 
     /// Every registry name that ships as an imageset.
     public static let allNames: Set<String> = [
+        "a-large-small",
         "activity",
         "archive",
         "arrow-down-left",
@@ -255,6 +256,7 @@ public enum AppIcons {
         "trash-2",
         "triangle-alert",
         "trophy",
+        "type",
         "undo-2",
         "unlink",
         "upload",
@@ -340,6 +342,10 @@ public enum AppIcons {
     public static let editorQuote: String = "quote"
     /// Concept `editor-strikethrough`.
     public static let editorStrikethrough: String = "strikethrough"
+    /// Concept `editor-text`.
+    public static let editorText: String = "type"
+    /// Concept `editor-text-format`.
+    public static let editorTextFormat: String = "a-large-small"
     /// Concept `editor-unlink`.
     public static let editorUnlink: String = "unlink"
     /// Concept `event-assignee-changed`.

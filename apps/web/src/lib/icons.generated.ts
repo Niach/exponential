@@ -31,6 +31,7 @@
 // factory lucide-react uses internally, so they behave like any other icon.
 
 import {
+  ALargeSmall,
   Activity,
   Archive,
   ArrowDownLeft,
@@ -182,6 +183,7 @@ import {
   Trash2,
   TriangleAlert,
   Trophy,
+  Type,
   Undo2,
   Unlink,
   Upload,
@@ -212,6 +214,7 @@ const Progress35 = createLucideIcon(`progress-3-5`, [["circle",{"cx":"12","cy":"
 const Progress45 = createLucideIcon(`progress-4-5`, [["circle",{"cx":"12","cy":"12","r":"10","key":"ring"}],["path",{"d":"M12 12 L12 6 A6 6 0 1 1 6.2937 10.1459 Z","fill":"currentColor","stroke":"none","key":"wedge"}]] as IconNode)
 
 export const ICON_COMPONENTS: Record<IconName, LucideIcon> = {
+  "a-large-small": ALargeSmall,
   "activity": Activity,
   "archive": Archive,
   "arrow-down-left": ArrowDownLeft,
@@ -370,6 +373,7 @@ export const ICON_COMPONENTS: Record<IconName, LucideIcon> = {
   "trash-2": Trash2,
   "triangle-alert": TriangleAlert,
   "trophy": Trophy,
+  "type": Type,
   "undo-2": Undo2,
   "unlink": Unlink,
   "upload": Upload,
