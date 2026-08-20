@@ -16,7 +16,6 @@ pub(crate) use theme_bridge::editor_theme_with_placeholder;
 
 /// The vendored editor's own per-block horizontal padding
 /// (`gpui-markdown-editor` `dimensions.block_padding_x`, unchanged by the
-/// theme bridge). Host slots subtract it from their gutters and the toolbar
-/// compensates its icon-button inset against it (EXP-285) so the format-bar
-/// glyphs, the title and the description text all share one left edge.
+/// theme bridge). Host slots subtract it from their gutters so the title and
+/// the description text share one left edge.
 pub(crate) const WYSIWYG_BLOCK_PADDING_X: f32 = 12.;

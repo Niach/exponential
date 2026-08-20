@@ -745,6 +745,14 @@ pub enum BlockEvent {
     /// The block's content or kind changed; the editor should mark the
     /// document dirty and optionally scroll to keep the block visible.
     Changed,
+    /// EXP-568 vendoring: the block's visible selection moved by any route —
+    /// a pointer drag, a shift-arrow, a click that collapses the caret — and
+    /// the host should re-evaluate selection-driven chrome (the floating
+    /// format rail). Payload-free on purpose: the editor rebuilds the source
+    /// selection itself and forwards
+    /// [`crate::MarkdownEditorEvent::SelectionChanged`]. Emitted from render
+    /// behind a diff guard, so a steady state is silent.
+    SelectionUiChanged,
     /// EXP-261 vendoring: Cmd/Ctrl+click on a decorated reference pill.
     RequestOpenReference {
         kind: crate::host::ReferenceKind,

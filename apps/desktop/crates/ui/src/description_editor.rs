@@ -88,14 +88,11 @@ impl WysiwygSeamEditor {
             window,
             cx,
         );
-        // EXP-335: the toolbar's attach button routes non-inline-image picks
+        // EXP-335: the rail's attach button routes non-inline-image picks
         // to the detail view's Files-section upload flow.
         let on_attach = params.on_attach_files.clone();
         editor.update(cx, |editor, _| {
             editor.set_attach_handler(on_attach);
-            // EXP-417: the detail view pins the toolbar in its fixed header
-            // (see [`DescriptionEditor::toolbar_element`]).
-            editor.use_external_toolbar();
         });
         Self { editor }
     }
@@ -118,16 +115,6 @@ impl DescriptionEditor for WysiwygSeamEditor {
 
     fn element(&self, _window: &mut Window, _cx: &mut App) -> gpui::AnyElement {
         self.editor.clone().into_any_element()
-    }
-
-    /// EXP-417: built through `entity.update` from the HOST's render (the
-    /// `render_tab_strip` precedent — safe outside the editor's own pass).
-    fn toolbar_element(&self, window: &mut Window, cx: &mut App) -> Option<gpui::AnyElement> {
-        self.editor.update(cx, |editor, cx| {
-            editor
-                .toolbar_row(window, cx)
-                .map(gpui::IntoElement::into_any_element)
-        })
     }
 
     fn focus(&self, window: &mut Window, cx: &mut App) {

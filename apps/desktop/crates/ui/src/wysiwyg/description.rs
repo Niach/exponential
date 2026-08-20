@@ -25,6 +25,7 @@ use gpui_markdown_editor::{
 };
 
 use super::images::{self, SharedImageState, WysiwygImageResolver, WysiwygPasteHandler};
+use super::toolbar::RailMode;
 use super::refs::{refresh_ref_state, SharedRefState, WysiwygReferenceDecorator};
 use crate::markdown::image_paste::{markdown_for_save, DRAFT_SCHEME};
 use crate::markdown::{
@@ -38,7 +39,7 @@ use crate::queries;
 /// [`crate::issue_detail::OnSaveDescription`]).
 pub(crate) type OnSave = Rc<dyn Fn(String, &mut Window, &mut App)>;
 
-/// EXP-335: host hook for NON-inline-image files picked via the toolbar's
+/// EXP-335: host hook for NON-inline-image files picked via the rail's
 /// attach button (detail: upload to the issue's Files section; create dialog:
 /// stage for post-create upload). Inline-image picks never reach it — they
 /// embed at the caret through the editor's own image pipeline.
@@ -71,7 +72,7 @@ pub struct WysiwygDescription {
     /// `None` = create-dialog mode (stage as `draft://`, resolve at submit).
     upload_issue: Option<String>,
     on_save: Option<OnSave>,
-    /// EXP-335: set by hosts with a Files destination — gates the toolbar's
+    /// EXP-335: set by hosts with a Files destination — gates the rail's
     /// attach button (the action-prompt editor has none, so no button).
     on_attach_files: Option<OnAttachFiles>,
     /// Authenticated fetch/decode cache (same type the block editor uses).
@@ -89,16 +90,33 @@ pub struct WysiwygDescription {
     /// submit by the dialog's existing upload flow).
     staged: Vec<StagedImage>,
     image_menu: Option<ImageMenuState>,
-    /// Open toolbar link editor (the URL field replaces the Link button while
+    /// Open the rail's link editor (the URL field replaces the rail body while
     /// it is up). `None` = the button is showing. The subscription rides along
     /// so Enter commits: gpui-component binds Enter to its own `Input` action,
     /// so the keystroke never reaches this view's key handler.
     pub(super) link_input: Option<(Entity<InputState>, Subscription)>,
-    /// EXP-551: the shared emoji picker behind the toolbar's smiley. The
+    /// EXP-551: the shared emoji picker behind the rail's smiley. The
     /// popover's open state is HOST-owned (like `link_input`) so a pick can
     /// close it from `insert_emoji`.
     pub(super) emoji_picker: Entity<crate::emoji_picker::EmojiPicker>,
     pub(super) emoji_open: bool,
+    /// EXP-568: which page of the floating rail is showing. Link is not a
+    /// mode — it is derived from `link_input`, which already owns that state.
+    pub(super) rail_mode: RailMode,
+    /// EXP-568: the rail's lists popover, host-owned like `emoji_open` so it
+    /// keeps the rail alive while it is up.
+    pub(super) lists_open: bool,
+    /// EXP-568: last known selection bounds. A popover click blurs the block,
+    /// and a blurred block reports no painted selection geometry — without
+    /// this cache the rail would jump to the top-left corner the moment the
+    /// user opened one of its own menus.
+    pub(super) rail_anchor: Option<gpui::Bounds<Pixels>>,
+    /// EXP-568: box width the rail is wiping FROM (`None` = settled, so the
+    /// rail renders at its natural content width).
+    pub(super) rail_anim_from: Option<f32>,
+    /// EXP-568: bumped per Main↔Text toggle so each wipe gets a fresh
+    /// animation id and actually replays (the `left_anim_id` precedent).
+    pub(super) rail_anim_seq: u64,
     /// Vendored-editor revision at the last load/save. The vendored engine
     /// NORMALIZES many render-equivalent forms (`_i_`→`*i*`, setext→ATX,
     /// `1)`→`1.`, …), so re-serialized bytes differing from the loaded
@@ -111,10 +129,6 @@ pub struct WysiwygDescription {
     /// fallback when the synced `attachments` row carries no dimensions
     /// (drafts, legacy rows). The synced row stays authoritative.
     probed_sizes: HashMap<String, (f32, f32)>,
-    /// EXP-285: `true` = the host renders the toolbar itself (the
-    /// create-issue dialog pins it above its scroll region) and the inline
-    /// toolbar is suppressed.
-    external_toolbar: bool,
     /// EXP-354: a retry for `Failed` attachment fetches is already pending —
     /// at most one timer runs at a time.
     failed_retry_scheduled: bool,
@@ -160,7 +174,7 @@ impl WysiwygDescription {
             // Images keep their own `…` menu and drag handles; clicking one
             // must never swap the picture for its markdown source.
             environment.enable_image_source_editing = false;
-            // Links render as links with the caret inside them; the toolbar's
+            // Links render as links with the caret inside them; the rail's
             // link control edits the target (web parity).
             environment.expand_focused_links = false;
             if team_id.is_some() {
@@ -189,6 +203,7 @@ impl WysiwygDescription {
                 MarkdownEditorEvent::Changed { .. } => {
                     this.after_change(window, cx);
                     this.refresh_completion(window, cx);
+                    this.sync_rail_state(window, cx);
                     cx.notify();
                 }
                 MarkdownEditorEvent::OpenLinkRequested(request) => {
@@ -244,8 +259,11 @@ impl WysiwygDescription {
                 }
                 MarkdownEditorEvent::SelectionChanged(_) => {
                     // Caret moves re-anchor or dismiss the popup, and move the
-                    // toolbar's pressed-button state onto the new block.
+                    // rail's pressed-button state onto the new block. EXP-568:
+                    // this is also what SHOWS and hides the rail — a selection
+                    // that collapses takes it with it.
                     this.refresh_completion(window, cx);
+                    this.sync_rail_state(window, cx);
                     cx.notify();
                 }
                 MarkdownEditorEvent::ModeChanged { .. } => {}
@@ -273,6 +291,12 @@ impl WysiwygDescription {
                             if this.is_dirty(cx) {
                                 this.save_now(window, cx);
                             }
+                            // EXP-568: focus left the editor AND its rail —
+                            // repaint so the rail goes with it (a blurred
+                            // block keeps its selection, so nothing else
+                            // would take it down).
+                            this.sync_rail_state(window, cx);
+                            cx.notify();
                         });
                     }
                 },
@@ -356,13 +380,17 @@ impl WysiwygDescription {
             link_input: None,
             emoji_picker,
             emoji_open: false,
+            rail_mode: RailMode::Main,
+            lists_open: false,
+            rail_anchor: None,
+            rail_anim_from: None,
+            rail_anim_seq: 0,
             clean_revision,
             refs,
             refs_refresh_scheduled: false,
             completion_source,
             completion: None,
             probed_sizes: HashMap::new(),
-            external_toolbar: false,
             failed_retry_scheduled: false,
             _subscriptions: subscriptions,
         };
@@ -434,30 +462,12 @@ impl WysiwygDescription {
             .update(cx, |editor, cx| editor.focus_document_end(cx));
     }
 
-    /// EXP-285: suppress the inline toolbar — the host renders it via
-    /// [`Self::toolbar_row`] instead (the create-issue dialog pins it above
-    /// its scroll region so it never scrolls away with a long description).
-    pub fn use_external_toolbar(&mut self) {
-        self.external_toolbar = true;
-    }
-
     /// EXP-288: hand the HOST's tracked scroll handle to the vendored
     /// editor so its caret-follow machinery keeps the caret visible inside
     /// the host's scroll container while typing/pasting.
     pub fn set_scroll_handle(&mut self, handle: gpui::ScrollHandle, cx: &mut Context<Self>) {
         self.editor
             .update(cx, |editor, _| editor.set_external_scroll_handle(handle));
-    }
-
-    /// The toolbar row for [`Self::use_external_toolbar`] hosts — called via
-    /// `entity.update` from the host's render (the `render_tab_strip`
-    /// precedent: safe outside this view's own render pass).
-    pub fn toolbar_row(
-        &mut self,
-        window: &Window,
-        cx: &mut Context<Self>,
-    ) -> Option<impl IntoElement + use<>> {
-        self.render_toolbar(window, cx)
     }
 
     // -- save ---------------------------------------------------------------
@@ -799,7 +809,7 @@ impl WysiwygDescription {
         self.save_now(window, cx);
     }
 
-    // -- toolbar link + image ------------------------------------------------
+    // -- rail link + image ---------------------------------------------------
 
     /// Web parity (`LinkControl.open`): the field opens prefilled with the
     /// link already under the caret, so retargeting is an edit, not a retype.
@@ -850,17 +860,17 @@ impl WysiwygDescription {
         cx.notify();
     }
 
-    /// EXP-335: wire the toolbar's attach button to the host's Files flow.
+    /// EXP-335: wire the rail's attach button to the host's Files flow.
     pub fn set_attach_handler(&mut self, handler: OnAttachFiles) {
         self.on_attach_files = Some(handler);
     }
 
-    /// EXP-335: does the toolbar render the attach button?
+    /// EXP-335: does the rail render the attach button?
     pub(super) fn has_attach_handler(&self) -> bool {
         self.on_attach_files.is_some()
     }
 
-    /// Toolbar "Attach file": any file type. Inline-image picks embed at the
+    /// Rail "Attach file": any file type. Inline-image picks embed at the
     /// caret through the editor's own image pipeline (identical to the image
     /// button); everything else routes to the host's attach hook.
     pub(super) fn pick_attach(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -897,7 +907,7 @@ impl WysiwygDescription {
         .detach();
     }
 
-    /// Toolbar "Insert image": pick files and feed them through the SAME
+    /// Rail "Insert image": pick files and feed them through the SAME
     /// materialize path a paste takes, so staging/upload behaves identically.
     pub(super) fn pick_image(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let receiver = cx.prompt_for_paths(gpui::PathPromptOptions {
@@ -1057,7 +1067,7 @@ impl WysiwygDescription {
     fn on_editor_dismiss(
         &mut self,
         _: &DismissTransientUi,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if self.image_menu.is_some() {
@@ -1074,6 +1084,18 @@ impl WysiwygDescription {
         if self.completion.is_some() {
             self.completion = None;
             cx.notify();
+            cx.stop_propagation();
+            return;
+        }
+        // EXP-568: Escape walks the rail back a page rather than dropping the
+        // selection — the selection is what the user is about to format.
+        if self.lists_open {
+            self.set_lists_open(false, cx);
+            cx.stop_propagation();
+            return;
+        }
+        if self.rail_mode != RailMode::Main {
+            self.set_rail_mode(RailMode::Main, window, cx);
             cx.stop_propagation();
         }
     }
@@ -1110,6 +1132,17 @@ impl WysiwygDescription {
             }
         }
         if self.completion.is_none() {
+            // EXP-568: the rail's own back step, for the keystrokes the
+            // vendored editor does not bind to `DismissTransientUi`.
+            if event.keystroke.key.as_str() == "escape" {
+                if self.lists_open {
+                    self.set_lists_open(false, cx);
+                    cx.stop_propagation();
+                } else if self.rail_mode != RailMode::Main {
+                    self.set_rail_mode(RailMode::Main, window, cx);
+                    cx.stop_propagation();
+                }
+            }
             return;
         }
         match event.keystroke.key.as_str() {
@@ -1411,20 +1444,19 @@ impl Focusable for WysiwygDescription {
 
 impl Render for WysiwygDescription {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // EXP-568: the floating rail renders from HERE, so both hosts (issue
+        // detail and the create-issue dialog) get it without wiring — the
+        // pinned toolbars they used to mount are gone.
+        let rail = self.render_rail(window, cx);
         let completion_popup = self.render_completion(window, cx);
         let menu_backdrop = self.render_image_menu_backdrop(window, cx);
-        let toolbar = if self.external_toolbar {
-            None
-        } else {
-            self.render_toolbar(window, cx)
-        };
         // EXP-285: a flex column that STRETCHES when the host slot gives it
         // height, with a trailing filler strip below the (content-hugging
         // embedded) editor. Clicking the filler focuses the document end —
         // the textarea affordance; without it the leftover slot area was a
         // dead zone where clicks (and therefore typing) went nowhere. The
-        // filler sits below the editor, so it can never shadow the toolbar
-        // or the editor's own gap-click handling.
+        // filler sits below the editor, so it can never shadow the editor's
+        // own gap-click handling.
         v_flex()
             .w_full()
             .flex_1()
@@ -1435,7 +1467,6 @@ impl Render for WysiwygDescription {
             .capture_action(cx.listener(Self::on_editor_focus_prev))
             .capture_action(cx.listener(Self::on_editor_focus_next))
             .capture_action(cx.listener(Self::on_editor_dismiss))
-            .children(toolbar)
             .child(self.editor.clone())
             .child(
                 div()
@@ -1451,6 +1482,7 @@ impl Render for WysiwygDescription {
                         cx.listener(|this, _, window, cx| this.focus_end(window, cx)),
                     ),
             )
+            .children(rail)
             .children(completion_popup)
             .children(menu_backdrop)
             .children(self.render_image_menu(cx))

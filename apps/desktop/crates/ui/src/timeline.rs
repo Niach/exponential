@@ -21,9 +21,9 @@ use std::path::PathBuf;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, App, AppContext as _, Entity, FontWeight, InteractiveElement as _, IntoElement,
-    ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription,
-    Window,
+    div, App, AppContext as _, Entity, Focusable as _, FontWeight, InteractiveElement as _,
+    IntoElement, ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled,
+    Subscription, Window,
 };
 use gpui_component::{
     h_flex,
@@ -144,7 +144,12 @@ impl IssueTimeline {
                 .auto_grow(2, 8)
                 .placeholder("Leave a reply…")
         });
-        let composer_mention = cx.new(|cx| MentionInput::new(composer.clone(), cx));
+        let composer_mention = cx.new(|cx| {
+            let mut mention = MentionInput::new(composer.clone(), cx);
+            // EXP-568: the composer card draws the border and fill.
+            mention.set_appearance(false);
+            mention
+        });
         let images = cx.new(|_| ImageCache::new(None));
         // EXP-551: the picker hands the glyph back here so it lands in
         // whichever composer opened it.
@@ -422,6 +427,79 @@ impl IssueTimeline {
         .detach();
     }
 
+    /// EXP-568: the composer's image entry point. `PathPromptOptions` carries
+    /// no type filter, so the filter runs on the RESULT — a non-image pick
+    /// silently drops rather than sneaking into the strip as a file.
+    pub(crate) fn pick_comment_images(
+        &mut self,
+        scope: PendingScope,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let receiver = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: true,
+            prompt: Some("Insert".into()),
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let Ok(Ok(Some(paths))) = receiver.await else {
+                return;
+            };
+            let images: Vec<PathBuf> = paths
+                .into_iter()
+                .filter(|path| crate::markdown::image_paste::is_inline_image_path(path))
+                .collect();
+            if images.is_empty() {
+                return;
+            }
+            let _ = this.update_in(cx, |this, _, cx| {
+                this.stage_attachments(scope, images, cx);
+            });
+        })
+        .detach();
+    }
+
+    /// EXP-568: the composer's `#` button — type the trigger for the user and
+    /// let the existing completion take it from there. `detect_trigger` only
+    /// fires a token at a line start or after whitespace (the web
+    /// `(?<![\w#])` rule), so a `#` glued to the previous word would be dead
+    /// text: the leading space is what makes the button work.
+    pub(crate) fn insert_issue_ref_trigger(
+        &mut self,
+        scope: PendingScope,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let target = match scope {
+            PendingScope::Edit => self
+                .editing
+                .as_ref()
+                .map(|editing| (editing.input.clone(), editing.mention.clone())),
+            PendingScope::Composer => {
+                Some((self.composer.clone(), self.composer_mention.clone()))
+            }
+        };
+        let Some((input, mention)) = target else {
+            return;
+        };
+        // The completion reads the input's own state, so the caret has to be
+        // in it before the trigger lands.
+        input.read(cx).focus_handle(cx).focus(window, cx);
+        let glued = {
+            let state = input.read(cx);
+            let value = state.value().to_string();
+            let cursor = state.cursor().min(value.len());
+            value
+                .get(..cursor)
+                .and_then(|before| before.chars().next_back())
+                .is_some_and(|char| !char.is_whitespace())
+        };
+        let text = if glued { " #" } else { "#" };
+        mention.update(cx, |mention, cx| mention.insert_text(text, window, cx));
+        cx.notify();
+    }
+
     fn stage_attachments(
         &mut self,
         scope: PendingScope,
@@ -559,6 +637,9 @@ impl IssueTimeline {
         });
         let mention = cx.new(|cx| {
             let mut mention = MentionInput::new(input.clone(), cx);
+            // EXP-568: the edit composer wears the same card as the create
+            // one, so the textarea draws no chrome of its own.
+            mention.set_appearance(false);
             mention.set_source(Some(match self.team_id.clone() {
                 Some(team_id) => store_completion_source(team_id),
                 None => crate::markdown::emoji_completion_source(),
