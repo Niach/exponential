@@ -114,7 +114,8 @@ struct TeamLabelsSection: View {
                 Task {
                     await run {
                         try await labelsApi.update(accountId: accountId, UpdateLabelInput(
-                            id: label.id,
+                            teamId: teamId,
+                            labelId: label.id,
                             name: newName,
                             color: newColor
                         ))
@@ -130,7 +131,7 @@ struct TeamLabelsSection: View {
         ), presenting: deleteTarget) { label in
             Button("Cancel", role: .cancel) { deleteTarget = nil }
             Button("Delete", role: .destructive) {
-                Task { await run { try await labelsApi.delete(accountId: accountId, id: label.id) } }
+                Task { await run { try await labelsApi.delete(accountId: accountId, teamId: teamId, labelId: label.id) } }
             }
         } message: { label in
             Text("\"\(label.name)\" will be removed from all issues. This cannot be undone.")

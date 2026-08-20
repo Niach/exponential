@@ -12,23 +12,30 @@ public struct CreateLabelInput: Encodable, Sendable {
     }
 }
 
+/// `labels.update` takes `{teamId, labelId, ...}` since EXP-254 — the older
+/// `{id}` shape 400s. Nil fields are omitted (encodeIfPresent), matching the
+/// server's optional `name`/`color`.
 public struct UpdateLabelInput: Encodable, Sendable {
-    public let id: String
+    public let teamId: String
+    public let labelId: String
     public var name: String?
     public var color: String?
 
-    public init(id: String, name: String? = nil, color: String? = nil) {
-        self.id = id
+    public init(teamId: String, labelId: String, name: String? = nil, color: String? = nil) {
+        self.teamId = teamId
+        self.labelId = labelId
         self.name = name
         self.color = color
     }
 }
 
 public struct DeleteLabelInput: Encodable, Sendable {
-    public let id: String
+    public let teamId: String
+    public let labelId: String
 
-    public init(id: String) {
-        self.id = id
+    public init(teamId: String, labelId: String) {
+        self.teamId = teamId
+        self.labelId = labelId
     }
 }
 
@@ -92,12 +99,13 @@ public final class LabelsApi: Sendable {
         return result.label.id
     }
 
+    /// The server returns `{txId}` here (no label row) — ignore the body.
     public func update(accountId: String, _ input: UpdateLabelInput) async throws {
-        let _: LabelResult = try await trpc.mutation(accountId: accountId, path: "labels.update", input: input)
+        try await trpc.mutationVoid(accountId: accountId, path: "labels.update", input: input)
     }
 
-    public func delete(accountId: String, id: String) async throws {
-        try await trpc.mutationVoid(accountId: accountId, path: "labels.delete", input: DeleteLabelInput(id: id))
+    public func delete(accountId: String, teamId: String, labelId: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "labels.delete", input: DeleteLabelInput(teamId: teamId, labelId: labelId))
     }
 
     public func addToIssue(accountId: String, issueId: String, labelId: String) async throws {

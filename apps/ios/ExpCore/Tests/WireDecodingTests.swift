@@ -58,6 +58,26 @@ final class WireDecodingTests: XCTestCase {
         XCTAssertEqual(label.name, "true")
     }
 
+    // MARK: - Label mutation inputs (EXP-561)
+
+    // labels.update / labels.delete take `{teamId, labelId, ...}` since
+    // EXP-254 — the pre-rename `{id}` shape 400s from Team settings. Lock the
+    // encoded wire form, including that nil name/color are OMITTED (the server
+    // treats an absent optional as "leave unchanged").
+    func testUpdateLabelInputEncodesTeamIdLabelIdAndOmitsNilFields() throws {
+        let data = try JSONEncoder().encode(
+            UpdateLabelInput(teamId: "w1", labelId: "l1", name: "Bug")
+        )
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: String])
+        XCTAssertEqual(json, ["teamId": "w1", "labelId": "l1", "name": "Bug"])
+    }
+
+    func testDeleteLabelInputEncodesTeamIdAndLabelId() throws {
+        let data = try JSONEncoder().encode(DeleteLabelInput(teamId: "w1", labelId: "l1"))
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: String])
+        XCTAssertEqual(json, ["teamId": "w1", "labelId": "l1"])
+    }
+
     // MARK: - Team (helpdesk_enabled rides the teams shape as Postgres text)
 
     func testTeamDecodesWireHelpdeskEnabled() throws {
