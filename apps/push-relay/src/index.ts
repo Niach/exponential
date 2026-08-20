@@ -203,12 +203,55 @@ function withDeadline<T>(promise: Promise<T>, ms: number): Promise<T> {
   })
 }
 
+// ── In-memory stats (EXP-553) ─────────────────────────────────────────────────
+
+// Monotonic since process start; exposed only on the secret-gated /stats so
+// the public /healthz stays a constant. Feeds the web app's admin
+// performance page.
+const startedAt = Date.now()
+const stats = {
+  sendRequests: 0,
+  sendOk: 0,
+  sendFailed: 0,
+  deadlineTimeouts: 0,
+  tokensRequested: 0,
+  tokensOk: 0,
+  tokensFailed: 0,
+  invalidTokens: 0,
+  lastErrorAt: null as number | null,
+  lastError: null as string | null,
+}
+
+function noteSendError(message: string): void {
+  stats.sendFailed += 1
+  stats.lastError = message
+  stats.lastErrorAt = Date.now()
+}
+
 // ── Hono app ──────────────────────────────────────────────────────────────────
 
 const app = new Hono()
 
 // Unauthenticated health check for Docker HEALTHCHECK / uptime monitors
 app.get(`/healthz`, (c) => c.json({ ok: true }))
+
+// EXP-553: secret-gated stats for the web app's admin performance page.
+// Same auth + failed-attempt throttle stance as /send; an old web app never
+// calls this, an old relay 404s and the caller degrades to /healthz.
+app.get(`/stats`, (c) => {
+  if (!secretMatches(c.req.raw.headers.get(`x-relay-secret`))) {
+    if (!rateLimitHit(clientIp(c.req.raw.headers))) {
+      return c.json({ error: `Rate limit exceeded` }, 429)
+    }
+    return c.json({ error: `Unauthorized` }, 401)
+  }
+  return c.json({
+    ok: true,
+    startedAt,
+    firebaseConfigured: getFirebaseApp() !== null,
+    ...stats,
+  })
+})
 
 app.post(`/send`, async (c) => {
   if (!secretMatches(c.req.raw.headers.get(`x-relay-secret`))) {
@@ -257,6 +300,8 @@ app.post(`/send`, async (c) => {
   }
 
   const { tokens, notification, data } = parsed.data
+  stats.sendRequests += 1
+  stats.tokensRequested += tokens.length
   const messaging = getMessaging(firebase)
 
   // Android is DATA-ONLY (EXP-264). A top-level `notification` block makes the
@@ -310,14 +355,20 @@ app.post(`/send`, async (c) => {
     )
   } catch (err) {
     if (err instanceof DeadlineError) {
+      stats.deadlineTimeouts += 1
+      noteSendError(`FCM deadline exceeded`)
       console.error(
         `[push-relay] FCM multicast exceeded ${FCM_DEADLINE_MS}ms deadline (${tokens.length} tokens)`
       )
       return c.json({ error: `FCM timeout` }, 504)
     }
+    noteSendError(String(err))
     console.error(`[push-relay] FCM multicast failed:`, err)
     return c.json({ error: `FCM error` }, 500)
   }
+  stats.sendOk += 1
+  stats.tokensOk += response.successCount
+  stats.tokensFailed += response.failureCount
 
   const invalidTokens: string[] = []
   response.responses.forEach((res, i) => {
@@ -332,6 +383,7 @@ app.post(`/send`, async (c) => {
     }
   })
 
+  stats.invalidTokens += invalidTokens.length
   return c.json({ invalidTokens })
 })
 

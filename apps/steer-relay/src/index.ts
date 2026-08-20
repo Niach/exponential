@@ -54,6 +54,11 @@ interface RateBucket {
 
 const rateBuckets = new Map<string, RateBucket>()
 
+// EXP-553: monotonic 429 counter for /stats — bumped at every rate-limited
+// rejection (HTTP middleware and the WS-upgrade paths alike).
+let rateLimitedRejections = 0
+const startedAt = Date.now()
+
 function rateLimitHit(key: string, max: number): boolean {
   const now = Date.now()
   const bucket = rateBuckets.get(key)
@@ -124,12 +129,26 @@ app.use(`*`, async (c, next) => {
         RATE_LIMIT_FAILED_MAX
       )
     ) {
+      rateLimitedRejections += 1
       return c.json({ error: `Rate limit exceeded` }, 429)
     }
     return c.json({ error: `Unauthorized` }, 401)
   }
   return next()
 })
+
+// EXP-553: gauges + monotonic counters for the web app's admin performance
+// page. Secret-gated by the middleware above (unlike the public /healthz,
+// which deliberately stays gauges-only); an old web app simply never calls
+// this, and an old relay 404s — the caller falls back to /healthz.
+app.get(`/stats`, (c) =>
+  c.json({
+    ok: true,
+    startedAt,
+    ...hub.stats(),
+    counters: { ...hub.counters(), rateLimitedRejections },
+  })
+)
 
 // Online desktops for a user — powers the phone's "Start on my desktop" picker.
 app.get(`/devices/:userId`, (c) =>
@@ -385,6 +404,7 @@ export default {
         : ({ ok: false, reason: `malformed` } as const)
       if (!verdict.ok) {
         if (!rateLimitHit(`failed:${clientIp(req.headers)}`, RATE_LIMIT_FAILED_MAX)) {
+          rateLimitedRejections += 1
           return new Response(`Rate limit exceeded`, { status: 429 })
         }
         return new Response(`Unauthorized: ${verdict.reason}`, { status: 401 })
@@ -395,11 +415,13 @@ export default {
       // socket. Counts as failed auth: it never gets a socket either.
       if (![`control`, `publisher`, `viewer`].includes(verdict.claims.role)) {
         if (!rateLimitHit(`failed:${clientIp(req.headers)}`, RATE_LIMIT_FAILED_MAX)) {
+          rateLimitedRejections += 1
           return new Response(`Rate limit exceeded`, { status: 429 })
         }
         return new Response(`Unauthorized: unknown_role`, { status: 401 })
       }
       if (!rateLimitHit(`valid:${clientIp(req.headers)}`, RATE_LIMIT_VALID_MAX)) {
+        rateLimitedRejections += 1
         return new Response(`Rate limit exceeded`, { status: 429 })
       }
       const ok = server.upgrade(req, { data: { claims: verdict.claims } })

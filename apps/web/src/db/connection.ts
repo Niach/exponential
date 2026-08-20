@@ -6,5 +6,7 @@ const databaseUrl = process.env.DATABASE_URL
 if (!databaseUrl) {
   throw new Error(`DATABASE_URL is not set`)
 }
-const pool = new Pool({ connectionString: databaseUrl })
+// Exported for the admin performance page's pool gauges (EXP-553) — read
+// totalCount/idleCount/waitingCount only, never query through it directly.
+export const pool = new Pool({ connectionString: databaseUrl })
 export const db = drizzle({ client: pool, casing: `snake_case` })

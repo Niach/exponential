@@ -1,6 +1,13 @@
 import "@dotenvx/dotenvx/config"
 import { promisify } from "node:util"
 import { gzip } from "node:zlib"
+import {
+  noteElectricHighWater,
+  recordElectricBytes,
+  recordElectricUpstream,
+  recordSnapshotQueueWait,
+  registerElectricProxyGauges,
+} from "@/lib/metrics/registry"
 
 /**
  * REV-29: the ONLY inbound query params the proxy forwards to Electric —
@@ -153,13 +160,23 @@ function acquireSnapshotSlot(signal?: AbortSignal): Promise<boolean> {
  * the value, not mere presence, so `live=false` — which Electric answers with
  * snapshot data — cannot skip the gate.
  */
-function isLiveRequest(originUrl: URL): boolean {
+export function isLiveRequest(originUrl: URL): boolean {
   return (
     originUrl.searchParams.get(`live`) === `true` ||
     originUrl.searchParams.get(`live_sse`) === `true` ||
     originUrl.searchParams.get(`experimental_live_sse`) === `true`
   )
 }
+
+// Live semaphore gauges for the admin performance page (EXP-553) — reads the
+// module-locals above without touching the hot path.
+registerElectricProxyGauges(
+  () => ({
+    active: activeSnapshotProxies,
+    queued: snapshotWaiters.length,
+  }),
+  SNAPSHOT_PROXY_CONCURRENCY
+)
 
 export async function proxyElectricRequest(
   originUrl: URL,
@@ -168,7 +185,13 @@ export async function proxyElectricRequest(
 ): Promise<Response> {
   const isSnapshot = !isLiveRequest(originUrl)
   if (isSnapshot) {
+    noteElectricHighWater(activeSnapshotProxies, snapshotWaiters.length)
+    // Only an actually-queued acquire is a wait worth recording — the
+    // fast path resolves synchronously.
+    const wasQueued = activeSnapshotProxies >= SNAPSHOT_PROXY_CONCURRENCY
+    const waitStart = wasQueued ? performance.now() : 0
     const acquired = await acquireSnapshotSlot(signal)
+    if (wasQueued) recordSnapshotQueueWait(performance.now() - waitStart)
     if (!acquired) {
       // Client hung up while queued — nothing to send back.
       return new Response(null, {
@@ -178,7 +201,18 @@ export async function proxyElectricRequest(
     }
   }
   try {
-    return await proxyElectricRequestInner(originUrl, signal, acceptEncoding)
+    const start = performance.now()
+    const response = await proxyElectricRequestInner(
+      originUrl,
+      signal,
+      acceptEncoding
+    )
+    recordElectricUpstream({
+      live: !isSnapshot,
+      status: response.status,
+      ms: performance.now() - start,
+    })
+    return response
   } finally {
     if (isSnapshot) releaseSnapshotSlot()
   }
@@ -264,6 +298,11 @@ async function proxyElectricRequestInner(
     const compressed = await gzipAsync(new Uint8Array(body))
     headers.set(`content-encoding`, `gzip`)
     headers.set(`content-length`, String(compressed.byteLength))
+    recordElectricBytes({
+      rawBytes: body.byteLength,
+      sentBytes: compressed.byteLength,
+      gzipped: true,
+    })
     return new Response(compressed, {
       status: response.status,
       statusText: response.statusText,
@@ -271,6 +310,11 @@ async function proxyElectricRequestInner(
     })
   }
 
+  recordElectricBytes({
+    rawBytes: body.byteLength,
+    sentBytes: body.byteLength,
+    gzipped: false,
+  })
   return new Response(body, {
     status: response.status,
     statusText: response.statusText,

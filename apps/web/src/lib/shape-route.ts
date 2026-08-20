@@ -1,6 +1,11 @@
 import { resolveSession, SessionResolveError } from "@/lib/auth/resolve-bearer"
 import { checkClientVersion } from "@/lib/client-version"
-import { prepareElectricUrl, proxyElectricRequest } from "@/lib/electric-proxy"
+import {
+  isLiveRequest,
+  prepareElectricUrl,
+  proxyElectricRequest,
+} from "@/lib/electric-proxy"
+import { recordShapeRequest } from "@/lib/metrics/registry"
 
 // True when the request carries explicit token credentials — an
 // `Authorization` header (session bearer, `expu_` api key, or MCP OAuth
@@ -97,10 +102,18 @@ export function createShapeRouteHandler({
     // Pass the caller's Accept-Encoding along: the proxy gzips the (already
     // buffered) body for clients that advertise it, which is a ~10x cut on the
     // snapshot bodies mobile clients pay for on a cold cache.
-    return proxyElectricRequest(
+    const start = performance.now()
+    const response = await proxyElectricRequest(
       originUrl,
       request.signal,
       request.headers.get(`accept-encoding`)
     )
+    recordShapeRequest(
+      table,
+      isLiveRequest(originUrl) ? `live` : `snapshot`,
+      response.status,
+      performance.now() - start
+    )
+    return response
   }
 }

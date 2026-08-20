@@ -27,6 +27,7 @@ import { and, inArray, lte } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { codingSessions } from "@/db/schema"
 import { CODING_SESSION_STALE_MS } from "@exp/db-schema/domain"
+import { reportSchedulerRun } from "@/lib/metrics/registry"
 
 const INITIAL_DELAY_MS = 2 * 60 * 1000
 const SWEEP_INTERVAL_MS = 30 * 60 * 1000
@@ -66,14 +67,25 @@ let running = false
 async function sweep(): Promise<void> {
   if (running) return
   running = true
+  const startMs = performance.now()
   try {
     const result = await runCodingSessionSweep()
+    reportSchedulerRun(`coding-session-sweep`, {
+      ok: true,
+      durationMs: performance.now() - startMs,
+      detail: `${result.sessionsDeleted} deleted`,
+    })
     if (result.sessionsDeleted > 0) {
       console.log(
         `[coding-session-sweep] deleted ${result.sessionsDeleted} stale session(s)`
       )
     }
   } catch (err) {
+    reportSchedulerRun(`coding-session-sweep`, {
+      ok: false,
+      durationMs: performance.now() - startMs,
+      error: String(err),
+    })
     console.error(`[coding-session-sweep] sweep failed:`, err)
   } finally {
     running = false

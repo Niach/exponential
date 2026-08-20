@@ -22,6 +22,7 @@ import {
   shouldSendReporterResolution,
 } from "@/lib/notification-email-policy"
 import { getTypePrefsMap } from "@/lib/notification-prefs"
+import { recordNotificationFanout } from "@/lib/metrics/registry"
 import type { NotificationType } from "@/lib/domain"
 
 // The canonical push `data.type` discriminator vocabulary (D8/D13). The web
@@ -198,6 +199,10 @@ async function deliver(args: {
     notificationId: row.id as string,
     userId: row.user_id as string,
   }))
+  recordNotificationFanout({
+    requested: recipients.length,
+    inserted: delivered.length,
+  })
   if (delivered.length === 0) return
 
   // Push only — email waits for the digest sweep. sendToUsers batches the
@@ -649,6 +654,10 @@ async function deliverToTeam(args: {
     notificationId: row.id as string,
     userId: row.user_id as string,
   }))
+  recordNotificationFanout({
+    requested: recipients.length,
+    inserted: delivered.length,
+  })
   if (delivered.length === 0) return
 
   // Same EXP-264 contract as deliver(): each recipient's push carries the id

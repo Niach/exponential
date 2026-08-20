@@ -1260,3 +1260,41 @@ describe(`idle publisher detection (REV2-X)`, () => {
     hub.destroy()
   })
 })
+
+describe(`stats counters (EXP-553)`, () => {
+  test(`counters start at zero and track opens, starts, fanned frames`, () => {
+    const hub = new Hub()
+    expect(hub.counters()).toEqual({
+      connectionsAccepted: 0,
+      activityFramesFanned: 0,
+      startsRouted: 0,
+      slowConsumerEvictions: 0,
+    })
+
+    const desktop = new FakeSocket()
+    hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
+    hub.onMessage(
+      desktop,
+      JSON.stringify({ t: `online`, deviceId: `dev-1`, deviceLabel: `Mac` })
+    )
+    hub.startSession(`owner`, `dev-1`, { issueId: `issue-1` })
+    // Offline device: routing fails, counter must not move.
+    hub.startSession(`owner`, `dev-404`, { issueId: `issue-1` })
+
+    const pub = connectPublisher(hub)
+    const member = connectMember(hub)
+    activity(hub, pub, { kind: `narration`, text: `working` })
+
+    const counters = hub.counters()
+    expect(counters.connectionsAccepted).toBe(3)
+    expect(counters.startsRouted).toBe(1)
+    expect(counters.activityFramesFanned).toBeGreaterThanOrEqual(1)
+    expect(counters.slowConsumerEvictions).toBe(0)
+
+    // A saturated member socket is evicted, not sent to.
+    member.buffered = 10 * 1024 * 1024
+    activity(hub, pub, { kind: `narration`, text: `again` })
+    expect(hub.counters().slowConsumerEvictions).toBe(1)
+    hub.destroy()
+  })
+})
