@@ -91,26 +91,22 @@ struct IssueDetailView: View {
             if let vm = viewModel, let issue = vm.issue {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
-                        // Header: identifier only (actions live in the nav bar's
+                        // Header: provenance only (actions live in the nav bar's
                         // menu). EXP-327 dropped the backing-repo chip — the PR
                         // row is the link to the code, and the chip only
-                        // repeated what the board already says.
-                        HStack(spacing: 6) {
-                            if let identifier = issue.identifier {
-                                Text(identifier)
-                                    .font(.caption.monospaced().weight(.medium))
-                                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .glassButton()
-                            }
-                            // Origin chip: issues filed through the embeddable
-                            // feedback widget (source='widget') or by a coding
-                            // agent over MCP (source='agent', EXP-496) carry no
-                            // user creator — surface that provenance read-only.
-                            if issue.source == DomainContract.issueSourceWidget
-                                || issue.source == DomainContract.issueSourceAgent {
-                                let isAgent = issue.source == DomainContract.issueSourceAgent
+                        // repeated what the board already says. EXP-568 dropped
+                        // the identifier chip too: the nav bar title IS the
+                        // identifier now, and the chip only said it twice.
+                        // Origin chip: issues filed through the embeddable
+                        // feedback widget (source='widget') or by a coding
+                        // agent over MCP (source='agent', EXP-496) carry no
+                        // user creator — surface that provenance read-only.
+                        // The row renders only when there IS a chip: an empty
+                        // one would just be a gap above the title.
+                        if issue.source == DomainContract.issueSourceWidget
+                            || issue.source == DomainContract.issueSourceAgent {
+                            let isAgent = issue.source == DomainContract.issueSourceAgent
+                            HStack(spacing: 6) {
                                 HStack(spacing: 6) {
                                     AppIcon(isAgent ? AppIcons.uiAgentSource : AppIcons.uiWidget, size: 11)
                                     Text(isAgent ? "Agent" : "Feedback widget")
@@ -121,8 +117,8 @@ struct IssueDetailView: View {
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
                                 .glassButton()
+                                Spacer()
                             }
-                            Spacer()
                         }
 
                         if vm.permissionsPending {
@@ -194,7 +190,6 @@ struct IssueDetailView: View {
                                 // observes it and pushes the issue route.
                                 deps.deepLinkBus.navigateToIssue(issueId)
                             },
-                            showsMentionButton: !vm.singleMemberTeam,
                             // EXP-327: the description editor is the ONE attach
                             // affordance; non-image picks land in the Files
                             // section below.
@@ -372,7 +367,9 @@ struct IssueDetailView: View {
                 ProgressView().tint(.white)
             }
         }
-        .navigationTitle("Issue")
+        // The identifier IS the title (EXP-568) — it used to be a chip in the
+        // content, one line below a nav bar that just said "Issue".
+        .navigationTitle(viewModel?.issue?.identifier ?? "")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .alert("Delete Issue", isPresented: $showDeleteConfirm) {

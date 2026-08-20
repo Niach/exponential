@@ -366,7 +366,7 @@ struct IssueDetailBottomBar: View {
                 Button {
                     Task { await submit() }
                 } label: {
-                    AppIcon(AppIcons.uiSend, size: 28)
+                    AppIcon(AppIcons.uiSubmit, size: 28)
                         .foregroundStyle(
                             submitting || !canSend
                                 ? Color.white.opacity(0.3)

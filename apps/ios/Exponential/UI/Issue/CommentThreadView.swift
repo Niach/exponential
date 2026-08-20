@@ -576,8 +576,7 @@ private struct RegularCommentRow: View {
                     accountId: accountId,
                     httpClient: httpClient,
                     mentionMembers: mentionMembers,
-                    onIssueRefTap: { issueId in onOpenIssue(issueId) },
-                    showsMentionButton: !singleMemberTeam
+                    onIssueRefTap: { issueId in onOpenIssue(issueId) }
                 )
                 // Bounded scroller, not a bare frame clamp — overflow content
                 // rendered outside the clamp with the caret detached (EXP-246).
