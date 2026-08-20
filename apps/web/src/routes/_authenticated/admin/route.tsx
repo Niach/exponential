@@ -1,6 +1,7 @@
 import { createFileRoute, Link, Outlet, redirect } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 import {
+  Activity,
   ArrowLeft,
   LayoutDashboard,
   MailWarning,
@@ -71,6 +72,15 @@ function AdminLayout() {
             >
               <LayoutDashboard className="h-4 w-4" />
               Overview
+            </Link>
+          </Button>
+          <Button asChild variant="ghost" size="sm">
+            <Link
+              to="/admin/performance"
+              activeProps={{ className: `bg-accent` }}
+            >
+              <Activity className="h-4 w-4" />
+              Performance
             </Link>
           </Button>
           {isCloud && (

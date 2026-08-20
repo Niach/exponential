@@ -1,6 +1,7 @@
 import { inArray } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { fcmTokens } from "@/db/schema"
+import { recordPushBatch } from "@/lib/metrics/registry"
 
 // ── Relay config (lazy singleton) ─────────────────────────────────────────────
 
@@ -99,6 +100,9 @@ export async function sendToUsers(
 
   const invalidTokens: string[] = []
   let next = 0
+  let requestsOk = 0
+  let requestsFailed = 0
+  let lastError: string | undefined
 
   async function worker(): Promise<void> {
     while (next < requests.length) {
@@ -126,13 +130,18 @@ export async function sendToUsers(
         })
 
         if (!res.ok) {
+          requestsFailed += 1
+          lastError = `relay responded ${res.status}`
           console.error(`[fcm] relay responded ${res.status}:`, await res.text())
           continue
         }
 
         const json = (await res.json()) as { invalidTokens?: string[] }
         invalidTokens.push(...(json.invalidTokens ?? []))
+        requestsOk += 1
       } catch (err) {
+        requestsFailed += 1
+        lastError = String(err)
         console.error(`[fcm] relay request failed:`, err)
       }
     }
@@ -143,6 +152,13 @@ export async function sendToUsers(
       worker()
     )
   )
+
+  recordPushBatch({
+    requestsOk,
+    requestsFailed,
+    invalidTokens: invalidTokens.length,
+    lastError,
+  })
 
   if (invalidTokens.length > 0) {
     // FCM invalidates a token for the whole device, so delete every account's

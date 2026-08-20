@@ -45,10 +45,16 @@ vi.mock(`@/lib/auth/resolve-bearer`, () => ({
   SessionResolveError,
 }))
 
-vi.mock(`@/lib/electric-proxy`, () => ({
-  prepareElectricUrl,
-  proxyElectricRequest,
-}))
+vi.mock(`@/lib/electric-proxy`, async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/electric-proxy")>()
+  return {
+    // Keep the real (pure) isLiveRequest — the handler's shape-metrics hook
+    // classifies live vs snapshot with it.
+    isLiveRequest: actual.isLiveRequest,
+    prepareElectricUrl,
+    proxyElectricRequest,
+  }
+})
 
 vi.mock(`@/lib/team-membership`, async (importOriginal) => {
   const actual =

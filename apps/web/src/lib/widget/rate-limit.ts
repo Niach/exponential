@@ -24,6 +24,12 @@ export class TokenBucketLimiter {
     }
   ) {}
 
+  /** Currently-tracked bucket keys — a cheap gauge for the admin
+   * performance page (EXP-553). */
+  get trackedKeys(): number {
+    return this.buckets.size
+  }
+
   tryTake(key: string, nowMs = Date.now()): RateLimitResult {
     const refillPerMs = this.opts.refillPerHour / 3_600_000
     let bucket = this.buckets.get(key)

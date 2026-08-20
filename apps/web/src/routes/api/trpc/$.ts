@@ -16,6 +16,7 @@ import { usersRouter } from "@/lib/trpc/users"
 import { integrationsRouter } from "@/lib/trpc/integrations"
 import { adminRouter } from "@/lib/trpc/admin"
 import { adminConversionsRouter } from "@/lib/trpc/admin-conversions"
+import { adminPerformanceRouter } from "@/lib/trpc/admin-performance"
 import { pushTokensRouter } from "@/lib/trpc/push-tokens"
 import { commentsRouter } from "@/lib/trpc/comments"
 import { attachmentsRouter } from "@/lib/trpc/attachments"
@@ -52,6 +53,7 @@ export const appRouter = router({
   integrations: integrationsRouter,
   admin: adminRouter,
   adminConversions: adminConversionsRouter,
+  adminPerformance: adminPerformanceRouter,
   pushTokens: pushTokensRouter,
   billing: billingRouter,
   onboarding: onboardingRouter,

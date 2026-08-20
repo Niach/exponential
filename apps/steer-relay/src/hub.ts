@@ -134,6 +134,14 @@ export class Hub {
   /** REV2-X: Periodic check for idle publishers. */
   private idleCheckInterval: ReturnType<typeof setInterval>
 
+  // EXP-553: monotonic counters for the admin performance page — exposed via
+  // counters() on the secret-gated /stats endpoint (stats() stays gauges-only
+  // because /healthz is public).
+  private connectionsAccepted = 0
+  private activityFramesFanned = 0
+  private startsRouted = 0
+  private slowConsumerEvictions = 0
+
   constructor() {
     // REV2-X: Start the idle publisher detector — checks every 30s for
     // publishers that haven't sent ANY frame (including pings) in 90s.
@@ -152,6 +160,7 @@ export class Hub {
   onOpen(sock: RelaySocket, claims: SteerTicketClaims) {
     const conn: Conn = { sock, claims }
     this.conns.set(sock, conn)
+    this.connectionsAccepted += 1
 
     if (claims.role === `publisher` && claims.sessionId) {
       // Room attaches on `hello` — nothing yet.
@@ -488,6 +497,7 @@ export class Hub {
               ...options,
             }
     entry.conn.sock.send(frame(payload))
+    this.startsRouted += 1
     return { ok: true }
   }
 
@@ -515,6 +525,16 @@ export class Hub {
       connections: this.conns.size,
       devices: [...this.devices.values()].reduce((n, m) => n + m.size, 0),
       rooms: this.rooms.size,
+    }
+  }
+
+  /** EXP-553: monotonic counters since process start (see the field block). */
+  counters() {
+    return {
+      connectionsAccepted: this.connectionsAccepted,
+      activityFramesFanned: this.activityFramesFanned,
+      startsRouted: this.startsRouted,
+      slowConsumerEvictions: this.slowConsumerEvictions,
     }
   }
 
@@ -547,9 +567,11 @@ export class Hub {
     for (const member of room.activityMembers.keys()) {
       if (member.sock.bufferedAmount() > VIEWER_HIGH_WATER) {
         member.sock.close(CLOSE_SLOW_CONSUMER, `slow_consumer`)
+        this.slowConsumerEvictions += 1
         continue
       }
       member.sock.send(framed)
+      this.activityFramesFanned += 1
     }
   }
 

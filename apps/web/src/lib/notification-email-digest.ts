@@ -28,6 +28,7 @@ import {
   type DigestEmailItem,
 } from "@/lib/email"
 import { emailEnabled } from "@/lib/email-enabled"
+import { reportSchedulerRun } from "@/lib/metrics/registry"
 import { getEmailPrefsMap } from "@/lib/notification-prefs"
 import {
   DIGEST_SCAN_MAX_AGE_MS,
@@ -366,14 +367,25 @@ let running = false
 async function sweep(): Promise<void> {
   if (running) return
   running = true
+  const startMs = performance.now()
   try {
     const result = await runEmailDigestSweep()
+    reportSchedulerRun(`email-digest`, {
+      ok: true,
+      durationMs: performance.now() - startMs,
+      detail: `${result.emailsSent} sent, ${result.notificationsClaimed} claimed`,
+    })
     if (result.emailsSent > 0 || result.notificationsClaimed > 0) {
       console.log(
         `[digest] sent ${result.emailsSent} digest email(s), claimed ${result.notificationsClaimed} notification(s)`
       )
     }
   } catch (err) {
+    reportSchedulerRun(`email-digest`, {
+      ok: false,
+      durationMs: performance.now() - startMs,
+      error: String(err),
+    })
     console.error(`[digest] sweep failed:`, err)
   } finally {
     running = false

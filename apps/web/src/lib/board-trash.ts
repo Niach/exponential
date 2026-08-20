@@ -11,6 +11,7 @@ import { db } from "@/db/connection"
 import { attachments, boards } from "@/db/schema"
 import { BOARD_TRASH_RETENTION_MS } from "@exp/db-schema/domain"
 import { deleteStorageObjectsViaBun } from "@/lib/storage/bun-s3-cleanup"
+import { reportSchedulerRun } from "@/lib/metrics/registry"
 
 type Tx = Parameters<Parameters<(typeof db)[`transaction`]>[0]>[0]
 
@@ -98,14 +99,25 @@ let running = false
 async function sweep(): Promise<void> {
   if (running) return
   running = true
+  const startMs = performance.now()
   try {
     const result = await runBoardPurgeSweep()
+    reportSchedulerRun(`board-trash`, {
+      ok: true,
+      durationMs: performance.now() - startMs,
+      detail: `${result.boardsPurged} purged, ${result.objectsDeleted} objects deleted`,
+    })
     if (result.boardsPurged > 0) {
       console.log(
         `[board-trash] purged ${result.boardsPurged} board(s), deleted ${result.objectsDeleted} attachment object(s)`
       )
     }
   } catch (err) {
+    reportSchedulerRun(`board-trash`, {
+      ok: false,
+      durationMs: performance.now() - startMs,
+      error: String(err),
+    })
     console.error(`[board-trash] sweep failed:`, err)
   } finally {
     running = false

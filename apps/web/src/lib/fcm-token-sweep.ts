@@ -13,6 +13,7 @@
 import { lte } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { fcmTokens } from "@/db/schema"
+import { reportSchedulerRun } from "@/lib/metrics/registry"
 
 // Firebase's own guidance treats tokens unrefreshed for about a month as
 // stale. A signed-in account that never opens the app for this long loses
@@ -51,14 +52,25 @@ let running = false
 async function sweep(): Promise<void> {
   if (running) return
   running = true
+  const startMs = performance.now()
   try {
     const result = await runFcmTokenSweep()
+    reportSchedulerRun(`fcm-token-sweep`, {
+      ok: true,
+      durationMs: performance.now() - startMs,
+      detail: `${result.tokensDeleted} deleted`,
+    })
     if (result.tokensDeleted > 0) {
       console.log(
         `[fcm-token-sweep] deleted ${result.tokensDeleted} stale token row(s)`
       )
     }
   } catch (err) {
+    reportSchedulerRun(`fcm-token-sweep`, {
+      ok: false,
+      durationMs: performance.now() - startMs,
+      error: String(err),
+    })
     console.error(`[fcm-token-sweep] sweep failed:`, err)
   } finally {
     running = false

@@ -49,6 +49,10 @@ import {
   captureReturnVisit,
 } from "@/lib/conversion/capture"
 import { MAX_REQUEST_BODY_BYTES } from "@/lib/request-body-limit"
+import {
+  classifyRequestPath,
+  recordRequest,
+} from "@/lib/metrics/registry"
 
 // Fire-and-forget: apply the custom trigger SQL and promote initial admins.
 // Idempotent; bootstrapCloud() retries internally with backoff until the pass
@@ -210,39 +214,16 @@ function ensureNativeResponse(res: Response): Response {
   return new Response(res.body, res)
 }
 
-let _fetch: (req: Request) => Response | Promise<Response> = async (req) => {
+// The one non-websocket request pipeline (both _fetch variants call it).
+// The finally-side timing feeds the admin performance page's per-class
+// request rates (EXP-553); shape-live durations include the ~20s long-poll
+// window by design.
+async function handleRequest(req: Request): Promise<Response> {
   captureLanding(req)
   captureReturnVisit(req)
-  return withNoindexHeader(
-    withSecurityHeaders(
-      withSupportPageHeaders(
-        req,
-        withWidgetAssetHeaders(
-          req,
-          ensureNativeResponse(await nitroApp.fetch(req))
-        )
-      )
-    )
-  )
-}
-const ws = hasWebSocket
-  ? wsAdapter({ resolve: resolveWebsocketHooks })
-  : undefined
-
-if (hasWebSocket && ws) {
-  _fetch = async (req: Request) => {
-    if (req.headers.get(`upgrade`) === `websocket`) {
-      type BunWebSocketServer = Parameters<typeof ws.handleUpgrade>[1]
-      const server = (
-        req as unknown as { runtime: { bun: { server: BunWebSocketServer } } }
-      ).runtime.bun.server
-      const upgraded = ws.handleUpgrade(req, server)
-      // crossws returns Response | undefined for non-upgrade fall-through;
-      // the guard above ensures we only get here on websocket requests.
-      return upgraded as Response | Promise<Response>
-    }
-    captureLanding(req)
-    captureReturnVisit(req)
+  const url = new URL(req.url)
+  const start = performance.now()
+  try {
     return withNoindexHeader(
       withSecurityHeaders(
         withSupportPageHeaders(
@@ -254,6 +235,32 @@ if (hasWebSocket && ws) {
         )
       )
     )
+  } finally {
+    recordRequest(
+      classifyRequestPath(url.pathname, url.searchParams),
+      performance.now() - start
+    )
+  }
+}
+
+let _fetch: (req: Request) => Response | Promise<Response> = handleRequest
+const ws = hasWebSocket
+  ? wsAdapter({ resolve: resolveWebsocketHooks })
+  : undefined
+
+if (hasWebSocket && ws) {
+  _fetch = (req: Request) => {
+    if (req.headers.get(`upgrade`) === `websocket`) {
+      type BunWebSocketServer = Parameters<typeof ws.handleUpgrade>[1]
+      const server = (
+        req as unknown as { runtime: { bun: { server: BunWebSocketServer } } }
+      ).runtime.bun.server
+      const upgraded = ws.handleUpgrade(req, server)
+      // crossws returns Response | undefined for non-upgrade fall-through;
+      // the guard above ensures we only get here on websocket requests.
+      return upgraded as Response | Promise<Response>
+    }
+    return handleRequest(req)
   }
 }
 
