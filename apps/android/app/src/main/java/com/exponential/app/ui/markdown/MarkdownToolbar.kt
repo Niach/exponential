@@ -378,11 +378,14 @@ private fun LinkRail(
         val target = controller.linkEditTarget ?: model
         val sel = controller.linkEditSelection
         val href = url.trim()
-        if (sel != null && href.isNotEmpty()) {
+        if (sel != null) {
             val (rowId, range) = sel
             if (range.last > range.first) {
+                // EXP-572: an emptied field over a range REMOVES the link
+                // (toggleMark unwraps on a blank href) — the only way to
+                // un-link text, matching web/iOS.
                 target.toggleMark(rowId, range, InlineKind.Link, href)
-            } else {
+            } else if (href.isNotEmpty()) {
                 // No selection to wrap: the URL becomes its own link text.
                 target.insertLinkText(rowId, range.first, text = href, url = href)
             }

@@ -533,4 +533,36 @@ class EditorModelTest {
         m.insertPlainText("@")
         assertTrue(m.consumeAutocompleteArm(row.id))
     }
+
+    // -- Links (EXP-572) --------------------------------------------------------
+
+    @Test
+    fun linkRangeAtCoversTheWholeLinkUnderACaret() {
+        val m = model("see [docs](https://a.example) now")
+        val id = run(m).id
+        // Caret inside "docs" (text is "see docs now", link = 4..8).
+        assertEquals(4..8, m.linkRangeAt(id, 6..6))
+        assertEquals("https://a.example", m.linkHrefAt(id, 6..6))
+        assertNull(m.linkRangeAt(id, 1..1))
+        // The end offset is exclusive: a caret right after the link is outside it.
+        assertNull(m.linkRangeAt(id, 8..8))
+    }
+
+    @Test
+    fun relinkingOverTheExpandedRangeReplacesTheHref() {
+        val m = model("see [docs](https://a.example) now")
+        val id = run(m).id
+        val range = m.linkRangeAt(id, 6..6)!!
+        m.toggleMark(id, range, InlineKind.Link, "https://b.example")
+        assertEquals("see [docs](https://b.example) now", m.currentMarkdown())
+    }
+
+    @Test
+    fun blankHrefOverTheLinkRangeRemovesTheLink() {
+        val m = model("see [docs](https://a.example) now")
+        val id = run(m).id
+        val range = m.linkRangeAt(id, 6..6)!!
+        m.toggleMark(id, range, InlineKind.Link, "")
+        assertEquals("see docs now", m.currentMarkdown())
+    }
 }

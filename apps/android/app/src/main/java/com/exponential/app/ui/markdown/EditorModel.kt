@@ -476,6 +476,23 @@ class EditorModel {
             ?.href
     }
 
+    /**
+     * The full [start, end) range of the link covering the START of [range] in
+     * [rowId], if any (EXP-572). A caret (or partial selection) inside an
+     * existing link edits THAT link — the rail expands its pending range to
+     * this before opening, mirroring web's `extendMarkRange('link')` — so the
+     * new href replaces the old one instead of landing as fresh link text in
+     * the middle of the original.
+     */
+    fun linkRangeAt(rowId: String, range: IntRange): IntRange? {
+        val row = rows.firstOrNull { it.id == rowId } as? EditorRow.TextRun ?: return null
+        val at = range.first
+        val link = row.marks
+            .firstOrNull { it.kind == InlineKind.Link && it.start <= at && it.end > at }
+            ?: return null
+        return link.start..link.end
+    }
+
     /** The paragraph under the caret (start of the active selection) — toolbar tint. */
     fun attrsAtCaret(): ParagraphAttrs? {
         val (rid, range) = activeSelection() ?: return null

@@ -184,6 +184,79 @@ final class MarkdownFormatOpsTests: XCTestCase {
         XCTAssertEqual(serialize(quote), "quoted")
     }
 
+    // MARK: - Partial selections (EXP-571)
+
+    // `a **b** c`, caret anywhere, tap "Text": the bold used to be flattened
+    // because the paragraph font was rewritten wholesale.
+    func testSetHeadingToBodyKeepsInlineMarks() {
+        let text = content("a **b** c")
+        MarkdownFormatOps.setHeading(level: 0, in: text, range: NSRange(location: 1, length: 0), selection: NSRange(location: 1, length: 0))
+        XCTAssertEqual(serialize(text), "a **b** c")
+    }
+
+    func testSetHeadingPromotionKeepsItalicAndStrikeAndLink() {
+        let text = content("a *i* ~~s~~ [l](https://example.com) `c`")
+        MarkdownFormatOps.setHeading(level: 2, in: text, paragraphRange: whole(text))
+        XCTAssertEqual(serialize(text), "## a *i* ~~s~~ [l](https://example.com) `c`")
+        MarkdownFormatOps.setHeading(level: 0, in: text, paragraphRange: whole(text))
+        XCTAssertEqual(serialize(text), "a *i* ~~s~~ [l](https://example.com) `c`")
+    }
+
+    // (Italic, not bold: the semibold heading font IS bold to the descriptor,
+    // so bold inside a heading was never representable on iOS.)
+    func testClearLineFormattingFromACaretKeepsInlineMarks() {
+        let text = content("# a *b* c")
+        let caret = NSRange(location: 3, length: 0)
+        let restored = MarkdownFormatOps.setHeading(level: 0, in: text, range: caret, selection: caret)
+        XCTAssertEqual(serialize(text), "a *b* c")
+        XCTAssertEqual(restored, caret)
+    }
+
+    // Clear on a partial selection touches only the selected marks; web and
+    // Android leave the rest of the paragraph alone.
+    func testClearFormattingOnAPartialSelectionLeavesOtherMarksAlone() {
+        let text = content("**a** *b* ~~c~~")
+        // "a b c" → clear just "b" (location 2).
+        MarkdownFormatOps.clearFormatting(in: text, range: NSRange(location: 2, length: 1))
+        XCTAssertEqual(serialize(text), "**a** b ~~c~~")
+    }
+
+    func testClearFormattingOnAPartialSelectionStillDropsTheHeading() {
+        let text = content("# *a* b")
+        MarkdownFormatOps.clearFormatting(in: text, range: NSRange(location: 2, length: 1))
+        XCTAssertEqual(serialize(text), "*a* b")
+    }
+
+    func testSetHeadingCoversEveryParagraphInTheSelection() {
+        let text = content("one\n\ntwo\n\nthree")
+        // Select from inside "one" to inside "two".
+        let selection = NSRange(location: 1, length: text.length - 6)
+        MarkdownFormatOps.setHeading(level: 2, in: text, range: selection, selection: selection)
+        let out = serialize(text)
+        XCTAssertTrue(out.hasPrefix("## one"), out)
+        XCTAssertTrue(out.contains("## two"), out)
+        XCTAssertTrue(out.hasSuffix("three"), out)
+        XCTAssertFalse(out.contains("## three"), out)
+    }
+
+    // Dropping the baked "• " shortens the paragraph: a caret after it slides
+    // back by the prefix length instead of drifting two characters right.
+    func testSetHeadingShiftsTheCaretPastTheRemovedPrefix() {
+        let text = content("- item")
+        let prefix = text.length - ("item" as NSString).length
+        let caret = NSRange(location: prefix + 2, length: 0) // "it|em"
+        let restored = MarkdownFormatOps.setHeading(level: 1, in: text, range: caret, selection: caret)
+        XCTAssertEqual(serialize(text), "# item")
+        XCTAssertEqual(restored, NSRange(location: 2, length: 0))
+    }
+
+    func testSetHeadingClampsACaretInsideTheRemovedPrefix() {
+        let text = content("- item")
+        let caret = NSRange(location: 1, length: 0)
+        let restored = MarkdownFormatOps.setHeading(level: 1, in: text, range: caret, selection: caret)
+        XCTAssertEqual(restored, NSRange(location: 0, length: 0))
+    }
+
     func testClearInlineFormattingKeepsTheHeading() {
         let text = content("# **Title**")
         MarkdownFormatOps.clearInlineFormatting(in: text, range: whole(text))

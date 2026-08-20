@@ -474,8 +474,11 @@ fun IssueDetailScreen(
         // editors used to stack on screen at once because the expanded composer
         // stayed up while the description took focus.
         val toolbarController = LocalMarkdownToolbarController.current
+        // EXP-573: the back gesture dismisses the IME WITHOUT blurring the
+        // editor, so focus alone must not keep the bar hidden — only an editor
+        // that actually holds the keyboard does.
         val otherEditorFocused = toolbarController?.activeModel?.focusedRowId != null
-        val barVisible = (composerExpanded || !imeVisible) && !otherEditorFocused
+        val barVisible = (composerExpanded || !imeVisible) && !(otherEditorFocused && imeVisible)
 
         // Tap-outside keyboard dismissal (EXP-246): a tap on dead space clears
         // focus and drops the IME. Children (chips, editors, the bar) consume

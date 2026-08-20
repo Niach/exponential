@@ -492,16 +492,18 @@ final class MarkdownToolbar: UIInputView {
         let storage = textView.textStorage
         let range = textView.selectedRange
         storage.beginEditing()
+        let restored: NSRange
         if range.length > 0 {
-            MarkdownFormatOps.clearFormatting(in: storage, range: range)
+            restored = MarkdownFormatOps.clearFormatting(in: storage, range: range)
         } else {
             // Nothing selected: the marks live on the typing attributes, so the
-            // only thing left to clear in the document is the line format.
-            MarkdownFormatOps.clearLineFormatting(
-                in: storage, paragraphRange: paragraphRange(in: textView))
+            // only thing left to clear in the document is the line format —
+            // the paragraph's inline marks stay put (EXP-571).
+            restored = MarkdownFormatOps.setHeading(
+                level: 0, in: storage, range: range, selection: range)
         }
         storage.endEditing()
-        restoreSelection(range, in: textView)
+        restoreSelection(restored, in: textView)
         textView.typingAttributes = MarkdownFormatOps.clearedTypingAttributes()
         lastState = nil
         refresh(textView)
@@ -524,10 +526,13 @@ final class MarkdownToolbar: UIInputView {
         let selection = textView.selectedRange
 
         storage.beginEditing()
-        MarkdownFormatOps.setHeading(level: target, in: storage, paragraphRange: paragraph)
+        // EXP-571: every paragraph the selection touches, like web/Android;
+        // the returned selection is already shifted past any dropped baked
+        // list prefix, so the caret does not drift.
+        let restored = MarkdownFormatOps.setHeading(
+            level: target, in: storage, range: selection, selection: selection)
         storage.endEditing()
-        // Dropping a baked list prefix shortens the paragraph under the caret.
-        restoreSelection(selection, in: textView)
+        restoreSelection(restored, in: textView)
         textView.typingAttributes = MarkdownFormatOps.headingTypingAttributes(
             level: target, from: textView.typingAttributes)
         lastState = nil
