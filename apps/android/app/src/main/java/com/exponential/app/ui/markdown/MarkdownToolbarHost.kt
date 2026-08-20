@@ -112,9 +112,16 @@ class MarkdownToolbarController {
         private set
 
     fun requestLinkEditor(model: EditorModel) {
-        val sel = model.activeSelection() ?: return
-        linkEditSelection = sel
-        linkEditInitialUrl = model.linkHrefAt(sel.first, sel.second).orEmpty()
+        val (rowId, range) = model.activeSelection() ?: return
+        // EXP-572: a caret or partial selection inside an existing link edits
+        // the WHOLE link — widen the pending range to cover it, so applying
+        // replaces (or, with an emptied field, removes) that link rather than
+        // inserting a second one in its middle.
+        val link = model.linkRangeAt(rowId, range)
+        val expanded = if (link == null) range
+        else minOf(range.first, link.first)..maxOf(range.last, link.last)
+        linkEditSelection = rowId to expanded
+        linkEditInitialUrl = model.linkHrefAt(rowId, range).orEmpty()
         linkEditTarget = model
         railMode = RailMode.Link
     }
