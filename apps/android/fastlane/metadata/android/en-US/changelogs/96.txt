@@ -1,0 +1,1 @@
+Editor fixes: editing a link from inside it now updates the whole link and an emptied URL removes it, and the bottom bar comes back after dismissing the keyboard with the back gesture.

@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-mobile-editor-fixes`,
+    date: `2026-08-20`,
+    title: `Mobile editor fixes`,
+    summary: `iOS keeps your bold and italic marks through heading changes, and Android link editing and the issue bottom bar behave.`,
+    body: `- **iOS editor**: changing a heading or tapping Clear formatting no longer wipes bold, italic and code marks in the paragraph, Clear formatting applies only to the selected text, and heading changes cover every paragraph in the selection.
+- **Android links**: editing a link with the caret inside it now updates the whole link instead of corrupting it, and clearing the URL field removes the link.
+- **Android issue view**: the floating bottom bar returns after dismissing the keyboard with the back gesture.`,
+  },
+  {
     id: `2026-08-editor-rail-widget-launcher`,
     date: `2026-08-20`,
     title: `A formatting rail, widget launcher styles, server insights`,

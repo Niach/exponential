@@ -1,3 +1,3 @@
-- A formatting rail on the issue description and comment editors: headings, lists, links and more without typing markdown
-- Issue detail polish throughout
+- Editor fixes: heading changes and Clear formatting keep your bold, italic and code marks intact
+- Clear formatting now applies only to the selected text
 - Smaller fixes
