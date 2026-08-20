@@ -20,6 +20,8 @@ import {
   isIconName,
   isPickableIcon,
 } from "@exp/icons"
+import { PICKABLE_ICON_SVG } from "@exp/icons/pickable-svg"
+import { megaphoneIconSvg } from "@exp/widget/theme"
 import { ICON_COMPONENTS, conceptIcon } from "./icons.generated"
 
 const repoRoot = join(import.meta.dirname, `..`, `..`, `..`, `..`)
@@ -198,12 +200,36 @@ describe(`icon registry`, () => {
     expect(isPickableIcon(`chevron-right`)).toBe(false)
   })
 
+  it(`pickable SVG map embeds every pickable icon (EXP-569)`, () => {
+    // The widget config endpoint innerHTML-serves these into third-party
+    // pages, so the shape is part of the contract: standalone currentColor
+    // SVGs, aria-hidden like the widget's built-in glyph.
+    expect(Object.keys(PICKABLE_ICON_SVG).sort()).toEqual(
+      [...PICKABLE_ICONS].sort()
+    )
+    for (const name of PICKABLE_ICONS) {
+      const svg = PICKABLE_ICON_SVG[name]
+      expect(svg.startsWith(`<svg aria-hidden="true" `), name).toBe(true)
+      expect(svg.endsWith(`</svg>`), name).toBe(true)
+      expect(svg, name).toContain(`stroke="currentColor"`)
+      expect(svg, name).toContain(`viewBox="0 0 24 24"`)
+    }
+    // The widget's built-in fallback glyph must carry the registry
+    // megaphone's exact geometry, so "no icon picked" and "megaphone picked"
+    // render identically.
+    const geometryOf = (svg: string) => svg.slice(svg.indexOf(`>`) + 1)
+    expect(geometryOf(megaphoneIconSvg)).toBe(
+      geometryOf(PICKABLE_ICON_SVG.megaphone)
+    )
+  })
+
   it(`committed generated output is current`, () => {
     // Re-run the generator and assert nothing moved. Deliberately compares
     // file contents rather than `git status`, so it behaves the same on a
     // clean checkout, a dirty tree, and in CI.
     const targets = [
       join(iconsPkg, `src/generated.ts`),
+      join(iconsPkg, `src/pickable-svg.generated.ts`),
       join(repoRoot, `apps/web/src/lib/icons.generated.ts`),
       join(repoRoot, `apps/desktop/crates/ui/src/icons.generated.rs`),
       join(repoRoot, `apps/ios/ExpUI/Sources/AppIcons.generated.swift`),

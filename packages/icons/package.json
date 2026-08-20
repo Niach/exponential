@@ -7,6 +7,7 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./pickable-svg": "./src/pickable-svg.generated.ts",
     "./icons.json": "./icons.json"
   },
   "scripts": {
