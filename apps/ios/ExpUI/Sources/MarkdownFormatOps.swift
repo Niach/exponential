@@ -267,14 +267,39 @@ public enum MarkdownFormatOps {
 
     // MARK: - Headings / line format
 
-    /// Applies `level` (1...3 here, 0 = body paragraph) to the paragraph(s) the
-    /// range covers, stripping every other line format on the way — including
-    /// the baked list prefix, which is TEXT and would otherwise be serialized
-    /// as literal heading content.
-    public static func setHeading(level: Int, in text: NSMutableAttributedString, paragraphRange: NSRange) {
-        var range = removingBakedListPrefix(in: text, paragraphRange: clamped(paragraphRange, in: text))
+    /// Applies `level` (1...3 here, 0 = body paragraph) to ONE paragraph,
+    /// stripping every other line format on the way — including the baked
+    /// list prefix, which is TEXT and would otherwise be serialized as literal
+    /// heading content. Returns the number of UTF-16 units that prefix removal
+    /// deleted from the front of the paragraph (0 when nothing was baked), so
+    /// callers can shift a caret that sat behind it (EXP-571).
+    ///
+    /// Inline marks SURVIVE the rewrite: the paragraph font is swapped per run,
+    /// carrying each run's bold/italic traits onto the new base font, and code
+    /// runs keep their monospace font. Rewriting `.font` wholesale used to
+    /// flatten `a **b** c` to `a b c` on every heading toggle (EXP-571).
+    @discardableResult
+    public static func setHeading(level: Int, in text: NSMutableAttributedString, paragraphRange: NSRange) -> Int {
+        let original = clamped(paragraphRange, in: text)
+        var range = removingBakedListPrefix(in: text, paragraphRange: original)
+        let removed = original.length - range.length
         range = clamped(range, in: text)
-        guard range.length > 0 else { return }
+        guard range.length > 0 else { return removed }
+
+        let base = level > 0 ? MarkdownStyle.headingFont(level: level) : MarkdownStyle.bodyFont
+        var fontEdits: [(NSRange, PlatformFont)] = []
+        text.enumerateAttributes(in: range, options: []) { attrs, runRange, _ in
+            if attrs[.markdownInlineCode] as? Bool == true { return }
+            if attrs[.markdownChip] != nil || attrs[.attachment] != nil { return }
+            let old = (attrs[.font] as? PlatformFont) ?? MarkdownStyle.bodyFont
+            var font = base
+            // The semibold heading font itself reports `.traitBold`, and the
+            // serializer ignores bold inside headings anyway — so bold only
+            // carries over from BODY runs.
+            if headingLevel(of: attrs) == 0, expFontHasBold(old) { font = expBoldFont(font) }
+            if expFontHasItalic(old) { font = expItalicFont(font) }
+            fontEdits.append((runRange, font))
+        }
 
         for key in lineFormatKeys { text.removeAttribute(key, range: range) }
         text.removeAttribute(.backgroundColor, range: range)
@@ -282,20 +307,47 @@ public enum MarkdownFormatOps {
         var attrs: [NSAttributedString.Key: Any] = [
             .paragraphStyle: bodyParagraphStyle,
         ]
-        if level > 0 {
-            attrs[.markdownHeadingLevel] = level
-            // The heading font replaces whatever was there wholesale (the
-            // inverse direction restores the body font the same way).
-            attrs[.font] = MarkdownStyle.headingFont(level: level)
-        } else {
-            attrs[.font] = MarkdownStyle.bodyFont
-        }
+        if level > 0 { attrs[.markdownHeadingLevel] = level }
         text.addAttributes(attrs, range: range)
+        for (runRange, font) in fontEdits { text.addAttribute(.font, value: font, range: runRange) }
         resetForegroundColor(in: text, range: range)
+        return removed
+    }
+
+    /// `setHeading` over EVERY paragraph `range` touches (a collapsed caret =
+    /// its own paragraph), matching web/Android, which apply a heading to all
+    /// selected paragraphs. Returns `selection` shifted past whatever baked
+    /// list prefixes were deleted, so the caller can restore it without drift.
+    @discardableResult
+    public static func setHeading(
+        level: Int,
+        in text: NSMutableAttributedString,
+        range: NSRange,
+        selection: NSRange
+    ) -> NSRange {
+        var start = selection.location
+        var end = NSMaxRange(selection)
+        // Back to front: dropping a prefix shifts every range after it.
+        for paragraph in paragraphRanges(in: text, covering: clamped(range, in: text)).reversed() {
+            let removed = setHeading(level: level, in: text, paragraphRange: paragraph)
+            guard removed > 0 else { continue }
+            // A position behind the prefix slides back by its length; one
+            // inside the (now deleted) prefix lands at the paragraph start.
+            func shifted(_ position: Int) -> Int {
+                if position >= paragraph.location + removed { return position - removed }
+                return position > paragraph.location ? paragraph.location : position
+            }
+            start = shifted(start)
+            end = shifted(end)
+        }
+        let location = max(0, min(start, text.length))
+        return NSRange(location: location, length: max(0, min(end, text.length) - location))
     }
 
     /// `setHeading(level: 0, …)` under the name the callers actually mean.
-    public static func clearLineFormatting(in text: NSMutableAttributedString, paragraphRange: NSRange) {
+    /// Only the LINE format goes — inline marks stay (EXP-571).
+    @discardableResult
+    public static func clearLineFormatting(in text: NSMutableAttributedString, paragraphRange: NSRange) -> Int {
         setHeading(level: 0, in: text, paragraphRange: paragraphRange)
     }
 
@@ -347,17 +399,17 @@ public enum MarkdownFormatOps {
         for (runRange, color) in colorEdits { text.addAttribute(.foregroundColor, value: color, range: runRange) }
     }
 
-    /// Web's `unsetAllMarks() + clearNodes()`: every inline mark in the
-    /// selection AND the line format of every paragraph it touches.
-    public static func clearFormatting(in text: NSMutableAttributedString, range: NSRange) {
+    /// Web's `unsetAllMarks() + clearNodes()`: every inline mark INSIDE the
+    /// selection AND the line format of every paragraph it touches. Marks
+    /// outside the selection (in the same paragraph) are untouched — the line
+    /// rewrite preserves them (EXP-571). Returns the selection shifted past
+    /// any deleted list prefixes.
+    @discardableResult
+    public static func clearFormatting(in text: NSMutableAttributedString, range: NSRange) -> NSRange {
         let target = clamped(range, in: text)
-        guard target.length > 0 else { return }
+        guard target.length > 0 else { return target }
         clearInlineFormatting(in: text, range: target)
-        // Back to front: clearing a list deletes its baked prefix, which would
-        // shift every range after it.
-        for paragraph in paragraphRanges(in: text, covering: target).reversed() {
-            clearLineFormatting(in: text, paragraphRange: paragraph)
-        }
+        return setHeading(level: 0, in: text, range: target, selection: target)
     }
 
     /// The typing attributes a caret gets after "clear formatting" — a plain
