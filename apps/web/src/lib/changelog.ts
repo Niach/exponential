@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-editor-rail-widget-launcher`,
+    date: `2026-08-20`,
+    title: `A formatting rail, widget launcher styles, server insights`,
+    summary: `Format issue text from a rail on every app, style the feedback widget button, and watch server health on a new admin Performance page.`,
+    body: `- **Formatting rail**: the issue description and comment editors on web, desktop, iOS and Android grew a formatting rail: headings, bold, lists, links, code and more, applied to your selection without typing markdown.
+- **Widget launcher styles**: the feedback widget button is now configurable per widget: floating button or edge tab, corner or edge position, a picked icon, and separate desktop and mobile choices, with a live preview in widget settings.
+- **Admin Performance page**: global admins get a live view of request latencies, Electric shape traffic, database table sizes, notification email flow and relay health.
+- **Android editor**: pressing Enter at the end of the description now reliably adds a new line, and the review screen's merge conflict notice was rebuilt to match the app.
+- **Remote approvals**: permission prompts an agent raises for dangerous commands now reach the remote steering view even in skip-permissions sessions, so you can approve or deny from your phone.`,
+  },
+  {
     id: `2026-08-desktop-issue-open-crash`,
     date: `2026-08-19`,
     title: `Desktop hotfix: opening an issue`,

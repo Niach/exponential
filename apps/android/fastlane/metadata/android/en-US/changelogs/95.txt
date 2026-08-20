@@ -1,0 +1,1 @@
+A formatting rail on the issue editor, a fixed Enter-at-the-end in the description editor, feedback widget launcher styles with a mobile edge tab, and polish on the review screen's merge conflict notice.
