@@ -1170,6 +1170,10 @@ export const notifications = pgTable(
     index(`idx_notifications_digest_pending`)
       .on(table.createdAt)
       .where(sql`read_at IS NULL AND emailed_at IS NULL`),
+    // The admin Performance tab's 90-day totals/by-day windows filter on
+    // created_at alone (EXP-553) — without this each 60s poll seq-scans the
+    // largest table.
+    index(`idx_notifications_created`).on(table.createdAt),
   ]
 )
 
