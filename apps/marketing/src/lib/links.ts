@@ -26,9 +26,8 @@ export const LINKS = {
     macos: `${REPO}/releases/latest/download/Exponential-production.dmg`,
     windows: `${REPO}/releases/latest/download/Exponential-production-x86_64-windows.exe`,
     linux: `${REPO}/releases/latest/download/Exponential-production-x86_64.AppImage`,
-    // Android is live on Google Play (production); iOS still ships as a
-    // TestFlight external beta until the App Store listing is approved.
-    ios: `https://testflight.apple.com/join/JMpJKZEB`,
+    // Both mobile apps are live in production — App Store + Google Play.
+    ios: `https://apps.apple.com/app/exponential-vibecode-together/id6788189402`,
     android: `https://play.google.com/store/apps/details?id=at.exponential`,
   },
 } as const

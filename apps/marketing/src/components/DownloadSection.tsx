@@ -142,8 +142,8 @@ export const PLATFORMS: Platform[] = [
     id: `ios`,
     name: `iOS`,
     logo: AppStoreLogo,
-    requirement: `Public beta · TestFlight`,
-    cta: `Join the TestFlight beta`,
+    requirement: `iOS 17.4+ · App Store`,
+    cta: `Download on the App Store`,
     href: LINKS.downloads.ios,
   },
   {
