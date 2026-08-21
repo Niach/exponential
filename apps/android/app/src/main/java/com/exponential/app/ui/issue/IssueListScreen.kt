@@ -652,7 +652,7 @@ private fun JoinTeamDialog(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun IssueListContent(
     state: IssueListState,
@@ -712,9 +712,18 @@ private fun IssueListContent(
             } else {
                 state.groups.forEach { group ->
                     val isCollapsed = group.status.id in collapsed
-                    item(key = "header-${group.status.id}") {
+                    // EXP-578: status headers pin to the top while their rows
+                    // scroll beneath (iOS parity — plain-List section headers
+                    // there are sticky by default). The opaque app-background
+                    // fill hides the rows passing under the pinned header.
+                    stickyHeader(key = "header-${group.status.id}") {
                         // EXP-523: headers ride the same reflow as their rows.
-                        Box(Modifier.animateItem()) {
+                        Box(
+                            Modifier
+                                .animateItem()
+                                .fillMaxWidth()
+                                .background(GlassTokens.BackgroundTop),
+                        ) {
                             StatusHeader(
                                 status = group.status,
                                 count = group.issues.size,
