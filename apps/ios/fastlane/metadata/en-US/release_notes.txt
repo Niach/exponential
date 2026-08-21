@@ -1,4 +1,3 @@
-- Typing # in a comment or description opens a proper issue menu with status, identifier and title
-- Multi-step agent questions show which step you are on and what you already answered
-- Fixed a crash when reopening a coding session with a long activity history
+- The "Jump to bottom" pill in coding sessions now hides reliably once you reach the end of the feed
+- Issue lists sit flush under the navigation bar on iOS 26, no more light band above the first status header
 - Smaller fixes

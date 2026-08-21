@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-ios-feed-pin-and-list-edge`,
+    date: `2026-08-21`,
+    title: `iOS session feed and list polish`,
+    summary: `The "Jump to bottom" pill in iOS coding sessions hides reliably at the end, and issue lists sit flush under the bar on iOS 26.`,
+    body: `- **Jump to bottom**: the pill now reads the real end of the feed, so it no longer lingers after you scroll back down, and the feed re-pins once a scroll settles.
+- **Issue lists on iOS 26**: the light band between the navigation bar and the first status header is gone.`,
+  },
+  {
     id: `2026-08-issue-dialog-and-session-fixes`,
     date: `2026-08-21`,
     title: `Leaner issue dialog, steadier sessions`,
