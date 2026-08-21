@@ -27,9 +27,10 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     id: `2026-08-ios-feed-pin-and-list-edge`,
     date: `2026-08-21`,
-    title: `iOS session feed and list polish`,
-    summary: `The "Jump to bottom" pill in iOS coding sessions hides reliably at the end, and issue lists sit flush under the bar on iOS 26.`,
-    body: `- **Jump to bottom**: the pill now reads the real end of the feed, so it no longer lingers after you scroll back down, and the feed re-pins once a scroll settles.
+    title: `iOS session feed fixes`,
+    summary: `Long coding session feeds no longer freeze the iOS app, the "Jump to bottom" pill hides reliably, and issue lists sit flush under the bar on iOS 26.`,
+    body: `- **Session freeze**: following a long activity feed could lock the app in a layout loop until iOS closed it; the feed now follows growth without re-entering layout.
+- **Jump to bottom**: the pill now reads the real end of the feed, so it no longer lingers after you scroll back down, and the feed re-pins once a scroll settles.
 - **Issue lists on iOS 26**: the light band between the navigation bar and the first status header is gone.`,
   },
   {

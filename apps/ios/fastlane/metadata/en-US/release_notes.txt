@@ -1,3 +1,4 @@
+- Fixed coding sessions with a long activity feed freezing the app until iOS closed it
 - The "Jump to bottom" pill in coding sessions now hides reliably once you reach the end of the feed
 - Issue lists sit flush under the navigation bar on iOS 26, no more light band above the first status header
 - Smaller fixes
