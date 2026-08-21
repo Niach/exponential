@@ -16,9 +16,12 @@ import SwiftUI
 ///
 /// Rows are plain `Button`s: tapping routes through the model's `apply*`,
 /// which keeps the text view first responder, so the keyboard never drops.
-/// The editor anchors this under the focused block (`MarkdownEditor
-/// .autocompletePlacement == .belowFocusedBlock`); a host whose editor is
-/// clipped mounts it itself via `.external`.
+///
+/// The HOST mounts it, never `MarkdownEditor` — in a bottom `safeAreaInset`
+/// so it rides above the keyboard, gated on `model.showsAutocompleteMenu`.
+/// It is up to 208pt tall and the editors it serves live inside scrollers
+/// that clip, so anywhere inside the editor's own layout is off-screen for a
+/// caret anywhere but the top of a short document (EXP-592).
 struct EditorAutocompleteMenu: View {
     let model: IssueEditorModel
 

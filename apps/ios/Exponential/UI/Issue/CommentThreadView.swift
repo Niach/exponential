@@ -17,6 +17,11 @@ struct CommentThreadView: View {
     /// Solo teams hide the comment editors' @ affordance (EXP-246) — same
     /// gate as the assignee chip, threaded from the detail view model.
     let singleMemberTeam: Bool
+    /// The editor backing the comment currently being edited (re-seeded on each
+    /// Edit tap; only one comment edits at a time). Owned by the DETAIL view,
+    /// not by this timeline: its `@`/`#`/`:` menu is mounted screen-level, in
+    /// the bottom safe-area inset that rides above the keyboard (EXP-592).
+    @Binding var editEditor: IssueEditorModel
     /// Horizontal padding of the hosting column, escaped by the top rule so the
     /// line runs edge to edge (EXP-327).
     var hostPadding: CGFloat = 20
@@ -33,9 +38,6 @@ struct CommentThreadView: View {
     /// `comment_id` and ordered (created_at, id) like every other timeline list.
     @State private var attachmentsByComment: [String: [AttachmentEntity]] = [:]
     @State private var editingCommentId: String?
-    // The rich editor backing the comment currently being edited (re-seeded on
-    // each Edit tap; only one comment edits at a time).
-    @State private var editEditor = IssueEditorModel()
     // Opened event runs, keyed by the run's first event id (survives sync
     // re-emits — see collapseTimeline).
     @State private var expandedRuns: Set<String> = []
@@ -576,8 +578,7 @@ private struct RegularCommentRow: View {
                     accountId: accountId,
                     httpClient: httpClient,
                     mentionMembers: mentionMembers,
-                    onIssueRefTap: { issueId in onOpenIssue(issueId) },
-                    autocompletePlacement: .external
+                    onIssueRefTap: { issueId in onOpenIssue(issueId) }
                 )
                 // Bounded scroller, not a bare frame clamp — overflow content
                 // rendered outside the clamp with the caret detached (EXP-246).
@@ -585,11 +586,10 @@ private struct RegularCommentRow: View {
                 .padding(.vertical, 2)
                 .background(Color.white.opacity(0.04))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
-                // EXP-581: the `@`/`#`/`:` menu renders below the clipped
-                // editor box, never inside it.
-                if editEditor.hasAutocompleteCandidates {
-                    EditorAutocompleteMenu(model: editEditor)
-                }
+                // The `@`/`#`/`:` menu is NOT mounted here: a row deep in the
+                // timeline is as likely to sit behind the keyboard as under it.
+                // IssueDetailView renders it in its bottom safe-area inset for
+                // whichever of its editors holds the keyboard (EXP-592).
 
                 // Already-linked rows, each removable. Removals only take effect
                 // on Save — and then they are permanent.

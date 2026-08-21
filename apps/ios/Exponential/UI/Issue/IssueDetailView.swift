@@ -38,6 +38,10 @@ struct IssueDetailView: View {
     /// single AND batch (a batch row is issue-less, so the start circle can
     /// never reflect it).
     @State private var sessionTarget: StartedRunWatcher.StartedSession?
+    /// EXP-592: the comment-edit editor lives up here, not inside the timeline,
+    /// so the screen can mount ONE candidate menu above the keyboard for it and
+    /// for the description alike. CommentThreadView re-seeds it per Edit tap.
+    @State private var commentEditEditor = IssueEditorModel()
     @FocusState private var titleFocused: Bool
 
     // Shown while team membership is still syncing, so a signed-in viewer
@@ -230,7 +234,11 @@ struct IssueDetailView: View {
                         }
 
                         // Activity timeline (comments + events)
-                        CommentThreadView(issue: issue, singleMemberTeam: vm.singleMemberTeam)
+                        CommentThreadView(
+                            issue: issue,
+                            singleMemberTeam: vm.singleMemberTeam,
+                            editEditor: $commentEditEditor
+                        )
                     }
                     .padding(20)
                     // Tap-outside keyboard dismissal (EXP-246): a catcher
@@ -253,15 +261,30 @@ struct IssueDetailView: View {
                 // over the markdown toolbar — Android parity:
                 // barVisible = composerExpanded || !imeVisible.
                 .safeAreaInset(edge: .bottom) {
-                    IssueDetailBottomBar(
-                        issue: issue,
-                        mentionMembers: vm.mentionMembers,
-                        singleMemberTeam: vm.singleMemberTeam,
-                        isModerator: vm.permissions.isModerator,
-                        startUi: startCircleUi(vm: vm, issue: issue),
-                        onOpenProperties: { activeSheet = .properties },
-                        onStartCoding: { presentStartSheet(vm: vm) }
-                    )
+                    VStack(spacing: 8) {
+                        // EXP-592: the `@`/`#`/`:` menu for the two editors that
+                        // live in the SCROLLER — the description and the comment
+                        // being edited. Riding the safe area is what keeps it
+                        // above the keyboard; inside the editor it landed under
+                        // the end of a full-length description, off-screen. The
+                        // bar keeps its own for its comment composer: that
+                        // editor is inside the bar's card, and only one editor
+                        // can hold the keyboard, so the two never both render.
+                        if let editor = scrollerAutocompleteEditor(vm: vm) {
+                            EditorAutocompleteMenu(model: editor)
+                                .padding(.horizontal, 12)
+                        }
+
+                        IssueDetailBottomBar(
+                            issue: issue,
+                            mentionMembers: vm.mentionMembers,
+                            singleMemberTeam: vm.singleMemberTeam,
+                            isModerator: vm.permissions.isModerator,
+                            startUi: startCircleUi(vm: vm, issue: issue),
+                            onOpenProperties: { activeSheet = .properties },
+                            onStartCoding: { presentStartSheet(vm: vm) }
+                        )
+                    }
                 }
                 // Relay config + device presence for the start circle — keyed
                 // on session presence AND membership (mirrors the old
@@ -447,6 +470,18 @@ struct IssueDetailView: View {
             AgentSessionRouteView(sessionId: target.sessionId)
                 .environment(\.accountId, accountId)
         }
+    }
+
+    // MARK: - Autocomplete
+
+    /// The scroller-hosted editor whose candidate menu is currently open, if
+    /// any. Both are gated on FOCUS as well as candidates: a candidate set
+    /// outlives the blur that hands the keyboard to the other editor, so
+    /// without that the previous editor's menu would stay up over the new one.
+    private func scrollerAutocompleteEditor(vm: IssueDetailViewModel) -> IssueEditorModel? {
+        if vm.editor.showsAutocompleteMenu { return vm.editor }
+        if commentEditEditor.showsAutocompleteMenu { return commentEditEditor }
+        return nil
     }
 
     // MARK: - Sheets

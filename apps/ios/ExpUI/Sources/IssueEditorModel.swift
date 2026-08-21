@@ -163,19 +163,18 @@ public final class IssueEditorModel {
     /// query, recomputed on edit/selection (EXP-551).
     public private(set) var emojiCandidates: [EmojiRecord] = []
 
-    /// EXP-581: the text block an OPEN autocomplete menu belongs to, so the
-    /// editor can anchor the menu right under that block instead of painting
-    /// a bar over the editor's top edge. Nil when no menu is open.
-    public var autocompleteAnchorBlockId: UUID? {
-        if !mentionCandidates.isEmpty { return activeMention?.blockId }
-        if !issueRefCandidates.isEmpty { return activeIssueRef?.blockId }
-        if !emojiCandidates.isEmpty { return activeEmoji?.blockId }
-        return nil
-    }
-
     /// EXP-581: whether any autocomplete menu currently has candidates.
     public var hasAutocompleteCandidates: Bool {
         !mentionCandidates.isEmpty || !issueRefCandidates.isEmpty || !emojiCandidates.isEmpty
+    }
+
+    /// Whether a host should be SHOWING the candidate menu. Candidates alone
+    /// are not enough: they survive a blur (a picker sheet, another editor
+    /// taking the keyboard), and the menu is mounted at SCREEN level now —
+    /// pinned above the keyboard rather than under the typed block — so a
+    /// stale set would leave a menu floating over an unrelated field.
+    public var showsAutocompleteMenu: Bool {
+        isEditing && hasAutocompleteCandidates
     }
 
     // The @-token currently being edited: where the `@` is and how long the query

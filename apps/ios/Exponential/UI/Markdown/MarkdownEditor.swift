@@ -45,16 +45,13 @@ struct MarkdownEditor: View {
     /// "images go in the description". Nil keeps the plain image button, for
     /// editors whose host has nowhere to put an attachment.
     var onAttachFile: ((URL) -> Void)?
-    /// EXP-581: where the `@`/`#`/`:` candidate menu renders. The default
-    /// anchors it under the focused text block (it floats over whatever
-    /// follows); hosts whose editor is height-clipped (the comment composers)
-    /// pass `.external` and mount `EditorAutocompleteMenu(model:)` themselves.
-    var autocompletePlacement: AutocompletePlacement = .belowFocusedBlock
-
-    enum AutocompletePlacement {
-        case belowFocusedBlock
-        case external
-    }
+    // The `@`/`#`/`:` candidate menu is NOT mounted here: every host mounts
+    // `EditorAutocompleteMenu(model:)` itself, pinned above the keyboard (a
+    // bottom `safeAreaInset`), gated on `model.showsAutocompleteMenu`. An
+    // in-editor anchor cannot be made to work — a whole description is ONE
+    // text block on iOS, so anchoring to the typed block put the menu under
+    // the end of the description, off-screen inside the enclosing scroller
+    // and behind the keyboard (EXP-592).
 
     @State private var photoItem: PhotosPickerItem?
     @State private var showPhotoPicker = false
@@ -93,19 +90,6 @@ struct MarkdownEditor: View {
                                 onIssueRefTap: onIssueRefTap
                             )
                             .id(id)
-                            // EXP-581: the candidate menu hangs off the bottom
-                            // of the block being typed in, drawn above the
-                            // sibling blocks (and the host content) below it.
-                            .overlay(alignment: .bottomLeading) {
-                                if !isReadOnly,
-                                   autocompletePlacement == .belowFocusedBlock,
-                                   model.autocompleteAnchorBlockId == id {
-                                    EditorAutocompleteMenu(model: model)
-                                        .padding(.top, 4)
-                                        .alignmentGuide(.bottom) { d in d[.top] }
-                                }
-                            }
-                            .zIndex(model.autocompleteAnchorBlockId == id ? 1 : 0)
 
                         case .image(let id, let url, let alt):
                             BlockImageView(

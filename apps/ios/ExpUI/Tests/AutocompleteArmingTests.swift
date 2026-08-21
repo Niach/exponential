@@ -164,4 +164,30 @@ final class AutocompleteArmingTests: XCTestCase {
         )
         XCTAssertTrue(model.mentionCandidates.isEmpty)
     }
+
+    // MARK: - Menu visibility
+
+    /// EXP-592: the menu is mounted screen-level (a bottom safe-area inset, so
+    /// it clears the keyboard), which means one host renders it for several
+    /// editors. Candidates alone must therefore not show it — they outlive the
+    /// blur that hands the keyboard over, so the editor the user just left
+    /// would keep a menu up over the one they moved to.
+    func testTheMenuOnlyShowsWhileTheEditorHoldsFocus() {
+        let (model, id, content) = self.model(markdown: "Fixes #EX")
+        model.setFocused(id)
+        model.updateSelection(blockId: id, range: NSRange(location: 9, length: 0))
+        model.updateText(id: id, content: content)
+        XCTAssertTrue(model.showsAutocompleteMenu)
+
+        model.clearFocusIfMatches(id)
+        XCTAssertTrue(model.hasAutocompleteCandidates)
+        XCTAssertFalse(model.showsAutocompleteMenu)
+    }
+
+    func testFocusWithoutCandidatesShowsNoMenu() {
+        let (model, id, _) = self.model(markdown: "Fixes #EXP-42 today")
+        model.setFocused(id)
+        model.updateSelection(blockId: id, range: NSRange(location: 12, length: 0))
+        XCTAssertFalse(model.showsAutocompleteMenu)
+    }
 }

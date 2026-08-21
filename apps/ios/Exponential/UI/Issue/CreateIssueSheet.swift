@@ -259,6 +259,18 @@ struct CreateIssueSheet: View {
                     }
                 }
                 .scrollDismissesKeyboard(.interactively)
+                // EXP-592: the description's `@`/`#`/`:` menu. In the safe-area
+                // inset it rides above the keyboard; inside the editor it hung
+                // off the end of the description, behind the keyboard and
+                // clipped by this scroller. Focus-gated, so a candidate set the
+                // user abandoned for the title field does not linger.
+                .safeAreaInset(edge: .bottom) {
+                    if editor.showsAutocompleteMenu {
+                        EditorAutocompleteMenu(model: editor)
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 8)
+                    }
+                }
             }
             .navigationTitle("New Issue")
             .navigationBarTitleDisplayMode(.inline)

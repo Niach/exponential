@@ -80,7 +80,7 @@ struct IssueDetailBottomBar: View {
                             // EXP-581: the `@`/`#`/`:` menu lives ABOVE the
                             // card — inside it, the height-bounded editor
                             // clipped the menu and it covered the typed line.
-                            if composerEditor.hasAutocompleteCandidates {
+                            if composerEditor.showsAutocompleteMenu {
                                 EditorAutocompleteMenu(model: composerEditor)
                             }
                             expandedComposer
@@ -280,8 +280,7 @@ struct IssueDetailBottomBar: View {
                 // The composer keeps only its own photo/@/# row — no
                 // formatting strip (EXP-246).
                 showsFormattingToolbar: false,
-                imageMaxHeight: 120,
-                autocompletePlacement: .external
+                imageMaxHeight: 120
             )
             .boundedEditorHeight(minHeight: 44, maxHeight: 140)
 
