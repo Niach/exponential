@@ -201,12 +201,6 @@ struct StartCodingSheet: View {
     @State private var filterLabelId = ""
     @State private var filterPriority = ""
     @State private var filterToStatusId = ""
-    @State private var automationDeviceId = ""
-    @State private var automationEnabled = true
-    /// Automation-capable machines (caps `automations`), OFFLINE INCLUDED —
-    /// an offline device stays pickable (its missed schedule fires once when
-    /// it comes back), unlike the run-now device pool.
-    @State private var automationDevices: [SteerDevice] = []
     @State private var teamLabels: [LabelEntity] = []
     @State private var teamStatuses: [IssueStatusEntity] = []
 
@@ -658,21 +652,22 @@ struct StartCodingSheet: View {
         return selectedAction?.id == DomainContract.builtinCreateActionId ? "Create" : "Run action"
     }
 
-    /// EXP-431 create mode: no picker — the create builtin's input fields
-    /// below ARE the form (Description leads with the locked placeholder).
+    /// EXP-431 create mode: no picker or intro copy — the create builtin's
+    /// input fields below ARE the form (Description leads with the locked
+    /// placeholder); only load/error states surface here.
+    @ViewBuilder
     private var createActionIntroSection: some View {
-        Section {
-            Text("Describe it and your agent will author it for the team.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            if loadedActions == nil, actionsError == nil {
+        if loadedActions == nil, actionsError == nil {
+            Section {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
                     Text("Loading actions…")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-            } else if let actionsError {
+            }
+        } else if let actionsError {
+            Section {
                 Text(actionsError)
                     .font(.caption)
                     .foregroundStyle(DesignTokens.Semantic.red)
@@ -1067,9 +1062,6 @@ struct StartCodingSheet: View {
                         (lhs.sortOrder ?? 0, lhs.name) < (rhs.sortOrder ?? 0, rhs.name)
                     }
             }
-            automationDevices = await DeviceQueries.devices(
-                db: deps.db, accountId: accountId, teamId: teamId, userId: deps.auth.userId
-            ).filter(\.canRunAutomations)
         }
     }
 
@@ -1166,38 +1158,8 @@ struct StartCodingSheet: View {
                 }
             }
 
-            if automationKind != "none" {
-                if automationDevices.isEmpty {
-                    Text("No device can run automations yet. Update the Exponential desktop app or CLI daemon.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Picker("Device", selection: automationDeviceBinding) {
-                        ForEach(automationDevices) { device in
-                            Text(Self.automationDeviceCaption(device)).tag(device.deviceId)
-                        }
-                    }
-                    if let selected = selectedAutomationDevice {
-                        HStack(spacing: 6) {
-                            Circle()
-                                .fill(selected.isOnline
-                                    ? DesignTokens.Semantic.green
-                                    : Color.secondary.opacity(0.5))
-                                .frame(width: 6, height: 6)
-                            Text(selected.isOnline ? "Device online" : "Device offline")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    Toggle("Enabled", isOn: $automationEnabled)
-                }
-            }
         } header: {
             Text("Automation")
-        } footer: {
-            if automationKind != "none" {
-                Text("Runs on the selected device, in its local time. A run missed while the device was offline fires once when it comes back.")
-            }
         }
     }
 
@@ -1215,29 +1177,13 @@ struct StartCodingSheet: View {
         }
     }
 
-    /// Offline machines stay pickable — say so in the row.
-    private static func automationDeviceCaption(_ device: SteerDevice) -> String {
-        let base = deviceCaption(device)
-        return device.isOnline ? base : "\(base) (offline)"
-    }
-
-    private var selectedAutomationDevice: SteerDevice? {
-        automationDevices.first { $0.deviceId == automationDeviceId }
-            ?? automationDevices.first
-    }
-
-    private var automationDeviceBinding: Binding<String> {
-        Binding(
-            get: { selectedAutomationDevice?.deviceId ?? "" },
-            set: { automationDeviceId = $0 }
-        )
-    }
-
     /// The configured trigger, in wire form — nil when the section is on
-    /// "None" or no automation-capable device exists.
+    /// "None" or no target desktop resolves. The automation binds to the
+    /// desktop that runs the creation (EXP-574 follow-up — no second device
+    /// picker), always enabled; owners flip it later on the Automations tab.
     private var configuredTrigger: ActionTrigger? {
         guard createActionMode, automationKind != "none",
-              let device = selectedAutomationDevice
+              let device
         else { return nil }
         switch automationKind {
         case "schedule":
@@ -1245,7 +1191,7 @@ struct StartCodingSheet: View {
             let minuteOfDay = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
             return .schedule(ActionScheduleTrigger(
                 deviceId: device.deviceId,
-                enabled: automationEnabled,
+                enabled: true,
                 interval: schedInterval,
                 minuteOfDay: minuteOfDay,
                 weekday: schedInterval == "weekly" ? schedWeekday : nil,
@@ -1256,7 +1202,7 @@ struct StartCodingSheet: View {
             // a stale pick from a previously chosen event never rides along.
             return .event(ActionEventTrigger(
                 deviceId: device.deviceId,
-                enabled: automationEnabled,
+                enabled: true,
                 event: eventType,
                 filters: ActionTriggerFilters(
                     boardIds: filterBoardId.isEmpty ? [] : [filterBoardId],

@@ -5,9 +5,12 @@
 //! description so the agent sets it via `exponential_actions_create`).
 //!
 //! The section is a segmented **None · Schedule · On event** switch over one
-//! contextual pane, plus the two fields every trigger needs: the DEVICE that
-//! evaluates and fires it (automations are local-only — no server scheduler)
-//! and the enabled toggle.
+//! contextual pane, plus the DEVICE that evaluates and fires the trigger
+//! (automations are local-only — no server scheduler): create mode binds it
+//! to this desktop via [`AutomationEditorState::fixed_device_id`] (EXP-574 —
+//! the machine authoring the action is the one running it), the edit dialog
+//! keeps a picker. Triggers save enabled; owners flip them on the
+//! Automations tab.
 //!
 //! [`AutomationEditorState::to_trigger`] is the only place the WIRE shape is
 //! built, and it validates instead of clamping: a half-filled section returns
@@ -31,8 +34,7 @@ use gpui_component::{
     h_flex,
     input::{Input, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
-    switch::Switch,
-    v_flex, ActiveTheme as _, Disableable as _,
+    v_flex, ActiveTheme as _,
 };
 use serde_json::{json, Value};
 
@@ -121,13 +123,18 @@ pub(crate) struct AutomationEditorState {
     priorities: Vec<String>,
     to_status_ids: Vec<String>,
     device_id: Option<String>,
+    /// Create mode (EXP-574 follow-up): the automation binds to THIS desktop
+    /// — the machine authoring the action — so the device picker hides and
+    /// this id wins over [`Self::device_id`] in [`Self::to_trigger`].
+    pub(crate) fixed_device_id: Option<String>,
     /// Host-writable: [`crate::action_editor_dialog`] forces it off for an
     /// action with required inputs (see [`Self::has_required_inputs`]).
     pub(crate) enabled: bool,
-    /// The hosted action has at least one REQUIRED input — the enabled switch
-    /// is locked off (an automated run has nothing to fill them with, and the
-    /// server refuses the save anyway). The create-action path leaves it
-    /// false: a brand-new action has no inputs yet.
+    /// The hosted action has at least one REQUIRED input — an automated run
+    /// has nothing to fill them with and the server refuses an enabled
+    /// trigger, so [`Self::to_trigger`] saves it disabled and the section
+    /// says why. The create-action path leaves it false: a brand-new action
+    /// has no inputs yet.
     pub(crate) has_required_inputs: bool,
 }
 
@@ -152,6 +159,7 @@ impl AutomationEditorState {
             priorities: Vec::new(),
             to_status_ids: Vec::new(),
             device_id: None,
+            fixed_device_id: None,
             enabled: true,
             has_required_inputs: false,
         }
@@ -218,7 +226,14 @@ impl AutomationEditorState {
         if self.mode == AutomationMode::None {
             return Ok(None);
         }
-        let Some(device_id) = self.device_id.clone().filter(|id| !id.is_empty()) else {
+        // Create mode's fixed self binding wins; the edit dialog still needs
+        // an explicit pick.
+        let Some(device_id) = self
+            .fixed_device_id
+            .clone()
+            .or_else(|| self.device_id.clone())
+            .filter(|id| !id.is_empty())
+        else {
             return Err("Pick a device for the automation.".into());
         };
         match self.mode {
@@ -230,7 +245,7 @@ impl AutomationEditorState {
                 let mut trigger = json!({
                     "kind": "schedule",
                     "deviceId": device_id,
-                    "enabled": self.enabled,
+                    "enabled": self.enabled && !self.has_required_inputs,
                     "interval": interval_wire(self.interval),
                     "minuteOfDay": minute_of_day,
                 });
@@ -271,7 +286,7 @@ impl AutomationEditorState {
                 let mut trigger = json!({
                     "kind": "event",
                     "deviceId": device_id,
-                    "enabled": self.enabled,
+                    "enabled": self.enabled && !self.has_required_inputs,
                     "event": self.event.wire(),
                 });
                 // An all-empty `filters` object is omitted, not sent as `{}`.
@@ -310,21 +325,27 @@ impl AutomationEditorState {
                 ));
             }
             AutomationMode::Schedule => {
-                section = section
-                    .child(self.render_schedule_pane(prefix, access, cx))
-                    .child(div().text_xs().text_color(muted.opacity(0.7)).child(
-                        "Runs on the selected device, in its local time. A run missed while \
-                         the device was offline fires once when it comes back.",
-                    ));
+                section = section.child(self.render_schedule_pane(prefix, access, cx));
             }
             AutomationMode::Event => {
                 section = section.child(self.render_event_pane(prefix, access, cx));
             }
         }
         if self.mode != AutomationMode::None {
-            section = section
-                .child(self.render_device_picker(prefix, access, cx))
-                .child(self.render_enabled_switch(prefix, access, cx));
+            // Create mode binds the automation to the desktop authoring the
+            // action (EXP-574 follow-up) — no picker; the edit dialog keeps
+            // it so an existing binding stays retargetable.
+            if self.fixed_device_id.is_none() {
+                section = section.child(self.render_device_picker(prefix, access, cx));
+            }
+            if self.has_required_inputs {
+                section = section.child(
+                    div()
+                        .text_xs()
+                        .text_color(muted.opacity(0.7))
+                        .child(AUTOMATION_REQUIRED_INPUTS_HINT),
+                );
+            }
         }
         section.into_any_element()
     }
@@ -758,45 +779,6 @@ impl AutomationEditorState {
         )
     }
 
-    fn render_enabled_switch<V: Render>(
-        &self,
-        prefix: &'static str,
-        access: fn(&mut V) -> &mut Self,
-        cx: &mut Context<V>,
-    ) -> impl IntoElement {
-        let muted = cx.theme().muted_foreground;
-        let locked = self.has_required_inputs;
-        v_flex()
-            .gap_1()
-            .child(
-                h_flex()
-                    .w_full()
-                    .items_center()
-                    .justify_between()
-                    .gap_3()
-                    .child(div().text_sm().child("Enabled"))
-                    .child(
-                        Switch::new(SharedString::from(format!("{prefix}-enabled")))
-                            // Required inputs lock the switch OFF — the state
-                            // shown is the one that will actually be saved.
-                            .checked(self.enabled && !locked)
-                            .disabled(locked)
-                            .when(locked, |this| this.tooltip(AUTOMATION_REQUIRED_INPUTS_HINT))
-                            .on_click(cx.listener(move |view: &mut V, on: &bool, _, cx| {
-                                access(view).enabled = *on;
-                                cx.notify();
-                            })),
-                    ),
-            )
-            .when(locked, |this| {
-                this.child(
-                    div()
-                        .text_xs()
-                        .text_color(muted.opacity(0.7))
-                        .child(AUTOMATION_REQUIRED_INPUTS_HINT),
-                )
-            })
-    }
 }
 
 fn field_label(cx: &App, label: &'static str) -> impl IntoElement {

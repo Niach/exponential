@@ -39,7 +39,6 @@ import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -227,8 +226,12 @@ export function CreateActionDialog({
   // EXP-530: a configured trigger rides the description input as a trailing
   // machine-readable block — the combined value must still fit the server's
   // per-value text cap, so an overflow blocks submit with an inline message
-  // instead of a server-side reject.
-  const trigger = draftToTrigger(automation)
+  // instead of a server-side reject. The automation binds to the desktop
+  // that runs the creation (EXP-574 follow-up — no second device picker).
+  const trigger = draftToTrigger({
+    ...automation,
+    deviceId: device?.deviceId ?? null,
+  })
   const descriptionWithTrigger = trigger
     ? `${description}${formatTriggerBlock(trigger)}`
     : description
@@ -261,11 +264,6 @@ export function CreateActionDialog({
       <DialogContent className="gap-3 sm:max-h-[85dvh] sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>New action</DialogTitle>
-          <DialogDescription>
-            {`Describe it and your agent will author it for the team${
-              device ? ` on ${device.deviceLabel}` : ``
-            }.`}
-          </DialogDescription>
         </DialogHeader>
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] sm:gap-5 sm:overflow-y-visible">
           <div className="flex shrink-0 flex-col gap-3 sm:min-h-0 sm:shrink sm:overflow-y-auto">
@@ -319,6 +317,7 @@ export function CreateActionDialog({
               onChange={setAutomation}
               devices={devices}
               teamId={teamId}
+              showDevicePicker={false}
             />
             {triggerOverflow && (
               <p className="text-xs text-destructive">

@@ -636,6 +636,14 @@ impl StartCodingDialogView {
         // The section's filter pickers are team-scoped; `team_id` itself
         // moves into the struct below.
         let team_id_for_automation = team_id.clone();
+        let mut automation = AutomationEditorState::new(team_id_for_automation, window, cx);
+        if create_mode {
+            // EXP-574 follow-up: the creator run happens on THIS desktop, and
+            // the authored automation binds to the same machine — no second
+            // device picker in the section.
+            let auth = crate::session::AuthContext::global(cx);
+            automation.fixed_device_id = Some(steer::persistent_device_id(&auth.data_dir));
+        }
 
         let mut this = Self {
             team_id,
@@ -652,7 +660,7 @@ impl StartCodingDialogView {
             pending_action_preselect: preselect_action,
             pending_pr_preselect: preselect_pr,
             pending_prefill: prefill,
-            automation: AutomationEditorState::new(team_id_for_automation, window, cx),
+            automation,
             action_search,
             action_list_scroll: ScrollHandle::new(),
             action_inputs_scroll: ScrollHandle::new(),
@@ -2410,15 +2418,9 @@ impl Render for StartCodingDialogView {
                     ));
             }
             SubjectTab::Actions if self.create_mode => {
-                // EXP-431 create mode: no search, no picker — the intro plus
-                // the create builtin's input fields below (Description leads
-                // with the locked placeholder).
-                left = left.child(
-                    div()
-                        .text_xs()
-                        .text_color(theme_muted)
-                        .child("Describe it and your agent will author it for the team."),
-                );
+                // EXP-431 create mode: no search, no picker, no intro copy —
+                // the create builtin's input fields below ARE the form
+                // (Description leads with the locked placeholder).
                 if matches!(self.actions_load, ActionsLoad::Loading) {
                     left = left.child(
                         div()

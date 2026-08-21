@@ -48,7 +48,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 // The shared Automation editor section (EXP-530), used by BOTH the action
@@ -185,15 +184,20 @@ export function AutomationSection({
   devices,
   teamId,
   hasRequiredInputs = false,
+  showDevicePicker = true,
 }: {
   draft: AutomationDraft
   onChange: (draft: AutomationDraft) => void
   devices: SteerDevice[]
   teamId: string
   /** The action declares a required input — an automated run has no values to
-   * fill it with, so the server refuses an ENABLED trigger. The switch is
-   * locked off with a reason instead of failing at save. */
+   * fill it with, so the server refuses an ENABLED trigger. The reason renders
+   * inline instead of failing at save. */
   hasRequiredInputs?: boolean
+  /** Create mode hides the Device picker (EXP-574 follow-up): the automation
+   * binds to the desktop that runs the creation — the parent overrides the
+   * draft's deviceId at trigger-build time. */
+  showDevicePicker?: boolean
 }) {
   const set = (patch: Partial<AutomationDraft>) =>
     onChange({ ...draft, ...patch })
@@ -298,10 +302,6 @@ export function AutomationSection({
               className="h-8 w-28"
             />
           </div>
-          <p className="text-xs text-muted-foreground">
-            Runs on the selected device, in its local time. A run missed while
-            the device was offline fires once when it comes back.
-          </p>
         </div>
       )}
 
@@ -333,20 +333,13 @@ export function AutomationSection({
 
       {draft.kind !== `none` && (
         <>
-          <DevicePicker
-            deviceId={draft.deviceId}
-            devices={capableDevices}
-            onChange={(deviceId) => set({ deviceId })}
-          />
-          <div className="flex items-center justify-between">
-            <Label htmlFor="automation-enabled">Enabled</Label>
-            <Switch
-              id="automation-enabled"
-              checked={draft.enabled && !hasRequiredInputs}
-              disabled={hasRequiredInputs}
-              onCheckedChange={(enabled) => set({ enabled })}
+          {showDevicePicker && (
+            <DevicePicker
+              deviceId={draft.deviceId}
+              devices={capableDevices}
+              onChange={(deviceId) => set({ deviceId })}
             />
-          </div>
+          )}
           {hasRequiredInputs && (
             <p className="text-xs text-muted-foreground">
               This action has required inputs, and an automated run has none to

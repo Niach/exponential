@@ -66,6 +66,7 @@ import com.exponential.app.ui.components.AgentTab
 import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
 import com.exponential.app.ui.components.CLI_DEFAULT_MODEL
 import com.exponential.app.ui.components.DEFAULT_AGENT
+import com.exponential.app.ui.components.GlassSegmentedControl
 import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.IconSwatchGrid
 import com.exponential.app.ui.components.OptionGroup
@@ -229,12 +230,6 @@ fun StartCodingSheet(
     // no capable device online) — the submit path converts via
     // [automationDraftToTrigger] (incomplete → null = "no automation").
     var automation by remember { mutableStateOf(AutomationDraft()) }
-    // Candidates come from the SYNCED devices rows (not the online-filtered
-    // start list): offline-but-capable machines stay pickable — the bound
-    // device fires on its own clock once it comes back. Scoped by the view
-    // model to own + this-team-shared rows (the set the server accepts) with
-    // teammate owners attributed.
-    val automationDevices by dataViewModel.automationDevices.collectAsStateWithLifecycle()
     val automationFilterLabels by dataViewModel.labelOptions.collectAsStateWithLifecycle()
     val automationFilterStatuses by dataViewModel.statusOptions.collectAsStateWithLifecycle()
 
@@ -508,8 +503,12 @@ fun StartCodingSheet(
                             // description as a machine-readable block the
                             // creator agent copies verbatim into
                             // exponential_actions_create's `trigger` field.
+                            // EXP-574: it binds to the desktop that runs the
+                            // creation — no second device picker.
                             if (createActionMode) {
-                                automationDraftToTrigger(automation)?.let { trigger ->
+                                automationDraftToTrigger(
+                                    automation.copy(deviceId = target.deviceId),
+                                )?.let { trigger ->
                                     payload["description"]?.let { description ->
                                         payload = payload +
                                             ("description" to description + triggerDescriptionBlock(trigger))
@@ -679,15 +678,9 @@ fun StartCodingSheet(
                     }
                     Spacer(Modifier.height(4.dp))
                 } else if (createActionMode) {
-                    // ── EXP-431 create mode: no picker — the create builtin's
-                    // input fields below ARE the form (Description leads with
-                    // the locked placeholder).
-                    Text(
-                        "Describe it and your agent will author it for the team.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                        modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
-                    )
+                    // ── EXP-431 create mode: no picker or intro copy — the
+                    // create builtin's input fields below ARE the form
+                    // (Description leads with the locked placeholder).
                     if (orderedActions == null) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -851,7 +844,6 @@ fun StartCodingSheet(
                     if (createActionMode) {
                         AutomationSection(
                             draft = automation,
-                            devices = automationDevices,
                             boards = boardOptions,
                             labels = automationFilterLabels,
                             statuses = automationFilterStatuses,
@@ -1445,15 +1437,15 @@ private fun intervalLabel(interval: String): String = when (interval) {
 }
 
 // The create sheet's Automation section (EXP-530): segmented None · Schedule
-// · On event (the SubjectTabPill language), the schedule pane (interval +
-// contextual weekday/day pickers + HH:MM time), the event pane (event picker
-// + contextual filter pickers from the synced tables), then the device picker
-// (automation-capable synced machines — offline stays pickable) and the
-// enabled toggle.
+// · On event (the shared GlassSegmentedControl — web/iOS segmented parity,
+// EXP-574), the schedule pane (interval + contextual weekday/day pickers +
+// HH:MM time) and the event pane (event picker + contextual filter pickers
+// from the synced tables). The automation binds to the desktop that runs the
+// creation (no second device picker) and starts enabled — owners flip it
+// later on the Automations tab.
 @Composable
 private fun AutomationSection(
     draft: AutomationDraft,
-    devices: List<SteerDevice>,
     boards: List<StartBoardOption>,
     labels: List<StartFilterOption>,
     statuses: List<StartFilterOption>,
@@ -1461,30 +1453,19 @@ private fun AutomationSection(
 ) {
     Spacer(Modifier.height(8.dp))
     SectionLabel("Automation")
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-    ) {
-        listOf("none" to "None", "schedule" to "Schedule", "event" to "On event")
-            .forEach { (kind, label) ->
-                SubjectTabPill(
-                    label = label,
-                    selected = draft.kind == kind,
-                    onClick = {
-                        if (draft.kind != kind) {
-                            // Picking a kind auto-binds the first capable
-                            // device so "Schedule + Create" is already
-                            // complete (web parity).
-                            val deviceId = draft.deviceId
-                                ?: devices.firstOrNull()?.deviceId?.takeIf { kind != "none" }
-                            onChange(draft.copy(kind = kind, deviceId = deviceId))
-                        }
-                    },
-                )
+    GlassSegmentedControl(
+        options = listOf("none", "schedule", "event"),
+        selected = draft.kind,
+        label = {
+            when (it) {
+                "schedule" -> "Schedule"
+                "event" -> "On event"
+                else -> "None"
             }
-    }
+        },
+        onSelect = { onChange(draft.copy(kind = it)) },
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+    )
 
     if (draft.kind == "schedule") {
         Spacer(Modifier.height(4.dp))
@@ -1541,13 +1522,6 @@ private fun AutomationSection(
                 )
             }
         }
-        Text(
-            "Runs on the selected device, in its local time. A run missed " +
-                "while the device was offline fires once when it comes back.",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
-        )
     } else if (draft.kind == "event") {
         Spacer(Modifier.height(4.dp))
         OptionGroup {
@@ -1600,58 +1574,6 @@ private fun AutomationSection(
                     options = statuses,
                     selected = draft.toStatusId,
                     onSelect = { onChange(draft.copy(toStatusId = it)) },
-                )
-            }
-        }
-        Text(
-            "Runs on the selected device, in its local time. A run missed " +
-                "while the device was offline fires once when it comes back.",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
-        )
-    }
-
-    if (draft.kind != "none") {
-        Spacer(Modifier.height(4.dp))
-        if (devices.isEmpty() && draft.deviceId == null) {
-            OptionGroup {
-                Text(
-                    "No automation-capable device. Run the desktop app or the " +
-                        "exponential daemon and it will appear here.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                )
-            }
-        } else {
-            // A binding to a device the viewer cannot see (a teammate's
-            // private machine) keeps its raw id as a fallback entry so edits
-            // never silently rebind or drop it.
-            val unknownId = draft.deviceId
-                ?.takeIf { id -> devices.none { it.deviceId == id } }
-            val optionIds = listOfNotNull(unknownId) + devices.map { it.deviceId }
-            fun deviceOptionLabel(id: String): String {
-                val device = devices.firstOrNull { it.deviceId == id } ?: return id
-                val name = device.deviceLabel.ifBlank { device.deviceId }
-                // PickerRow renders text only — the online dot is textual
-                // here (the Automations tab draws the real colored dot).
-                return if (device.online) "● $name" else "○ $name"
-            }
-            OptionGroup {
-                PickerRow(
-                    label = "Device",
-                    value = draft.deviceId?.let(::deviceOptionLabel) ?: "Select",
-                    options = optionIds,
-                    selected = draft.deviceId,
-                    optionLabel = ::deviceOptionLabel,
-                    onSelect = { onChange(draft.copy(deviceId = it)) },
-                )
-                GroupDivider()
-                SwitchRow(
-                    title = "Enabled",
-                    checked = draft.enabled,
-                    onCheckedChange = { onChange(draft.copy(enabled = it)) },
                 )
             }
         }

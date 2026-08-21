@@ -32,9 +32,9 @@ import com.exponential.app.R
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.AccentIndigo
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassButton
 
 // The grouped-sheet building blocks the unified Start-coding sheet introduced
 // (EXP-208/EXP-211 — iOS Form parity), extracted for reuse by the
@@ -147,20 +147,32 @@ internal fun PickerRow(
 }
 
 // One agent tab in the pill strip: brand icon + label; the selected tab is a
-// filled pill, unselected tabs are subdued (desktop agent_tabs parity).
+// brand-indigo filled capsule, unselected tabs are subdued glass — the exact
+// treatment of the iOS sheet's agentTab (EXP-574 parity).
 @Composable
 internal fun AgentTab(
     value: String,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val tint = MaterialTheme.colorScheme.onSurface.copy(
-        alpha = if (selected) TextEmphasis.Primary else TextEmphasis.Secondary,
-    )
+    val capsule = RoundedCornerShape(percent = 50)
+    val tint = if (selected) {
+        Color.White
+    } else {
+        MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+    }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
-            .glassButton(active = selected)
+            .clip(capsule)
+            .background(
+                if (selected) {
+                    DesignTokens.Semantic.BrandStrong
+                } else {
+                    Color.White.copy(alpha = 0.06f)
+                },
+                capsule,
+            )
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 8.dp),
     ) {
