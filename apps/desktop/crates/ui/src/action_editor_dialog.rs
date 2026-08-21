@@ -10,7 +10,9 @@
 //! inline under the Name field, everything else in the generic box above the
 //! footer. There is deliberately NO inputs editor — the web dialog has none;
 //! input definitions are authored by the "Create action" builtin run, and
-//! the batched update omits `inputs`, leaving them untouched.
+//! the batched update omits `inputs`, leaving them untouched. EXP-583 took
+//! the Automation section out too: automations are their own rows now, edited
+//! in [`crate::automation_dialog`] from the Automations tab.
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -25,7 +27,6 @@ use gpui_component::{
     v_flex, ActiveTheme as _, Disableable as _,
 };
 
-use crate::automation_editor::AutomationEditorState;
 use crate::controls::WebControl as _;
 use crate::native_dialog::{self, DialogContent, DialogSpec};
 use crate::queries;
@@ -67,12 +68,6 @@ struct ActionEditorDialogView {
     /// EXP-530: a TEXTAREA like the web dialog's — action descriptions are
     /// the Suggestions-tab paragraphs, not one-liners.
     description: gpui::Entity<TextareaState>,
-    /// EXP-530: the shared Automation section, seeded from the synced row's
-    /// `trigger` and saved back as the tri-state `trigger` patch.
-    automation: AutomationEditorState,
-    /// The row's trigger as it synced — kept so an UNSUPPORTED shape (a
-    /// newer client's kind) blocks the save instead of being overwritten.
-    synced_trigger: Option<serde_json::Value>,
     /// The curated registry glyph (`actionIconSchema` — the boards set).
     icon: String,
     /// `None` = repo-less scratch run (the web select's "None").
@@ -109,18 +104,6 @@ impl ActionEditorDialogView {
         description.update(cx, |state, cx| {
             state.set_value(action.description.clone().unwrap_or_default(), window, cx);
         });
-        let mut automation = AutomationEditorState::new(action.team_id.clone(), window, cx);
-        // Inputs are authored by the creator run, not editable here — a
-        // static property of the action for the Automation section's enable
-        // rule, so it is set BEFORE the seed reads the stored trigger.
-        automation.has_required_inputs = action.inputs.iter().any(|input| input.required);
-        automation.seed(action.trigger.as_ref(), window, cx);
-        // An action with required inputs can never run automated (the server
-        // refuses an enabled trigger), so the seeded draft comes in off — the
-        // dialog saves the WHOLE trigger, not just the fields touched.
-        if automation.has_required_inputs {
-            automation.enabled = false;
-        }
         let body = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .placeholder("The markdown prompt the agent runs with…")
@@ -156,8 +139,6 @@ impl ActionEditorDialogView {
             team_id: action.team_id.clone(),
             name,
             description,
-            automation,
-            synced_trigger: action.trigger.clone(),
             icon: action
                 .icon
                 .clone()
@@ -251,17 +232,6 @@ impl ActionEditorDialogView {
         // EXP-530: the description is a textarea now — newlines are the
         // author's, so only the outer whitespace goes.
         let description = self.description.read(cx).value().trim().to_string();
-        // Validate the Automation section BEFORE anything is sent: a
-        // half-filled trigger gets a readable message here instead of the
-        // server's BAD_REQUEST.
-        let trigger = match self.automation.to_trigger(cx) {
-            Ok(trigger) => trigger,
-            Err(message) => {
-                self.error = Some(message);
-                cx.notify();
-                return;
-            }
-        };
         let Some(trpc) = queries::trpc_client(cx) else {
             self.error = Some("Not signed in.".into());
             cx.notify();
@@ -279,9 +249,6 @@ impl ActionEditorDialogView {
         input.icon = Some(self.icon.clone());
         input.repository_id = api::Patch::set_or_null(self.repo_id.clone());
         input.body = Some(body);
-        // Tri-state: `Set` replaces the trigger whole, `Null` clears the
-        // automation back to manual-only (the section's "None" mode).
-        input.trigger = api::Patch::set_or_null(trigger);
 
         cx.spawn_in(window, async move |this, window| {
             let result = window
@@ -326,16 +293,7 @@ impl Render for ActionEditorDialogView {
 
         let name_empty = self.name.read(cx).value().trim().is_empty();
         let body_empty = self.body.read(cx).value().trim().is_empty();
-        // EXP-530: a trigger kind this build predates would be REWRITTEN by a
-        // save (the section can only express what it can parse) — block the
-        // save instead of silently downgrading a newer client's automation.
-        let unsupported_trigger =
-            AutomationEditorState::unsupported(self.synced_trigger.as_ref());
-        let disabled = name_empty
-            || body_empty
-            || self.body_loading
-            || self.submitting
-            || unsupported_trigger;
+        let disabled = name_empty || body_empty || self.body_loading || self.submitting;
         let danger = cx.theme().danger;
         let muted = cx.theme().muted_foreground;
 
@@ -383,12 +341,6 @@ impl Render for ActionEditorDialogView {
                         "With a repository the run clones it first; without one the agent \
                          works in a scratch directory.",
                     )),
-            )
-            // EXP-530: the shared Automation section — the trigger rides the
-            // same batched `actions.update` as everything else here.
-            .child(
-                self.automation
-                    .render("action-edit-automation", |this| &mut this.automation, cx),
             );
         let left = div()
             .w(px(280.))
@@ -455,12 +407,6 @@ impl Render for ActionEditorDialogView {
                     .child(left)
                     .child(right),
             )
-            .when(unsupported_trigger, |this| {
-                this.child(div().text_sm().text_color(danger).child(
-                    "This action's automation was set up by a newer version. Update the app \
-                     to edit it.",
-                ))
-            })
             .when_some(self.error.clone(), |this, error| {
                 this.child(div().text_sm().text_color(danger).child(error))
             })

@@ -59,6 +59,7 @@
 pub mod accounts;
 pub mod actions;
 pub mod attachments;
+pub mod automations;
 pub mod billing;
 pub mod coding_sessions;
 pub mod comments;

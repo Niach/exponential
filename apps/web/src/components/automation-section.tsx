@@ -4,16 +4,18 @@ import { Check } from "lucide-react"
 import {
   MAX_TRIGGER_FILTER_IDS,
   actionTriggerEventValues,
-  type ActionEventTriggerFilters,
+  type AutomationEventTriggerFilters,
   type ActionScheduleInterval,
-  type ActionScheduleTrigger,
-  type ActionTrigger,
+  type AutomationScheduleTrigger,
+  type AutomationTrigger,
   type ActionTriggerEvent,
   type IssuePriority,
 } from "@exp/db-schema/domain"
 import { TRIGGER_EVENT_LABELS, weekdayName } from "@/lib/action-triggers"
 import { issuePriorityOptions } from "@/lib/domain"
+import { agentEffortValues, agentModelValues } from "@/lib/coding-launch-prefs"
 import {
+  deviceAgentIds,
   deviceCanRunAutomations,
   deviceIsOnline,
   type SteerDevice,
@@ -24,6 +26,11 @@ import {
   labelCollection,
 } from "@/lib/collections"
 import { buildStatusOptions } from "@/lib/team-statuses"
+import {
+  AGENT_LABELS,
+  effortLabel,
+  modelLabel,
+} from "@/components/launch-dialog/launch-options-pane"
 import type { Board, IssueStatusRow, Label as TeamLabel } from "@/db/schema"
 import {
   MobilePopover,
@@ -50,21 +57,17 @@ import {
 } from "@/components/ui/select"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
-// The shared Automation editor section (EXP-530), used by BOTH the action
-// editor dialog and the create-action dialog. The section is fully CONTROLLED
-// via an `AutomationDraft` the parent holds and seeds in its open-reset
-// effect (the same pattern as every other dialog field here) — a draft can
-// represent states a valid `ActionTrigger` cannot (a kind picked but no
-// capable device to bind), so the parent converts at submit time with
-// `draftToTrigger` (incomplete → null = "no automation", which never loses an
-// existing binding because a seeded deviceId is preserved even when the
-// viewer cannot see that device's row).
+// The reusable Automation editing PIECES (EXP-530, reshaped in EXP-583 when
+// automations became their own rows): the trigger panes + event filters, the
+// "Runs on" device picker, and the agent/model/effort picker. The automation
+// dialog composes all three; the suggestion-prefilled create-action dialog
+// composes the same three inside its "Automation" block. Everything is
+// CONTROLLED — the parent holds an `AutomationDraft` (the when-part only,
+// exactly what an `AutomationTrigger` carries) and seeds it in its open-reset
+// effect, the same pattern as every other dialog field here.
 
 export interface AutomationDraft {
-  kind: `none` | `schedule` | `event`
-  /** Steer deviceId of the bound machine; null = nothing bindable yet. */
-  deviceId: string | null
-  enabled: boolean
+  kind: `schedule` | `event`
   interval: ActionScheduleInterval
   /** `HH:MM` wall-clock string, straight off the time input. */
   time: string
@@ -79,9 +82,7 @@ export interface AutomationDraft {
 
 export function emptyAutomationDraft(): AutomationDraft {
   return {
-    kind: `none`,
-    deviceId: null,
-    enabled: true,
+    kind: `schedule`,
     interval: `daily`,
     time: `09:00`,
     weekday: 1,
@@ -107,12 +108,12 @@ function timeToMinute(time: string): number {
   return minute >= 0 && minute <= 1439 ? minute : 540
 }
 
-export function draftFromTrigger(trigger: ActionTrigger | null): AutomationDraft {
+export function draftFromTrigger(
+  trigger: AutomationTrigger | null
+): AutomationDraft {
   const draft = emptyAutomationDraft()
   if (!trigger) return draft
   draft.kind = trigger.kind
-  draft.deviceId = trigger.deviceId
-  draft.enabled = trigger.enabled
   if (trigger.kind === `schedule`) {
     draft.interval = trigger.interval
     draft.time = minuteToTime(trigger.minuteOfDay)
@@ -128,16 +129,12 @@ export function draftFromTrigger(trigger: ActionTrigger | null): AutomationDraft
   return draft
 }
 
-/** The draft's trigger, or null when it is "none" OR incomplete (no device
- * bindable). Filters irrelevant to the picked event are dropped, matching the
- * server's strict write schema. */
-export function draftToTrigger(draft: AutomationDraft): ActionTrigger | null {
-  if (draft.kind === `none` || !draft.deviceId) return null
+/** The draft as a strict `AutomationTrigger`. Filters irrelevant to the
+ * picked event are dropped, matching the server's write schema. */
+export function draftToTrigger(draft: AutomationDraft): AutomationTrigger {
   if (draft.kind === `schedule`) {
-    const trigger: ActionScheduleTrigger = {
+    const trigger: AutomationScheduleTrigger = {
       kind: `schedule`,
-      deviceId: draft.deviceId,
-      enabled: draft.enabled,
       interval: draft.interval,
       minuteOfDay: timeToMinute(draft.time),
     }
@@ -146,7 +143,7 @@ export function draftToTrigger(draft: AutomationDraft): ActionTrigger | null {
     return trigger
   }
   const clamp = <T,>(list: T[]) => list.slice(0, MAX_TRIGGER_FILTER_IDS)
-  const filters: ActionEventTriggerFilters = {}
+  const filters: AutomationEventTriggerFilters = {}
   if (draft.boardIds.length > 0) filters.boardIds = clamp(draft.boardIds)
   if (draft.event === `label_added` && draft.labelIds.length > 0) {
     filters.labelIds = clamp(draft.labelIds)
@@ -162,8 +159,6 @@ export function draftToTrigger(draft: AutomationDraft): ActionTrigger | null {
   }
   return {
     kind: `event`,
-    deviceId: draft.deviceId,
-    enabled: draft.enabled,
     event: draft.event,
     ...(Object.keys(filters).length > 0 ? { filters } : {}),
   }
@@ -178,56 +173,31 @@ const INTERVAL_LABELS: Record<ActionScheduleInterval, string> = {
 const MONTH_DAYS = Array.from({ length: 28 }, (_, index) => index + 1)
 const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7]
 
-export function AutomationSection({
+/** The when-part editor: Schedule | On event segmented control plus the
+ * matching pane (interval/time, or event + filters). */
+export function AutomationTriggerFields({
   draft,
   onChange,
-  devices,
   teamId,
-  hasRequiredInputs = false,
-  showDevicePicker = true,
 }: {
   draft: AutomationDraft
   onChange: (draft: AutomationDraft) => void
-  devices: SteerDevice[]
   teamId: string
-  /** The action declares a required input — an automated run has no values to
-   * fill it with, so the server refuses an ENABLED trigger. The reason renders
-   * inline instead of failing at save. */
-  hasRequiredInputs?: boolean
-  /** Create mode hides the Device picker (EXP-574 follow-up): the automation
-   * binds to the desktop that runs the creation — the parent overrides the
-   * draft's deviceId at trigger-build time. */
-  showDevicePicker?: boolean
 }) {
   const set = (patch: Partial<AutomationDraft>) =>
     onChange({ ...draft, ...patch })
 
-  const capableDevices = useMemo(
-    () => devices.filter(deviceCanRunAutomations),
-    [devices]
-  )
-
-  const selectKind = (kind: string) => {
-    if (kind === draft.kind) return
-    const patch: Partial<AutomationDraft> = {
-      kind: kind as AutomationDraft[`kind`],
-    }
-    // Picking a kind auto-binds the first capable device so a plain
-    // "Schedule + save" is already complete.
-    if (kind !== `none` && !draft.deviceId) {
-      patch.deviceId = capableDevices[0]?.deviceId ?? null
-    }
-    set(patch)
-  }
-
   return (
     <div className="space-y-3">
-      <Label>Automation</Label>
-      <Tabs value={draft.kind} onValueChange={selectKind}>
+      <Label>Trigger</Label>
+      <Tabs
+        value={draft.kind}
+        onValueChange={(kind) => {
+          if (kind === draft.kind) return
+          set({ kind: kind as AutomationDraft[`kind`] })
+        }}
+      >
         <TabsList className="w-full">
-          <TabsTrigger value="none" className="flex-1">
-            None
-          </TabsTrigger>
           <TabsTrigger value="schedule" className="flex-1">
             Schedule
           </TabsTrigger>
@@ -238,70 +208,68 @@ export function AutomationSection({
       </Tabs>
 
       {draft.kind === `schedule` && (
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm text-muted-foreground">Every</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm text-muted-foreground">Every</span>
+          <Select
+            value={draft.interval}
+            onValueChange={(value) =>
+              set({ interval: value as ActionScheduleInterval })
+            }
+          >
+            <SelectTrigger size="sm" className="w-24">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.keys(INTERVAL_LABELS) as ActionScheduleInterval[]).map(
+                (interval) => (
+                  <SelectItem key={interval} value={interval}>
+                    {INTERVAL_LABELS[interval]}
+                  </SelectItem>
+                )
+              )}
+            </SelectContent>
+          </Select>
+          {draft.interval === `weekly` && (
             <Select
-              value={draft.interval}
-              onValueChange={(value) =>
-                set({ interval: value as ActionScheduleInterval })
-              }
+              value={String(draft.weekday)}
+              onValueChange={(value) => set({ weekday: Number(value) })}
+            >
+              <SelectTrigger size="sm" className="w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {WEEKDAYS.map((weekday) => (
+                  <SelectItem key={weekday} value={String(weekday)}>
+                    {weekdayName(weekday)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {draft.interval === `monthly` && (
+            <Select
+              value={String(draft.dayOfMonth)}
+              onValueChange={(value) => set({ dayOfMonth: Number(value) })}
             >
               <SelectTrigger size="sm" className="w-24">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {(Object.keys(INTERVAL_LABELS) as ActionScheduleInterval[]).map(
-                  (interval) => (
-                    <SelectItem key={interval} value={interval}>
-                      {INTERVAL_LABELS[interval]}
-                    </SelectItem>
-                  )
-                )}
+                {MONTH_DAYS.map((day) => (
+                  <SelectItem key={day} value={String(day)}>
+                    {`Day ${day}`}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
-            {draft.interval === `weekly` && (
-              <Select
-                value={String(draft.weekday)}
-                onValueChange={(value) => set({ weekday: Number(value) })}
-              >
-                <SelectTrigger size="sm" className="w-32">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {WEEKDAYS.map((weekday) => (
-                    <SelectItem key={weekday} value={String(weekday)}>
-                      {weekdayName(weekday)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-            {draft.interval === `monthly` && (
-              <Select
-                value={String(draft.dayOfMonth)}
-                onValueChange={(value) => set({ dayOfMonth: Number(value) })}
-              >
-                <SelectTrigger size="sm" className="w-24">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {MONTH_DAYS.map((day) => (
-                    <SelectItem key={day} value={String(day)}>
-                      {`Day ${day}`}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-            <Input
-              type="time"
-              aria-label="Time of day"
-              value={draft.time}
-              onChange={(e) => set({ time: e.target.value })}
-              className="h-8 w-28"
-            />
-          </div>
+          )}
+          <Input
+            type="time"
+            aria-label="Time of day"
+            value={draft.time}
+            onChange={(e) => set({ time: e.target.value })}
+            className="h-8 w-28"
+          />
         </div>
       )}
 
@@ -330,42 +298,32 @@ export function AutomationSection({
           <EventFilterPickers draft={draft} set={set} teamId={teamId} />
         </div>
       )}
-
-      {draft.kind !== `none` && (
-        <>
-          {showDevicePicker && (
-            <DevicePicker
-              deviceId={draft.deviceId}
-              devices={capableDevices}
-              onChange={(deviceId) => set({ deviceId })}
-            />
-          )}
-          {hasRequiredInputs && (
-            <p className="text-xs text-muted-foreground">
-              This action has required inputs, and an automated run has none to
-              fill them with. Make the inputs optional to enable it.
-            </p>
-          )}
-        </>
-      )}
     </div>
   )
 }
 
-function DevicePicker({
+/** Automation-capable machines only (offline-but-capable stays pickable —
+ * a schedule catches up when the machine comes back). */
+export function automationDevices(devices: SteerDevice[]): SteerDevice[] {
+  return devices.filter(deviceCanRunAutomations)
+}
+
+export function AutomationDevicePicker({
   deviceId,
   devices,
   onChange,
+  id = `automation-device`,
 }: {
   deviceId: string | null
-  /** Automation-capable devices only (offline-but-capable stays pickable). */
+  /** Automation-capable devices only (see `automationDevices`). */
   devices: SteerDevice[]
   onChange: (deviceId: string) => void
+  id?: string
 }) {
   if (devices.length === 0 && !deviceId) {
     return (
       <div className="space-y-2">
-        <Label>Device</Label>
+        <Label>Runs on</Label>
         <p className="text-xs text-muted-foreground">
           No automation-capable device. Run the desktop app or the exponential
           daemon and it will appear here.
@@ -373,16 +331,16 @@ function DevicePicker({
       </div>
     )
   }
-  // A trigger bound to a device the viewer cannot see (a teammate's private
-  // machine) keeps its binding: the raw id renders as a fallback entry so
-  // editing other fields never silently rebinds or drops it.
+  // An automation bound to a device the viewer cannot see (a teammate's
+  // private machine) keeps its binding: the raw id renders as a fallback
+  // entry so editing other fields never silently rebinds or drops it.
   const unknownDeviceId =
     deviceId && !devices.some((d) => d.deviceId === deviceId) ? deviceId : null
   return (
     <div className="space-y-2">
-      <Label htmlFor="automation-device">Device</Label>
+      <Label htmlFor={id}>Runs on</Label>
       <Select value={deviceId ?? undefined} onValueChange={onChange}>
-        <SelectTrigger id="automation-device" className="w-full">
+        <SelectTrigger id={id} className="w-full">
           <SelectValue placeholder="Select a device" />
         </SelectTrigger>
         <SelectContent>
@@ -401,13 +359,148 @@ function DevicePicker({
                     : `bg-muted-foreground/40`
                 }`}
               />
-              {device.deviceLabel}
+              {device.deviceLabel || device.deviceId}
             </SelectItem>
           ))}
         </SelectContent>
       </Select>
     </div>
   )
+}
+
+// Radix Select forbids an empty-string item value; the blank "Device default"
+// agent/model/effort rides this sentinel inside the dialogs only.
+export const DEVICE_DEFAULT = `device-default`
+
+/** Agent + Model + Effort for an automated run. Blank on every select means
+ * "whatever the device is configured to launch with" (the row stores NULL).
+ * Agents are limited to what the bound device advertises; the model/effort
+ * lists come from the contract per agent, exactly like the launch dialog. */
+export function AutomationAgentFields({
+  device,
+  agent,
+  onAgentChange,
+  model,
+  onModelChange,
+  effort,
+  onEffortChange,
+  idPrefix = `automation`,
+}: {
+  /** The bound device — its advertisement bounds the agent list. */
+  device: SteerDevice | undefined
+  /** `` = device default. */
+  agent: string
+  onAgentChange: (agent: string) => void
+  model: string
+  onModelChange: (model: string) => void
+  effort: string
+  onEffortChange: (effort: string) => void
+  idPrefix?: string
+}) {
+  // A pin the bound device doesn't advertise (an unseen teammate machine, or
+  // an agent signed out since) stays listed so editing another field never
+  // silently blanks the select.
+  const availableAgents = useMemo(() => {
+    const ids = device ? deviceAgentIds(device) : []
+    return agent !== `` && !ids.includes(agent) ? [...ids, agent] : ids
+  }, [device, agent])
+  // A model or effort is only meaningful against a pinned agent (the server
+  // validates the pair), so both stay locked on "Device default" until one is.
+  const pinned = agent !== ``
+  return (
+    <div className="space-y-3">
+      <div className="space-y-2">
+        <Label htmlFor={`${idPrefix}-agent`}>Agent</Label>
+        <Select
+          value={agent === `` ? DEVICE_DEFAULT : agent}
+          onValueChange={(value) =>
+            onAgentChange(value === DEVICE_DEFAULT ? `` : value)
+          }
+        >
+          <SelectTrigger id={`${idPrefix}-agent`} className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={DEVICE_DEFAULT}>Device default</SelectItem>
+            {availableAgents.map((value) => (
+              <SelectItem key={value} value={value}>
+                {AGENT_LABELS[value] ?? value}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-2">
+          <Label htmlFor={`${idPrefix}-model`}>Model</Label>
+          <Select
+            value={model === `` ? DEVICE_DEFAULT : model}
+            onValueChange={(value) =>
+              onModelChange(value === DEVICE_DEFAULT ? `` : value)
+            }
+            disabled={!pinned}
+          >
+            <SelectTrigger id={`${idPrefix}-model`} className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={DEVICE_DEFAULT}>Device default</SelectItem>
+              {pinned &&
+                agentModelValues(agent).map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {modelLabel(value)}
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor={`${idPrefix}-effort`}>
+            {agent === `pi`
+              ? `Thinking`
+              : agent === `codex`
+                ? `Reasoning`
+                : `Effort`}
+          </Label>
+          <Select
+            value={effort === `` ? DEVICE_DEFAULT : effort}
+            onValueChange={(value) =>
+              onEffortChange(value === DEVICE_DEFAULT ? `` : value)
+            }
+            disabled={!pinned}
+          >
+            <SelectTrigger id={`${idPrefix}-effort`} className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={DEVICE_DEFAULT}>Device default</SelectItem>
+              {pinned &&
+                agentEffortValues(agent).map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {effortLabel(value)}
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Re-clamp a pinned model/effort to the agent they are paired with — the
+ * server rejects a claude model on codex, so switching agent (or back to the
+ * device default) drops anything that agent does not offer. */
+export function clampAgentFields(
+  agent: string,
+  model: string,
+  effort: string
+): { model: string; effort: string } {
+  if (agent === ``) return { model: ``, effort: `` }
+  return {
+    model: agentModelValues(agent).includes(model) ? model : ``,
+    effort: agentEffortValues(agent).includes(effort) ? effort : ``,
+  }
 }
 
 function EventFilterPickers({

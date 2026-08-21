@@ -77,11 +77,7 @@ mod tests {
     use crate::automations::trigger::{EventKind, EventSpec};
 
     fn trigger(kind: TriggerKind) -> ParsedTrigger {
-        ParsedTrigger {
-            device_id: "dev-1".to_string(),
-            enabled: true,
-            kind,
-        }
+        ParsedTrigger { kind }
     }
 
     /// The sentences are cross-surface copy — byte-lock them.

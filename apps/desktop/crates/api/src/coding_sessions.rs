@@ -43,6 +43,10 @@ pub struct CodingSession {
     pub action_id: Option<String>,
     #[serde(default)]
     pub action_name: Option<String>,
+    /// EXP-583: the `automations` row that fired this run; NULL on every
+    /// manual start.
+    #[serde(default)]
+    pub automation_id: Option<String>,
     /// EXP-445: the hosting account on shared-device runs (EXP-432) — the
     /// device owner whose daemon executes a teammate's session. Reaches us
     /// only via tRPC `get`/mutations (server-only column, never in the
@@ -115,6 +119,10 @@ struct StartActionInput<'a> {
     /// field.
     #[serde(skip_serializing_if = "Option::is_none")]
     started_reason: Option<&'a str>,
+    /// EXP-583: the `automations` row that fired it. The server refuses it
+    /// without a `started_reason`, and pairs it against the action.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    automation_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     device_label: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -153,6 +161,9 @@ pub struct HeartbeatScope {
     /// hand-started. `None` for every user-started run (and for issue/batch
     /// scopes, which never automate).
     pub started_reason: Option<String>,
+    /// EXP-583: the firing `automations` row, echoed for the same reason —
+    /// a resurrected row keeps pointing at the automation that started it.
+    pub automation_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -175,6 +186,8 @@ struct HeartbeatInput<'a> {
     device_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     started_reason: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    automation_id: Option<&'a str>,
 }
 
 #[derive(Deserialize)]
@@ -285,12 +298,16 @@ pub fn start_batch(
 /// (the server inserts that row with `action_id` NULL + the constant name);
 /// real actions must NOT send one. Same 412 semantics as [`start`].
 /// EXP-530: `started_reason` (`schedule`/`event`) marks an
-/// automation-started run — `None` for every user start.
+/// automation-started run — `None` for every user start; EXP-583 pairs it
+/// with the firing `automation_id` (the server refuses one without the
+/// other).
+#[allow(clippy::too_many_arguments)] // one wire input, one call site
 pub fn start_action(
     trpc: &TrpcClient,
     action_id: &str,
     team_id: Option<&str>,
     started_reason: Option<&str>,
+    automation_id: Option<&str>,
     device_label: Option<&str>,
     attribution: Attribution,
 ) -> Result<CodingSession, ApiError> {
@@ -300,6 +317,7 @@ pub fn start_action(
             action_id,
             team_id,
             started_reason,
+            automation_id,
             device_label,
             started_by_id: attribution.started_by_id,
             device_id: attribution.device_id,
@@ -365,6 +383,7 @@ pub fn heartbeat(
             started_by_id: scope.and_then(|scope| scope.started_by_id.as_deref()),
             device_id: scope.and_then(|scope| scope.device_id.as_deref()),
             started_reason: scope.and_then(|scope| scope.started_reason.as_deref()),
+            automation_id: scope.and_then(|scope| scope.automation_id.as_deref()),
         },
     )?;
     Ok(envelope.alive)
@@ -487,6 +506,7 @@ mod tests {
             started_by_id: Some("user-2".to_string()),
             device_id: Some("dev-1".to_string()),
             started_reason: None,
+            automation_id: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -532,6 +552,7 @@ mod tests {
             started_by_id: None,
             device_id: None,
             started_reason: None,
+            automation_id: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -551,6 +572,7 @@ mod tests {
             started_by_id: None,
             device_id: None,
             started_reason: None,
+            automation_id: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -569,6 +591,7 @@ mod tests {
         let session = start_action(
             &client(&base),
             "act-1",
+            None,
             None,
             None,
             Some("testbox"),
@@ -601,6 +624,7 @@ mod tests {
             "builtin:create-action",
             Some("ws-1"),
             None,
+            None,
             Some("testbox"),
             Attribution::default(),
         )
@@ -631,13 +655,16 @@ mod tests {
             "act-1",
             None,
             Some("schedule"),
+            Some("auto-1"),
             Some("testbox"),
             Attribution::default(),
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        // EXP-583: the firing automation rides beside the reason — the
+        // server refuses an automationId without one.
         assert!(request.ends_with(
-            r#"{"actionId":"act-1","startedReason":"schedule","deviceLabel":"testbox"}"#
+            r#"{"actionId":"act-1","startedReason":"schedule","automationId":"auto-1","deviceLabel":"testbox"}"#
         ));
     }
 
@@ -655,6 +682,7 @@ mod tests {
             started_by_id: None,
             device_id: None,
             started_reason: None,
+            automation_id: None,
         };
         assert!(heartbeat(&client(&base), "sess-a", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -679,11 +707,12 @@ mod tests {
             started_by_id: None,
             device_id: None,
             started_reason: Some("schedule".to_string()),
+            automation_id: Some("auto-1".to_string()),
         };
         assert!(heartbeat(&client(&base), "sess-a", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(
-            r#"{"id":"sess-a","teamId":"ws-1","actionId":"act-1","actionName":"Code review","startedReason":"schedule"}"#
+            r#"{"id":"sess-a","teamId":"ws-1","actionId":"act-1","actionName":"Code review","startedReason":"schedule","automationId":"auto-1"}"#
         ));
     }
 

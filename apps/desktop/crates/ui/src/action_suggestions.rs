@@ -5,9 +5,62 @@
 //! authored action's prompt should do: it becomes the builtin "Create action"
 //! run's description input and the creator agent acts on it verbatim.
 //!
+//! EXP-583: a seed may also carry an `automation` — the suggested trigger
+//! (the when-part only). Such "Action + automation" seeds prefill the create
+//! dialog's Automation block (the device and the agent pins stay the user's
+//! pick) and the creator run sets up both. Seeds without one are plain
+//! "Action" suggestions.
+//!
 //! The strings are CROSS-CLIENT copy — keep them byte-identical to the web
 //! seeds (`ACTION_SUGGESTIONS` there); [`suggestions_mirror_the_web_seeds`]
 //! locks the shape, the ids and the curated-icon rule.
+
+use coding::automations::{EventKind, ScheduleInterval};
+use serde_json::{json, Value};
+
+/// A seed's suggested trigger, in the const-friendly shape a static table can
+/// hold. [`SuggestedAutomation::to_trigger`] renders the wire JSON.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SuggestedAutomation {
+    Schedule {
+        interval: ScheduleInterval,
+        minute_of_day: u32,
+        /// 1=Monday..7=Sunday — required for (and only read by) weekly.
+        weekday: Option<u32>,
+    },
+    Event {
+        event: EventKind,
+    },
+}
+
+impl SuggestedAutomation {
+    /// The wire trigger, key-ordered like the web seeds so the appended
+    /// creator-run block matches byte for byte.
+    pub(crate) fn to_trigger(self) -> Value {
+        match self {
+            Self::Schedule {
+                interval,
+                minute_of_day,
+                weekday,
+            } => {
+                let mut trigger = json!({
+                    "kind": "schedule",
+                    "interval": match interval {
+                        ScheduleInterval::Daily => "daily",
+                        ScheduleInterval::Weekly => "weekly",
+                        ScheduleInterval::Monthly => "monthly",
+                    },
+                    "minuteOfDay": minute_of_day,
+                });
+                if let Some(weekday) = weekday {
+                    trigger["weekday"] = json!(weekday);
+                }
+                trigger
+            }
+            Self::Event { event } => json!({"kind": "event", "event": event.wire()}),
+        }
+    }
+}
 
 /// One suggestion card. `icon` is a name from the curated `boardIcon`
 /// registry set — never a raw glyph (the swatch grid and the natives only
@@ -18,6 +71,9 @@ pub(crate) struct Suggestion {
     pub title: &'static str,
     pub description: &'static str,
     pub icon: &'static str,
+    /// `Some` = an "Action + automation" seed: the create dialog shows the
+    /// Automation block prefilled with this trigger.
+    pub automation: Option<SuggestedAutomation>,
 }
 
 pub(crate) const ACTION_SUGGESTIONS: &[Suggestion] = &[
@@ -29,6 +85,22 @@ pub(crate) const ACTION_SUGGESTIONS: &[Suggestion] = &[
                       digest as a comment on a dedicated standup issue, grouped by board with \
                       issue identifiers linked.",
         icon: "calendar",
+        automation: Some(SuggestedAutomation::Schedule {
+            interval: ScheduleInterval::Daily,
+            minute_of_day: 540,
+            weekday: None,
+        }),
+    },
+    Suggestion {
+        id: "label-new-issues",
+        title: "Label new issues",
+        description: "When an issue is created, read its title and description and apply the \
+                      best-fitting existing labels. Never create new labels, never change other \
+                      fields, and leave no comment unless no label fits at all.",
+        icon: "target",
+        automation: Some(SuggestedAutomation::Event {
+            event: EventKind::Created,
+        }),
     },
     Suggestion {
         id: "backlog-grooming-sweep",
@@ -37,6 +109,7 @@ pub(crate) const ACTION_SUGGESTIONS: &[Suggestion] = &[
                       priority, or labels. Leave a short comment on each flagged issue listing \
                       what is missing, and skip issues already flagged in a previous run.",
         icon: "boxes",
+        automation: None,
     },
     Suggestion {
         id: "stale-issue-nudge",
@@ -45,6 +118,11 @@ pub(crate) const ACTION_SUGGESTIONS: &[Suggestion] = &[
                       each one asking the assignee for a status update, mentioning them by \
                       email, and include how long the issue has been quiet.",
         icon: "clock",
+        automation: Some(SuggestedAutomation::Schedule {
+            interval: ScheduleInterval::Weekly,
+            minute_of_day: 540,
+            weekday: Some(1),
+        }),
     },
     Suggestion {
         id: "release-notes-drafter",
@@ -53,6 +131,7 @@ pub(crate) const ACTION_SUGGESTIONS: &[Suggestion] = &[
                       notes from their titles and descriptions. Group entries into Features, \
                       Fixes, and Improvements, and file the draft as a new issue for review.",
         icon: "file-text",
+        automation: None,
     },
     Suggestion {
         id: "pr-review-summarizer",
@@ -61,6 +140,7 @@ pub(crate) const ACTION_SUGGESTIONS: &[Suggestion] = &[
                       and post a concise review summary as a comment on the linked issue: what \
                       the change does, notable risks, and suggested test focus areas.",
         icon: "git-branch",
+        automation: None,
     },
     Suggestion {
         id: "widget-bug-triage",
@@ -69,6 +149,9 @@ pub(crate) const ACTION_SUGGESTIONS: &[Suggestion] = &[
                       specific, set a priority based on severity, add reproduction steps when \
                       they can be inferred from the report, and label likely duplicates.",
         icon: "bug",
+        automation: Some(SuggestedAutomation::Event {
+            event: EventKind::Created,
+        }),
     },
     Suggestion {
         id: "weekly-metrics-comment",
@@ -77,6 +160,11 @@ pub(crate) const ACTION_SUGGESTIONS: &[Suggestion] = &[
                       to done, and open pull request count. Post the numbers with a \
                       week-over-week comparison as a comment on a dedicated metrics issue.",
         icon: "chart-line",
+        automation: Some(SuggestedAutomation::Schedule {
+            interval: ScheduleInterval::Weekly,
+            minute_of_day: 480,
+            weekday: Some(5),
+        }),
     },
     Suggestion {
         id: "label-janitor",
@@ -85,6 +173,7 @@ pub(crate) const ACTION_SUGGESTIONS: &[Suggestion] = &[
                       labels based on title and description. Never create new labels, and list \
                       every change made in a summary comment on a dedicated janitor issue.",
         icon: "flag",
+        automation: None,
     },
 ];
 
@@ -92,7 +181,7 @@ pub(crate) const ACTION_SUGGESTIONS: &[Suggestion] = &[
 mod tests {
     use super::*;
 
-    /// The web seeds are the source of truth — this locks the 8 ids in
+    /// The web seeds are the source of truth — this locks the 9 ids in
     /// order, the curated-icon rule and the "instructions, not marketing"
     /// shape of every description.
     #[test]
@@ -102,6 +191,7 @@ mod tests {
             ids,
             vec![
                 "daily-standup-digest",
+                "label-new-issues",
                 "backlog-grooming-sweep",
                 "stale-issue-nudge",
                 "release-notes-drafter",
@@ -132,6 +222,66 @@ mod tests {
                 "{} has a double space (line-continuation slip)",
                 entry.id
             );
+            // Every suggested trigger must survive the shared parser — the
+            // create dialog seeds its Automation block through it.
+            if let Some(automation) = entry.automation {
+                let trigger = automation.to_trigger();
+                let parsed = coding::automations::parse_trigger(&trigger)
+                    .unwrap_or_else(|| panic!("{} trigger must parse", entry.id));
+                assert_ne!(
+                    parsed.kind,
+                    coding::automations::TriggerKind::Unsupported,
+                    "{} trigger must be representable",
+                    entry.id
+                );
+            }
+        }
+    }
+
+    /// EXP-583: which seeds carry an automation, and the exact trigger each
+    /// one suggests — byte-locked against the web seeds.
+    #[test]
+    fn automation_seeds_match_the_web_triggers() {
+        let by_id = |id: &str| {
+            ACTION_SUGGESTIONS
+                .iter()
+                .find(|entry| entry.id == id)
+                .unwrap_or_else(|| panic!("{id} exists"))
+        };
+        let trigger = |id: &str| by_id(id).automation.map(SuggestedAutomation::to_trigger);
+
+        assert_eq!(
+            trigger("daily-standup-digest"),
+            Some(json!({"kind": "schedule", "interval": "daily", "minuteOfDay": 540}))
+        );
+        assert_eq!(
+            trigger("label-new-issues"),
+            Some(json!({"kind": "event", "event": "created"}))
+        );
+        assert_eq!(
+            trigger("stale-issue-nudge"),
+            Some(json!({
+                "kind": "schedule", "interval": "weekly", "minuteOfDay": 540, "weekday": 1
+            }))
+        );
+        assert_eq!(
+            trigger("widget-bug-triage"),
+            Some(json!({"kind": "event", "event": "created"}))
+        );
+        assert_eq!(
+            trigger("weekly-metrics-comment"),
+            Some(json!({
+                "kind": "schedule", "interval": "weekly", "minuteOfDay": 480, "weekday": 5
+            }))
+        );
+        // The four plain "Action" seeds suggest nothing.
+        for id in [
+            "backlog-grooming-sweep",
+            "release-notes-drafter",
+            "pr-review-summarizer",
+            "label-janitor",
+        ] {
+            assert_eq!(trigger(id), None, "{id} is a plain action seed");
         }
     }
 }

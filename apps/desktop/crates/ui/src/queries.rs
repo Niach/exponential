@@ -309,6 +309,26 @@ pub fn team_actions(cx: &App, team_id: &str) -> (Vec<api::actions::Action>, bool
     (out, collection.is_ready())
 }
 
+/// EXP-583: a team's synced `automations` rows in the server's own list
+/// order (`sortOrder`, then `createdAt`). The bool is the shape's readiness —
+/// an empty list before it is "still syncing", never "no automations".
+pub fn team_automations(cx: &App, team_id: &str) -> (Vec<api::automations::Automation>, bool) {
+    let collections = Store::global(cx).collections();
+    let collection = collections.automations.read(cx);
+    let mut out: Vec<api::automations::Automation> = collection
+        .iter()
+        .filter(|row| row.team_id.as_deref() == Some(team_id))
+        .map(api::automations::from_row)
+        .collect();
+    out.sort_by(|a, b| {
+        a.sort_order
+            .total_cmp(&b.sort_order)
+            .then_with(|| a.created_at.cmp(&b.created_at))
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    (out, collection.is_ready())
+}
+
 /// EXP-314: a team's `issue_statuses` rows in the canonical order (category
 /// display order, then `sort_order`, `created_at`, `id`). The ONE read every
 /// status surface goes through — pass the result straight to

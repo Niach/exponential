@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-automations-split`,
+    date: `2026-08-21`,
+    title: `Automations are their own thing`,
+    summary: `Automations moved out of the action editor into their own list, so one action can run on several schedules or events.`,
+    body: `- **New automation button**: the Automations tab has its own form. Pick an action, a schedule or an event, the machine it runs on, and optionally pin the agent, model and effort.
+- **Many per action**: an action can now carry as many automations as you like, each with its own trigger and device. Action cards show how many target them.
+- **Cleaner action editor**: creating or editing an action no longer asks about triggers.
+- **Suggestions**: cards say whether a suggestion sets up just an action or an action plus its automation, and the create dialog prefills the trigger.`,
+  },
+  {
     id: `2026-08-mobile-issue-ref-menu`,
     date: `2026-08-21`,
     title: `Issue links on mobile`,

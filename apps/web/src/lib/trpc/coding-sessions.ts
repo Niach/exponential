@@ -116,10 +116,10 @@ async function resolveSessionDevice(
 // target this very action — a stale/foreign id degrades to NULL (history
 // only; never a reason to refuse the start).
 async function resolveAutomationId(
+  db: Context[`db`],
   automationId: string,
   actionId: string
 ): Promise<string | null> {
-  const { db } = await import(`@/db/connection`)
   const [row] = await db
     .select({ id: automations.id })
     .from(automations)
@@ -308,7 +308,7 @@ export const codingSessionsRouter = router({
             actionName: action.name,
             startedReason: input.startedReason ?? null,
             automationId: input.automationId
-              ? await resolveAutomationId(input.automationId, action.id)
+              ? await resolveAutomationId(ctx.db, input.automationId, action.id)
               : null,
             userId: attribution.userId,
             hostUserId: attribution.hostUserId,
@@ -545,7 +545,7 @@ export const codingSessionsRouter = router({
                   : null,
               automationId:
                 input.actionId && !builtin && input.automationId && actionId
-                  ? await resolveAutomationId(input.automationId, actionId)
+                  ? await resolveAutomationId(ctx.db, input.automationId, actionId)
                   : null,
               userId: attribution.userId,
               hostUserId: attribution.hostUserId,

@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import type { BoardIcon } from "@exp/db-schema/domain"
-import type { Team } from "@/db/schema"
-import { actionCollection } from "@/lib/collections"
+import type { Automation, Team } from "@/db/schema"
+import { actionCollection, automationCollection } from "@/lib/collections"
 import {
   BUILTIN_CREATE_ACTION_ID,
   BUILTIN_CREATE_ACTION_NAME,
   builtinFixConflictsAction,
 } from "@/lib/builtin-actions"
-import { parseActionTrigger, triggerSummary } from "@/lib/action-triggers"
 import {
   ACTION_SUGGESTIONS,
   type ActionSuggestion,
@@ -130,6 +129,7 @@ function RepoBadge({ repoName }: { repoName: string }) {
 function ActionCard({
   action,
   repoName,
+  automationCount,
   isOwner,
   canRun,
   runBusy,
@@ -139,6 +139,9 @@ function ActionCard({
 }: {
   action: TeamAction
   repoName: string | undefined
+  /** How many automations target this action (EXP-583) — the schedules and
+   * event watchers themselves live on the Automations tab. */
+  automationCount: number
   isOwner: boolean
   canRun: boolean
   runBusy: boolean
@@ -147,9 +150,6 @@ function ActionCard({
   onDelete: () => void
 }) {
   const CardIcon = getActionIcon(action)
-  // Builtins never automate (trigger is locked null), so this only renders
-  // on synced rows carrying a parseable trigger.
-  const trigger = parseActionTrigger(action.trigger)
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
       <div className="flex min-w-0 items-center gap-2">
@@ -171,10 +171,12 @@ function ActionCard({
           {action.description}
         </p>
       )}
-      {trigger && (
+      {automationCount > 0 && (
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <ActionAutomationIcon className="size-3.5 shrink-0" />
-          <span className="truncate">{triggerSummary(trigger)}</span>
+          <span className="truncate">
+            {`${automationCount} ${automationCount === 1 ? `automation` : `automations`}`}
+          </span>
         </div>
       )}
       {canRun && (
@@ -198,6 +200,7 @@ function ActionCard({
 function ActionRow({
   action,
   repoName,
+  automationCount,
   isOwner,
   canRun,
   runBusy,
@@ -207,6 +210,7 @@ function ActionRow({
 }: {
   action: TeamAction
   repoName: string | undefined
+  automationCount: number
   isOwner: boolean
   canRun: boolean
   runBusy: boolean
@@ -215,7 +219,6 @@ function ActionRow({
   onDelete: () => void
 }) {
   const RowIcon = getActionIcon(action)
-  const trigger = parseActionTrigger(action.trigger)
   return (
     <div className="flex items-center gap-3 border-b border-border/30 px-3 py-2">
       <RowIcon className="size-4 shrink-0 text-muted-foreground" />
@@ -240,10 +243,12 @@ function ActionRow({
             {action.description}
           </div>
         )}
-        {trigger && (
+        {automationCount > 0 && (
           <div className="flex items-center gap-1 text-xs text-muted-foreground">
             <ActionAutomationIcon className="size-3 shrink-0" />
-            <span className="truncate">{triggerSummary(trigger)}</span>
+            <span className="truncate">
+              {`${automationCount} ${automationCount === 1 ? `automation` : `automations`}`}
+            </span>
           </div>
         )}
       </div>
@@ -316,6 +321,16 @@ function SuggestionCard({
           {suggestion.title}
         </span>
       </div>
+      <div className="flex">
+        {/* EXP-583: a seed either just authors an action, or authors it and
+            sets up the automation that runs it. */}
+        <Badge variant="outline" className="shrink-0 gap-1 text-[0.625rem]">
+          {suggestion.automation && (
+            <ActionAutomationIcon className="h-3 w-3" />
+          )}
+          {suggestion.automation ? `Action + automation` : `Action`}
+        </Badge>
+      </div>
       <p className="text-xs text-muted-foreground">{suggestion.description}</p>
       {canUse && (
         <div className="mt-auto pt-1">
@@ -357,6 +372,26 @@ export function TeamActionsPanel({ team }: { team: Team }) {
       query.from({ a: actionCollection }).where(({ a }) => eq(a.teamId, teamId)),
     [teamId]
   )
+
+  // EXP-583: automations are their own synced rows — the Actions tab only
+  // shows how many target each action; the rows themselves live one tab over.
+  const { data: automationRows } = useLiveQuery(
+    (query) =>
+      query
+        .from({ au: automationCollection })
+        .where(({ au }) => eq(au.teamId, teamId)),
+    [teamId]
+  )
+  const automationCountByAction = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const automation of (automationRows ?? []) as Automation[]) {
+      counts.set(
+        automation.actionId,
+        (counts.get(automation.actionId) ?? 0) + 1
+      )
+    }
+    return counts
+  }, [automationRows])
 
   // The fix-conflicts builtin pinned FIRST by its flag (not a DB row, so the
   // shape can't carry it); the synced rows re-apply the server's ordering
@@ -432,6 +467,7 @@ export function TeamActionsPanel({ team }: { team: Team }) {
     repoName: action.repositoryId
       ? repoNameById.get(action.repositoryId)
       : undefined,
+    automationCount: automationCountByAction.get(action.id) ?? 0,
     isOwner,
     canRun: steerEnabled,
     runBusy,
@@ -520,6 +556,7 @@ export function TeamActionsPanel({ team }: { team: Team }) {
             actions={sortedActions}
             devices={remote.devices ?? []}
             isOwner={isOwner}
+            steerEnabled={steerEnabled}
             teamId={teamId}
           />
         </TabsContent>
@@ -581,6 +618,7 @@ export function TeamActionsPanel({ team }: { team: Team }) {
         repos={repos}
         initialDescription={suggestionPrefill?.description}
         initialIcon={suggestionPrefill?.icon}
+        automationPrefill={suggestionPrefill?.automation}
         onCreate={(device, options, inputs) => {
           remote
             .runAction(
@@ -604,7 +642,6 @@ export function TeamActionsPanel({ team }: { team: Team }) {
           onOpenChange={setEditorOpen}
           repos={repos}
           action={editing}
-          devices={remote.devices ?? []}
         />
       )}
 

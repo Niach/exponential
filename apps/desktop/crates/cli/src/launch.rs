@@ -199,6 +199,7 @@ pub enum ActionRepo {
 /// the prompt's `## Trigger` section and the row's `started_reason`; every
 /// user-initiated start passes `None`.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)] // the one action-request builder
 pub fn resolve_action_request(
     ctx: &Ctx,
     action_id: &str,
@@ -208,6 +209,9 @@ pub fn resolve_action_request(
     options: LaunchOptions,
     origin: LaunchOrigin,
     trigger: Option<coding::TriggerNote>,
+    // EXP-583: the `automations` row that fired this run — stamped on the
+    // session beside `startedReason`. `None` on every person-started run.
+    automation_id: Option<String>,
 ) -> anyhow::Result<ActionLaunchRequest> {
     let builtin = api::actions::is_builtin_action_id(action_id);
     let fixing = action_id == BUILTIN_FIX_CONFLICTS_ID;
@@ -327,6 +331,7 @@ pub fn resolve_action_request(
         inputs,
         kind,
         trigger,
+        automation_id,
         device_label: coding::default_device_label(),
         origin,
         options,

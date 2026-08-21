@@ -57,12 +57,6 @@ public struct ActionDto: Decodable, Identifiable, Sendable {
     public let updatedAt: String
     public let inputs: [ActionInputDto]?
     public let builtin: Bool?
-    /// EXP-530: the raw automation trigger JSON string off the synced row
-    /// (parsed lazily via `ActionTrigger.parse`); always nil on builtins and
-    /// on tRPC-listed rows — the synced store is the trigger's read path, so
-    /// the field is deliberately OUTSIDE CodingKeys (the tRPC wire carries it
-    /// as a JSON object, which a `String?` decode would reject).
-    public var trigger: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case id, teamId, repositoryId, name, description, icon, body
@@ -81,8 +75,7 @@ public struct ActionDto: Decodable, Identifiable, Sendable {
         createdAt: String,
         updatedAt: String,
         inputs: [ActionInputDto]? = nil,
-        builtin: Bool? = nil,
-        trigger: String? = nil
+        builtin: Bool? = nil
     ) {
         self.id = id
         self.teamId = teamId
@@ -96,14 +89,10 @@ public struct ActionDto: Decodable, Identifiable, Sendable {
         self.updatedAt = updatedAt
         self.inputs = inputs
         self.builtin = builtin
-        self.trigger = trigger
     }
 
     /// The virtual builtin row (EXP-257).
     public var isBuiltin: Bool { builtin == true }
-
-    /// The parsed automation trigger, nil when absent/malformed (EXP-530).
-    public var parsedTrigger: ActionTrigger? { ActionTrigger.parse(trigger) }
 }
 
 public extension ActionDto {
@@ -196,8 +185,7 @@ public extension ActionDto {
             createdAt: entity.createdAt,
             updatedAt: entity.updatedAt,
             inputs: parsedInputs,
-            builtin: false,
-            trigger: entity.trigger
+            builtin: false
         )
     }
 }
@@ -213,11 +201,6 @@ public struct ActionsListResult: Decodable, Sendable {
 
 private struct ListInput: Encodable {
     let teamId: String
-}
-
-private struct UpdateTriggerInput: Encodable {
-    let id: String
-    let trigger: ActionTrigger
 }
 
 public final class ActionsApi: Sendable {
@@ -236,20 +219,5 @@ public final class ActionsApi: Sendable {
             input: ListInput(teamId: teamId)
         )
         return result.actions
-    }
-
-    /// Owner-gated `actions.update { id, trigger }` (EXP-530): replaces the
-    /// action's WHOLE trigger object — the Automations toggle sends the same
-    /// trigger with `enabled` flipped. The synced row echoes the change back.
-    public func updateTrigger(
-        accountId: String,
-        actionId: String,
-        trigger: ActionTrigger
-    ) async throws {
-        try await trpc.mutationVoid(
-            accountId: accountId,
-            path: "actions.update",
-            input: UpdateTriggerInput(id: actionId, trigger: trigger)
-        )
     }
 }

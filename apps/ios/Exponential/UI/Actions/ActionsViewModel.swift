@@ -15,20 +15,26 @@ final class ActionsViewModel {
     var actions: [ActionDto] = []
     var isLoading = false
     var loadError: String?
+    /// EXP-583: the team's automations, live off the synced `automations`
+    /// shape — sortOrder-then-createdAt, the server list's order.
+    var automations: [AutomationDto] = []
     // EXP-530 Automations tab: recent automation-started runs (started_reason
     // non-null), newest first, capped at 10.
     var automationRuns: [CodingSessionEntity] = []
+    /// Newest run per automation id (EXP-583) — the rows' "Last run" line.
+    var lastRunByAutomation: [String: CodingSessionEntity] = [:]
     /// EVERY synced device, offline included (EXP-530) — the Automations tab
-    /// resolves a trigger's bound deviceId to a label + online dot, and an
-    /// offline machine must still be nameable.
+    /// resolves an automation's bound deviceId to a label + online dot, and an
+    /// offline machine must still be nameable AND pickable (its missed
+    /// schedule fires once it comes back).
     var allDevices: [SteerDevice] = []
-    /// EXP-530: the enabled toggle is owner-gated (`actions.update` is
+    /// EXP-583: automation writes are owner-gated (the `automations` router is
     /// owner-only server-side — mirror it instead of bouncing on submit).
     var permissions: TeamPermissions = .denied
-    /// Action id with an in-flight trigger toggle (disables that row's
-    /// control); Electric echoes the flipped row back into `actions`.
-    var triggerBusyActionId: String?
-    var triggerError: String?
+    /// Automation id with an in-flight write (disables that row's controls);
+    /// Electric echoes the changed row back into `automations`.
+    var automationBusyId: String?
+    var automationError: String?
     // Issues the unified sheet's Issues tab can queue (Android parity —
     // the AgentsViewModel.startCandidates rules): the loaded team's
     // repo-backed boards; open issues, recency-ordered.
@@ -45,24 +51,25 @@ final class ActionsViewModel {
     private let accountId: String
     private let db: DatabaseManager
     private let steerApi: SteerApi
-    private let actionsApi: ActionsApi
+    private let automationsApi: AutomationsApi
     private let auth: AuthRepository
 
     private var loadedTeamId: String?
     private var actionsObservationTask: Task<Void, Never>?
     private var runsObservationTask: Task<Void, Never>?
+    private var automationsObservationTask: Task<Void, Never>?
 
     init(
         accountId: String,
         db: DatabaseManager,
         steerApi: SteerApi,
-        actionsApi: ActionsApi,
+        automationsApi: AutomationsApi,
         auth: AuthRepository
     ) {
         self.accountId = accountId
         self.db = db
         self.steerApi = steerApi
-        self.actionsApi = actionsApi
+        self.automationsApi = automationsApi
         self.auth = auth
     }
 
@@ -83,6 +90,7 @@ final class ActionsViewModel {
         if actions.isEmpty { isLoading = true }
         actionsObservationTask?.cancel()
         runsObservationTask?.cancel()
+        automationsObservationTask?.cancel()
         guard let pool = try? db.pool(forAccountId: accountId) else {
             isLoading = false
             loadError = "The local database is unavailable."
@@ -100,6 +108,7 @@ final class ActionsViewModel {
             db: db, accountId: accountId, teamId: teamId, userId: auth.userId
         )
         observeAutomationRuns(teamId: teamId, pool: pool)
+        observeAutomations(teamId: teamId, pool: pool)
         let observation = ValueObservation.tracking { db in
             try ActionEntity.filter(Column("team_id") == teamId).fetchAll(db)
         }
@@ -126,7 +135,8 @@ final class ActionsViewModel {
 
     /// Observe the team's automation-started runs (EXP-530: coding_sessions
     /// rows with a non-null started_reason), newest first, capped at 10 for
-    /// the "Recent automated runs" list.
+    /// the "Recent automated runs" list. EXP-583: the same rows carry
+    /// `automation_id`, which gives every automation row its "Last run".
     private func observeAutomationRuns(teamId: String, pool: DatabasePool) {
         let observation = ValueObservation.tracking { db in
             try CodingSessionEntity
@@ -139,9 +149,16 @@ final class ActionsViewModel {
                 for try await rows in observation.values(in: pool) {
                     guard let self, !Task.isCancelled else { return }
                     guard self.loadedTeamId == teamId else { return }
-                    self.automationRuns = Array(
-                        rows.sorted { $0.startedAt > $1.startedAt }.prefix(10)
-                    )
+                    let ordered = rows.sorted { $0.startedAt > $1.startedAt }
+                    self.automationRuns = Array(ordered.prefix(10))
+                    // Newest first, so the FIRST row per automation wins.
+                    var newest: [String: CodingSessionEntity] = [:]
+                    for row in ordered {
+                        guard let automationId = row.automationId,
+                              newest[automationId] == nil else { continue }
+                        newest[automationId] = row
+                    }
+                    self.lastRunByAutomation = newest
                 }
             } catch {
                 // Non-fatal — the list simply stays as it was.
@@ -149,25 +166,103 @@ final class ActionsViewModel {
         }
     }
 
-    /// Flip an automation's paused flag (EXP-530): `actions.update` replaces
-    /// the WHOLE trigger object, so send the parsed trigger with `enabled`
-    /// flipped. Owner-only server-side — the UI disables the control for
-    /// everyone else. Success needs no local write: Electric echoes the row.
-    func setTriggerEnabled(action: ActionDto, enabled: Bool) {
-        guard let trigger = action.parsedTrigger, triggerBusyActionId == nil else { return }
-        triggerBusyActionId = action.id
-        triggerError = nil
+    /// Observe the team's automations (EXP-583: the synced `automations`
+    /// shape, not tRPC — the list stays live as sync lands rows), in the
+    /// server list's sortOrder-then-createdAt order.
+    private func observeAutomations(teamId: String, pool: DatabasePool) {
+        let observation = ValueObservation.tracking { db in
+            try AutomationEntity.filter(Column("team_id") == teamId).fetchAll(db)
+        }
+        automationsObservationTask = Task { [weak self] in
+            do {
+                for try await rows in observation.values(in: pool) {
+                    guard let self, !Task.isCancelled else { return }
+                    guard self.loadedTeamId == teamId else { return }
+                    self.automations = rows
+                        .sorted { ($0.sortOrder ?? 0, $0.createdAt) < ($1.sortOrder ?? 0, $1.createdAt) }
+                        .map { AutomationDto(entity: $0) }
+                }
+            } catch {
+                // Non-fatal — the list simply stays as it was.
+            }
+        }
+    }
+
+    /// Flip an automation's paused flag (EXP-583): `automations.update` takes
+    /// just { id, enabled }. Owner-only server-side — the UI disables the
+    /// control for everyone else. Success needs no local write: Electric
+    /// echoes the row.
+    func setAutomationEnabled(_ automation: AutomationDto, enabled: Bool) {
+        guard automationBusyId == nil else { return }
+        automationBusyId = automation.id
+        automationError = nil
         Task {
             do {
-                try await actionsApi.updateTrigger(
+                try await automationsApi.update(
                     accountId: accountId,
-                    actionId: action.id,
-                    trigger: trigger.withEnabled(enabled)
+                    id: automation.id,
+                    enabled: enabled
                 )
             } catch {
-                triggerError = error.localizedDescription
+                automationError = error.localizedDescription
             }
-            triggerBusyActionId = nil
+            automationBusyId = nil
+        }
+    }
+
+    /// Owner-only delete (EXP-583). The row leaves via Electric.
+    func deleteAutomation(_ automation: AutomationDto) {
+        guard automationBusyId == nil else { return }
+        automationBusyId = automation.id
+        automationError = nil
+        Task {
+            do {
+                try await automationsApi.delete(accountId: accountId, id: automation.id)
+            } catch {
+                automationError = error.localizedDescription
+            }
+            automationBusyId = nil
+        }
+    }
+
+    /// Create or update an automation from the form sheet (EXP-583). `editing`
+    /// nil = create. The sheet dismisses on submit; failures surface as
+    /// `automationError` on the list, like a failed start does.
+    func saveAutomation(
+        editing: AutomationDto?,
+        teamId: String,
+        actionId: String,
+        deviceId: String,
+        trigger: AutomationTrigger,
+        launch: AutomationLaunchPatch
+    ) {
+        automationError = nil
+        Task {
+            do {
+                if let editing {
+                    try await automationsApi.update(
+                        accountId: accountId,
+                        id: editing.id,
+                        actionId: actionId,
+                        deviceId: deviceId,
+                        trigger: trigger,
+                        launch: launch
+                    )
+                } else {
+                    try await automationsApi.create(
+                        accountId: accountId,
+                        teamId: teamId,
+                        actionId: actionId,
+                        deviceId: deviceId,
+                        trigger: trigger,
+                        agent: launch.agent,
+                        model: launch.model,
+                        effort: launch.effort
+                    )
+                }
+            } catch {
+                automationError = error.localizedDescription
+            }
         }
     }
 

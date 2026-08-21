@@ -4,7 +4,6 @@ import java.util.Calendar
 import java.util.TimeZone
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -12,20 +11,22 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 
-// EXP-530 action automations: ONE optional `trigger` (jsonb, synced on the
-// actions shape) per action — a schedule ("daily at 07:00") or an event
-// ("when status changes") the BOUND DEVICE watches for and fires locally
-// (there is no server scheduler). Mobile only ever reads and toggles it:
-// parsing is deliberately TOLERANT — an unknown kind/event or malformed JSON
-// reads as null ("no automation"), never a crash — so a future trigger shape
+// EXP-583 automations: an `automations` row (the 19th Electric shape) pairs an
+// action with a bound device, and its `trigger` jsonb is the WHEN-part only —
+// a schedule ("daily at 07:00") or an event ("when status changes"). The
+// device/enabled/agent fields that used to live INSIDE the trigger (EXP-530's
+// actions.trigger) are columns on the row now. The bound device watches for
+// the trigger and fires locally; there is no server scheduler.
+// Parsing is deliberately TOLERANT — an unknown kind/event or malformed JSON
+// reads as null ("no trigger"), never a crash — so a future trigger shape
 // can't brick this client. Summary strings mirror the web's
-// `lib/action-triggers.ts` / iOS `ActionTriggerDisplay` byte-for-byte.
+// `lib/action-triggers.ts` / iOS `AutomationTriggerDisplay` byte-for-byte.
 
 /**
  * The event-trigger filter lists. Empty lists mean "no filter on that axis";
  * [priorities] carries wire priority values, the id lists uuids.
  */
-data class ActionTriggerFilters(
+data class AutomationTriggerFilters(
     val boardIds: List<String> = emptyList(),
     val labelIds: List<String> = emptyList(),
     val priorities: List<String> = emptyList(),
@@ -38,16 +39,10 @@ data class ActionTriggerFilters(
     val isEmpty: Boolean get() = totalCount == 0
 }
 
-sealed interface ActionTrigger {
-    val deviceId: String
-
-    /** Paused automations keep their config; a missing wire flag reads true. */
-    val enabled: Boolean
+sealed interface AutomationTrigger {
 
     /** `kind: "schedule"` — fires on the bound device's LOCAL clock. */
     data class Schedule(
-        override val deviceId: String,
-        override val enabled: Boolean = true,
         /** Contract `actionScheduleIntervalValues`: daily | weekly | monthly. */
         val interval: String,
         /** Minutes past local midnight, 0..1439. */
@@ -56,36 +51,26 @@ sealed interface ActionTrigger {
         val weekday: Int? = null,
         /** 1…28; present iff monthly. */
         val dayOfMonth: Int? = null,
-    ) : ActionTrigger
+    ) : AutomationTrigger
 
     /** `kind: "event"` — fires when a matching issue event syncs to the device. */
     data class Event(
-        override val deviceId: String,
-        override val enabled: Boolean = true,
         /** Contract `actionTriggerEventValues` (created, status_changed, …). */
         val event: String,
-        val filters: ActionTriggerFilters = ActionTriggerFilters(),
-    ) : ActionTrigger
-
-    /** The same trigger with the paused flag flipped — the Automations tab
-     * toggle's payload (`actions.update` replaces the whole object). */
-    fun withEnabled(enabled: Boolean): ActionTrigger = when (this) {
-        is Schedule -> copy(enabled = enabled)
-        is Event -> copy(enabled = enabled)
-    }
+        val filters: AutomationTriggerFilters = AutomationTriggerFilters(),
+    ) : AutomationTrigger
 
     /**
      * The wire JSON object with the server's field names, keys in the
-     * canonical order (kind, deviceId, enabled, interval/minuteOfDay/
-     * weekday/dayOfMonth or event/filters{boardIds,labelIds,priorities,
-     * toStatusIds}). Empty filter lists are OMITTED, matching what the
-     * pickers produce.
+     * canonical order (kind, interval/minuteOfDay/weekday/dayOfMonth or
+     * event/filters{boardIds,labelIds,priorities,toStatusIds}) — the SAME
+     * order the web's `draftToTrigger` builds, so `JSON.stringify` and this
+     * render byte-identically inside [formatAutomationBlock]. Empty filter
+     * lists are OMITTED, matching what the pickers produce.
      */
     fun toWireJson(): JsonObject = when (this) {
         is Schedule -> buildJsonObject {
             put("kind", "schedule")
-            put("deviceId", deviceId)
-            put("enabled", enabled)
             put("interval", interval)
             put("minuteOfDay", minuteOfDay)
             weekday?.let { put("weekday", it) }
@@ -93,8 +78,6 @@ sealed interface ActionTrigger {
         }
         is Event -> buildJsonObject {
             put("kind", "event")
-            put("deviceId", deviceId)
-            put("enabled", enabled)
             put("event", event)
             if (!filters.isEmpty) {
                 putJsonObject("filters") {
@@ -115,8 +98,8 @@ sealed interface ActionTrigger {
         }
     }
 
-    /** Compact wire JSON string — rides the create sheet's machine-readable
-     * description block (kotlinx renders JsonObject compactly, no spaces). */
+    /** Compact wire JSON string — rides `automations.create` and the create
+     * sheet's machine-readable note (kotlinx renders JsonObject compactly). */
     fun toWireJsonString(): String = toWireJson().toString()
 
     companion object {
@@ -124,19 +107,15 @@ sealed interface ActionTrigger {
 
         /**
          * Tolerant parse of the stored/synced JSON string. ANY malformation —
-         * unknown kind, unknown event/interval, missing device or schedule
-         * fields, out-of-range values, non-object JSON — reads as null ("no
-         * automation"): a future server shape must never crash or
-         * half-render on this build. Missing `enabled` defaults true; only an
-         * explicit false disables.
+         * unknown kind, unknown event/interval, missing schedule fields,
+         * out-of-range values, non-object JSON — reads as null ("no
+         * trigger"): a future server shape must never crash or half-render on
+         * this build.
          */
-        fun parse(raw: String?): ActionTrigger? {
+        fun parse(raw: String?): AutomationTrigger? {
             if (raw.isNullOrBlank()) return null
             val obj = runCatching { json.parseToJsonElement(raw) }.getOrNull() as? JsonObject
                 ?: return null
-            val deviceId = obj.stringValue("deviceId")?.takeIf { it.isNotEmpty() } ?: return null
-            // Only an explicit boolean false disables — garbage reads as ON.
-            val enabled = obj.boolValue("enabled") != false
 
             return when (obj.stringValue("kind")) {
                 "schedule" -> {
@@ -151,8 +130,6 @@ sealed interface ActionTrigger {
                     if (interval == "weekly" && (weekday == null || weekday !in 1..7)) return null
                     if (interval == "monthly" && (dayOfMonth == null || dayOfMonth !in 1..28)) return null
                     Schedule(
-                        deviceId = deviceId,
-                        enabled = enabled,
                         interval = interval,
                         minuteOfDay = minuteOfDay,
                         weekday = weekday.takeIf { interval == "weekly" },
@@ -161,16 +138,14 @@ sealed interface ActionTrigger {
                 }
                 "event" -> {
                     // An old client reading a FUTURE event kind treats it as
-                    // "no automation".
+                    // "no trigger".
                     val event = obj.stringValue("event")
                         ?.takeIf { it in DomainContract.actionTriggerEventValues }
                         ?: return null
                     val rawFilters = obj["filters"] as? JsonObject
                     Event(
-                        deviceId = deviceId,
-                        enabled = enabled,
                         event = event,
-                        filters = ActionTriggerFilters(
+                        filters = AutomationTriggerFilters(
                             boardIds = rawFilters.stringList("boardIds"),
                             labelIds = rawFilters.stringList("labelIds"),
                             priorities = rawFilters.stringList("priorities")
@@ -185,9 +160,6 @@ sealed interface ActionTrigger {
 
         private fun JsonObject.stringValue(key: String): String? =
             (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
-
-        private fun JsonObject.boolValue(key: String): Boolean? =
-            (this[key] as? JsonPrimitive)?.takeIf { !it.isString }?.content?.toBooleanStrictOrNull()
 
         // Postgres jsonb numbers can arrive as ints or whole-number doubles.
         private fun JsonObject.intValue(key: String): Int? {
@@ -236,12 +208,12 @@ fun triggerEventLabel(event: String): String = when (event) {
 
 /**
  * The one-line trigger sentence, byte-matching the web's `triggerSummary` /
- * iOS `ActionTriggerDisplay.summary`: `Daily at 07:00` / `Weekly on Monday at
- * 09:00` / `Monthly on day 5 at 09:00`; `When status changes` (+ ` · N
+ * iOS `AutomationTriggerDisplay.summary`: `Daily at 07:00` / `Weekly on Monday
+ * at 09:00` / `Monthly on day 5 at 09:00`; `When status changes` (+ ` · N
  * filters` when any filter ids are present).
  */
-fun triggerSummary(trigger: ActionTrigger): String = when (trigger) {
-    is ActionTrigger.Schedule -> {
+fun triggerSummary(trigger: AutomationTrigger): String = when (trigger) {
+    is AutomationTrigger.Schedule -> {
         val at = triggerClock(trigger.minuteOfDay)
         when (trigger.interval) {
             "weekly" -> "Weekly on ${triggerWeekdayName(trigger.weekday ?: 1)} at $at"
@@ -249,7 +221,7 @@ fun triggerSummary(trigger: ActionTrigger): String = when (trigger) {
             else -> "Daily at $at"
         }
     }
-    is ActionTrigger.Event -> {
+    is AutomationTrigger.Event -> {
         val label = triggerEventLabel(trigger.event)
         val sentence = "When ${label.replaceFirstChar { it.lowercaseChar() }}"
         val count = trigger.filters.totalCount
@@ -266,7 +238,7 @@ fun triggerSummary(trigger: ActionTrigger): String = when (trigger) {
  * valid day), which the tolerant parse already rejects.
  */
 fun nextScheduleRun(
-    schedule: ActionTrigger.Schedule,
+    schedule: AutomationTrigger.Schedule,
     nowMs: Long = System.currentTimeMillis(),
     zone: TimeZone = TimeZone.getDefault(),
 ): Long? {
@@ -321,11 +293,28 @@ private fun Calendar.cloneShiftedDays(days: Int): Calendar =
     (clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, days) }
 
 /**
- * The machine-readable block the create sheet appends to the builtin "Create
- * action" description — the creator agent copies the JSON verbatim into
- * `exponential_actions_create`'s `trigger` field (the sheet never talks to
- * the server itself). Byte-matches web `formatTriggerBlock`.
+ * The machine-readable note the create sheet appends to the builtin "Create
+ * action" description — the creator agent authors the action, then copies this
+ * JSON verbatim into `exponential_automations_create` (adding the new action's
+ * id). The sheet never talks to the server itself. BYTE-IDENTICAL to web
+ * `formatAutomationBlock`: key order deviceId, trigger, then agent/model/effort
+ * only when set, compact JSON.
  */
-fun triggerDescriptionBlock(trigger: ActionTrigger): String =
-    "\n\nAutomation — set exactly this trigger via the `trigger` field on " +
-        "exponential_actions_create: `${trigger.toWireJsonString()}`"
+fun formatAutomationBlock(
+    trigger: AutomationTrigger,
+    deviceId: String,
+    agent: String? = null,
+    model: String? = null,
+    effort: String? = null,
+): String {
+    val payload = buildJsonObject {
+        put("deviceId", deviceId)
+        put("trigger", trigger.toWireJson())
+        if (!agent.isNullOrEmpty()) put("agent", agent)
+        if (!model.isNullOrEmpty()) put("model", model)
+        if (!effort.isNullOrEmpty()) put("effort", effort)
+    }
+    return "\n\nAutomation — after creating the action, call " +
+        "exponential_automations_create with its id and exactly these fields: " +
+        "`$payload`. An automated run fills no inputs, so declare none as required."
+}

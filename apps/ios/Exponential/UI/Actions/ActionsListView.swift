@@ -27,9 +27,24 @@ struct ActionsListView: View {
     /// EXP-530: "Use suggestion" prefill for the create sheet (description +
     /// icon input values); cleared on dismiss.
     @State private var suggestionPrefill: [String: String]?
+    /// EXP-583: the suggested trigger of an "Action + automation" seed — the
+    /// ONLY thing that turns on the create sheet's Automation block.
+    @State private var suggestionAutomation: AutomationTrigger?
+    /// EXP-583: the automation form sheet's target (nil = closed; a nil
+    /// `automation` inside = create).
+    @State private var formTarget: AutomationFormTarget?
+    /// Owner-only delete, confirmed first (destructive native actions do).
+    @State private var pendingDelete: AutomationDto?
     /// EXP-530: Actions · Automations · Suggestions (the MyWorkView segment
     /// pattern — the choice survives relaunch via AppStorage).
     @AppStorage("actionsSegment") private var segmentRaw = Segment.actions.rawValue
+
+    /// Sheet item for the automation form: `id` is the automation's id, or
+    /// "new" for a creation.
+    private struct AutomationFormTarget: Identifiable {
+        let id: String
+        let automation: AutomationDto?
+    }
 
     private enum Segment: String, CaseIterable {
         case actions
@@ -87,6 +102,7 @@ struct ActionsListView: View {
         .sheet(item: $runTarget, onDismiss: {
             createMode = false
             suggestionPrefill = nil
+            suggestionAutomation = nil
         }) { action in
             StartCodingSheet(
                 devices: devices ?? [],
@@ -97,6 +113,8 @@ struct ActionsListView: View {
                 preselectedActionId: action.id,
                 createActionMode: createMode,
                 prefilledInputs: suggestionPrefill,
+                suggestedAutomation: suggestionAutomation,
+                automationDevices: viewModel?.allDevices.filter(\.canRunAutomations) ?? [],
                 onStart: { device, issueIds, options in
                     viewModel?.startCoding(
                         device: device,
@@ -115,6 +133,44 @@ struct ActionsListView: View {
                     )
                 }
             )
+        }
+        // EXP-583: the owner-only automation form, in create or edit mode.
+        .sheet(item: $formTarget) { target in
+            if let teamId = teamState.activeTeam?.id, let vm = viewModel {
+                AutomationFormSheet(
+                    teamId: teamId,
+                    actions: vm.actions,
+                    devices: vm.allDevices.filter(\.canRunAutomations),
+                    editing: target.automation,
+                    onSubmit: { actionId, deviceId, trigger, launch in
+                        vm.saveAutomation(
+                            editing: target.automation,
+                            teamId: teamId,
+                            actionId: actionId,
+                            deviceId: deviceId,
+                            trigger: trigger,
+                            launch: launch
+                        )
+                    }
+                )
+                .environment(\.accountId, accountId)
+            }
+        }
+        .alert(
+            "Delete automation?",
+            isPresented: Binding(
+                get: { pendingDelete != nil },
+                set: { if !$0 { pendingDelete = nil } }
+            ),
+            presenting: pendingDelete
+        ) { automation in
+            Button("Delete", role: .destructive) {
+                viewModel?.deleteAutomation(automation)
+                pendingDelete = nil
+            }
+            Button("Cancel", role: .cancel) { pendingDelete = nil }
+        } message: { _ in
+            Text("The action stays; only this trigger goes away.")
         }
         // The desktop picked the start up — jump into the live steer screen
         // ONCE (the same destination the .agentSession route arm builds).
@@ -136,7 +192,7 @@ struct ActionsListView: View {
                 accountId: accountId,
                 db: deps.db,
                 steerApi: deps.steerApi,
-                actionsApi: deps.actionsApi,
+                automationsApi: deps.automationsApi,
                 auth: deps.auth
             )
         }
@@ -266,33 +322,38 @@ struct ActionsListView: View {
         .accessibilityLabel("New action")
     }
 
-    // MARK: - Automations (EXP-530)
+    // MARK: - Automations (EXP-583)
 
     @ViewBuilder
     private func automationsContent(_ vm: ActionsViewModel) -> some View {
-        let automated = vm.actions.filter { !$0.isBuiltin && $0.parsedTrigger != nil }
-        if automated.isEmpty, vm.automationRuns.isEmpty {
+        if vm.automations.isEmpty, vm.automationRuns.isEmpty {
             Spacer()
-            emptyAutomationsState
+            emptyAutomationsState(vm)
             Spacer()
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
                     // EXP-574 (web parity): counted section headers.
-                    sectionLabel("Automations", count: automated.count)
-                    if let error = vm.triggerError {
+                    HStack(spacing: 6) {
+                        sectionLabel("Automations", count: vm.automations.count)
+                        Spacer(minLength: 0)
+                        if vm.permissions.isOwner {
+                            newAutomationButton(vm)
+                        }
+                    }
+                    if let error = vm.automationError {
                         Text(error)
                             .font(.caption2)
                             .foregroundStyle(DesignTokens.Semantic.red)
                             .padding(.horizontal, 4)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    if automated.isEmpty {
-                        emptyAutomationsState
+                    if vm.automations.isEmpty {
+                        emptyAutomationsState(vm)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 16)
                     } else {
-                        ForEach(automated) { automationRow($0, vm: vm) }
+                        ForEach(vm.automations) { automationRow($0, vm: vm) }
                     }
                     if !vm.automationRuns.isEmpty {
                         sectionLabel("Recent automated runs", count: vm.automationRuns.count)
@@ -305,87 +366,149 @@ struct ActionsListView: View {
         }
     }
 
-    private var emptyAutomationsState: some View {
+    private func emptyAutomationsState(_ vm: ActionsViewModel) -> some View {
         VStack(spacing: 12) {
             AppIcon(AppIcons.actionAutomation, size: 22)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            Text("No automations yet. Add a schedule or event trigger to an action.")
+            Text("No automations yet.")
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .multilineTextAlignment(.center)
+            if vm.permissions.isOwner {
+                newAutomationButton(vm)
+            }
         }
         .padding(.horizontal, 40)
     }
 
-    /// One triggered action: glyph + name, the trigger sentence, the bound
-    /// device (label + online dot off the synced devices rows; raw id when
-    /// the row isn't visible to us), the next schedule run in the VIEWER's
-    /// timezone (hence the "(device time)" label — the device fires on its
-    /// own clock), and the owner-only enabled toggle.
-    private func automationRow(_ action: ActionDto, vm: ActionsViewModel) -> some View {
-        let trigger = action.parsedTrigger
-        let boundDevice = trigger.flatMap { t in
-            vm.allDevices.first { $0.deviceId == t.deviceId }
+    /// Owner-only entry to the automation form (EXP-583). Steering off means
+    /// no machine can ever run one, so the button stays hidden then.
+    @ViewBuilder
+    private func newAutomationButton(_ vm: ActionsViewModel) -> some View {
+        if steerEnabled {
+            Button {
+                formTarget = AutomationFormTarget(id: "new", automation: nil)
+            } label: {
+                HStack(spacing: 4) {
+                    AppIcon(AppIcons.uiAdd, size: 12)
+                    Text("New automation")
+                        .font(.caption.weight(.medium))
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .glassButton()
+            }
+            .buttonStyle(.plain)
+            .disabled(teamState.activeTeam == nil)
+            .accessibilityLabel("New automation")
         }
-        // An automated run has nobody to type required inputs, so the server
-        // refuses to ENABLE such a trigger — but a legacy row that is already
-        // on must stay switchable OFF.
-        let hasRequired = action.inputs?.contains(where: \.isRequired) == true
-        let locked = hasRequired && !(trigger?.enabled ?? false)
+    }
+
+    /// One automation: the target action's glyph + name, the trigger
+    /// sentence, the bound machine (label + online dot off the synced devices
+    /// rows; raw id when the row isn't visible to us), the pinned agent/model
+    /// when it overrides the machine's defaults, the next schedule run in the
+    /// VIEWER's timezone (hence "(device time)" — the machine fires on its
+    /// own clock), the last run, and the owner-only enabled toggle.
+    private func automationRow(_ automation: AutomationDto, vm: ActionsViewModel) -> some View {
+        let action = vm.actions.first { $0.id == automation.actionId }
+        let trigger = automation.parsedTrigger
+        let boundDevice = vm.allDevices.first { $0.deviceId == automation.deviceId }
+        let busy = vm.automationBusyId == automation.id
         return HStack(alignment: .top, spacing: 12) {
-            AppIcon(action.icon ?? AppIcons.actionDefault, size: AppIcon.Size.medium)
+            AppIcon(action?.icon ?? AppIcons.actionDefault, size: AppIcon.Size.medium)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(action.name)
+                Text(action?.name ?? "Deleted action")
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 if let trigger {
-                    Text(ActionTriggerDisplay.summary(trigger))
+                    Text(AutomationTriggerDisplay.summary(trigger))
                         .font(.caption)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    HStack(spacing: 5) {
-                        Circle()
-                            .fill(boundDevice?.isOnline == true
-                                ? DesignTokens.Semantic.green
-                                : Color.white.opacity(0.25))
-                            .frame(width: 6, height: 6)
-                        Text(deviceLabel(boundDevice, deviceId: trigger.deviceId))
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                            .lineLimit(1)
-                    }
-                    if case let .schedule(schedule) = trigger, trigger.enabled,
-                       let next = ActionTriggerDisplay.nextScheduleRun(schedule, after: Date()) {
-                        Text("Next run \(next.formatted(date: .abbreviated, time: .shortened)) (device time)")
+                }
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(boundDevice?.isOnline == true
+                            ? DesignTokens.Semantic.green
+                            : Color.white.opacity(0.25))
+                        .frame(width: 6, height: 6)
+                    Text(deviceLabel(boundDevice, deviceId: automation.deviceId))
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .lineLimit(1)
+                }
+                if let launch = launchCaption(automation) {
+                    Text(launch)
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .lineLimit(1)
+                }
+                if case let .schedule(schedule)? = trigger, automation.enabled,
+                   let next = AutomationTriggerDisplay.nextScheduleRun(schedule, after: Date()) {
+                    Text("Next run \(next.formatted(date: .abbreviated, time: .shortened)) (device time)")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                }
+                if let last = vm.lastRunByAutomation[automation.id] {
+                    let time = relativeDate(last.startedAt)
+                    if !time.isEmpty {
+                        Text("Last run \(time)")
                             .font(.caption2)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     }
-                }
-                if locked {
-                    Text("This action has required inputs, and an automated run has none to fill them with. Make the inputs optional to enable it.")
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
             Spacer(minLength: 0)
 
-            // Owner-only (actions.update is owner-gated server-side).
+            // Owner-only (the automations router is owner-gated server-side).
             Toggle("", isOn: Binding(
-                get: { trigger?.enabled ?? false },
-                set: { vm.setTriggerEnabled(action: action, enabled: $0) }
+                get: { automation.enabled },
+                set: { vm.setAutomationEnabled(automation, enabled: $0) }
             ))
             .labelsHidden()
-            .disabled(!vm.permissions.isOwner || vm.triggerBusyActionId != nil || locked)
+            .disabled(!vm.permissions.isOwner || busy)
             .accessibilityLabel("Automation enabled")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .glassRow()
+        .contextMenu {
+            if vm.permissions.isOwner {
+                Button {
+                    formTarget = AutomationFormTarget(id: automation.id, automation: automation)
+                } label: {
+                    Label("Edit", systemImage: "pencil")
+                }
+                Button(role: .destructive) {
+                    pendingDelete = automation
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+            }
+        }
         .accessibilityIdentifier("automation-row")
+    }
+
+    /// "Claude Code · Opus · High" — only what the automation PINS; an unset
+    /// field means the machine's own launch default, which is not ours to
+    /// name here.
+    private func launchCaption(_ automation: AutomationDto) -> String? {
+        var parts: [String] = []
+        if let agent = automation.agent, !agent.isEmpty {
+            parts.append(StartCodingSheet.agentLabel(agent))
+        }
+        if let model = automation.model, !model.isEmpty {
+            parts.append(StartCodingSheet.modelLabel(model))
+        }
+        if let effort = automation.effort, !effort.isEmpty {
+            parts.append(StartCodingSheet.effortLabel(effort))
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     private func deviceLabel(_ device: SteerDevice?, deviceId: String) -> String {
@@ -470,6 +593,13 @@ struct ActionsListView: View {
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.white)
                     .lineLimit(1)
+                // EXP-583: what "Use suggestion" will set up.
+                Text(suggestion.automation == nil ? "Action" : "Action + automation")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.white.opacity(0.08), in: Capsule())
                 Text(suggestion.description)
                     .font(.caption)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
@@ -500,13 +630,17 @@ struct ActionsListView: View {
 
     /// "Use suggestion": the create sheet, prefilled with the suggestion's
     /// description + icon input values (the same keys the create builtin's
-    /// input defs declare).
+    /// input defs declare) and, for an "Action + automation" seed, its
+    /// suggested trigger.
     private func useSuggestion(_ suggestion: ActionSuggestion) {
         guard let teamId = teamState.activeTeam?.id else { return }
         suggestionPrefill = [
             "description": suggestion.description,
             "icon": suggestion.icon,
         ]
+        // EXP-583: only an "Action + automation" seed opens the create
+        // sheet's Automation block — the plain "New action" path never does.
+        suggestionAutomation = suggestion.automation
         createMode = true
         runTarget = ActionDto.builtinCreateAction(teamId: teamId)
         Task { await viewModel?.refreshStartCandidates() }
@@ -539,6 +673,10 @@ struct ActionsListView: View {
         .padding(.horizontal, 40)
     }
 
+    private func automationCount(_ action: ActionDto) -> Int {
+        viewModel?.automations.filter { $0.actionId == action.id }.count ?? 0
+    }
+
     private func actionRow(_ action: ActionDto) -> some View {
         HStack(spacing: 12) {
             // The builtin "Create action" row (EXP-257) wears the create
@@ -567,11 +705,13 @@ struct ActionsListView: View {
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .lineLimit(2)
                 }
-                // EXP-530: a configured automation shows its one-line summary.
-                if let trigger = action.parsedTrigger {
+                // EXP-583: automations are their own rows on their own tab —
+                // an action only says HOW MANY point at it.
+                let count = automationCount(action)
+                if count > 0 {
                     HStack(spacing: 4) {
                         AppIcon(AppIcons.actionAutomation, size: 10)
-                        Text(ActionTriggerDisplay.summary(trigger))
+                        Text("\(count) \(count == 1 ? "automation" : "automations")")
                             .lineLimit(1)
                     }
                     .font(.caption2)

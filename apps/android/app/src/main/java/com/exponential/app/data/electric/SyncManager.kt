@@ -12,6 +12,7 @@ import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.auth.SessionInvalidator
 import com.exponential.app.data.db.ActionEntity
 import com.exponential.app.data.db.AttachmentEntity
+import com.exponential.app.data.db.AutomationEntity
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.CommentEntity
 import com.exponential.app.data.db.DatabaseHolder
@@ -54,7 +55,7 @@ import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 
-/// Multi-account sync orchestrator. Maintains one set of 18 shape jobs per
+/// Multi-account sync orchestrator. Maintains one set of 19 shape jobs per
 /// signed-in account; each pipeline writes to that account's per-account Room
 /// instance (`exponential-<accountId>-v2.db`). Sign-out on one account cancels
 /// just that pipeline; other accounts keep syncing.
@@ -71,7 +72,7 @@ class SyncManager @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Any()
 
-    /** One account's 18 shape loops, plus the clients a [kick] has to reach. */
+    /** One account's 19 shape loops, plus the clients a [kick] has to reach. */
     private class Pipeline(val jobs: List<Job>, val clients: List<ShapeClient<*>>)
 
     private val pipelines = mutableMapOf<String, Pipeline>()
@@ -81,7 +82,7 @@ class SyncManager @Inject constructor(
     private val _lastKickAt = MutableStateFlow(0L)
     val lastKickAt: StateFlow<Long> = _lastKickAt.asStateFlow()
 
-    // App-lifecycle gate (REV2-38), threaded into every ShapeClient: 18 shape
+    // App-lifecycle gate (REV2-38), threaded into every ShapeClient: 19 shape
     // loops PER signed-in account must not keep long-polling for a process the
     // user can't see (Android caches backgrounded processes and only freezes
     // them ~10min later on 12+, OEM-configurable, never below it). Starts
@@ -97,7 +98,7 @@ class SyncManager @Inject constructor(
     private var parkJob: Job? = null
 
     // Debounce gate for unforced kicks: foreground + network-available +
-    // several pushes can land within the same second, and 18 shapes each
+    // several pushes can land within the same second, and 19 shapes each
     // dropping a live connection per trigger is a real cost.
     private val lastKickGate = AtomicLong(0L)
 
@@ -332,7 +333,7 @@ class SyncManager @Inject constructor(
             for (accountId in signedIn - running) {
                 val db = databaseHolder.database(forAccountId = accountId)
                 pipelines[accountId] = launchPipeline(accountId, db)
-                android.util.Log.i("SyncManager", "Launched shape pipeline (18 shapes) for $accountId")
+                android.util.Log.i("SyncManager", "Launched shape pipeline (19 shapes) for $accountId")
             }
         }
     }
@@ -398,6 +399,7 @@ class SyncManager @Inject constructor(
         val issueEventDao = db.issueEventDao()
         val codingSessionDao = db.codingSessionDao()
         val actionDao = db.actionDao()
+        val automationDao = db.automationDao()
         val deviceDao = db.deviceDao()
         val deviceWorktreeDao = db.deviceWorktreeDao()
 
@@ -561,6 +563,16 @@ class SyncManager @Inject constructor(
                 onUpdate = { actionDao.upsert(it) },
                 onDelete = { actionDao.deleteById(it.id) },
                 onRefetch = { actionDao.clear() },
+            ),
+            launchShape(
+                shape = "automations", path = "/api/shapes/automations", tableName = "automations",
+                serializer = AutomationEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("automations"),
+                onInsert = { automationDao.upsert(it) },
+                onUpdate = { automationDao.upsert(it) },
+                onDelete = { automationDao.deleteById(it.id) },
+                onRefetch = { automationDao.clear() },
             ),
             launchShape(
                 shape = "devices", path = "/api/shapes/devices", tableName = "devices",
