@@ -11,6 +11,11 @@
 # up -d` at the repo root), export STEER_RELAY_URL=ws://localhost:4002 plus the
 # matching STEER_RELAY_SECRET for the web server, and leave `bun run
 # screenshots:desktop` (apps/web) running for the whole capture.
+#
+# Afterwards run `bun run screenshots:frame` from the repo root BEFORE
+# `sync_store`: it rewrites 01_board / 04_steering / 06_actions in place as
+# headline + bezel marketing panels at the same pixel size (EXP-580) and keeps
+# the raw captures in fastlane/screenshots-raw/.
 
 # xcodebuild only forwards TEST_RUNNER_-prefixed env vars into the UI-test
 # runner process (prefix stripped) — a bare SNAPSHOT_INSTANCE_URL on the

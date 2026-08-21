@@ -34,7 +34,7 @@
  */
 import { and, eq, ne } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { codingSessions, users } from "@/db/schema"
+import { codingSessions, devices, users } from "@/db/schema"
 import {
   getSteerRelayConfig,
   mintSteerTicket,
@@ -60,8 +60,10 @@ const RECONNECT_MS = 2_000
 // 2h staleHours window. A capture run — never mind a re-run the next morning
 // against the same seed — outlives that, and a stale row silently takes the
 // "Coding now" line and the session link off the issue detail. A real desktop
-// keeps its row warm while it runs; so does this one.
-const HEARTBEAT_MS = 60_000
+// keeps its row warm while it runs; so does this one. 30s like the real
+// desktop: the same tick refreshes the `devices` row, and that one has to
+// stay inside the 90s online window with room for jitter (EXP-481).
+const HEARTBEAT_MS = 30_000
 
 // The scripted session: a plausible mid-run agent transcript for the showcase
 // issue ("Reduce cold start below 800 ms"). Diff events REPLACE rather than
@@ -362,7 +364,35 @@ Screenshot desktop online:
 Leave this running for the whole fastlane capture. Ctrl-C to stop.
 `)
 
+  // EXP-481 moved "is a desktop online?" off relay presence and onto the
+  // synced `devices` rows (`last_seen_at` within contract
+  // `device.onlineWindowSeconds`, 90s). Without a registry row the mobile
+  // Start-coding circle renders its no-device state and the dialog never
+  // opens (EXP-580) — so register like a real desktop's heartbeat would and
+  // keep the row fresh alongside the session heartbeat.
+  const touchDevice = () =>
+    db
+      .insert(devices)
+      .values({
+        userId,
+        deviceId: DEVICE_ID,
+        label: DEMO_DEVICE_LABEL,
+        kind: `desktop`,
+        platform: `macos`,
+        agents: AGENTS,
+        caps: CAPS,
+        lastSeenAt: new Date(),
+        activeSessions: 1,
+      })
+      .onConflictDoUpdate({
+        target: [devices.userId, devices.deviceId],
+        set: { lastSeenAt: new Date(), label: DEMO_DEVICE_LABEL, agents: AGENTS, caps: CAPS },
+      })
+      .catch((err) => console.error(`[device heartbeat]`, err))
+  await touchDevice()
+
   const heartbeat = setInterval(() => {
+    void touchDevice()
     void db
       .update(codingSessions)
       .set({ updatedAt: new Date() })

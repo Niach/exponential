@@ -33,7 +33,9 @@ Regenerate the Tuist project and capture App Store screenshots (snapshot).
 
 Needs the seeded local backend (apps/web/scripts/seed-screenshots.ts) at
 
-http://localhost:5173 — override with SNAPSHOT_INSTANCE_URL.
+http://localhost:5173 — override with SNAPSHOT_INSTANCE_URL. Follow up with
+
+`bun run screenshots:frame` (repo root) before sync_store — EXP-580.
 
 ### ios beta
 

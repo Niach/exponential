@@ -23,6 +23,7 @@ fastlane/test_output
 # Store screenshots are NOT version-controlled (EXP-348, matching iOS) — regenerate
 # with `fastlane screenshots` and push via `fastlane sync_store`.
 fastlane/metadata/android/en-US/images/phoneScreenshots/
+fastlane/metadata/android/en-US/images/phoneScreenshots-raw/
 fastlane/metadata/android/screenshots.html
 # Play service-account JSON — path comes from SUPPLY_JSON_KEY; never commit a key
 fastlane/*.json

@@ -1405,12 +1405,12 @@ private struct AgentMarkdownContext {
 private struct AgentMarkdownText: View {
     let text: String
     /// nil renders text-only: image blocks have nothing to fetch with.
-    var context: AgentMarkdownContext? = nil
+    let context: AgentMarkdownContext?
     /// Display-only parse deviations — safe here, nothing serializes back.
-    var options: MarkdownParseOptions = []
-    var imageMaxHeight: CGFloat? = 280
+    let options: MarkdownParseOptions
+    let imageMaxHeight: CGFloat?
     /// Chat bubbles hug their text; full-width prose does not.
-    var hugsWidth = false
+    let hugsWidth: Bool
 
     @State private var displayModel: IssueEditorModel
     @State private var displayedText: String?
@@ -1431,14 +1431,12 @@ private struct AgentMarkdownText: View {
         // off, so every re-realized bubble used to start EMPTY, re-run cmark
         // in `.task` and then grow to its real height — the layout churn
         // behind the scroll lag on long histories (and a feed replay made
-        // it N times over). A cache hit renders at full height on the first
-        // pass and parses nothing.
-        if let cached = Self.cache.object(forKey: Self.cacheKey(text: text, baseURL: context?.baseURL, options: options)) {
-            _displayModel = State(initialValue: cached)
-            _displayedText = State(initialValue: text)
-        } else {
-            _displayModel = State(initialValue: IssueEditorModel())
-        }
+        // it N times over). Parse SYNCHRONOUSLY on first creation (EXP-580,
+        // the EXP-70 failure mode again) and cache the result, so a
+        // re-realized row renders at full height on the first pass and a
+        // cache hit parses nothing.
+        _displayModel = State(initialValue: Self.model(text, context: context, options: options))
+        _displayedText = State(initialValue: text)
     }
 
     /// Parsed display models keyed by text + base URL + parse options. The
@@ -1455,6 +1453,18 @@ private struct AgentMarkdownText: View {
         "\(options.rawValue)|\(baseURL?.absoluteString ?? "")|\(text)" as NSString
     }
 
+    /// Cache hit or a synchronous parse that populates the cache.
+    private static func model(
+        _ text: String, context: AgentMarkdownContext?, options: MarkdownParseOptions
+    ) -> IssueEditorModel {
+        let key = cacheKey(text: text, baseURL: context?.baseURL, options: options)
+        if let cached = cache.object(forKey: key) { return cached }
+        let model = IssueEditorModel()
+        model.load(markdown: text, baseURL: context?.baseURL, options: options)
+        cache.setObject(model, forKey: key)
+        return model
+    }
+
     var body: some View {
         MarkdownEditor(
             model: displayModel,
@@ -1467,18 +1477,10 @@ private struct AgentMarkdownText: View {
             hugsContentWidth: hugsWidth
         )
         .frame(maxWidth: hugsWidth ? nil : .infinity, alignment: .leading)
-        .task(id: text) {
-            guard displayedText != text else { return }
-            displayedText = text
-            let key = Self.cacheKey(text: text, baseURL: context?.baseURL, options: options)
-            if let cached = Self.cache.object(forKey: key) {
-                displayModel = cached
-                return
-            }
-            let model = IssueEditorModel()
-            model.load(markdown: text, baseURL: context?.baseURL, options: options)
-            Self.cache.setObject(model, forKey: key)
-            displayModel = model
+        .onChange(of: text) { _, newText in
+            guard displayedText != newText else { return }
+            displayedText = newText
+            displayModel = Self.model(newText, context: context, options: options)
         }
     }
 }
