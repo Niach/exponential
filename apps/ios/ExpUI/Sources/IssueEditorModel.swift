@@ -45,10 +45,15 @@ public struct MentionMember: Identifiable, Sendable, Equatable {
 public struct IssueRefCandidate: Identifiable, Sendable, Equatable {
     public let identifier: String
     public let title: String
+    /// EXP-581: the issue's resolved team status, so the autocomplete row can
+    /// lead with the same status glyph the web/Android rows show. Nil renders
+    /// the row without a glyph (tests, hosts without a status read).
+    public let status: ResolvedIssueStatus?
     public var id: String { identifier }
-    public init(identifier: String, title: String) {
+    public init(identifier: String, title: String, status: ResolvedIssueStatus? = nil) {
         self.identifier = identifier
         self.title = title
+        self.status = status
     }
 }
 
@@ -157,6 +162,21 @@ public final class IssueEditorModel {
     /// Active `:shortcode` emoji candidates for the focused block's caret
     /// query, recomputed on edit/selection (EXP-551).
     public private(set) var emojiCandidates: [EmojiRecord] = []
+
+    /// EXP-581: the text block an OPEN autocomplete menu belongs to, so the
+    /// editor can anchor the menu right under that block instead of painting
+    /// a bar over the editor's top edge. Nil when no menu is open.
+    public var autocompleteAnchorBlockId: UUID? {
+        if !mentionCandidates.isEmpty { return activeMention?.blockId }
+        if !issueRefCandidates.isEmpty { return activeIssueRef?.blockId }
+        if !emojiCandidates.isEmpty { return activeEmoji?.blockId }
+        return nil
+    }
+
+    /// EXP-581: whether any autocomplete menu currently has candidates.
+    public var hasAutocompleteCandidates: Bool {
+        !mentionCandidates.isEmpty || !issueRefCandidates.isEmpty || !emojiCandidates.isEmpty
+    }
 
     // The @-token currently being edited: where the `@` is and how long the query
     // after it is, in the focused block.

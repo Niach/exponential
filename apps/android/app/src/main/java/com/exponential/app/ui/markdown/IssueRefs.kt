@@ -59,7 +59,7 @@ class IssueRefHandler(
      * Identifier/title substring search for the editor's `#` autocomplete;
      * empty query = most recent. Mirrors web IssueRefProvider.search.
      */
-    fun search(query: String, limit: Int = 6): List<IssueRefTarget> {
+    fun search(query: String, limit: Int = 8): List<IssueRefTarget> {
         val q = query.trim().lowercase()
         val out = ArrayList<IssueRefTarget>(limit)
         for (candidate in candidates) {

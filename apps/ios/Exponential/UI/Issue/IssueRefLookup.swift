@@ -106,7 +106,7 @@ enum IssueRefLookup {
         scope: Scope,
         db: DatabaseManager,
         accountId: String,
-        limit: Int = 6
+        limit: Int = 8
     ) -> [IssueRefCandidate] {
         guard let pool = try? db.pool(forAccountId: accountId) else { return [] }
         // Escape LIKE metacharacters so a literal `%`/`_` in the query can't
@@ -120,12 +120,12 @@ enum IssueRefLookup {
             if case .issue(let id) = scope { return id }
             return nil
         }()
-        let rows: [Row] = (try? pool.read { db -> [Row] in
+        return (try? pool.read { db -> [IssueRefCandidate] in
             guard let teamId = try teamId(for: scope, db: db) else { return [] }
-            return try Row.fetchAll(
+            let rows = try Row.fetchAll(
                 db,
                 sql: """
-                SELECT i.identifier, i.title FROM issues i
+                SELECT i.identifier, i.title, i.status, i.status_id FROM issues i
                 JOIN boards p ON p.id = i.board_id
                 WHERE p.team_id = ?
                   AND i.id IS NOT ?
@@ -135,8 +135,22 @@ enum IssueRefLookup {
                 """,
                 arguments: [teamId, selfIssueId, pattern, pattern, limit]
             )
+            guard !rows.isEmpty else { return [] }
+            // EXP-581: the candidate row leads with the issue's status glyph
+            // (web/Android parity), resolved in the SAME read as the search.
+            let team = IssueStatusResolver.teamStatusesOrFallback(
+                try IssueStatusEntity.filter(Column("team_id") == teamId).fetchAll(db)
+            )
+            return rows.map { row in
+                let statusId: String? = row["status_id"]
+                let anchor: String? = row["status"]
+                return IssueRefCandidate(
+                    identifier: row["identifier"],
+                    title: row["title"],
+                    status: IssueStatusResolver.resolve(statusId: statusId, anchor: anchor, team: team)
+                )
+            }
         }) ?? []
-        return rows.map { IssueRefCandidate(identifier: $0["identifier"], title: $0["title"]) }
     }
 
     /// Both halves of a chip in ONE read. The chip decoration pass runs on
