@@ -75,11 +75,14 @@ struct AgentSessionView: View {
 
     private static let bottomAnchor = "feed-bottom"
     private static let feedCoordSpace = "feed-scroll"
-    /// Within this many points of the bottom still counts as pinned. Android
-    /// parity (96dp, EXP-529): a pixel-tight slack made the "Jump to bottom"
+    /// Within this many points of the bottom still counts as pinned (Android
+    /// carries 96dp, EXP-529): a pixel-tight slack made the "Jump to bottom"
     /// pill hard to dismiss — a short drag had to land on the exact bottom to
     /// re-pin, so it lingered while the list visually WAS at the end (EXP-588).
-    private static let followSlack: CGFloat = 96
+    /// iOS gets a little more room than Android (EXP-591): the pill should
+    /// only appear after a deliberate scroll-up and hide again well before
+    /// the finger reaches the true end.
+    private static let followSlack: CGFloat = 120
 
     var body: some View {
         ZStack {
@@ -1826,6 +1829,10 @@ private struct FollowPinTracker: ViewModifier {
 
     /// A user scroll gesture is driving the offset (drag or its momentum).
     @State private var userScrolling = false
+    /// The latest geometry sample's pin verdict — lets the phase observer
+    /// re-pin once a user scroll ends with `atBottom` still true but the
+    /// viewport left short of the end (content grew under the finger).
+    @State private var lastPinned = true
 
     @ViewBuilder
     func body(content: Content) -> some View {
@@ -1835,25 +1842,32 @@ private struct FollowPinTracker: ViewModifier {
                     userScrolling = newPhase == .tracking
                         || newPhase == .interacting
                         || newPhase == .decelerating
+                    // The growth observer skips repins during user scrolls
+                    // (EXP-306); catch up once the gesture settles so a
+                    // followed feed never idles a few points shy of its end.
+                    if newPhase == .idle, atBottom, !lastPinned {
+                        repin()
+                    }
                 }
                 .onScrollGeometryChange(for: FeedPinMetrics.self) { geometry in
-                    // Pinned ⇔ within slack of the MAXIMUM scrollable offset.
-                    // The max is clamped to the minimum resting offset
-                    // (-contentInsets.top): a feed shorter than the viewport
-                    // rests there, and the unclamped bottom formula reported
-                    // it as "not at bottom" — sticking the "Jump to bottom"
-                    // pill on screen with nothing to scroll (EXP-242).
-                    let minOffset = -geometry.contentInsets.top
-                    let maxOffset = max(
-                        geometry.contentSize.height + geometry.contentInsets.bottom
-                            - geometry.containerSize.height,
-                        minOffset
-                    )
+                    // Pinned ⇔ the content's bottom edge is within slack of
+                    // the visible rect's bottom edge (Android parity: last
+                    // item bottom vs viewport end). `visibleRect` already
+                    // accounts for the content insets, so nothing is
+                    // reconstructed from contentOffset/containerSize/insets —
+                    // the EXP-212 max-offset formula overstated the reachable
+                    // maximum whenever an inset (nav bar, keyboard, safe area)
+                    // didn't line up, and the true bottom then read as "not
+                    // pinned", stranding the "Jump to bottom" pill (EXP-591).
+                    // A feed shorter than the viewport and a bounce past the
+                    // end both come out negative, i.e. pinned (EXP-242).
+                    let below = geometry.contentSize.height - geometry.visibleRect.maxY
                     return FeedPinMetrics(
-                        pinned: geometry.contentOffset.y >= maxOffset - slack,
+                        pinned: below <= slack,
                         offset: geometry.contentOffset.y
                     )
                 } action: { old, new in
+                    lastPinned = new.pinned
                     // Reaching the bottom always re-arms follow; LEAVING it is
                     // the user's alone (Android parity: only drags flip
                     // `follow`) — content growth un-pins the geometry without
