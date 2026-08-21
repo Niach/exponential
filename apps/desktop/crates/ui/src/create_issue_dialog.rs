@@ -13,15 +13,15 @@
 //!   mirrors the web flow: create with the drafts **stripped**, upload each
 //!   staged image, rewrite the URLs and `issues.update` the final description
 //! - chip row: status / priority / assignee / labels / due-date (date only —
-//!   REV2-49 deleted the time-of-day fields, §4.2)
-//! - footer: "Create more" `Switch` (web uses a Switch, not a checkbox —
-//!   L488-494) + the indigo submit button.
+//!   REV2-49 deleted the time-of-day fields, §4.2) + the right-aligned
+//!   indigo submit button (EXP-586: no "Create more", no image chips —
+//!   images live inline in the description only)
+//! - footer: ONLY when there are queued non-image files or an error — the
+//!   file chips / the error line; otherwise absent.
 //!
-//! Submit (§4.1): `issues.create` on a background thread; when "Create more"
-//! is off the close+navigate is **gated** on the created row becoming visible
-//! in the synced `issues` collection (the desktop's awaitTxId analog); when
-//! on, fields reset immediately (web parity) and the Electric echo fills the
-//! board.
+//! Submit (§4.1): `issues.create` on a background thread; the close+navigate
+//! is **gated** on the created row becoming visible in the synced `issues`
+//! collection (the desktop's awaitTxId analog).
 
 use std::rc::Rc;
 
@@ -36,8 +36,7 @@ use gpui_component::{
     h_flex,
     input::{Input, InputEvent, InputState},
     menu::DropdownMenu as _,
-    switch::Switch,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
+    v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use sync::Store;
 
@@ -252,8 +251,6 @@ pub struct CreateIssueDialogView {
     /// EXP-314: the picked status as a wire-ready pick (a synced row id, or
     /// the enum anchor of a constructed `builtin:<key>` fallback).
     status: crate::pickers::StatusPick,
-    /// The team's backlog builtin, re-applied by "Create more" resets.
-    default_status: crate::pickers::StatusPick,
     priority: IssuePriority,
     /// EXP-50: `Some(member)` when the team has exactly one human
     /// member at dialog open — the assignee chip hides and `assignee_id`
@@ -269,7 +266,6 @@ pub struct CreateIssueDialogView {
     /// EXP-335: non-image files queued for the post-create upload.
     staged_files: Vec<StagedDraftFile>,
     next_staged_file_key: u64,
-    create_more: bool,
     submitting: bool,
     error: Option<SharedString>,
     focused_once: bool,
@@ -360,9 +356,8 @@ impl CreateIssueDialogView {
                 cx.notify();
             },
         ));
-        // The footer attachment rail mirrors the live description (web
-        // `imageOccurrences` over the current markdown) — re-render on every
-        // editor change (pastes, deletions, chip removals).
+        // Re-render on every editor change so the submit gating and the
+        // grow-with-content sensor track the live description.
         subscriptions.push(cx.observe(&description, |_, _, cx| cx.notify()));
 
         // EXP-50: exactly one human member ⇒ no assignment choice — hide the
@@ -392,8 +387,7 @@ impl CreateIssueDialogView {
             team_id,
             title,
             description,
-            status: default_status.clone(),
-            default_status,
+            status: default_status,
             priority: IssuePriority::None,
             assignee_id: solo_member_id.clone(),
             solo_member_id,
@@ -403,7 +397,6 @@ impl CreateIssueDialogView {
             due_calendar,
             staged_files: Vec::new(),
             next_staged_file_key: 0,
-            create_more: false,
             submitting: false,
             error: None,
             focused_once: false,
@@ -488,32 +481,6 @@ impl CreateIssueDialogView {
         }
     }
 
-    /// Web `resetFields`: clear everything except "Create more".
-    fn reset_fields(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        self.title.update(cx, |state, cx| {
-            state.set_value("", window, cx);
-        });
-        self.description.update(cx, |editor, cx| {
-            editor.set_markdown("", window, cx);
-        });
-        self.status = self.default_status.clone();
-        self.priority = IssuePriority::None;
-        // EXP-50: the solo-member default survives "Create more" resets.
-        self.assignee_id = self.solo_member_id.clone();
-        self.selected_label_ids.clear();
-        self.label_query
-            .update(cx, |state, cx| state.set_value("", window, cx));
-        self.due_date = None;
-        self.due_calendar.update(cx, |state, cx| {
-            state.set_date(Date::Single(None), window, cx);
-        });
-        self.staged_files.clear();
-        self.error = None;
-        self.submitting = false;
-        self.title.update(cx, |state, cx| state.focus(window, cx));
-        cx.notify();
-    }
-
     fn submit(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let title = self.title.read(cx).value().trim().to_string();
         if title.is_empty() || self.submitting {
@@ -567,7 +534,6 @@ impl CreateIssueDialogView {
             input.label_ids = Some(self.selected_label_ids.clone());
         }
 
-        let create_more = self.create_more;
         cx.spawn_in(window, async move |this, window| {
             let result = window
                 .background_executor()
@@ -664,14 +630,6 @@ impl CreateIssueDialogView {
                                 }
                             })
                             .await;
-                    }
-                    if create_more {
-                        // Web parity: reset immediately, keep the dialog open,
-                        // let the Electric echo fill the board.
-                        let _ = this.update_in(window, |this, window, cx| {
-                            this.reset_fields(window, cx);
-                        });
-                        return;
                     }
                     // Gated path (§4.1): close + navigate only once the row
                     // is visible in the synced collection.
@@ -887,115 +845,51 @@ impl CreateIssueDialogView {
 
     // -- footer ----------------------------------------------------------------
 
-    /// Web `IssueEditorAttachmentRail` (the dialog footer's left slot): one
-    /// chip per image occurrence in the live description + the trailing
-    /// "N images" count (always shown — "0 images" included); each chip
-    /// carries the web's remove ✕, dropping that occurrence from the
-    /// markdown (`removeMarkdownImageByOccurrence`).
+    /// Web `IssueEditorAttachmentRail` (EXP-586 shape): one chip per queued
+    /// non-image draft file (web `issue-attachment-file-chip-*` parity).
+    /// Images are NOT listed — they render inline in the description and are
+    /// removed there.
     fn attachment_rail(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let markdown = self.description.read(cx).markdown(cx);
-        let occurrences = attachments_row::extract_image_occurrences(&markdown);
-        let count = occurrences.len();
-        let editor = self.description.clone();
         let removable = !self.submitting;
 
         h_flex()
             .min_w_0()
             .flex_1()
-            .gap_2()
+            .gap_1p5()
             .items_center()
-            .child(
-                h_flex()
-                    .min_w_0()
-                    .flex_1()
-                    .gap_1p5()
-                    .overflow_hidden()
-                    .children(occurrences.iter().enumerate().map(|(ix, occurrence)| {
-                        let remove: Option<attachments_row::ChipRemove> =
-                            removable.then(|| {
-                                let editor = editor.clone();
-                                let markdown = markdown.clone();
-                                let on_click = Box::new(
-                                    move |_: &gpui::ClickEvent,
-                                          window: &mut Window,
-                                          cx: &mut App| {
-                                        let next = attachments_row::remove_image_occurrence(
-                                            &markdown, ix,
-                                        );
-                                        editor.update(cx, |editor, cx| {
-                                            editor.set_markdown(&next, window, cx);
-                                        });
-                                    },
-                                )
-                                    as Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App)>;
-                                (
-                                    SharedString::from(format!("create-attachment-remove-{ix}")),
-                                    on_click,
-                                )
+            .overflow_hidden()
+            .children(self.staged_files.iter().map(|file| {
+                let remove: Option<attachments_row::ChipRemove> = removable.then(|| {
+                    let view = cx.entity().clone();
+                    let key = file.key;
+                    let on_click = Box::new(
+                        move |_: &gpui::ClickEvent, _window: &mut Window, cx: &mut App| {
+                            view.update(cx, |this, cx| {
+                                this.staged_files.retain(|staged| staged.key != key);
+                                cx.notify();
                             });
-                        attachments_row::image_chip(
-                            gpui::ElementId::from(("create-attachment-chip", ix)),
-                            attachments_row::occurrence_label(occurrence, ix),
-                            &occurrence.url,
-                            remove,
-                            cx,
-                        )
-                    }))
-                    // EXP-335: queued non-image draft files, one chip each
-                    // (web `issue-attachment-file-chip-*` parity).
-                    .children(self.staged_files.iter().map(|file| {
-                        let remove: Option<attachments_row::ChipRemove> =
-                            removable.then(|| {
-                                let view = cx.entity().clone();
-                                let key = file.key;
-                                let on_click = Box::new(
-                                    move |_: &gpui::ClickEvent,
-                                          _window: &mut Window,
-                                          cx: &mut App| {
-                                        view.update(cx, |this, cx| {
-                                            this.staged_files
-                                                .retain(|staged| staged.key != key);
-                                            cx.notify();
-                                        });
-                                    },
-                                )
-                                    as Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App)>;
-                                (
-                                    SharedString::from(format!(
-                                        "create-attachment-file-remove-{}",
-                                        file.key
-                                    )),
-                                    on_click,
-                                )
-                            });
-                        attachments_row::file_chip(
-                            gpui::ElementId::from((
-                                "create-attachment-file-chip",
-                                file.key as usize,
-                            )),
-                            file.filename.clone(),
-                            Some(file.content_type.as_str()),
-                            file.bytes.len() as i64,
-                            remove,
-                            cx,
-                        )
-                    })),
-            )
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(SharedString::from(
-                        attachments_row::attachment_count_label(
-                            count,
-                            self.staged_files.len(),
-                        ),
-                    )),
-            )
+                        },
+                    )
+                        as Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App)>;
+                    (
+                        SharedString::from(format!("create-attachment-file-remove-{}", file.key)),
+                        on_click,
+                    )
+                });
+                attachments_row::file_chip(
+                    gpui::ElementId::from(("create-attachment-file-chip", file.key as usize)),
+                    file.filename.clone(),
+                    Some(file.content_type.as_str()),
+                    file.bytes.len() as i64,
+                    remove,
+                    cx,
+                )
+            }))
     }
 
-    fn footer(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    /// The chip row's right-aligned submit (web `chipRowAction`): SOLID
+    /// indigo, label swaps while creating, no spinner.
+    fn submit_button(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let title_empty = self.title.read(cx).value().trim().is_empty();
         let submit_disabled = title_empty || self.submitting;
         let submit_label: &'static str = if self.submitting {
@@ -1003,71 +897,37 @@ impl CreateIssueDialogView {
         } else {
             "Create issue"
         };
-        let view = cx.entity().clone();
 
-        let right = h_flex()
-            .gap_3()
-            .items_center()
-            .child(
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .child(
-                        Switch::new("create-more")
-                            .small()
-                            .checked(self.create_more)
-                            .disabled(self.submitting)
-                            .on_click({
-                                let view = view.clone();
-                                move |checked: &bool, _, cx| {
-                                    let checked = *checked;
-                                    view.update(cx, |this, cx| {
-                                        this.create_more = checked;
-                                        cx.notify();
-                                    });
-                                }
-                            }),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child("Create more"),
-                    ),
-            )
-            .child(
-                // Web submit: bg-indigo-600 hover:bg-indigo-700 text-white
-                // h-7 text-xs — SOLID indigo (label swaps while creating, no
-                // spinner, web parity).
-                indigo_button("create-issue-submit", submit_disabled, cx)
-                    .child(SharedString::from(submit_label))
-                    .when(!submit_disabled, |button| {
-                        button.on_click(cx.listener(|this, _, window, cx| {
-                            this.submit(window, cx)
-                        }))
-                    }),
-            );
+        indigo_button("create-issue-submit", submit_disabled, cx)
+            .child(SharedString::from(submit_label))
+            .when(!submit_disabled, |button| {
+                button.on_click(cx.listener(|this, _, window, cx| this.submit(window, cx)))
+            })
+    }
 
-        let left: gpui::AnyElement = match &self.error {
+    /// EXP-586: the footer exists only for an error line or queued non-image
+    /// files; with neither it is not rendered at all.
+    fn footer(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        let content: AnyElement = match &self.error {
             Some(error) => div()
                 .text_xs()
                 .text_color(cx.theme().danger)
                 .child(error.clone())
                 .into_any_element(),
-            // Web `IssueEditorAttachmentRail` — always rendered ("0 images").
-            None => self.attachment_rail(cx).into_any_element(),
+            None if !self.staged_files.is_empty() => self.attachment_rail(cx).into_any_element(),
+            None => return None,
         };
 
-        h_flex()
-            .px_4()
-            .py_3()
-            .gap_3()
-            .items_center()
-            .justify_between()
-            .border_t_1()
-            .border_color(cx.theme().border)
-            .child(div().min_w_0().flex_1().child(left))
-            .child(right)
+        Some(
+            h_flex()
+                .px_4()
+                .py_3()
+                .items_center()
+                .border_t_1()
+                .border_color(cx.theme().border)
+                .child(div().min_w_0().flex_1().child(content))
+                .into_any_element(),
+        )
     }
 }
 
@@ -1100,7 +960,15 @@ impl Render for CreateIssueDialogView {
                 this.child(self.assignee_chip(cx))
             })
             .child(self.labels_chip(cx))
-            .child(self.due_chip(cx));
+            .child(self.due_chip(cx))
+            // EXP-586: submit rides the chip row, right-aligned.
+            .child(
+                div()
+                    .ml_auto()
+                    .flex_shrink_0()
+                    .pl_2()
+                    .child(self.submit_button(cx)),
+            );
 
         v_flex()
             .size_full()
@@ -1162,7 +1030,7 @@ impl Render for CreateIssueDialogView {
                     ),
             )
             .child(chips)
-            .child(self.footer(cx))
+            .children(self.footer(cx))
     }
 }
 

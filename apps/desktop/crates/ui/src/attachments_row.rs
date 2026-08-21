@@ -3,16 +3,14 @@
 //! `lib/storage/issue-attachments.ts`).
 //!
 //! [`extract_image_occurrences`] is the Rust port of the web's
-//! `markdownImagePattern` scan over a description markdown; the create
-//! dialog's rail (create_issue_dialog.rs) renders one [`image_chip`] per
-//! occurrence with a remove ✕ exactly like web. The issue-detail strip that
-//! used to render these chips under the description is gone (EXP-256 —
-//! removed on web too): the description editor's image blocks are the one
-//! attachment surface on the detail screen.
+//! `markdownImagePattern` scan over a description markdown (used by the
+//! WYSIWYG editor + image paste). EXP-586: the create dialog no longer lists
+//! image chips at all — images live inline in the description only; the
+//! dialog's footer carries just [`file_chip`] rows for queued non-image
+//! files. The issue-detail strip is gone too (EXP-256).
 
 use gpui::{
-    div, App, ElementId, InteractiveElement as _, IntoElement, ParentElement, SharedString,
-    StatefulInteractiveElement as _, Styled,
+    div, App, ElementId, InteractiveElement as _, IntoElement, ParentElement, SharedString, Styled,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -20,7 +18,7 @@ use gpui_component::{
 };
 
 use crate::controls::WebControl as _;
-use crate::icons::{registry, ExpIcon};
+use crate::icons::registry;
 
 /// One `![alt](url)` occurrence in a markdown string — the web's
 /// `MarkdownImageOccurrence` (byte offsets over the source).
@@ -149,133 +147,11 @@ pub(crate) fn remove_image_occurrence(text: &str, occurrence_index: usize) -> St
     format!("{}{}", &text[..occurrence.start], &text[occurrence.end..])
 }
 
-/// Web `getAttachmentLabel`: alt → URL filename → "Image N".
-pub(crate) fn occurrence_label(occurrence: &ImageOccurrence, occurrence_index: usize) -> String {
-    let alt = occurrence.alt.trim();
-    if !alt.is_empty() {
-        return alt.to_string();
-    }
-    let filename = occurrence
-        .url
-        .rsplit('/')
-        .next()
-        .and_then(|segment| segment.split('?').next())
-        .unwrap_or_default();
-    if !filename.is_empty() {
-        return filename.to_string();
-    }
-    format!("Image {}", occurrence_index + 1)
-}
-
-/// Web `imageCountLabel`: "1 image" / "N images".
-pub(crate) fn image_count_label(count: usize) -> String {
-    if count == 1 {
-        "1 image".to_string()
-    } else {
-        format!("{count} images")
-    }
-}
-
-/// Web `countLabel` (EXP-335): "N images" plus ", M file(s)" once the create
-/// dialog has queued non-image draft files.
-pub(crate) fn attachment_count_label(images: usize, files: usize) -> String {
-    let mut label = image_count_label(images);
-    if files > 0 {
-        label.push_str(&format!(
-            ", {files} file{}",
-            if files == 1 { "" } else { "s" }
-        ));
-    }
-    label
-}
-
 /// Remove-✕ handler of one chip (element id + click callback).
 pub(crate) type ChipRemove = (
     SharedString,
     Box<dyn Fn(&gpui::ClickEvent, &mut gpui::Window, &mut App) + 'static>,
 );
-
-/// One attachment chip (web chip layout: thumbnail + truncating label + the
-/// optional remove ✕). Desktop v1 shows the image glyph in the thumbnail
-/// slot; `on_remove` renders the web's ✕ button when given.
-///
-/// Borderless by design (EXP-33): a soft secondary pill with a hover state —
-/// the old bordered chips read as nested boxes inside the bordered rail.
-/// Clicking the chip body opens the IN-APP image preview
-/// ([`crate::image_preview`]); unresolvable URLs (signed out, `draft://`
-/// staging) leave the chip inert. The ✕ stops propagation so a remove never
-/// also opens.
-pub(crate) fn image_chip(
-    id: impl Into<ElementId>,
-    label: String,
-    url: &str,
-    on_remove: Option<ChipRemove>,
-    cx: &App,
-) -> gpui::AnyElement {
-    let openable = crate::queries::absolute_api_url(cx, url).is_some();
-    let mut row = h_flex()
-        .id(id.into())
-        .flex_shrink_0()
-        .gap_1p5()
-        .px_2()
-        .py_1()
-        .rounded_md()
-        .bg(theme::tokens::glass::FILL_CARD.to_hsla())
-        .items_center()
-        .child(
-            Icon::from(ExpIcon::Image)
-                .xsmall()
-                .text_color(cx.theme().muted_foreground),
-        )
-        .child(
-            div()
-                .max_w(gpui::px(96.))
-                .text_xs()
-                .whitespace_nowrap()
-                .overflow_hidden()
-                .text_ellipsis()
-                .child(SharedString::from(label.clone())),
-        );
-
-    if openable {
-        // Query-stripped: the lightbox always shows full size (a `?w=` src
-        // is a display-width hint, and stripping keeps the ImageCache keyed
-        // on one canonical URL per attachment).
-        let url = crate::markdown::image_url::strip_query(url).to_string();
-        row = row
-            .cursor_pointer()
-            .hover(|el| el.bg(theme::tokens::glass::FILL_ACTIVE.to_hsla()))
-            .on_click(move |_, window, cx| {
-                crate::image_preview::open_image_preview(
-                    url.clone(),
-                    label.clone(),
-                    None,
-                    None,
-                    window,
-                    cx,
-                );
-            });
-    }
-
-    if let Some((id, on_click)) = on_remove {
-        row = row.child(
-            Button::new(id)
-                .ghost()
-                .web_icon_xs()
-                .icon(
-                    Icon::new(registry::UI_CLOSE)
-                        .xsmall()
-                        .text_color(cx.theme().muted_foreground),
-                )
-                .on_click(move |event, window, cx| {
-                    // The ✕ must never also fire the chip-open click.
-                    cx.stop_propagation();
-                    on_click(event, window, cx);
-                }),
-        );
-    }
-    row.into_any_element()
-}
 
 /// EXP-335: one queued NON-image draft file in the create dialog's footer
 /// rail (web `issue-attachment-file-chip-*`): type glyph · filename · size ·
@@ -397,37 +273,5 @@ mod tests {
         assert_eq!(remove_image_occurrence(text, 0), "\n\n![b](/two)");
         assert_eq!(remove_image_occurrence(text, 1), "![a](/one)\n\n");
         assert_eq!(remove_image_occurrence(text, 5), text);
-    }
-
-    #[test]
-    fn labels_fall_back_alt_then_filename_then_index() {
-        let alt = ImageOccurrence {
-            alt: " shot ".into(),
-            url: "/api/attachments/abc".into(),
-            start: 0,
-            end: 0,
-        };
-        assert_eq!(occurrence_label(&alt, 0), "shot");
-        let file = ImageOccurrence {
-            alt: "".into(),
-            url: "/api/attachments/abc-photo.png?w=1".into(),
-            start: 0,
-            end: 0,
-        };
-        assert_eq!(occurrence_label(&file, 0), "abc-photo.png");
-        let bare = ImageOccurrence {
-            alt: "".into(),
-            url: "".into(),
-            start: 0,
-            end: 0,
-        };
-        assert_eq!(occurrence_label(&bare, 2), "Image 3");
-    }
-
-    #[test]
-    fn count_labels_pluralize() {
-        assert_eq!(image_count_label(0), "0 images");
-        assert_eq!(image_count_label(1), "1 image");
-        assert_eq!(image_count_label(4), "4 images");
     }
 }

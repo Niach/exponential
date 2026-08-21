@@ -52,6 +52,7 @@ vi.mock(`@/components/issue-editor/dialog-shell`, () => ({
   IssueEditorDialogShell: forwardRef(function MockIssueEditorDialogShell(
     {
       boardPicker,
+      chipRowAction,
       description,
       disabled,
       editorRef,
@@ -65,6 +66,7 @@ vi.mock(`@/components/issue-editor/dialog-shell`, () => ({
       title,
     }: {
       boardPicker?: ReactNode
+      chipRowAction?: ReactNode
       description: string
       disabled?: boolean
       editorRef?: Ref<{
@@ -73,7 +75,7 @@ vi.mock(`@/components/issue-editor/dialog-shell`, () => ({
         insertImage: (image: { alt?: string; src: string }) => void
         setMarkdown: (markdown: string) => void
       }>
-      footer: ReactNode
+      footer?: ReactNode
       formProps?: ComponentPropsWithoutRef<`form`>
       imageUpload?: {
         onFiles: (files: File[]) => void | Promise<void>
@@ -129,6 +131,7 @@ vi.mock(`@/components/issue-editor/dialog-shell`, () => ({
               onDescriptionChange(event.target.value)
             }}
           />
+          {chipRowAction}
           {footer}
         </form>
         {/* EXP-335: the pickers live in the editor's formatting toolbar now —
@@ -273,9 +276,7 @@ describe(`CreateIssueDialog`, () => {
           .value
       ).toBe(`Intro paragraph\n![draft.png](blob:mock-image-1)`)
     })
-    expect(screen.getByTestId(`issue-attachment-rail`)).toBeTruthy()
-    expect(screen.getByText(`draft.png`)).toBeTruthy()
-    expect(screen.getByText(`1 image`)).toBeTruthy()
+    expect(screen.queryByTestId(`issue-attachment-rail`)).toBeNull()
 
     fireEvent.click(screen.getByRole(`button`, { name: `Create issue` }))
 
@@ -306,7 +307,9 @@ describe(`CreateIssueDialog`, () => {
     expect(revokeObjectURL).toHaveBeenCalledWith(`blob:mock-image-1`)
   })
 
-  it(`removes footer chips by occurrence and skips removed draft uploads`, async () => {
+  // EXP-586: images exist only inline — deleting one from the description is
+  // the only way to drop it, and its upload must be skipped.
+  it(`skips uploads for draft images removed inline from the description`, async () => {
     mockState.attachmentFiles = [
       new File([`image`], `draft.png`, {
         type: `image/png`,
@@ -347,15 +350,8 @@ describe(`CreateIssueDialog`, () => {
       ).toBe(`Intro paragraph\n![draft.png](blob:mock-image-1)`)
     })
 
-    fireEvent.click(
-      screen.getByRole(`button`, { name: `Remove attachment draft.png` })
-    )
-
-    await waitFor(() => {
-      expect(
-        (screen.getByLabelText(`Issue description`) as HTMLTextAreaElement)
-          .value
-      ).toBe(`Intro paragraph\n`)
+    fireEvent.change(screen.getByLabelText(`Issue description`), {
+      target: { value: `Intro paragraph\n` },
     })
 
     fireEvent.click(screen.getByRole(`button`, { name: `Create issue` }))
@@ -406,7 +402,10 @@ describe(`CreateIssueDialog`, () => {
     fireEvent.click(screen.getByLabelText(`Add image`))
 
     await waitFor(() => {
-      expect(screen.getByText(`draft.png`)).toBeTruthy()
+      expect(
+        (screen.getByLabelText(`Issue description`) as HTMLTextAreaElement)
+          .value
+      ).toBe(`![draft.png](blob:mock-image-1)`)
     })
 
     fireEvent.click(screen.getByRole(`button`, { name: `Dismiss dialog` }))

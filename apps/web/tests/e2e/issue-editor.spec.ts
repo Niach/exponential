@@ -231,12 +231,8 @@ test(`uploads create-time images, shows them in the footer rail, and removes the
   const draftImage = createDialog.locator(`img.editor-image`)
   await expect(draftImage).toHaveCount(1)
   await expect(draftImage).toHaveAttribute(`src`, /^blob:/)
-  await expect(createDialog.getByTestId(`issue-attachment-rail`)).toContainText(
-    `draft-image.png`
-  )
-  await expect(createDialog.getByTestId(`issue-attachment-rail`)).toContainText(
-    `1 image`
-  )
+  // EXP-586: images render inline only — no chip row, no count.
+  await expect(createDialog.getByTestId(`issue-attachment-rail`)).toHaveCount(0)
 
   await createDialog.getByRole(`button`, { name: `Create issue` }).click()
   await expect(createDialog).toBeHidden()

@@ -26,8 +26,6 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
-import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
 
 // Full-width tappable property row: label left, value right — the web
 // counterpart of the native create form's metadata card rows (EXP-247).
@@ -66,8 +64,6 @@ export interface IssueEditorMobilePropertiesProps {
   hideDueDateChip?: boolean
   disableStatus?: boolean
   disabled?: boolean
-  createMore?: boolean
-  onCreateMoreChange?: (checked: boolean) => void
   onStatusChange: (status: StatusRowOption) => void | Promise<void>
   onPriorityChange: (priority: IssuePriority) => void | Promise<void>
   onAssigneeChange: (userId: string | null) => void | Promise<void>
@@ -87,8 +83,6 @@ export function IssueEditorMobileProperties({
   hideDueDateChip,
   disableStatus,
   disabled,
-  createMore,
-  onCreateMoreChange,
   onStatusChange,
   onPriorityChange,
   onAssigneeChange,
@@ -264,23 +258,6 @@ export function IssueEditorMobileProperties({
         )}
       />
 
-      {onCreateMoreChange && (
-        <div className="flex h-11 items-center justify-between px-4">
-          <Label
-            htmlFor="create-more-mobile"
-            className="text-sm font-normal cursor-pointer select-none"
-          >
-            Create more
-          </Label>
-          <Switch
-            id="create-more-mobile"
-            size="sm"
-            checked={createMore}
-            disabled={disabled}
-            onCheckedChange={(checked) => onCreateMoreChange(checked === true)}
-          />
-        </div>
-      )}
     </div>
   )
 }
