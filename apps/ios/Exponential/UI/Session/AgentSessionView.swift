@@ -1833,6 +1833,34 @@ private struct FollowPinTracker: ViewModifier {
     /// re-pin once a user scroll ends with `atBottom` still true but the
     /// viewport left short of the end (content grew under the finger).
     @State private var lastPinned = true
+    /// A growth repin is already queued for the next run-loop turn.
+    @State private var repinQueued = false
+    /// Growth repins issued since the feed last rested at its true bottom
+    /// or the user last scrolled. Bounded: a repin that keeps landing short
+    /// (lazy rows realising under it, an OS layout bug) must not become a
+    /// relayout storm — build 94 was watchdog-killed with the main thread
+    /// 100% in lazy-stack layout and +380MB of view-list copies in 84s.
+    @State private var growthRepins = 0
+    private static let maxGrowthRepins = 8
+
+    /// Queue ONE repin for the next run-loop turn. The growth observer runs
+    /// inside the scroll view's layout transaction; calling scrollTo there
+    /// re-enters layout synchronously (seen in the build 92 watchdog
+    /// stack: onScrollGeometryChange action → scrollTo → LazyStack layout),
+    /// and every scrollTo that realises more lazy rows changes the content
+    /// height, which fires the observer again before the run loop ever
+    /// turns. Deferring breaks the re-entrancy and coalesces a burst of
+    /// growth samples into a single scroll.
+    private func queueGrowthRepin() {
+        guard !repinQueued, growthRepins < Self.maxGrowthRepins else { return }
+        repinQueued = true
+        growthRepins += 1
+        Task { @MainActor in
+            repinQueued = false
+            guard atBottom, !userScrolling else { return }
+            repin()
+        }
+    }
 
     @ViewBuilder
     func body(content: Content) -> some View {
@@ -1842,6 +1870,7 @@ private struct FollowPinTracker: ViewModifier {
                     userScrolling = newPhase == .tracking
                         || newPhase == .interacting
                         || newPhase == .decelerating
+                    if userScrolling { growthRepins = 0 }
                     // The growth observer skips repins during user scrolls
                     // (EXP-306); catch up once the gesture settles so a
                     // followed feed never idles a few points shy of its end.
@@ -1885,11 +1914,20 @@ private struct FollowPinTracker: ViewModifier {
                         atBottom = false
                     }
                 }
-                .onScrollGeometryChange(for: CGFloat.self) { geometry in
-                    geometry.contentSize.height
-                } action: { oldHeight, newHeight in
-                    if newHeight > oldHeight, atBottom, !userScrolling {
-                        repin()
+                .onScrollGeometryChange(for: FeedGrowthMetrics.self) { geometry in
+                    FeedGrowthMetrics(
+                        height: geometry.contentSize.height,
+                        below: geometry.contentSize.height - geometry.visibleRect.maxY
+                    )
+                } action: { old, new in
+                    // Resting at (or bouncing past) the true bottom re-arms
+                    // the growth budget: the last repin converged.
+                    if new.below <= 0 { growthRepins = 0 }
+                    // Only chase growth that actually pushed the bottom out
+                    // of view; a scrollTo whose target is already visible is
+                    // pure layout churn.
+                    if new.height > old.height, new.below > 0, atBottom, !userScrolling {
+                        queueGrowthRepin()
                     }
                 }
         } else {
@@ -1912,6 +1950,14 @@ private struct FollowPinTracker: ViewModifier {
 private struct FeedPinMetrics: Equatable {
     var pinned: Bool
     var offset: CGFloat
+}
+
+/// Content height plus how far the content's bottom edge sits below the
+/// visible rect (≤ 0 when the end is on screen) — the growth observer's
+/// sample.
+private struct FeedGrowthMetrics: Equatable {
+    var height: CGFloat
+    var below: CGFloat
 }
 
 /// Points of feed content extending below the visible viewport — 0 when the
