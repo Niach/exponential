@@ -257,9 +257,15 @@ struct IssueListView: View {
                                     }
                                 }
                             } header: {
+                                // EXP-578: zero insets — the header view owns its
+                                // whole cell (spacing + gutter are padded INSIDE
+                                // statusHeader), so the pinned header is one
+                                // uniform app-coloured band. With insets, plain
+                                // List painted the inset strip with its own system
+                                // backing, which read as a stray gap between the
+                                // nav bar and the pinned header while scrolling.
                                 statusHeader(group: group, count: statusIssues.count, vm: vm)
-                                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 2, trailing: 16))
-                                    .listRowBackground(Color.clear)
+                                    .listRowInsets(EdgeInsets())
                             }
                         }
                     }
@@ -446,6 +452,15 @@ struct IssueListView: View {
         }
         .buttonStyle(.plain)
         .textCase(nil)
+        // Former listRowInsets (top 6 / bottom 2 / 16pt gutter), now inside the
+        // header so the background below covers the entire pinned cell.
+        .padding(.top, 6)
+        .padding(.bottom, 2)
+        .padding(.horizontal, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // Opaque app colour: plain List's pinned headers otherwise get a
+        // system material backing that mismatches AppBackground (EXP-578).
+        .background(Zinc._950)
     }
 
     @ViewBuilder
