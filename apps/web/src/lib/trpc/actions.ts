@@ -1,22 +1,9 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, asc, desc, eq, inArray, ne } from "drizzle-orm"
-import {
-  actionIconSchema,
-  actionInputsSchema,
-  actionTriggerSchema,
-  type ActionTrigger,
-} from "@exp/db-schema/domain"
+import { and, asc, desc, eq, ne } from "drizzle-orm"
+import { actionIconSchema, actionInputsSchema } from "@exp/db-schema/domain"
 import { router, authedProcedure } from "@/lib/trpc"
-import {
-  actions,
-  boards,
-  devices,
-  issueStatuses,
-  labels,
-  repositories,
-  teamMembers,
-} from "@/db/schema"
+import { actions, automations, repositories } from "@/db/schema"
 import { assertTeamMember, assertTeamOwner } from "@/lib/team-membership"
 import {
   BUILTIN_CREATE_ACTION_ID,
@@ -52,7 +39,6 @@ const wireColumns = {
   icon: actions.icon,
   body: actions.body,
   inputs: actions.inputs,
-  trigger: actions.trigger,
   sortOrder: actions.sortOrder,
   createdAt: actions.createdAt,
   updatedAt: actions.updatedAt,
@@ -120,102 +106,16 @@ async function assertRepoInTeam(repositoryId: string, teamId: string) {
   }
 }
 
-// EXP-530: a trigger binds an automation to a device and (for event triggers)
-// to team resources — validate ALL of it against the caller's reality and
-// REJECT, never clamp. The zod union already enforced shape/limits; this
-// checks ownership and team scoping. `trigger.deviceId` is the steer TEXT id
-// (devices.device_id) — unique per (userId, deviceId), so the same id can
-// exist under several users: usable when any matching row is the caller's
-// own, or is shared with THIS team by an owner who is still a member.
-async function assertTriggerValid(
-  trigger: ActionTrigger,
-  teamId: string,
-  callerUserId: string,
-  // A binding that already survived validation once: skip the device
-  // ownership check so a co-owner can edit/toggle an action bound to a
-  // teammate's private device (they could never re-mint that binding).
-  unchangedDeviceId?: string
-): Promise<void> {
-  const { db } = await import(`@/db/connection`)
-  const bad = (message: string) => new TRPCError({ code: `BAD_REQUEST`, message })
-
-  if (trigger.deviceId !== unchangedDeviceId) {
-    const rows = await db
-      .select({
-        userId: devices.userId,
-        sharedTeamId: devices.sharedTeamId,
-        caps: devices.caps,
-      })
-      .from(devices)
-      .where(eq(devices.deviceId, trigger.deviceId))
-    let usableRows = rows.filter((row) => row.userId === callerUserId)
-    if (usableRows.length === 0) {
-      const shared = rows.filter((row) => row.sharedTeamId === teamId)
-      if (shared.length > 0) {
-        const members = await db
-          .select({ userId: teamMembers.userId })
-          .from(teamMembers)
-          .where(
-            and(
-              eq(teamMembers.teamId, teamId),
-              inArray(
-                teamMembers.userId,
-                shared.map((row) => row.userId)
-              )
-            )
-          )
-        const memberIds = new Set(members.map((m) => m.userId))
-        usableRows = shared.filter((row) => memberIds.has(row.userId))
-      }
-    }
-    if (usableRows.length === 0) {
-      throw bad(`Trigger device must be yours or shared with this team`)
-    }
-    // Same server-side cap gate as steer.startSession: the pickers on web and
-    // mobile already hide devices without it, but MCP actions_create/update
-    // can name any device id, and a pre-EXP-530 build would accept the binding
-    // and never fire. Caps are per build, so the persisted row is accurate.
-    if (!usableRows.some((row) => (row.caps ?? []).includes(`automations`))) {
-      throw bad(`Trigger device runs an older build without automation support`)
-    }
-  }
-
-  if (trigger.kind === `event`) {
-    const assertIdsInTeam = async (
-      ids: string[] | undefined,
-      table: typeof boards | typeof labels | typeof issueStatuses,
-      what: string
-    ) => {
-      if (!ids?.length) return
-      const found = await db
-        .select({ id: table.id })
-        .from(table)
-        .where(and(eq(table.teamId, teamId), inArray(table.id, ids)))
-      if (found.length !== new Set(ids).size) {
-        throw bad(`Trigger ${what} must belong to the team`)
-      }
-    }
-    await assertIdsInTeam(trigger.filters?.boardIds, boards, `boards`)
-    await assertIdsInTeam(trigger.filters?.labelIds, labels, `labels`)
-    await assertIdsInTeam(trigger.filters?.toStatusIds, issueStatuses, `statuses`)
-  }
-}
-
-// EXP-530 follow-up: there is no server scheduler — the bound device selects
-// its own actions off Electric and self-starts the run with NO input values.
-// An enabled automation on an action declaring required inputs would therefore
-// run a prompt referencing values nobody ever provided, so refuse the pairing
-// at write time (both tRPC and MCP, which funnels through this router).
-// Deliberately tolerant readers: `existing.trigger`/`existing.inputs` are
-// jsonb, and a stored shape from a newer client must not crash the check.
+// EXP-530/EXP-583: there is no server scheduler — the bound device selects
+// its automations off Electric and self-starts the target action with NO
+// input values. An action declaring required inputs while an ENABLED
+// automation targets it would run a prompt referencing values nobody ever
+// provided, so refuse the pairing at write time on BOTH sides (here when an
+// input turns required; in the automations router when one is created or
+// enabled). Tolerant reader: `inputs` is jsonb from possibly newer clients.
 export const AUTOMATION_REQUIRED_INPUTS_MESSAGE = `Automations can't run actions with required inputs. Make the inputs optional first.`
 
-function isTriggerEnabled(trigger: unknown): boolean {
-  if (!trigger || typeof trigger !== `object`) return false
-  return (trigger as { enabled?: unknown }).enabled === true
-}
-
-function hasRequiredInput(inputs: unknown): boolean {
+export function hasRequiredInput(inputs: unknown): boolean {
   if (!Array.isArray(inputs)) return false
   return inputs.some(
     (def) =>
@@ -225,12 +125,19 @@ function hasRequiredInput(inputs: unknown): boolean {
   )
 }
 
-function assertAutomationRunnable(trigger: unknown, inputs: unknown): void {
-  if (!isTriggerEnabled(trigger) || !hasRequiredInput(inputs)) return
-  throw new TRPCError({
-    code: `BAD_REQUEST`,
-    message: AUTOMATION_REQUIRED_INPUTS_MESSAGE,
-  })
+async function assertNoEnabledAutomation(actionId: string): Promise<void> {
+  const { db } = await import(`@/db/connection`)
+  const [row] = await db
+    .select({ id: automations.id })
+    .from(automations)
+    .where(and(eq(automations.actionId, actionId), eq(automations.enabled, true)))
+    .limit(1)
+  if (row) {
+    throw new TRPCError({
+      code: `BAD_REQUEST`,
+      message: AUTOMATION_REQUIRED_INPUTS_MESSAGE,
+    })
+  }
 }
 
 function duplicateNameError(name: string): TRPCError {
@@ -330,7 +237,6 @@ export const actionsRouter = router({
         repositoryId: z.string().uuid().nullable().optional(),
         body: bodySchema,
         inputs: actionInputsSchema.optional(),
-        trigger: actionTriggerSchema.nullish(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -338,10 +244,6 @@ export const actionsRouter = router({
       assertNotReservedName(input.name)
       if (input.repositoryId) {
         await assertRepoInTeam(input.repositoryId, input.teamId)
-      }
-      assertAutomationRunnable(input.trigger, input.inputs)
-      if (input.trigger) {
-        await assertTriggerValid(input.trigger, input.teamId, ctx.session.user.id)
       }
 
       // Append to the end of the list by default.
@@ -363,7 +265,6 @@ export const actionsRouter = router({
           icon: input.icon ?? null,
           body: input.body,
           inputs: input.inputs ?? [],
-          trigger: input.trigger ?? null,
           sortOrder: nextSortOrder,
         })
         .onConflictDoNothing({
@@ -385,7 +286,6 @@ export const actionsRouter = router({
         repositoryId: z.string().uuid().nullable().optional(),
         body: bodySchema.optional(),
         inputs: actionInputsSchema.optional(),
-        trigger: actionTriggerSchema.nullish(),
         sortOrder: z.number().finite().optional(),
       })
     )
@@ -397,24 +297,10 @@ export const actionsRouter = router({
       if (input.repositoryId) {
         await assertRepoInTeam(input.repositoryId, existing.teamId)
       }
-      // Both halves of the pairing are post-update values: adding a required
-      // input to an already-automated action is refused just like enabling an
-      // automation on an action that already declares one.
-      assertAutomationRunnable(
-        input.trigger === undefined ? existing.trigger : input.trigger,
-        input.inputs === undefined ? existing.inputs : input.inputs
-      )
-      // Whole-object replace, so even an enabled-only flip re-validates the
-      // filters — but an UNCHANGED device binding is accepted as-is, so any
-      // co-owner can edit/toggle an automation bound to a teammate's device.
-      if (input.trigger) {
-        const stored = existing.trigger as { deviceId?: unknown } | null
-        await assertTriggerValid(
-          input.trigger,
-          existing.teamId,
-          ctx.session.user.id,
-          typeof stored?.deviceId === `string` ? stored.deviceId : undefined
-        )
+      // Adding a required input to an already-automated action is refused,
+      // mirroring the automations router's guard on create/enable.
+      if (input.inputs !== undefined && hasRequiredInput(input.inputs)) {
+        await assertNoEnabledAutomation(input.id)
       }
 
       // Pre-check renames against the (teamId, name) unique so the caller
@@ -446,8 +332,6 @@ export const actionsRouter = router({
       if (input.body !== undefined) updates.body = input.body
       // Whole-array replace — inputs are small and orderful, no patching.
       if (input.inputs !== undefined) updates.inputs = input.inputs
-      // Whole-object replace like inputs; explicit null clears the automation.
-      if (input.trigger !== undefined) updates.trigger = input.trigger
       if (input.sortOrder !== undefined) updates.sortOrder = input.sortOrder
 
       // Nothing to change — return the current row (drizzle rejects an empty
@@ -493,6 +377,7 @@ export const actionsRouter = router({
 
   // Live coding_sessions rows survive a delete batch-shaped: action_id nulls
   // (FK SET NULL) while the action_name snapshot keeps labeling the run.
+  // Automations targeting the action cascade away with it (EXP-583).
   delete: authedProcedure
     .input(z.object({ id: actionIdSchema }))
     .mutation(async ({ ctx, input }) => {

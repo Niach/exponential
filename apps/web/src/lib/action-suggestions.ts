@@ -1,3 +1,5 @@
+import type { AutomationTrigger } from "@exp/db-schema/domain"
+
 // Curated action-suggestion seeds (EXP-530) — the Suggestions tab renders
 // them as cards and "Use suggestion" opens the create-action dialog with the
 // description prefilled. Each description is written as INSTRUCTIONS for what
@@ -5,12 +7,19 @@
 // action" run's description input, so the creator agent acts on it verbatim.
 // Icons come from the curated boardIcon registry set (never a raw glyph name
 // outside it — the swatch grid and natives only know that set).
+//
+// EXP-583: a seed may carry an `automation` — the suggested trigger (when-part
+// only). Such "Action + automation" seeds prefill the create dialog's
+// Automation block (device + agent/model stay the user's pick) and the creator
+// run sets up both. Seeds without one are plain "Action" suggestions.
+// Mirrored byte-for-byte on desktop/iOS/Android — change all four together.
 
 export interface ActionSuggestion {
   id: string
   title: string
   description: string
   icon: string
+  automation?: AutomationTrigger
 }
 
 export const ACTION_SUGGESTIONS: ActionSuggestion[] = [
@@ -19,6 +28,14 @@ export const ACTION_SUGGESTIONS: ActionSuggestion[] = [
     title: `Daily standup digest`,
     description: `Summarize what changed across the team's boards in the last 24 hours: issues created, completed, and moved, plus open pull requests. Post the digest as a comment on a dedicated standup issue, grouped by board with issue identifiers linked.`,
     icon: `calendar`,
+    automation: { kind: `schedule`, interval: `daily`, minuteOfDay: 540 },
+  },
+  {
+    id: `label-new-issues`,
+    title: `Label new issues`,
+    description: `When an issue is created, read its title and description and apply the best-fitting existing labels. Never create new labels, never change other fields, and leave no comment unless no label fits at all.`,
+    icon: `target`,
+    automation: { kind: `event`, event: `created` },
   },
   {
     id: `backlog-grooming-sweep`,
@@ -31,6 +48,7 @@ export const ACTION_SUGGESTIONS: ActionSuggestion[] = [
     title: `Stale-issue nudge`,
     description: `Find in-progress issues with no updates for 14 days or more. Comment on each one asking the assignee for a status update, mentioning them by email, and include how long the issue has been quiet.`,
     icon: `clock`,
+    automation: { kind: `schedule`, interval: `weekly`, minuteOfDay: 540, weekday: 1 },
   },
   {
     id: `release-notes-drafter`,
@@ -49,12 +67,14 @@ export const ACTION_SUGGESTIONS: ActionSuggestion[] = [
     title: `Bug triage on new widget feedback`,
     description: `Triage newly created widget-reported issues: rewrite vague titles to be specific, set a priority based on severity, add reproduction steps when they can be inferred from the report, and label likely duplicates.`,
     icon: `bug`,
+    automation: { kind: `event`, event: `created` },
   },
   {
     id: `weekly-metrics-comment`,
     title: `Weekly metrics comment`,
     description: `Compute weekly team metrics: issues created versus completed, average time to done, and open pull request count. Post the numbers with a week-over-week comparison as a comment on a dedicated metrics issue.`,
     icon: `chart-line`,
+    automation: { kind: `schedule`, interval: `weekly`, minuteOfDay: 480, weekday: 5 },
   },
   {
     id: `label-janitor`,

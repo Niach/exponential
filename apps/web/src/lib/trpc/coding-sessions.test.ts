@@ -282,6 +282,7 @@ describe(`codingSessions.start — action path (EXP-253)`, () => {
       actionId: ACTION_ID,
       actionName: `Code review`,
       startedReason: null,
+      automationId: null,
       userId: `actor`,
       hostUserId: null,
       deviceId: null,

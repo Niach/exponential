@@ -10,6 +10,7 @@ import { Route as issueLabelsRoute } from "@/routes/api/shapes/issue-labels"
 import { Route as issueSubscribersRoute } from "@/routes/api/shapes/issue-subscribers"
 import { Route as attachmentsRoute } from "@/routes/api/shapes/attachments"
 import { Route as codingSessionsRoute } from "@/routes/api/shapes/coding-sessions"
+import { Route as automationsRoute } from "@/routes/api/shapes/automations"
 import { Route as notificationsRoute } from "@/routes/api/shapes/notifications"
 import { Route as actionsRoute } from "@/routes/api/shapes/actions"
 import { Route as issueStatusesRoute } from "@/routes/api/shapes/issue-statuses"
@@ -484,7 +485,6 @@ describe(`shape column + trash contracts`, () => {
       `description`,
       `icon`,
       `inputs`,
-      `trigger`,
       `sort_order`,
       `created_at`,
       `updated_at`,
@@ -492,6 +492,38 @@ describe(`shape column + trash contracts`, () => {
     expect(columns).not.toContain(`body`)
     // Member scoping is a plain sorted team_id clause (no trash mirror —
     // actions have no board scope).
+    expect(originUrl.searchParams.get(`where`)).toBe(
+      `"team_id" IN ('w-1','w-2')`
+    )
+  })
+
+  it(`pins the automations columns and scopes members by team`, async () => {
+    const originUrl = new URL(`https://electric.example/v1/shape`)
+    resolveSession.mockResolvedValue({ user: { id: `user-1` } })
+    prepareElectricUrl.mockReturnValue(originUrl)
+    membership.getUserTeamIds.mockResolvedValue([`w-2`, `w-1`])
+
+    await shapeHandler(automationsRoute)({
+      request: new Request(`https://example.com/api/shapes/automations`, {
+        headers: { authorization: `Bearer t` },
+      }),
+    })
+
+    const columns = originUrl.searchParams.get(`columns`)?.split(`,`) ?? []
+    expect(columns).toEqual([
+      `id`,
+      `team_id`,
+      `action_id`,
+      `device_id`,
+      `enabled`,
+      `trigger`,
+      `agent`,
+      `model`,
+      `effort`,
+      `sort_order`,
+      `created_at`,
+      `updated_at`,
+    ])
     expect(originUrl.searchParams.get(`where`)).toBe(
       `"team_id" IN ('w-1','w-2')`
     )

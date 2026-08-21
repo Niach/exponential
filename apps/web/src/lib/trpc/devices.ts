@@ -19,7 +19,7 @@ import { and, asc, desc, eq, ne, inArray, or, sql } from "drizzle-orm"
 import { contract } from "@exp/domain-contract"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import {
-  actions,
+  automations,
   codingSessions,
   deviceCommands,
   deviceLaunchDefaultsSchema,
@@ -943,9 +943,9 @@ export const devicesRouter = router({
       // EXP-530 follow-up: an automation bound to this device by one of the
       // OLD team's owners keeps firing on the device owner's credentials once
       // the share is withdrawn (there is no server scheduler — the device
-      // self-selects triggers off Electric), and the toggle is owner-only, so
-      // the machine's owner cannot stop it. Withdrawing the share disables
-      // those triggers in the same transaction as the column write. Skipped
+      // self-selects automations off Electric), and the toggle is owner-only,
+      // so the machine's owner cannot stop it. Withdrawing the share disables
+      // those automations in the same transaction as the column write. Skipped
       // when the device owner is an OWNER of that team: then the bindings are
       // plausibly their own, and they keep the toggle to undo them.
       const revoked = row.sharedTeamId
@@ -961,19 +961,14 @@ export const devicesRouter = router({
           .where(eq(devices.id, row.id))
         if (disableAutomations && revoked) {
           await tx
-            .update(actions)
-            .set({
-              trigger: sql`jsonb_set(${actions.trigger}, '{enabled}', 'false'::jsonb)`,
-              updatedAt: new Date(),
-            })
+            .update(automations)
+            .set({ enabled: false, updatedAt: new Date() })
             .where(
               and(
-                eq(actions.teamId, revoked),
-                sql`${actions.trigger}->>'deviceId' = ${input.deviceId}`,
-                // Already-off triggers stay untouched (no needless Electric
-                // op); a MISSING flag counts as on, matching the hosts'
-                // tolerant parse.
-                sql`${actions.trigger}->>'enabled' IS DISTINCT FROM 'false'`
+                eq(automations.teamId, revoked),
+                eq(automations.deviceId, input.deviceId),
+                // Already-off rows stay untouched (no needless Electric op).
+                eq(automations.enabled, true)
               )
             )
         }

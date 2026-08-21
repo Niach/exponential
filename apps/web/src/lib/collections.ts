@@ -3,6 +3,7 @@ import { electricCollectionOptions } from "@tanstack/electric-db-collection"
 import { snakeCamelMapper } from "@electric-sql/client"
 import {
   selectSyncedActionSchema,
+  selectAutomationSchema,
   selectAttachmentSchema,
   selectCodingSessionSchema,
   selectCommentSchema,
@@ -129,6 +130,22 @@ export const actionCollection = createCollection(
       columnMapper,
     },
     schema: selectSyncedActionSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+// EXP-583: automations are their own shape — a schedule/event trigger that
+// runs an action on a device. The bound device's host filters this same shape
+// to its own enabled rows.
+export const automationCollection = createCollection(
+  electricCollectionOptions({
+    id: `automations`,
+    shapeOptions: {
+      url: getShapeUrl(`/api/shapes/automations`),
+      parser: shapeParser,
+      columnMapper,
+    },
+    schema: selectAutomationSchema,
     getKey: (item) => item.id,
   })
 )

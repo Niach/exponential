@@ -218,197 +218,10 @@ describe(`actions.create — inputs + reserved name (EXP-257)`, () => {
   })
 })
 
-// EXP-530: automation triggers — strict zod at the boundary, then
-// assertTriggerValid checks device ownership/sharing and team scoping.
-describe(`actions.create — trigger validation (EXP-530)`, () => {
-  const BOARD_ID = `33333333-3333-4333-8333-333333333333`
-  const schedule = {
-    kind: `schedule` as const,
-    deviceId: `device-1`,
-    enabled: true,
-    interval: `daily` as const,
-    minuteOfDay: 420,
-  }
-
-  it(`persists a valid schedule trigger bound to the caller's own device`, async () => {
-    // assertTriggerValid device select, then the sortOrder probe.
-    selectResults.push([{ userId: `actor`, sharedTeamId: null, caps: [`automations`] }])
-    selectResults.push([])
-    const { action } = await caller.create({
-      teamId: TEAM_ID,
-      name: `Nightly sweep`,
-      body: `Sweep`,
-      trigger: schedule,
-    })
-    expect(inserts[0]!.trigger).toEqual(schedule)
-    expect(action).toMatchObject({ name: `Nightly sweep` })
-  })
-
-  it(`rejects a device that is neither yours nor shared with the team`, async () => {
-    // Device select: rows exist but belong to someone else, other team.
-    selectResults.push([{ userId: `other`, sharedTeamId: `other-team`, caps: [`automations`] }])
-    const error = await rejectionOf(
-      caller.create({
-        teamId: TEAM_ID,
-        name: `Nightly sweep`,
-        body: `Sweep`,
-        trigger: schedule,
-      })
-    )
-    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
-    expect((error as TRPCError).message).toContain(`device`)
-    expect(inserts).toHaveLength(0)
-  })
-
-  it(`rejects a device whose build advertises no automations cap`, async () => {
-    // Own device, but a pre-EXP-530 build: it would accept the binding and
-    // never fire. Same gate steer.startSession applies to its caps.
-    selectResults.push([{ userId: `actor`, sharedTeamId: null, caps: [`actions`] }])
-    const error = await rejectionOf(
-      caller.create({
-        teamId: TEAM_ID,
-        name: `Nightly sweep`,
-        body: `Sweep`,
-        trigger: schedule,
-      })
-    )
-    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
-    expect((error as TRPCError).message).toContain(`older build`)
-    expect(inserts).toHaveLength(0)
-  })
-
-  it(`rejects a team-shared device whose owner left the team`, async () => {
-    selectResults.push([{ userId: `ghost`, sharedTeamId: TEAM_ID, caps: [`automations`] }])
-    // teamMembers select — the owner is gone.
-    selectResults.push([])
-    const error = await rejectionOf(
-      caller.create({
-        teamId: TEAM_ID,
-        name: `Nightly sweep`,
-        body: `Sweep`,
-        trigger: schedule,
-      })
-    )
-    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
-    expect(inserts).toHaveLength(0)
-  })
-
-  it(`rejects cross-team boardIds filters`, async () => {
-    selectResults.push([{ userId: `actor`, sharedTeamId: null, caps: [`automations`] }])
-    // boards select: the id doesn't resolve in this team.
-    selectResults.push([])
-    const error = await rejectionOf(
-      caller.create({
-        teamId: TEAM_ID,
-        name: `On new bugs`,
-        body: `Triage`,
-        trigger: {
-          kind: `event`,
-          deviceId: `device-1`,
-          enabled: true,
-          event: `created`,
-          filters: { boardIds: [BOARD_ID] },
-        },
-      })
-    )
-    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
-    expect((error as TRPCError).message).toContain(`boards`)
-    expect(inserts).toHaveLength(0)
-  })
-
-  it(`rejects malformed triggers at the zod boundary`, async () => {
-    const cases = [
-      // weekly without weekday
-      { ...schedule, interval: `weekly` as const },
-      // dayOfMonth on a daily schedule
-      { ...schedule, dayOfMonth: 5 },
-      // labelIds only applies to label_added
-      {
-        kind: `event` as const,
-        deviceId: `device-1`,
-        enabled: true,
-        event: `status_changed` as const,
-        filters: { labelIds: [BOARD_ID] },
-      },
-      // empty filter array would silently match nothing
-      {
-        kind: `event` as const,
-        deviceId: `device-1`,
-        enabled: true,
-        event: `created` as const,
-        filters: { boardIds: [] },
-      },
-    ]
-    for (const trigger of cases) {
-      const error = await rejectionOf(
-        caller.create({
-          teamId: TEAM_ID,
-          name: `Bad`,
-          body: `x`,
-          trigger: trigger as never,
-        })
-      )
-      expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
-    }
-    expect(inserts).toHaveLength(0)
-  })
-})
-
-// EXP-530 update path: an UNCHANGED device binding skips the device
-// ownership check (a co-owner must be able to rename/toggle an action bound
-// to a teammate's private device — they could never re-mint that binding),
-// while a CHANGED binding re-validates in full.
-describe(`actions.update — unchanged device binding (EXP-530)`, () => {
-  const schedule = {
-    kind: `schedule` as const,
-    deviceId: `device-1`,
-    enabled: true,
-    interval: `daily` as const,
-    minuteOfDay: 420,
-  }
-
-  it(`accepts a toggle on a binding the caller could not mint`, async () => {
-    // loadAction select ONLY — the queue holds no device rows, so the test
-    // fails loudly if the ownership check runs anyway.
-    selectResults.push([
-      { id: ACTION_ID, teamId: TEAM_ID, name: `Sweep`, trigger: schedule },
-    ])
-    const { action } = await caller.update({
-      id: ACTION_ID,
-      trigger: { ...schedule, enabled: false },
-    })
-    expect(updates[0]!.trigger).toEqual({ ...schedule, enabled: false })
-    expect(action).toMatchObject({ id: `updated-action` })
-  })
-
-  it(`re-validates a CHANGED device binding in full`, async () => {
-    selectResults.push([
-      { id: ACTION_ID, teamId: TEAM_ID, name: `Sweep`, trigger: schedule },
-    ])
-    // Device select for the NEW binding: someone else's, other team.
-    selectResults.push([{ userId: `other`, sharedTeamId: `other-team`, caps: [`automations`] }])
-    const error = await rejectionOf(
-      caller.update({
-        id: ACTION_ID,
-        trigger: { ...schedule, deviceId: `device-2` },
-      })
-    )
-    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
-    expect((error as TRPCError).message).toContain(`device`)
-    expect(updates).toHaveLength(0)
-  })
-})
-
-// EXP-530 follow-up: both hosts launch automated runs with NO input values,
-// so an ENABLED trigger on an action declaring required inputs is refused.
-describe(`actions — automations vs required inputs`, () => {
-  const schedule = {
-    kind: `schedule` as const,
-    deviceId: `device-1`,
-    enabled: true,
-    interval: `daily` as const,
-    minuteOfDay: 420,
-  }
+// EXP-583: automations are their own rows; the actions router keeps ONE
+// guard — an input can't turn required while an ENABLED automation targets
+// the action (automated runs fill no inputs).
+describe(`actions.update — required inputs vs automations (EXP-583)`, () => {
   const requiredInput = {
     key: `target`,
     label: `Target`,
@@ -417,88 +230,28 @@ describe(`actions — automations vs required inputs`, () => {
   }
   const optionalInput = { ...requiredInput, required: false }
 
-  it(`refuses create with an enabled trigger and a required input`, async () => {
-    const error = await rejectionOf(
-      caller.create({
-        teamId: TEAM_ID,
-        name: `Nightly sweep`,
-        body: `Sweep`,
-        inputs: [requiredInput],
-        trigger: schedule,
-      })
-    )
-    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
-    expect((error as TRPCError).message).toContain(`required inputs`)
-    expect(inserts).toHaveLength(0)
-  })
-
-  it(`allows a DISABLED trigger alongside required inputs`, async () => {
-    selectResults.push([{ userId: `actor`, sharedTeamId: null, caps: [`automations`] }])
-    selectResults.push([])
-    await caller.create({
-      teamId: TEAM_ID,
-      name: `Nightly sweep`,
-      body: `Sweep`,
-      inputs: [requiredInput],
-      trigger: { ...schedule, enabled: false },
-    })
-    expect(inserts).toHaveLength(1)
-  })
-
-  it(`allows an enabled trigger with only optional inputs`, async () => {
-    selectResults.push([{ userId: `actor`, sharedTeamId: null, caps: [`automations`] }])
-    selectResults.push([])
-    await caller.create({
-      teamId: TEAM_ID,
-      name: `Nightly sweep`,
-      body: `Sweep`,
-      inputs: [optionalInput],
-      trigger: schedule,
-    })
-    expect(inserts).toHaveLength(1)
-  })
-
-  it(`refuses enabling an automation on an action with stored required inputs`, async () => {
-    selectResults.push([
-      {
-        id: ACTION_ID,
-        teamId: TEAM_ID,
-        name: `Sweep`,
-        inputs: [requiredInput],
-        trigger: null,
-      },
-    ])
-    // Device select for the new binding — reachable only if the pairing check
-    // wrongly passes.
-    selectResults.push([{ userId: `actor`, sharedTeamId: null, caps: [`automations`] }])
-    const error = await rejectionOf(
-      caller.update({ id: ACTION_ID, trigger: schedule })
-    )
-    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
-    expect((error as TRPCError).message).toContain(`required inputs`)
-    expect(updates).toHaveLength(0)
-  })
-
-  it(`refuses adding a required input to an already-automated action`, async () => {
-    selectResults.push([
-      { id: ACTION_ID, teamId: TEAM_ID, name: `Sweep`, inputs: [], trigger: schedule },
-    ])
+  it(`refuses adding a required input to an action with an enabled automation`, async () => {
+    selectResults.push([{ id: ACTION_ID, teamId: TEAM_ID, name: `Sweep`, inputs: [] }])
+    // assertNoEnabledAutomation probe finds one.
+    selectResults.push([{ id: `auto-1` }])
     const error = await rejectionOf(
       caller.update({ id: ACTION_ID, inputs: [requiredInput] })
     )
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect((error as TRPCError).message).toContain(`required inputs`)
     expect(updates).toHaveLength(0)
+  })
+
+  it(`allows a required input when no enabled automation targets the action`, async () => {
+    selectResults.push([{ id: ACTION_ID, teamId: TEAM_ID, name: `Sweep`, inputs: [] }])
+    selectResults.push([])
+    await caller.update({ id: ACTION_ID, inputs: [requiredInput] })
+    expect(updates[0]!.inputs).toEqual([requiredInput])
   })
 
   it(`allows making the inputs optional on an automated action`, async () => {
     selectResults.push([
-      {
-        id: ACTION_ID,
-        teamId: TEAM_ID,
-        name: `Sweep`,
-        inputs: [requiredInput],
-        trigger: schedule,
-      },
+      { id: ACTION_ID, teamId: TEAM_ID, name: `Sweep`, inputs: [requiredInput] },
     ])
     await caller.update({ id: ACTION_ID, inputs: [optionalInput] })
     expect(updates[0]!.inputs).toEqual([optionalInput])
