@@ -69,7 +69,8 @@ platform :ios do
 
   desc "Regenerate the Tuist project and capture App Store screenshots (snapshot)."
   desc "Needs the seeded local backend (apps/web/scripts/seed-screenshots.ts) at"
-  desc "http://localhost:5173 — override with SNAPSHOT_INSTANCE_URL."
+  desc "http://localhost:5173 — override with SNAPSHOT_INSTANCE_URL. Follow up with"
+  desc "`bun run screenshots:frame` (repo root) before sync_store — EXP-580."
   lane :screenshots do
     sh("cd .. && tuist generate --no-open")
     # The sign-in flow types into text fields — make sure the simulators show

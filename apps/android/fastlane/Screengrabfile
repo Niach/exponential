@@ -25,7 +25,10 @@
 #
 # Output lands in fastlane/metadata/android/en-US/images/phoneScreenshots/
 # (1_board.png … 8_support.png), replacing the previous set — the exact files
-# `supply` uploads to the Play listing.
+# `supply` uploads to the Play listing. Then run `bun run screenshots:frame`
+# from the repo root BEFORE `sync_store`: it rewrites 1_board / 4_steering /
+# 6_actions in place as headline + bezel marketing panels (EXP-580) and keeps
+# the raw captures in phoneScreenshots-raw/.
 
 # The production flavor's applicationId (debug build keeps the same id).
 app_package_name("at.exponential")

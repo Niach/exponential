@@ -31,6 +31,7 @@
     "build:marketing": "bun --filter @exp/marketing build",
     "movie:studio": "cd apps/marketing && remotion studio src/movie/remotion/entry.ts",
     "movie:render": "cd apps/marketing && remotion render src/movie/remotion/entry.ts ClosedLoop out/closed-loop.mp4 --crf 16",
+    "screenshots:frame": "bun run --filter @exp/marketing screenshots:frame",
     "movie:still": "cd apps/marketing && remotion still src/movie/remotion/entry.ts ClosedLoop",
     "movie:poster": "cd apps/marketing && remotion still src/movie/remotion/entry.ts ClosedLoop public/posters/loop-poster.webp --frame=0",
     "movie:poster:portrait": "cd apps/marketing && remotion still src/movie/remotion/entry.ts ClosedLoop-Portrait public/posters/loop-poster-portrait.webp --frame=0 --scale=0.5",
