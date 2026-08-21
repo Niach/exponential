@@ -1,6 +1,5 @@
 package com.exponential.app.ui.session
 
-import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -10,7 +9,6 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -70,8 +68,6 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -88,6 +84,8 @@ import com.exponential.app.ui.components.BottomBarPillFill
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.PendingAttachment
 import com.exponential.app.ui.components.PendingAttachmentStrip
+import com.exponential.app.ui.components.TopBarActionButton
+import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.DiffAddColor
 import com.exponential.app.ui.issue.DiffDelColor
@@ -241,9 +239,7 @@ fun AgentSessionScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(ExpIcons.uiBack, contentDescription = "Back")
-                    }
+                    TopBarBackButton(onClick = onBack)
                 },
                 actions = {
                     // Kill switch (EXP-268): only while the synced row is
@@ -252,13 +248,12 @@ fun AgentSessionScreen(
                     // too).
                     val row = session
                     if (row != null && !sessionEnded && row.userId == currentUserId) {
-                        IconButton(onClick = { killDialogOpen = true }) {
-                            Icon(
-                                ExpIcons.codingStop,
-                                contentDescription = "Kill session",
-                                tint = MaterialTheme.colorScheme.error,
-                            )
-                        }
+                        TopBarActionButton(
+                            ExpIcons.codingStop,
+                            "Kill session",
+                            onClick = { killDialogOpen = true },
+                            tint = MaterialTheme.colorScheme.error,
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),

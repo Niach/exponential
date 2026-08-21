@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -24,9 +25,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -42,10 +41,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -60,8 +62,10 @@ import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuDefaults
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPillButton
+import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.SectionHeader
+import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.icons.ExpIcons
@@ -227,9 +231,7 @@ fun TeamSettingsScreen(
             TopAppBar(
                 title = { Text(state.team?.name ?: "Team") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(ExpIcons.uiBack, contentDescription = "Back")
-                    }
+                    TopBarBackButton(onClick = onBack)
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
             )
@@ -300,28 +302,52 @@ private fun BoardsSection(
         }
         // Slim per-row glass cards (iOS parity, EXP-331) instead of one tall
         // grouped section.
+        var repoTarget by remember { mutableStateOf<BoardEntity?>(null) }
         state.boards.forEach { board ->
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().glassRow().padding(horizontal = 12.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth().glassRow().padding(horizontal = 12.dp, vertical = 8.dp),
             ) {
                 BoardIcon(board)
-                Spacer(Modifier.width(10.dp))
                 Text(board.name, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                // Backing repo (one board = one repo): a chip resolving the
+                // synced repositoryId against the tRPC registry — iOS
+                // RepoNameChip parity (EXP-577).
+                val repo = state.repos.firstOrNull { it.id == board.repositoryId }
+                if (repo != null) {
+                    RepoNameChip(repo)
+                }
+                // Member-level retarget → boards.setRepository (iOS parity:
+                // the swap glyph opens the connected-repos picker).
+                RowGlyphButton(
+                    icon = ExpIcons.uiSwap,
+                    contentDescription = "Change repository",
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    onClick = { repoTarget = board },
+                )
                 // Deleting a board is owner-only (the server enforces it too);
                 // the tap opens the destructive confirm dialog.
                 if (isOwner) {
-                    Icon(
-                        ExpIcons.uiDelete,
+                    RowGlyphButton(
+                        icon = ExpIcons.uiDelete,
                         contentDescription = "Delete board",
                         tint = DesignTokens.Semantic.Red.copy(alpha = 0.5f),
-                        modifier = Modifier
-                            .clickable { onConfirm(SettingsConfirm.DeleteBoard(board)) }
-                            .padding(4.dp)
-                            .size(16.dp),
+                        onClick = { onConfirm(SettingsConfirm.DeleteBoard(board)) },
                     )
                 }
             }
+        }
+        repoTarget?.let { board ->
+            ChangeRepositorySheet(
+                board = board,
+                repos = state.repos,
+                onPick = { repo ->
+                    if (repo.id != board.repositoryId) viewModel.setBoardRepository(board.id, repo.id)
+                    repoTarget = null
+                },
+                onDismiss = { repoTarget = null },
+            )
         }
     }
 
@@ -353,15 +379,34 @@ private fun DangerZone(
     // special case, so no slug is exempt) — a team-less account lands
     // back in the create-or-join flow.
     if (isOwner && state.team != null) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            SectionHeader("Danger zone")
-            OutlinedButton(
-                onClick = { confirmDelete = true },
-                modifier = Modifier.fillMaxWidth(),
+        // iOS TeamSettingsView parity (EXP-577): red section title and a
+        // full-width red-on-glass capsule with the delete glyph.
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(
+                "Danger zone",
+                style = MaterialTheme.typography.titleSmall,
+                color = DesignTokens.Semantic.Red.copy(alpha = 0.8f),
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .glassButton()
+                    .clickable { confirmDelete = true }
+                    .padding(vertical = 10.dp),
             ) {
-                Icon(ExpIcons.uiDelete, null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Delete team", color = MaterialTheme.colorScheme.error)
+                Icon(
+                    ExpIcons.uiDelete,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = DesignTokens.Semantic.Red,
+                )
+                Text(
+                    "Delete team",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = DesignTokens.Semantic.Red,
+                )
             }
         }
     }
@@ -673,9 +718,13 @@ private fun RepositoryRow(
                 Icon(ExpIcons.uiPrivate, contentDescription = "Private", modifier = Modifier.size(13.dp), tint = tertiary)
             }
             if (canManage) {
-                IconButton(onClick = { onConfirm(SettingsConfirm.RemoveRepo(repo)) }) {
-                    Icon(ExpIcons.uiDelete, contentDescription = "Remove repository")
-                }
+                Spacer(Modifier.width(8.dp))
+                RowGlyphButton(
+                    icon = ExpIcons.uiDelete,
+                    contentDescription = "Remove repository",
+                    tint = DesignTokens.Semantic.Red.copy(alpha = 0.5f),
+                    onClick = { onConfirm(SettingsConfirm.RemoveRepo(repo)) },
+                )
             }
         }
         // "Used by" chips: the boards backed by this repo (masterplan §6).
@@ -838,9 +887,15 @@ private fun MembersSection(
                     if (hasActions) {
                         var rowMenu by remember { mutableStateOf(false) }
                         Box {
-                            IconButton(onClick = { rowMenu = true }) {
-                                Icon(ExpIcons.uiMoreVertical, contentDescription = "Member actions")
-                            }
+                            // Horizontal `⋯` at tertiary emphasis — iOS
+                            // TeamMembersSection parity (EXP-577).
+                            RowGlyphButton(
+                                icon = ExpIcons.uiMore,
+                                contentDescription = "Member actions",
+                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                                size = 18.dp,
+                                onClick = { rowMenu = true },
+                            )
                             GlassDropdownMenu(expanded = rowMenu, onDismissRequest = { rowMenu = false }) {
                                 // Role changes + removing others are owner-only.
                                 // The last owner can't be demoted or leave — the
@@ -972,23 +1027,17 @@ private fun LabelRow(
     ) {
         Box(Modifier.size(12.dp).background(parseColor(label.color), CircleShape))
         Text(label.name, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Icon(
-            ExpIcons.uiMoreVertical,
+        RowGlyphButton(
+            icon = ExpIcons.uiMoreVertical,
             contentDescription = "Edit label",
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-            modifier = Modifier
-                .clickable { editing = true }
-                .padding(4.dp)
-                .size(16.dp),
+            onClick = { editing = true },
         )
-        Icon(
-            ExpIcons.uiDelete,
+        RowGlyphButton(
+            icon = ExpIcons.uiDelete,
             contentDescription = "Delete label",
             tint = DesignTokens.Semantic.Red.copy(alpha = 0.5f),
-            modifier = Modifier
-                .clickable { onDelete(label) }
-                .padding(4.dp)
-                .size(16.dp),
+            onClick = { onDelete(label) },
         )
     }
 
@@ -1022,47 +1071,187 @@ private fun LabelEditorDialog(
 ) {
     var name by remember { mutableStateOf(initialName) }
     var color by remember { mutableStateOf(initialColor) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                GlassTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    singleLine = true,
-                    placeholder = "Label name",
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    LabelPalette.colors.forEach { swatch ->
-                        val selected = swatch.equals(color, ignoreCase = true)
-                        Box(
-                            modifier = Modifier
-                                .size(28.dp)
-                                .background(parseColor(swatch), CircleShape)
-                                .then(
-                                    if (selected) {
-                                        Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
-                                    } else Modifier,
-                                )
-                                .clickable { color = swatch },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            if (selected) {
-                                Icon(
-                                    ExpIcons.uiCheck,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(16.dp),
-                                )
-                            }
+    val canConfirm = name.isNotBlank()
+    // A glass bottom sheet (iOS LabelEditorSheet parity, EXP-577) instead of
+    // the Material alert dialog: name field, swatch grid, Cancel / confirm.
+    GlassSheet(title = title, onDismiss = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 8.dp)
+                .navigationBarsPadding(),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            GlassTextField(
+                value = name,
+                onValueChange = { name = it },
+                singleLine = true,
+                placeholder = "Label name",
+                modifier = Modifier.fillMaxWidth(),
+            )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                LabelPalette.colors.forEach { swatch ->
+                    val selected = swatch.equals(color, ignoreCase = true)
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .background(parseColor(swatch), CircleShape)
+                            .then(
+                                if (selected) {
+                                    Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
+                                } else Modifier,
+                            )
+                            .clickable { color = swatch },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (selected) {
+                            Icon(
+                                ExpIcons.uiCheck,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp),
+                            )
                         }
                     }
                 }
             }
-        },
-        confirmButton = { TextButton(onClick = { onConfirm(name.trim(), color) }) { Text(confirmLabel) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                GlassPillButton(label = "Cancel", onClick = onDismiss)
+                Spacer(Modifier.weight(1f))
+                GlassPillButton(
+                    label = confirmLabel,
+                    onClick = { onConfirm(name.trim(), color) },
+                    enabled = canConfirm,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * A bare tappable glyph at row scale (iOS `Button(.plain)` + `AppIcon(size:
+ * .small)` parity): no Material ripple box, 4dp touch inset around a
+ * [size]dp icon.
+ */
+@Composable
+private fun RowGlyphButton(
+    icon: ImageVector,
+    contentDescription: String,
+    tint: Color,
+    onClick: () -> Unit,
+    size: Dp = 16.dp,
+) {
+    Icon(
+        icon,
+        contentDescription = contentDescription,
+        tint = tint,
+        modifier = Modifier
+            .clip(CircleShape)
+            .clickable(onClick = onClick)
+            .padding(4.dp)
+            .size(size),
     )
+}
+
+/**
+ * `owner/name` glass chip for a board's backing repo — iOS `RepoNameChip`:
+ * repository glyph, monospaced name, external-link glyph; tap opens GitHub.
+ */
+@Composable
+private fun RepoNameChip(repo: TeamRepo) {
+    val context = LocalContext.current
+    val fg = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier
+            .glassButton()
+            .clickable {
+                runCatching {
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/${repo.fullName}"))
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }
+            }
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+    ) {
+        Icon(ExpIcons.uiRepository, contentDescription = null, modifier = Modifier.size(11.dp), tint = fg)
+        Text(
+            repo.fullName,
+            style = MaterialTheme.typography.labelSmall,
+            fontFamily = FontFamily.Monospace,
+            color = fg,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.widthIn(max = 140.dp),
+        )
+        Icon(ExpIcons.uiExternalLink, contentDescription = "Open on GitHub", modifier = Modifier.size(11.dp), tint = fg)
+    }
+}
+
+/**
+ * Retarget a board's backing repo to another already-connected registry repo
+ * (`boards.setRepository`) — iOS `ChangeRepositorySheet`. Connecting a NEW
+ * repo stays the Repositories section's job; this only offers connected ones.
+ */
+@Composable
+private fun ChangeRepositorySheet(
+    board: BoardEntity,
+    repos: List<TeamRepo>,
+    onPick: (TeamRepo) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+    val tertiary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+    GlassSheet(title = "Change repository", onDismiss = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 8.dp)
+                .navigationBarsPadding(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(board.name, style = MaterialTheme.typography.labelMedium, color = secondary)
+            if (repos.isEmpty()) {
+                Text(
+                    "No repositories connected. Add one in team settings → Repositories first.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = secondary,
+                )
+            }
+            repos.forEach { repo ->
+                val selected = repo.id == board.repositoryId
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .glassRow()
+                        .clickable { onPick(repo) }
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                ) {
+                    Icon(
+                        if (selected) ExpIcons.uiSelected else ExpIcons.uiUnselected,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = if (selected) DesignTokens.Semantic.Blue else tertiary,
+                    )
+                    Text(
+                        repo.fullName,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (repo.isPrivate) {
+                        Icon(ExpIcons.uiPrivate, contentDescription = "Private", modifier = Modifier.size(11.dp), tint = tertiary)
+                    }
+                }
+            }
+        }
+    }
 }

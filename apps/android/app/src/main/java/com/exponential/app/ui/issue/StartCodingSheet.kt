@@ -3,7 +3,6 @@ package com.exponential.app.ui.issue
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -65,6 +64,7 @@ import com.exponential.app.ui.components.AgentTab
 import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
 import com.exponential.app.ui.components.CLI_DEFAULT_MODEL
 import com.exponential.app.ui.components.DEFAULT_AGENT
+import com.exponential.app.ui.components.GlassPillButton
 import com.exponential.app.ui.components.GlassSegmentedControl
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.GroupDivider
@@ -453,7 +453,8 @@ fun StartCodingSheet(
                     .padding(horizontal = 12.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextButton(onClick = onDismiss) { Text("Cancel") }
+                // Glass capsule, like iOS 26's cancellationAction (EXP-577).
+                GlassPillButton(label = "Cancel", onClick = onDismiss)
                 Spacer(Modifier.weight(1f))
                 if (createActionMode) {
                     // The sheet is deliberately title-less everywhere else

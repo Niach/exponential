@@ -67,9 +67,11 @@ import com.exponential.app.domain.IssueStatusCategory
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.issuePriorityOrder
 import com.exponential.app.domain.priorityIcon
+import com.exponential.app.ui.components.GlassPillButton
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
+import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.formatDueDate
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.IssueRefHandler
@@ -276,14 +278,21 @@ fun CreateIssueScreen(
                 CenterAlignedTopAppBar(
                     title = { Text("New Issue") },
                     navigationIcon = {
-                        IconButton(onClick = ::attemptClose, enabled = !isCreating) {
-                            Icon(ExpIcons.uiBack, contentDescription = "Cancel")
-                        }
+                        TopBarBackButton(
+                            onClick = ::attemptClose,
+                            contentDescription = "Cancel",
+                            enabled = !isCreating,
+                        )
                     },
                     actions = {
-                        TextButton(onClick = ::submit, enabled = canSubmit) {
-                            Text(if (isCreating) "Creating…" else "Create")
-                        }
+                        // iOS 26 renders the confirmation item as a glass
+                        // capsule — same pill as every inline action (EXP-577).
+                        GlassPillButton(
+                            label = if (isCreating) "Creating…" else "Create",
+                            onClick = ::submit,
+                            enabled = canSubmit,
+                            modifier = Modifier.padding(end = 8.dp),
+                        )
                     },
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
                 )

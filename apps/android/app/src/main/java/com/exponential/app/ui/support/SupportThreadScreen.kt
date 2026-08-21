@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -26,10 +27,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBarDefaults
@@ -52,8 +51,13 @@ import com.exponential.app.data.api.SupportLinkedIssue
 import com.exponential.app.data.api.SupportMessage
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.EmptyState
+import com.exponential.app.ui.components.GlassDropdownMenu
+import com.exponential.app.ui.components.GlassMenuItem
+import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.LoadingState
+import com.exponential.app.ui.components.TopBarActionButton
+import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.theme.DesignTokens
@@ -126,18 +130,45 @@ fun SupportThreadScreen(
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(ExpIcons.uiBack, contentDescription = "Back")
-                    }
+                    TopBarBackButton(onClick = onBack)
                 },
                 actions = {
+                    // iOS parity (EXP-577): one `⋯` glass circle holding
+                    // Escalate + Close/Reopen — the inline escalate pill and
+                    // the bare text action are gone.
                     if (thread != null) {
-                        TextButton(
-                            onClick = {
-                                if (resolved) viewModel.reopenTicket() else viewModel.closeTicket()
-                            },
-                        ) {
-                            Text(if (resolved) "Reopen ticket" else "Close ticket")
+                        var menuOpen by remember { mutableStateOf(false) }
+                        Box {
+                            TopBarActionButton(
+                                ExpIcons.uiMore,
+                                "Ticket actions",
+                                onClick = { menuOpen = true },
+                            )
+                            GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                if (state.linkedIssue == null && boards.isNotEmpty()) {
+                                    GlassMenuItem(
+                                        leadingIcon = { Icon(ExpIcons.uiExternalLink, contentDescription = null) },
+                                        text = { Text("Escalate to issue") },
+                                        onClick = {
+                                            menuOpen = false
+                                            escalateSheetOpen = true
+                                        },
+                                    )
+                                }
+                                GlassMenuItem(
+                                    leadingIcon = {
+                                        Icon(
+                                            if (resolved) ExpIcons.supportOpen else ExpIcons.supportResolved,
+                                            contentDescription = null,
+                                        )
+                                    },
+                                    text = { Text(if (resolved) "Reopen ticket" else "Close ticket") },
+                                    onClick = {
+                                        menuOpen = false
+                                        if (resolved) viewModel.reopenTicket() else viewModel.closeTicket()
+                                    },
+                                )
+                            }
                         }
                     }
                 },
@@ -158,22 +189,8 @@ fun SupportThreadScreen(
                 .fillMaxSize()
                 .imePadding(),
         ) {
-            when {
-                state.linkedIssue != null -> LinkedIssueChip(
-                    issue = state.linkedIssue!!,
-                    onClick = { onOpenIssue(state.linkedIssue!!.id) },
-                )
-                thread != null -> Row(Modifier.padding(horizontal = 16.dp)) {
-                    Text(
-                        "Escalate to issue",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier
-                            .glassButton()
-                            .clickable { escalateSheetOpen = true }
-                            .padding(horizontal = 14.dp, vertical = 8.dp),
-                    )
-                }
+            state.linkedIssue?.let { linked ->
+                LinkedIssueChip(issue = linked, onClick = { onOpenIssue(linked.id) })
             }
             when {
                 state.loading && thread == null -> LoadingState(Modifier.weight(1f))
@@ -215,14 +232,15 @@ fun SupportThreadScreen(
     }
 
     if (escalateSheetOpen) {
-        ModalBottomSheet(onDismissRequest = { escalateSheetOpen = false }) {
+        // The shared glass sheet chrome (EXP-577) instead of a bare Material
+        // sheet with its own title.
+        GlassSheet(title = "Escalate to issue", onDismiss = { escalateSheetOpen = false }) {
             Column(
                 modifier = Modifier
                     .padding(horizontal = 16.dp)
                     .navigationBarsPadding(),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Text("Escalate to issue", style = MaterialTheme.typography.titleMedium)
                 Text(
                     "Files an issue on a board of this team, linked to this ticket.",
                     style = MaterialTheme.typography.bodySmall,

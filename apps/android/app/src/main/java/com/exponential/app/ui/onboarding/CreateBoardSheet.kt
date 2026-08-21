@@ -1,8 +1,10 @@
 package com.exponential.app.ui.onboarding
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -22,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.ui.components.GlassPillButton
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
@@ -45,24 +48,40 @@ fun CreateBoardSheet(
     LaunchedEffect(teamId) { viewModel.ensureTeam(teamId) }
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    // iOS CreateBoardSheet parity (EXP-577): a nav-bar-style header — glass
+    // "Cancel" capsule on the left, "New board" centered — and NO in-body
+    // title, so the form's "Create board" button is the only one that says so.
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = GlassTokens.BackgroundBottom,
+        dragHandle = null,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 24.dp),
+                .padding(bottom = 24.dp)
+                .navigationBarsPadding(),
         ) {
-            Text(
-                "Create board",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(bottom = 16.dp),
-            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+            ) {
+                GlassPillButton(
+                    label = "Cancel",
+                    onClick = onDismiss,
+                    modifier = Modifier.align(Alignment.CenterStart),
+                )
+                Text(
+                    "New board",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.align(Alignment.Center),
+                )
+            }
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
             val ws = resolvedTeamId
             val acct = accountId
             if (ws == null || acct == null) {
@@ -110,6 +129,7 @@ fun CreateBoardSheet(
                     },
                     viewModel = viewModel,
                 )
+            }
             }
         }
     }

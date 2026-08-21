@@ -9,16 +9,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -31,11 +27,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.BoardRepositoryChoice
+import com.exponential.app.ui.components.GlassSubmitButton
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.IconSwatchGrid
 import com.exponential.app.ui.components.RepositorySelector
@@ -102,29 +100,37 @@ fun CreateBoardForm(
     val canCreate = name.isNotBlank() && prefix.isNotBlank() && !state.submitting
 
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        GlassTextField(
-            value = name,
-            onValueChange = {
-                name = it
-                if (!prefixEdited) prefix = derivePrefix(it)
-            },
-            singleLine = true,
-            placeholder = "Board name (e.g. Backend API)",
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        if (!minimal) {
+        // Caption-labelled glass fields — iOS CreateBoardForm parity (EXP-577).
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Board name", style = MaterialTheme.typography.labelMedium, color = secondary)
             GlassTextField(
-                value = prefix,
+                value = name,
                 onValueChange = {
-                    prefixEdited = true
-                    prefix = it.uppercase().take(4)
+                    name = it
+                    if (!prefixEdited) prefix = derivePrefix(it)
                 },
                 singleLine = true,
-                placeholder = "Prefix (e.g. API)",
-                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
+                placeholder = "e.g. Backend API",
                 modifier = Modifier.fillMaxWidth(),
             )
+        }
+
+        if (!minimal) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Prefix", style = MaterialTheme.typography.labelMedium, color = secondary)
+                GlassTextField(
+                    value = prefix,
+                    onValueChange = {
+                        prefixEdited = true
+                        prefix = it.uppercase().take(4)
+                    },
+                    singleLine = true,
+                    placeholder = "e.g. API",
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
+                    textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
 
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Color", style = MaterialTheme.typography.labelMedium, color = secondary)
@@ -209,21 +215,13 @@ fun CreateBoardForm(
             }
         }
 
-        Button(
+        GlassSubmitButton(
+            label = if (state.submitting) "Creating…" else submitLabel,
+            enabled = canCreate,
             onClick = {
                 // Repo is optional — send whatever (if any) is selected.
                 viewModel.create(teamId, name, prefix, color, iconName, repository, onCreated)
             },
-            enabled = canCreate,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            if (state.submitting) {
-                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
-                Spacer(Modifier.width(8.dp))
-                Text("Creating…")
-            } else {
-                Text(submitLabel)
-            }
-        }
+        )
     }
 }

@@ -35,11 +35,15 @@ struct GithubRepoPicker: View {
     // belongs to the repos query and has its own lifecycle.
     @State private var connectError: String?
     @State private var installSession = InstallWebAuthSession()
+    // Natural height of the scroll content — short states (connect prompt,
+    // empty list) size the sheet to fit instead of a half-screen of empty
+    // glass (EXP-577); long lists keep medium/large.
+    @State private var contentHeight: CGFloat = 0
 
     // Bottom-sheet presentation (EXP-390, Android parity): the glass sheet
     // chrome instead of a full-height NavigationStack sheet.
     var body: some View {
-        GlassSheetChrome(title: "Add repository", detents: [.medium, .large]) {
+        GlassSheetChrome(title: "Add repository", detents: [.medium, .large], fittedContentHeight: contentHeight) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     content
@@ -52,6 +56,7 @@ struct GithubRepoPicker: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 16)
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { contentHeight = $0 }
             }
         }
         .task { await load() }
@@ -115,12 +120,20 @@ struct GithubRepoPicker: View {
             // primary, not the system accent.
             .buttonStyle(.borderedProminent)
             .tint(DesignTokens.Palette.primary)
+            // Android parity (EXP-577): the escape hatch is a neutral white
+            // outline with the refresh glyph, never the system-blue tint.
             Button {
                 Task { await load(refresh: true) }
             } label: {
-                Text("I've connected").frame(maxWidth: .infinity)
+                HStack(spacing: 6) {
+                    AppIcon(AppIcons.uiRefresh, size: AppIcon.Size.medium)
+                    Text("I've connected")
+                }
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
+            .tint(.white)
         }
     }
 

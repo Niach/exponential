@@ -181,7 +181,7 @@ internal fun RegularCommentRow(
                         // the height of its text and read as stray padding at
                         // the top of the card (EXP-398).
                         Icon(
-                            ExpIcons.uiMoreVertical,
+                            ExpIcons.uiMore,
                             contentDescription = "Comment actions",
                             tint = CommentMeta,
                             modifier = Modifier

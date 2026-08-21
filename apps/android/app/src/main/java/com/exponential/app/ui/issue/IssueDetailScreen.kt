@@ -317,7 +317,7 @@ fun IssueDetailScreen(
                         // The Box stays: it anchors the dropdown to the button.
                         Box {
                             CircleIconButton(
-                                ExpIcons.uiMoreVertical,
+                                ExpIcons.uiMore,
                                 "Issue actions",
                                 onClick = { overflowOpen = true },
                                 modifier = Modifier.padding(end = 8.dp),

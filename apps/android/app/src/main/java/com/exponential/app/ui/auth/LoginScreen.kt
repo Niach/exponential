@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
@@ -23,7 +22,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -44,6 +42,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.R
 import com.exponential.app.data.api.AuthWebUrls
+import com.exponential.app.ui.components.GlassOAuthButton
 import com.exponential.app.ui.components.GlassTextField
 
 @Composable
@@ -111,15 +110,17 @@ fun LoginScreen(
                 val hasOauth = config.oidcProviders.isNotEmpty() ||
                     config.googleLoginEnabled || config.appleLoginEnabled
 
+                // Provider buttons: the shared glass OAuth button with iOS
+                // LoginView's "Continue with …" wording (EXP-577).
                 if (config.appleLoginEnabled) {
-                    OutlinedButton(
+                    GlassOAuthButton(
+                        label = "Continue with Apple",
                         onClick = {
                             viewModel.appleStartUrl()?.let { url ->
                                 CustomTabsIntent.Builder().build()
                                     .launchUrl(context, Uri.parse(url))
                             }
                         },
-                        modifier = Modifier.fillMaxWidth(),
                     ) {
                         // Monochrome Apple mark, tinted with the current content
                         // color (the Compose "currentColor").
@@ -129,48 +130,42 @@ fun LoginScreen(
                             modifier = Modifier.size(18.dp),
                             tint = LocalContentColor.current,
                         )
-                        Spacer(Modifier.width(10.dp))
-                        Text("Sign in with Apple")
-                    }
-                    Spacer(Modifier.height(8.dp))
-                }
-
-                config.oidcProviders.forEach { provider ->
-                    OutlinedButton(
-                        onClick = {
-                            viewModel.oidcStartUrl(provider.id)?.let { url ->
-                                CustomTabsIntent.Builder().build()
-                                    .launchUrl(context, Uri.parse(url))
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("Sign in with ${provider.name}")
                     }
                     Spacer(Modifier.height(8.dp))
                 }
 
                 if (config.googleLoginEnabled) {
-                    OutlinedButton(
+                    GlassOAuthButton(
+                        label = "Continue with Google",
                         onClick = {
                             viewModel.googleStartUrl()?.let { url ->
                                 CustomTabsIntent.Builder().build()
                                     .launchUrl(context, Uri.parse(url))
                             }
                         },
-                        modifier = Modifier.fillMaxWidth(),
                     ) {
                         // Official multi-color "G" — tint must stay Unspecified so
                         // the brand colors aren't overridden.
                         Icon(
                             painter = painterResource(R.drawable.ic_google),
                             contentDescription = null,
-                            modifier = Modifier.size(18.dp),
+                            modifier = Modifier.size(17.dp),
                             tint = Color.Unspecified,
                         )
-                        Spacer(Modifier.width(10.dp))
-                        Text("Sign in with Google")
                     }
+                    Spacer(Modifier.height(8.dp))
+                }
+
+                config.oidcProviders.forEach { provider ->
+                    GlassOAuthButton(
+                        label = "Continue with ${provider.name}",
+                        onClick = {
+                            viewModel.oidcStartUrl(provider.id)?.let { url ->
+                                CustomTabsIntent.Builder().build()
+                                    .launchUrl(context, Uri.parse(url))
+                            }
+                        },
+                    ) {}
                     Spacer(Modifier.height(8.dp))
                 }
 

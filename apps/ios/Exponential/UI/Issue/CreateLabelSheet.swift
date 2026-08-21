@@ -25,6 +25,12 @@ struct LabelEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
     @State private var color: String
+    // Natural form height → a fitted `.height` detent (EXP-577: the medium
+    // detent left a third of the sheet empty on both platforms' reference).
+    @State private var contentHeight: CGFloat = 0
+    // Home-indicator inset — part of a `.height` detent (keyboard values are
+    // ignored so a focused field doesn't inflate the sheet).
+    @State private var bottomInset: CGFloat = 0
 
     init(
         title: String = "New label",
@@ -71,8 +77,6 @@ struct LabelEditorSheet: View {
                 }
             }
 
-            Spacer()
-
             HStack {
                 Button("Cancel") {
                     dismiss()
@@ -99,6 +103,16 @@ struct LabelEditorSheet: View {
             }
         }
         .padding(20)
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { contentHeight = $0 }
+        // Top-aligned: a sheet centers shorter content by default, which
+        // would float the form once the keyboard shrinks the detent.
+        .frame(maxHeight: .infinity, alignment: .top)
+        .onGeometryChange(for: CGFloat.self, of: { $0.safeAreaInsets.bottom }) { inset in
+            if inset < 60 { bottomInset = inset }
+        }
+        .presentationDetents(contentHeight > 0 ? [.height(contentHeight + bottomInset)] : [.medium])
+        .presentationDragIndicator(.hidden)
+        .presentationBackground(.ultraThinMaterial)
     }
 }
 

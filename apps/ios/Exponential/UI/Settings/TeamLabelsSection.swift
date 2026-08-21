@@ -98,8 +98,6 @@ struct TeamLabelsSection: View {
                     }
                 }
             }
-            .presentationDetents([.medium])
-            .presentationBackground(.ultraThinMaterial)
         }
         .sheet(item: $editingLabel) { label in
             LabelEditorSheet(
@@ -122,8 +120,6 @@ struct TeamLabelsSection: View {
                     }
                 }
             }
-            .presentationDetents([.medium])
-            .presentationBackground(.ultraThinMaterial)
         }
         .alert("Delete label?", isPresented: Binding(
             get: { deleteTarget != nil },

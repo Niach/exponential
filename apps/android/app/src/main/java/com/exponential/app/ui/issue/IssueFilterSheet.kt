@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -34,6 +33,7 @@ import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.isStatusSelected
 import com.exponential.app.domain.issuePriorityOrder
+import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.LabelDot
 import com.exponential.app.ui.components.PriorityIcon
@@ -155,10 +155,8 @@ private fun CategoryRow(label: String, count: Int, onClick: () -> Unit) {
 @Composable
 private fun SubViewHeader(title: String, onBack: () -> Unit, content: @Composable () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-        IconButton(onClick = onBack) {
-            Icon(ExpIcons.uiBack, contentDescription = "Back")
-        }
-        Spacer(Modifier.width(4.dp))
+        CircleIconButton(ExpIcons.uiBack, "Back", onClick = onBack)
+        Spacer(Modifier.width(10.dp))
         Text(title, style = MaterialTheme.typography.titleMedium)
     }
     Spacer(Modifier.height(4.dp))

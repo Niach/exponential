@@ -16,8 +16,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -25,7 +23,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -34,12 +31,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.electric.SyncStats
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.SectionHeader
-import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -78,9 +76,7 @@ fun SyncDiagnosticsScreen(
             TopAppBar(
                 title = { Text("Sync Diagnostics") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(ExpIcons.uiBack, contentDescription = "Back")
-                    }
+                    TopBarBackButton(onClick = onBack)
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
             )
