@@ -1,0 +1,1 @@
+New issue dialog and formatting bar polish, issue links on mobile, a fix for a crash when reopening long coding sessions, and clearer multi-step agent questions.

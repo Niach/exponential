@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-issue-dialog-and-session-fixes`,
+    date: `2026-08-21`,
+    title: `Leaner issue dialog, steadier sessions`,
+    summary: `The new issue dialog drops its clutter, the editor gets a static insert bar, and coding sessions on iOS no longer crash on long histories.`,
+    body: `- **New issue dialog**: the create dialog on web and desktop loses the icon and "create more" chrome; the attachment rail only appears once you add a file.
+- **Insert bar**: emoji, image and file buttons sit in a fixed bar under the editor instead of the floating selection rail, so the rail no longer swallows clicks.
+- **Icon pickers**: board forms open the icon grid from a compact swatch next to the name field.
+- **Agent questions on mobile**: multi-step questions show which step you are on and what you already answered, on iOS and Android.
+- **iOS**: reopening a coding session with a long activity history no longer crashes.`,
+  },
+  {
     id: `2026-08-automations-split`,
     date: `2026-08-21`,
     title: `Automations are their own thing`,
