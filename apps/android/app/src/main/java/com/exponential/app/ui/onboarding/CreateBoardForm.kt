@@ -101,18 +101,32 @@ fun CreateBoardForm(
 
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         // Caption-labelled glass fields — iOS CreateBoardForm parity (EXP-577).
+        // Name, with the icon picker LEFT of the input (EXP-584 — web, desktop
+        // and iOS share the row). The shared curated picker (EXP-273/575) is
+        // the same one an `icon` action input uses in the Start-coding sheet.
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Board name", style = MaterialTheme.typography.labelMedium, color = secondary)
-            GlassTextField(
-                value = name,
-                onValueChange = {
-                    name = it
-                    if (!prefixEdited) prefix = derivePrefix(it)
-                },
-                singleLine = true,
-                placeholder = "e.g. Backend API",
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth(),
-            )
+            ) {
+                IconPicker(
+                    selected = iconName,
+                    onSelect = { iconName = it },
+                    accentColor = parseColor(color),
+                )
+                GlassTextField(
+                    value = name,
+                    onValueChange = {
+                        name = it
+                        if (!prefixEdited) prefix = derivePrefix(it)
+                    },
+                    singleLine = true,
+                    placeholder = "e.g. Backend API",
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
 
         if (!minimal) {
@@ -158,17 +172,6 @@ fun CreateBoardForm(
                     }
                 }
             }
-        }
-
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Icon", style = MaterialTheme.typography.labelMedium, color = secondary)
-            // The shared curated picker (EXP-273/575) — the same swatches an
-            // `icon` action input picks from in the Start-coding sheet.
-            IconPicker(
-                selected = iconName,
-                onSelect = { iconName = it },
-                accentColor = parseColor(color),
-            )
         }
 
         // Repository is ALWAYS optional on every board.

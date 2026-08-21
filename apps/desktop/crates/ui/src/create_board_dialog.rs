@@ -510,7 +510,7 @@ impl CreateBoardDialogView {
     /// settings page).
     fn icon_picker(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let view = cx.entity().clone();
-        let picker = crate::board_form::icon_picker(
+        crate::board_form::icon_picker(
             "create-board",
             Some(self.icon),
             false,
@@ -522,8 +522,19 @@ impl CreateBoardDialogView {
                 });
             },
             cx,
-        );
-        v_flex().gap_2().child(field_label(cx, "Icon")).child(picker)
+        )
+    }
+
+    /// "Name" = the icon picker LEFT of the name input, one row (EXP-584 —
+    /// web `BoardNameField`, board settings and the natives share the shape).
+    fn name_field(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        v_flex().gap_2().child(field_label(cx, "Name")).child(
+            h_flex()
+                .gap_2()
+                .items_center()
+                .child(self.icon_picker(cx))
+                .child(div().flex_1().child(Input::new(&self.name).web_input_sm())),
+        )
     }
 
     /// The "Repository" field: a dropdown offering the team's connected
@@ -943,9 +954,8 @@ impl Render for CreateBoardDialogView {
 
         let mut form = v_flex()
             .gap_4()
-            .child(labeled(cx, "Name", Input::new(&self.name).web_input_sm()))
+            .child(self.name_field(cx))
             .child(labeled(cx, "Prefix", Input::new(&self.prefix).web_input_sm()))
-            .child(self.icon_picker(cx))
             .child(
                 v_flex()
                     .gap_2()

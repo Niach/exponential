@@ -42,20 +42,26 @@ struct CreateBoardForm: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // Name + prefix
+            // Name, with the icon picker LEFT of the input (EXP-584 — web,
+            // desktop and Android share the row). The picker lives in ExpUI
+            // so the Start-coding sheet's `icon` action input picks from the
+            // exact same curated swatches (EXP-273/575).
             VStack(alignment: .leading, spacing: 8) {
                 fieldLabel("Board name")
-                TextField("e.g. Backend API", text: Binding(
-                    get: { name },
-                    set: { onNameChange($0) }
-                ))
-                .font(.subheadline)
-                .textFieldStyle(.plain)
-                .foregroundStyle(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(Color.white.opacity(0.06))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                HStack(spacing: 8) {
+                    IconPicker(selection: $icon, tint: Color(hex: color))
+                    TextField("e.g. Backend API", text: Binding(
+                        get: { name },
+                        set: { onNameChange($0) }
+                    ))
+                    .font(.subheadline)
+                    .textFieldStyle(.plain)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(Color.white.opacity(0.06))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
             }
 
             if !minimal {
@@ -81,14 +87,6 @@ struct CreateBoardForm: View {
                     fieldLabel("Color")
                     ColorSwatchGrid(selection: $color)
                 }
-            }
-
-            // Icon (curated glyphs) — the shared registry's pickable set. The
-            // picker lives in ExpUI so the Start-coding sheet's `icon` action
-            // input picks from the exact same swatches (EXP-273/575).
-            VStack(alignment: .leading, spacing: 8) {
-                fieldLabel("Icon")
-                IconPicker(selection: $icon, tint: Color(hex: color))
             }
 
             // Repository (always optional) — the selector renders its own label.
