@@ -34,7 +34,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -202,8 +201,8 @@ fun InstanceScreen(
                         color = Color.White.copy(alpha = TextEmphasis.Tertiary),
                     )
                     GlassTextField(
-                        value = input.text,
-                        onValueChange = { input = TextFieldValue(it, selection = TextRange(it.length)) },
+                        value = input,
+                        onValueChange = { input = it },
                         singleLine = true,
                         placeholder = "https://exp.example.com",
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go),

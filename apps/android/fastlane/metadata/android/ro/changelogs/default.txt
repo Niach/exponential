@@ -1,6 +1,0 @@
-Vibecode together. Exponential devine tot mai bun.
-
-• Urmărire a issue-urilor în timp real, sincronizată live cu web, desktop și iOS.
-• Începe să programezi de pe telefon: agenții lucrează pe un branch real și deschid PR-ul.
-• Ghidează sesiunile live și răspunde întrebărilor agentului tău de oriunde.
-• Inbox de suport comun, notificări push și Markdown peste tot.

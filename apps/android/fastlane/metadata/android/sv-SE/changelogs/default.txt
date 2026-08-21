@@ -1,6 +1,0 @@
-Vibecode together. Exponential blir hela tiden bättre.
-
-• Issue-spårning i realtid, live-synkad med webb-, desktop- och iOS-klienterna.
-• Börja koda från mobilen: agenter jobbar på en riktig branch och öppnar PR:en.
-• Styr sessioner live och svara på din agents frågor var du än är.
-• Delad supportinkorg, pushnotiser och Markdown överallt.

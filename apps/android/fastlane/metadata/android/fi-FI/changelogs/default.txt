@@ -1,6 +1,0 @@
-Vibecode together. Exponential paranee jatkuvasti.
-
-• Reaaliaikainen issue-seuranta, joka synkronoituu suorana web-, työpöytä- ja iOS-sovellusten kanssa.
-• Aloita koodaus puhelimesta: agentit työskentelevät oikeassa branchissa ja avaavat PR:n.
-• Ohjaa sessioita suorana ja vastaa agenttisi kysymyksiin mistä tahansa.
-• Jaettu tukiposti, push-ilmoitukset ja Markdown kaikkialla.

@@ -1,6 +1,0 @@
-Vibecode together. Exponential wird immer besser.
-
-• Issue-Tracking in Echtzeit, live synchron mit Web-, Desktop- und iOS-Clients.
-• Starte Coding-Sessions vom Handy: Agents arbeiten auf einem echten Branch und öffnen den PR.
-• Steuere Sessions live und beantworte die Fragen deines Agents von überall.
-• Gemeinsamer Support-Posteingang, Push-Benachrichtigungen und Markdown überall.
