@@ -16,7 +16,6 @@ import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -47,6 +46,7 @@ import com.exponential.app.data.db.MultiAccountTeamRepository
 import com.exponential.app.data.db.ServerTeamGroup
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.TeamAvatar
+import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.AppBackground
 import com.exponential.app.ui.theme.TextEmphasis
@@ -113,9 +113,7 @@ fun SettingsScreen(
                 CenterAlignedTopAppBar(
                     title = { Text("Settings") },
                     navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(ExpIcons.uiBack, contentDescription = "Back")
-                        }
+                        TopBarBackButton(onClick = onBack)
                     },
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                         containerColor = Color.Transparent,

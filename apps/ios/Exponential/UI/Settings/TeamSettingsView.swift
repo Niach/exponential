@@ -55,6 +55,7 @@ struct TeamSettingsView: View {
                         team: team,
                         currentUserId: deps.auth.userId,
                         isOwner: isOwner,
+                        boards: boards,
                         repositoriesApi: deps.repositoriesApi,
                         integrationsApi: deps.integrationsApi,
                         instanceBaseURL: deps.auth.instanceBaseURL(forAccountId: accountId)

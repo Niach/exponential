@@ -11,9 +11,28 @@ import SwiftUI
 struct GlassSheetChrome<Content: View>: View {
     let title: String
     var detents: Set<PresentationDetent> = [.medium]
+    /// The caller-measured natural height of `content` (EXP-577). While it
+    /// fits in half the screen the sheet sizes to exactly header + content +
+    /// home-indicator inset instead of a half-screen of empty glass; nil, 0 or
+    /// taller falls back to `detents`.
+    var fittedContentHeight: CGFloat? = nil
     @ViewBuilder let content: () -> Content
 
     @Environment(\.dismiss) private var dismiss
+    // The sheet's bottom safe-area inset (home indicator) — part of a
+    // `.height` detent, so it must be added to the measured content. Values
+    // from a raised keyboard are ignored (they'd inflate the detent).
+    @State private var bottomInset: CGFloat = 0
+
+    /// The header's vertical footprint (top 18 + 30pt close circle + bottom 10).
+    static var headerHeight: CGFloat { 58 }
+
+    private var resolvedDetents: Set<PresentationDetent> {
+        guard let height = fittedContentHeight, height > 0 else { return detents }
+        let fitted = height + Self.headerHeight + bottomInset
+        guard fitted < UIScreen.main.bounds.height * 0.5 else { return detents }
+        return [.height(fitted)]
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -39,7 +58,11 @@ struct GlassSheetChrome<Content: View>: View {
 
             content()
         }
-        .presentationDetents(detents)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .onGeometryChange(for: CGFloat.self, of: { $0.safeAreaInsets.bottom }) { inset in
+            if inset < 60 { bottomInset = inset }
+        }
+        .presentationDetents(resolvedDetents)
         .presentationBackground(.ultraThinMaterial)
         .presentationCornerRadius(24)
         .presentationDragIndicator(.hidden)

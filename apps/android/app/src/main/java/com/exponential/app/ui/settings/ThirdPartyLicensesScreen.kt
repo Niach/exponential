@@ -10,8 +10,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -25,11 +23,11 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewModelScope
 import com.exponential.app.domain.ThirdPartyNotices
 import com.exponential.app.ui.components.EmptyState
-import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.theme.AppBackground
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
@@ -92,9 +90,7 @@ fun ThirdPartyLicensesScreen(
                 TopAppBar(
                     title = { Text("Third-party licenses") },
                     navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(ExpIcons.uiBack, contentDescription = "Back")
-                        }
+                        TopBarBackButton(onClick = onBack)
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
                 )

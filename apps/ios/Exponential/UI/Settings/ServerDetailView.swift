@@ -241,10 +241,13 @@ struct ServerDetailView: View {
                             dismiss()
                         }
                     } label: {
+                        // White, not red — signing out is routine, only the
+                        // destructive rows below are red (Android parity,
+                        // EXP-577).
                         actionRow(
                             icon: AppIcons.navSignOut,
                             title: "Sign out",
-                            tint: .red
+                            tint: .white
                         )
                     }
                     .buttonStyle(.plain)

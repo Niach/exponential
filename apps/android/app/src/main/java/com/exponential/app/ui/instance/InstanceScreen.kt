@@ -2,8 +2,10 @@ package com.exponential.app.ui.instance
 
 import android.net.Uri
 import androidx.browser.customtabs.CustomTabsIntent
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,16 +14,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Button
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,14 +34,25 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.AppConstants
 import com.exponential.app.R
+import com.exponential.app.ui.components.GlassOAuthButton
+import com.exponential.app.ui.components.GlassSubmitButton
 import com.exponential.app.ui.components.GlassTextField
+import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.theme.DesignTokens
+import com.exponential.app.ui.theme.TextEmphasis
+import com.exponential.app.ui.theme.glassCard
 
 @Composable
 fun InstanceScreen(
@@ -83,109 +95,147 @@ fun InstanceScreen(
         CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(url))
     }
 
+    // iOS InstanceView parity (EXP-577): the wordmark + "Connect to
+    // Exponential" lead-in above ONE glass card holding the provider buttons,
+    // the self-host link / URL field and Cancel — same texts, same order.
     Column(
         modifier = Modifier
             .fillMaxSize()
             .windowInsetsPadding(WindowInsets.systemBars)
-            .padding(24.dp),
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 32.dp, vertical = 24.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.Start,
     ) {
         Text(
-            if (AppConstants.IS_STAGING) "Connect to Exp Staging" else "Connect to Exponential",
-            style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.onSurface,
+            "Exponential",
+            style = MaterialTheme.typography.headlineLarge.copy(fontSize = 32.sp, fontWeight = FontWeight.Bold),
+            color = Color.White,
         )
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Connect to Exponential",
+            style = MaterialTheme.typography.bodyLarge,
+            color = Color.White.copy(alpha = TextEmphasis.Secondary),
+        )
+        Spacer(Modifier.height(32.dp))
 
-        if (!cloudAlreadyAdded) {
-            // Cloud is the primary path: sign in directly with the provider,
-            // no intermediate screen, rendered immediately (EXP-405 — the
-            // welcome screen IS the login; the generic chooser is gone).
-            if (directApple) {
-                OutlinedButton(
-                    onClick = { startCloudOAuth("apple") },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_apple),
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = LocalContentColor.current,
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Text("Continue with Apple")
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .glassCard()
+                .padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            if (!cloudAlreadyAdded) {
+                if (AppConstants.IS_STAGING) {
+                    // Small build marker so testers can tell builds apart
+                    // (iOS keeps the same line).
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.padding(horizontal = 4.dp),
+                    ) {
+                        Icon(
+                            ExpIcons.uiStaging,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = DesignTokens.Semantic.Orange,
+                        )
+                        Text(
+                            "Staging · " + (Uri.parse(AppConstants.PUBLIC_CLOUD_URL).host ?: AppConstants.PUBLIC_CLOUD_URL),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = DesignTokens.Semantic.Orange,
+                        )
+                    }
                 }
-                Spacer(Modifier.height(8.dp))
-            }
-            if (directGoogle) {
-                OutlinedButton(
-                    onClick = { startCloudOAuth("google") },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    // Official multi-color "G" — tint stays Unspecified so
-                    // the brand colors aren't overridden.
-                    Icon(
-                        painter = painterResource(R.drawable.ic_google),
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = Color.Unspecified,
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Text("Continue with Google")
+                // Cloud is the primary path: sign in directly with the
+                // provider, no intermediate screen, rendered immediately
+                // (EXP-405 — the welcome screen IS the login).
+                if (directApple) {
+                    GlassOAuthButton(
+                        label = "Continue with Apple",
+                        onClick = { startCloudOAuth("apple") },
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_apple),
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = LocalContentColor.current,
+                        )
+                    }
                 }
-                Spacer(Modifier.height(8.dp))
-            }
-
-            if (!showSelfHost) {
-                TextButton(
-                    onClick = { showSelfHost = true },
-                    modifier = Modifier.align(Alignment.CenterHorizontally),
-                ) {
+                if (directGoogle) {
+                    GlassOAuthButton(
+                        label = "Continue with Google",
+                        onClick = { startCloudOAuth("google") },
+                    ) {
+                        // Official multi-color "G" — tint stays Unspecified so
+                        // the brand colors aren't overridden.
+                        Icon(
+                            painter = painterResource(R.drawable.ic_google),
+                            contentDescription = null,
+                            modifier = Modifier.size(17.dp),
+                            tint = Color.Unspecified,
+                        )
+                    }
+                }
+                if (!showSelfHost) {
                     Text(
                         "Use a self-hosted instance",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = TextEmphasis.Tertiary),
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showSelfHost = true }
+                            .padding(vertical = 4.dp),
                     )
                 }
             }
-        }
 
-        if (showSelfHost) {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "Self-hosted? Enter the full URL of your server.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(8.dp))
-
-            GlassTextField(
-                value = input,
-                onValueChange = { input = it },
-                singleLine = true,
-                placeholder = "https://exp.example.com",
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("instance-url-field"),
-            )
-
-            Spacer(Modifier.height(16.dp))
-
-            Button(
-                onClick = { if (canSubmit) onContinue(input.text) },
-                enabled = canSubmit,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Continue")
+            if (showSelfHost) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Server URL",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = TextEmphasis.Tertiary),
+                    )
+                    GlassTextField(
+                        value = input.text,
+                        onValueChange = { input = TextFieldValue(it, selection = TextRange(it.length)) },
+                        singleLine = true,
+                        placeholder = "https://exp.example.com",
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go),
+                        keyboardActions = KeyboardActions(onGo = { if (canSubmit) onContinue(input.text) }),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("instance-url-field"),
+                    )
+                }
+                GlassSubmitButton(
+                    label = "Continue",
+                    enabled = canSubmit,
+                    onClick = { if (canSubmit) onContinue(input.text) },
+                )
+                Text(
+                    "Self-hosted? Enter the full URL of your server.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White.copy(alpha = TextEmphasis.Tertiary),
+                )
             }
-        }
 
-        if (showCancel && onCancel != null) {
-            Spacer(Modifier.height(8.dp))
-            TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) {
-                Text("Cancel")
+            if (showCancel && onCancel != null) {
+                Text(
+                    "Cancel",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = Color.White.copy(alpha = TextEmphasis.Secondary),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onCancel)
+                        .padding(vertical = 12.dp),
+                )
             }
         }
     }

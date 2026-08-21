@@ -175,7 +175,7 @@ private fun FileRow(
         Box {
             IconButton(onClick = { menuOpen = true }) {
                 Icon(
-                    ExpIcons.uiMoreVertical,
+                    ExpIcons.uiMore,
                     contentDescription = "File actions",
                     modifier = Modifier.size(18.dp),
                 )

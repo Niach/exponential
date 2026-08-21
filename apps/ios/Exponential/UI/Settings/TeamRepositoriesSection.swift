@@ -26,6 +26,9 @@ struct TeamRepositoriesSection: View {
     /// The viewer — sharer-or-owner row gating needs it (EXP-557).
     let currentUserId: String?
     let isOwner: Bool
+    /// Synced boards — the "Used by" chips draw each board's own glyph +
+    /// color from them (Android parity, EXP-577).
+    var boards: [BoardEntity] = []
     let repositoriesApi: RepositoriesApi
     let integrationsApi: IntegrationsApi
     let instanceBaseURL: URL?
@@ -302,14 +305,20 @@ struct TeamRepositoriesSection: View {
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .padding(.vertical, 4)
                 }
-                ForEach(repo.boards) { board in
-                    Text(board.name)
-                        .font(.caption)
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 5)
-                        .glassButton()
+                ForEach(repo.boards) { ref in
+                    HStack(spacing: 6) {
+                        if let board = boards.first(where: { $0.id == ref.id }) {
+                            AppIcon(BoardTypeDisplay.iconName(for: board), size: 12)
+                                .foregroundStyle(Color(hex: board.color ?? "#888888") ?? .gray)
+                        }
+                        Text(ref.name)
+                            .font(.caption)
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .glassButton()
                 }
             }
         }

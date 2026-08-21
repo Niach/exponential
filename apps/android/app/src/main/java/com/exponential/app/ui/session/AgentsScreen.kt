@@ -557,7 +557,7 @@ private fun MachineRow(
             Box {
                 IconButton(onClick = { rowMenu = true }) {
                     Icon(
-                        ExpIcons.uiMoreVertical,
+                        ExpIcons.uiMore,
                         contentDescription = "Machine actions",
                         modifier = Modifier.size(18.dp),
                         tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
