@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-mobile-issue-ref-menu`,
+    date: `2026-08-21`,
+    title: `Issue links on mobile`,
+    summary: `Typing # on iOS opens a proper issue menu with status, identifier and title, and Android shows the status too.`,
+    body: `- **iOS issue links**: typing \`#\` in a comment or description now opens a vertical menu under your text, the same one as @mentions and emoji, instead of a cramped horizontal strip that never appeared in the comment composer.
+- **Status everywhere**: issue suggestions on iOS and Android lead with the issue's status glyph, matching web and desktop, and show up to eight matches.`,
+  },
+  {
     id: `2026-08-mobile-glass-ui-icon-pickers`,
     date: `2026-08-21`,
     title: `Mobile polish and compact icon pickers`,

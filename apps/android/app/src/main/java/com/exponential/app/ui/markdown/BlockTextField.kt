@@ -61,6 +61,7 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import com.exponential.app.ui.components.GlassMenuSurface
+import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.emoji.EmojiRecord
 import com.exponential.app.ui.emoji.EmojiTokenMatch
 import com.exponential.app.ui.emoji.applySkinTone
@@ -587,17 +588,24 @@ private fun AutocompleteMenu(
                             .padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        // EXP-581: status glyph first, then the mono identifier,
+                        // then the title — the web IssueCandidateRow layout,
+                        // now uniform across all four clients.
+                        target.resolvedStatus?.let { status ->
+                            StatusIcon(status, size = 16.dp)
+                            Spacer(Modifier.width(8.dp))
+                        }
                         Text(
                             target.identifier,
                             style = MaterialTheme.typography.labelMedium,
                             fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
                             target.title,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodyMedium,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f),

@@ -576,7 +576,8 @@ private struct RegularCommentRow: View {
                     accountId: accountId,
                     httpClient: httpClient,
                     mentionMembers: mentionMembers,
-                    onIssueRefTap: { issueId in onOpenIssue(issueId) }
+                    onIssueRefTap: { issueId in onOpenIssue(issueId) },
+                    autocompletePlacement: .external
                 )
                 // Bounded scroller, not a bare frame clamp — overflow content
                 // rendered outside the clamp with the caret detached (EXP-246).
@@ -584,6 +585,11 @@ private struct RegularCommentRow: View {
                 .padding(.vertical, 2)
                 .background(Color.white.opacity(0.04))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
+                // EXP-581: the `@`/`#`/`:` menu renders below the clipped
+                // editor box, never inside it.
+                if editEditor.hasAutocompleteCandidates {
+                    EditorAutocompleteMenu(model: editEditor)
+                }
 
                 // Already-linked rows, each removable. Removals only take effect
                 // on Save — and then they are permanent.

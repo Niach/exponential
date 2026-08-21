@@ -45,6 +45,16 @@ struct MarkdownEditor: View {
     /// "images go in the description". Nil keeps the plain image button, for
     /// editors whose host has nowhere to put an attachment.
     var onAttachFile: ((URL) -> Void)?
+    /// EXP-581: where the `@`/`#`/`:` candidate menu renders. The default
+    /// anchors it under the focused text block (it floats over whatever
+    /// follows); hosts whose editor is height-clipped (the comment composers)
+    /// pass `.external` and mount `EditorAutocompleteMenu(model:)` themselves.
+    var autocompletePlacement: AutocompletePlacement = .belowFocusedBlock
+
+    enum AutocompletePlacement {
+        case belowFocusedBlock
+        case external
+    }
 
     @State private var photoItem: PhotosPickerItem?
     @State private var showPhotoPicker = false
@@ -83,6 +93,19 @@ struct MarkdownEditor: View {
                                 onIssueRefTap: onIssueRefTap
                             )
                             .id(id)
+                            // EXP-581: the candidate menu hangs off the bottom
+                            // of the block being typed in, drawn above the
+                            // sibling blocks (and the host content) below it.
+                            .overlay(alignment: .bottomLeading) {
+                                if !isReadOnly,
+                                   autocompletePlacement == .belowFocusedBlock,
+                                   model.autocompleteAnchorBlockId == id {
+                                    EditorAutocompleteMenu(model: model)
+                                        .padding(.top, 4)
+                                        .alignmentGuide(.bottom) { d in d[.top] }
+                                }
+                            }
+                            .zIndex(model.autocompleteAnchorBlockId == id ? 1 : 0)
 
                         case .image(let id, let url, let alt):
                             BlockImageView(
@@ -106,17 +129,6 @@ struct MarkdownEditor: View {
                 }
                 .padding(.horizontal, isReadOnly ? 0 : 8)
                 .padding(.top, isReadOnly ? 0 : 12)
-        }
-        .overlay(alignment: .top) {
-            // The two token shapes are mutually exclusive, so at most one bar
-            // has candidates at a time.
-            if !isReadOnly, !model.mentionCandidates.isEmpty {
-                mentionBar
-            } else if !isReadOnly, !model.issueRefCandidates.isEmpty {
-                issueRefBar
-            } else if !isReadOnly, !model.emojiCandidates.isEmpty {
-                emojiBar
-            }
         }
         .sheet(isPresented: $showEmojiPicker, onDismiss: refocusAfterEmojiPicker) {
             EmojiPickerSheet(preferences: emojiPreferences) { unicode in
@@ -171,99 +183,6 @@ struct MarkdownEditor: View {
         .onChange(of: onAttachFile == nil) { _, isNil in
             toolbar.onFilePick = isNil ? nil : { showFileImporter = true }
         }
-    }
-
-    // @-mention autocomplete: a non-focus-stealing candidate bar. Tapping inserts
-    // the canonical `@email` token via the model (which keeps the text view first
-    // responder), so the keyboard never collapses.
-    private var mentionBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(model.mentionCandidates) { member in
-                    Button {
-                        model.applyMention(member)
-                    } label: {
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(member.name).font(.caption.weight(.medium)).foregroundStyle(.white)
-                            Text(member.email).font(.caption2).foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        }
-                        .padding(.horizontal, 10).padding(.vertical, 6)
-                        .background(Color.white.opacity(0.1), in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-        }
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .padding(.horizontal, 8)
-    }
-
-    // #-issue-ref autocomplete: the same non-focus-stealing candidate bar as
-    // mentions. Tapping inserts the plain `#IDENTIFIER` interchange token via
-    // the model, so the keyboard never collapses and the markdown stays plain.
-    private var issueRefBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(model.issueRefCandidates) { candidate in
-                    Button {
-                        model.applyIssueRef(candidate)
-                    } label: {
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(candidate.identifier).font(.caption.weight(.medium)).foregroundStyle(.white)
-                            Text(candidate.title)
-                                .font(.caption2)
-                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                                .lineLimit(1)
-                                .frame(maxWidth: 160, alignment: .leading)
-                        }
-                        .padding(.horizontal, 10).padding(.vertical, 6)
-                        .background(Color.white.opacity(0.1), in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-        }
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .padding(.horizontal, 8)
-    }
-
-    // `:shortcode` emoji autocomplete: the same non-focus-stealing capsule bar
-    // as mentions/issue refs. Tapping inserts the UNICODE (toned by the user's
-    // preference) through the model, so the keyboard never collapses and the
-    // markdown stays plain GFM (EXP-551).
-    private var emojiBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(model.emojiCandidates) { record in
-                    Button {
-                        model.applyEmoji(record)
-                    } label: {
-                        HStack(spacing: 6) {
-                            Text(record.applyingTone(model.emojiSkinTone))
-                                .font(.system(size: 17))
-                            Text(":\(record.shortcodes.first ?? record.label):")
-                                .font(.caption2)
-                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                                .lineLimit(1)
-                        }
-                        .padding(.horizontal, 10).padding(.vertical, 6)
-                        .background(Color.white.opacity(0.1), in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-        }
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .padding(.horizontal, 8)
     }
 
     /// The picker sheet took first responder; hand it back so the keyboard
