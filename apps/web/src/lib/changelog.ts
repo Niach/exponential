@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-ios-autocomplete-above-keyboard`,
+    date: `2026-08-22`,
+    title: `iOS @, # and : menus are back`,
+    summary: `Typing @, # or : in an iOS issue description opens its picker again instead of doing nothing.`,
+    body: `- The candidate menu now rides above the keyboard on every iOS editor. It used to hang off the end of the description, which put it behind the keyboard for anything longer than a couple of lines, so typing \`#\` looked like it did nothing at all.
+- Editing a comment far down a long thread had the same problem, and is fixed with it.`,
+  },
+  {
     id: `2026-08-ios-feed-pin-and-list-edge`,
     date: `2026-08-21`,
     title: `iOS session feed fixes`,
