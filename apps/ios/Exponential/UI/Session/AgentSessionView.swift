@@ -75,8 +75,11 @@ struct AgentSessionView: View {
 
     private static let bottomAnchor = "feed-bottom"
     private static let feedCoordSpace = "feed-scroll"
-    /// Within this many points of the bottom still counts as pinned.
-    private static let followSlack: CGFloat = 32
+    /// Within this many points of the bottom still counts as pinned. Android
+    /// parity (96dp, EXP-529): a pixel-tight slack made the "Jump to bottom"
+    /// pill hard to dismiss — a short drag had to land on the exact bottom to
+    /// re-pin, so it lingered while the list visually WAS at the end (EXP-588).
+    private static let followSlack: CGFloat = 96
 
     var body: some View {
         ZStack {
@@ -515,6 +518,7 @@ struct AgentSessionView: View {
     private func questionCard(_ question: AgentQuestion) -> some View {
         QuestionCard(
             question: question,
+            localAnswer: model?.localAnswerSummary(question.lockKey),
             active: model?.activeQuestionIds.contains(question.id) ?? false,
             canAnswer: canAnswer,
             locked: model?.isAnswerLocked(question.lockKey) ?? false,
@@ -545,6 +549,10 @@ struct AgentSessionView: View {
                 question: question,
                 stepLabel: stepLabel(for: question, in: group),
                 priorSteps: Array(group.questions.prefix(index)),
+                priorAnswers: group.questions.prefix(index).map { step in
+                    step.answerSummary ?? model?.localAnswerSummary(step.lockKey)
+                },
+                localAnswer: model?.localAnswerSummary(question.lockKey),
                 active: stepIndex != nil && (model?.activeQuestionIds.contains(question.id) ?? false),
                 canAnswer: canAnswer,
                 locked: model?.isAnswerLocked(question.lockKey) ?? false,
@@ -570,7 +578,17 @@ struct AgentSessionView: View {
 
     private func sendAnswer(_ question: AgentQuestion, keys: [String], text: String? = nil) {
         guard let wireId = question.wireId else { return }
-        model?.sendAnswer(questionId: wireId, askId: question.askId, keys: keys, text: text)
+        // The picked labels (a typed free-text reply wins over its row's
+        // "Type something" label) — what the stepper shows for this step
+        // until the desktop resolves the ask (EXP-588).
+        let labels: [String] = keys.compactMap { key in
+            guard let option = question.options.first(where: { $0.key == key }) else { return nil }
+            if option.freeText, let text, !text.isEmpty { return text }
+            return option.label
+        }
+        model?.sendAnswer(
+            questionId: wireId, askId: question.askId, keys: keys, text: text, labels: labels
+        )
     }
 
     /// Whether this client may answer questions at all — a question card is
@@ -1001,6 +1019,12 @@ private struct QuestionCard: View {
     var stepLabel: String? = nil
     /// The ask's already-answered steps, summarized above this one.
     var priorSteps: [AgentQuestion] = []
+    /// Per prior step: its answer — the desktop-resolved one, else what this
+    /// client picked (EXP-588); nil = answered elsewhere, unknown here.
+    var priorAnswers: [String?] = []
+    /// What this client picked for THIS card — shown once it resolves when
+    /// the desktop's resolution carried no answer text (EXP-588).
+    var localAnswer: String? = nil
     /// Still answerable per the feed — the session is blocked on this card.
     let active: Bool
     /// Live (and not ended) — whether this client may answer at all.
@@ -1111,19 +1135,35 @@ private struct QuestionCard: View {
     }
 
     /// The answered steps of this ask, so the stepper still shows what was
-    /// already chosen.
+    /// asked and what was chosen — the question folded to one line next to
+    /// its answer (web `AnsweredStepRow` parity, EXP-588).
     @ViewBuilder
     private var priorStepSummary: some View {
         if !priorSteps.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
-                ForEach(priorSteps) { step in
+                ForEach(Array(priorSteps.enumerated()), id: \.element.id) { position, step in
+                    let answer = position < priorAnswers.count ? priorAnswers[position] : nil
                     HStack(alignment: .top, spacing: 6) {
-                        AppIcon(AppIcons.uiCheck, size: 11)
-                            .foregroundStyle(DesignTokens.Semantic.green)
+                        AppIcon(step.dismissed ? AppIcons.uiClose : AppIcons.uiCheck, size: 11)
+                            .foregroundStyle(
+                                step.dismissed
+                                    ? Color.white.opacity(TextOpacity.tertiary)
+                                    : DesignTokens.Semantic.green
+                            )
                             .padding(.top, 2)
-                        Text(step.answerSummary ?? "Answered")
+                        Text(step.header?.isEmpty == false ? step.header! : step.text)
                             .font(.caption)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Text(answer ?? (step.dismissed ? "Dismissed" : "Answered"))
+                            .font(.caption.weight(.medium))
+                            .lineLimit(2)
+                            .multilineTextAlignment(.trailing)
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .frame(maxWidth: 180, alignment: .trailing)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }
@@ -1162,7 +1202,11 @@ private struct QuestionCard: View {
                         : DesignTokens.Semantic.green
                 )
                 .padding(.top, 2)
-            Text(question.answerSummary ?? (question.dismissed ? "Dismissed" : "Answered"))
+            Text(
+                question.answerSummary
+                    ?? (question.dismissed ? nil : localAnswer)
+                    ?? (question.dismissed ? "Dismissed" : "Answered")
+            )
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.white)
                 .textSelection(.enabled)
@@ -1189,6 +1233,11 @@ private struct QuestionCard: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
+                        // A plain-style button only hit-tests its drawn
+                        // content — the row's empty trailing space (most of
+                        // a short "Submit answers" option) ignored taps
+                        // (EXP-588). The shape makes the whole row the target.
+                        .contentShape(Rectangle())
                     }
                     // glassRow, not glassButton: the capsule's height-derived
                     // radius clipped multi-line option descriptions into an

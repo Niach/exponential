@@ -593,6 +593,28 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertFalse(tracker.isLocked("tu#1"))
     }
 
+    // EXP-588: a locked step remembers WHAT was picked until the desktop's
+    // resolution fills the real answer in; a rolled-back lock forgets it.
+    func testLockedCardsRememberTheirPickedLabels() {
+        var tracker = AgentAnswerTracker()
+        XCTAssertNil(tracker.answerSummary("tu#0"))
+        tracker.markSent("tu#0", labels: ["Blue", "Green"])
+        XCTAssertEqual(tracker.answerSummary("tu#0"), "Blue, Green")
+        tracker.acknowledge("tu#0")
+        XCTAssertEqual(tracker.answerSummary("tu#0"), "Blue, Green")
+
+        tracker.markSent("tu#1", labels: ["Yes"])
+        tracker.expire("tu#1")
+        XCTAssertNil(tracker.answerSummary("tu#1"))
+
+        // A bare legacy keystroke carries no label — no summary, not "".
+        tracker.markSent("tu#2")
+        XCTAssertNil(tracker.answerSummary("tu#2"))
+
+        tracker.reset()
+        XCTAssertNil(tracker.answerSummary("tu#0"))
+    }
+
     func testResolvingDropsTheOptimisticLock() {
         var tracker = AgentAnswerTracker()
         tracker.markSent("plan")

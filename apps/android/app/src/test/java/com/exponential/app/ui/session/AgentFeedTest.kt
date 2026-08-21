@@ -564,6 +564,20 @@ class AgentFeedTest {
     }
 
     @Test
+    fun `a locked card remembers its picked labels until it rolls back`() {
+        // EXP-588: the stepper shows WHAT was picked before the desktop's
+        // resolution fills the real answer in; an expired lock forgets it.
+        val sent = ActivityFeedState().lockAnswer("q1", listOf("Blue", "Green"))
+        assertEquals("Blue, Green", sent.localAnswerSummary("q1"))
+        val acked = sent.applying(event("""{"kind":"answer_ack","id":"q1"}"""))
+        assertEquals("Blue, Green", acked.localAnswerSummary("q1"))
+        assertNull(sent.failUnacknowledged("q1").localAnswerSummary("q1"))
+        // A bare legacy keystroke carries no label — no summary, not "".
+        assertNull(ActivityFeedState().lockAnswer("local:1").localAnswerSummary("local:1"))
+        assertNull(ActivityFeedState().localAnswerSummary("q1"))
+    }
+
+    @Test
     fun `an unacknowledged answer flips to Failed so it can be retried`() {
         // EXP-334: Failed (not removed) — the card re-surfaces WITH a retry
         // hint, no longer holds the stepper, and a re-tap re-locks it.

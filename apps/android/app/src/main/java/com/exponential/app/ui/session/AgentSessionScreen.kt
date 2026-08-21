@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -160,6 +161,12 @@ fun AgentSessionScreen(
     val killError by viewModel.killError.collectAsStateWithLifecycle()
     val attachmentDims by viewModel.attachmentDims.collectAsStateWithLifecycle()
     val answerStates = activity.answerLocks
+    // EXP-588: per locked card, what this client picked — joined for display.
+    val answerLabels = remember(activity.answerLocks, activity.answerLabels) {
+        activity.answerLabels.keys.mapNotNull { key ->
+            activity.localAnswerSummary(key)?.let { key to it }
+        }.toMap()
+    }
     val pendingImages by viewModel.pendingImages.collectAsStateWithLifecycle()
     val steerSending by viewModel.steerSending.collectAsStateWithLifecycle()
     val steerImageError by viewModel.steerImageError.collectAsStateWithLifecycle()
@@ -350,13 +357,25 @@ fun AgentSessionScreen(
                             // itself also checks its own state.
                             answerEnabled = phase == AgentPhase.Live && !sessionEnded,
                             answerStates = answerStates,
+                            answerLabels = answerLabels,
                             // One place decides semantic vs legacy: a card with a
                             // wire id answers through the `answer` frame, one
                             // without falls back to raw keystrokes (EXP-249).
                             onAnswer = { question, keys, text ->
                                 val wireId = question.wireId
                                 if (wireId != null) {
-                                    viewModel.sendQuestionAnswer(wireId, question.askId, keys, text)
+                                    // The picked labels (a typed free-text reply
+                                    // wins over its row's "Type something"
+                                    // label) — what the stepper shows for this
+                                    // step until the ask resolves (EXP-588).
+                                    val labels = keys.mapNotNull { key ->
+                                        val option = question.options.firstOrNull { it.key == key }
+                                            ?: return@mapNotNull null
+                                        if (option.freeText && !text.isNullOrBlank()) text else option.label
+                                    }
+                                    viewModel.sendQuestionAnswer(
+                                        wireId, question.askId, keys, text, labels,
+                                    )
                                 } else {
                                     keys.forEach {
                                         viewModel.sendLegacyAnswer(
@@ -648,6 +667,8 @@ private fun ActivityFeed(
     working: Boolean,
     answerEnabled: Boolean,
     answerStates: Map<String, AnswerState>,
+    /** EXP-588: lock key → the locally picked answer summary. */
+    answerLabels: Map<String, String>,
     /** (question, keys, text) — the option keys chosen on that card (a
      *  multi-select step sends all of them at once); `text` is the typed
      *  reply for a `freeText` option (EXP-513), else null. */
@@ -774,6 +795,7 @@ private fun ActivityFeed(
                         activeQuestionIds = activeQuestionIds,
                         answerEnabled = answerEnabled,
                         answerStates = answerStates,
+                        answerLabels = answerLabels,
                         onAnswer = onAnswer,
                         onSubmit = onSubmit,
                     )
@@ -1063,15 +1085,20 @@ private fun QuestionStepperCard(
     activeQuestionIds: Set<Long>,
     answerEnabled: Boolean,
     answerStates: Map<String, AnswerState>,
+    /** EXP-588: lock key → the locally picked answer summary. */
+    answerLabels: Map<String, String>,
     onAnswer: (AgentFeedItem.Question, List<String>, String?) -> Unit,
     onSubmit: () -> Unit,
 ) {
     val current = remember(steps, answered) { currentStepperStep(steps, answered) }
     if (current == null) {
-        AnsweredAskCard(steps)
+        AnsweredAskCard(steps, answerLabels)
         return
     }
     val total = current.total ?: steps.count { it.index != null }
+    // EXP-588 (web/iOS parity): the steps already answered stay visible above
+    // the current one — the question folded to one line next to its answer.
+    val prior = remember(steps, current) { steps.takeWhile { it.id != current.id } }
     QuestionCard(
         item = current,
         active = current.id in activeQuestionIds,
@@ -1082,14 +1109,60 @@ private fun QuestionStepperCard(
             // No index: the ask's final review step.
             else -> "Review your answers"
         },
+        priorSteps = prior,
+        priorAnswers = prior.map { stepAnswer(it, answerLabels) },
+        localAnswer = answerLabels[questionLockKey(current)],
         onAnswer = { keys, text -> onAnswer(current, keys, text) },
         onSubmit = onSubmit,
     )
 }
 
+/** A step's answer for display: the desktop-resolved text, else what this
+ *  client picked (EXP-588); null = answered elsewhere, unknown here. */
+private fun stepAnswer(step: AgentFeedItem.Question, answerLabels: Map<String, String>): String? =
+    step.answer?.takeIf { it.isNotBlank() } ?: answerLabels[questionLockKey(step)]
+
+/** One already-answered step of a stepper: the question on the left, folded
+ *  to one line, the answer on the right (web `AnsweredStepRow` parity). */
+@Composable
+private fun AnsweredStepRow(step: AgentFeedItem.Question, answer: String?) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(
+            ExpIcons.uiCheck,
+            contentDescription = null,
+            modifier = Modifier.size(13.dp).padding(top = 1.dp),
+            tint = LiveGreen,
+        )
+        Text(
+            step.header?.takeIf { it.isNotBlank() } ?: step.text,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            answer?.takeIf { it.isNotBlank() } ?: "Answered",
+            modifier = Modifier.widthIn(max = 180.dp),
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+            textAlign = TextAlign.End,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
 // Every step of a fully answered ask, each with the answer it got.
 @Composable
-private fun AnsweredAskCard(steps: List<AgentFeedItem.Question>) {
+private fun AnsweredAskCard(
+    steps: List<AgentFeedItem.Question>,
+    answerLabels: Map<String, String>,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1119,7 +1192,7 @@ private fun AnsweredAskCard(steps: List<AgentFeedItem.Question>) {
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    AnsweredRow(step.answer)
+                    AnsweredRow(stepAnswer(step, answerLabels))
                 }
             }
             // Every step is answered but the ask hasn't resolved yet — the
@@ -1166,6 +1239,13 @@ private fun QuestionCard(
     stepLabel: String?,
     onAnswer: (List<String>, String?) -> Unit,
     onSubmit: () -> Unit,
+    /** The ask's already-answered steps, summarized above this one (EXP-588). */
+    priorSteps: List<AgentFeedItem.Question> = emptyList(),
+    /** Per prior step: its answer text, or null when unknown here. */
+    priorAnswers: List<String?> = emptyList(),
+    /** What this client picked for THIS card — the resolved row's fallback
+     *  when the desktop's resolution carried no answer text (EXP-588). */
+    localAnswer: String? = null,
 ) {
     // Both keyed on the card id: the stepper reuses ONE card slot across the
     // ask's steps, so an unkeyed `expanded` leaked a "Show more" from a long
@@ -1207,6 +1287,13 @@ private fun QuestionCard(
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                 )
             }
+            if (priorSteps.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    priorSteps.forEachIndexed { position, step ->
+                        AnsweredStepRow(step, priorAnswers.getOrNull(position))
+                    }
+                }
+            }
             if (item.planMode) {
                 Text(
                     "Plan ready",
@@ -1228,7 +1315,7 @@ private fun QuestionCard(
             }
             if (item.resolved) {
                 // Resolved (EXP-197/EXP-249): the answer replaces the options.
-                AnsweredRow(item.answer)
+                AnsweredRow(item.answer?.takeIf { it.isNotBlank() } ?: localAnswer)
             } else {
                 item.options.forEachIndexed { index, option ->
                     // The wire's first option of a plan is the primary approve

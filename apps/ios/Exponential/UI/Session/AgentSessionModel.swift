@@ -134,6 +134,12 @@ final class AgentSessionModel {
     /// confirmed by the desktop).
     func isAnswerLocked(_ lockKey: String) -> Bool { answerTracker.isLocked(lockKey) }
 
+    /// The labels this client picked for a locked card (EXP-588) — what an
+    /// answered stepper step shows before `question_resolved` fills `answers`.
+    func localAnswerSummary(_ lockKey: String) -> String? {
+        answerTracker.answerSummary(lockKey)
+    }
+
     /// An answer went out for this card but the desktop hasn't confirmed
     /// injecting it yet.
     func isAnswerPending(_ lockKey: String) -> Bool { answerTracker.isPending(lockKey) }
@@ -430,7 +436,10 @@ final class AgentSessionModel {
     /// frame carrying every chosen key — the desktop owns the keystroke
     /// mapping and confirms the injection with `answer_ack`. The card locks
     /// the moment the frame goes out, so a double tap can never answer twice.
-    func sendAnswer(questionId: String, askId: String?, keys: [String], text: String? = nil) {
+    func sendAnswer(
+        questionId: String, askId: String?, keys: [String], text: String? = nil,
+        labels: [String] = []
+    ) {
         guard !questionId.isEmpty, !keys.isEmpty, connected else { return }
         guard !answerTracker.isLocked(questionId) else { return }
         var frame: [String: Any] = ["t": "answer", "questionId": questionId, "keys": keys]
@@ -441,7 +450,7 @@ final class AgentSessionModel {
            let json = String(data: data, encoding: .utf8) {
             sendText(json)
         }
-        lockAnswer(questionId)
+        lockAnswer(questionId, labels: labels)
     }
 
     /// Answer a LEGACY question card (a desktop that publishes no question ids,
@@ -476,8 +485,8 @@ final class AgentSessionModel {
     /// nor a `question_resolved` ever lands. Per-card timers (EXP-334): a
     /// shared one was cancelled by each newer lock and then expired every
     /// pending card at once.
-    private func lockAnswer(_ lockKey: String) {
-        answerTracker.markSent(lockKey)
+    private func lockAnswer(_ lockKey: String, labels: [String] = []) {
+        answerTracker.markSent(lockKey, labels: labels)
         answerExpiryTasks[lockKey]?.cancel()
         answerExpiryTasks[lockKey] = Task { [weak self] in
             try? await Task.sleep(for: .seconds(Self.answerLockSeconds))

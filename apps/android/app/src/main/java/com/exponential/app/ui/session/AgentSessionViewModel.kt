@@ -568,6 +568,13 @@ data class ActivityFeedState(
     val latestDiff: String? = null,
     /** Per-card answer locks, keyed by [questionLockKey] (EXP-249). */
     val answerLocks: Map<String, AnswerState> = emptyMap(),
+    /** What THIS client picked per locked card — the option labels (a typed
+     *  free-text reply in place of its row's label). The desktop only fills a
+     *  question's `answer` on `question_resolved`, which for a multi-question
+     *  ask lands after the WHOLE ask submits, so answered stepper steps would
+     *  otherwise read "Answered" ×N until then (EXP-588, web/iOS parity).
+     *  Dropped with a failed lock — a rolled-back step has no answer. */
+    val answerLabels: Map<String, List<String>> = emptyMap(),
     /** True once the desktop published a question carrying a wire id: from
      *  then on its legacy resolution narrations are duplicates of the semantic
      *  events (it emits both so pre-EXP-249 clients keep working) and must be
@@ -751,8 +758,20 @@ fun ActivityFeedState.applyActivityEvent(
 }
 
 /** Lock a card the instant its answer goes out — no double-tap (EXP-249). */
-fun ActivityFeedState.lockAnswer(lockKey: String): ActivityFeedState =
-    copy(answerLocks = answerLocks + (lockKey to AnswerState.Sending))
+fun ActivityFeedState.lockAnswer(
+    lockKey: String,
+    labels: List<String> = emptyList(),
+): ActivityFeedState = copy(
+    answerLocks = answerLocks + (lockKey to AnswerState.Sending),
+    answerLabels = if (labels.isEmpty()) answerLabels - lockKey else answerLabels + (lockKey to labels),
+)
+
+/** The locally picked labels of a locked card, joined for display; null when
+ *  nothing is locked under [lockKey] or no label was recorded (EXP-588). */
+fun ActivityFeedState.localAnswerSummary(lockKey: String): String? {
+    if (!answerLocks[lockKey].locksCard()) return null
+    return answerLabels[lockKey]?.takeIf { it.isNotEmpty() }?.joinToString(", ")
+}
 
 /** Flip a lock whose `answer_ack` never arrived to [AnswerState.Failed]: the
  *  card is answerable again AND says why it re-surfaced (EXP-334 — the silent
@@ -760,7 +779,10 @@ fun ActivityFeedState.lockAnswer(lockKey: String): ActivityFeedState =
  *  card stays locked. */
 fun ActivityFeedState.failUnacknowledged(lockKey: String): ActivityFeedState =
     if (answerLocks[lockKey] == AnswerState.Sending) {
-        copy(answerLocks = answerLocks + (lockKey to AnswerState.Failed))
+        copy(
+            answerLocks = answerLocks + (lockKey to AnswerState.Failed),
+            answerLabels = answerLabels - lockKey,
+        )
     } else {
         this
     }
@@ -1359,11 +1381,14 @@ class AgentSessionViewModel @Inject constructor(
         keys: List<String>,
         /** EXP-513: the typed reply for a `freeText` option. */
         text: String? = null,
+        /** EXP-588: the picked labels, shown for the step until the desktop
+         *  resolves the ask. */
+        labels: List<String> = emptyList(),
     ) {
         if (keys.isEmpty()) return
         if (_activity.value.answerLocks[questionId].locksCard()) return
         val socket = ws ?: return
-        lockAnswer(questionId)
+        lockAnswer(questionId, labels)
         viewModelScope.launch {
             runCatching {
                 val frame = buildJsonObject {
@@ -1401,8 +1426,8 @@ class AgentSessionViewModel @Inject constructor(
         }
     }
 
-    private fun lockAnswer(lockKey: String) {
-        _activity.value = _activity.value.lockAnswer(lockKey)
+    private fun lockAnswer(lockKey: String, labels: List<String> = emptyList()) {
+        _activity.value = _activity.value.lockAnswer(lockKey, labels)
         ackTimeouts.remove(lockKey)?.cancel()
         ackTimeouts[lockKey] = viewModelScope.launch {
             delay(ANSWER_ACK_TIMEOUT_MS)
