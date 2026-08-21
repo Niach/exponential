@@ -466,10 +466,34 @@ impl Render for BoardDetailPane {
 
         let prefix: SharedString = board.prefix.clone().unwrap_or_default().into();
 
+        // EXP-584: the icon picker sits LEFT of the name input (web
+        // `BoardNameField` parity). The icon saves IMMEDIATELY like color.
+        let board_id = board.id.clone();
+        let icon_picker = crate::board_form::icon_picker(
+            "board-detail",
+            board.icon.as_deref(),
+            false,
+            move |name, _, cx| {
+                let Some(name) = name else { return };
+                let board_id = board_id.clone();
+                spawn_trpc(cx, "boards.update(icon)", move |trpc| {
+                    let mut input = api::boards::BoardsUpdateInput::new(board_id);
+                    input.icon = Some(name.to_string());
+                    api::boards::boards_update(trpc, &input)
+                });
+            },
+            cx,
+        );
         let name_field = v_flex()
             .gap_1()
             .child(Self::field_label("Name", cx))
-            .child(Input::new(&self.name_input).web_input_sm());
+            .child(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .child(icon_picker)
+                    .child(div().flex_1().child(Input::new(&self.name_input).web_input_sm())),
+            );
 
         let prefix_field = v_flex()
             .gap_1()
@@ -493,27 +517,7 @@ impl Render for BoardDetailPane {
                 cx,
             ));
 
-        // Icon + color save IMMEDIATELY (web parity — no Save button).
-        let board_id = board.id.clone();
-        let icon_field = v_flex()
-            .gap_1()
-            .child(Self::field_label("Icon", cx))
-            .child(crate::board_form::icon_picker(
-                "board-detail",
-                board.icon.as_deref(),
-                false,
-                move |name, _, cx| {
-                    let Some(name) = name else { return };
-                    let board_id = board_id.clone();
-                    spawn_trpc(cx, "boards.update(icon)", move |trpc| {
-                        let mut input = api::boards::BoardsUpdateInput::new(board_id);
-                        input.icon = Some(name.to_string());
-                        api::boards::boards_update(trpc, &input)
-                    });
-                },
-                cx,
-            ));
-
+        // Color saves IMMEDIATELY (web parity — no Save button).
         let board_id = board.id.clone();
         let color_field = v_flex()
             .gap_1()
@@ -545,7 +549,6 @@ impl Render for BoardDetailPane {
             .child(card_title("Board settings"))
             .child(name_field)
             .child(prefix_field)
-            .child(icon_field)
             .child(color_field)
             .child(repo_field);
 

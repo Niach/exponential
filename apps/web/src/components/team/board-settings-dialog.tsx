@@ -12,7 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import {
-  BoardIconColorFields,
+  BoardColorField,
   BoardNameField,
 } from "@/components/board-form-fields"
 import { type PickerRepo } from "@/components/github-repo-picker"
@@ -127,6 +127,11 @@ export function BoardSettingsDialog({
               value={name}
               onChange={setName}
               onBlur={() => saveName(board)}
+              icon={getBoardIconName(board)}
+              onIconChange={(icon) =>
+                void trpc.boards.update.mutate({ id: board.id, icon })
+              }
+              color={board.color}
             />
 
             <div className="space-y-2">
@@ -141,11 +146,7 @@ export function BoardSettingsDialog({
               </div>
             </div>
 
-            <BoardIconColorFields
-              icon={getBoardIconName(board)}
-              onIconChange={(icon) =>
-                void trpc.boards.update.mutate({ id: board.id, icon })
-              }
+            <BoardColorField
               color={board.color}
               onColorChange={(color) =>
                 void trpc.boards.update.mutate({ id: board.id, color })

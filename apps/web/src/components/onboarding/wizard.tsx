@@ -384,13 +384,21 @@ function BoardStep({
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_auto]">
           <div className="space-y-2">
             <Label htmlFor="onb-board-name">Board name</Label>
-            <Input
-              id="onb-board-name"
-              value={name}
-              onChange={(e) => handleNameChange(e.target.value)}
-              placeholder="e.g. Backend API"
-              autoFocus
-            />
+            {/* EXP-584: icon picker left of the name, like every board form. */}
+            <div className="flex items-center gap-2">
+              <IconPicker
+                value={icon}
+                onChange={(next) => setIcon(next as BoardIcon)}
+                color={color}
+              />
+              <Input
+                id="onb-board-name"
+                value={name}
+                onChange={(e) => handleNameChange(e.target.value)}
+                placeholder="e.g. Backend API"
+                autoFocus
+              />
+            </div>
           </div>
           <div className="space-y-2">
             <Label htmlFor="onb-board-prefix">Prefix</Label>
@@ -409,15 +417,6 @@ function BoardStep({
               maxLength={4}
             />
           </div>
-        </div>
-
-        <div className="space-y-2">
-          <Label>Icon</Label>
-          <IconPicker
-            value={icon}
-            onChange={(next) => setIcon(next as BoardIcon)}
-            color={color}
-          />
         </div>
 
         <div className="space-y-2">

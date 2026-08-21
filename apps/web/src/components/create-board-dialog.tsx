@@ -13,7 +13,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import {
-  BoardIconColorFields,
+  BoardColorField,
   BoardNameField,
   BoardPrefixField,
 } from "@/components/board-form-fields"
@@ -157,14 +157,12 @@ export function CreateBoardDialog({
                 value={name}
                 onChange={handleNameChange}
                 autoFocus
-              />
-              <BoardPrefixField value={prefix} onChange={setPrefix} />
-              <BoardIconColorFields
                 icon={icon}
                 onIconChange={setIcon}
                 color={color}
-                onColorChange={setColor}
               />
+              <BoardPrefixField value={prefix} onChange={setPrefix} />
+              <BoardColorField color={color} onColorChange={setColor} />
 
               <div className="space-y-2">
                 <Label>Repository (optional)</Label>
