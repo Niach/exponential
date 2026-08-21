@@ -191,6 +191,7 @@
     "ui-add": "plus",
     "ui-check": "check",
     "ui-close": "x",
+    "ui-icon-placeholder": "circle-dashed",
     "ui-delete": "trash-2",
     "ui-archive": "archive",
     "ui-edit": "pencil",

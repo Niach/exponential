@@ -84,11 +84,11 @@ struct CreateBoardForm: View {
             }
 
             // Icon (curated glyphs) — the shared registry's pickable set. The
-            // grid itself lives in ExpUI so the Start-coding sheet's `icon`
-            // action input picks from the exact same swatches (EXP-273).
+            // picker lives in ExpUI so the Start-coding sheet's `icon` action
+            // input picks from the exact same swatches (EXP-273/575).
             VStack(alignment: .leading, spacing: 8) {
                 fieldLabel("Icon")
-                IconSwatchGrid(selection: $icon)
+                IconPicker(selection: $icon, tint: Color(hex: color))
             }
 
             // Repository (always optional) — the selector renders its own label.

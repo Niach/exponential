@@ -2,20 +2,20 @@ import type { BoardIcon } from "@exp/db-schema/domain"
 import { BOARD_ICON_OPTIONS } from "@/lib/board-icons"
 
 interface IconSwatchGridProps {
-  value: BoardIcon
+  // Empty = nothing selected (IconPicker with `allowsNone`).
+  value: BoardIcon | ``
   onChange: (icon: BoardIcon) => void
   // Tints the selected glyph with the board color for a live preview.
   color?: string
 }
 
-// Sibling of ColorSwatchGrid: the curated icon set as a swatch grid.
-// EXP-273 grew the set from 16 to 60, so it gained a bounded scroll area — a
-// flat wrap of 60 swatches pushed the dialog's action row off screen. The
-// search filter it also gained was dropped again in EXP-390: 60 glyphs scan
-// faster than they search, on every platform.
+// Sibling of ColorSwatchGrid: the curated icon set as a swatch grid. Since
+// EXP-575 it only renders inside `IconPicker`'s popover — forms show the slim
+// trigger, never this grid inline. The search filter it once had was dropped
+// in EXP-390: 60 glyphs scan faster than they search, on every platform.
 export function IconSwatchGrid({ value, onChange, color }: IconSwatchGridProps) {
   return (
-    <div className="flex max-h-44 flex-wrap gap-1.5 overflow-y-auto">
+    <div className="flex flex-wrap gap-1.5">
       {BOARD_ICON_OPTIONS.map(({ name, icon: Icon }) => (
         <button
           key={name}

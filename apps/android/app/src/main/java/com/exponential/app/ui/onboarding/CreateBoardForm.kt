@@ -35,7 +35,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.BoardRepositoryChoice
 import com.exponential.app.ui.components.GlassSubmitButton
 import com.exponential.app.ui.components.GlassTextField
-import com.exponential.app.ui.components.IconSwatchGrid
+import com.exponential.app.ui.components.IconPicker
 import com.exponential.app.ui.components.RepositorySelector
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.parseColor
@@ -162,9 +162,9 @@ fun CreateBoardForm(
 
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Icon", style = MaterialTheme.typography.labelMedium, color = secondary)
-            // The shared curated grid (EXP-273) — the same swatches an `icon`
-            // action input picks from in the Start-coding sheet.
-            IconSwatchGrid(
+            // The shared curated picker (EXP-273/575) — the same swatches an
+            // `icon` action input picks from in the Start-coding sheet.
+            IconPicker(
                 selected = iconName,
                 onSelect = { iconName = it },
                 accentColor = parseColor(color),

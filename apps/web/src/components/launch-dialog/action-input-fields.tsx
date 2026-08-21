@@ -6,8 +6,7 @@ import {
   type BoardIcon,
   MAX_ACTION_INPUT_TEXT,
 } from "@exp/db-schema/domain"
-import { BOARD_ICON_OPTIONS } from "@/lib/board-icons"
-import { IconSwatchGrid } from "@/components/ui/icon-swatch-grid"
+import { IconPicker } from "@/components/ui/icon-picker"
 import type { Board, Issue } from "@/db/schema"
 import { boardCollection, issueCollection } from "@/lib/collections"
 import { buildPrOptions, findPrOptionForIssue } from "@/lib/pr-options"
@@ -151,17 +150,16 @@ export function ActionInputFields({
           )
         }
         if (def.type === `icon`) {
-          // EXP-273: the same curated swatch grid the board form uses — the
-          // value is a registry icon NAME, not an id, so there is nothing to
-          // scope to the team. Optional inputs start unset; the grid always
-          // shows a selection, so seed it with the first pickable name only
-          // once the user actually picks.
+          // EXP-273: the same curated picker the board form uses — the value
+          // is a registry icon NAME, not an id, so there is nothing to scope
+          // to the team.
           return (
             <div key={def.key} className="space-y-2">
               <Label>{label}</Label>
-              <IconSwatchGrid
-                value={(values[def.key] as BoardIcon) || BOARD_ICON_OPTIONS[0].name}
+              <IconPicker
+                value={(values[def.key] ?? ``) as BoardIcon | ``}
                 onChange={(icon) => onChange(def.key, icon)}
+                allowsNone={!def.required}
               />
             </div>
           )

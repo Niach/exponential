@@ -430,6 +430,7 @@ export const SEMANTIC_ICONS = {
   "ui-folder-open": `folder-open`,
   "ui-github": `github`,
   "ui-help": `circle-question-mark`,
+  "ui-icon-placeholder": `circle-dashed`,
   "ui-info": `info`,
   "ui-invite": `user-plus`,
   "ui-issue": `file-text`,

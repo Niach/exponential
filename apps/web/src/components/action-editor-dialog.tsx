@@ -3,7 +3,7 @@ import { TRPCClientError } from "@trpc/client"
 import type { BoardIcon } from "@exp/db-schema/domain"
 import type { SyncedAction } from "@/db/schema"
 import { BOARD_ICON_OPTIONS } from "@/lib/board-icons"
-import { IconSwatchGrid } from "@/components/ui/icon-swatch-grid"
+import { IconPicker } from "@/components/ui/icon-picker"
 import type { BuiltinAction } from "@/lib/builtin-actions"
 import { parseActionTrigger } from "@/lib/action-triggers"
 import type { SteerDevice } from "@/lib/steer-devices"
@@ -235,7 +235,10 @@ export function ActionEditorDialog({
 
               <div className="space-y-2">
                 <Label>Icon</Label>
-                <IconSwatchGrid value={icon} onChange={setIcon} />
+                <IconPicker
+                  value={icon}
+                  onChange={(next) => setIcon(next as BoardIcon)}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="action-repository">Repository (optional)</Label>

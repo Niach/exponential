@@ -68,7 +68,7 @@ import com.exponential.app.ui.components.GlassPillButton
 import com.exponential.app.ui.components.GlassSegmentedControl
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.GroupDivider
-import com.exponential.app.ui.components.IconSwatchGrid
+import com.exponential.app.ui.components.IconPicker
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PickerRow
 import com.exponential.app.ui.components.PriorityIcon
@@ -80,7 +80,6 @@ import com.exponential.app.ui.components.effortLabel
 import com.exponential.app.ui.components.effortValuesFor
 import com.exponential.app.ui.components.modelLabel
 import com.exponential.app.ui.components.modelValuesFor
-import com.exponential.app.ui.components.pickableIconName
 import com.exponential.app.ui.components.supportsPlanMode
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.AccentIndigo
@@ -1252,39 +1251,24 @@ private fun ActionInputField(
             }
         }
         // EXP-273: the curated icon set. Unlike the pickers above the value is
-        // a glyph NAME, so there is nothing team-scoped to look up — the grid
-        // is the same one the create-board form draws. Optional inputs start
-        // with nothing highlighted and keep a "No icon" reset.
+        // a glyph NAME, so there is nothing team-scoped to look up — the picker
+        // is the same one the create-board form draws (EXP-575). Optional
+        // inputs start unset and keep a "No icon" reset inside the sheet.
         "icon" -> OptionGroup {
-            val picked = pickableIconName(value)
-            Column(
+            Row(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        label,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.weight(1f),
-                    )
-                    if (picked != null && !def.required) {
-                        TextButton(onClick = { onValueChange("") }) { Text("No icon") }
-                    } else {
-                        Text(
-                            picked ?: "None",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface.copy(
-                                alpha = TextEmphasis.Secondary,
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-                IconSwatchGrid(
-                    selected = picked,
+                Text(
+                    label,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+                IconPicker(
+                    selected = value,
                     onSelect = onValueChange,
+                    allowsNone = !def.required,
                     accentColor = AccentIndigo,
                 )
             }

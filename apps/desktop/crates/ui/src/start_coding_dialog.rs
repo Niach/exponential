@@ -64,7 +64,6 @@ use gpui_component::{
     h_flex,
     input::{Input, InputEvent, InputState, Textarea, TextareaState},
     menu::{DropdownMenu as _, PopupMenuItem},
-    popover::Popover,
     scroll::{Scrollbar, ScrollbarAxis},
     select::Select,
     tab::{Tab, TabBar, TabVariant},
@@ -2079,74 +2078,35 @@ impl StartCodingDialogView {
                     .into_any_element()
             }
             // EXP-273: the curated icon set. Unlike the other pickers the
-            // value is a NAME, not an id. EXP-313: the swatch-grid popover
-            // (the action-detail icon pattern) — the old 60-row name-list
-            // dropdown spilled far past the dialog.
+            // value is a NAME, not an id. EXP-575: the shared swatch-and-popover
+            // picker (`board_form::icon_picker`), as everywhere else.
             "icon" => {
                 let picked = self.action_icon_picks.get(&input.key).cloned();
-                let pick_label: SharedString = match &picked {
-                    Some(name) => name.clone().into(),
-                    None => "Select icon…".into(),
-                };
                 let key = input.key.clone();
-                let optional = !input.required;
-                let selected = picked.clone().unwrap_or_default();
                 let view = cx.entity().downgrade();
-                Popover::new(("sc-input-icon-pop", ix))
-                    .trigger(
-                        Button::new(("sc-input-icon", ix))
-                            .outline().cursor_pointer()
-                            .web_input_sm()
-                            .icon(crate::icons::action_icon(picked.as_deref()))
-                            .label(pick_label),
-                    )
-                    .content(move |_, _, cx| {
-                        let popover = cx.entity();
-                        let view = view.clone();
-                        let key = key.clone();
-                        let selected = selected.clone();
-                        // The grid only wraps inside a DEFINITE width — a
-                        // popover's content box is unconstrained (see the
-                        // action-detail icon picker). 8 × 28px cells + gaps.
-                        let mut content = v_flex().w(px(266.)).p_1().gap_1();
-                        if optional {
-                            let view = view.clone();
-                            let key = key.clone();
-                            let popover = popover.clone();
-                            content = content.child(
-                                Button::new("sc-input-icon-none")
-                                    .ghost().cursor_pointer()
-                                    .xsmall()
-                                    .label("No icon")
-                                    .on_click(move |_, window, cx| {
-                                        if let Some(view) = view.upgrade() {
-                                            view.update(cx, |view, cx| {
-                                                view.action_icon_picks.remove(&key);
-                                                cx.notify();
-                                            });
-                                        }
-                                        popover
-                                            .update(cx, |state, cx| state.dismiss(window, cx));
-                                    }),
-                            );
-                        }
-                        content.child(crate::board_form::icon_swatch_grid(
-                            "sc-input-icon",
-                            &selected,
-                            move |name, window, cx| {
-                                if let Some(view) = view.upgrade() {
-                                    view.update(cx, |view, cx| {
+                crate::board_form::icon_picker(
+                    format!("sc-input-icon-{ix}"),
+                    picked.as_deref(),
+                    !input.required,
+                    move |name, _, cx| {
+                        if let Some(view) = view.upgrade() {
+                            view.update(cx, |view, cx| {
+                                match name {
+                                    Some(name) => {
                                         view.action_icon_picks
                                             .insert(key.clone(), name.to_string());
-                                        cx.notify();
-                                    });
+                                    }
+                                    None => {
+                                        view.action_icon_picks.remove(&key);
+                                    }
                                 }
-                                popover.update(cx, |state, cx| state.dismiss(window, cx));
-                            },
-                            cx,
-                        ))
-                    })
-                    .into_any_element()
+                                cx.notify();
+                            });
+                        }
+                    },
+                    cx,
+                )
+                .into_any_element()
             }
             // Unknown type (newer server): named, never a fake text field —
             // the launch blocker holds the run.

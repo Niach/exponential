@@ -6314,6 +6314,8 @@ public object ExpIcons {
     public val uiGithub: ImageVector get() = `github`
     /** Concept `ui-help`. */
     public val uiHelp: ImageVector get() = `circle-question-mark`
+    /** Concept `ui-icon-placeholder`. */
+    public val uiIconPlaceholder: ImageVector get() = `circle-dashed`
     /** Concept `ui-info`. */
     public val uiInfo: ImageVector get() = `info`
     /** Concept `ui-invite`. */

@@ -2,7 +2,7 @@ import type { BoardIcon } from "@exp/db-schema/domain"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ColorSwatchGrid } from "@/components/ui/color-swatch-grid"
-import { IconSwatchGrid } from "@/components/ui/icon-swatch-grid"
+import { IconPicker } from "@/components/ui/icon-picker"
 
 // Shared, fully controlled field blocks for the create-board dialog and the
 // per-board settings dialog (EXP-159/160). Presentation only — no tRPC in
@@ -75,7 +75,11 @@ export function BoardIconColorFields({
     <>
       <div className="space-y-2">
         <Label>Icon</Label>
-        <IconSwatchGrid value={icon} onChange={onIconChange} color={color} />
+        <IconPicker
+          value={icon}
+          onChange={(next) => onIconChange(next as BoardIcon)}
+          color={color}
+        />
       </div>
       <div className="space-y-2">
         <Label>Color</Label>

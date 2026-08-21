@@ -576,6 +576,8 @@ public enum AppIcons {
     public static let uiGithub: String = "github"
     /// Concept `ui-help`.
     public static let uiHelp: String = "circle-question-mark"
+    /// Concept `ui-icon-placeholder`.
+    public static let uiIconPlaceholder: String = "circle-dashed"
     /// Concept `ui-info`.
     public static let uiInfo: String = "info"
     /// Concept `ui-invite`.

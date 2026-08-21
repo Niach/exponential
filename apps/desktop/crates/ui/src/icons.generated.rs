@@ -578,6 +578,8 @@ pub const UI_FOLDER_OPEN: ExpIcon = ExpIcon::FolderOpen;
 pub const UI_GITHUB: ExpIcon = ExpIcon::Github;
 /// Registry concept `ui-help` -> Lucide `circle-question-mark`.
 pub const UI_HELP: ExpIcon = ExpIcon::CircleQuestionMark;
+/// Registry concept `ui-icon-placeholder` -> Lucide `circle-dashed`.
+pub const UI_ICON_PLACEHOLDER: ExpIcon = ExpIcon::CircleDashed;
 /// Registry concept `ui-info` -> Lucide `info`.
 pub const UI_INFO: ExpIcon = ExpIcon::Info;
 /// Registry concept `ui-invite` -> Lucide `user-plus`.

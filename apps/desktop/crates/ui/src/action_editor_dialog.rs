@@ -359,10 +359,12 @@ impl Render for ActionEditorDialogView {
             )
             .child(
                 v_flex().gap_2().child(field_label(cx, "Icon")).child(
-                    crate::board_form::icon_swatch_grid(
+                    crate::board_form::icon_picker(
                         "action-edit",
-                        &self.icon,
+                        Some(&self.icon),
+                        false,
                         move |name, _, cx| {
+                            let Some(name) = name else { return };
                             icon_view.update(cx, |this, cx| {
                                 this.icon = name.to_string();
                                 cx.notify();
