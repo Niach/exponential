@@ -53,6 +53,7 @@ import com.exponential.app.domain.ActionTrigger
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.nextScheduleRun
 import com.exponential.app.domain.triggerSummary
+import com.exponential.app.ui.components.GlassPillButton
 import com.exponential.app.ui.components.GlassSegmentedControl
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.StartCodingSheet
@@ -71,11 +72,11 @@ import java.util.Date
 // the unified Start-coding sheet (EXP-257) preselected on that action — one
 // launcher for issue runs AND action runs, with typed input fields and the
 // full agent/model/effort/toggle options. The "Fix merge conflicts" builtin
-// pins first by its flag; "Create action" left the list (EXP-431) — the top
-// bar's "New action" button opens the sheet in its dedicated create mode
-// instead. After a successful send the screen
-// waits for the desktop's synced coding_sessions row and jumps into the
-// existing agent session viewer once.
+// pins first by its flag; "Create action" left the list (EXP-431) — the
+// "Actions" section header's "New action" button (web-parity placement,
+// EXP-574) opens the sheet in its dedicated create mode instead. After a
+// successful send the screen waits for the desktop's synced coding_sessions
+// row and jumps into the existing agent session viewer once.
 //
 // EXP-530 splits the surface into three segments (the PersonalScreen
 // GlassSegmentedControl pattern): Actions (today's list, with an inline
@@ -141,19 +142,6 @@ fun ActionsScreen(
                         Icon(ExpIcons.uiBack, contentDescription = "Back")
                     }
                 },
-                actions = {
-                    IconButton(
-                        onClick = {
-                            selectedTeamId?.let {
-                                createMode = true
-                                sheetAction = builtinCreateAction(it)
-                            }
-                        },
-                        enabled = selectedTeamId != null,
-                    ) {
-                        Icon(ExpIcons.actionCreate, contentDescription = "New action")
-                    }
-                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
             )
         },
@@ -212,6 +200,25 @@ fun ActionsScreen(
                             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
+                            // EXP-574 (web parity): "Actions · count" header
+                            // with the "New action" entry (EXP-431) as its
+                            // trailing control.
+                            item(key = "__actions_header__") {
+                                SectionLabel(title = "Actions", count = state.actions.size) {
+                                    GlassPillButton(
+                                        label = "New action",
+                                        icon = ExpIcons.actionCreate,
+                                        enabled = selectedTeamId != null,
+                                        onClick = {
+                                            selectedTeamId?.let {
+                                                createMode = true
+                                                sheetAction = builtinCreateAction(it)
+                                            }
+                                        },
+                                        modifier = Modifier.testTag("new-action"),
+                                    )
+                                }
+                            }
                             if (runState !is ActionRunState.Idle) {
                                 item(key = "__run_state__") { SteerRunCaptionRow(runState) }
                             }
@@ -369,6 +376,10 @@ private fun AutomationsContent(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
+        // EXP-574 (web parity): counted section header.
+        item(key = "__automations_header__") {
+            SectionLabel(title = "Automations", count = automated.size)
+        }
         if (error != null) {
             item(key = "__trigger_error__") {
                 Text(
@@ -403,11 +414,10 @@ private fun AutomationsContent(
         }
         if (runs.isNotEmpty()) {
             item(key = "__recent_runs_header__") {
-                Text(
-                    "Recent automated runs",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    modifier = Modifier.padding(start = 4.dp, top = 12.dp),
+                SectionLabel(
+                    title = "Recent automated runs",
+                    count = runs.size,
+                    modifier = Modifier.padding(top = 12.dp),
                 )
             }
             items(runs, key = { it.id }) { session ->
@@ -626,14 +636,6 @@ private fun SuggestionsContent(onUse: (ActionSuggestion) -> Unit) {
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        item(key = "__suggestions_caption__") {
-            Text(
-                "Ideas your agent can build as team actions.",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                modifier = Modifier.padding(horizontal = 4.dp),
-            )
-        }
         items(ACTION_SUGGESTIONS, key = { it.id }) { suggestion ->
             SuggestionRow(suggestion = suggestion, onUse = { onUse(suggestion) })
         }
@@ -675,11 +677,41 @@ private fun SuggestionRow(suggestion: ActionSuggestion, onUse: () -> Unit) {
             )
         }
         Text(
-            "Use",
+            "Use suggestion",
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.primary,
+            maxLines = 1,
             modifier = Modifier.padding(start = 8.dp),
         )
+    }
+}
+
+// The web `SectionLabel` (agent-session-row.tsx): title · count · spacer ·
+// optional trailing control (EXP-574 layout parity).
+@Composable
+private fun SectionLabel(
+    title: String,
+    count: Int,
+    modifier: Modifier = Modifier,
+    trailing: (@Composable () -> Unit)? = null,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth().padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            "$count",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        )
+        Spacer(Modifier.weight(1f))
+        trailing?.invoke()
     }
 }
 

@@ -92,6 +92,7 @@ import { Route as TTeamSlugSettingsBillingRouteImport } from './routes/t/$teamSl
 import { Route as TTeamSlugSettingsApiKeysRouteImport } from './routes/t/$teamSlug/settings/api-keys'
 import { Route as TTeamSlugSettingsAccountRouteImport } from './routes/t/$teamSlug/settings/account'
 import { Route as TTeamSlugReviewsIssueIdentifierRouteImport } from './routes/t/$teamSlug/reviews/$issueIdentifier'
+import { Route as TTeamSlugAgentsActionsRouteImport } from './routes/t/$teamSlug/agents/actions'
 import { Route as ApiIssuesIssueIdImagesRouteImport } from './routes/api/issues/$issueId/images'
 import { Route as ApiIssuesIssueIdFilesRouteImport } from './routes/api/issues/$issueId/files'
 import { Route as ApiIntegrationsGithubSetupRouteImport } from './routes/api/integrations/github/setup'
@@ -537,6 +538,11 @@ const TTeamSlugReviewsIssueIdentifierRoute =
     path: '/reviews/$issueIdentifier',
     getParentRoute: () => TTeamSlugRouteRoute,
   } as any)
+const TTeamSlugAgentsActionsRoute = TTeamSlugAgentsActionsRouteImport.update({
+  id: '/agents/actions',
+  path: '/agents/actions',
+  getParentRoute: () => TTeamSlugRouteRoute,
+} as any)
 const ApiIssuesIssueIdImagesRoute = ApiIssuesIssueIdImagesRouteImport.update({
   id: '/api/issues/$issueId/images',
   path: '/api/issues/$issueId/images',
@@ -669,6 +675,7 @@ export interface FileRoutesByFullPath {
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issues/$issueId/files': typeof ApiIssuesIssueIdFilesRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
+  '/t/$teamSlug/agents/actions': typeof TTeamSlugAgentsActionsRoute
   '/t/$teamSlug/reviews/$issueIdentifier': typeof TTeamSlugReviewsIssueIdentifierRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
   '/t/$teamSlug/settings/api-keys': typeof TTeamSlugSettingsApiKeysRoute
@@ -760,6 +767,7 @@ export interface FileRoutesByTo {
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issues/$issueId/files': typeof ApiIssuesIssueIdFilesRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
+  '/t/$teamSlug/agents/actions': typeof TTeamSlugAgentsActionsRoute
   '/t/$teamSlug/reviews/$issueIdentifier': typeof TTeamSlugReviewsIssueIdentifierRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
   '/t/$teamSlug/settings/api-keys': typeof TTeamSlugSettingsApiKeysRoute
@@ -856,6 +864,7 @@ export interface FileRoutesById {
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issues/$issueId/files': typeof ApiIssuesIssueIdFilesRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
+  '/t/$teamSlug/agents/actions': typeof TTeamSlugAgentsActionsRoute
   '/t/$teamSlug/reviews/$issueIdentifier': typeof TTeamSlugReviewsIssueIdentifierRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
   '/t/$teamSlug/settings/api-keys': typeof TTeamSlugSettingsApiKeysRoute
@@ -952,6 +961,7 @@ export interface FileRouteTypes {
     | '/api/integrations/github/setup'
     | '/api/issues/$issueId/files'
     | '/api/issues/$issueId/images'
+    | '/t/$teamSlug/agents/actions'
     | '/t/$teamSlug/reviews/$issueIdentifier'
     | '/t/$teamSlug/settings/account'
     | '/t/$teamSlug/settings/api-keys'
@@ -1043,6 +1053,7 @@ export interface FileRouteTypes {
     | '/api/integrations/github/setup'
     | '/api/issues/$issueId/files'
     | '/api/issues/$issueId/images'
+    | '/t/$teamSlug/agents/actions'
     | '/t/$teamSlug/reviews/$issueIdentifier'
     | '/t/$teamSlug/settings/account'
     | '/t/$teamSlug/settings/api-keys'
@@ -1138,6 +1149,7 @@ export interface FileRouteTypes {
     | '/api/integrations/github/setup'
     | '/api/issues/$issueId/files'
     | '/api/issues/$issueId/images'
+    | '/t/$teamSlug/agents/actions'
     | '/t/$teamSlug/reviews/$issueIdentifier'
     | '/t/$teamSlug/settings/account'
     | '/t/$teamSlug/settings/api-keys'
@@ -1804,6 +1816,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TTeamSlugReviewsIssueIdentifierRouteImport
       parentRoute: typeof TTeamSlugRouteRoute
     }
+    '/t/$teamSlug/agents/actions': {
+      id: '/t/$teamSlug/agents/actions'
+      path: '/agents/actions'
+      fullPath: '/t/$teamSlug/agents/actions'
+      preLoaderRoute: typeof TTeamSlugAgentsActionsRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
+    }
     '/api/issues/$issueId/images': {
       id: '/api/issues/$issueId/images'
       path: '/api/issues/$issueId/images'
@@ -1969,6 +1988,7 @@ const TTeamSlugSettingsRouteRouteWithChildren =
 interface TTeamSlugRouteRouteChildren {
   TTeamSlugSettingsRouteRoute: typeof TTeamSlugSettingsRouteRouteWithChildren
   TTeamSlugIndexRoute: typeof TTeamSlugIndexRoute
+  TTeamSlugAgentsActionsRoute: typeof TTeamSlugAgentsActionsRoute
   TTeamSlugReviewsIssueIdentifierRoute: typeof TTeamSlugReviewsIssueIdentifierRoute
   TTeamSlugAgentsIndexRoute: typeof TTeamSlugAgentsIndexRoute
   TTeamSlugInboxIndexRoute: typeof TTeamSlugInboxIndexRoute
@@ -1981,6 +2001,7 @@ interface TTeamSlugRouteRouteChildren {
 const TTeamSlugRouteRouteChildren: TTeamSlugRouteRouteChildren = {
   TTeamSlugSettingsRouteRoute: TTeamSlugSettingsRouteRouteWithChildren,
   TTeamSlugIndexRoute: TTeamSlugIndexRoute,
+  TTeamSlugAgentsActionsRoute: TTeamSlugAgentsActionsRoute,
   TTeamSlugReviewsIssueIdentifierRoute: TTeamSlugReviewsIssueIdentifierRoute,
   TTeamSlugAgentsIndexRoute: TTeamSlugAgentsIndexRoute,
   TTeamSlugInboxIndexRoute: TTeamSlugInboxIndexRoute,
