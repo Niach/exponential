@@ -250,12 +250,21 @@ public struct AgentAnswerTracker: Equatable, Sendable {
     /// Cards whose optimistic lock expired with no confirmation — answerable
     /// again, rendered with a retry hint (EXP-334).
     public private(set) var failed: Set<String> = []
+    /// What was picked, per card, in the steerer's own words — the option
+    /// labels (and a typed free-text reply) of the answer that went out. The
+    /// desktop only fills a question's `answers` on `question_resolved`, which
+    /// for a multi-question ask lands after the WHOLE ask submits, so the
+    /// stepper's answered steps would otherwise read "Answered" ×N until then
+    /// (EXP-588, web parity: `AnswerState.labels`). Cleared on expiry — a
+    /// rolled-back step has no answer to show.
+    public private(set) var labels: [String: [String]] = [:]
 
     public init() {}
 
-    public mutating func markSent(_ key: String, at: Date = Date()) {
+    public mutating func markSent(_ key: String, labels: [String] = [], at: Date = Date()) {
         pending[key] = at
         failed.remove(key)
+        self.labels[key] = labels.isEmpty ? nil : labels
     }
 
     public mutating func acknowledge(_ key: String) {
@@ -280,6 +289,7 @@ public struct AgentAnswerTracker: Equatable, Sendable {
         guard pending[key] != nil else { return }
         pending[key] = nil
         failed.insert(key)
+        labels[key] = nil
     }
 
     /// Drop optimistic locks older than `timeout`. Acked cards stay locked.
@@ -290,6 +300,7 @@ public struct AgentAnswerTracker: Equatable, Sendable {
         for key in stale {
             pending[key] = nil
             failed.insert(key)
+            labels[key] = nil
         }
         return !stale.isEmpty
     }
@@ -298,6 +309,14 @@ public struct AgentAnswerTracker: Equatable, Sendable {
         pending = [:]
         acked = []
         failed = []
+        labels = [:]
+    }
+
+    /// The locally picked labels of a locked card, joined for display; nil
+    /// when nothing went out (or the lock rolled back).
+    public func answerSummary(_ key: String) -> String? {
+        guard isLocked(key), let picked = labels[key], !picked.isEmpty else { return nil }
+        return picked.joined(separator: ", ")
     }
 
     public func isLocked(_ key: String) -> Bool { acked.contains(key) || pending[key] != nil }
