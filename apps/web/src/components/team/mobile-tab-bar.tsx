@@ -41,7 +41,10 @@ export function useMobileChromeVisible(): boolean {
     to: `/t/$teamSlug/reviews/$issueIdentifier`,
     fuzzy: true,
   })
-  return !onIssueDetail && !onReviewDetail
+  // EXP-574: the mobile Actions page is a pushed detail view (native parity)
+  // with its own back header.
+  const onActions = matchRoute({ to: `/t/$teamSlug/agents/actions` })
+  return !onIssueDetail && !onReviewDetail && !onActions
 }
 
 // The board the Issues tab / compose FAB / topbar switcher target: the

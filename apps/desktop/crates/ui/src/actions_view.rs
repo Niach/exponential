@@ -413,8 +413,8 @@ impl ActionsView {
             .into_any_element()
     }
 
-    /// The page's tab capsule (EXP-530) — the web segmented `TabsList`, width
-    /// -capped so it sits in the section band instead of spanning the page.
+    /// The page's tab capsule (EXP-530) — the web segmented `TabsList`,
+    /// full-width above the section (EXP-574, web parity).
     fn render_tabs(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let segment = |label: &'static str, tab: ActionsTab| {
             crate::controls::segmented_item(self.tab == tab, cx)
@@ -428,10 +428,6 @@ impl ActionsView {
                 }))
         };
         crate::controls::segmented(cx)
-            // `segmented` is full-width by default (it heads a dialog column);
-            // in the band it shares the row with "New action".
-            .w(px(300.))
-            .flex_shrink_0()
             .child(segment("Actions", ActionsTab::Actions))
             .child(segment("Automations", ActionsTab::Automations))
             .child(segment("Suggestions", ActionsTab::Suggestions))
@@ -813,16 +809,9 @@ impl Render for ActionsView {
                 crate::automation_editor::parsed_trigger(action.trigger.as_ref()).is_some()
             })
             .count();
-        // The band's count follows the tab it heads.
-        let count = match self.tab {
-            ActionsTab::Actions => actions.len(),
-            ActionsTab::Automations => automation_count,
-            ActionsTab::Suggestions => crate::action_suggestions::ACTION_SUGGESTIONS.len(),
-        };
 
-        // Section header — the web `SectionLabel` band: label · count ·
-        // spacer · owner-only "New action" (EXP-367: disabled with the
-        // reason when no agent CLI is installed, never hidden).
+        // Owner-only "New action" (EXP-367: disabled with the reason when no
+        // agent CLI is installed, never hidden).
         let no_agent = crate::coding_flow::no_agent_reason(cx);
         let new_action = is_owner
             .then(|| team_id.clone())
@@ -844,16 +833,23 @@ impl Render for ActionsView {
                     })
                     .into_any_element()
             });
-        // EXP-530: the band carries the tab capsule; "New action" only belongs
-        // to the Actions tab (nothing on the other two creates one directly).
+        // EXP-574 (web parity): the tab capsule spans the page above the
+        // section; the band heads only the tab that has one on the web —
+        // Actions ("Actions" · count · "New action"), Automations
+        // ("Automations" · count). Suggestions renders its grid bare.
         let tabs = self.render_tabs(cx);
-        let trailing = gpui_component::h_flex()
-            .items_center()
-            .gap_2()
-            .child(tabs)
-            .children((self.tab == ActionsTab::Actions).then_some(new_action).flatten())
-            .into_any_element();
-        let header = section_band("Actions", count, Some(trailing), cx);
+        let header = match self.tab {
+            ActionsTab::Actions => Some(section_band(
+                "Actions",
+                actions.len(),
+                new_action,
+                cx,
+            )),
+            ActionsTab::Automations => {
+                Some(section_band("Automations", automation_count, None, cx))
+            }
+            ActionsTab::Suggestions => None,
+        };
 
         // The nudge is a grid CELL (web parity) — appended after the cards.
         let nudge = (!loading && is_owner && self.tab == ActionsTab::Actions && !has_custom)
@@ -910,7 +906,8 @@ impl Render for ActionsView {
         let mut actions_section = gpui_component::v_flex()
             .min_w_0()
             .gap_2()
-            .child(header)
+            .child(tabs)
+            .children(header)
             .child(body);
         // Only the Actions tab is fed by the shape's readiness.
         if loading && self.tab == ActionsTab::Actions {

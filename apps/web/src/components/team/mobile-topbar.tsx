@@ -1,5 +1,10 @@
 import { useState } from "react"
-import { useMatchRoute, useNavigate, useParams } from "@tanstack/react-router"
+import {
+  Link,
+  useMatchRoute,
+  useNavigate,
+  useParams,
+} from "@tanstack/react-router"
 import { conceptIcon } from "@/lib/icons.generated"
 import type { Board, Team } from "@/db/schema"
 import { useSession } from "@/hooks/use-session"
@@ -27,6 +32,7 @@ import {
 
 // EXP-317: the cross-client nav glyphs come from the shared registry
 // (packages/icons/icons.json) so web, desktop, iOS and Android agree.
+const ActionDefaultIcon = conceptIcon(`action-default`)
 const NavAboutIcon = conceptIcon(`settings-about`)
 const NavAdminIcon = conceptIcon(`nav-admin`)
 const NavChangelogIcon = conceptIcon(`nav-changelog`)
@@ -107,7 +113,21 @@ export function TeamMobileTopbar({
         </button>
       )}
 
-      <div className="ml-auto flex items-center">
+      <div className="ml-auto flex items-center gap-2">
+        {/* EXP-574 (native parity): the Agents surface carries the team
+            actions behind a top-right "Actions" entry — the tab bar is
+            already at capacity, so the entry rides the header instead of
+            an eighth tab. NOT helpdesk-gated. */}
+        {sectionTitle === `Agents` && (
+          <Link
+            to="/t/$teamSlug/agents/actions"
+            params={{ teamSlug }}
+            className="flex items-center gap-1.5 rounded-full border border-glass-stroke-section bg-glass-section px-3 py-1.5 text-sm font-medium"
+          >
+            <ActionDefaultIcon className="size-4 text-muted-foreground" />
+            Actions
+          </Link>
+        )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button

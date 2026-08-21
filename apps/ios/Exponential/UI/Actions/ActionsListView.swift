@@ -5,8 +5,9 @@ import SwiftUI
 /// The Actions surface (EXP-253, view + run only — no manual edit on mobile):
 /// the active team's action prompts, each with a Run affordance that
 /// remote-starts the action on one of the caller's actions-capable desktops.
-/// The toolbar's "New action" button (EXP-431) opens the same sheet in its
-/// dedicated create mode — the "Create action" builtin left the list.
+/// The "New action" button (EXP-431, in the web-parity "Actions" section
+/// header since EXP-574) opens the same sheet in its dedicated create mode —
+/// the "Create action" builtin left the list.
 /// After a successful send the screen waits for the desktop's synced
 /// coding_sessions row and jumps into the existing live steer screen once.
 struct ActionsListView: View {
@@ -58,22 +59,6 @@ struct ActionsListView: View {
         }
         .navigationTitle("Actions")
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-        // EXP-431: creation left the list ("Create action" no longer poses as
-        // a row) — the toolbar button opens the sheet in its create mode.
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    guard let teamId = teamState.activeTeam?.id else { return }
-                    createMode = true
-                    runTarget = ActionDto.builtinCreateAction(teamId: teamId)
-                    Task { await viewModel?.refreshStartCandidates() }
-                } label: {
-                    AppIcon(AppIcons.actionCreate, size: AppIcon.Size.medium)
-                }
-                .disabled(teamState.activeTeam == nil)
-                .accessibilityLabel("New action")
-            }
-        }
         .task(id: accountId) {
             let config = await SteerConfigCache.load(accountId: accountId, api: deps.steerApi)
             steerEnabled = config.enabled
@@ -212,6 +197,13 @@ struct ActionsListView: View {
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
+                    // EXP-574 (web parity): "Actions · count" header with the
+                    // "New action" entry (EXP-431) as its trailing control.
+                    HStack(spacing: 6) {
+                        sectionLabel("Actions", count: vm.actions.count)
+                        Spacer(minLength: 0)
+                        newActionButton
+                    }
                     if let sentCaption = vm.startWatcher.sentCaption {
                         HStack(spacing: 6) {
                             ProgressView().controlSize(.small).tint(.white)
@@ -236,6 +228,44 @@ struct ActionsListView: View {
         }
     }
 
+    /// The web `SectionLabel` pair — "Actions 6", "Automations 2" — heading
+    /// each segment's list (EXP-574 layout parity).
+    private func sectionLabel(_ title: String, count: Int) -> some View {
+        HStack(spacing: 6) {
+            Text(title)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.white)
+            Text("\(count)")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+        }
+        .padding(.horizontal, 4)
+    }
+
+    /// EXP-431: creation left the list ("Create action" no longer poses as a
+    /// row) — this button opens the sheet in its create mode.
+    private var newActionButton: some View {
+        Button {
+            guard let teamId = teamState.activeTeam?.id else { return }
+            createMode = true
+            runTarget = ActionDto.builtinCreateAction(teamId: teamId)
+            Task { await viewModel?.refreshStartCandidates() }
+        } label: {
+            HStack(spacing: 4) {
+                AppIcon(AppIcons.actionCreate, size: 12)
+                Text("New action")
+                    .font(.caption.weight(.medium))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .glassButton()
+        }
+        .buttonStyle(.plain)
+        .disabled(teamState.activeTeam == nil)
+        .accessibilityLabel("New action")
+    }
+
     // MARK: - Automations (EXP-530)
 
     @ViewBuilder
@@ -248,6 +278,8 @@ struct ActionsListView: View {
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
+                    // EXP-574 (web parity): counted section headers.
+                    sectionLabel("Automations", count: automated.count)
                     if let error = vm.triggerError {
                         Text(error)
                             .font(.caption2)
@@ -263,11 +295,8 @@ struct ActionsListView: View {
                         ForEach(automated) { automationRow($0, vm: vm) }
                     }
                     if !vm.automationRuns.isEmpty {
-                        Text("Recent automated runs")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        sectionLabel("Recent automated runs", count: vm.automationRuns.count)
                             .padding(.top, 12)
-                            .padding(.horizontal, 4)
                         ForEach(vm.automationRuns) { automatedRunRow($0) }
                     }
                 }
@@ -425,10 +454,6 @@ struct ActionsListView: View {
     private var suggestionsContent: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 8) {
-                Text("Ideas your agent can build as team actions.")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .padding(.horizontal, 4)
                 ForEach(ActionSuggestion.seeds) { suggestionCard($0) }
             }
             .padding()
@@ -456,8 +481,10 @@ struct ActionsListView: View {
             Button {
                 useSuggestion(suggestion)
             } label: {
-                Text("Use")
+                Text("Use suggestion")
                     .font(.caption.weight(.medium))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
                     .foregroundStyle(.white)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
