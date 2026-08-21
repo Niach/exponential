@@ -20,7 +20,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -41,6 +40,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.AppConstants
 import com.exponential.app.R
+import com.exponential.app.ui.components.GlassTextField
 
 @Composable
 fun InstanceScreen(
@@ -160,11 +160,11 @@ fun InstanceScreen(
             )
             Spacer(Modifier.height(8.dp))
 
-            OutlinedTextField(
+            GlassTextField(
                 value = input,
                 onValueChange = { input = it },
                 singleLine = true,
-                placeholder = { Text("https://exp.example.com") },
+                placeholder = "https://exp.example.com",
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 modifier = Modifier
                     .fillMaxWidth()

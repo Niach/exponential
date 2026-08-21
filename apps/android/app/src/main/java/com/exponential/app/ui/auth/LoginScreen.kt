@@ -24,11 +24,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,8 +41,10 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.R
 import com.exponential.app.data.api.AuthWebUrls
+import com.exponential.app.ui.components.GlassTextField
 
 @Composable
 fun LoginScreen(
@@ -181,22 +181,22 @@ fun LoginScreen(
                 }
 
                 if (config.passwordEnabled) {
-                    OutlinedTextField(
+                    GlassTextField(
                         value = email,
                         onValueChange = { email = it },
                         singleLine = true,
-                        placeholder = { Text("Email") },
+                        placeholder = "Email",
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("login-email-field"),
                     )
                     Spacer(Modifier.height(12.dp))
-                    OutlinedTextField(
+                    GlassTextField(
                         value = password,
                         onValueChange = { password = it },
                         singleLine = true,
-                        placeholder = { Text("Password") },
+                        placeholder = "Password",
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                         modifier = Modifier

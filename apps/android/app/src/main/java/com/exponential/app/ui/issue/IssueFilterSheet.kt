@@ -17,7 +17,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -35,6 +34,7 @@ import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.isStatusSelected
 import com.exponential.app.domain.issuePriorityOrder
+import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.LabelDot
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
@@ -174,10 +174,10 @@ private fun LabelsSubView(
 ) {
     var query by remember { mutableStateOf("") }
     SubViewHeader("Labels", onBack = onBack) {
-        OutlinedTextField(
+        GlassTextField(
             value = query,
             onValueChange = { query = it },
-            placeholder = { Text("Filter labels…") },
+            placeholder = "Filter labels…",
             leadingIcon = { Icon(ExpIcons.navSearch, contentDescription = null, modifier = Modifier.size(18.dp)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),

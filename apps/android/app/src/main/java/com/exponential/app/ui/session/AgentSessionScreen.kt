@@ -85,14 +85,15 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.BottomBarPillFill
+import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.PendingAttachment
 import com.exponential.app.ui.components.PendingAttachmentStrip
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.issue.DiffAddColor
+import com.exponential.app.ui.issue.DiffDelColor
 import com.exponential.app.ui.issue.PatchLines
 import com.exponential.app.ui.issue.splitUnifiedDiff
 import com.exponential.app.ui.issue.unifiedDiffStats
-import com.exponential.app.ui.issue.DiffAddColor
-import com.exponential.app.ui.issue.DiffDelColor
 import com.exponential.app.ui.markdown.LocalAttachmentDims
 import com.exponential.app.ui.markdown.LocalMarkdownAutolink
 import com.exponential.app.ui.markdown.MarkdownMediaUtils
@@ -1301,27 +1302,12 @@ private fun QuestionCard(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        TextField(
+                        GlassTextField(
                             value = freeTextValue,
                             onValueChange = { freeTextValue = it.take(4000) },
                             modifier = Modifier.weight(1f),
-                            placeholder = {
-                                Text(
-                                    "Type your answer…",
-                                    color = MaterialTheme.colorScheme.onSurface
-                                        .copy(alpha = TextEmphasis.Tertiary),
-                                )
-                            },
+                            placeholder = "Type your answer…",
                             maxLines = 3,
-                            shape = RoundedCornerShape(12.dp),
-                            colors = TextFieldDefaults.colors(
-                                focusedContainerColor = GlassTokens.RowFill,
-                                unfocusedContainerColor = GlassTokens.RowFill,
-                                disabledContainerColor = GlassTokens.RowFill,
-                                focusedIndicatorColor = Color.Transparent,
-                                unfocusedIndicatorColor = Color.Transparent,
-                                disabledIndicatorColor = Color.Transparent,
-                            ),
                         )
                         val canSend = freeTextValue.isNotBlank()
                         IconButton(

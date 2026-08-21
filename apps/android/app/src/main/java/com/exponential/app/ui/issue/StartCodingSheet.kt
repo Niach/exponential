@@ -27,7 +27,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -67,6 +66,7 @@ import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
 import com.exponential.app.ui.components.CLI_DEFAULT_MODEL
 import com.exponential.app.ui.components.DEFAULT_AGENT
 import com.exponential.app.ui.components.GlassSegmentedControl
+import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.IconSwatchGrid
 import com.exponential.app.ui.components.OptionGroup
@@ -1289,26 +1289,25 @@ private fun ActionInputField(
             }
         }
         // EXP-530: multi-line prompt text — same cap as `text`, taller field.
-        "textarea" -> OutlinedTextField(
+        "textarea" -> GlassTextField(
             value = value,
             onValueChange = { onValueChange(it.take(DomainContract.actionInputTextMax)) },
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp),
-            label = { Text(label) },
-            placeholder = def.placeholder?.let { hint -> { Text(hint) } },
+            placeholder = def.placeholder ?: label,
             minLines = 3,
         )
         // Only text remains — unknown types never render (the pane blocks the
         // run and shows the needs-a-newer-app caption instead).
-        else -> OutlinedTextField(
+        else -> GlassTextField(
             value = value,
             onValueChange = { onValueChange(it.take(DomainContract.actionInputTextMax)) },
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp),
-            label = { Text(label) },
-            placeholder = def.placeholder?.let { hint -> { Text(hint) } },
+            placeholder = def.placeholder ?: label,
+            singleLine = true,
         )
     }
 }
@@ -1513,11 +1512,11 @@ private fun AutomationSection(
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
                 )
-                OutlinedTextField(
+                GlassTextField(
                     value = draft.time,
                     onValueChange = { onChange(draft.copy(time = it.take(5))) },
                     modifier = Modifier.width(104.dp),
-                    placeholder = { Text("09:00") },
+                    placeholder = "09:00",
                     singleLine = true,
                 )
             }

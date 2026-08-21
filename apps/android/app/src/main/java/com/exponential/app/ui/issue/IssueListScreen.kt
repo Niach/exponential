@@ -30,16 +30,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -81,14 +80,15 @@ import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.components.GlassSheetSearchField
+import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.InitialsAvatar
 import com.exponential.app.ui.components.LabelDot
 import com.exponential.app.ui.components.LoadingState
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.formatDueDate
-import com.exponential.app.ui.home.HomeViewModel
 import com.exponential.app.ui.home.BoardSwitcherSheet
+import com.exponential.app.ui.home.HomeViewModel
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.onboarding.CreateBoardSheet
 import com.exponential.app.ui.parseColor
@@ -598,11 +598,11 @@ private fun CreateTeamDialog(
         onDismissRequest = onDismiss,
         title = { Text("Create a team") },
         text = {
-            OutlinedTextField(
+            GlassTextField(
                 value = name,
                 onValueChange = { name = it },
                 singleLine = true,
-                label = { Text("Team name") },
+                placeholder = "Team name",
                 modifier = Modifier.fillMaxWidth(),
             )
         },
@@ -634,11 +634,11 @@ private fun JoinTeamDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                 )
-                OutlinedTextField(
+                GlassTextField(
                     value = input,
                     onValueChange = { input = it },
                     singleLine = true,
-                    label = { Text("Invite link or code") },
+                    placeholder = "Invite link or code",
                     modifier = Modifier.fillMaxWidth(),
                 )
             }

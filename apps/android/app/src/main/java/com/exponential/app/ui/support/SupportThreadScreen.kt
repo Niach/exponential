@@ -52,6 +52,7 @@ import com.exponential.app.data.api.SupportLinkedIssue
 import com.exponential.app.data.api.SupportMessage
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.EmptyState
+import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.LoadingState
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.relativeTime
@@ -378,26 +379,13 @@ private fun Composer(
         }
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.Bottom) {
-            TextField(
+            GlassTextField(
                 value = draft,
                 onValueChange = onDraftChange,
                 modifier = Modifier.weight(1f),
-                placeholder = {
-                    Text(
-                        if (internalMode) "Add an internal note…" else "Reply to the reporter…",
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    )
-                },
+                placeholder = if (internalMode) "Add an internal note…" else "Reply to the reporter…",
                 maxLines = 4,
-                shape = RoundedCornerShape(12.dp),
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = if (internalMode) InternalAmber.copy(alpha = 0.10f) else GlassTokens.RowFill,
-                    unfocusedContainerColor = if (internalMode) InternalAmber.copy(alpha = 0.10f) else GlassTokens.RowFill,
-                    disabledContainerColor = GlassTokens.RowFill,
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent,
-                    disabledIndicatorColor = Color.Transparent,
-                ),
+                containerColor = if (internalMode) InternalAmber.copy(alpha = 0.10f) else GlassTokens.CardFill,
             )
             IconButton(
                 onClick = onSend,

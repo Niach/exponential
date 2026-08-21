@@ -142,18 +142,13 @@ fun GlassSheetSearchField(
     placeholder: String,
     modifier: Modifier = Modifier,
 ) {
-    TextField(
+    GlassTextField(
         value = value,
         onValueChange = onValueChange,
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp),
-        placeholder = {
-            Text(
-                placeholder,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
-        },
+        placeholder = placeholder,
         leadingIcon = {
             Icon(
                 ExpIcons.navSearch,
@@ -162,14 +157,5 @@ fun GlassSheetSearchField(
             )
         },
         singleLine = true,
-        shape = RoundedCornerShape(12.dp),
-        colors = TextFieldDefaults.colors(
-            focusedContainerColor = GlassTokens.RowFill,
-            unfocusedContainerColor = GlassTokens.RowFill,
-            disabledContainerColor = GlassTokens.RowFill,
-            focusedIndicatorColor = Color.Transparent,
-            unfocusedIndicatorColor = Color.Transparent,
-            disabledIndicatorColor = Color.Transparent,
-        ),
     )
 }
