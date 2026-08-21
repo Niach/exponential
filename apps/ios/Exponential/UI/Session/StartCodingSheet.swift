@@ -825,14 +825,14 @@ struct StartCodingSheet: View {
             }
         case "icon":
             // EXP-273: the value is a curated registry NAME (e.g. `rocket`) —
-            // the same string a board stores — picked from the same swatch grid
-            // as the create-board form. Optional inputs start at none and can
-            // be cleared again (the desktop's popover behaves identically).
+            // the same string a board stores — picked with the same picker as
+            // the create-board form. Optional inputs start at none and can be
+            // cleared again (the desktop's popover behaves identically).
             VStack(alignment: .leading, spacing: 6) {
                 Text(inputLabel(def))
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                IconSwatchGrid(selection: inputBinding(def.key), allowsNone: !def.isRequired)
+                IconPicker(selection: inputBinding(def.key), allowsNone: !def.isRequired)
             }
         case "pr":
             // EXP-259: the value is the REPRESENTATIVE issue id of an open

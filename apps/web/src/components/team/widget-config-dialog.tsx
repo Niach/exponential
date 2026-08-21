@@ -17,7 +17,7 @@ import {
   WidgetLauncherPreviewViewport,
 } from "@/components/widget-launcher-preview"
 import { WidgetPanelPreview } from "@/components/widget-panel-preview"
-import { IconSwatchGrid } from "@/components/ui/icon-swatch-grid"
+import { IconPicker } from "@/components/ui/icon-picker"
 import type { BoardIcon } from "@exp/db-schema/domain"
 import { LabelPicker } from "@/components/issue-properties/label-picker"
 import { Button } from "@/components/ui/button"
@@ -779,7 +779,7 @@ export function WidgetConfigDialog({
                   )}
                   <div className="space-y-2">
                     <Label>Icon</Label>
-                    <IconSwatchGrid
+                    <IconPicker
                       // PickableIcon and BoardIcon are byte-equal by
                       // construction (locked by lib/icons.test.ts).
                       value={(formIcon || `megaphone`) as BoardIcon}

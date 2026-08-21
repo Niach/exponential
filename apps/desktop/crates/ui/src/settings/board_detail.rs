@@ -498,10 +498,12 @@ impl Render for BoardDetailPane {
         let icon_field = v_flex()
             .gap_1()
             .child(Self::field_label("Icon", cx))
-            .child(crate::board_form::icon_swatch_grid(
+            .child(crate::board_form::icon_picker(
                 "board-detail",
-                board.icon.as_deref().unwrap_or_default(),
+                board.icon.as_deref(),
+                false,
                 move |name, _, cx| {
+                    let Some(name) = name else { return };
                     let board_id = board_id.clone();
                     spawn_trpc(cx, "boards.update(icon)", move |trpc| {
                         let mut input = api::boards::BoardsUpdateInput::new(board_id);

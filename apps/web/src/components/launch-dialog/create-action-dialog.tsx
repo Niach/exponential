@@ -27,14 +27,13 @@ import {
   deviceIsOnline,
   type SteerDevice,
 } from "@/lib/steer-devices"
-import { BOARD_ICON_OPTIONS } from "@/lib/board-icons"
 import type { ActionRepoOption } from "@/components/action-editor-dialog"
 import type { StartCodingOptions } from "@/components/launch-dialog/launch-dialog"
 import {
   CLI_DEFAULT_EFFORT,
   LaunchOptionsPane,
 } from "@/components/launch-dialog/launch-options-pane"
-import { IconSwatchGrid } from "@/components/ui/icon-swatch-grid"
+import { IconPicker } from "@/components/ui/icon-picker"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -304,12 +303,10 @@ export function CreateActionDialog({
             </div>
             <div className="space-y-2">
               <Label>Icon (optional)</Label>
-              {/* Optional input starts unset; the grid always shows a
-                  selection, so seed it with the first pickable name only once
-                  the user actually picks (same rule as the generic renderer). */}
-              <IconSwatchGrid
-                value={(icon as BoardIcon) || BOARD_ICON_OPTIONS[0].name}
+              <IconPicker
+                value={icon as BoardIcon | ``}
                 onChange={setIcon}
+                allowsNone
               />
             </div>
             <AutomationSection

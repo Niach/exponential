@@ -505,14 +505,17 @@ impl CreateBoardDialogView {
 }
 
 impl CreateBoardDialogView {
-    /// The icon picker: the shared grid of curated contract glyphs
-    /// (EXP-288 — `crate::board_form`, also the per-board settings page).
+    /// The icon picker: the shared swatch-and-popover over the curated
+    /// contract glyphs (EXP-575 — `crate::board_form`, also the per-board
+    /// settings page).
     fn icon_picker(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let view = cx.entity().clone();
-        let grid = crate::board_form::icon_swatch_grid(
+        let picker = crate::board_form::icon_picker(
             "create-board",
-            self.icon,
+            Some(self.icon),
+            false,
             move |name, _, cx| {
+                let Some(name) = name else { return };
                 view.update(cx, |this, cx| {
                     this.icon = name;
                     cx.notify();
@@ -520,7 +523,7 @@ impl CreateBoardDialogView {
             },
             cx,
         );
-        v_flex().gap_2().child(field_label(cx, "Icon")).child(grid)
+        v_flex().gap_2().child(field_label(cx, "Icon")).child(picker)
     }
 
     /// The "Repository" field: a dropdown offering the team's connected

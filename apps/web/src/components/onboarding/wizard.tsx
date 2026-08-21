@@ -25,7 +25,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ColorSwatchGrid } from "@/components/ui/color-swatch-grid"
-import { IconSwatchGrid } from "@/components/ui/icon-swatch-grid"
+import { IconPicker } from "@/components/ui/icon-picker"
 import {
   GithubRepoPicker,
   type PickerRepo,
@@ -413,7 +413,11 @@ function BoardStep({
 
         <div className="space-y-2">
           <Label>Icon</Label>
-          <IconSwatchGrid value={icon} onChange={setIcon} color={color} />
+          <IconPicker
+            value={icon}
+            onChange={(next) => setIcon(next as BoardIcon)}
+            color={color}
+          />
         </div>
 
         <div className="space-y-2">
