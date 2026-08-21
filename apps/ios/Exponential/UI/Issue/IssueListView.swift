@@ -61,18 +61,16 @@ struct IssueListView: View {
 
             if let vm = viewModel {
                 VStack(spacing: 0) {
+                    // The strip's padding + tint live inside the chip (EXP-592):
+                    // wrapping it here painted an empty 16pt band above the list
+                    // whenever the repo lookup was pending or failed.
                     if let board = vm.board, board.repositoryId != nil {
-                        HStack {
-                            RepoNameChip(
-                                accountId: accountId,
-                                teamId: board.teamId,
-                                repositoryId: board.repositoryId
-                            )
-                            Spacer()
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(Color.white.opacity(0.04))
+                        RepoNameChip(
+                            accountId: accountId,
+                            teamId: board.teamId,
+                            repositoryId: board.repositoryId,
+                            headerStrip: true
+                        )
                     }
                     issueListContent(vm)
                 }

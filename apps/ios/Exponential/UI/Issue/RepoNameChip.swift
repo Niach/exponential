@@ -42,10 +42,19 @@ enum RepositoryDirectory {
 
 /// A tappable `owner/name` chip for a board's backing repo. Resolves the uuid
 /// via `RepositoryDirectory`; renders nothing until (and unless) it resolves.
+///
+/// `headerStrip` wraps the chip in the board header's full-width band
+/// (16pt gutter, 8pt vertical padding, faint tint). The band lives HERE, not
+/// around the call site, so it only exists once the repo resolved — the
+/// repositories registry is tRPC-only, so the lookup is async on every cold
+/// open and can fail outright, and an empty band then sat between the nav
+/// bar and the pinned status header as a stray ~16pt lighter strip (EXP-592,
+/// the gap EXP-578/EXP-590 kept chasing inside the List).
 struct RepoNameChip: View {
     let accountId: String
     let teamId: String
     let repositoryId: String?
+    var headerStrip = false
 
     @Environment(AppDependencies.self) private var deps
     @State private var repo: TeamRepo?
@@ -53,28 +62,42 @@ struct RepoNameChip: View {
     var body: some View {
         Group {
             if let repo {
-                Button {
-                    if let url = URL(string: "https://github.com/\(repo.fullName)") {
-                        Platform.open(url)
+                if headerStrip {
+                    HStack {
+                        chip(repo)
+                        Spacer()
                     }
-                } label: {
-                    HStack(spacing: 6) {
-                        AppIcon(AppIcons.uiRepository, size: 11)
-                        Text(repo.fullName)
-                            .font(.caption.monospaced())
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        AppIcon(AppIcons.uiExternalLink, size: 11)
-                    }
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .glassButton()
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Color.white.opacity(0.04))
+                } else {
+                    chip(repo)
                 }
-                .buttonStyle(.plain)
             }
         }
         .task(id: "\(accountId)|\(teamId)|\(repositoryId ?? "")") { await resolve() }
+    }
+
+    private func chip(_ repo: TeamRepo) -> some View {
+        Button {
+            if let url = URL(string: "https://github.com/\(repo.fullName)") {
+                Platform.open(url)
+            }
+        } label: {
+            HStack(spacing: 6) {
+                AppIcon(AppIcons.uiRepository, size: 11)
+                Text(repo.fullName)
+                    .font(.caption.monospaced())
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                AppIcon(AppIcons.uiExternalLink, size: 11)
+            }
+            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .glassButton()
+        }
+        .buttonStyle(.plain)
     }
 
     private func resolve() async {
