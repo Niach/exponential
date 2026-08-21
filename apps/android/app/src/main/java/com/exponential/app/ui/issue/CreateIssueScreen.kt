@@ -32,7 +32,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -68,6 +67,7 @@ import com.exponential.app.domain.IssueStatusCategory
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.issuePriorityOrder
 import com.exponential.app.domain.priorityIcon
+import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.formatDueDate
@@ -79,9 +79,9 @@ import com.exponential.app.ui.markdown.MarkdownMediaUtils
 import com.exponential.app.ui.markdown.MentionMember
 import com.exponential.app.ui.markdown.ProvideMarkdownToolbar
 import com.exponential.app.ui.parseColor
-import com.exponential.app.ui.share.SharePrefill
 import com.exponential.app.ui.share.ShareBoardPickerSheet
 import com.exponential.app.ui.share.ShareBoardSelector
+import com.exponential.app.ui.share.SharePrefill
 import com.exponential.app.ui.share.TeamBoards
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.dueDateColor
@@ -328,10 +328,10 @@ fun CreateIssueScreen(
                     )
                 }
 
-                OutlinedTextField(
+                GlassTextField(
                     value = title,
                     onValueChange = { title = it },
-                    placeholder = { Text("Issue title") },
+                    placeholder = "Issue title",
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                     modifier = Modifier

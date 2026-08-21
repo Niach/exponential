@@ -6,6 +6,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -14,13 +16,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -37,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.BoardRepositoryChoice
+import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.IconSwatchGrid
 import com.exponential.app.ui.components.RepositorySelector
 import com.exponential.app.ui.icons.ExpIcons
@@ -102,28 +102,26 @@ fun CreateBoardForm(
     val canCreate = name.isNotBlank() && prefix.isNotBlank() && !state.submitting
 
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        OutlinedTextField(
+        GlassTextField(
             value = name,
             onValueChange = {
                 name = it
                 if (!prefixEdited) prefix = derivePrefix(it)
             },
             singleLine = true,
-            label = { Text("Board name") },
-            placeholder = { Text("e.g. Backend API") },
+            placeholder = "Board name (e.g. Backend API)",
             modifier = Modifier.fillMaxWidth(),
         )
 
         if (!minimal) {
-            OutlinedTextField(
+            GlassTextField(
                 value = prefix,
                 onValueChange = {
                     prefixEdited = true
                     prefix = it.uppercase().take(4)
                 },
                 singleLine = true,
-                label = { Text("Prefix") },
-                placeholder = { Text("e.g. API") },
+                placeholder = "Prefix (e.g. API)",
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
                 modifier = Modifier.fillMaxWidth(),
             )

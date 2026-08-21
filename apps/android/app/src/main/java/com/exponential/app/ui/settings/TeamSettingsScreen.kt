@@ -27,7 +27,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -41,8 +40,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.lifecycle.compose.LifecycleResumeEffect
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -51,19 +48,22 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.GithubInstallation
 import com.exponential.app.data.api.TeamRepo
-import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.BoardEntity
+import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.GlassDropdownMenu
-import com.exponential.app.ui.components.GlassPillButton
 import com.exponential.app.ui.components.GlassMenuDefaults
 import com.exponential.app.ui.components.GlassMenuItem
+import com.exponential.app.ui.components.GlassPillButton
+import com.exponential.app.ui.components.GlassTextField
+import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.components.userDisplayName
-import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.onboarding.CreateBoardSheet
 import com.exponential.app.ui.onboarding.GithubRepoPickerSheet
@@ -1027,11 +1027,11 @@ private fun LabelEditorDialog(
         title = { Text(title) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
+                GlassTextField(
                     value = name,
                     onValueChange = { name = it },
                     singleLine = true,
-                    label = { Text("Name") },
+                    placeholder = "Label name",
                     modifier = Modifier.fillMaxWidth(),
                 )
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

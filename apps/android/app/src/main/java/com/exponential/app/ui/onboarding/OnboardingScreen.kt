@@ -2,9 +2,9 @@ package com.exponential.app.ui.onboarding
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedContentTransitionScope
-import androidx.compose.animation.togetherWith
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,7 +23,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -42,6 +41,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.LocalReduceMotion
 import com.exponential.app.ui.theme.Motion
@@ -263,11 +263,11 @@ private fun TeamStep(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text("Create a team", style = MaterialTheme.typography.titleSmall)
-                    OutlinedTextField(
+                    GlassTextField(
                         value = teamName,
                         onValueChange = { teamName = it },
                         singleLine = true,
-                        label = { Text("Team name") },
+                        placeholder = "e.g. Acme Inc",
                         enabled = !submitting,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -290,11 +290,11 @@ private fun TeamStep(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                     )
-                    OutlinedTextField(
+                    GlassTextField(
                         value = inviteInput,
                         onValueChange = { inviteInput = it },
                         singleLine = true,
-                        label = { Text("Invite link or code") },
+                        placeholder = "Invite link or code",
                         enabled = !submitting,
                         modifier = Modifier.fillMaxWidth(),
                     )

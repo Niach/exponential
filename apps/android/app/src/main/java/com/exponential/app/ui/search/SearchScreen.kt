@@ -36,6 +36,7 @@ import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.EmptyState
+import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.IssueRow
 import com.exponential.app.ui.theme.GlassTokens
@@ -136,13 +137,11 @@ private fun SearchField(
     onQueryChange: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    TextField(
+    GlassTextField(
         value = query,
         onValueChange = onQueryChange,
         modifier = modifier.fillMaxWidth(),
-        placeholder = {
-            Text("Search issues", color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary))
-        },
+        placeholder = "Search issues",
         leadingIcon = {
             Icon(
                 ExpIcons.navSearch,
@@ -158,14 +157,5 @@ private fun SearchField(
             }
         },
         singleLine = true,
-        shape = RoundedCornerShape(12.dp),
-        colors = TextFieldDefaults.colors(
-            focusedContainerColor = GlassTokens.RowFill,
-            unfocusedContainerColor = GlassTokens.RowFill,
-            disabledContainerColor = GlassTokens.RowFill,
-            focusedIndicatorColor = Color.Transparent,
-            unfocusedIndicatorColor = Color.Transparent,
-            disabledIndicatorColor = Color.Transparent,
-        ),
     )
 }
