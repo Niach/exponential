@@ -1,3 +1,5 @@
-- Editor fixes: heading changes and Clear formatting keep your bold, italic and code marks intact
-- Clear formatting now applies only to the selected text
+- Actions page now matches the other apps: section headers with counts and a labeled New action button
+- Issue lists: pinned status headers no longer show a stray band under the navigation bar
+- Board and action icons are picked from a compact swatch that opens the icon grid
+- Editing or deleting a label from Team settings works again
 - Smaller fixes

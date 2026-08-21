@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-mobile-glass-ui-icon-pickers`,
+    date: `2026-08-21`,
+    title: `Mobile polish and compact icon pickers`,
+    summary: `Android gets glass inputs and buttons, issue lists pin their status headers cleanly, and icons are picked from a compact swatch on every app.`,
+    body: `- **Android look**: one glass text field and glass buttons replace the Material outlines across login, onboarding, issues, filters, search, support and settings.
+- **Issue lists**: status headers stick while scrolling on iOS and Android without a stray band under the navigation bar.
+- **Icon pickers**: board forms, action editors and the widget launcher show the current icon as a swatch that opens the grid, with a real "No icon" state for optional action inputs.
+- **Actions**: the same layout on every app, with section counts and a labeled New action button.
+- **iOS labels**: editing or deleting a label from Team settings no longer fails.`,
+  },
+  {
     id: `2026-08-mobile-editor-fixes`,
     date: `2026-08-20`,
     title: `Mobile editor fixes`,
