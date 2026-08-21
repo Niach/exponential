@@ -603,9 +603,9 @@ describe(`devices.setShared — kill fan-out`, () => {
   })
 })
 
-// EXP-530 follow-up: withdrawing a share must also stop the teammate-created
-// automations bound to this device — the device self-selects triggers off
-// Electric, and the enable toggle is owner-only.
+// EXP-530 follow-up (EXP-583: automations rows): withdrawing a share must
+// also stop the teammate-created automations bound to this device — the
+// device self-selects automations off Electric, and the toggle is owner-only.
 describe(`devices.setShared — automation disarm`, () => {
   const TEAM_A = `11111111-1111-4111-8111-111111111111`
   const TEAM_B = `22222222-2222-4222-8222-222222222222`
@@ -620,7 +620,7 @@ describe(`devices.setShared — automation disarm`, () => {
 
     expect(h.getTeamMember).toHaveBeenCalledWith(`actor`, TEAM_A)
     expect(h.state.updates).toHaveLength(2)
-    expect(Object.keys(automationUpdate()!.set as object)).toContain(`trigger`)
+    expect(automationUpdate()!.set).toMatchObject({ enabled: false })
   })
 
   it(`disables the old team's triggers when the device moves teams`, async () => {

@@ -1,18 +1,19 @@
-//! The shared **Automation** section (EXP-530) — one editor embedded by both
-//! action dialogs: [`crate::action_editor_dialog`] (which saves the trigger
-//! through `actions.update`) and [`crate::start_coding_dialog`]'s create mode
-//! (which can't save anything — it appends the wire JSON to the creator run's
-//! description so the agent sets it via `exponential_actions_create`).
+//! The shared **Automation** section (EXP-530; reshaped by EXP-583) — the
+//! trigger + runner form embedded by [`crate::automation_dialog`] (which
+//! creates/edits a real `automations` row) and by
+//! [`crate::start_coding_dialog`]'s suggestion-prefilled create mode (which
+//! can't save anything — it appends the wire JSON to the creator run's
+//! description so the agent sets it via `exponential_automations_create`).
 //!
-//! The section is a segmented **None · Schedule · On event** switch over one
-//! contextual pane, plus the DEVICE that evaluates and fires the trigger
-//! (automations are local-only — no server scheduler): create mode binds it
-//! to this desktop via [`AutomationEditorState::fixed_device_id`] (EXP-574 —
-//! the machine authoring the action is the one running it), the edit dialog
-//! keeps a picker. Triggers save enabled; owners flip them on the
-//! Automations tab.
+//! Since EXP-583 an automation is its own row, so this section owns FOUR
+//! things: the **trigger** (a segmented Schedule · On event switch over one
+//! contextual pane), the **device** that evaluates and fires it (automations
+//! are local-only — no server scheduler), and the optional **agent / model /
+//! effort** pins (every unpinned field falls back to that device's launch
+//! defaults). The device picker is ALWAYS shown: an automation can target any
+//! automation-capable machine, not just the one authoring it.
 //!
-//! [`AutomationEditorState::to_trigger`] is the only place the WIRE shape is
+//! [`AutomationEditorState::to_trigger`] is the only place the WIRE trigger is
 //! built, and it validates instead of clamping: a half-filled section returns
 //! a readable message the host dialog renders in its own error slot, so a bad
 //! trigger never reaches the server's BAD_REQUEST.
@@ -42,13 +43,14 @@ use coding::automations::{
     parse_trigger, EventKind, ParsedTrigger, ScheduleInterval, TriggerKind,
 };
 
+use crate::coding_selects::{effort_choices_for, model_choices_for};
 use crate::controls::WebControl as _;
 
-/// Which pane the section shows. `None` = no automation (the saved trigger is
-/// cleared).
+/// Which pane the section shows. EXP-583 dropped the `None` mode: an
+/// automation row exists to fire, so the trigger is never absent — a manual
+/// action simply has no automation row at all.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum AutomationMode {
-    None,
     Schedule,
     Event,
 }
@@ -82,13 +84,16 @@ const INTERVAL_LABELS: [(ScheduleInterval, &str); 3] = [
 ];
 
 /// Why an action with required inputs can never be automated: an automated
-/// run has no one to type them. The server refuses an ENABLED trigger on such
-/// an action (`actions.update`), so every surface says the same sentence
-/// instead of letting the user discover it as a failed save. Byte-shared with
-/// the web `AutomationSection` copy.
+/// run has no one to type them. The server refuses such a target on an
+/// ENABLED automation (`automations.create/update`), so every surface says the
+/// same sentence instead of letting the user discover it as a failed save.
+/// Byte-shared with the web copy.
 pub(crate) const AUTOMATION_REQUIRED_INPUTS_HINT: &str =
-    "This action has required inputs, and an automated run has none to fill them with. \
-     Make the inputs optional to enable it.";
+    "Automations can't run actions with required inputs. Make the inputs optional first.";
+
+/// The label the agent/model/effort pickers show while nothing is pinned —
+/// the run then follows the bound machine's own launch defaults.
+const DEVICE_DEFAULT_LABEL: &str = "Device default";
 
 /// The cap the server enforces per filter list — the pickers stop offering
 /// more instead of letting the save fail (`ACTION_TRIGGER_MAX_FILTER_IDS`).
@@ -96,14 +101,17 @@ fn filter_cap() -> usize {
     domain::contract::ACTION_TRIGGER_MAX_FILTER_IDS
 }
 
-/// One device the picker can bind a trigger to.
+/// One device the picker can bind an automation to.
 #[derive(Clone, Debug)]
-struct DeviceOption {
+pub(crate) struct DeviceOption {
     /// The steer TEXT id (`devices.device_id`), NOT the row uuid — the
-    /// trigger's `deviceId` and what the host matches itself against.
-    device_id: String,
-    label: String,
-    online: bool,
+    /// automation's `device_id` and what the host matches itself against.
+    pub(crate) device_id: String,
+    pub(crate) label: String,
+    pub(crate) online: bool,
+    /// The agent CLIs the machine advertises — the Agent picker offers
+    /// exactly these (the server re-checks the pin against the same list).
+    pub(crate) agents: Vec<String>,
 }
 
 pub(crate) struct AutomationEditorState {
@@ -122,20 +130,23 @@ pub(crate) struct AutomationEditorState {
     label_ids: Vec<String>,
     priorities: Vec<String>,
     to_status_ids: Vec<String>,
-    device_id: Option<String>,
-    /// Create mode (EXP-574 follow-up): the automation binds to THIS desktop
-    /// — the machine authoring the action — so the device picker hides and
-    /// this id wins over [`Self::device_id`] in [`Self::to_trigger`].
-    pub(crate) fixed_device_id: Option<String>,
-    /// Host-writable: [`crate::action_editor_dialog`] forces it off for an
-    /// action with required inputs (see [`Self::has_required_inputs`]).
-    pub(crate) enabled: bool,
-    /// The hosted action has at least one REQUIRED input — an automated run
-    /// has nothing to fill them with and the server refuses an enabled
-    /// trigger, so [`Self::to_trigger`] saves it disabled and the section
-    /// says why. The create-action path leaves it false: a brand-new action
-    /// has no inputs yet.
-    pub(crate) has_required_inputs: bool,
+    /// The bound machine's steer id. Always picked here (EXP-583) — an
+    /// automation may target any automation-capable device, not only this one.
+    pub(crate) device_id: Option<String>,
+    /// The pinned launch overrides; every `None` = the device's own defaults.
+    pub(crate) agent: Option<String>,
+    pub(crate) model: Option<String>,
+    pub(crate) effort: Option<String>,
+}
+
+/// Everything a saved (or agent-authored) automation needs beyond its action.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct AutomationSpec {
+    pub(crate) trigger: Value,
+    pub(crate) device_id: String,
+    pub(crate) agent: Option<String>,
+    pub(crate) model: Option<String>,
+    pub(crate) effort: Option<String>,
 }
 
 impl AutomationEditorState {
@@ -148,7 +159,7 @@ impl AutomationEditorState {
         time.update(cx, |state, cx| state.set_value("09:00", window, cx));
         Self {
             team_id,
-            mode: AutomationMode::None,
+            mode: AutomationMode::Schedule,
             interval: ScheduleInterval::Daily,
             weekday: 1,
             day_of_month: 1,
@@ -159,28 +170,34 @@ impl AutomationEditorState {
             priorities: Vec::new(),
             to_status_ids: Vec::new(),
             device_id: None,
-            fixed_device_id: None,
-            enabled: true,
-            has_required_inputs: false,
+            agent: None,
+            model: None,
+            effort: None,
         }
     }
 
-    /// Seed from a synced row's `trigger` JSON. An UNSUPPORTED trigger (a kind
-    /// this build predates) deliberately seeds as `None` but KEEPS its device
-    /// binding, so re-saving from an old client can't silently retarget it —
-    /// the host dialog warns via [`Self::unsupported`].
-    pub(crate) fn seed(&mut self, trigger: Option<&Value>, window: &mut Window, cx: &mut App) {
+    /// Preselect the only automation-capable device when there is exactly
+    /// one — the common single-machine case, so "New automation" is one
+    /// click less. A second machine leaves the pick explicit.
+    pub(crate) fn seed_default_device(&mut self, cx: &App) {
+        if self.device_id.is_some() {
+            return;
+        }
+        let devices = automation_devices(cx);
+        if let [only] = &devices[..] {
+            self.device_id = Some(only.device_id.clone());
+        }
+    }
+
+    /// Seed the TRIGGER half from a row's (or a suggestion's) `trigger` JSON.
+    /// An UNSUPPORTED trigger (a kind this build predates) leaves the panes on
+    /// their defaults; the host dialog blocks the save via [`Self::unsupported`]
+    /// so an old client can't silently rewrite it.
+    pub(crate) fn seed_trigger(&mut self, trigger: Option<&Value>, window: &mut Window, cx: &mut App) {
         let Some(parsed) = trigger.and_then(parse_trigger) else {
             return;
         };
-        let ParsedTrigger {
-            device_id,
-            enabled,
-            kind,
-        } = parsed;
-        self.device_id = Some(device_id);
-        self.enabled = enabled;
-        match kind {
+        match parsed.kind {
             TriggerKind::Schedule(schedule) => {
                 self.mode = AutomationMode::Schedule;
                 self.interval = schedule.interval;
@@ -206,10 +223,24 @@ impl AutomationEditorState {
                 self.priorities = spec.priorities;
                 self.to_status_ids = spec.to_status_ids;
             }
-            // Inert-but-visible: the section shows "no automation" while the
-            // stored trigger stays untouched unless the user picks a mode.
-            TriggerKind::Unsupported => self.mode = AutomationMode::None,
+            // Inert-but-visible: the panes stay on their defaults while the
+            // stored trigger is untouched (the host blocks the save).
+            TriggerKind::Unsupported => {}
         }
+    }
+
+    /// Seed the RUNNER half from an existing automation row.
+    pub(crate) fn seed_runner(
+        &mut self,
+        device_id: Option<&str>,
+        agent: Option<&str>,
+        model: Option<&str>,
+        effort: Option<&str>,
+    ) {
+        self.device_id = device_id.filter(|id| !id.is_empty()).map(str::to_string);
+        self.agent = agent.filter(|value| !value.is_empty()).map(str::to_string);
+        self.model = model.filter(|value| !value.is_empty()).map(str::to_string);
+        self.effort = effort.filter(|value| !value.is_empty()).map(str::to_string);
     }
 
     /// True when the row carries a trigger this build cannot represent — the
@@ -220,32 +251,17 @@ impl AutomationEditorState {
             .is_some_and(|parsed| parsed.kind == TriggerKind::Unsupported)
     }
 
-    /// Build the WIRE trigger. `Ok(None)` = no automation (the host sends
-    /// `Patch::Null`); `Err` = a readable validation message.
-    pub(crate) fn to_trigger(&self, cx: &App) -> Result<Option<Value>, SharedString> {
-        if self.mode == AutomationMode::None {
-            return Ok(None);
-        }
-        // Create mode's fixed self binding wins; the edit dialog still needs
-        // an explicit pick.
-        let Some(device_id) = self
-            .fixed_device_id
-            .clone()
-            .or_else(|| self.device_id.clone())
-            .filter(|id| !id.is_empty())
-        else {
-            return Err("Pick a device for the automation.".into());
-        };
+    /// Build the WIRE trigger — the WHEN-part only (EXP-583: the device, the
+    /// enabled flag and the launch pins are COLUMNS of the automations row).
+    /// `Err` = a readable validation message.
+    pub(crate) fn to_trigger(&self, cx: &App) -> Result<Value, SharedString> {
         match self.mode {
-            AutomationMode::None => Ok(None),
             AutomationMode::Schedule => {
                 let raw = self.time.read(cx).value();
                 let minute_of_day = parse_minute_of_day(&raw)
                     .ok_or::<SharedString>("Enter a time like 07:00.".into())?;
                 let mut trigger = json!({
                     "kind": "schedule",
-                    "deviceId": device_id,
-                    "enabled": self.enabled && !self.has_required_inputs,
                     "interval": interval_wire(self.interval),
                     "minuteOfDay": minute_of_day,
                 });
@@ -258,7 +274,7 @@ impl AutomationEditorState {
                         trigger["dayOfMonth"] = json!(self.day_of_month.clamp(1, 28));
                     }
                 }
-                Ok(Some(trigger))
+                Ok(trigger)
             }
             AutomationMode::Event => {
                 let mut filters = serde_json::Map::new();
@@ -274,10 +290,7 @@ impl AutomationEditorState {
                 if self.event == EventKind::LabelAdded {
                     put("labelIds", &self.label_ids);
                 }
-                if matches!(
-                    self.event,
-                    EventKind::Created | EventKind::PriorityChanged
-                ) {
+                if matches!(self.event, EventKind::Created | EventKind::PriorityChanged) {
                     put("priorities", &self.priorities);
                 }
                 if self.event == EventKind::StatusChanged {
@@ -285,17 +298,32 @@ impl AutomationEditorState {
                 }
                 let mut trigger = json!({
                     "kind": "event",
-                    "deviceId": device_id,
-                    "enabled": self.enabled && !self.has_required_inputs,
                     "event": self.event.wire(),
                 });
                 // An all-empty `filters` object is omitted, not sent as `{}`.
                 if !filters.is_empty() {
                     trigger["filters"] = Value::Object(filters);
                 }
-                Ok(Some(trigger))
+                Ok(trigger)
             }
         }
+    }
+
+    /// The whole automation, validated: trigger + the runner binding.
+    pub(crate) fn to_spec(&self, cx: &App) -> Result<AutomationSpec, SharedString> {
+        let trigger = self.to_trigger(cx)?;
+        let Some(device_id) = self.device_id.clone().filter(|id| !id.is_empty()) else {
+            return Err("Pick a device for the automation.".into());
+        };
+        Ok(AutomationSpec {
+            trigger,
+            device_id,
+            agent: self.agent.clone(),
+            // A model/effort is only meaningful against a pinned agent (the
+            // server validates the pair) — drop them with the agent.
+            model: self.agent.as_ref().and(self.model.clone()),
+            effort: self.agent.as_ref().and(self.effort.clone()),
+        })
     }
 
     // -- render ---------------------------------------------------------------
@@ -311,43 +339,18 @@ impl AutomationEditorState {
         let muted = cx.theme().muted_foreground;
         let mut section = v_flex()
             .gap_2()
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(muted)
-                    .child("Automation (optional)"),
-            )
+            .child(div().text_sm().text_color(muted).child("Automation"))
             .child(self.render_mode_switch(prefix, access, cx));
-        match self.mode {
-            AutomationMode::None => {
-                section = section.child(div().text_xs().text_color(muted.opacity(0.7)).child(
-                    "Without a trigger the action only runs when someone starts it.",
-                ));
-            }
+        section = match self.mode {
             AutomationMode::Schedule => {
-                section = section.child(self.render_schedule_pane(prefix, access, cx));
+                section.child(self.render_schedule_pane(prefix, access, cx))
             }
-            AutomationMode::Event => {
-                section = section.child(self.render_event_pane(prefix, access, cx));
-            }
-        }
-        if self.mode != AutomationMode::None {
-            // Create mode binds the automation to the desktop authoring the
-            // action (EXP-574 follow-up) — no picker; the edit dialog keeps
-            // it so an existing binding stays retargetable.
-            if self.fixed_device_id.is_none() {
-                section = section.child(self.render_device_picker(prefix, access, cx));
-            }
-            if self.has_required_inputs {
-                section = section.child(
-                    div()
-                        .text_xs()
-                        .text_color(muted.opacity(0.7))
-                        .child(AUTOMATION_REQUIRED_INPUTS_HINT),
-                );
-            }
-        }
-        section.into_any_element()
+            AutomationMode::Event => section.child(self.render_event_pane(prefix, access, cx)),
+        };
+        section
+            .child(self.render_device_picker(prefix, access, cx))
+            .child(self.render_launch_pins(prefix, access, cx))
+            .into_any_element()
     }
 
     fn render_mode_switch<V: Render>(
@@ -369,11 +372,6 @@ impl AutomationEditorState {
                 }))
         };
         crate::controls::segmented(cx)
-            .child(segment(
-                "None",
-                AutomationMode::None,
-                format!("{prefix}-mode-none").into(),
-            ))
             .child(segment(
                 "Schedule",
                 AutomationMode::Schedule,
@@ -417,7 +415,6 @@ impl AutomationEditorState {
                 }
                 menu
             });
-
         let mut row = h_flex()
             .w_full()
             .gap_2()
@@ -655,8 +652,8 @@ impl AutomationEditorState {
                     .label(button_label)
                     .dropdown_menu(move |mut menu, _window, _cx| {
                         if options.is_empty() {
-                            return menu.item(PopupMenuItem::new("Nothing to filter on")
-                                .disabled(true));
+                            return menu
+                                .item(PopupMenuItem::new("Nothing to filter on").disabled(true));
                         }
                         for (id, name) in &options {
                             let on = picked.iter().any(|entry| entry == id);
@@ -715,7 +712,7 @@ impl AutomationEditorState {
             })
             .map(SharedString::from);
         if devices.is_empty() && picked.is_none() {
-            return v_flex().gap_1().child(field_label(cx, "Device")).child(
+            return v_flex().gap_1().child(field_label(cx, "Runs on")).child(
                 div().text_xs().text_color(muted).child(
                     "No automation-capable device. Run the desktop app or the exponential \
                      daemon and it will appear here.",
@@ -746,14 +743,29 @@ impl AutomationEditorState {
                     } else {
                         format!("{} (offline)", device.label)
                     };
+                    let agents = device.agents.clone();
                     menu = menu.item(
                         PopupMenuItem::new(SharedString::from(label))
                             .checked(bound.as_deref() == Some(device_id.as_str()))
                             .on_click(move |_, _, cx| {
                                 if let Some(view) = view.upgrade() {
                                     let device_id = device_id.clone();
+                                    let agents = agents.clone();
                                     view.update(cx, |view, cx| {
-                                        access(view).device_id = Some(device_id);
+                                        let state = access(view);
+                                        state.device_id = Some(device_id);
+                                        // A pin the NEW machine cannot run
+                                        // would be refused server-side —
+                                        // drop it back to its defaults.
+                                        if state
+                                            .agent
+                                            .as_ref()
+                                            .is_some_and(|agent| !agents.contains(agent))
+                                        {
+                                            state.agent = None;
+                                            state.model = None;
+                                            state.effort = None;
+                                        }
                                         cx.notify();
                                     });
                                 }
@@ -762,7 +774,7 @@ impl AutomationEditorState {
                 }
                 menu
             });
-        v_flex().gap_1().child(field_label(cx, "Device")).child(
+        v_flex().gap_1().child(field_label(cx, "Runs on")).child(
             h_flex()
                 .gap_2()
                 .items_center()
@@ -779,6 +791,195 @@ impl AutomationEditorState {
         )
     }
 
+    /// Agent / Model / Effort — the optional pins. The Agent list is exactly
+    /// what the BOUND device advertises (the server re-checks it), and
+    /// model/effort only appear once an agent is pinned: they are validated
+    /// per agent, and "the device's default agent with a foreign model" is
+    /// not a state the server accepts.
+    fn render_launch_pins<V: Render>(
+        &self,
+        prefix: &'static str,
+        access: fn(&mut V) -> &mut Self,
+        cx: &mut Context<V>,
+    ) -> impl IntoElement {
+        let agents = self.device_agents(cx);
+        let view = cx.entity().downgrade();
+        let picked_agent = self.agent.clone();
+        let agent_button = Button::new(SharedString::from(format!("{prefix}-agent")))
+            .outline()
+            .cursor_pointer()
+            .web_input_sm()
+            .label(SharedString::from(
+                self.agent
+                    .clone()
+                    .map(|agent| agent_label(&agent))
+                    .unwrap_or_else(|| DEVICE_DEFAULT_LABEL.to_string()),
+            ))
+            .dropdown_menu(move |mut menu, _window, _cx| {
+                let default_view = view.clone();
+                menu = menu.item(
+                    PopupMenuItem::new(DEVICE_DEFAULT_LABEL)
+                        .checked(picked_agent.is_none())
+                        .on_click(move |_, _, cx| {
+                            if let Some(view) = default_view.upgrade() {
+                                view.update(cx, |view, cx| {
+                                    let state = access(view);
+                                    state.agent = None;
+                                    state.model = None;
+                                    state.effort = None;
+                                    cx.notify();
+                                });
+                            }
+                        }),
+                );
+                for id in &agents {
+                    let view = view.clone();
+                    let id = id.clone();
+                    let checked = picked_agent.as_deref() == Some(id.as_str());
+                    menu = menu.item(
+                        PopupMenuItem::new(SharedString::from(agent_label(&id)))
+                            .checked(checked)
+                            .on_click(move |_, _, cx| {
+                                if let Some(view) = view.upgrade() {
+                                    let id = id.clone();
+                                    view.update(cx, |view, cx| {
+                                        let state = access(view);
+                                        // A model/effort belongs to ONE agent
+                                        // — switching agents clears both.
+                                        if state.agent.as_deref() != Some(id.as_str()) {
+                                            state.model = None;
+                                            state.effort = None;
+                                        }
+                                        state.agent = Some(id);
+                                        cx.notify();
+                                    });
+                                }
+                            }),
+                    );
+                }
+                menu
+            });
+
+        let mut row = h_flex()
+            .w_full()
+            .gap_2()
+            .items_center()
+            .child(field_label(cx, "Agent"))
+            .child(agent_button);
+        let Some(agent) = self
+            .agent
+            .as_deref()
+            .and_then(coding::CodingAgent::parse)
+        else {
+            return v_flex().gap_1().child(row);
+        };
+        row = row
+            .child(self.render_choice_pin(
+                prefix,
+                "model",
+                model_choices_for(agent),
+                self.model.as_deref(),
+                |state| &mut state.model,
+                access,
+                cx,
+            ))
+            .child(self.render_choice_pin(
+                prefix,
+                "effort",
+                effort_choices_for(agent),
+                self.effort.as_deref(),
+                |state| &mut state.effort,
+                access,
+                cx,
+            ));
+        v_flex().gap_1().child(row)
+    }
+
+    /// One "Device default + the agent's own choices" pin dropdown.
+    #[allow(clippy::too_many_arguments)] // two call sites, one per pin
+    fn render_choice_pin<V: Render>(
+        &self,
+        prefix: &'static str,
+        key: &'static str,
+        choices: &'static [(&'static str, &'static str)],
+        picked: Option<&str>,
+        pick: fn(&mut Self) -> &mut Option<String>,
+        access: fn(&mut V) -> &mut Self,
+        cx: &mut Context<V>,
+    ) -> impl IntoElement {
+        let label = picked
+            .and_then(|value| {
+                choices
+                    .iter()
+                    .find(|(_, choice)| *choice == value)
+                    .map(|(label, _)| (*label).to_string())
+            })
+            .unwrap_or_else(|| DEVICE_DEFAULT_LABEL.to_string());
+        let current = picked.map(str::to_string);
+        let view = cx.entity().downgrade();
+        Button::new(SharedString::from(format!("{prefix}-pin-{key}")))
+            .outline()
+            .cursor_pointer()
+            .web_input_sm()
+            .label(SharedString::from(label))
+            .dropdown_menu(move |mut menu, _window, _cx| {
+                let default_view = view.clone();
+                let current = current.clone();
+                menu = menu.item(
+                    PopupMenuItem::new(DEVICE_DEFAULT_LABEL)
+                        .checked(current.is_none())
+                        .on_click(move |_, _, cx| {
+                            if let Some(view) = default_view.upgrade() {
+                                view.update(cx, |view, cx| {
+                                    *pick(access(view)) = None;
+                                    cx.notify();
+                                });
+                            }
+                        }),
+                );
+                for (label, value) in choices {
+                    // A blank value IS "leave it to the CLI" — the same thing
+                    // "Device default" already says.
+                    if value.is_empty() {
+                        continue;
+                    }
+                    let view = view.clone();
+                    let value = (*value).to_string();
+                    let checked = current.as_deref() == Some(value.as_str());
+                    menu = menu.item(PopupMenuItem::new(*label).checked(checked).on_click(
+                        move |_, _, cx| {
+                            if let Some(view) = view.upgrade() {
+                                let value = value.clone();
+                                view.update(cx, |view, cx| {
+                                    *pick(access(view)) = Some(value);
+                                    cx.notify();
+                                });
+                            }
+                        },
+                    ));
+                }
+                menu
+            })
+    }
+
+    /// The agent ids the bound device advertises; a device that advertises
+    /// none (or none picked yet) offers the whole contract list — the server
+    /// still refuses a pin the machine can't run.
+    fn device_agents(&self, cx: &App) -> Vec<String> {
+        let advertised = self.device_id.as_deref().and_then(|id| {
+            automation_devices(cx)
+                .into_iter()
+                .find(|device| device.device_id == id)
+                .map(|device| device.agents)
+        });
+        match advertised {
+            Some(agents) if !agents.is_empty() => agents,
+            _ => domain::contract::CODING_AGENT_VALUES
+                .iter()
+                .map(|id| (*id).to_string())
+                .collect(),
+        }
+    }
 }
 
 fn field_label(cx: &App, label: &'static str) -> impl IntoElement {
@@ -794,6 +995,15 @@ fn capitalize(value: &str) -> String {
     match chars.next() {
         Some(first) => format!("{}{}", first.to_uppercase(), chars.as_str()),
         None => String::new(),
+    }
+}
+
+/// An agent id's display name — the brand casing every picker shows.
+pub(crate) fn agent_label(id: &str) -> String {
+    match coding::CodingAgent::parse(id) {
+        Some(agent) => agent.label().to_string(),
+        // A newer contract value still renders readably.
+        None => capitalize(id),
     }
 }
 
@@ -817,7 +1027,7 @@ fn parse_minute_of_day(raw: &str) -> Option<u32> {
 /// The synced devices that advertise the `automations` cap — own rows plus
 /// team-shared ones (the shape's scope). Offline rows are INCLUDED: a missed
 /// schedule fires once when the machine comes back.
-fn automation_devices(cx: &App) -> Vec<DeviceOption> {
+pub(crate) fn automation_devices(cx: &App) -> Vec<DeviceOption> {
     let Some(store) = sync::Store::try_global(cx) else {
         return Vec::new();
     };
@@ -832,6 +1042,7 @@ fn automation_devices(cx: &App) -> Vec<DeviceOption> {
             Some(DeviceOption {
                 label: row.label.clone().unwrap_or_else(|| device_id.clone()),
                 online: crate::device_settings::row_is_online(row.last_seen_at.as_deref(), now_ms),
+                agents: row.agent_ids(),
                 device_id,
             })
         })
@@ -841,16 +1052,8 @@ fn automation_devices(cx: &App) -> Vec<DeviceOption> {
     devices
 }
 
-/// The one-line schedule/event sentence a card or row shows for `trigger`.
-/// Thin wrapper over the shared [`coding::automations::trigger_summary`] so
-/// callers never re-implement the parse.
-pub(crate) fn trigger_summary_for(trigger: Option<&Value>) -> Option<String> {
-    let parsed = trigger.and_then(parse_trigger)?;
-    Some(coding::automations::trigger_summary(&parsed))
-}
-
-/// The parsed trigger of a synced row, for the surfaces that need its parts
-/// (device binding, enabled flag, schedule shape) and not just the sentence.
+/// The parsed trigger of a synced row, for the surfaces that need its shape
+/// (the next-run label) and not just the sentence.
 pub(crate) fn parsed_trigger(trigger: Option<&Value>) -> Option<ParsedTrigger> {
     trigger.and_then(parse_trigger)
 }
@@ -863,19 +1066,7 @@ pub(crate) fn next_run_label(parsed: &ParsedTrigger) -> Option<String> {
         return None;
     };
     let next = coding::automations::next_occurrence(schedule, chrono::Local::now())?;
-    Some(format!(
-        "{} (device time)",
-        next.format("%b %-d, %H:%M")
-    ))
-}
-
-/// Flip `enabled` on an existing trigger JSON without touching anything else
-/// — the Automations tab's toggle (an edit here must not move the trigger's
-/// fingerprint fields, only its on/off flag).
-pub(crate) fn with_enabled(trigger: &Value, enabled: bool) -> Option<Value> {
-    let mut next = trigger.clone();
-    next.as_object_mut()?.insert("enabled".to_string(), json!(enabled));
-    Some(next)
+    Some(format!("{} (device time)", next.format("%b %-d, %H:%M")))
 }
 
 #[cfg(test)]
@@ -894,30 +1085,16 @@ mod tests {
         }
     }
 
-    #[test]
-    fn enabled_flips_without_disturbing_the_trigger() {
-        let trigger = json!({
-            "kind": "schedule", "deviceId": "dev-1", "enabled": true,
-            "interval": "daily", "minuteOfDay": 420
-        });
-        let off = with_enabled(&trigger, false).unwrap();
-        assert_eq!(off["enabled"], json!(false));
-        assert_eq!(off["minuteOfDay"], json!(420));
-        assert_eq!(off["deviceId"], json!("dev-1"));
-        // A non-object trigger has no flag to flip.
-        assert_eq!(with_enabled(&json!("schedule"), false), None);
-    }
-
     /// The section's parse→edit→serialize loop must round-trip: what
-    /// [`AutomationEditorState::seed`] reads, [`to_trigger`] writes back.
+    /// [`AutomationEditorState::seed_trigger`] reads, [`to_trigger`] writes
+    /// back. EXP-583: the WHEN-part only — no `deviceId`, no `enabled`.
     #[test]
     fn wire_shapes_round_trip_through_the_parser() {
         use coding::automations::{EventSpec, Schedule, ScheduleInterval};
 
         // Weekly schedule.
         let weekly = json!({
-            "kind": "schedule", "deviceId": "dev-1", "enabled": true,
-            "interval": "weekly", "minuteOfDay": 540, "weekday": 3
+            "kind": "schedule", "interval": "weekly", "minuteOfDay": 540, "weekday": 3
         });
         let parsed = parse_trigger(&weekly).expect("weekly parses");
         assert_eq!(
@@ -930,18 +1107,17 @@ mod tests {
             })
         );
         assert_eq!(
-            trigger_summary_for(Some(&weekly)).as_deref(),
-            Some("Weekly on Wednesday at 09:00")
+            coding::automations::trigger_summary(&parsed),
+            "Weekly on Wednesday at 09:00"
         );
 
         // Event with filters — the empty lists are absent, not `[]`.
         let event = json!({
-            "kind": "event", "deviceId": "dev-1", "enabled": false,
+            "kind": "event",
             "event": "status_changed",
             "filters": {"boardIds": ["b-1"], "toStatusIds": ["s-1"]}
         });
         let parsed = parse_trigger(&event).expect("event parses");
-        assert!(!parsed.enabled);
         assert_eq!(
             parsed.kind,
             TriggerKind::Event(EventSpec {
@@ -953,9 +1129,11 @@ mod tests {
             })
         );
 
-        // No trigger / an untargetable one yields no sentence.
-        assert_eq!(trigger_summary_for(None), None);
-        assert_eq!(trigger_summary_for(Some(&json!({"kind": "schedule"}))), None);
+        // Nothing to parse yields nothing; a kind this build predates stays
+        // visible-but-inert so the row can say "update the app".
+        assert_eq!(parsed_trigger(None), None);
+        assert!(AutomationEditorState::unsupported(Some(&json!({"kind": "cron"}))));
+        assert!(!AutomationEditorState::unsupported(Some(&weekly)));
     }
 
     /// The event picker's copy is cross-client — lock the 7 labels and their
@@ -982,5 +1160,16 @@ mod tests {
             .map(|(interval, _)| interval_wire(*interval))
             .collect();
         assert_eq!(intervals, domain::contract::ACTION_SCHEDULE_INTERVAL_VALUES);
+    }
+
+    /// The required-inputs sentence is byte-shared with the server's refusal
+    /// (`automations.create/update`) — the two must never drift.
+    #[test]
+    fn required_inputs_hint_matches_the_server_message() {
+        assert_eq!(
+            AUTOMATION_REQUIRED_INPUTS_HINT,
+            "Automations can't run actions with required inputs. \
+             Make the inputs optional first."
+        );
     }
 }

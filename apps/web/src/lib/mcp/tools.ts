@@ -1,7 +1,7 @@
 import { z } from "zod"
 import {
   actionInputsSchema,
-  actionTriggerSchema,
+  automationTriggerSchema,
   MAX_ISSUE_DESCRIPTION,
 } from "@exp/db-schema/domain"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
@@ -1741,7 +1741,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_actions_create`,
     {
-      description: `Create a team action (owner only). body = the markdown prompt an agent runs locally; repositoryId targets that repo's trunk clone; icon = a curated icon name; inputs = run-dialog fields injected into the prompt. trigger binds an automation on deviceId (the hosting device's steer id; pass a provided trigger JSON verbatim): {kind:schedule,deviceId,enabled,interval:daily|weekly|monthly,minuteOfDay:0-1439,weekday?:1-7,dayOfMonth?:1-28} or {kind:event,deviceId,enabled,event:created|status_changed|assignee_changed|label_added|priority_changed|pr_opened|pr_merged,filters?:{boardIds?,labelIds?,priorities?,toStatusIds?}}. An enabled trigger needs every input optional.`,
+      description: `Create a team action (owner only). body = the markdown prompt an agent runs locally; repositoryId targets that repo's trunk clone; icon = a curated icon name; inputs = run-dialog fields injected into the prompt.`,
       inputSchema: {
         teamId: uuidString,
         name: z.string().min(1).max(255),
@@ -1750,19 +1750,12 @@ export function registerExponentialTools(
         repositoryId: uuidString.nullable().optional(),
         body: z.string().min(1),
         inputs: actionInputsSchema.optional(),
-        trigger: z.record(z.string(), z.unknown()).nullish(),
       },
     },
     async (input) => {
       try {
         if (!access.full) assertTeamFullyGranted(access, input.teamId)
-        // Declared loose to stay inside the MCP context budget; the strict
-        // union validates here (and again in the router — single source).
-        const trigger = actionTriggerSchema.nullish().parse(input.trigger)
-        const result = await caller(user, request).actions.create({
-          ...input,
-          trigger,
-        })
+        const result = await caller(user, request).actions.create(input)
         return ok(result.action)
       } catch (e) {
         return err(e)
@@ -1773,7 +1766,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_actions_update`,
     {
-      description: `Update an action by UUID (owner only); pass only fields to change. icon/trigger: null clears; inputs: whole-array replace; trigger shape as in exponential_actions_create.`,
+      description: `Update an action by UUID (owner only); pass only fields to change. icon: null clears; inputs: whole-array replace.`,
       inputSchema: {
         id: uuidString,
         name: z.string().min(1).max(255).optional(),
@@ -1782,7 +1775,6 @@ export function registerExponentialTools(
         repositoryId: uuidString.nullable().optional(),
         body: z.string().min(1).optional(),
         inputs: actionInputsSchema.optional(),
-        trigger: z.record(z.string(), z.unknown()).nullish(),
         sortOrder: z.number().finite().optional(),
       },
     },
@@ -1792,12 +1784,7 @@ export function registerExponentialTools(
           const action = await getActionContext(input.id)
           assertTeamFullyGranted(access, action.teamId)
         }
-        // Loose in the declared schema (context budget); strict-parsed here.
-        const trigger = actionTriggerSchema.nullish().parse(input.trigger)
-        const result = await caller(user, request).actions.update({
-          ...input,
-          trigger,
-        })
+        const result = await caller(user, request).actions.update(input)
         return ok(result.action)
       } catch (e) {
         return err(e)
@@ -1819,6 +1806,43 @@ export function registerExponentialTools(
         }
         await caller(user, request).actions.delete({ id })
         return ok({ ok: true, id })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // -----------------------------------------------------------------------
+  // Automations (EXP-583): schedule/event trigger → action on a device
+  // -----------------------------------------------------------------------
+
+  server.registerTool(
+    `exponential_automations_create`,
+    {
+      description: `Create an automation (owner only) running actionId on deviceId; pass provided values verbatim. trigger = {kind:schedule,interval:daily|weekly|monthly,minuteOfDay,weekday?,dayOfMonth?} or {kind:event,event:created|status_changed|assignee_changed|label_added|priority_changed|pr_opened|pr_merged,filters?}.`,
+      inputSchema: {
+        teamId: uuidString,
+        actionId: uuidString,
+        deviceId: z.string().min(1).max(128),
+        trigger: z.record(z.string(), z.unknown()),
+        agent: z.string().max(16).optional(),
+        model: z.string().max(64).optional(),
+        effort: z.string().max(32).optional(),
+      },
+    },
+    async (input) => {
+      try {
+        if (!access.full) assertTeamFullyGranted(access, input.teamId)
+        // Declared loose to stay inside the MCP context budget; the strict
+        // union validates here (and again in the router — single source).
+        const trigger = automationTriggerSchema.parse(input.trigger)
+        const result = await caller(user, request).automations.create({
+          ...input,
+          // The router's enum rejects unknown agents with a readable error.
+          agent: input.agent as `claude` | `codex` | `pi` | undefined,
+          trigger,
+        })
+        return ok(result.automation)
       } catch (e) {
         return err(e)
       }

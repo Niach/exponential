@@ -1,21 +1,21 @@
-//! Trigger parsing (EXP-530): the synced `actions.trigger` JSON → a typed
-//! [`ParsedTrigger`]. Manual Value-walking, never derive — a malformed or
-//! FUTURE trigger (a kind/event this build predates) must degrade to
-//! [`TriggerKind::Unsupported`] keeping its `device_id`, so the bound host
-//! can still show "update the app" instead of silently dropping the row.
-//! Only an untargetable trigger (no `deviceId`) parses to `None` — no host
-//! could ever evaluate it.
+//! Trigger parsing (EXP-530; EXP-583 split it out of `actions.trigger` into
+//! the `automations` row): the synced `trigger` JSON → a typed
+//! [`ParsedTrigger`]. It is the WHEN-part ONLY — the runner binding
+//! (`device_id`) and the on/off flag are COLUMNS of the automations row now,
+//! never fields of this JSON.
+//!
+//! Manual Value-walking, never derive — a malformed or FUTURE trigger (a
+//! kind/event this build predates) must degrade to
+//! [`TriggerKind::Unsupported`], so the bound host can still show "update the
+//! app" instead of silently dropping the row. Only a non-object trigger
+//! (`null`, a string, a missing column) parses to `None` — there is nothing
+//! there to evaluate at all.
 
 use serde_json::Value;
 
-/// One action's parsed automation trigger.
+/// One automation's parsed trigger — the WHEN-part, nothing else.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParsedTrigger {
-    /// The steer device id (TEXT, not the row uuid) that evaluates and
-    /// fires this trigger — every other device ignores it.
-    pub device_id: String,
-    /// Default TRUE when absent (a trigger exists to run).
-    pub enabled: bool,
     pub kind: TriggerKind,
 }
 
@@ -95,28 +95,18 @@ pub struct EventSpec {
     pub to_status_ids: Vec<String>,
 }
 
-/// Parse the raw trigger Value. `None` = no evaluable trigger at all (null
-/// / non-object / missing `deviceId`); every other malformation degrades to
+/// Parse the raw trigger Value. `None` = nothing there at all (null / a
+/// non-object); every malformation inside an object degrades to
 /// `Some(.. Unsupported ..)` so the device keeps a visible, inert row.
 pub fn parse_trigger(value: &Value) -> Option<ParsedTrigger> {
     let object = value.as_object()?;
-    let device_id = object
-        .get("deviceId")
-        .and_then(Value::as_str)
-        .filter(|id| !id.is_empty())?
-        .to_string();
-    let enabled = object.get("enabled").and_then(Value::as_bool).unwrap_or(true);
     let kind = match object.get("kind").and_then(Value::as_str) {
         Some("schedule") => parse_schedule(value),
         Some("event") => parse_event(value),
         _ => None,
     }
     .unwrap_or(TriggerKind::Unsupported);
-    Some(ParsedTrigger {
-        device_id,
-        enabled,
-        kind,
-    })
+    Some(ParsedTrigger { kind })
 }
 
 /// The TEXT-column path (native stores sync jsonb as its string form).
@@ -262,14 +252,12 @@ mod tests {
     /// The parse truth table (the reconcile_truth_table idiom).
     #[test]
     fn parse_truth_table() {
-        // Full valid weekly schedule.
+        // Full valid weekly schedule. EXP-583: no deviceId/enabled in the
+        // JSON — those are columns of the automations row now.
         let weekly = parse_trigger(&json!({
-            "kind": "schedule", "deviceId": "dev-1", "enabled": true,
-            "interval": "weekly", "minuteOfDay": 540, "weekday": 1
+            "kind": "schedule", "interval": "weekly", "minuteOfDay": 540, "weekday": 1
         }))
         .expect("valid schedule parses");
-        assert_eq!(weekly.device_id, "dev-1");
-        assert!(weekly.enabled);
         assert_eq!(
             weekly.kind,
             TriggerKind::Schedule(Schedule {
@@ -282,12 +270,11 @@ mod tests {
 
         // Full valid event with filters.
         let event = parse_trigger(&json!({
-            "kind": "event", "deviceId": "dev-1", "enabled": false,
+            "kind": "event",
             "event": "status_changed",
             "filters": {"boardIds": ["b-1"], "toStatusIds": ["s-1", "s-2"]}
         }))
         .expect("valid event parses");
-        assert!(!event.enabled);
         assert_eq!(
             event.kind,
             TriggerKind::Event(EventSpec {
@@ -301,47 +288,50 @@ mod tests {
 
         // Unknown kind → Unsupported (a future build's trigger stays
         // visible-but-inert here).
-        let future = parse_trigger(&json!({"kind": "cron", "deviceId": "dev-1"}))
-            .expect("device-targeted trigger parses");
+        let future = parse_trigger(&json!({"kind": "cron"})).expect("an object parses");
         assert_eq!(future.kind, TriggerKind::Unsupported);
         // Unknown event → Unsupported.
         let unknown_event =
-            parse_trigger(&json!({"kind": "event", "deviceId": "dev-1", "event": "issue_moved"}))
-                .unwrap();
+            parse_trigger(&json!({"kind": "event", "event": "issue_moved"})).unwrap();
         assert_eq!(unknown_event.kind, TriggerKind::Unsupported);
         // Malformed fields (weekly without weekday, minute out of range,
         // non-string filter ids) → Unsupported, never a panic or a fire.
         for bad in [
-            json!({"kind": "schedule", "deviceId": "d", "interval": "weekly", "minuteOfDay": 540}),
-            json!({"kind": "schedule", "deviceId": "d", "interval": "daily", "minuteOfDay": 1440}),
-            json!({"kind": "schedule", "deviceId": "d", "interval": "monthly",
+            json!({"kind": "schedule", "interval": "weekly", "minuteOfDay": 540}),
+            json!({"kind": "schedule", "interval": "daily", "minuteOfDay": 1440}),
+            json!({"kind": "schedule", "interval": "monthly",
                    "minuteOfDay": 0, "dayOfMonth": 29}),
-            json!({"kind": "event", "deviceId": "d", "event": "created",
-                   "filters": {"boardIds": [1, 2]}}),
+            json!({"kind": "event", "event": "created", "filters": {"boardIds": [1, 2]}}),
         ] {
             assert_eq!(parse_trigger(&bad).unwrap().kind, TriggerKind::Unsupported, "{bad}");
         }
 
-        // Missing/empty/invalid deviceId → None (untargetable: no host
-        // would ever evaluate it).
-        assert_eq!(parse_trigger(&json!({"kind": "schedule"})), None);
-        assert_eq!(parse_trigger(&json!({"kind": "event", "deviceId": ""})), None);
-        assert_eq!(parse_trigger(&json!(null)), None);
-        assert_eq!(parse_trigger(&json!("schedule")), None);
-
-        // enabled defaults true.
-        let default_enabled = parse_trigger(&json!({
-            "kind": "schedule", "deviceId": "dev-1",
+        // A legacy EXP-530 payload (deviceId/enabled still inside the JSON)
+        // reads as its when-part — the extra keys are simply ignored.
+        let legacy = parse_trigger(&json!({
+            "kind": "schedule", "deviceId": "dev-1", "enabled": false,
             "interval": "daily", "minuteOfDay": 420
         }))
         .unwrap();
-        assert!(default_enabled.enabled);
+        assert_eq!(
+            legacy.kind,
+            TriggerKind::Schedule(Schedule {
+                interval: ScheduleInterval::Daily,
+                minute_of_day: 420,
+                weekday: None,
+                day_of_month: None,
+            })
+        );
+
+        // Nothing there at all → None.
+        assert_eq!(parse_trigger(&json!(null)), None);
+        assert_eq!(parse_trigger(&json!("schedule")), None);
     }
 
     #[test]
     fn parse_trigger_str_gates_on_valid_json() {
         assert!(parse_trigger_str(
-            r#"{"kind":"schedule","deviceId":"d","interval":"daily","minuteOfDay":0}"#
+            r#"{"kind":"schedule","interval":"daily","minuteOfDay":0}"#
         )
         .is_some());
         assert_eq!(parse_trigger_str("{not json"), None);

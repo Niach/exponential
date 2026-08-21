@@ -4,40 +4,38 @@ import java.util.Calendar
 import java.util.TimeZone
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
-// EXP-530: the tolerant trigger parse (anything malformed reads as "no
-// automation", never a throw), the shared summary strings (byte-matching
-// web `triggerSummary` / iOS `ActionTriggerDisplay.summary`) and the
-// next-run schedule math in a fixed viewer timezone.
-class ActionTriggerTest {
+// EXP-583: the tolerant when-part trigger parse (anything malformed reads as
+// "no trigger", never a throw), the shared summary strings (byte-matching web
+// `triggerSummary` / iOS `AutomationTriggerDisplay.summary`), the automation
+// note the create sheet appends (byte-matching web `formatAutomationBlock`)
+// and the next-run schedule math in a fixed viewer timezone.
+class AutomationTriggerTest {
 
     // ── Tolerant parse ───────────────────────────────────────────────────────
 
     @Test
     fun parsesASchedule() {
-        val trigger = ActionTrigger.parse(
-            """{"kind":"schedule","deviceId":"dev-1","enabled":true,"interval":"daily","minuteOfDay":420}""",
+        val trigger = AutomationTrigger.parse(
+            """{"kind":"schedule","interval":"daily","minuteOfDay":420}""",
         )
         assertEquals(
-            ActionTrigger.Schedule(deviceId = "dev-1", enabled = true, interval = "daily", minuteOfDay = 420),
+            AutomationTrigger.Schedule(interval = "daily", minuteOfDay = 420),
             trigger,
         )
     }
 
     @Test
     fun parsesAnEventWithFilters() {
-        val trigger = ActionTrigger.parse(
-            """{"kind":"event","deviceId":"dev-1","event":"status_changed",""" +
+        val trigger = AutomationTrigger.parse(
+            """{"kind":"event","event":"status_changed",""" +
                 """"filters":{"boardIds":["b1","b2"],"toStatusIds":["s1"]}}""",
         )
         assertEquals(
-            ActionTrigger.Event(
-                deviceId = "dev-1",
-                enabled = true,
+            AutomationTrigger.Event(
                 event = "status_changed",
-                filters = ActionTriggerFilters(
+                filters = AutomationTriggerFilters(
                     boardIds = listOf("b1", "b2"),
                     toStatusIds = listOf("s1"),
                 ),
@@ -47,84 +45,60 @@ class ActionTriggerTest {
     }
 
     @Test
-    fun missingEnabledDefaultsTrueAndOnlyExplicitFalseDisables() {
-        assertTrue(
-            ActionTrigger.parse(
-                """{"kind":"event","deviceId":"d","event":"created"}""",
-            )!!.enabled,
-        )
-        // Garbage `enabled` (a string) still reads ON — only boolean false
-        // disables (web `value.enabled !== false`).
-        assertTrue(
-            ActionTrigger.parse(
-                """{"kind":"event","deviceId":"d","event":"created","enabled":"false"}""",
-            )!!.enabled,
-        )
+    fun theDeadDeviceAndEnabledFieldsAreIgnored() {
+        // EXP-530 rows carried deviceId/enabled INSIDE the trigger; they are
+        // columns on the automations row now and must simply be ignored here
+        // (a legacy payload still parses).
         assertEquals(
-            false,
-            ActionTrigger.parse(
-                """{"kind":"event","deviceId":"d","event":"created","enabled":false}""",
-            )!!.enabled,
+            AutomationTrigger.Event(event = "created"),
+            AutomationTrigger.parse(
+                """{"kind":"event","deviceId":"dev-1","enabled":false,"event":"created"}""",
+            ),
         )
     }
 
     @Test
     fun malformedTriggersReadAsNoAutomation() {
-        assertNull(ActionTrigger.parse(null))
-        assertNull(ActionTrigger.parse(""))
-        assertNull(ActionTrigger.parse("not json"))
-        assertNull(ActionTrigger.parse("[1,2]"))
+        assertNull(AutomationTrigger.parse(null))
+        assertNull(AutomationTrigger.parse(""))
+        assertNull(AutomationTrigger.parse("not json"))
+        assertNull(AutomationTrigger.parse("[1,2]"))
         // Unknown kind (a FUTURE server shape).
-        assertNull(ActionTrigger.parse("""{"kind":"webhook","deviceId":"d"}"""))
+        assertNull(AutomationTrigger.parse("""{"kind":"webhook"}"""))
         // Unknown event value.
-        assertNull(
-            ActionTrigger.parse("""{"kind":"event","deviceId":"d","event":"issue_deleted"}"""),
-        )
-        // Missing/empty deviceId.
-        assertNull(ActionTrigger.parse("""{"kind":"event","event":"created"}"""))
-        assertNull(
-            ActionTrigger.parse("""{"kind":"event","deviceId":"","event":"created"}"""),
-        )
+        assertNull(AutomationTrigger.parse("""{"kind":"event","event":"issue_deleted"}"""))
         // Unknown interval / out-of-range minuteOfDay.
         assertNull(
-            ActionTrigger.parse(
-                """{"kind":"schedule","deviceId":"d","interval":"hourly","minuteOfDay":0}""",
-            ),
+            AutomationTrigger.parse("""{"kind":"schedule","interval":"hourly","minuteOfDay":0}"""),
         )
         assertNull(
-            ActionTrigger.parse(
-                """{"kind":"schedule","deviceId":"d","interval":"daily","minuteOfDay":1440}""",
-            ),
+            AutomationTrigger.parse("""{"kind":"schedule","interval":"daily","minuteOfDay":1440}"""),
         )
         // weekday required iff weekly; dayOfMonth required iff monthly.
         assertNull(
-            ActionTrigger.parse(
-                """{"kind":"schedule","deviceId":"d","interval":"weekly","minuteOfDay":0}""",
+            AutomationTrigger.parse("""{"kind":"schedule","interval":"weekly","minuteOfDay":0}"""),
+        )
+        assertNull(
+            AutomationTrigger.parse(
+                """{"kind":"schedule","interval":"weekly","minuteOfDay":0,"weekday":8}""",
             ),
         )
         assertNull(
-            ActionTrigger.parse(
-                """{"kind":"schedule","deviceId":"d","interval":"weekly","minuteOfDay":0,"weekday":8}""",
-            ),
+            AutomationTrigger.parse("""{"kind":"schedule","interval":"monthly","minuteOfDay":0}"""),
         )
         assertNull(
-            ActionTrigger.parse(
-                """{"kind":"schedule","deviceId":"d","interval":"monthly","minuteOfDay":0}""",
-            ),
-        )
-        assertNull(
-            ActionTrigger.parse(
-                """{"kind":"schedule","deviceId":"d","interval":"monthly","minuteOfDay":0,"dayOfMonth":29}""",
+            AutomationTrigger.parse(
+                """{"kind":"schedule","interval":"monthly","minuteOfDay":0,"dayOfMonth":29}""",
             ),
         )
     }
 
     @Test
     fun unknownFilterEntriesDegradeGracefully() {
-        val trigger = ActionTrigger.parse(
-            """{"kind":"event","deviceId":"d","event":"created",""" +
+        val trigger = AutomationTrigger.parse(
+            """{"kind":"event","event":"created",""" +
                 """"filters":{"priorities":["urgent","not-a-priority"],"boardIds":"nope"}}""",
-        ) as ActionTrigger.Event
+        ) as AutomationTrigger.Event
         // Unknown priority values drop; a non-array list reads empty.
         assertEquals(listOf("urgent"), trigger.filters.priorities)
         assertEquals(emptyList<String>(), trigger.filters.boardIds)
@@ -136,38 +110,26 @@ class ActionTriggerTest {
     fun scheduleSummaries() {
         assertEquals(
             "Daily at 07:00",
-            triggerSummary(
-                ActionTrigger.Schedule(deviceId = "d", interval = "daily", minuteOfDay = 420),
-            ),
+            triggerSummary(AutomationTrigger.Schedule(interval = "daily", minuteOfDay = 420)),
         )
         assertEquals(
             "Weekly on Monday at 09:00",
             triggerSummary(
-                ActionTrigger.Schedule(
-                    deviceId = "d",
-                    interval = "weekly",
-                    minuteOfDay = 540,
-                    weekday = 1,
-                ),
+                AutomationTrigger.Schedule(interval = "weekly", minuteOfDay = 540, weekday = 1),
             ),
         )
         assertEquals(
             "Monthly on day 5 at 09:00",
             triggerSummary(
-                ActionTrigger.Schedule(
-                    deviceId = "d",
-                    interval = "monthly",
-                    minuteOfDay = 540,
-                    dayOfMonth = 5,
-                ),
+                AutomationTrigger.Schedule(interval = "monthly", minuteOfDay = 540, dayOfMonth = 5),
             ),
         )
     }
 
     @Test
     fun eventSummaries() {
-        fun event(name: String, filters: ActionTriggerFilters = ActionTriggerFilters()) =
-            ActionTrigger.Event(deviceId = "d", event = name, filters = filters)
+        fun event(name: String, filters: AutomationTriggerFilters = AutomationTriggerFilters()) =
+            AutomationTrigger.Event(event = name, filters = filters)
         assertEquals("When an issue is created", triggerSummary(event("created")))
         assertEquals("When status changes", triggerSummary(event("status_changed")))
         assertEquals("When the assignee changes", triggerSummary(event("assignee_changed")))
@@ -180,7 +142,10 @@ class ActionTriggerTest {
             triggerSummary(
                 event(
                     "status_changed",
-                    ActionTriggerFilters(boardIds = listOf("b1", "b2"), toStatusIds = listOf("s1")),
+                    AutomationTriggerFilters(
+                        boardIds = listOf("b1", "b2"),
+                        toStatusIds = listOf("s1"),
+                    ),
                 ),
             ),
         )
@@ -188,7 +153,7 @@ class ActionTriggerTest {
         assertEquals(
             "When a label is added · 1 filter",
             triggerSummary(
-                event("label_added", ActionTriggerFilters(labelIds = listOf("l1"))),
+                event("label_added", AutomationTriggerFilters(labelIds = listOf("l1"))),
             ),
         )
     }
@@ -198,48 +163,68 @@ class ActionTriggerTest {
     @Test
     fun wireJsonKeepsCanonicalKeyOrderAndOmitsEmptyFilters() {
         assertEquals(
-            """{"kind":"schedule","deviceId":"d","enabled":true,"interval":"weekly","minuteOfDay":540,"weekday":3}""",
-            ActionTrigger.Schedule(
-                deviceId = "d",
-                interval = "weekly",
-                minuteOfDay = 540,
-                weekday = 3,
-            ).toWireJsonString(),
-        )
-        assertEquals(
-            """{"kind":"event","deviceId":"d","enabled":false,"event":"created"}""",
-            ActionTrigger.Event(deviceId = "d", enabled = false, event = "created")
+            """{"kind":"schedule","interval":"weekly","minuteOfDay":540,"weekday":3}""",
+            AutomationTrigger.Schedule(interval = "weekly", minuteOfDay = 540, weekday = 3)
                 .toWireJsonString(),
         )
         assertEquals(
-            """{"kind":"event","deviceId":"d","enabled":true,"event":"label_added","filters":{"labelIds":["l1"]}}""",
-            ActionTrigger.Event(
-                deviceId = "d",
+            """{"kind":"event","event":"created"}""",
+            AutomationTrigger.Event(event = "created").toWireJsonString(),
+        )
+        assertEquals(
+            """{"kind":"event","event":"label_added","filters":{"labelIds":["l1"]}}""",
+            AutomationTrigger.Event(
                 event = "label_added",
-                filters = ActionTriggerFilters(labelIds = listOf("l1")),
+                filters = AutomationTriggerFilters(labelIds = listOf("l1")),
             ).toWireJsonString(),
         )
     }
 
     @Test
     fun wireJsonRoundTripsThroughTheTolerantParse() {
-        val trigger = ActionTrigger.Event(
-            deviceId = "dev-1",
-            enabled = false,
+        val trigger = AutomationTrigger.Event(
             event = "priority_changed",
-            filters = ActionTriggerFilters(boardIds = listOf("b1"), priorities = listOf("high")),
+            filters = AutomationTriggerFilters(
+                boardIds = listOf("b1"),
+                priorities = listOf("high"),
+            ),
         )
-        assertEquals(trigger, ActionTrigger.parse(trigger.toWireJsonString()))
+        assertEquals(trigger, AutomationTrigger.parse(trigger.toWireJsonString()))
     }
+
+    // ── The automation note (byte-locked, web formatAutomationBlock) ─────────
 
     @Test
     fun descriptionBlockMatchesTheWebFormat() {
-        val trigger = ActionTrigger.Schedule(deviceId = "d", interval = "daily", minuteOfDay = 420)
         assertEquals(
-            "\n\nAutomation — set exactly this trigger via the `trigger` field on " +
-                "exponential_actions_create: " +
-                "`{\"kind\":\"schedule\",\"deviceId\":\"d\",\"enabled\":true,\"interval\":\"daily\",\"minuteOfDay\":420}`",
-            triggerDescriptionBlock(trigger),
+            "\n\nAutomation — after creating the action, call " +
+                "exponential_automations_create with its id and exactly these fields: " +
+                "`{\"deviceId\":\"d\",\"trigger\":" +
+                "{\"kind\":\"schedule\",\"interval\":\"daily\",\"minuteOfDay\":420}}`. " +
+                "An automated run fills no inputs, so declare none as required.",
+            formatAutomationBlock(
+                AutomationTrigger.Schedule(interval = "daily", minuteOfDay = 420),
+                deviceId = "d",
+            ),
+        )
+    }
+
+    @Test
+    fun theNoteCarriesTheLaunchPinsOnlyWhenSet() {
+        assertEquals(
+            "\n\nAutomation — after creating the action, call " +
+                "exponential_automations_create with its id and exactly these fields: " +
+                "`{\"deviceId\":\"d\",\"trigger\":{\"kind\":\"event\",\"event\":\"created\"}," +
+                "\"agent\":\"codex\",\"effort\":\"high\"}`. " +
+                "An automated run fills no inputs, so declare none as required.",
+            formatAutomationBlock(
+                AutomationTrigger.Event(event = "created"),
+                deviceId = "d",
+                agent = "codex",
+                // An empty model is "device default" — it must NOT ride.
+                model = "",
+                effort = "high",
+            ),
         )
     }
 
@@ -261,7 +246,7 @@ class ActionTriggerTest {
 
     @Test
     fun dailyNextRunTodayOrTomorrow() {
-        val schedule = ActionTrigger.Schedule(deviceId = "d", interval = "daily", minuteOfDay = 540)
+        val schedule = AutomationTrigger.Schedule(interval = "daily", minuteOfDay = 540)
         // Before 09:00 → today 09:00.
         assertEquals(
             atLocal(2026, 8, 18, 9, 0),
@@ -277,8 +262,7 @@ class ActionTriggerTest {
     @Test
     fun weeklyNextRunWrapsToNextWeek() {
         // 2026-08-18 is a Tuesday (ISO weekday 2).
-        val schedule = ActionTrigger.Schedule(
-            deviceId = "d",
+        val schedule = AutomationTrigger.Schedule(
             interval = "weekly",
             minuteOfDay = 540,
             weekday = 2,
@@ -298,8 +282,7 @@ class ActionTriggerTest {
 
     @Test
     fun monthlyNextRunRollsToNextMonth() {
-        val schedule = ActionTrigger.Schedule(
-            deviceId = "d",
+        val schedule = AutomationTrigger.Schedule(
             interval = "monthly",
             minuteOfDay = 540,
             dayOfMonth = 5,
@@ -318,14 +301,14 @@ class ActionTriggerTest {
     fun malformedScheduleNextRunIsNull() {
         assertNull(
             nextScheduleRun(
-                ActionTrigger.Schedule(deviceId = "d", interval = "weekly", minuteOfDay = 540),
+                AutomationTrigger.Schedule(interval = "weekly", minuteOfDay = 540),
                 atLocal(2026, 8, 18, 10, 0),
                 zone,
             ),
         )
         assertNull(
             nextScheduleRun(
-                ActionTrigger.Schedule(deviceId = "d", interval = "hourly", minuteOfDay = 540),
+                AutomationTrigger.Schedule(interval = "hourly", minuteOfDay = 540),
                 atLocal(2026, 8, 18, 10, 0),
                 zone,
             ),

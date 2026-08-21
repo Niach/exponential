@@ -992,6 +992,53 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v20 (EXP-583 automations): automations became their own entity — a
+        // new team-scoped table for the 19th Electric shape, plus
+        // `coding_sessions.automation_id` (which automation fired the run)
+        // riding along on the coding-sessions shape. The server dropped
+        // `actions.trigger`; the local column from v18 stays (a table rebuild
+        // for a column nobody reads is not worth it) and simply decodes nil
+        // forever. A brand-new shape has no offset row and snapshots from
+        // scratch, so only the coding-sessions offset needs the reset.
+        migrator.registerMigration("v20_automations") { db in
+            try db.create(table: "automations", ifNotExists: true) { t in
+                t.primaryKey("id", .text)
+                t.column("team_id", .text).notNull().indexed()
+                t.column("action_id", .text).notNull().indexed()
+                // The steer device id (text), not the devices ROW id.
+                t.column("device_id", .text).notNull()
+                t.column("enabled", .boolean).notNull().defaults(to: true)
+                // The when-part jsonb, stored as stringified JSON.
+                t.column("trigger", .text)
+                // Null = the device's launch defaults.
+                t.column("agent", .text)
+                t.column("model", .text)
+                t.column("effort", .text)
+                t.column("sort_order", .double).notNull().defaults(to: 0)
+                t.column("created_at", .text).notNull()
+                t.column("updated_at", .text).notNull()
+            }
+            if try db.tableExists("coding_sessions") {
+                let existing = Set(try db.columns(in: "coding_sessions").map(\.name))
+                if !existing.contains("automation_id") {
+                    try db.alter(table: "coding_sessions") { t in
+                        t.add(column: "automation_id", .text)
+                    }
+                }
+            }
+            // Force a re-snapshot so already-synced rows pick up the new
+            // column (the v17/v18/v19 precedent). NOTE: the shape key is
+            // 'coding-sessions' WITH A DASH (the proxy route name), not the
+            // SQLite table name.
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'coding-sessions'
+                    """)
+            }
+        }
+
         return migrator
     }
 
@@ -1002,6 +1049,8 @@ public final class DatabaseManager: @unchecked Sendable {
             // EXP-481: child before parent, like the issue tables below.
             try db.execute(sql: "DELETE FROM device_worktrees")
             try db.execute(sql: "DELETE FROM devices")
+            // EXP-583: automations reference actions — child first.
+            try db.execute(sql: "DELETE FROM automations")
             try db.execute(sql: "DELETE FROM actions")
             try db.execute(sql: "DELETE FROM coding_sessions")
             try db.execute(sql: "DELETE FROM notifications")

@@ -452,6 +452,10 @@ pub struct CodingSession {
     pub action_id: Option<String>,
     #[serde(default)]
     pub action_name: Option<String>,
+    /// EXP-583: the `automations` row that fired this run; `None` on manual
+    /// runs (and on rows written before automations became their own entity).
+    #[serde(default)]
+    pub automation_id: Option<String>,
     /// `schedule` / `event` on automation-started runs (EXP-530) — raw wire
     /// value; `None` = a person started it.
     #[serde(default)]
@@ -469,7 +473,8 @@ pub struct CodingSession {
 /// `actions` shape row (EXP-268) — the body-less list projection: the ≤64KB
 /// prompt `body` is excluded from sync server-side (runs/editors fetch it
 /// fresh via tRPC `actions.get`), so no local field may exist to hold a
-/// stale copy.
+/// stale copy. EXP-583 dropped `trigger`: automations are their own row
+/// now, and serde is non-strict so a stale synced column is ignored.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct ActionRow {
     pub id: String,
@@ -488,16 +493,62 @@ pub struct ActionRow {
     /// like `issue_events.payload`.
     #[serde(default, deserialize_with = "tolerant_opt_json")]
     pub inputs: Option<serde_json::Value>,
-    /// jsonb `ActionTrigger` (EXP-530) — the ONE optional automation trigger;
-    /// TEXT-stored, re-parsed like `inputs`. `None` = manual-only action.
-    #[serde(default, deserialize_with = "tolerant_opt_json")]
-    pub trigger: Option<serde_json::Value>,
     #[serde(default, deserialize_with = "tolerant_opt_f64")]
     pub sort_order: Option<f64>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
     pub updated_at: Option<String>,
+}
+
+/// `automations` shape row (EXP-583) — the 19th shape: ONE action + ONE
+/// device + ONE trigger, split out of the old `actions.trigger` column
+/// (EXP-530). `trigger` is the WHEN-part only; the runner binding
+/// (`device_id`) and the per-run overrides (`agent`/`model`/`effort`, NULL =
+/// the device's launch defaults) are columns of their own.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct AutomationRow {
+    pub id: String,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    /// FK to the `actions` row this fires.
+    #[serde(default)]
+    pub action_id: Option<String>,
+    /// The steer TEXT device id (`devices.device_id`, NOT a row uuid) whose
+    /// host evaluates and fires this automation — every other device ignores
+    /// the row.
+    #[serde(default)]
+    pub device_id: Option<String>,
+    /// Server default TRUE; a missing value reads as enabled
+    /// ([`AutomationRow::is_enabled`]).
+    #[serde(default, deserialize_with = "tolerant_opt_bool")]
+    pub enabled: Option<bool>,
+    /// jsonb `AutomationTrigger` — TEXT-stored (§5.5), re-parsed at hydrate
+    /// like `actions.inputs`. The `coding::automations` engine owns the
+    /// tolerant parse.
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub trigger: Option<serde_json::Value>,
+    /// Pinned launch overrides; `None` = the device's own launch defaults.
+    #[serde(default)]
+    pub agent: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub effort: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_f64")]
+    pub sort_order: Option<f64>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+impl AutomationRow {
+    /// A row with no synced flag is ON — the column is NOT NULL DEFAULT true
+    /// server-side, so an absent value can only be an old/partial hydrate.
+    pub fn is_enabled(&self) -> bool {
+        self.enabled.unwrap_or(true)
+    }
 }
 
 /// `issue_statuses` shape row (EXP-314) — the 16th shape: one team's status
@@ -733,6 +784,16 @@ mod tests {
         assert_eq!(session.action_id.as_deref(), Some("act-1"));
         assert_eq!(session.action_name.as_deref(), Some("Daily standup digest"));
         assert_eq!(session.started_reason.as_deref(), Some("schedule"));
+        // EXP-583: the firing automation rides along too.
+        let automated: CodingSession = serde_json::from_value(json!({
+            "id": "cs-3",
+            "status": "running",
+            "action_id": "act-1",
+            "automation_id": "auto-1",
+            "started_reason": "event",
+        }))
+        .unwrap();
+        assert_eq!(automated.automation_id.as_deref(), Some("auto-1"));
 
         let manual: CodingSession = serde_json::from_value(json!({
             "id": "cs-2",
@@ -742,31 +803,48 @@ mod tests {
         assert_eq!(manual.action_id, None);
         assert_eq!(manual.action_name, None);
         assert_eq!(manual.started_reason, None);
+        assert_eq!(manual.automation_id, None);
     }
 
     #[test]
-    fn action_row_hydrates_the_trigger_like_inputs() {
-        // EXP-530: the trigger arrives TEXT-stored (§5.5) — the string form
-        // must re-parse into structured JSON, like `inputs`.
-        let row: ActionRow = serde_json::from_value(json!({
-            "id": "act-1",
+    fn automation_row_hydrates_the_trigger_like_inputs() {
+        // EXP-583: the trigger arrives TEXT-stored (§5.5) — the string form
+        // must re-parse into structured JSON, like `actions.inputs`.
+        let row: AutomationRow = serde_json::from_value(json!({
+            "id": "auto-1",
             "team_id": "t-1",
-            "name": "Daily standup digest",
-            "trigger": "{\"kind\":\"schedule\",\"deviceId\":\"dev-1\"}",
+            "action_id": "act-1",
+            "device_id": "dev-1",
+            "enabled": "t",
+            "trigger": "{\"kind\":\"schedule\",\"interval\":\"daily\"}",
+            "agent": "codex",
+            "sort_order": "1.5",
         }))
         .unwrap();
         assert_eq!(row.trigger.as_ref().unwrap()["kind"], "schedule");
-        assert_eq!(row.trigger.as_ref().unwrap()["deviceId"], "dev-1");
+        assert_eq!(row.trigger.as_ref().unwrap()["interval"], "daily");
+        assert!(row.is_enabled());
+        assert_eq!(row.agent.as_deref(), Some("codex"));
+        // NULL agent/model/effort = the device's launch defaults.
+        assert_eq!(row.model, None);
+        assert_eq!(row.sort_order, Some(1.5));
 
-        // Pre-column / trigger-less rows degrade to None, never a dropped row.
-        let manual: ActionRow = serde_json::from_value(json!({
-            "id": "act-2",
+        // A narrow row (older/partial hydrate) still decodes, and an absent
+        // `enabled` reads as ON — the column is NOT NULL DEFAULT true.
+        let narrow: AutomationRow = serde_json::from_value(json!({"id": "auto-2"})).unwrap();
+        assert!(narrow.is_enabled());
+        assert_eq!(narrow.trigger, None);
+
+        // EXP-583: a stale synced `trigger` column on an actions row is
+        // IGNORED (serde is non-strict), never a dropped row.
+        let action: ActionRow = serde_json::from_value(json!({
+            "id": "act-1",
             "team_id": "t-1",
             "name": "Groom",
-            "trigger": serde_json::Value::Null,
+            "trigger": "{\"kind\":\"schedule\"}",
         }))
         .unwrap();
-        assert_eq!(manual.trigger, None);
+        assert_eq!(action.name.as_deref(), Some("Groom"));
     }
 
     #[test]

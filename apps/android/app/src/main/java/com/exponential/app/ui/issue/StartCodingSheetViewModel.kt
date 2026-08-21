@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.RepositoriesApi
+import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.data.api.builtinActions
 import com.exponential.app.data.api.toActionDto
@@ -15,9 +16,11 @@ import com.exponential.app.data.db.DeviceWorktreeEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssueStatusCategory
 import com.exponential.app.domain.IssueStatusResolver
+import com.exponential.app.domain.toSteerDevice
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -138,6 +141,20 @@ class StartCodingSheetViewModel @Inject constructor(
     val deviceRows: StateFlow<List<DeviceEntity>> =
         dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * The machines an automation can be bound to (EXP-583): every synced
+     * device advertising the `automations` cap, ONLINE OR NOT — an automation
+     * outlives a machine's uptime. Feeds the create sheet's Automation block,
+     * whose device pick is INDEPENDENT of the machine running the creator run.
+     */
+    val automationDevices: StateFlow<List<SteerDevice>> = combine(
+        dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() },
+        DeviceLiveness.ticker(),
+        auth.userId,
+    ) { rows, nowMs, userId ->
+        rows.map { it.toSteerDevice(nowMs, userId) }.filter { it.canRunAutomations }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The team repo registry — options for `repo`-typed inputs (failure = empty). */
     val repos: StateFlow<List<TeamRepo>> = scope.flatMapLatest { (accountId, teamId) ->

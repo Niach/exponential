@@ -148,6 +148,10 @@ pub(crate) struct StartActionArgs {
     /// prompt's `## Trigger` section and stamps the session row's
     /// `startedReason`. `None` for every user start.
     pub trigger: Option<coding::TriggerNote>,
+    /// EXP-583: the `automations` row that fired it, stamped beside the
+    /// reason so the run points back at its automation. `None` for user
+    /// starts (the server refuses one without the other).
+    pub automation_id: Option<String>,
     /// EXP-530: the automation host's backoff hook (see [`ActionFailureHook`]).
     /// `None` for user starts — a person watching a failed dialog run retries
     /// themselves.
@@ -168,6 +172,7 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
         activate_app,
         reservation,
         trigger,
+        automation_id,
         on_failed,
     } = args;
     // EXP-530: every early return below has to release the hook, or an
@@ -362,6 +367,7 @@ team settings → Repositories.";
                 inputs,
                 kind,
                 trigger,
+                automation_id,
                 device_label: coding::default_device_label(),
                 origin,
                 options,

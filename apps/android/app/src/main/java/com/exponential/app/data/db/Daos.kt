@@ -265,6 +265,21 @@ interface ActionDao {
 }
 
 @Dao
+interface AutomationDao {
+    @Query("SELECT * FROM automations WHERE team_id = :teamId ORDER BY sort_order, created_at")
+    fun observeByTeam(teamId: String): Flow<List<AutomationEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: AutomationEntity)
+
+    @Query("DELETE FROM automations WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM automations")
+    suspend fun clear()
+}
+
+@Dao
 interface AttachmentDao {
     @Query("SELECT * FROM attachments WHERE issue_id = :issueId ORDER BY created_at ASC")
     fun observeByIssue(issueId: String): Flow<List<AttachmentEntity>>

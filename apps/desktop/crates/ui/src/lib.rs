@@ -28,6 +28,7 @@ mod active_filter_pills;
 mod automation_host;
 mod app_title_bar;
 mod attachments_row;
+mod automation_dialog;
 mod automation_editor;
 mod board;
 mod board_form;

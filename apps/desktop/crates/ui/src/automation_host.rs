@@ -10,9 +10,10 @@
 //! because every one of those touches settings.json.
 //!
 //! Cadence mirrors the device-sync beat: a 1s tick gated to a 30s
-//! evaluation, plus `cx.observe` watches on the `issue_events` and `actions`
-//! collections that flip `eval_soon` so a freshly synced event (or an edited
-//! trigger) is acted on within a tick instead of waiting out the beat.
+//! evaluation, plus `cx.observe` watches on the `issue_events` and
+//! `automations` collections that flip `eval_soon` so a freshly synced event
+//! (or an edited automation) is acted on within a tick instead of waiting out
+//! the beat.
 //!
 //! EXP-562: the foreground half is the part that must stay cheap, so it is
 //! gated twice — a device with no ENABLED event trigger never looks at the
@@ -38,10 +39,11 @@ use chrono::{DateTime, Local};
 use gpui::{App, AppContext as _, Global};
 
 use coding::automations::{
-    self, AutomationState, Decision, EvalInput, EventRow, Firing, TriggeredAction, TriggerKind,
+    self, AutomationState, Decision, EvalInput, EventRow, Firing, TriggerKind,
+    TriggeredAutomation,
 };
 use coding::{LaunchOptions, LaunchOrigin, TriggerNote, TriggerNoteKind};
-use domain::rows::ActionRow;
+use domain::rows::AutomationRow;
 
 use crate::action_run::{self, ActionRepo, StartActionArgs};
 use crate::coding_flow::{CodingHub, LocalSessions};
@@ -59,7 +61,7 @@ const TICK: Duration = Duration::from_secs(1);
 struct AutomationHostState {
     /// Stop flag per account (sign-out flips it; the loop retires itself).
     by_account: HashMap<String, Arc<AtomicBool>>,
-    /// The issue_events + actions shape watches per account.
+    /// The issue_events + automations shape watches per account.
     watch_by_account: HashMap<String, Vec<gpui::Subscription>>,
     /// A synced-row change asked for an off-cadence evaluation.
     eval_soon: Arc<AtomicBool>,
@@ -128,10 +130,9 @@ pub fn start_automation_host(account: &api::Account, cx: &mut App) {
                 // Account switched away — retire; connect_account restarts.
                 return;
             };
-            if snapshot.actions.is_empty() {
+            if snapshot.automations.is_empty() {
                 continue;
             }
-            let options = snapshot.options.clone();
             let settings_path = snapshot.settings_path.clone();
             let device_id = snapshot.device_id.clone();
 
@@ -157,7 +158,8 @@ pub fn start_automation_host(account: &api::Account, cx: &mut App) {
                         Some(guard) => Some((fire, guard)),
                         None => {
                             log::info!(
-                                "[automations] {} skipped — a start holding it is already in flight",
+                                "[automations] {} skipped — a start holding {} is already in flight",
+                                fire.automation_id,
                                 fire.action_id
                             );
                             None
@@ -177,15 +179,15 @@ pub fn start_automation_host(account: &api::Account, cx: &mut App) {
             let mut states = outcome.states;
             let advanced: Vec<(String, AutomationState)> = claimed
                 .iter()
-                .map(|(fire, _)| (fire.action_id.clone(), fire.new_state.clone()))
+                .map(|(fire, _)| (fire.automation_id.clone(), fire.new_state.clone()))
                 .collect();
             let persisted = {
                 let settings_path = settings_path.clone();
                 let device_id = device_id.clone();
                 cx.background_executor()
                     .spawn(async move {
-                        for (action_id, new_state) in advanced {
-                            states.insert(action_id, new_state);
+                        for (automation_id, new_state) in advanced {
+                            states.insert(automation_id, new_state);
                         }
                         write_states(&settings_path, &device_id, &states)
                     })
@@ -200,7 +202,6 @@ pub fn start_automation_host(account: &api::Account, cx: &mut App) {
                     launch(
                         fire,
                         reservation,
-                        options.clone(),
                         settings_path.clone(),
                         device_id.clone(),
                         cx,
@@ -227,8 +228,8 @@ pub fn stop_automation_host(account_id: &str, cx: &mut App) {
 }
 
 /// Watch the two collections an evaluation reads: a new `issue_events` row is
-/// the whole point of an event trigger, and an edited/created `actions` row
-/// must re-seed within a tick instead of a beat. Unlike the device-sync
+/// the whole point of an event trigger, and an edited/created `automations`
+/// row must re-seed within a tick instead of a beat. Unlike the device-sync
 /// stamp latch there is nothing to de-bounce — evaluation is idempotent, and
 /// firing is gated by the cooldown + the watermark, so an eager pass costs
 /// one settings read.
@@ -243,7 +244,7 @@ fn watch_collections(
     };
     vec![
         watch_flag(&collections.issue_events, &stop, &eval_soon, cx),
-        watch_flag(&collections.actions, &stop, &eval_soon, cx),
+        watch_flag(&collections.automations, &stop, &eval_soon, cx),
     ]
 }
 
@@ -298,22 +299,32 @@ impl EventCache {
 /// Everything one evaluation pass needs, read on the foreground.
 struct EvalSnapshot {
     settings_path: PathBuf,
-    /// The GUI's steer device id — triggers bound to the CLI daemon's
+    /// The GUI's steer device id — automations bound to the CLI daemon's
     /// sibling row (or another machine) belong to that host, never this one.
     device_id: String,
-    /// This device's parseable triggers, each carrying its action's team
+    /// This device's enabled, parseable automations, each carrying its team
     /// (the event fence AND the runner's up-front team).
-    actions: Vec<TriggeredAction>,
+    automations: Vec<TriggeredAutomation>,
+    /// Per-automation launch pins (`automation id → (agent, model, effort)`)
+    /// — every `None` falls back to this machine's launch defaults.
+    pins: HashMap<String, LaunchPins>,
     /// Shared with [`EventCache`] — the pass only reads it.
     events: Arc<Vec<EventRow>>,
     live_action_ids: HashSet<String>,
     issue_display: HashMap<String, IssueDisplay>,
     label_names: HashMap<String, String>,
     now_local: DateTime<Local>,
-    /// The device's own launch defaults for its default agent — an automated
-    /// run is this machine's run, exactly like a dialog start with untouched
-    /// options.
-    options: LaunchOptions,
+    /// This machine's saved settings — the fallback every unpinned launch
+    /// field resolves against.
+    settings: coding::Settings,
+}
+
+/// One automation's optional agent/model/effort pins.
+#[derive(Clone, Debug, Default)]
+struct LaunchPins {
+    agent: Option<String>,
+    model: Option<String>,
+    effort: Option<String>,
 }
 
 fn snapshot_for(account_id: &str, cache: &mut EventCache, cx: &mut App) -> Option<EvalSnapshot> {
@@ -329,10 +340,11 @@ fn snapshot_for(account_id: &str, cache: &mut EventCache, cx: &mut App) -> Optio
     let sessions = LocalSessions::global(cx);
     let hub = CodingHub::global(cx);
 
-    let options = automated_options(&hub.read(cx).settings);
+    let settings = hub.read(cx).settings.clone();
     let live_action_ids = sessions.read(cx).live_action_ids();
-    let actions = triggered_actions(collections.actions.read(cx).iter(), &device_id);
-    if actions.is_empty() || !automations::needs_events(&actions) {
+    let (automations_bound, pins) =
+        triggered_automations(collections.automations.read(cx).iter(), &device_id);
+    if automations_bound.is_empty() || !automations::needs_events(&automations_bound) {
         // Nothing bound to this device, or nothing that READS events (a
         // schedule-only device never scans) — skip the potentially large
         // event collection entirely, and let the cache go with it.
@@ -340,13 +352,14 @@ fn snapshot_for(account_id: &str, cache: &mut EventCache, cx: &mut App) -> Optio
         return Some(EvalSnapshot {
             settings_path,
             device_id,
-            actions,
+            automations: automations_bound,
+            pins,
             events: Arc::default(),
             live_action_ids,
             issue_display: HashMap::new(),
             label_names: HashMap::new(),
             now_local: Local::now(),
-            options,
+            settings,
         });
     }
 
@@ -433,13 +446,14 @@ fn snapshot_for(account_id: &str, cache: &mut EventCache, cx: &mut App) -> Optio
     Some(EvalSnapshot {
         settings_path,
         device_id,
-        actions,
+        automations: automations_bound,
+        pins,
         events,
         live_action_ids,
         issue_display,
         label_names,
         now_local,
-        options,
+        settings,
     })
 }
 
@@ -469,47 +483,47 @@ fn patch_missing_boards(
     true
 }
 
-/// This device's launch defaults for an AUTOMATED run: the saved default
-/// agent with its model/effort/permission toggles, plan mode forced OFF.
-/// The CLI daemon's rule (`launch::agent_options` with `interactive =
-/// false`, F7): an unattended run must never park at the plan-approval card
-/// waiting for a human who is not watching.
-fn automated_options(settings: &coding::Settings) -> LaunchOptions {
-    let mut options = LaunchOptions::defaults(settings);
-    options.plan_mode = false;
-    options
-}
-
-/// The synced `actions` rows this device evaluates: a parseable trigger bound
-/// to `device_id`, with a team to run in. The fingerprint hashes the RAW
-/// trigger JSON as synced — the canonical input BOTH hosts must use, or a
-/// GUI/CLI hand-off would re-seed the shared state on every switch.
-fn triggered_actions<'a>(
-    rows: impl Iterator<Item = &'a ActionRow>,
+/// The synced `automations` rows this device evaluates: ENABLED, bound to
+/// `device_id`, with a team and a target action. The fingerprint hashes the
+/// RAW trigger JSON as synced — the canonical input BOTH hosts must use, or a
+/// GUI/CLI hand-off would re-seed the shared state on every switch. Returns
+/// the engine input plus the per-automation launch pins the fire needs.
+fn triggered_automations<'a>(
+    rows: impl Iterator<Item = &'a AutomationRow>,
     device_id: &str,
-) -> Vec<TriggeredAction> {
-    let mut actions = Vec::new();
+) -> (Vec<TriggeredAutomation>, HashMap<String, LaunchPins>) {
+    let mut bound = Vec::new();
+    let mut pins = HashMap::new();
     for row in rows {
+        if !row.is_enabled() || row.device_id.as_deref() != Some(device_id) {
+            continue; // switched off, or another machine's (or the daemon's)
+        }
         let Some(raw) = row.trigger.as_ref() else {
-            continue; // manual-only action
+            continue; // nothing to evaluate
         };
         let Some(trigger) = automations::parse_trigger(raw) else {
-            continue; // untargetable (no deviceId) — no host can evaluate it
+            continue;
         };
-        if trigger.device_id != device_id {
-            continue; // another machine's (or the CLI daemon's) trigger
-        }
-        let Some(team_id) = row.team_id.clone() else {
-            continue; // no team to run in
+        let (Some(action_id), Some(team_id)) = (row.action_id.clone(), row.team_id.clone()) else {
+            continue; // no target, or no team to run in
         };
-        actions.push(TriggeredAction {
-            action_id: row.id.clone(),
+        pins.insert(
+            row.id.clone(),
+            LaunchPins {
+                agent: row.agent.clone(),
+                model: row.model.clone(),
+                effort: row.effort.clone(),
+            },
+        );
+        bound.push(TriggeredAutomation {
+            automation_id: row.id.clone(),
+            action_id,
             team_id,
             trigger,
             fingerprint: automations::trigger_fingerprint(raw),
         });
     }
-    actions
+    (bound, pins)
 }
 
 // ---------------------------------------------------------------------------
@@ -519,9 +533,13 @@ fn triggered_actions<'a>(
 /// One action the engine decided to fire, with its prompt note pre-rendered
 /// (the display lookups live in the snapshot, not the launcher).
 struct FireOrder {
+    automation_id: String,
     action_id: String,
     team_id: String,
     note: TriggerNote,
+    /// Resolved on the background pass: the automation's pins layered over
+    /// this machine's launch defaults.
+    options: LaunchOptions,
     new_state: AutomationState,
 }
 
@@ -536,7 +554,7 @@ fn evaluate_pass(snapshot: EvalSnapshot) -> PassOutcome {
     let now_ms = snapshot.now_local.timestamp_millis();
     let mut states = automations::read_states(&snapshot.settings_path, &snapshot.device_id);
     let decisions = automations::evaluate(&EvalInput {
-        actions: &snapshot.actions,
+        automations: &snapshot.automations,
         states: &states,
         events: &snapshot.events[..],
         live_action_ids: &snapshot.live_action_ids,
@@ -550,28 +568,40 @@ fn evaluate_pass(snapshot: EvalSnapshot) -> PassOutcome {
             // Cooling down or already running — nothing to persist.
             Decision::Defer { .. } => {}
             Decision::Reseed {
-                action_id,
+                automation_id,
                 new_state,
             } => {
-                states.insert(action_id, new_state);
+                states.insert(automation_id, new_state);
                 reseeded = true;
             }
             Decision::Fire {
-                action_id,
+                automation_id,
                 firing,
                 new_state,
             } => {
-                let Some(action) = snapshot
-                    .actions
+                let Some(automation) = snapshot
+                    .automations
                     .iter()
-                    .find(|candidate| candidate.action_id == action_id)
+                    .find(|candidate| candidate.automation_id == automation_id)
                 else {
                     continue;
                 };
+                let pins = snapshot.pins.get(&automation_id).cloned().unwrap_or_default();
                 fires.push(FireOrder {
-                    action_id,
-                    team_id: action.team_id.clone(),
-                    note: trigger_note(action, &firing, &snapshot),
+                    action_id: automation.action_id.clone(),
+                    team_id: automation.team_id.clone(),
+                    note: trigger_note(automation, &firing, &snapshot),
+                    // EXP-583: the automation's own pins win; everything it
+                    // leaves unset follows this machine's defaults, and plan
+                    // mode is forced off (an unattended run must never park
+                    // at the plan-approval card).
+                    options: automations::launch_options(
+                        &snapshot.settings,
+                        pins.agent.as_deref(),
+                        pins.model.as_deref(),
+                        pins.effort.as_deref(),
+                    ),
+                    automation_id,
                     new_state,
                 });
             }
@@ -600,10 +630,14 @@ fn write_states(
 /// The prompt's `## Trigger` note: a schedule renders the shared phrase, an
 /// event the per-issue lines (capped — the overflow becomes the note's
 /// `omitted` count).
-fn trigger_note(action: &TriggeredAction, firing: &Firing, snapshot: &EvalSnapshot) -> TriggerNote {
+fn trigger_note(
+    automation: &TriggeredAutomation,
+    firing: &Firing,
+    snapshot: &EvalSnapshot,
+) -> TriggerNote {
     match firing {
         Firing::Schedule { .. } => {
-            let phrase = match &action.trigger.kind {
+            let phrase = match &automation.trigger.kind {
                 TriggerKind::Schedule(schedule) => automations::schedule_phrase(schedule),
                 // Unreachable — the engine only schedules a Schedule trigger.
                 _ => String::new(),
@@ -721,29 +755,30 @@ fn status_label(wire: &str) -> String {
 fn launch(
     fire: FireOrder,
     reservation: ReservationGuard,
-    options: LaunchOptions,
     settings_path: PathBuf,
     device_id: String,
     cx: &mut App,
 ) {
     let FireOrder {
+        automation_id,
         action_id,
         team_id,
         note,
+        options,
         ..
     } = fire;
     log::info!(
-        "[automations] starting {action_id} ({})",
+        "[automations] {automation_id} starting {action_id} ({})",
         note.started_reason()
     );
     // The poison-pill hook: a run that never reaches the agent (disabled
     // launcher, prepare failure, no window) has already advanced its
-    // watermark — without a backoff its trigger would re-fire every beat.
-    let failed_action = action_id.clone();
+    // watermark — without a backoff its automation would re-fire every beat.
+    let failed_automation = automation_id.clone();
     let on_failed: action_run::ActionFailureHook = Box::new(move |cx: &mut App| {
         cx.background_executor()
             .spawn(async move {
-                back_off(&settings_path, &device_id, &failed_action);
+                back_off(&settings_path, &device_id, &failed_automation);
             })
             .detach();
     });
@@ -751,6 +786,7 @@ fn launch(
         StartActionArgs {
             action_id,
             team_id,
+            automation_id: Some(automation_id),
             // Local start: the action's own `repository_id` resolves through
             // `repositories.list` exactly like a dialog run.
             repo: ActionRepo::Resolve,
@@ -774,15 +810,15 @@ fn launch(
 /// Extend the action's cooldown by the prepare-failure backoff. Read-modify-
 /// write on the CURRENT map so a concurrent pass's reseeds survive; a state
 /// that vanished meanwhile (trigger deleted) is left alone.
-fn back_off(settings_path: &Path, device_id: &str, action_id: &str) {
+fn back_off(settings_path: &Path, device_id: &str, automation_id: &str) {
     let mut states = automations::read_states(settings_path, device_id);
-    let Some(state) = states.get_mut(action_id) else {
+    let Some(state) = states.get_mut(automation_id) else {
         return;
     };
     let now_ms = Local::now().timestamp_millis();
     let base = state.cooldown_until.unwrap_or(now_ms).max(now_ms);
     state.cooldown_until = Some(base + automations::PREPARE_FAILURE_BACKOFF_MS);
-    log::info!("[automations] {action_id} backed off after a failed start");
+    log::info!("[automations] {automation_id} backed off after a failed start");
     write_states(settings_path, device_id, &states);
 }
 
@@ -791,30 +827,32 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn action_row(id: &str, team_id: Option<&str>, trigger: Option<serde_json::Value>) -> ActionRow {
-        ActionRow {
-            id: id.to_string(),
-            team_id: team_id.map(str::to_string),
-            repository_id: None,
-            name: Some(format!("Action {id}")),
-            description: None,
-            icon: None,
-            inputs: None,
-            trigger,
-            sort_order: None,
-            created_at: None,
-            updated_at: None,
+    /// One synced `automations` row, in the tolerant wire form the store
+    /// hands us (jsonb columns arrive TEXT-stored).
+    fn automation_row(
+        id: &str,
+        team_id: Option<&str>,
+        device_id: &str,
+        enabled: bool,
+        trigger: Option<serde_json::Value>,
+    ) -> AutomationRow {
+        let mut row = json!({
+            "id": id,
+            "action_id": format!("act-{id}"),
+            "device_id": device_id,
+            "enabled": enabled,
+        });
+        if let Some(team_id) = team_id {
+            row["team_id"] = json!(team_id);
         }
+        if let Some(trigger) = trigger {
+            row["trigger"] = trigger;
+        }
+        serde_json::from_value(row).expect("automation row decodes")
     }
 
-    fn schedule_trigger(device_id: &str) -> serde_json::Value {
-        json!({
-            "kind": "schedule",
-            "deviceId": device_id,
-            "enabled": true,
-            "interval": "daily",
-            "minuteOfDay": 420,
-        })
+    fn schedule_trigger() -> serde_json::Value {
+        json!({"kind": "schedule", "interval": "daily", "minuteOfDay": 420})
     }
 
     fn event_row(id: &str, kind: &str, payload: Option<serde_json::Value>) -> EventRow {
@@ -839,74 +877,88 @@ mod tests {
         )])
     }
 
-    /// An automated run never launches into plan mode, whatever the device's
-    /// saved default is — the shipped default IS plan mode for claude and pi,
-    /// so an unattended run would park at the plan-approval card forever.
+    /// Only THIS device's ENABLED, parseable, team-bound automations are
+    /// evaluated — every other row belongs to another host (or to no host at
+    /// all).
     #[test]
-    fn automated_options_force_plan_mode_off() {
-        let settings = coding::Settings::default();
-        assert!(
-            settings.plan_mode_for(settings.default_agent),
-            "the shipped default parks claude/pi in plan mode"
-        );
-        let options = automated_options(&settings);
-        assert!(!options.plan_mode);
-
-        // Everything else still follows the device's own defaults — an
-        // automation is this machine's run, exactly like a dialog start.
-        let dialog = LaunchOptions::defaults(&settings);
-        assert_eq!(options.agent, dialog.agent);
-        assert_eq!(options.model, dialog.model);
-        assert_eq!(options.effort, dialog.effort);
-        assert_eq!(options.ultracode, dialog.ultracode);
-        assert_eq!(options.skip_permissions, dialog.skip_permissions);
-    }
-
-    /// Only THIS device's parseable, team-bound triggers are evaluated —
-    /// every other row belongs to another host (or to no host at all).
-    #[test]
-    fn triggered_actions_keep_only_this_devices_rows() {
+    fn triggered_automations_keep_only_this_devices_rows() {
         let rows = vec![
-            action_row("mine", Some("team-1"), Some(schedule_trigger("dev-gui"))),
-            action_row("theirs", Some("team-1"), Some(schedule_trigger("dev-cli"))),
-            action_row("manual", Some("team-1"), None),
-            // No deviceId: untargetable — no host could ever fire it.
-            action_row(
-                "untargeted",
-                Some("team-1"),
-                Some(json!({"kind": "schedule", "interval": "daily", "minuteOfDay": 1})),
-            ),
+            automation_row("mine", Some("team-1"), "dev-gui", true, Some(schedule_trigger())),
+            automation_row("theirs", Some("team-1"), "dev-cli", true, Some(schedule_trigger())),
+            // Switched off — inert before the engine ever sees it.
+            automation_row("off", Some("team-1"), "dev-gui", false, Some(schedule_trigger())),
+            // No trigger at all: nothing to evaluate.
+            automation_row("empty", Some("team-1"), "dev-gui", true, None),
             // A team-less row has nowhere to run.
-            action_row("teamless", None, Some(schedule_trigger("dev-gui"))),
+            automation_row("teamless", None, "dev-gui", true, Some(schedule_trigger())),
             // A FUTURE kind stays visible-but-inert (Unsupported), so it must
             // still reach the engine — which decides nothing for it.
-            action_row(
+            automation_row(
                 "future",
                 Some("team-2"),
-                Some(json!({"kind": "moon_phase", "deviceId": "dev-gui"})),
+                "dev-gui",
+                true,
+                Some(json!({"kind": "moon_phase"})),
             ),
         ];
-        let actions = triggered_actions(rows.iter(), "dev-gui");
+        let (bound, pins) = triggered_automations(rows.iter(), "dev-gui");
         assert_eq!(
-            actions
+            bound
                 .iter()
-                .map(|action| action.action_id.as_str())
+                .map(|automation| automation.automation_id.as_str())
                 .collect::<Vec<_>>(),
             vec!["mine", "future"],
-            "other devices', manual, untargetable and team-less rows are skipped"
+            "other devices', disabled, trigger-less and team-less rows are skipped"
         );
-        assert_eq!(actions[1].trigger.kind, TriggerKind::Unsupported);
-        assert_eq!(actions[0].team_id, "team-1");
-        assert_eq!(actions[1].team_id, "team-2");
+        assert_eq!(bound[0].action_id, "act-mine", "the launch target rides along");
+        assert_eq!(bound[1].trigger.kind, TriggerKind::Unsupported);
+        assert_eq!(bound[0].team_id, "team-1");
+        assert_eq!(bound[1].team_id, "team-2");
+        // Only the evaluated rows get pins — the map is keyed by automation.
+        assert_eq!(pins.len(), 2);
+        assert!(pins["mine"].agent.is_none(), "unpinned = the device's defaults");
 
-        // The fingerprint is the RAW trigger JSON's — identical input, identical
-        // hash, so a GUI↔CLI hand-off never re-seeds.
-        let again = triggered_actions(rows.iter(), "dev-gui");
-        assert_eq!(actions[0].fingerprint, again[0].fingerprint);
+        // The fingerprint is the RAW trigger JSON's — identical input,
+        // identical hash, so a GUI↔CLI hand-off never re-seeds.
+        let (again, _) = triggered_automations(rows.iter(), "dev-gui");
+        assert_eq!(bound[0].fingerprint, again[0].fingerprint);
         assert_eq!(
-            actions[0].fingerprint,
-            automations::trigger_fingerprint(&schedule_trigger("dev-gui")),
+            bound[0].fingerprint,
+            automations::trigger_fingerprint(&schedule_trigger()),
         );
+    }
+
+    /// EXP-583: an automation's pins ride to the launch; everything it leaves
+    /// unset follows the machine, and plan mode is forced off either way (the
+    /// shipped default IS plan mode for claude and pi, and an unattended run
+    /// would park at the plan-approval card forever).
+    #[test]
+    fn launch_pins_layer_over_the_device_defaults() {
+        let settings = coding::Settings::default();
+        let mut row = automation_row("pinned", Some("team-1"), "dev-gui", true, Some(schedule_trigger()));
+        row.agent = Some("codex".to_string());
+        row.model = Some("gpt-5.1-codex".to_string());
+        let (_, pins) = triggered_automations([row].iter(), "dev-gui");
+        let pin = &pins["pinned"];
+        let options = automations::launch_options(
+            &settings,
+            pin.agent.as_deref(),
+            pin.model.as_deref(),
+            pin.effort.as_deref(),
+        );
+        assert_eq!(options.agent, coding::CodingAgent::Codex);
+        assert_eq!(options.model, "gpt-5.1-codex");
+        assert!(!options.plan_mode);
+
+        // Unpinned: this machine's own defaults, exactly like a dialog start
+        // with untouched options.
+        let bare = automations::launch_options(&settings, None, None, None);
+        let dialog = LaunchOptions::defaults(&settings);
+        assert_eq!(bare.agent, dialog.agent);
+        assert_eq!(bare.model, dialog.model);
+        assert_eq!(bare.ultracode, dialog.ultracode);
+        assert_eq!(bare.skip_permissions, dialog.skip_permissions);
+        assert!(!bare.plan_mode);
     }
 
     /// EXP-562: the foreground pass walks the whole `issue_events`
@@ -1028,20 +1080,21 @@ mod tests {
         let snapshot = EvalSnapshot {
             settings_path: PathBuf::new(),
             device_id: "dev-gui".to_string(),
-            actions: Vec::new(),
+            automations: Vec::new(),
+            pins: HashMap::new(),
             events: Arc::default(),
             live_action_ids: HashSet::new(),
             issue_display: displays(),
             label_names: HashMap::new(),
             now_local: Local::now(),
-            options: LaunchOptions::defaults(&coding::Settings::default()),
+            settings: coding::Settings::default(),
         };
-        let action = TriggeredAction {
+        let action = TriggeredAutomation {
+            automation_id: "auto".to_string(),
             action_id: "act".to_string(),
             team_id: "team-1".to_string(),
             trigger: automations::parse_trigger(&json!({
                 "kind": "event",
-                "deviceId": "dev-gui",
                 "event": "created",
             }))
             .expect("parses"),
@@ -1061,10 +1114,11 @@ mod tests {
 
         // A schedule firing renders the SHARED phrase (identical copy on the
         // CLI host and in the UI's summary rows).
-        let scheduled = TriggeredAction {
+        let scheduled = TriggeredAutomation {
+            automation_id: "auto".to_string(),
             action_id: "act".to_string(),
             team_id: "team-1".to_string(),
-            trigger: automations::parse_trigger(&schedule_trigger("dev-gui")).expect("parses"),
+            trigger: automations::parse_trigger(&schedule_trigger()).expect("parses"),
             fingerprint: "fp".to_string(),
         };
         match trigger_note(

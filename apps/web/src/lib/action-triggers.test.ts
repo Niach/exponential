@@ -1,104 +1,87 @@
 import { describe, expect, it } from "vitest"
 import type {
-  ActionScheduleTrigger,
-  ActionTrigger,
+  AutomationScheduleTrigger,
+  AutomationTrigger,
   ActionTriggerEvent,
 } from "@exp/db-schema/domain"
 import {
-  formatTriggerBlock,
+  formatAutomationBlock,
   nextScheduleRun,
-  parseActionTrigger,
+  parseAutomationTrigger,
   triggerSummary,
 } from "./action-triggers"
 
 const schedule = (
-  overrides: Partial<ActionScheduleTrigger> = {}
-): ActionScheduleTrigger => ({
+  overrides: Partial<AutomationScheduleTrigger> = {}
+): AutomationScheduleTrigger => ({
   kind: `schedule`,
-  deviceId: `dev-1`,
-  enabled: true,
   interval: `daily`,
   minuteOfDay: 420,
   ...overrides,
 })
 
-describe(`parseActionTrigger`, () => {
+describe(`parseAutomationTrigger`, () => {
   it(`returns null for non-objects`, () => {
-    expect(parseActionTrigger(null)).toBeNull()
-    expect(parseActionTrigger(undefined)).toBeNull()
-    expect(parseActionTrigger(`schedule`)).toBeNull()
-    expect(parseActionTrigger(42)).toBeNull()
-    expect(parseActionTrigger([{ kind: `schedule` }])).toBeNull()
+    expect(parseAutomationTrigger(null)).toBeNull()
+    expect(parseAutomationTrigger(undefined)).toBeNull()
+    expect(parseAutomationTrigger(`schedule`)).toBeNull()
+    expect(parseAutomationTrigger(42)).toBeNull()
+    expect(parseAutomationTrigger([{ kind: `schedule` }])).toBeNull()
   })
 
   it(`returns null for an unknown kind (future vocabulary reads as no automation)`, () => {
-    expect(parseActionTrigger({ kind: `webhook`, deviceId: `d`, enabled: true })).toBeNull()
-    expect(parseActionTrigger({ deviceId: `d` })).toBeNull()
+    expect(parseAutomationTrigger({ kind: `webhook` })).toBeNull()
+    expect(parseAutomationTrigger({})).toBeNull()
   })
 
   it(`returns null for an unknown event value`, () => {
     expect(
-      parseActionTrigger({
+      parseAutomationTrigger({
         kind: `event`,
-        deviceId: `d`,
-        enabled: true,
         event: `comment_added`,
       })
     ).toBeNull()
   })
 
-  it(`requires a non-empty deviceId`, () => {
-    expect(parseActionTrigger(schedule({ deviceId: `` }))).toBeNull()
-    expect(
-      parseActionTrigger({ ...schedule(), deviceId: undefined })
-    ).toBeNull()
-  })
-
   it(`rejects out-of-range schedule fields`, () => {
-    expect(parseActionTrigger(schedule({ minuteOfDay: -1 }))).toBeNull()
-    expect(parseActionTrigger(schedule({ minuteOfDay: 1440 }))).toBeNull()
-    expect(parseActionTrigger(schedule({ minuteOfDay: 7.5 }))).toBeNull()
+    expect(parseAutomationTrigger(schedule({ minuteOfDay: -1 }))).toBeNull()
+    expect(parseAutomationTrigger(schedule({ minuteOfDay: 1440 }))).toBeNull()
+    expect(parseAutomationTrigger(schedule({ minuteOfDay: 7.5 }))).toBeNull()
     expect(
-      parseActionTrigger(schedule({ interval: `weekly` }))
+      parseAutomationTrigger(schedule({ interval: `weekly` }))
     ).toBeNull()
     expect(
-      parseActionTrigger(schedule({ interval: `weekly`, weekday: 8 }))
+      parseAutomationTrigger(schedule({ interval: `weekly`, weekday: 8 }))
     ).toBeNull()
     expect(
-      parseActionTrigger(schedule({ interval: `monthly` }))
+      parseAutomationTrigger(schedule({ interval: `monthly` }))
     ).toBeNull()
     expect(
-      parseActionTrigger(schedule({ interval: `monthly`, dayOfMonth: 29 }))
+      parseAutomationTrigger(schedule({ interval: `monthly`, dayOfMonth: 29 }))
     ).toBeNull()
     expect(
-      parseActionTrigger({ ...schedule(), interval: `hourly` })
+      parseAutomationTrigger({ ...schedule(), interval: `hourly` })
     ).toBeNull()
   })
 
-  it(`round-trips a valid schedule and defaults missing enabled to true`, () => {
-    const parsed = parseActionTrigger({
+  it(`round-trips a valid schedule`, () => {
+    const parsed = parseAutomationTrigger({
       kind: `schedule`,
-      deviceId: `dev-1`,
       interval: `weekly`,
       minuteOfDay: 540,
       weekday: 1,
     })
     expect(parsed).toEqual({
       kind: `schedule`,
-      deviceId: `dev-1`,
-      enabled: true,
       interval: `weekly`,
       minuteOfDay: 540,
       weekday: 1,
     })
-    expect(parseActionTrigger(schedule({ enabled: false }))?.enabled).toBe(false)
   })
 
   it(`keeps only well-formed event filters and drops empty lists`, () => {
-    const parsed = parseActionTrigger({
+    const parsed = parseAutomationTrigger({
       kind: `event`,
-      deviceId: `dev-1`,
-      enabled: true,
       event: `label_added`,
       filters: {
         boardIds: [`b1`, 7, `b2`],
@@ -109,8 +92,6 @@ describe(`parseActionTrigger`, () => {
     })
     expect(parsed).toEqual({
       kind: `event`,
-      deviceId: `dev-1`,
-      enabled: true,
       event: `label_added`,
       filters: { boardIds: [`b1`, `b2`], priorities: [`urgent`] },
     })
@@ -118,16 +99,12 @@ describe(`parseActionTrigger`, () => {
 
   it(`parses an event trigger without filters`, () => {
     expect(
-      parseActionTrigger({
+      parseAutomationTrigger({
         kind: `event`,
-        deviceId: `dev-1`,
-        enabled: true,
         event: `pr_merged`,
       })
     ).toEqual({
       kind: `event`,
-      deviceId: `dev-1`,
-      enabled: true,
       event: `pr_merged`,
     })
   })
@@ -150,10 +127,8 @@ describe(`triggerSummary`, () => {
   })
 
   it(`locks the event sentences`, () => {
-    const event = (name: ActionTriggerEvent): ActionTrigger => ({
+    const event = (name: ActionTriggerEvent): AutomationTrigger => ({
       kind: `event`,
-      deviceId: `d`,
-      enabled: true,
       event: name,
     })
     expect(triggerSummary(event(`created`))).toBe(`When an issue is created`)
@@ -177,8 +152,6 @@ describe(`triggerSummary`, () => {
     expect(
       triggerSummary({
         kind: `event`,
-        deviceId: `d`,
-        enabled: true,
         event: `status_changed`,
         filters: { boardIds: [`b1`, `b2`], toStatusIds: [`s1`] },
       })
@@ -186,8 +159,6 @@ describe(`triggerSummary`, () => {
     expect(
       triggerSummary({
         kind: `event`,
-        deviceId: `d`,
-        enabled: true,
         event: `label_added`,
         filters: { labelIds: [`l1`] },
       })
@@ -263,11 +234,20 @@ describe(`nextScheduleRun`, () => {
   })
 })
 
-describe(`formatTriggerBlock`, () => {
+describe(`formatAutomationBlock`, () => {
   it(`emits the machine-readable block with the exact JSON`, () => {
     const trigger = schedule({ minuteOfDay: 420 })
-    expect(formatTriggerBlock(trigger)).toBe(
-      `\n\nAutomation — set exactly this trigger via the \`trigger\` field on exponential_actions_create: \`${JSON.stringify(trigger)}\`. An automated run fills no inputs, so declare none as required.`
+    expect(
+      formatAutomationBlock({ trigger, deviceId: `dev-1`, agent: `claude`, model: `opus` })
+    ).toBe(
+      `\n\nAutomation — after creating the action, call exponential_automations_create with its id and exactly these fields: \`${JSON.stringify({ deviceId: `dev-1`, trigger, agent: `claude`, model: `opus` })}\`. An automated run fills no inputs, so declare none as required.`
+    )
+  })
+
+  it(`omits blank agent/model/effort`, () => {
+    const trigger = schedule()
+    expect(formatAutomationBlock({ trigger, deviceId: `dev-1`, model: `` })).toContain(
+      JSON.stringify({ deviceId: `dev-1`, trigger })
     )
   })
 })

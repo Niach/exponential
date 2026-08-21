@@ -141,6 +141,14 @@ struct StartCodingSheet: View {
     /// EXP-530 "Use suggestion": initial input values (keyed like
     /// `inputValues` — e.g. the create builtin's `description` + `icon`).
     let prefilledInputs: [String: String]?
+    /// EXP-583 "Use suggestion" on an ACTION + AUTOMATION seed: the suggested
+    /// trigger. Non-nil is the ONLY thing that shows the Automation block —
+    /// the plain "New action" path never configures one.
+    let suggestedAutomation: AutomationTrigger?
+    /// Automation-capable machines (cap `automations`), OFFLINE INCLUDED —
+    /// the automation binds independently of whatever machine runs the
+    /// creator session, and a sleeping box still owns the binding.
+    let automationDevices: [SteerDevice]
     /// Non-nil pre-picks the selected action's `pr` input (EXP-323 — the
     /// conflict-recovery entry points hand over the issue their surface acts
     /// on; ANY issue linked to the PR resolves).
@@ -161,7 +169,7 @@ struct StartCodingSheet: View {
 
     /// Sentinel for the blank "CLI default" choice (omit --effort; for
     /// codex/pi also the omit-model default — claude is explicit-always).
-    private static let cliDefault = "cli-default"
+    static let cliDefault = "cli-default"
     /// A batch run is deliberately loose but not unbounded — one Claude session
     /// on one branch; past this the prompt is unwieldy and token-expensive.
     private static let maxBatchIssues = 30
@@ -187,10 +195,11 @@ struct StartCodingSheet: View {
     /// `""` = unset). Reset on action switch.
     @State private var inputValues: [String: String] = [:]
 
-    // EXP-530 create-mode automation (None · Schedule · On event). The
-    // resulting trigger rides the description as a machine-readable block —
-    // the creator agent sets it verbatim via `exponential_actions_create`.
-    @State private var automationKind = "none"
+    // EXP-583 suggestion automation (Schedule · On event), shown ONLY for an
+    // "Action + automation" seed. The resulting spec rides the description as
+    // a machine-readable block the creator agent copies verbatim into
+    // `exponential_automations_create`.
+    @State private var automationKind = "schedule"
     @State private var schedInterval = "daily"
     @State private var schedTime = Self.defaultScheduleTime
     /// 1 = Monday … 7 = Sunday (the wire convention).
@@ -203,6 +212,12 @@ struct StartCodingSheet: View {
     @State private var filterToStatusId = ""
     @State private var teamLabels: [LabelEntity] = []
     @State private var teamStatuses: [IssueStatusEntity] = []
+    /// The automation's OWN machine + launch options — independent of the one
+    /// running the creator session. "" = the machine's launch defaults.
+    @State private var automationDeviceId = ""
+    @State private var automationAgent = ""
+    @State private var automationModel = ""
+    @State private var automationEffort = ""
 
     // Seeded from the selected machine's advertised defaults in onAppear
     // (EXP-437). Placeholder values render for one frame before seed() resolves
@@ -234,6 +249,8 @@ struct StartCodingSheet: View {
         preselectedActionId: String? = nil,
         createActionMode: Bool = false,
         prefilledInputs: [String: String]? = nil,
+        suggestedAutomation: AutomationTrigger? = nil,
+        automationDevices: [SteerDevice] = [],
         preselectedPrIssueId: String? = nil,
         worktrees: [DeviceWorktreeEntity]? = nil,
         onStart: @escaping (SteerDevice, [String], SteerStartOptions) -> Void,
@@ -248,6 +265,8 @@ struct StartCodingSheet: View {
         self.preselectedActionId = preselectedActionId
         self.createActionMode = createActionMode
         self.prefilledInputs = prefilledInputs
+        self.suggestedAutomation = suggestedAutomation
+        self.automationDevices = automationDevices
         self.preselectedPrIssueId = preselectedPrIssueId
         self.onStart = onStart
         self.onRunAction = onRunAction
@@ -324,9 +343,10 @@ struct StartCodingSheet: View {
                     if let action = selectedAction, !(action.inputs ?? []).isEmpty {
                         inputsSection(action)
                     }
-                    // EXP-530: only creation configures a trigger — existing
-                    // actions are edited on web/desktop.
-                    if createActionMode {
+                    // EXP-583: only an "Action + automation" suggestion
+                    // configures a trigger here — plain creation never does,
+                    // and existing automations live on the Automations tab.
+                    if showsAutomation {
                         automationSection
                     }
                 }
@@ -778,13 +798,13 @@ struct StartCodingSheet: View {
         .buttonStyle(.plain)
     }
 
+    // No section header (EXP-583, web parity): the fields are self-labeling
+    // and the heading only repeated what the sheet already is.
     private func inputsSection(_ action: ActionDto) -> some View {
         Section {
             ForEach(action.inputs ?? [], id: \.key) { def in
                 inputField(def)
             }
-        } header: {
-            Text("Inputs")
         }
     }
 
@@ -1042,10 +1062,9 @@ struct StartCodingSheet: View {
         if let action = selectedAction {
             seedRepoInputs(for: action)
         }
-        // EXP-530 create mode: the Automation section's option pools — labels
-        // + statuses for the event filters, and the automation-capable device
-        // pool (offline included; a missed schedule fires on reconnect).
-        if createActionMode {
+        // EXP-583: the Automation block's filter option pools — labels +
+        // statuses for the event filters (its device pool is passed in).
+        if showsAutomation {
             if let pool = try? deps.db.pool(forAccountId: accountId) {
                 let labelRows = (try? await pool.read { db in
                     try LabelEntity.filter(Column("team_id") == teamId).fetchAll(db)
@@ -1080,17 +1099,40 @@ struct StartCodingSheet: View {
         inputValues[key] = option.issueId
     }
 
-    // MARK: - Automation (EXP-530, create mode)
+    // MARK: - Automation (EXP-583, suggestion-prefilled create mode)
 
     private static var defaultScheduleTime: Date {
         Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: Date()) ?? Date()
+    }
+
+    /// The Automation block exists ONLY for an "Action + automation" seed.
+    private var showsAutomation: Bool {
+        createActionMode && suggestedAutomation != nil
+    }
+
+    /// The machine that will RUN the automation, resolved off its own pool.
+    private var automationDevice: SteerDevice? {
+        if !automationDeviceId.isEmpty,
+           let match = automationDevices.first(where: { $0.deviceId == automationDeviceId }) {
+            return match
+        }
+        return automationDevices.first
+    }
+
+    private var automationAgents: [String] {
+        let supported = automationDevice?.agentIds ?? []
+        return DomainContract.codingAgentValues.filter { supported.contains($0) }
+    }
+
+    /// nil = the machine's own launch defaults (agent/model/effort omitted).
+    private var pinnedAutomationAgent: String? {
+        automationAgent.isEmpty ? nil : automationAgent
     }
 
     @ViewBuilder
     private var automationSection: some View {
         Section {
             Picker("Trigger", selection: $automationKind) {
-                Text("None").tag("none")
                 Text("Schedule").tag("schedule")
                 Text("On event").tag("event")
             }
@@ -1106,7 +1148,7 @@ struct StartCodingSheet: View {
                 if schedInterval == "weekly" {
                     Picker("Weekday", selection: $schedWeekday) {
                         ForEach(1...7, id: \.self) { day in
-                            Text(ActionTriggerDisplay.weekdayNames[day - 1]).tag(day)
+                            Text(AutomationTriggerDisplay.weekdayNames[day - 1]).tag(day)
                         }
                     }
                 }
@@ -1123,7 +1165,7 @@ struct StartCodingSheet: View {
             if automationKind == "event" {
                 Picker("Event", selection: $eventType) {
                     ForEach(DomainContract.actionTriggerEventValues, id: \.self) { value in
-                        Text(Self.eventLabel(value)).tag(value)
+                        Text(AutomationTriggerDisplay.eventLabel(value)).tag(value)
                     }
                 }
                 Picker("Board", selection: $filterBoardId) {
@@ -1158,65 +1200,164 @@ struct StartCodingSheet: View {
                 }
             }
 
+            if automationDevices.isEmpty {
+                Text("No machine of yours runs automations yet. The action still gets created.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                Picker("Runs on", selection: automationDeviceBinding) {
+                    ForEach(automationDevices) { device in
+                        Text(Self.automationDeviceCaption(device)).tag(device.deviceId)
+                    }
+                }
+                Picker("Agent", selection: automationAgentBinding) {
+                    Text("Device default").tag("")
+                    ForEach(automationAgents, id: \.self) { value in
+                        Text(Self.agentLabel(value)).tag(value)
+                    }
+                }
+                if let pinned = pinnedAutomationAgent {
+                    Picker("Model", selection: $automationModel) {
+                        Text("Device default").tag("")
+                        ForEach(Self.automationModelValues(for: pinned), id: \.self) { value in
+                            Text(Self.modelLabel(value)).tag(value)
+                        }
+                    }
+                    Picker(Self.automationEffortTitle(for: pinned), selection: $automationEffort) {
+                        Text("Device default").tag("")
+                        ForEach(Self.effortValues(for: pinned), id: \.self) { value in
+                            Text(Self.effortLabel(value)).tag(value)
+                        }
+                    }
+                }
+            }
         } header: {
             Text("Automation")
+        } footer: {
+            Text("The agent sets this up after writing the action.")
         }
     }
 
-    /// Web parity: `TRIGGER_EVENT_LABELS` in apps/web/src/lib/action-triggers.ts.
-    private static func eventLabel(_ value: String) -> String {
-        switch value {
-        case "created": "An issue is created"
-        case "status_changed": "Status changes"
-        case "assignee_changed": "The assignee changes"
-        case "label_added": "A label is added"
-        case "priority_changed": "Priority changes"
-        case "pr_opened": "A pull request is opened"
-        case "pr_merged": "A pull request is merged"
-        default: value.replacingOccurrences(of: "_", with: " ")
+    /// The automation's model list: the sheet's own "Device default" row
+    /// replaces the run pickers' "CLI default" sentinel, so drop that entry.
+    private static func automationModelValues(for agent: String) -> [String] {
+        modelValues(for: agent).filter { $0 != cliDefault }
+    }
+
+    private static func automationEffortTitle(for agent: String) -> String {
+        switch agent {
+        case "codex": "Reasoning"
+        case "pi": "Thinking"
+        default: "Effort"
         }
     }
 
-    /// The configured trigger, in wire form — nil when the section is on
-    /// "None" or no target desktop resolves. The automation binds to the
-    /// desktop that runs the creation (EXP-574 follow-up — no second device
-    /// picker), always enabled; owners flip it later on the Automations tab.
-    private var configuredTrigger: ActionTrigger? {
-        guard createActionMode, automationKind != "none",
-              let device
-        else { return nil }
-        switch automationKind {
-        case "schedule":
+    private static func automationDeviceCaption(_ device: SteerDevice) -> String {
+        let name = device.deviceLabel.isEmpty ? device.deviceId : device.deviceLabel
+        let base = device.isOnline ? name : "\(name) (offline)"
+        guard let owner = device.owner else { return base }
+        return "\(base) — \(owner.name)"
+    }
+
+    /// Both writes clear DOWNSTREAM picks the way an explicit user switch
+    /// must (and the suggestion prefill deliberately must not): a machine
+    /// that doesn't advertise the pinned agent would be rejected, and
+    /// model/effort vocabularies are per-agent.
+    private var automationDeviceBinding: Binding<String> {
+        Binding(
+            get: { automationDevice?.deviceId ?? "" },
+            set: { value in
+                guard value != automationDevice?.deviceId else { return }
+                automationDeviceId = value
+                if !automationAgent.isEmpty, !automationAgents.contains(automationAgent) {
+                    automationAgent = ""
+                    automationModel = ""
+                    automationEffort = ""
+                }
+            }
+        )
+    }
+
+    private var automationAgentBinding: Binding<String> {
+        Binding(
+            get: { automationAgent },
+            set: { value in
+                guard value != automationAgent else { return }
+                automationAgent = value
+                automationModel = ""
+                automationEffort = ""
+            }
+        )
+    }
+
+    /// Seed the pickers from the suggestion's trigger (EXP-583). Contextual
+    /// filters are single-select on mobile, so a multi-id list seeds from its
+    /// first entry.
+    private func seedSuggestedAutomation() {
+        switch suggestedAutomation {
+        case let .schedule(s)?:
+            automationKind = "schedule"
+            schedInterval = s.interval
+            schedWeekday = s.weekday ?? 1
+            schedDayOfMonth = s.dayOfMonth ?? 1
+            schedTime = Calendar.current.date(
+                bySettingHour: s.minuteOfDay / 60,
+                minute: s.minuteOfDay % 60,
+                second: 0,
+                of: Date()
+            ) ?? Self.defaultScheduleTime
+        case let .event(e)?:
+            automationKind = "event"
+            eventType = e.event
+            filterBoardId = e.filters.boardIds.first ?? ""
+            filterLabelId = e.filters.labelIds.first ?? ""
+            filterPriority = e.filters.priorities.first ?? ""
+            filterToStatusId = e.filters.toStatusIds.first ?? ""
+        case nil:
+            break
+        }
+    }
+
+    /// The configured trigger in wire form — nil when the Automation block
+    /// isn't showing. Contextual filters travel only for the event they apply
+    /// to, so a stale pick from a previously chosen event never rides along.
+    private var configuredTrigger: AutomationTrigger? {
+        guard showsAutomation else { return nil }
+        if automationKind == "schedule" {
             let comps = Calendar.current.dateComponents([.hour, .minute], from: schedTime)
             let minuteOfDay = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
-            return .schedule(ActionScheduleTrigger(
-                deviceId: device.deviceId,
-                enabled: true,
+            return .schedule(AutomationScheduleTrigger(
                 interval: schedInterval,
                 minuteOfDay: minuteOfDay,
                 weekday: schedInterval == "weekly" ? schedWeekday : nil,
                 dayOfMonth: schedInterval == "monthly" ? schedDayOfMonth : nil
             ))
-        case "event":
-            // Contextual filters travel only for the event they apply to —
-            // a stale pick from a previously chosen event never rides along.
-            return .event(ActionEventTrigger(
-                deviceId: device.deviceId,
-                enabled: true,
-                event: eventType,
-                filters: ActionTriggerFilters(
-                    boardIds: filterBoardId.isEmpty ? [] : [filterBoardId],
-                    labelIds: eventType == "label_added" && !filterLabelId.isEmpty
-                        ? [filterLabelId] : [],
-                    priorities: (eventType == "created" || eventType == "priority_changed")
-                        && !filterPriority.isEmpty ? [filterPriority] : [],
-                    toStatusIds: eventType == "status_changed" && !filterToStatusId.isEmpty
-                        ? [filterToStatusId] : []
-                )
-            ))
-        default:
-            return nil
         }
+        return .event(AutomationEventTrigger(
+            event: eventType,
+            filters: AutomationTriggerFilters(
+                boardIds: filterBoardId.isEmpty ? [] : [filterBoardId],
+                labelIds: eventType == "label_added" && !filterLabelId.isEmpty
+                    ? [filterLabelId] : [],
+                priorities: (eventType == "created" || eventType == "priority_changed")
+                    && !filterPriority.isEmpty ? [filterPriority] : [],
+                toStatusIds: eventType == "status_changed" && !filterToStatusId.isEmpty
+                    ? [filterToStatusId] : []
+            )
+        ))
+    }
+
+    /// The automation the creator agent should set up, or nil when the block
+    /// isn't showing or no machine can run one.
+    private var configuredAutomation: AutomationSpec? {
+        guard let trigger = configuredTrigger, let device = automationDevice else { return nil }
+        return AutomationSpec(
+            trigger: trigger,
+            deviceId: device.deviceId,
+            agent: pinnedAutomationAgent,
+            model: pinnedAutomationAgent == nil ? nil : automationModel,
+            effort: pinnedAutomationAgent == nil ? nil : automationEffort
+        )
     }
 
     // MARK: - Agent tab strip (EXP-208)
@@ -1295,7 +1436,7 @@ struct StartCodingSheet: View {
     /// Claude's model is explicit-always; codex/pi offer a "CLI default" blank.
     /// Parameterized because the seed validates an advertised value against the
     /// agent it belongs to, which isn't always the selected one yet (EXP-437).
-    private static func modelValues(for agent: String) -> [String] {
+    static func modelValues(for agent: String) -> [String] {
         switch agent {
         case "codex": [cliDefault] + DomainContract.codexModelValues
         case "pi": [cliDefault] + DomainContract.piModelValues
@@ -1303,7 +1444,7 @@ struct StartCodingSheet: View {
         }
     }
 
-    private static func effortValues(for agent: String) -> [String] {
+    static func effortValues(for agent: String) -> [String] {
         switch agent {
         case "codex": DomainContract.codexEffortValues
         case "pi": DomainContract.piThinkingValues
@@ -1362,6 +1503,7 @@ struct StartCodingSheet: View {
         guard !seeded else { return }
         seeded = true
         applyDeviceDefaults()
+        seedSuggestedAutomation()
     }
 
     /// Reseed agent + every option from the resolved machine's advertised
@@ -1480,20 +1622,18 @@ struct StartCodingSheet: View {
         // Values in wire form: text trimmed, blank optionals dropped (a
         // required blank can't get here — `canRunAction` gates it).
         var values = ActionInputValues.wireValues(selectedActionInputs, values: inputValues)
-        // EXP-530: a configured trigger rides the description as a
-        // machine-readable trailing block the creator agent sets verbatim.
-        if createActionMode, let trigger = configuredTrigger {
-            let block = "Automation — set exactly this trigger via the `trigger` field on exponential_actions_create: `\(trigger.wireJSONString)`"
-            let description = values["description"] ?? ""
-            values["description"] = description.isEmpty
-                ? block
-                : "\(description)\n\n\(block)"
+        // EXP-583: a configured automation rides the description as a
+        // machine-readable trailing block the creator agent copies verbatim
+        // into `exponential_automations_create` (byte-identical across the
+        // four clients — see AutomationNote.format).
+        if let spec = configuredAutomation {
+            values["description"] = (values["description"] ?? "") + AutomationNote.format(spec)
         }
         dismiss()
         onRunAction(device, action, options, values)
     }
 
-    private static func agentLabel(_ value: String) -> String {
+    static func agentLabel(_ value: String) -> String {
         switch value {
         case "claude": "Claude Code"
         case "codex": "Codex"
@@ -1502,7 +1642,7 @@ struct StartCodingSheet: View {
         }
     }
 
-    private static func modelLabel(_ value: String) -> String {
+    static func modelLabel(_ value: String) -> String {
         switch value {
         case cliDefault: "CLI default"
         case "gpt-5.6-sol": "GPT-5.6 Sol"
@@ -1513,7 +1653,7 @@ struct StartCodingSheet: View {
         }
     }
 
-    private static func effortLabel(_ value: String) -> String {
+    static func effortLabel(_ value: String) -> String {
         value == "xhigh" ? "XHigh" : value.prefix(1).uppercased() + value.dropFirst()
     }
 }

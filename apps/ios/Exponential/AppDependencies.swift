@@ -49,6 +49,8 @@ final class AppDependencies: @unchecked Sendable {
     let devicesApi: DevicesApi
     // Team action prompts (EXP-253) — tRPC-only, view + run on mobile.
     let actionsApi: ActionsApi
+    // Automations (EXP-583) — synced for reads, owner-gated tRPC for writes.
+    let automationsApi: AutomationsApi
     // Widget/agent submission metadata (EXP-496) — tRPC-only.
     let widgetsApi: WidgetsApi
 
@@ -155,6 +157,7 @@ final class AppDependencies: @unchecked Sendable {
         self.steerApi = SteerApi(trpc: trpc)
         self.devicesApi = DevicesApi(trpc: trpc)
         self.actionsApi = ActionsApi(trpc: trpc)
+        self.automationsApi = AutomationsApi(trpc: trpc)
         self.widgetsApi = WidgetsApi(trpc: trpc)
 
         // Push notifications

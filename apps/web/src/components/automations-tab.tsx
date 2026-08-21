@@ -1,33 +1,55 @@
 import { useMemo, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
+import { Ellipsis, LoaderCircle, Pencil, Trash2 } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
 import {
   nextScheduleRun,
-  parseActionTrigger,
+  parseAutomationTrigger,
   triggerSummary,
 } from "@/lib/action-triggers"
 import { deviceIsOnline, type SteerDevice } from "@/lib/steer-devices"
 import { getActionIcon } from "@/lib/board-icons"
-import { codingSessionCollection } from "@/lib/collections"
+import {
+  automationCollection,
+  codingSessionCollection,
+} from "@/lib/collections"
 import { relativeTime } from "@/components/comment-rows/format"
 import { trpc } from "@/lib/trpc-client"
-import type { ActionTrigger } from "@exp/db-schema/domain"
-import type { CodingSession } from "@/db/schema"
+import type { Automation, CodingSession } from "@/db/schema"
 import type { TeamAction } from "@/components/action-editor-dialog"
+import {
+  AutomationDialog,
+  REQUIRED_INPUTS_HINT,
+} from "@/components/automation-dialog"
+import { AGENT_LABELS } from "@/components/launch-dialog/launch-options-pane"
 import { SectionLabel } from "@/components/agent-session-row"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Switch } from "@/components/ui/switch"
 
-// The Automations tab (EXP-530): every non-builtin action carrying a parseable
-// trigger as a dense row, plus the recent automated-run history. Runs are
-// `coding_sessions` rows with a non-null `started_reason` — set only by the
-// device-side automation hosts, so the list is exactly "what fired by itself".
+// The Automations tab (EXP-530; own rows since EXP-583): every synced
+// `automations` row as a dense row, joined client-side with its action, the
+// bound device and its last run, plus the recent automated-run history. Runs
+// are `coding_sessions` rows with a non-null `started_reason` — set only by
+// the device-side automation hosts, so the list is exactly "what fired by
+// itself".
 
 const AutomationIcon = conceptIcon(`action-automation`)
-
-// Same sentence the action dialog's Automation section shows — one reason,
-// one wording, wherever the enabled switch is locked.
-const REQUIRED_INPUTS_HINT = `This action has required inputs, and an automated run has none to fill them with. Make the inputs optional to enable it.`
+const AutomationCreateIcon = conceptIcon(`action-create`)
 
 const SESSION_STATUS_LABELS: Record<string, string> = {
   running: `Running`,
@@ -50,41 +72,87 @@ function formatNextRun(date: Date): string {
   })
 }
 
+// Owner-only ⋯ menu on a row.
+function AutomationMenu({
+  name,
+  onEdit,
+  onDelete,
+}: {
+  name: string
+  onEdit: () => void
+  onDelete: () => void
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 text-muted-foreground"
+          aria-label={`Automation menu for ${name}`}
+        >
+          <Ellipsis className="h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={onEdit}>
+          <Pencil className="h-4 w-4" />
+          Edit
+        </DropdownMenuItem>
+        <DropdownMenuItem variant="destructive" onClick={onDelete}>
+          <Trash2 className="h-4 w-4" />
+          Delete
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
 function AutomationRow({
+  automation,
   action,
-  trigger,
   devices,
   isOwner,
   lastRun,
+  onEdit,
+  onDelete,
 }: {
-  action: TeamAction
-  trigger: ActionTrigger
+  automation: Automation
+  action: TeamAction | undefined
   devices: SteerDevice[]
   isOwner: boolean
   lastRun: CodingSession | undefined
+  onEdit: () => void
+  onDelete: () => void
 }) {
-  const RowIcon = getActionIcon(action)
+  const RowIcon = getActionIcon(action ?? {})
   const [flipping, setFlipping] = useState(false)
+  const trigger = parseAutomationTrigger(automation.trigger)
   // The devices shape only syncs own + team-shared rows — a teammate's
   // private machine bound here has no row for the viewer, so the raw steer
   // id is the honest fallback label.
-  const device = devices.find((d) => d.deviceId === trigger.deviceId)
+  const device = devices.find((d) => d.deviceId === automation.deviceId)
   const next =
-    trigger.kind === `schedule` ? nextScheduleRun(trigger, new Date()) : null
+    trigger?.kind === `schedule` ? nextScheduleRun(trigger, new Date()) : null
   // An automated run has nobody to type required inputs, so the server refuses
-  // to ENABLE such a trigger — but a legacy row that is already on must stay
-  // switchable OFF.
-  const hasRequiredInputs = (action.inputs ?? []).some((def) => def.required)
-  const locked = hasRequiredInputs && !trigger.enabled
+  // to ENABLE such a row — but one that is already on must stay switchable OFF.
+  const blockedByInputs = (action?.inputs ?? []).some((def) => def.required)
+  const locked = blockedByInputs && !automation.enabled
+  const launch = [
+    automation.agent ? (AGENT_LABELS[automation.agent] ?? automation.agent) : null,
+    automation.model,
+  ]
+    .filter(Boolean)
+    .join(` · `)
 
   const flipEnabled = async (enabled: boolean) => {
     setFlipping(true)
     try {
-      // Whole-object replace — the server re-validates the unchanged binding.
-      await trpc.actions.update.mutate({
-        id: action.id,
-        trigger: { ...trigger, enabled },
+      const { txid } = await trpc.automations.update.mutate({
+        id: automation.id,
+        enabled,
       })
+      await automationCollection.utils.awaitTxId(txid)
     } catch {
       // Global mutation-error toast already shown; the synced row keeps the
       // old state, so the switch snaps back on its own.
@@ -98,10 +166,14 @@ function AutomationRow({
       <RowIcon className="size-4 shrink-0 text-muted-foreground" />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5 text-sm">
-          <span className="truncate font-medium">{action.name}</span>
+          <span className="truncate font-medium">
+            {action?.name ?? `Action`}
+          </span>
         </div>
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-          <span className="truncate">{triggerSummary(trigger)}</span>
+          <span className="truncate">
+            {trigger ? triggerSummary(trigger) : `Unsupported trigger`}
+          </span>
           <span className="flex items-center gap-1">
             <span
               aria-hidden
@@ -112,9 +184,10 @@ function AutomationRow({
               }`}
             />
             <span className="truncate">
-              {device?.deviceLabel ?? trigger.deviceId}
+              {device?.deviceLabel || automation.deviceId}
             </span>
           </span>
+          {launch && <span className="truncate">{launch}</span>}
           {next && <span>{`Next ${formatNextRun(next)} (device time)`}</span>}
           {lastRun && (
             <span>
@@ -123,18 +196,23 @@ function AutomationRow({
           )}
         </div>
         {locked && (
-          <p className="text-xs text-muted-foreground">
-            {REQUIRED_INPUTS_HINT}
-          </p>
+          <p className="text-xs text-muted-foreground">{REQUIRED_INPUTS_HINT}</p>
         )}
       </div>
       <Switch
-        checked={trigger.enabled}
+        checked={automation.enabled}
         disabled={!isOwner || flipping || locked}
         onCheckedChange={(enabled) => void flipEnabled(enabled)}
-        aria-label={`Automation enabled for ${action.name}`}
+        aria-label={`Automation enabled for ${action?.name ?? `action`}`}
         title={locked ? REQUIRED_INPUTS_HINT : undefined}
       />
+      {isOwner && (
+        <AutomationMenu
+          name={action?.name ?? `action`}
+          onEdit={onEdit}
+          onDelete={onDelete}
+        />
+      )}
     </div>
   )
 }
@@ -143,23 +221,33 @@ export function AutomationsTab({
   actions,
   devices,
   isOwner,
+  steerEnabled,
   teamId,
 }: {
-  /** The route's sorted action list (builtin included — filtered out here). */
+  /** The route's sorted action list (builtin included — never automated). */
   actions: TeamAction[] | null
   devices: SteerDevice[]
   isOwner: boolean
+  /** Same gate as the Actions tab's "New action" button. */
+  steerEnabled: boolean
   teamId: string
 }) {
-  const automations = useMemo(() => {
-    const entries: { action: TeamAction; trigger: ActionTrigger }[] = []
-    for (const action of actions ?? []) {
-      if (action.builtin) continue
-      const trigger = parseActionTrigger(action.trigger)
-      if (trigger) entries.push({ action, trigger })
-    }
-    return entries
-  }, [actions])
+  const { data: automationRows } = useLiveQuery(
+    (query) =>
+      query
+        .from({ automations: automationCollection })
+        .where(({ automations }) => eq(automations.teamId, teamId)),
+    [teamId]
+  )
+  const automations = useMemo(
+    () =>
+      [...((automationRows ?? []) as Automation[])].sort(
+        (a, b) =>
+          a.sortOrder - b.sortOrder ||
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      ),
+    [automationRows]
+  )
 
   const { data: sessionRows } = useLiveQuery(
     (query) =>
@@ -178,21 +266,58 @@ export function AutomationsTab({
         ),
     [sessionRows]
   )
-  const lastRunByAction = useMemo(() => {
-    const byAction = new Map<string, CodingSession>()
-    // Newest-first: the first row seen per action is its latest run.
+  const lastRunByAutomation = useMemo(() => {
+    const byAutomation = new Map<string, CodingSession>()
+    // Newest-first: the first row seen per automation is its latest run.
     for (const session of automatedRuns) {
-      if (session.actionId && !byAction.has(session.actionId)) {
-        byAction.set(session.actionId, session)
+      if (session.automationId && !byAutomation.has(session.automationId)) {
+        byAutomation.set(session.automationId, session)
       }
     }
-    return byAction
+    return byAutomation
   }, [automatedRuns])
 
-  const actionNameById = useMemo(
-    () => new Map((actions ?? []).map((action) => [action.id, action.name])),
+  const actionById = useMemo(
+    () => new Map((actions ?? []).map((action) => [action.id, action])),
     [actions]
   )
+
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [editing, setEditing] = useState<Automation | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<Automation | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return
+    setDeleting(true)
+    try {
+      const { txid } = await trpc.automations.delete.mutate({
+        id: deleteTarget.id,
+      })
+      await automationCollection.utils.awaitTxId(txid)
+      setDeleteTarget(null)
+    } catch {
+      // Toast already shown; keep the confirm open for a retry.
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const canCreate = steerEnabled && isOwner
+  const newButton = canCreate ? (
+    <Button
+      variant="outline"
+      size="sm"
+      className="h-6 gap-1 px-2 text-xs"
+      onClick={() => {
+        setEditing(null)
+        setDialogOpen(true)
+      }}
+    >
+      <AutomationCreateIcon className="size-3.5" />
+      New automation
+    </Button>
+  ) : undefined
 
   if (actions === null) {
     return (
@@ -201,63 +326,124 @@ export function AutomationsTab({
   }
 
   return (
-    <div className="space-y-4">
-      <div>
-        <SectionLabel label="Automations" count={automations.length} />
-        {automations.length === 0 ? (
-          <div className="px-3 py-3 text-sm text-muted-foreground">
-            No automations yet. Add a schedule or event trigger to an action.
-          </div>
-        ) : (
-          automations.map(({ action, trigger }) => (
-            <AutomationRow
-              key={action.id}
-              action={action}
-              trigger={trigger}
-              devices={devices}
-              isOwner={isOwner}
-              lastRun={lastRunByAction.get(action.id)}
-            />
-          ))
-        )}
+    <>
+      <div className="space-y-4">
+        <div>
+          <SectionLabel
+            label="Automations"
+            count={automations.length}
+            trailing={newButton}
+          />
+          {automations.length === 0 ? (
+            <div className="px-3 py-3 text-sm text-muted-foreground">
+              No automations yet.
+            </div>
+          ) : (
+            automations.map((automation) => (
+              <AutomationRow
+                key={automation.id}
+                automation={automation}
+                action={actionById.get(automation.actionId)}
+                devices={devices}
+                isOwner={isOwner}
+                lastRun={lastRunByAutomation.get(automation.id)}
+                onEdit={() => {
+                  setEditing(automation)
+                  setDialogOpen(true)
+                }}
+                onDelete={() => setDeleteTarget(automation)}
+              />
+            ))
+          )}
+        </div>
+
+        <div>
+          <SectionLabel
+            label="Recent automated runs"
+            count={automatedRuns.length}
+          />
+          {automatedRuns.length === 0 ? (
+            <div className="px-3 py-3 text-sm text-muted-foreground">
+              Nothing has fired yet.
+            </div>
+          ) : (
+            automatedRuns.slice(0, 10).map((session) => (
+              <div
+                key={session.id}
+                className="flex items-center gap-2 border-b border-border/30 px-3 py-2 text-sm"
+              >
+                <Badge
+                  variant="outline"
+                  className="shrink-0 gap-1 text-[0.625rem]"
+                >
+                  <AutomationIcon className="h-3 w-3" />
+                  Automated
+                </Badge>
+                <span className="min-w-0 flex-1 truncate">
+                  {session.actionName ??
+                    (session.actionId
+                      ? actionById.get(session.actionId)?.name
+                      : null) ??
+                    `Action`}
+                </span>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {`${sessionStatusLabel(session.status)} · ${relativeTime(session.createdAt)}`}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
       </div>
 
-      <div>
-        <SectionLabel
-          label="Recent automated runs"
-          count={automatedRuns.length}
+      {canCreate && (
+        <AutomationDialog
+          open={dialogOpen}
+          onOpenChange={(next) => {
+            setDialogOpen(next)
+            if (!next) setEditing(null)
+          }}
+          teamId={teamId}
+          devices={devices}
+          automation={editing}
         />
-        {automatedRuns.length === 0 ? (
-          <div className="px-3 py-3 text-sm text-muted-foreground">
-            Nothing has fired yet.
-          </div>
-        ) : (
-          automatedRuns.slice(0, 10).map((session) => (
-            <div
-              key={session.id}
-              className="flex items-center gap-2 border-b border-border/30 px-3 py-2 text-sm"
+      )}
+
+      <Dialog
+        open={deleteTarget !== null}
+        onOpenChange={(next) => {
+          if (!next && !deleting) setDeleteTarget(null)
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete automation</DialogTitle>
+            <DialogDescription>
+              {`Stop automating "${
+                deleteTarget
+                  ? (actionById.get(deleteTarget.actionId)?.name ?? `this action`)
+                  : ``
+              }"? The action itself stays, and runs already going keep going.`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setDeleteTarget(null)}
+              disabled={deleting}
             >
-              <Badge
-                variant="outline"
-                className="shrink-0 gap-1 text-[0.625rem]"
-              >
-                <AutomationIcon className="h-3 w-3" />
-                Automated
-              </Badge>
-              <span className="min-w-0 flex-1 truncate">
-                {session.actionName ??
-                  (session.actionId
-                    ? actionNameById.get(session.actionId)
-                    : null) ??
-                  `Action`}
-              </span>
-              <span className="shrink-0 text-xs text-muted-foreground">
-                {`${sessionStatusLabel(session.status)} · ${relativeTime(session.createdAt)}`}
-              </span>
-            </div>
-          ))
-        )}
-      </div>
-    </div>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => void confirmDelete()}
+              disabled={deleting}
+            >
+              {deleting ? <LoaderCircle className="animate-spin" /> : <Trash2 />}
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }

@@ -4,7 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.ActionDto
-import com.exponential.app.data.api.ActionsApi
+import com.exponential.app.data.api.AutomationsApi
 import com.exponential.app.data.api.DevicesApi
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
@@ -13,10 +13,12 @@ import com.exponential.app.data.api.builtinActions
 import com.exponential.app.data.api.toActionDto
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.db.AutomationEntity
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.domain.AutomationTrigger
 import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
@@ -66,7 +68,7 @@ class ActionsViewModel @Inject constructor(
     holder: DatabaseHolder,
     private val steerApi: SteerApi,
     private val devicesApi: DevicesApi,
-    private val actionsApi: ActionsApi,
+    private val automationsApi: AutomationsApi,
     private val selection: TeamSelection,
     private val json: Json,
 ) : ViewModel() {
@@ -99,7 +101,7 @@ class ActionsViewModel @Inject constructor(
     // The selected team, for the screen's "New action" entry point (EXP-431).
     val selectedTeamId: StateFlow<String?> = selection.selectedId
 
-    // ── Automations tab (EXP-530) ────────────────────────────────────────────
+    // ── Automations tab (EXP-583) ────────────────────────────────────────────
 
     /**
      * EVERY synced device as a [SteerDevice], offline included — the
@@ -116,29 +118,65 @@ class ActionsViewModel @Inject constructor(
         rows.map { it.toSteerDevice(nowMs, userId) }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /**
-     * Recent automation-started runs (coding_sessions rows with a non-null
-     * `started_reason`), newest first, capped at 10 for the "Recent automated
-     * runs" list.
-     */
-    val automationRuns: StateFlow<List<CodingSessionEntity>> =
+    /** The machines an automation can be bound to: every synced device that
+     * advertises the `automations` cap, ONLINE OR NOT (an automation outlives
+     * a machine's uptime — it fires whenever that machine is next up). */
+    val automationDevices: StateFlow<List<SteerDevice>> = syncedDevices
+        .map { devices -> devices.filter { it.canRunAutomations } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** The selected team's automations, live off the synced shape (EXP-583). */
+    val automations: StateFlow<List<AutomationEntity>> =
         combine(dbFlow, selection.selectedId) { db, teamId ->
             db to teamId
         }.flatMapLatest { (db, teamId) ->
             if (db == null || teamId == null) {
                 flowOf(emptyList())
             } else {
-                db.codingSessionDao().observeByTeam(teamId).map { rows ->
-                    rows.filter { it.startedReason != null }
-                        .sortedByDescending { it.startedAt }
-                        .take(10)
-                }
+                db.automationDao().observeByTeam(teamId)
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    // Every coding_sessions row of the selected team, newest first — the
+    // source both automation lists derive from (one DAO flow, not two).
+    private val teamSessions: StateFlow<List<CodingSessionEntity>> =
+        combine(dbFlow, selection.selectedId) { db, teamId ->
+            db to teamId
+        }.flatMapLatest { (db, teamId) ->
+            if (db == null || teamId == null) {
+                flowOf(emptyList())
+            } else {
+                db.codingSessionDao().observeByTeam(teamId)
+                    .map { rows -> rows.sortedByDescending { it.startedAt } }
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
+     * Recent automation-started runs (coding_sessions rows with a non-null
+     * `started_reason`), newest first, capped at 10 for the "Recent automated
+     * runs" list.
+     */
+    val automationRuns: StateFlow<List<CodingSessionEntity>> = teamSessions
+        .map { rows -> rows.filter { it.startedReason != null }.take(10) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** The newest run each automation produced — the rows' "Last run" line.
+     * Keyed by `automation_id`, which only automated runs carry. */
+    val lastRunByAutomation: StateFlow<Map<String, CodingSessionEntity>> = teamSessions
+        .map { rows ->
+            val byAutomation = LinkedHashMap<String, CodingSessionEntity>()
+            rows.forEach { session ->
+                val id = session.automationId ?: return@forEach
+                if (id !in byAutomation) byAutomation[id] = session
+            }
+            byAutomation
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /**
      * Whether the current user OWNS the selected team — the Automations
-     * enabled toggle is disabled otherwise (`actions.update` is owner-gated
+     * enabled toggle, the "New automation" button and Delete are hidden or
+     * disabled otherwise (the `automations` writes are owner-gated
      * server-side; mirror it instead of bouncing on submit).
      */
     val isTeamOwner: StateFlow<Boolean> = combine(dbFlow, selection.selectedId) { db, teamId ->
@@ -154,38 +192,87 @@ class ActionsViewModel @Inject constructor(
             members.firstOrNull { it.userId == userId }?.role == DomainContract.teamRoleOwner
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
-    // Action id with an in-flight trigger toggle (disables that row's
-    // control); Electric echoes the flipped row back into the actions shape.
-    private val _triggerBusyActionId = MutableStateFlow<String?>(null)
-    val triggerBusyActionId: StateFlow<String?> = _triggerBusyActionId
+    // True while ANY automation mutation is in flight — every switch and the
+    // form's submit park together (one mutation at a time, iOS parity).
+    private val _automationBusy = MutableStateFlow(false)
+    val automationBusy: StateFlow<Boolean> = _automationBusy
 
-    private val _triggerError = MutableStateFlow<String?>(null)
-    val triggerError: StateFlow<String?> = _triggerError
+    private val _automationError = MutableStateFlow<String?>(null)
+    val automationError: StateFlow<String?> = _automationError
+
+    fun clearAutomationError() {
+        _automationError.value = null
+    }
+
+    /** Flip an automation's paused flag — `automations.update({id, enabled})`.
+     * Success needs no local write: Electric echoes the row back. */
+    fun setAutomationEnabled(automationId: String, enabled: Boolean) {
+        mutateAutomation("The automation could not be updated") { accountId ->
+            automationsApi.update(accountId, id = automationId, enabled = enabled)
+        }
+    }
+
+    /** Owner-only, permanent — the row vanishes when Electric echoes it. */
+    fun deleteAutomation(automationId: String) {
+        mutateAutomation("The automation could not be deleted") { accountId ->
+            automationsApi.delete(accountId, automationId)
+        }
+    }
 
     /**
-     * Flip an automation's paused flag (EXP-530): `actions.update` replaces
-     * the WHOLE trigger object, so send the parsed trigger with `enabled`
-     * flipped. Success needs no local write — Electric echoes the row.
+     * Create an automation from the form sheet. Null [agent]/[model]/[effort]
+     * mean the bound machine's own launch defaults; [onDone] fires only on
+     * success, so the sheet stays open (with the error) on a refusal.
      */
-    fun setTriggerEnabled(action: ActionDto, enabled: Boolean) {
-        val trigger = action.parsedTrigger ?: return
-        if (_triggerBusyActionId.value != null) return
-        _triggerBusyActionId.value = action.id
-        _triggerError.value = null
+    fun createAutomation(
+        actionId: String,
+        deviceId: String,
+        trigger: AutomationTrigger,
+        agent: String?,
+        model: String?,
+        effort: String?,
+        onDone: () -> Unit,
+    ) {
+        val teamId = selection.selectedId.value ?: return
+        mutateAutomation("The automation could not be created", onDone) { accountId ->
+            automationsApi.create(
+                accountId,
+                teamId = teamId,
+                actionId = actionId,
+                deviceId = deviceId,
+                trigger = trigger,
+                agent = agent,
+                model = model,
+                effort = effort,
+            )
+        }
+    }
+
+    // One mutation at a time, with the server's own refusal message surfaced
+    // (the server's copy is the actionable one — required inputs, an
+    // incapable device, a rejected model).
+    private fun mutateAutomation(
+        fallback: String,
+        onDone: () -> Unit = {},
+        block: suspend (String) -> Unit,
+    ) {
+        if (_automationBusy.value) return
+        _automationBusy.value = true
+        _automationError.value = null
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value
             if (accountId == null) {
-                _triggerBusyActionId.value = null
+                _automationBusy.value = false
                 return@launch
             }
             try {
-                actionsApi.updateTrigger(accountId, action.id, trigger.withEnabled(enabled))
+                block(accountId)
+                onDone()
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
-                _triggerError.value =
-                    trpcErrorMessage(t, "The automation could not be updated")
+                _automationError.value = trpcErrorMessage(t, fallback)
             }
-            _triggerBusyActionId.value = null
+            _automationBusy.value = false
         }
     }
 

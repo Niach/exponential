@@ -6,7 +6,7 @@ import {
   startedReasonValues,
 } from "@exp/db-schema/domain"
 import { router, authedProcedure, type Context } from "@/lib/trpc"
-import { actions, codingSessions, devices, issues } from "@/db/schema"
+import { actions, automations, codingSessions, devices, issues } from "@/db/schema"
 import {
   assertTeamMember,
   getIssueTeamContext,
@@ -112,6 +112,22 @@ async function resolveSessionDevice(
 // Exactly one of the three.
 // No generateTxId — native callers don't need the Electric tx-wait, and the
 // row's own synced propagation carries the badge.
+// EXP-583: the automation a device claims fired this run must exist and
+// target this very action — a stale/foreign id degrades to NULL (history
+// only; never a reason to refuse the start).
+async function resolveAutomationId(
+  db: Context[`db`],
+  automationId: string,
+  actionId: string
+): Promise<string | null> {
+  const [row] = await db
+    .select({ id: automations.id })
+    .from(automations)
+    .where(and(eq(automations.id, automationId), eq(automations.actionId, actionId)))
+    .limit(1)
+  return row?.id ?? null
+}
+
 export const codingSessionsRouter = router({
   // Own-row status probe (EXP-403): the headless CLI daemon has no Electric
   // sync, so it polls this for the →ended kill-switch edge the desktop's
@@ -184,9 +200,11 @@ export const codingSessionsRouter = router({
           // EXP-432 shared-device attribution (see resolveStartAttribution).
           startedById: z.string().min(1).max(128).optional(),
           deviceId: z.string().min(1).max(128).optional(),
-          // EXP-530: set by a device's automation host when an action trigger
-          // fires. NULL/absent = a person started the run.
+          // EXP-530: set by a device's automation host when an automation
+          // fires. NULL/absent = a person started the run. EXP-583: the
+          // firing automation's row id rides along for per-automation history.
           startedReason: z.enum(startedReasonValues).optional(),
+          automationId: z.string().uuid().optional(),
         })
         .refine(
           (value) => {
@@ -209,9 +227,12 @@ export const codingSessionsRouter = router({
             !value.startedReason ||
             (Boolean(value.actionId) && !isBuiltinActionId(value.actionId!)),
           {
-            message: `startedReason requires a real actionId — only action triggers automate starts`,
+            message: `startedReason requires a real actionId — only automations automate starts`,
           }
         )
+        .refine((value) => !value.automationId || Boolean(value.startedReason), {
+          message: `automationId requires startedReason`,
+        })
     )
     .mutation(async ({ ctx, input }) => {
       if (input.actionId && isBuiltinActionId(input.actionId)) {
@@ -286,6 +307,9 @@ export const codingSessionsRouter = router({
             actionId: action.id,
             actionName: action.name,
             startedReason: input.startedReason ?? null,
+            automationId: input.automationId
+              ? await resolveAutomationId(ctx.db, input.automationId, action.id)
+              : null,
             userId: attribution.userId,
             hostUserId: attribution.hostUserId,
             ...device,
@@ -400,6 +424,7 @@ export const codingSessionsRouter = router({
           // EXP-530: automated runs echo their reason so a swept row
           // resurrects with its "Automated" badge intact.
           startedReason: z.enum(startedReasonValues).optional(),
+          automationId: z.string().uuid().optional(),
         })
         .refine((value) => !(value.issueId && value.teamId), {
           message: `At most one of issueId/teamId`,
@@ -517,6 +542,10 @@ export const codingSessionsRouter = router({
               startedReason:
                 input.actionId && !builtin
                   ? (input.startedReason ?? null)
+                  : null,
+              automationId:
+                input.actionId && !builtin && input.automationId && actionId
+                  ? await resolveAutomationId(ctx.db, input.automationId, actionId)
                   : null,
               userId: attribution.userId,
               hostUserId: attribution.hostUserId,

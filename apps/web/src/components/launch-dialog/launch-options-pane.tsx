@@ -63,11 +63,11 @@ const MODEL_LABELS: Record<string, string> = {
   "grok-4.5": `Grok 4.5`,
 }
 
-function modelLabel(value: string): string {
+export function modelLabel(value: string): string {
   return MODEL_LABELS[value] ?? value.charAt(0).toUpperCase() + value.slice(1)
 }
 
-function effortLabel(value: string): string {
+export function effortLabel(value: string): string {
   return value === `xhigh` ? `XHigh` : modelLabel(value)
 }
 

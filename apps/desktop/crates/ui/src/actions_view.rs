@@ -80,8 +80,8 @@ pub(crate) fn section_band(
 }
 
 /// EXP-530: the page's three tabs. **Actions** is the card grid,
-/// **Automations** the dense trigger list (only actions carrying a parseable
-/// trigger), **Suggestions** the curated seed cards.
+/// **Automations** the dense list of the team's `automations` rows (EXP-583),
+/// **Suggestions** the curated seed cards.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ActionsTab {
     Actions,
@@ -116,19 +116,21 @@ impl ActionsView {
         // Live list: re-render on any synced actions change (EXP-268) and on
         // navigation (team switch re-scopes the read).
         let mut subscriptions = vec![cx.observe(&nav, |_, _, cx| cx.notify())];
-        // EXP-530: the Automations tab joins devices (label + online dot) and
-        // coding_sessions (last / recent automated runs), so all three synced
-        // collections drive this screen now.
+        // EXP-530/583: the Automations tab reads the `automations` rows and
+        // joins devices (label + online dot) + coding_sessions (last / recent
+        // automated runs), so all four synced collections drive this screen.
         let watched = sync::Store::try_global(cx).map(|store| {
             let collections = store.collections();
             (
                 collections.actions.clone(),
+                collections.automations.clone(),
                 collections.devices.clone(),
                 collections.coding_sessions.clone(),
             )
         });
-        if let Some((actions, devices, sessions)) = watched {
+        if let Some((actions, automations, devices, sessions)) = watched {
             subscriptions.push(cx.observe(&actions, |_, _, cx| cx.notify()));
+            subscriptions.push(cx.observe(&automations, |_, _, cx| cx.notify()));
             subscriptions.push(cx.observe(&devices, |_, _, cx| cx.notify()));
             subscriptions.push(cx.observe(&sessions, |_, _, cx| cx.notify()));
         }
@@ -230,6 +232,7 @@ impl ActionsView {
         &self,
         index: usize,
         action: &api::actions::Action,
+        automations: usize,
         is_owner: bool,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
@@ -361,34 +364,36 @@ impl ActionsView {
                         .child(SharedString::from(description)),
                 )
             })
-            // EXP-530: an automated action says so on its card — the same
-            // sentence the Automations tab and the CLI print.
-            .when_some(
-                crate::automation_editor::trigger_summary_for(action.trigger.as_ref()),
-                |this, summary| {
-                    this.child(
-                        gpui_component::h_flex()
-                            .w_full()
-                            .min_w_0()
-                            .items_center()
-                            .gap_1p5()
-                            .child(
-                                Icon::from(registry::ACTION_AUTOMATION)
-                                    .xsmall()
-                                    .text_color(muted),
-                            )
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .text_xs()
-                                    .truncate()
-                                    .text_color(muted)
-                                    .child(SharedString::from(summary)),
-                            ),
-                    )
-                },
-            )
+            // EXP-583: the card no longer shows ONE trigger — automations
+            // are their own rows, and several can target the same action.
+            // It says how many, and the Automations tab shows which.
+            .when(automations > 0, |this| {
+                this.child(
+                    gpui_component::h_flex()
+                        .w_full()
+                        .min_w_0()
+                        .items_center()
+                        .gap_1p5()
+                        .child(
+                            Icon::from(registry::ACTION_AUTOMATION)
+                                .xsmall()
+                                .text_color(muted),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .text_xs()
+                                .truncate()
+                                .text_color(muted)
+                                .child(SharedString::from(if automations == 1 {
+                                    "1 automation".to_string()
+                                } else {
+                                    format!("{automations} automations")
+                                })),
+                        ),
+                )
+            })
             // Spacer pins Run to the bottom on stretched (same-line) cards.
             .child(div().flex_1())
             .child(
@@ -434,16 +439,17 @@ impl ActionsView {
             .into_any_element()
     }
 
-    // -- Automations tab (EXP-530) ------------------------------------------
+    // -- Automations tab (EXP-530 / EXP-583) --------------------------------
 
-    /// One dense automation row: glyph + name, the trigger sentence, the bound
-    /// device (label + online dot), the enabled toggle, and the schedule's
-    /// next run / the action's last automated run.
+    /// One dense automation row: the target action's glyph + name, the trigger
+    /// sentence, the bound device (label + online dot), the agent/model pins,
+    /// the next/last run, the enabled toggle and the owner ⋯ menu.
+    #[allow(clippy::too_many_arguments)] // one row, one call site
     fn render_automation_row(
         &self,
         index: usize,
-        action: &api::actions::Action,
-        parsed: &coding::automations::ParsedTrigger,
+        automation: &api::automations::Automation,
+        action: Option<&api::actions::Action>,
         devices: &[AutomationDevice],
         sessions: &[&domain::rows::CodingSession],
         is_owner: bool,
@@ -451,15 +457,27 @@ impl ActionsView {
     ) -> gpui::AnyElement {
         let theme = cx.theme();
         let muted = theme.muted_foreground;
-        let summary = coding::automations::trigger_summary(parsed);
+        let parsed = crate::automation_editor::parsed_trigger(automation.trigger.as_ref());
+        let summary = parsed
+            .as_ref()
+            .map(coding::automations::trigger_summary)
+            // A row whose trigger this build can't even parse still names
+            // itself instead of rendering a blank line.
+            .unwrap_or_else(|| "Unsupported trigger — update the app".to_string());
+        // An action that hasn't synced (or was just deleted) keeps the row
+        // visible — the binding is real, and the owner can retarget it.
+        let name = action
+            .map(|action| action.name.clone())
+            .unwrap_or_else(|| "Action".to_string());
+        let icon = action.and_then(|action| action.icon.clone());
         // A device that isn't in this user's synced rows (a teammate's private
         // machine) keeps its raw id — the binding is still real.
         let device = devices
             .iter()
-            .find(|device| device.device_id == parsed.device_id);
+            .find(|device| device.device_id == automation.device_id);
         let device_label = device
             .map(|device| device.label.clone())
-            .unwrap_or_else(|| parsed.device_id.clone());
+            .unwrap_or_else(|| automation.device_id.clone());
         let device_online = device.is_some_and(|device| device.online);
 
         let mut meta = gpui_component::h_flex()
@@ -481,31 +499,33 @@ impl ActionsView {
                 )
             })
             .child(SharedString::from(device_label));
+        // The pins, when the automation set any — otherwise the run follows
+        // the machine's own launch defaults and there is nothing to say.
+        if let Some(pins) = launch_pins_label(automation) {
+            meta = meta.child(div().child("·")).child(SharedString::from(pins));
+        }
         // Schedules can say when they fire next; event triggers cannot.
-        if let Some(next) = crate::automation_editor::next_run_label(parsed) {
+        if let Some(next) = parsed
+            .as_ref()
+            .and_then(crate::automation_editor::next_run_label)
+        {
             meta = meta
                 .child(div().child("·"))
                 .child(SharedString::from(format!("Next {next}")));
         }
-        // The most recent AUTOMATED run of this action (a manual run says
-        // nothing about whether the trigger is working).
+        // The most recent run THIS automation started (a manual run of the
+        // same action says nothing about whether the automation works).
         if let Some(last) = sessions
             .iter()
-            .find(|session| session.action_id.as_deref() == Some(action.id.as_str()))
+            .find(|session| fired_by(session, automation))
         {
             meta = meta
                 .child(div().child("·"))
                 .child(SharedString::from(last_run_label(last)));
         }
 
-        let toggle_id = action.id.clone();
-        let toggle_trigger = action.trigger.clone();
-        let enabled = parsed.enabled;
-        // An automated run has nobody to type required inputs, so the server
-        // refuses to ENABLE such a trigger — but a legacy row that is already
-        // on must stay switchable OFF.
-        let has_required = action.inputs.iter().any(|input| input.required);
-        let locked = has_required && !enabled;
+        let toggle_id = automation.id.clone();
+        let enabled = automation.enabled;
         gpui_component::h_flex()
             .w_full()
             .min_w_0()
@@ -516,11 +536,9 @@ impl ActionsView {
             .border_b_1()
             .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
             .child(
-                div().flex_shrink_0().child(
-                    crate::icons::action_icon(action.icon.as_deref())
-                        .xsmall()
-                        .text_color(muted),
-                ),
+                div()
+                    .flex_shrink_0()
+                    .child(crate::icons::action_icon(icon.as_deref()).xsmall().text_color(muted)),
             )
             .child(
                 gpui_component::v_flex()
@@ -534,7 +552,7 @@ impl ActionsView {
                             .text_sm()
                             .truncate()
                             .text_color(theme.foreground)
-                            .child(SharedString::from(action.name.clone())),
+                            .child(SharedString::from(name)),
                     )
                     .child(meta),
             )
@@ -543,25 +561,94 @@ impl ActionsView {
                 // (a disabled switch), owners flip it.
                 Switch::new(("automation-enabled", index))
                     .checked(enabled)
-                    .disabled(!is_owner || locked)
-                    .when(locked, |this| {
-                        this.tooltip(crate::automation_editor::AUTOMATION_REQUIRED_INPUTS_HINT)
-                    })
+                    .disabled(!is_owner)
                     .on_click(cx.listener(move |_, on: &bool, _, cx| {
-                        let Some(trigger) = toggle_trigger.as_ref() else {
-                            return;
-                        };
-                        spawn_trigger_enabled(cx, toggle_id.clone(), trigger, *on);
+                        spawn_automation_enabled(cx, toggle_id.clone(), *on);
                     })),
+            )
+            .children(is_owner.then(|| self.render_automation_menu(index, automation, cx)))
+            .into_any_element()
+    }
+
+    /// The row's owner ⋯ menu: Edit (the shared form) / Delete (confirmed).
+    fn render_automation_menu(
+        &self,
+        index: usize,
+        automation: &api::automations::Automation,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let edit_id = automation.id.clone();
+        let delete_view = cx.entity().downgrade();
+        let delete_id = automation.id.clone();
+        div()
+            .flex_shrink_0()
+            .child(
+                Button::new(("automation-menu", index))
+                    .ghost()
+                    .cursor_pointer()
+                    .xsmall()
+                    .icon(Icon::from(registry::UI_MORE))
+                    .dropdown_menu(move |menu, _window, _cx| {
+                        let edit_id = edit_id.clone();
+                        let delete_view = delete_view.clone();
+                        let delete_id = delete_id.clone();
+                        menu.item(
+                            PopupMenuItem::new("Edit")
+                                .icon(Icon::from(registry::UI_EDIT))
+                                .on_click(move |_, window, cx| {
+                                    crate::automation_dialog::open_edit(
+                                        window,
+                                        cx,
+                                        edit_id.clone(),
+                                    );
+                                }),
+                        )
+                        .item(
+                            PopupMenuItem::new("Delete")
+                                .icon(Icon::from(registry::UI_DELETE))
+                                .on_click(move |_, window, cx| {
+                                    let Some(view) = delete_view.upgrade() else {
+                                        return;
+                                    };
+                                    let id = delete_id.clone();
+                                    view.update(cx, |this, cx| {
+                                        this.prompt_delete_automation(id, window, cx);
+                                    });
+                                }),
+                        )
+                    }),
             )
             .into_any_element()
     }
 
-    /// The Automations tab body: one row per triggered action, then the
+    /// Destructive native actions confirm first (the machines Remove pattern).
+    fn prompt_delete_automation(
+        &mut self,
+        automation_id: String,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let spec = AlertSpec::new(
+            "Delete automation",
+            "Delete this automation? The action stays; nothing will start it \
+             automatically any more."
+                .to_string(),
+            "Delete",
+        )
+        .ok_variant(ButtonVariant::Danger)
+        .on_ok(move |_, cx| {
+            spawn_automation_delete(cx, automation_id.clone());
+            true
+        });
+        native_dialog::open_alert(window, cx, spec);
+    }
+
+    /// The Automations tab body: one row per automation, then the
     /// "Recent automated runs" list.
     fn render_automations(
         &self,
         actions: &[api::actions::Action],
+        automations: &[api::automations::Automation],
         team_id: Option<&str>,
         is_owner: bool,
         cx: &mut gpui::Context<Self>,
@@ -571,47 +658,37 @@ impl ActionsView {
         let runs = automated_runs(cx, team_id);
         let run_refs: Vec<&domain::rows::CodingSession> = runs.iter().collect();
 
-        let triggered: Vec<(usize, &api::actions::Action, coding::automations::ParsedTrigger)> =
-            actions
-                .iter()
-                .filter_map(|action| {
-                    crate::automation_editor::parsed_trigger(action.trigger.as_ref())
-                        .map(|parsed| (action, parsed))
-                })
-                .enumerate()
-                .map(|(index, (action, parsed))| (index, action, parsed))
-                .collect();
-
-        if triggered.is_empty() {
+        if automations.is_empty() {
             return crate::controls::empty_state(
                 Icon::from(registry::ACTION_AUTOMATION),
-                "No automations yet",
-                "Add a schedule or event trigger to an action.",
+                "No automations yet.",
+                "Automate an action with a schedule or an issue event.",
                 cx,
             )
             .into_any_element();
         }
 
-        let rows: Vec<gpui::AnyElement> = triggered
+        let rows: Vec<gpui::AnyElement> = automations
             .iter()
-            .map(|(index, action, parsed)| {
+            .enumerate()
+            .map(|(index, automation)| {
+                let action = actions
+                    .iter()
+                    .find(|action| action.id == automation.action_id);
                 self.render_automation_row(
-                    *index, action, parsed, &devices, &run_refs, is_owner, cx,
+                    index, automation, action, &devices, &run_refs, is_owner, cx,
                 )
             })
             .collect();
 
-        let mut body = gpui_component::v_flex()
-            .min_w_0()
-            .gap_4()
-            .child(
-                gpui_component::v_flex()
-                    .min_w_0()
-                    .rounded(px(theme::tokens::radius::SM))
-                    .border_1()
-                    .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-                    .children(rows),
-            );
+        let mut body = gpui_component::v_flex().min_w_0().gap_4().child(
+            gpui_component::v_flex()
+                .min_w_0()
+                .rounded(px(theme::tokens::radius::SM))
+                .border_1()
+                .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+                .children(rows),
+        );
 
         // The cross-action run log — the answer to "did the automations fire?"
         let mut recent = gpui_component::v_flex().min_w_0().gap_2().child(section_band(
@@ -650,6 +727,16 @@ impl ActionsView {
         let muted = theme.muted_foreground;
         let description = suggestion.description.to_string();
         let icon = suggestion.icon.to_string();
+        // EXP-583: an "Action + automation" seed hands the create dialog a
+        // prefilled (still editable) trigger for its Automation block.
+        let automation = suggestion
+            .automation
+            .map(crate::action_suggestions::SuggestedAutomation::to_trigger);
+        let chip = if automation.is_some() {
+            "Action + automation"
+        } else {
+            "Action"
+        };
         let no_agent = crate::coding_flow::no_agent_reason(cx);
         gpui_component::v_flex()
             .flex_basis(px(260.))
@@ -683,6 +770,19 @@ impl ActionsView {
                             .truncate()
                             .text_color(theme.foreground)
                             .child(SharedString::from(suggestion.title)),
+                    )
+                    // What "Use suggestion" will set up, up front.
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .px_1p5()
+                            .py_0p5()
+                            .rounded(px(theme::tokens::radius::SM))
+                            .border_1()
+                            .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+                            .text_xs()
+                            .text_color(muted)
+                            .child(chip),
                     ),
             )
             .child(
@@ -722,6 +822,7 @@ impl ActionsView {
                                 team_id.clone(),
                                 Some(description.clone()),
                                 Some(icon.clone()),
+                                automation.clone(),
                             );
                         }),
                 ),
@@ -803,12 +904,11 @@ impl Render for ActionsView {
             .as_deref()
             .is_some_and(|team_id| crate::settings::is_owner(cx, team_id));
         let has_custom = actions.iter().any(|action| !action.builtin);
-        let automation_count = actions
-            .iter()
-            .filter(|action| {
-                crate::automation_editor::parsed_trigger(action.trigger.as_ref()).is_some()
-            })
-            .count();
+        // EXP-583: automations are their own synced rows now.
+        let (automations, _) = match team_id.as_deref() {
+            Some(team_id) => queries::team_automations(cx, team_id),
+            None => (Vec::new(), true),
+        };
 
         // Owner-only "New action" (EXP-367: disabled with the reason when no
         // agent CLI is installed, never hidden).
@@ -838,6 +938,22 @@ impl Render for ActionsView {
         // Actions ("Actions" · count · "New action"), Automations
         // ("Automations" · count). Suggestions renders its grid bare.
         let tabs = self.render_tabs(cx);
+        // Owner-only "New automation" — the Automations band's twin of
+        // "New action". No agent gate: authoring a binding starts nothing.
+        let new_automation = is_owner
+            .then(|| team_id.clone())
+            .flatten()
+            .map(|new_team| {
+                Button::new("automations-new")
+                    .outline().cursor_pointer()
+                    .web_xs()
+                    .icon(Icon::from(registry::ACTION_AUTOMATION))
+                    .label("New automation")
+                    .on_click(move |_, window, cx| {
+                        crate::automation_dialog::open_new(window, cx, new_team.clone());
+                    })
+                    .into_any_element()
+            });
         let header = match self.tab {
             ActionsTab::Actions => Some(section_band(
                 "Actions",
@@ -845,9 +961,12 @@ impl Render for ActionsView {
                 new_action,
                 cx,
             )),
-            ActionsTab::Automations => {
-                Some(section_band("Automations", automation_count, None, cx))
-            }
+            ActionsTab::Automations => Some(section_band(
+                "Automations",
+                automations.len(),
+                new_automation,
+                cx,
+            )),
             ActionsTab::Suggestions => None,
         };
 
@@ -872,7 +991,13 @@ impl Render for ActionsView {
                 let cards: Vec<gpui::AnyElement> = actions
                     .iter()
                     .enumerate()
-                    .map(|(index, action)| self.render_card(index, action, is_owner, cx))
+                    .map(|(index, action)| {
+                        let count = automations
+                            .iter()
+                            .filter(|automation| automation.action_id == action.id)
+                            .count();
+                        self.render_card(index, action, count, is_owner, cx)
+                    })
                     .collect();
                 gpui_component::h_flex()
                     .min_w_0()
@@ -884,7 +1009,7 @@ impl Render for ActionsView {
                     .into_any_element()
             }
             ActionsTab::Automations => {
-                self.render_automations(&actions, team_id.as_deref(), is_owner, cx)
+                self.render_automations(&actions, &automations, team_id.as_deref(), is_owner, cx)
             }
             ActionsTab::Suggestions => {
                 let cards: Vec<gpui::AnyElement> = match team_id.clone() {
@@ -981,6 +1106,39 @@ fn automation_devices(cx: &App) -> Vec<AutomationDevice> {
             })
         })
         .collect()
+}
+
+/// Whether `session` was started by `automation`. New rows carry the
+/// `automation_id` outright; a run started before EXP-583 (or by a client
+/// that predates it) only says WHICH action fired automatically, so the
+/// action id + a `started_reason` is the fallback.
+fn fired_by(
+    session: &domain::rows::CodingSession,
+    automation: &api::automations::Automation,
+) -> bool {
+    match session.automation_id.as_deref() {
+        Some(id) => id == automation.id,
+        None => {
+            session.action_id.as_deref() == Some(automation.action_id.as_str())
+                && session.started_reason.is_some()
+        }
+    }
+}
+
+/// "codex · opus" — the pins an automation set, or `None` when it follows the
+/// bound machine's own launch defaults (the common case).
+fn launch_pins_label(automation: &api::automations::Automation) -> Option<String> {
+    let parts: Vec<String> = [
+        automation.agent.as_deref(),
+        automation.model.as_deref(),
+        automation.effort.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .filter(|value| !value.is_empty())
+    .map(str::to_string)
+    .collect();
+    (!parts.is_empty()).then(|| parts.join(" · "))
 }
 
 /// This team's AUTOMATION-started runs, newest first. `started_reason` is the
@@ -1090,33 +1248,44 @@ fn render_run_row(session: &domain::rows::CodingSession, cx: &App) -> gpui::AnyE
         .into_any_element()
 }
 
-/// Flip an automation's `enabled` flag through `actions.update` (EXP-530).
-/// ONLY that key moves — every other field of the trigger is round-tripped
-/// verbatim, so toggling never re-seeds the host's automation state.
-fn spawn_trigger_enabled(
-    cx: &mut App,
-    action_id: String,
-    trigger: &serde_json::Value,
-    enabled: bool,
-) {
-    let Some(next) = crate::automation_editor::with_enabled(trigger, enabled) else {
-        return;
-    };
+/// Flip an automation's `enabled` flag through `automations.update`
+/// (EXP-583). ONLY that key rides the wire, so toggling can never move the
+/// trigger's fingerprint and re-seed the host's automation state.
+fn spawn_automation_enabled(cx: &mut App, automation_id: String, enabled: bool) {
     let Some(trpc) = queries::trpc_client(cx) else {
         return;
     };
-    let mut input = api::actions::ActionUpdate::new(action_id);
-    input.trigger = api::Patch::Set(next);
+    let input = api::automations::AutomationUpdate::enabled(automation_id, enabled);
     cx.spawn(async move |cx| {
         let result = cx
             .background_executor()
-            .spawn(async move { api::actions::update(&trpc, &input).map(|_| ()) })
+            .spawn(async move { api::automations::update(&trpc, &input).map(|_| ()) })
             .await;
         let _ = cx.update(|_| {
             // The synced echo repaints the switch — a failure just leaves it
             // where it was.
             if let Err(err) = result {
                 log::warn!("actions: enabling/disabling the automation failed: {err}");
+            }
+        });
+    })
+    .detach();
+}
+
+/// `automations.delete` over tRPC — the synced collection drops the row and
+/// the bound device stops evaluating it on its next beat.
+fn spawn_automation_delete(cx: &mut App, automation_id: String) {
+    let Some(trpc) = queries::trpc_client(cx) else {
+        return;
+    };
+    cx.spawn(async move |cx| {
+        let result = cx
+            .background_executor()
+            .spawn(async move { api::automations::delete(&trpc, &automation_id) })
+            .await;
+        let _ = cx.update(|_| {
+            if let Err(err) = result {
+                log::warn!("actions: deleting the automation failed: {err}");
             }
         });
     })

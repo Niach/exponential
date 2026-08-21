@@ -1,13 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { LoaderCircle, Sparkles } from "lucide-react"
-import { MAX_ACTION_INPUT_TEXT, type BoardIcon } from "@exp/db-schema/domain"
+import {
+  MAX_ACTION_INPUT_TEXT,
+  type AutomationTrigger,
+  type BoardIcon,
+} from "@exp/db-schema/domain"
 import { builtinCreateAction } from "@/lib/builtin-actions"
 import { missingRequiredInputs, buildInputsPayload } from "@/lib/action-inputs"
-import { formatTriggerBlock } from "@/lib/action-triggers"
+import { formatAutomationBlock } from "@/lib/action-triggers"
 import {
-  AutomationSection,
-  draftToTrigger,
+  AutomationAgentFields,
+  AutomationDevicePicker,
+  AutomationTriggerFields,
+  automationDevices,
+  clampAgentFields,
+  draftFromTrigger,
   emptyAutomationDraft,
+  draftToTrigger,
   type AutomationDraft,
 } from "@/components/automation-section"
 import {
@@ -74,6 +83,7 @@ export function CreateActionDialog({
   repos,
   initialDescription,
   initialIcon,
+  automationPrefill,
   onCreate,
 }: {
   open: boolean
@@ -86,6 +96,12 @@ export function CreateActionDialog({
   /** EXP-530 suggestion prefill — applied on OPEN only (the reset effect). */
   initialDescription?: string
   initialIcon?: string
+  /** EXP-583: an "Action + automation" suggestion's trigger. Present = the
+   * dialog renders its Automation block (trigger editable, plus its own
+   * "Runs on" device and agent pins) and appends the machine-readable block
+   * the creator agent copies into `exponential_automations_create`. The plain
+   * "New action" path passes nothing and shows no Automation block. */
+  automationPrefill?: AutomationTrigger
   onCreate: (
     device: SteerDevice,
     options: StartCodingOptions,
@@ -101,13 +117,19 @@ export function CreateActionDialog({
   const [description, setDescription] = useState(``)
   const [repoId, setRepoId] = useState(``)
   const [icon, setIcon] = useState(``)
-  // EXP-530: the Automation section's controlled draft. The configured
-  // trigger is NOT sent to the server from here — it is appended to the
-  // description as a machine-readable block the creator agent copies into
-  // `exponential_actions_create`'s `trigger` field.
+  // EXP-583: the Automation block's controlled state — only rendered for a
+  // suggestion that carries a trigger. Nothing here is written by the dialog:
+  // it all rides the description as a machine-readable block the creator
+  // agent copies into `exponential_automations_create`.
   const [automation, setAutomation] = useState<AutomationDraft>(
     emptyAutomationDraft
   )
+  const [automationDeviceId, setAutomationDeviceId] = useState<string | null>(
+    null
+  )
+  const [automationAgent, setAutomationAgent] = useState(``)
+  const [automationModel, setAutomationModel] = useState(``)
+  const [automationEffort, setAutomationEffort] = useState(``)
 
   // Launch options — the same device-seeded cluster as the launch dialog
   // shell (a deliberate small duplication; the 677-line shell isn't worth a
@@ -132,7 +154,11 @@ export function CreateActionDialog({
     setDescription(initialDescription ?? ``)
     setRepoId(``)
     setIcon(initialIcon ?? ``)
-    setAutomation(emptyAutomationDraft())
+    setAutomation(draftFromTrigger(automationPrefill ?? null))
+    setAutomationDeviceId(null)
+    setAutomationAgent(``)
+    setAutomationModel(``)
+    setAutomationEffort(``)
     setDeviceId(null)
     seededDeviceRef.current = null
     const seed = agentSeed(DEFAULT_LAUNCH_AGENT, null)
@@ -155,6 +181,32 @@ export function CreateActionDialog({
         .filter(deviceCanRunActionInputs),
     [devices]
   )
+
+  // The Automation block's own runner list — automation-capable machines,
+  // online or not (a schedule catches up on reconnect), independent from the
+  // desktop that runs the creator agent right now.
+  const showAutomation = automationPrefill !== undefined
+  const automationCandidates = useMemo(
+    () => automationDevices(devices),
+    [devices]
+  )
+  useEffect(() => {
+    if (!open || !showAutomation) return
+    setAutomationDeviceId((current) =>
+      current && automationCandidates.some((d) => d.deviceId === current)
+        ? current
+        : (automationCandidates[0]?.deviceId ?? null)
+    )
+  }, [open, showAutomation, automationCandidates])
+  const automationDevice = automationCandidates.find(
+    (candidate) => candidate.deviceId === automationDeviceId
+  )
+  const switchAutomationAgent = (next: string) => {
+    setAutomationAgent(next)
+    const clamped = clampAgentFields(next, automationModel, automationEffort)
+    setAutomationModel(clamped.model)
+    setAutomationEffort(clamped.effort)
+  }
 
   // Settle the device on open + whenever the candidate list changes; a
   // still-valid current choice is kept, else the first candidate wins.
@@ -222,18 +274,22 @@ export function CreateActionDialog({
 
   const inputValues = { description, repo: repoId, icon }
 
-  // EXP-530: a configured trigger rides the description input as a trailing
-  // machine-readable block — the combined value must still fit the server's
-  // per-value text cap, so an overflow blocks submit with an inline message
-  // instead of a server-side reject. The automation binds to the desktop
-  // that runs the creation (EXP-574 follow-up — no second device picker).
-  const trigger = draftToTrigger({
-    ...automation,
-    deviceId: device?.deviceId ?? null,
-  })
-  const descriptionWithTrigger = trigger
-    ? `${description}${formatTriggerBlock(trigger)}`
-    : description
+  // EXP-583: a suggestion's automation rides the description input as a
+  // trailing machine-readable block the creator agent copies into
+  // `exponential_automations_create` — the combined value must still fit the
+  // server's per-value text cap, so an overflow blocks submit with an inline
+  // message instead of a server-side reject. Without a bindable machine there
+  // is nothing to run it on, so the block is simply left off.
+  const descriptionWithTrigger =
+    showAutomation && automationDeviceId
+      ? `${description}${formatAutomationBlock({
+          trigger: draftToTrigger(automation),
+          deviceId: automationDeviceId,
+          agent: automationAgent || undefined,
+          model: automationModel || undefined,
+          effort: automationEffort || undefined,
+        })}`
+      : description
   const triggerOverflow = descriptionWithTrigger.length > MAX_ACTION_INPUT_TEXT
   const submitBlocked =
     missingRequiredInputs(inputDefs, inputValues).length > 0 || triggerOverflow
@@ -309,13 +365,32 @@ export function CreateActionDialog({
                 allowsNone
               />
             </div>
-            <AutomationSection
-              draft={automation}
-              onChange={setAutomation}
-              devices={devices}
-              teamId={teamId}
-              showDevicePicker={false}
-            />
+            {showAutomation && (
+              <div className="space-y-3 rounded-md border border-border p-3">
+                <Label>Automation</Label>
+                <AutomationTriggerFields
+                  draft={automation}
+                  onChange={setAutomation}
+                  teamId={teamId}
+                />
+                <AutomationDevicePicker
+                  id="create-action-automation-device"
+                  deviceId={automationDeviceId}
+                  devices={automationCandidates}
+                  onChange={setAutomationDeviceId}
+                />
+                <AutomationAgentFields
+                  idPrefix="create-action-automation"
+                  device={automationDevice}
+                  agent={automationAgent}
+                  onAgentChange={switchAutomationAgent}
+                  model={automationModel}
+                  onModelChange={setAutomationModel}
+                  effort={automationEffort}
+                  onEffortChange={setAutomationEffort}
+                />
+              </div>
+            )}
             {triggerOverflow && (
               <p className="text-xs text-destructive">
                 Description plus the automation block exceeds the

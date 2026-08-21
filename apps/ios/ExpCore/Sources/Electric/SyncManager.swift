@@ -90,7 +90,7 @@ public final class SyncManager: @unchecked Sendable {
 
     /// Full local resync ("Resync now"): cancel the account's pipeline, purge
     /// any URL-cached shape responses (poisoned-cache guard), wipe every synced
-    /// row + saved offset, then relaunch so all 18 shapes refetch from scratch.
+    /// row + saved offset, then relaunch so all 19 shapes refetch from scratch.
     public func resync(accountId: String) async {
         // Serialize per account: bail if a resync is already running so a
         // double-trigger can never launch a second pipeline over the first.
@@ -293,11 +293,11 @@ public final class SyncManager: @unchecked Sendable {
     // MARK: - Per-account shape launch
 
     private func launchPipeline(accountId: String, pool: DatabasePool) {
-        logger.info("Launching live shape sync (18 shapes) for account \(accountId, privacy: .public)")
+        logger.info("Launching live shape sync (19 shapes) for account \(accountId, privacy: .public)")
         // A visible "we got past pool open + migrations and started polling"
         // marker in the diagnostics log — the positive counterpart to the
         // fatal path above (§9.1: pipeline launched must never be ambiguous).
-        SyncDebug.shared.log("[pipeline] launched 18 shapes")
+        SyncDebug.shared.log("[pipeline] launched 19 shapes")
         SyncDebug.shared.clearFatal()
 
         let auth = self.auth
@@ -311,8 +311,8 @@ public final class SyncManager: @unchecked Sendable {
             auth.accounts.first { $0.id == accountId }?.token
         }
 
-        // ONE session for all 18 shapes of this account (EXP-304). Per shape it
-        // meant 18 separate connections, so every launch fired 18 simultaneous
+        // ONE session for all 19 shapes of this account (EXP-304). Per shape it
+        // meant 19 separate connections, so every launch fired 19 simultaneous
         // cold DNS lookups + TLS handshakes at the same host — the storm behind
         // "~10s before fresh data shows up". Sharing lets URLSession negotiate
         // HTTP/2 and multiplex them over a single connection. Per ACCOUNT, not
@@ -413,6 +413,12 @@ public final class SyncManager: @unchecked Sendable {
         tasks.append(makeShapeTask(
             name: "device-worktrees", path: "/api/shapes/device-worktrees", table: "device_worktrees",
             type: DeviceWorktreeEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
+        ))
+        // EXP-583: automations — team-scoped like actions, the 19th shape.
+        tasks.append(makeShapeTask(
+            name: "automations", path: "/api/shapes/automations", table: "automations",
+            type: AutomationEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
             session: session
         ))
 

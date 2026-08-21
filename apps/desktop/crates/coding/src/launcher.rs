@@ -269,6 +269,10 @@ pub struct ActionLaunchRequest {
     /// session row. Always `None` for user starts and the builtins (their
     /// generated prompts ignore it).
     pub trigger: Option<TriggerNote>,
+    /// EXP-583: the `automations` row that fired it, stamped on the session
+    /// row beside `startedReason`. `None` on every user start — the server
+    /// refuses one without the other.
+    pub automation_id: Option<String>,
     pub device_label: String,
     pub origin: LaunchOrigin,
     /// The FULL option set (EXP-257 — same per-agent vocabulary as issue
@@ -1226,6 +1230,7 @@ pub fn prepare_with_hooks(
                 device_id: attribution.device_id.map(str::to_string),
                 // Only action runs automate (EXP-530).
                 started_reason: None,
+                automation_id: None,
             }
         }
         PrepareRequest::Batch(batch_req) => {
@@ -1240,6 +1245,7 @@ pub fn prepare_with_hooks(
                 device_id: attribution.device_id.map(str::to_string),
                 // Only action runs automate (EXP-530).
                 started_reason: None,
+                automation_id: None,
             }
         }
         PrepareRequest::Action(_) => unreachable!("dispatched above"),
@@ -1533,6 +1539,7 @@ fn prepare_action(
         &req.action_id,
         req.kind.is_builtin().then_some(req.team_id.as_str()),
         req.trigger.as_ref().map(|note| note.started_reason()),
+        req.automation_id.as_deref(),
         Some(&req.device_label),
         attribution(&req.origin, deps),
     ) {
@@ -1631,6 +1638,7 @@ fn prepare_action(
                 .trigger
                 .as_ref()
                 .map(|note| note.started_reason().to_string()),
+            automation_id: req.automation_id.clone(),
         },
         tab_kind: TabKind::Action(req.action_id.clone()),
         bypass_permissions: options.skip_permissions && !options.plan_mode,
@@ -2207,6 +2215,7 @@ mod tests {
             inputs: Vec::new(),
             kind: ActionRunKind::Team,
             trigger: None,
+            automation_id: None,
             device_label: "box".to_string(),
             origin: LaunchOrigin::Local,
             options: LaunchOptions {
@@ -2354,6 +2363,7 @@ mod tests {
                 phrase: "daily at 07:00".to_string(),
             },
         });
+        req.automation_id = Some("auto-1".to_string());
         let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
             Prepared::Ready(prepared) => prepared,
             Prepared::Disabled(reason) => panic!("unexpectedly disabled: {reason:?}"),
@@ -2370,10 +2380,16 @@ mod tests {
             prepared.heartbeat_scope.started_reason.as_deref(),
             Some("schedule")
         );
+        // EXP-583: and which automation fired it.
+        assert_eq!(
+            prepared.heartbeat_scope.automation_id.as_deref(),
+            Some("auto-1")
+        );
 
         let requests = captured.lock().unwrap();
         assert_eq!(requests.len(), 1, "{requests:?}");
         assert!(requests[0].contains(r#""startedReason":"schedule""#));
+        assert!(requests[0].contains(r#""automationId":"auto-1""#));
     }
 
     /// EXP-257: action runs honor the full claude option set — plan mode ON

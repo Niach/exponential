@@ -23,7 +23,7 @@ import { z } from "zod"
 import {
   type ActionInputDef,
   actionInputsSchema,
-  type ActionTrigger,
+  type AutomationTrigger,
   codingSessionStatusSchema,
   codingSessionStatusValues,
   commentBodySchema,
@@ -638,6 +638,12 @@ export const codingSessions = pgTable(
     // an action trigger; powers the "Automated" badge + Automations run
     // history on every client (synced via the shape).
     startedReason: varchar(`started_reason`, { length: 16 }),
+    // EXP-583: the automation that fired this run (SET NULL — history outlives
+    // a deleted automation; NULL for every human start). Powers per-automation
+    // "last run" on every client (synced via the shape).
+    automationId: uuid(`automation_id`).references(() => automations.id, {
+      onDelete: `set null`,
+    }),
     // The real user driving the session under their own auth — NOT a synthetic
     // agent identity. For a start on a teammate's shared server device
     // (EXP-432) this is the REQUESTER, so EXP-312 owner-only steering lets
@@ -1349,20 +1355,45 @@ export const actions = pgTable(
       .$type<ActionInputDef[]>()
       .notNull()
       .default(sql`'[]'::jsonb`),
-    // EXP-530: the ONE optional automation trigger (schedule or issue-event
-    // watcher; typed union + strict write zod in domain.ts). LOCAL-ONLY by
-    // design — its `deviceId` (the steer device_id, not a row uuid) names the
-    // machine whose desktop/daemon watches its own sync and fires the run;
-    // there is no server scheduler. jsonb rather than columns so appended
-    // trigger vocabulary never needs a migration; readers tolerate unknown
-    // shapes as "no automation".
-    trigger: jsonb().$type<ActionTrigger>(),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     ...timestamps,
   },
   (table) => [
     unique().on(table.teamId, table.name),
     index(`idx_actions_team`).on(table.teamId),
+  ]
+)
+
+// EXP-583: automations are their own entity — a schedule or issue-event
+// trigger (`trigger` jsonb, when-part only; typed union + strict write zod in
+// domain.ts) that runs ONE action on ONE device with its own agent/model/
+// effort. Synced via the 19th Electric shape (team-scoped). LOCAL-ONLY by
+// design: `device_id` is the steer device_id (not a row uuid) of the machine
+// whose desktop/daemon watches its own sync and fires the run; there is no
+// server scheduler. CASCADE on the action: an automation without its target
+// is meaningless. Agent/model/effort NULL = the device's launch defaults.
+export const automations = pgTable(
+  `automations`,
+  {
+    id: uuidPk(),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    actionId: uuid(`action_id`)
+      .notNull()
+      .references(() => actions.id, { onDelete: `cascade` }),
+    deviceId: varchar(`device_id`, { length: 128 }).notNull(),
+    enabled: boolean().notNull().default(true),
+    trigger: jsonb().$type<AutomationTrigger>().notNull(),
+    agent: varchar({ length: 16 }),
+    model: varchar({ length: 64 }),
+    effort: varchar({ length: 32 }),
+    sortOrder: doublePrecision(`sort_order`).notNull().default(0),
+    ...timestamps,
+  },
+  (table) => [
+    index(`idx_automations_team`).on(table.teamId),
+    index(`idx_automations_action`).on(table.actionId),
   ]
 )
 
@@ -1824,14 +1855,16 @@ export const selectRepositorySchema = createSelectSchema(repositories)
 
 export const selectActionSchema = createSelectSchema(actions, {
   inputs: actionInputsSchema,
+})
+
+export const selectAutomationSchema = createSelectSchema(automations, {
   // TOLERANT read (unlike the strict write union in domain.ts): the web
-  // actions collection must not brick on a future trigger kind, so runtime
-  // validation only checks "object or null" — clients parse triggers
-  // leniently (parseActionTrigger) and treat unknown shapes as "no
-  // automation". Typed as ActionTrigger to match the drizzle row type.
-  trigger: z.custom<ActionTrigger | null>(
+  // automations collection must not brick on a future trigger kind, so runtime
+  // validation only checks "object" — clients parse triggers leniently
+  // (parseAutomationTrigger) and treat unknown shapes as "never fires".
+  trigger: z.custom<AutomationTrigger>(
     (value) =>
-      value === null || (typeof value === `object` && !Array.isArray(value))
+      value !== null && typeof value === `object` && !Array.isArray(value)
   ),
 })
 
@@ -1895,6 +1928,7 @@ export type IssueEvent = InferSelectModel<typeof issueEvents>
 export type CodingSession = InferSelectModel<typeof codingSessions>
 export type Repository = InferSelectModel<typeof repositories>
 export type Action = InferSelectModel<typeof actions>
+export type Automation = InferSelectModel<typeof automations>
 export type SyncedAction = Omit<Action, `body`>
 export type UserNotificationPrefs = InferSelectModel<
   typeof userNotificationPrefs

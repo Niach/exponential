@@ -441,18 +441,17 @@ export const actionInputsSchema = z
     }
   })
 
-// ── Action automation triggers (EXP-530) ────────────────────────────────────
-// ONE optional trigger per action (actions.trigger jsonb, synced via the
-// actions shape). Deliberately LOCAL-ONLY: no server scheduler — the bound
-// device (desktop GUI or the CLI daemon) watches its own Electric sync and
-// starts the run itself. `deviceId` is the machine's steer deviceId
-// (devices.device_id TEXT, settings.json `deviceId`/`cliDeviceId`), never the
-// row uuid. Writes are STRICT (this schema); readers everywhere (web
-// collection, natives, the Rust engine) stay tolerant and treat an
-// unparseable/unknown trigger as "no automation", never a crash. The event
-// vocabulary is APPEND-ONLY; `board_moved`/`label_removed`/comment events,
-// multiple triggers per action, a tz field and a per-trigger cooldown knob
-// are deliberate follow-ups.
+// ── Automation triggers (EXP-530, split out of actions in EXP-583) ──────────
+// An automation is its OWN row (`automations` table, synced via its own
+// shape): a schedule OR an issue-event watcher targeting ONE action, bound to
+// ONE runner device (`device_id` = the machine's steer deviceId, never the row
+// uuid) with its own agent/model/effort. Many automations per action.
+// Deliberately LOCAL-ONLY: no server scheduler — the bound device (desktop GUI
+// or the CLI daemon) watches its own Electric sync and starts the run itself.
+// The `trigger` jsonb below carries ONLY the when-part (device/enabled/agent
+// are real columns). Writes are STRICT (this schema); readers everywhere stay
+// tolerant and treat an unparseable/unknown trigger as "never fires". The
+// event vocabulary is APPEND-ONLY.
 
 export const actionTriggerEventValues = [
   `created`,
@@ -475,11 +474,8 @@ export type ActionScheduleInterval =
 
 export const MAX_TRIGGER_FILTER_IDS = 20
 
-export interface ActionScheduleTrigger {
+export interface AutomationScheduleTrigger {
   kind: `schedule`
-  /** The ONE hosting machine's steer deviceId (devices.device_id, not the row uuid). */
-  deviceId: string
-  enabled: boolean
   interval: ActionScheduleInterval
   /** 0–1439, DEVICE-LOCAL wall clock (no tz field by design). */
   minuteOfDay: number
@@ -489,7 +485,7 @@ export interface ActionScheduleTrigger {
   dayOfMonth?: number
 }
 
-export interface ActionEventTriggerFilters {
+export interface AutomationEventTriggerFilters {
   /** Applies to every event kind; absent = every board. */
   boardIds?: string[]
   /** label_added only: the added label. */
@@ -500,28 +496,23 @@ export interface ActionEventTriggerFilters {
   toStatusIds?: string[]
 }
 
-export interface ActionEventTrigger {
+export interface AutomationEventTrigger {
   kind: `event`
-  deviceId: string
-  enabled: boolean
   event: ActionTriggerEvent
-  filters?: ActionEventTriggerFilters
+  filters?: AutomationEventTriggerFilters
 }
 
-export type ActionTrigger = ActionScheduleTrigger | ActionEventTrigger
+export type AutomationTrigger = AutomationScheduleTrigger | AutomationEventTrigger
 
-const triggerDeviceIdSchema = z.string().min(1).max(128) // devices.device_id cap
 // Filter arrays reject empty ([] would silently match nothing) and cap at 20.
 const triggerIdArraySchema = z
   .array(z.string().uuid())
   .min(1)
   .max(MAX_TRIGGER_FILTER_IDS)
 
-const actionScheduleTriggerSchema = z
+const automationScheduleTriggerSchema = z
   .strictObject({
     kind: z.literal(`schedule`),
-    deviceId: triggerDeviceIdSchema,
-    enabled: z.boolean(),
     interval: z.enum(actionScheduleIntervalValues),
     minuteOfDay: z.number().int().min(0).max(1439),
     weekday: z.number().int().min(1).max(7).optional(),
@@ -540,11 +531,9 @@ const actionScheduleTriggerSchema = z
       issue(`dayOfMonth only applies to monthly`)
   })
 
-const actionEventTriggerSchema = z
+const automationEventTriggerSchema = z
   .strictObject({
     kind: z.literal(`event`),
-    deviceId: triggerDeviceIdSchema,
-    enabled: z.boolean(),
     event: z.enum(actionTriggerEventValues),
     filters: z
       .strictObject({
@@ -575,10 +564,13 @@ const actionEventTriggerSchema = z
   })
 
 /** Strict WRITE schema (tRPC + MCP); every reader stays tolerant instead. */
-export const actionTriggerSchema = z.discriminatedUnion(`kind`, [
-  actionScheduleTriggerSchema,
-  actionEventTriggerSchema,
+export const automationTriggerSchema = z.discriminatedUnion(`kind`, [
+  automationScheduleTriggerSchema,
+  automationEventTriggerSchema,
 ])
+
+/** devices.device_id cap — the automation's runner binding. */
+export const automationDeviceIdSchema = z.string().min(1).max(128)
 
 export const dateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 

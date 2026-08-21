@@ -367,9 +367,13 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
     // Both NULL on ordinary issue/batch sessions.
     public let actionId: String?
     public let actionName: String?
-    // EXP-530: non-nil (`schedule`/`event`) when the run was started by the
-    // action's automation trigger rather than a person; NULL on user starts.
+    // EXP-530: non-nil (`schedule`/`event`) when the run was started by an
+    // automation trigger rather than a person; NULL on user starts.
     public let startedReason: String?
+    // EXP-583: the `automations` row that fired this run (FK SET NULL, so a
+    // deleted automation leaves the history intact). NULL on user starts and
+    // on pre-EXP-583 automated rows, which carry only `startedReason`.
+    public let automationId: String?
     public let startedAt: String
     public let endedAt: String?
     public let createdAt: String
@@ -389,6 +393,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         actionId: String? = nil,
         actionName: String? = nil,
         startedReason: String? = nil,
+        automationId: String? = nil,
         startedAt: String,
         endedAt: String?,
         createdAt: String,
@@ -407,6 +412,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         self.actionId = actionId
         self.actionName = actionName
         self.startedReason = startedReason
+        self.automationId = automationId
         self.startedAt = startedAt
         self.endedAt = endedAt
         self.createdAt = createdAt
@@ -425,6 +431,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         case actionId = "action_id"
         case actionName = "action_name"
         case startedReason = "started_reason"
+        case automationId = "automation_id"
         case startedAt = "started_at"
         case endedAt = "ended_at"
         case createdAt = "created_at"
@@ -454,6 +461,8 @@ extension CodingSessionEntity: Codable {
         actionId = try c.decodeIfPresent(String.self, forKey: .actionId)
         actionName = try c.decodeIfPresent(String.self, forKey: .actionName)
         startedReason = try c.decodeIfPresent(String.self, forKey: .startedReason)
+        // Pre-EXP-583 snapshots omit the key — decode permissively.
+        automationId = try c.decodeIfPresent(String.self, forKey: .automationId)
         startedAt = try c.decode(String.self, forKey: .startedAt)
         endedAt = try c.decodeIfPresent(String.self, forKey: .endedAt)
         createdAt = try c.decode(String.self, forKey: .createdAt)
@@ -484,10 +493,10 @@ public struct ActionEntity: FetchableRecord, PersistableRecord, Identifiable, Se
     /// stringified JSON, decoded lazily by the UI. Null when the action
     /// declares no inputs.
     public let inputs: String?
-    /// EXP-530: optional automation trigger (jsonb `{kind: schedule|event,
-    /// …}`) — Electric delivers it as a JSON value; stored as the stringified
-    /// JSON, parsed lazily via `ActionTrigger.parse`. Null when the action
-    /// has no automation.
+    /// DEAD since EXP-583: automations became their own entity, the server
+    /// dropped `actions.trigger`, and the actions shape stopped carrying it —
+    /// so this always decodes nil now. The local column stays (dropping it
+    /// would mean a table rebuild for nothing) and nothing reads it.
     public let trigger: String?
     public let sortOrder: Double?
     public let createdAt: String
@@ -578,6 +587,98 @@ extension ActionEntity: Codable {
         } else {
             trigger = nil
         }
+    }
+}
+
+// MARK: - Automation
+
+// EXP-583: automations are their own entity (the 19th Electric shape), split
+// out of the old `actions.trigger`. One row binds ONE action to ONE device
+// with a schedule/event trigger and its own agent/model/effort (NULL = the
+// device's launch defaults). Team-scoped like `actions`; the bound device
+// selects its own enabled rows off sync and self-starts the run — there is no
+// server scheduler. Mirrors packages/db-schema automations.
+public struct AutomationEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
+    public static let databaseTableName = "automations"
+
+    public let id: String
+    public let teamId: String
+    /// FK actions (cascade server-side) — the action this run executes.
+    public let actionId: String
+    /// The steer device id (`devices.device_id`) that fires it locally.
+    public let deviceId: String
+    /// Paused automations keep their config.
+    public let enabled: Bool
+    /// The WHEN-part jsonb (`{kind: schedule|event, …}`) — Electric delivers
+    /// it as a JSON value; stored as stringified JSON, tolerant-parsed lazily
+    /// via `AutomationTrigger.parse`.
+    public let trigger: String?
+    /// nil = the device's launch defaults (all three travel together).
+    public let agent: String?
+    public let model: String?
+    public let effort: String?
+    public let sortOrder: Double?
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        id: String,
+        teamId: String,
+        actionId: String,
+        deviceId: String,
+        enabled: Bool = true,
+        trigger: String?,
+        agent: String? = nil,
+        model: String? = nil,
+        effort: String? = nil,
+        sortOrder: Double?,
+        createdAt: String,
+        updatedAt: String
+    ) {
+        self.id = id
+        self.teamId = teamId
+        self.actionId = actionId
+        self.deviceId = deviceId
+        self.enabled = enabled
+        self.trigger = trigger
+        self.agent = agent
+        self.model = model
+        self.effort = effort
+        self.sortOrder = sortOrder
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, enabled, trigger, agent, model, effort
+        case teamId = "team_id"
+        case actionId = "action_id"
+        case deviceId = "device_id"
+        case sortOrder = "sort_order"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+// Custom decode: `enabled` arrives as Postgres text off the Electric wire
+// ("t"/"f") but as a native bool from fixtures, `sort_order` goes through the
+// type-aware wire helper, and `trigger` follows the permissive jsonb pattern
+// (string, object, or null) re-encoded to a stored string.
+extension AutomationEntity: Codable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        teamId = try c.decode(String.self, forKey: .teamId)
+        actionId = try c.decode(String.self, forKey: .actionId)
+        deviceId = try c.decode(String.self, forKey: .deviceId)
+        enabled = c.decodeWireBool(forKey: .enabled, default: true)
+        trigger = c.decodeWireJsonString(forKey: .trigger)
+        agent = try c.decodeIfPresent(String.self, forKey: .agent)
+        model = try c.decodeIfPresent(String.self, forKey: .model)
+        effort = try c.decodeIfPresent(String.self, forKey: .effort)
+        sortOrder = try c.decodeWireDouble(forKey: .sortOrder)
+        createdAt = try c.decode(String.self, forKey: .createdAt)
+        updatedAt = try c.decode(String.self, forKey: .updatedAt)
     }
 }
 

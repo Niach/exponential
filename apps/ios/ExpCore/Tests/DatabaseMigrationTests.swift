@@ -34,7 +34,9 @@ import XCTest
 // v18_action_automations (EXP-530: actions.trigger +
 // coding_sessions.started_reason) the seventeenth, and
 // v19_coding_session_device_id (EXP-549/550: the session's host-machine
-// deviceId ride-along) the eighteenth.
+// deviceId ride-along) the eighteenth, and v20_automations (EXP-583:
+// automations became their own entity — the synced `automations` table, 19th
+// shape, + coding_sessions.automation_id) the nineteenth.
 // These tests pin the fresh-install schema and the
 // exact migration identifiers so a new incremental migration is a conscious
 // decision, not an accident.
@@ -80,7 +82,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v13_issue_statuses", "v14_drop_board_is_protected",
              "v15_attachment_nullable_uploader", "v16_devices_worktrees",
              "v17_coding_session_branch", "v18_action_automations",
-             "v19_coding_session_device_id"]
+             "v19_coding_session_device_id", "v20_automations"]
         )
     }
 
@@ -100,7 +102,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v13_issue_statuses", "v14_drop_board_is_protected",
              "v15_attachment_nullable_uploader", "v16_devices_worktrees",
              "v17_coding_session_branch", "v18_action_automations",
-             "v19_coding_session_device_id"]
+             "v19_coding_session_device_id", "v20_automations"]
         )
     }
 
@@ -148,7 +150,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v13_issue_statuses", "v14_drop_board_is_protected",
              "v15_attachment_nullable_uploader", "v16_devices_worktrees",
              "v17_coding_session_branch", "v18_action_automations",
-             "v19_coding_session_device_id"]
+             "v19_coding_session_device_id", "v20_automations"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -216,7 +218,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v13_issue_statuses", "v14_drop_board_is_protected",
              "v15_attachment_nullable_uploader", "v16_devices_worktrees",
              "v17_coding_session_branch", "v18_action_automations",
-             "v19_coding_session_device_id"]
+             "v19_coding_session_device_id", "v20_automations"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -510,6 +512,64 @@ final class DatabaseMigrationTests: XCTestCase {
         }
     }
 
+    // v20 (EXP-583 automations): a store created before the `automations`
+    // table and `coding_sessions.automation_id` existed must gain both, and
+    // get the coding-sessions shape offset reset for the new column (a
+    // brand-new shape has no offset row, so `automations` needs none).
+    func testAutomationsTableAddedToExistingStore() throws {
+        let pool = try makePool("automations")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v19_coding_session_device_id")
+        try pool.write { db in
+            // Hand-build the pre-v20 state: no automations table, no
+            // automation_id column (the guarded steps have to tolerate both
+            // the missing and the already-present form) + a live offset row.
+            if try db.tableExists("automations") {
+                try db.drop(table: "automations")
+            }
+            let sessionCols = Set(try db.columns(in: "coding_sessions").map(\.name))
+            if sessionCols.contains("automation_id") {
+                try db.alter(table: "coding_sessions") { t in t.drop(column: "automation_id") }
+            }
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('coding-sessions', 'h', '0_0', 0, 1)
+                """)
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertTrue(try pool.read { db in try db.tableExists("automations") })
+        XCTAssertEqual(
+            try columnNames(pool, "automations"),
+            ["id", "team_id", "action_id", "device_id", "enabled", "trigger",
+             "agent", "model", "effort", "sort_order", "created_at", "updated_at"]
+        )
+        XCTAssertTrue(try columnNames(pool, "coding_sessions").contains("automation_id"))
+        let automationIdColumn = try pool.read { db in
+            try db.columns(in: "coding_sessions").first { $0.name == "automation_id" }
+        }
+        XCTAssertFalse(automationIdColumn?.isNotNull ?? true)
+        // The ALTER must force a refetch of the coding-sessions shape.
+        let offset = try pool.read { db in
+            try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT "handle", "offset", "needs_refetch", "is_live"
+                    FROM "electric_offsets" WHERE "shape" = 'coding-sessions'
+                    """
+            )
+        }
+        let handle: String? = offset?["handle"]
+        let offsetValue: String? = offset?["offset"]
+        let needsRefetch: Bool? = offset?["needs_refetch"]
+        let isLive: Bool? = offset?["is_live"]
+        XCTAssertEqual(handle, "")
+        XCTAssertEqual(offsetValue, "-1")
+        XCTAssertEqual(needsRefetch, true)
+        XCTAssertEqual(isLive, false)
+    }
+
     // v19 (EXP-549/550 session host device): a store created before
     // `coding_sessions.device_id` existed must gain it via the guarded ALTER
     // and get the coding-sessions shape offset reset (the key has A DASH —
@@ -571,7 +631,7 @@ final class DatabaseMigrationTests: XCTestCase {
                       "users", "team_members", "team_invites", "comments",
                       "attachments", "notifications", "issue_subscribers",
                       "issue_events", "coding_sessions", "actions",
-                      "issue_statuses", "electric_offsets"] {
+                      "automations", "issue_statuses", "electric_offsets"] {
             let exists = try pool.read { db in try db.tableExists(table) }
             XCTAssertTrue(exists, "missing table \(table)")
         }
@@ -634,6 +694,8 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertTrue(sessionCols.contains("action_name"))
         // EXP-549/550: the host machine's steer deviceId ride-along.
         XCTAssertTrue(sessionCols.contains("device_id"))
+        // EXP-583: which automation fired the run.
+        XCTAssertTrue(sessionCols.contains("automation_id"))
 
         // The synced actions table (EXP-268, 15th shape) deliberately has NO
         // body column — the shape's allowlist excludes the ≤64KB prompt; tRPC
@@ -642,6 +704,15 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertTrue(actionCols.contains("team_id"))
         XCTAssertTrue(actionCols.contains("inputs"))
         XCTAssertFalse(actionCols.contains("body"))
+
+        // EXP-583: automations are their own table (19th shape) — the trigger
+        // is the when-part only, device/enabled/agent are columns here.
+        let automationCols = try columnNames(pool, "automations")
+        XCTAssertTrue(automationCols.contains("team_id"))
+        XCTAssertTrue(automationCols.contains("action_id"))
+        XCTAssertTrue(automationCols.contains("device_id"))
+        XCTAssertTrue(automationCols.contains("enabled"))
+        XCTAssertTrue(automationCols.contains("trigger"))
 
         // Custom issue statuses (EXP-314, 16th shape): the team-scoped table
         // plus the nullable `status_id` on issues. `issues.status` STAYS as the

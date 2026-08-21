@@ -79,7 +79,7 @@ use coding::{
 use domain::IssueStatus;
 
 use crate::action_run::{self, ActionRepo, ActionRepoRow, StartActionArgs};
-use crate::automation_editor::AutomationEditorState;
+use crate::automation_editor::{AutomationEditorState, AutomationSpec};
 use crate::coding_flow::{self, CodingHub, SessionSubject};
 use crate::coding_selects::{
     agent_icon, choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect,
@@ -128,16 +128,16 @@ fn pr_pick_options(cx: &App, team_id: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-/// Append the machine-readable trigger instruction to the creator run's
-/// `description` input (EXP-530), value AND display alike — the prompt renders
-/// the display, the value is what the agent is told it received. Compact JSON
-/// so the whole thing stays one readable line.
+/// Append the machine-readable automation instruction to the creator run's
+/// `description` input (EXP-530/583), value AND display alike — the prompt
+/// renders the display, the value is what the agent is told it received.
+/// Compact JSON so the whole thing stays one readable line.
 ///
 /// The wording is cross-client copy: the web create dialog appends the exact
 /// same block ([`trigger_note`] is locked by
 /// `trigger_note_matches_the_web_block`).
-fn append_trigger_note(inputs: &mut [ActionInputValue], trigger: &serde_json::Value) {
-    let note = trigger_note(trigger);
+fn append_trigger_note(inputs: &mut [ActionInputValue], spec: &AutomationSpec) {
+    let note = trigger_note(spec);
     for input in inputs.iter_mut() {
         if input.key != "description" {
             continue;
@@ -149,12 +149,30 @@ fn append_trigger_note(inputs: &mut [ActionInputValue], trigger: &serde_json::Va
     }
 }
 
-/// The appended block itself (see [`append_trigger_note`]).
-fn trigger_note(trigger: &serde_json::Value) -> String {
-    let json = serde_json::to_string(trigger).unwrap_or_else(|_| "{}".to_string());
+/// The appended block itself (see [`append_trigger_note`]). Byte-identical to
+/// web `formatAutomationBlock` (`lib/action-triggers.ts`), key order included:
+/// `deviceId`, `trigger`, then the launch pins only when they are set. The
+/// dialog never talks to the server — the creator agent copies this JSON into
+/// `exponential_automations_create` once the action exists.
+fn trigger_note(spec: &AutomationSpec) -> String {
+    let mut payload = serde_json::Map::new();
+    payload.insert("deviceId".to_string(), serde_json::json!(spec.device_id));
+    payload.insert("trigger".to_string(), spec.trigger.clone());
+    for (key, value) in [
+        ("agent", spec.agent.as_deref()),
+        ("model", spec.model.as_deref()),
+        ("effort", spec.effort.as_deref()),
+    ] {
+        if let Some(value) = value.filter(|value| !value.is_empty()) {
+            payload.insert(key.to_string(), serde_json::json!(value));
+        }
+    }
+    let json = serde_json::to_string(&serde_json::Value::Object(payload))
+        .unwrap_or_else(|_| "{}".to_string());
     format!(
-        "\n\nAutomation — set exactly this trigger via the `trigger` field on \
-         exponential_actions_create: `{json}`"
+        "\n\nAutomation — after creating the action, call \
+         exponential_automations_create with its id and exactly these fields: \
+         `{json}`. An automated run fills no inputs, so declare none as required."
     )
 }
 
@@ -213,7 +231,7 @@ pub fn open_for_action(window: &mut Window, cx: &mut App, team_id: String, actio
 /// creation dialog — no subject tabs, no action picker, just the builtin's
 /// input fields (Description leading) over the shared options cluster.
 pub fn open_for_create_action(window: &mut Window, cx: &mut App, team_id: String) {
-    open_for_create_action_prefilled(window, cx, team_id, None, None);
+    open_for_create_action_prefilled(window, cx, team_id, None, None, None);
 }
 
 /// Create mode with the builtin's Description (and optionally its Icon) seeded
@@ -226,6 +244,7 @@ pub fn open_for_create_action_prefilled(
     team_id: String,
     description: Option<String>,
     icon: Option<String>,
+    automation: Option<serde_json::Value>,
 ) {
     open_inner(
         window,
@@ -236,16 +255,24 @@ pub fn open_for_create_action_prefilled(
         None,
         true,
         None,
-        Prefill { description, icon },
+        Prefill {
+            description,
+            icon,
+            automation,
+        },
     );
 }
 
 /// Seed values for CREATE mode's builtin input fields (EXP-530). Applied once,
 /// right after the preselect lands — a typed edit afterwards always wins.
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct Prefill {
     description: Option<String>,
     icon: Option<String>,
+    /// EXP-583: an "Action + automation" suggestion's trigger. `Some` is the
+    /// ONLY thing that puts the Automation block on the create dialog — the
+    /// plain "New action" path never shows it.
+    automation: Option<serde_json::Value>,
 }
 
 /// Open the dialog on the ACTIONS tab with the builtin "Fix merge conflicts"
@@ -421,10 +448,14 @@ pub struct StartCodingDialogView {
     pending_pr_preselect: Option<String>,
     /// EXP-530: the Suggestions tab's seed values, applied with the preselect.
     pending_prefill: Prefill,
-    /// EXP-530: create mode's Automation section. It cannot SAVE a trigger
-    /// (nothing exists yet) — [`Self::launch`] appends the wire JSON to the
-    /// creator run's description so the agent sets it on create.
+    /// EXP-530/583: the suggestion-prefilled create flow's Automation block.
+    /// It cannot SAVE anything (the action does not exist yet) —
+    /// [`Self::launch`] appends the wire JSON to the creator run's
+    /// description so the agent sets it via `exponential_automations_create`.
     automation: AutomationEditorState,
+    /// Whether that block is on screen at all: only an "Action + automation"
+    /// suggestion turns it on.
+    suggested_automation: bool,
     action_search: Entity<InputState>,
     action_list_scroll: ScrollHandle,
     action_inputs_scroll: ScrollHandle,
@@ -634,14 +665,14 @@ impl StartCodingDialogView {
         let (ultracode, plan_mode, skip_permissions) = agent_defaults(&settings, agent);
         // The section's filter pickers are team-scoped; `team_id` itself
         // moves into the struct below.
-        let team_id_for_automation = team_id.clone();
-        let mut automation = AutomationEditorState::new(team_id_for_automation, window, cx);
-        if create_mode {
-            // EXP-574 follow-up: the creator run happens on THIS desktop, and
-            // the authored automation binds to the same machine — no second
-            // device picker in the section.
-            let auth = crate::session::AuthContext::global(cx);
-            automation.fixed_device_id = Some(steer::persistent_device_id(&auth.data_dir));
+        // EXP-583: the Automation block only exists for a suggestion that
+        // brought a trigger. It is INDEPENDENT of this run: the creator run
+        // happens here, the automation it authors can target any machine.
+        let suggested_automation = create_mode.then(|| prefill.automation.clone()).flatten();
+        let mut automation = AutomationEditorState::new(team_id.clone(), window, cx);
+        if let Some(trigger) = suggested_automation.as_ref() {
+            automation.seed_trigger(Some(trigger), window, cx);
+            automation.seed_default_device(cx);
         }
 
         let mut this = Self {
@@ -660,6 +691,7 @@ impl StartCodingDialogView {
             pending_pr_preselect: preselect_pr,
             pending_prefill: prefill,
             automation,
+            suggested_automation: suggested_automation.is_some(),
             action_search,
             action_list_scroll: ScrollHandle::new(),
             action_inputs_scroll: ScrollHandle::new(),
@@ -1464,15 +1496,14 @@ impl StartCodingDialogView {
             // agent reads, with an explicit instruction to set it verbatim on
             // `exponential_actions_create`. A half-filled section blocks the
             // launch rather than starting a run that silently drops it.
-            if self.create_mode {
-                match self.automation.to_trigger(cx) {
+            if self.create_mode && self.suggested_automation {
+                match self.automation.to_spec(cx) {
                     Err(message) => {
                         self.error = Some(message);
                         cx.notify();
                         return;
                     }
-                    Ok(Some(trigger)) => append_trigger_note(&mut inputs, &trigger),
-                    Ok(None) => {}
+                    Ok(spec) => append_trigger_note(&mut inputs, &spec),
                 }
             }
             let options = self.options(cx);
@@ -1495,6 +1526,7 @@ impl StartCodingDialogView {
                     // (no trigger prompt section, no `started_reason`), so
                     // there is no poison-pill state to back off either.
                     trigger: None,
+                    automation_id: None,
                     on_failed: None,
                 },
                 cx,
@@ -2470,11 +2502,11 @@ impl Render for StartCodingDialogView {
                 }
             }
         }
-        // EXP-530: create mode authors the automation up front — the section
-        // sits under the builtin's fields and rides the brief on launch. The
-        // RUN presentation has no section: an existing action's trigger is
-        // edited in the action editor, not at launch time.
-        if self.create_mode {
+        // EXP-583: only an "Action + automation" suggestion brings the block
+        // — it sits under the builtin's fields and rides the brief on launch.
+        // The plain create path and the RUN presentation have none: an
+        // existing action's automations live on the Automations tab.
+        if self.create_mode && self.suggested_automation {
             left = left.child(
                 self.automation
                     .render("sc-automation", |this| &mut this.automation, cx),
@@ -2583,22 +2615,46 @@ mod tests {
     use super::*;
 
     /// The machine-readable block is cross-client copy — byte-locked against
-    /// web `formatTriggerBlock` (`lib/action-triggers.ts`) and the mobile
-    /// mirrors, including the compact `JSON.stringify` value form.
+    /// web `formatAutomationBlock` (`lib/action-triggers.ts`) and the mobile
+    /// mirrors, including the compact `JSON.stringify` value form and its key
+    /// order (`deviceId`, `trigger`, then only the pins that are set).
     #[test]
     fn trigger_note_matches_the_web_block() {
-        let note = trigger_note(&serde_json::json!({
-            "kind": "schedule",
-            "deviceId": "d",
-            "enabled": true,
-            "interval": "daily",
-            "minuteOfDay": 420,
-        }));
+        let note = trigger_note(&AutomationSpec {
+            trigger: serde_json::json!({
+                "kind": "schedule",
+                "interval": "daily",
+                "minuteOfDay": 420,
+            }),
+            device_id: "d".to_string(),
+            agent: None,
+            model: None,
+            effort: None,
+        });
         assert_eq!(
             note,
-            "\n\nAutomation — set exactly this trigger via the `trigger` field on \
-             exponential_actions_create: \
-             `{\"kind\":\"schedule\",\"deviceId\":\"d\",\"enabled\":true,\"interval\":\"daily\",\"minuteOfDay\":420}`"
+            "\n\nAutomation — after creating the action, call \
+             exponential_automations_create with its id and exactly these fields: \
+             `{\"deviceId\":\"d\",\"trigger\":\
+             {\"kind\":\"schedule\",\"interval\":\"daily\",\"minuteOfDay\":420}}`. \
+             An automated run fills no inputs, so declare none as required."
+        );
+
+        // The pins ride AFTER the trigger, in agent/model/effort order, and
+        // only when set — an empty pin is omitted, never sent as "".
+        let pinned = trigger_note(&AutomationSpec {
+            trigger: serde_json::json!({"kind": "event", "event": "created"}),
+            device_id: "d".to_string(),
+            agent: Some("codex".to_string()),
+            model: None,
+            effort: Some("high".to_string()),
+        });
+        assert!(
+            pinned.contains(
+                "`{\"deviceId\":\"d\",\"trigger\":{\"kind\":\"event\",\"event\":\"created\"},\
+                 \"agent\":\"codex\",\"effort\":\"high\"}`"
+            ),
+            "{pinned}"
         );
     }
 }

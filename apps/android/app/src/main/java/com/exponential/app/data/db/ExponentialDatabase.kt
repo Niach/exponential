@@ -21,6 +21,7 @@ import androidx.room.RoomDatabase
         IssueEventEntity::class,
         CodingSessionEntity::class,
         ActionEntity::class,
+        AutomationEntity::class,
         DeviceEntity::class,
         DeviceWorktreeEntity::class,
         ElectricOffsetEntity::class,
@@ -170,9 +171,17 @@ import androidx.room.RoomDatabase
     // v38 (EXP-549/550): coding_sessions.device_id — the host machine's steer
     //      deviceId, joining a session to its LIVE devices row (renamed label,
     //      offline → paused). Additive; destructive fallback wipes + resyncs.
+    // v39 (EXP-583): automations became their own entity — the `automations`
+    //      table (the 19th Electric shape: team-scoped rows carrying the
+    //      action, the bound device, the when-part trigger and the optional
+    //      agent/model/effort pins) plus coding_sessions.automation_id, the
+    //      nullable link from an automated run back to the row that fired it.
+    //      actions.trigger is dead server-side; the local column stays and is
+    //      never read again. Destructive fallback wipes + resyncs all 19
+    //      shapes on first launch after the update.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so an additive shape column just wipes and re-syncs from Electric.
-    version = 38,
+    version = 39,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {
@@ -192,6 +201,7 @@ abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun issueEventDao(): IssueEventDao
     abstract fun codingSessionDao(): CodingSessionDao
     abstract fun actionDao(): ActionDao
+    abstract fun automationDao(): AutomationDao
     abstract fun deviceDao(): DeviceDao
     abstract fun deviceWorktreeDao(): DeviceWorktreeDao
     abstract fun electricOffsetDao(): ElectricOffsetDao

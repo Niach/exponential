@@ -269,6 +269,11 @@ data class CodingSessionEntity(
     // NULL on every user-started session. Powers the "Automated" badge and
     // keeps automation rows out of the post-send start watch (StartedRunMatch).
     @ColumnInfo(name = "started_reason") @SerialName("started_reason") @JsonNames("startedReason") val startedReason: String? = null,
+    // EXP-583: the automations row that fired this run (FK SET NULL), NULL on
+    // every user-started session. The Automations tab's "last run" column
+    // joins on it — an action can carry several automations now, so the
+    // action_id link no longer identifies which one ran.
+    @ColumnInfo(name = "automation_id") @SerialName("automation_id") @JsonNames("automationId") val automationId: String? = null,
     @ColumnInfo(name = "started_at") @SerialName("started_at") @JsonNames("startedAt") val startedAt: String,
     @ColumnInfo(name = "ended_at") @SerialName("ended_at") @JsonNames("endedAt") val endedAt: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
@@ -297,13 +302,43 @@ data class ActionEntity(
     // jsonb array of typed run-input defs ({key,label,type,required,placeholder}
     // — EXP-257), kept as its raw JSON string and parsed at the consumer.
     @Serializable(with = JsonAsStringSerializer::class) val inputs: String? = null,
-    // EXP-530: the action's ONE optional automation trigger (schedule or
-    // event), kept as its raw jsonb JSON string and parsed tolerantly at the
-    // consumer (ActionTrigger.parse — unknown kinds read as "no automation").
+    // DEAD since EXP-583: automations became their own table + shape, and the
+    // server dropped this column. The local column stays (nullable, always
+    // NULL now) because removing it would need a Room migration for no gain —
+    // nothing reads it. Do not resurrect it.
     @Serializable(with = JsonAsStringSerializer::class) val trigger: String? = null,
     @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
+)
+
+// One automation (EXP-583, the 19th Electric shape): an action + a bound
+// device + the WHEN-part trigger, team-scoped. Split out of `actions.trigger`
+// so an action can carry several automations (and none by default). The bound
+// device selects its own enabled rows off this shape and fires locally —
+// there is no server scheduler. `agent`/`model`/`effort` NULL = the device's
+// own launch defaults.
+@Entity(
+    tableName = "automations",
+    indices = [Index("team_id"), Index("action_id")],
+)
+@Serializable
+data class AutomationEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String,
+    @ColumnInfo(name = "action_id") @SerialName("action_id") @JsonNames("actionId") val actionId: String,
+    // The steer deviceId (= devices.device_id) of the machine that runs it.
+    @ColumnInfo(name = "device_id") @SerialName("device_id") @JsonNames("deviceId") val deviceId: String = "",
+    val enabled: PgBool = true,
+    // The when-part jsonb as its raw JSON string, parsed tolerantly at the
+    // consumer (AutomationTrigger.parse — unknown kinds read as null).
+    @Serializable(with = JsonAsStringSerializer::class) val trigger: String? = null,
+    val agent: String? = null,
+    val model: String? = null,
+    val effort: String? = null,
+    @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double = 0.0,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
 )
 
 @Entity(

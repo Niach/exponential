@@ -2,14 +2,16 @@ import {
   actionScheduleIntervalValues,
   actionTriggerEventValues,
   issuePriorityValues,
-  type ActionEventTriggerFilters,
-  type ActionScheduleTrigger,
-  type ActionTrigger,
+  type AutomationEventTriggerFilters,
+  type AutomationScheduleTrigger,
+  type AutomationTrigger,
   type ActionTriggerEvent,
   type IssuePriority,
 } from "@exp/db-schema/domain"
 
-// Client-side trigger helpers (EXP-530). Deliberately DB-free (the
+// Client-side trigger helpers (EXP-530; automations split out of actions in
+// EXP-583 — the trigger is the when-part only, device/enabled/agent are
+// columns on the automations row). Deliberately DB-free (the
 // lib/action-inputs.ts precedent) so dialogs and tests import it without
 // pulling server code. Reads are TOLERANT — the strict write union lives in
 // domain.ts; here anything unparseable (a future trigger kind, a future event
@@ -47,21 +49,15 @@ function priorityList(value: unknown): IssuePriority[] | undefined {
   return priorities.length > 0 ? priorities : undefined
 }
 
-/** Tolerant read of an actions row's `trigger` jsonb. Never throws. */
-export function parseActionTrigger(value: unknown): ActionTrigger | null {
+/** Tolerant read of an automations row's `trigger` jsonb. Never throws. */
+export function parseAutomationTrigger(value: unknown): AutomationTrigger | null {
   if (!isRecord(value)) return null
-  const deviceId = value.deviceId
-  if (typeof deviceId !== `string` || deviceId.length === 0) return null
-  // Missing/garbage `enabled` reads as ON — only an explicit false disables.
-  const enabled = value.enabled !== false
 
   if (value.kind === `schedule`) {
     if (!includesValue(actionScheduleIntervalValues, value.interval)) return null
     if (!isIntInRange(value.minuteOfDay, 0, 1439)) return null
-    const trigger: ActionScheduleTrigger = {
+    const trigger: AutomationScheduleTrigger = {
       kind: `schedule`,
-      deviceId,
-      enabled,
       interval: value.interval,
       minuteOfDay: value.minuteOfDay,
     }
@@ -79,7 +75,7 @@ export function parseActionTrigger(value: unknown): ActionTrigger | null {
   if (value.kind === `event`) {
     // An old client reading a FUTURE event kind treats it as "no automation".
     if (!includesValue(actionTriggerEventValues, value.event)) return null
-    const filters: ActionEventTriggerFilters = {}
+    const filters: AutomationEventTriggerFilters = {}
     if (isRecord(value.filters)) {
       const boardIds = idList(value.filters.boardIds)
       const labelIds = idList(value.filters.labelIds)
@@ -92,8 +88,6 @@ export function parseActionTrigger(value: unknown): ActionTrigger | null {
     }
     return {
       kind: `event`,
-      deviceId,
-      enabled,
       event: value.event,
       ...(Object.keys(filters).length > 0 ? { filters } : {}),
     }
@@ -135,7 +129,7 @@ export const TRIGGER_EVENT_LABELS: Record<ActionTriggerEvent, string> = {
   pr_merged: `A pull request is merged`,
 }
 
-function eventFilterCount(filters: ActionEventTriggerFilters | undefined): number {
+function eventFilterCount(filters: AutomationEventTriggerFilters | undefined): number {
   if (!filters) return 0
   return (
     (filters.boardIds?.length ?? 0) +
@@ -146,7 +140,7 @@ function eventFilterCount(filters: ActionEventTriggerFilters | undefined): numbe
 }
 
 /** The shared one-line trigger sentence (cards, Automations tab rows). */
-export function triggerSummary(trigger: ActionTrigger): string {
+export function triggerSummary(trigger: AutomationTrigger): string {
   if (trigger.kind === `schedule`) {
     const at = formatMinuteOfDay(trigger.minuteOfDay)
     if (trigger.interval === `weekly`) {
@@ -170,7 +164,7 @@ export function triggerSummary(trigger: ActionTrigger): string {
  * label the result "(device time)".
  */
 export function nextScheduleRun(
-  trigger: ActionScheduleTrigger,
+  trigger: AutomationScheduleTrigger,
   now: Date
 ): Date | null {
   const hours = Math.floor(trigger.minuteOfDay / 60)
@@ -226,12 +220,29 @@ export function nextScheduleRun(
   )
 }
 
+/** What an action+automation suggestion (or the create dialog's Automation
+ * block) asks the creator agent to set up alongside the new action. */
+export interface AutomationSpec {
+  trigger: AutomationTrigger
+  deviceId: string
+  agent?: string
+  model?: string
+  effort?: string
+}
+
 /**
  * The machine-readable block the create dialog appends to the builtin
- * "Create action" description — the creator agent copies the JSON verbatim
- * into `exponential_actions_create`'s `trigger` field (the dialog never
- * talks to the server itself).
+ * "Create action" description — the creator agent creates the action, then
+ * copies this JSON verbatim into `exponential_automations_create` (adding the
+ * new action's id). The dialog never talks to the server itself.
  */
-export function formatTriggerBlock(trigger: ActionTrigger): string {
-  return `\n\nAutomation — set exactly this trigger via the \`trigger\` field on exponential_actions_create: \`${JSON.stringify(trigger)}\`. An automated run fills no inputs, so declare none as required.`
+export function formatAutomationBlock(spec: AutomationSpec): string {
+  const payload: Record<string, unknown> = {
+    deviceId: spec.deviceId,
+    trigger: spec.trigger,
+  }
+  if (spec.agent) payload.agent = spec.agent
+  if (spec.model) payload.model = spec.model
+  if (spec.effort) payload.effort = spec.effort
+  return `\n\nAutomation — after creating the action, call exponential_automations_create with its id and exactly these fields: \`${JSON.stringify(payload)}\`. An automated run fills no inputs, so declare none as required.`
 }

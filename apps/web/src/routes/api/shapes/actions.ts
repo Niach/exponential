@@ -14,7 +14,8 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // drop unknown columns safely (verified: iOS filters to its SQLite schema,
 // Android ignoreUnknownKeys + partial-plan filter, desktop serde non-strict),
 // so this needs no CLIENT_MIN_VERSION bump — same shape as the coding-sessions
-// `action_id`/`action_name` addition.
+// `action_id`/`action_name` addition. EXP-530's `trigger` column was dropped
+// again in EXP-583 — automations are their own shape now.
 const ACTION_COLUMNS = [
   `id`,
   `team_id`,
@@ -23,10 +24,6 @@ const ACTION_COLUMNS = [
   `description`,
   `icon`,
   `inputs`,
-  // EXP-530: the automation trigger — clients render summaries and the bound
-  // device's host evaluates it; appended with the same one-time benign shape
-  // rotation as `icon` above.
-  `trigger`,
   `sort_order`,
   `created_at`,
   `updated_at`,

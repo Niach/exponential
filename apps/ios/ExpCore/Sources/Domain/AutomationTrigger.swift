@@ -1,17 +1,18 @@
 import Foundation
 
-// EXP-530 action automations: ONE optional `trigger` (jsonb, synced on the
-// actions shape) per action — a schedule ("daily at 07:00") or an event
-// ("when status changes") the BOUND DEVICE watches for and fires locally
-// (there is no server scheduler). Mobile only ever reads and toggles it:
-// parsing is deliberately tolerant — an unknown kind/event or malformed JSON
-// reads as "no automation", never a crash — so a future trigger shape can't
-// brick this client. Mirrors the web's `lib/action-triggers.ts` summary
-// strings byte-for-byte.
+// EXP-583 automations: an automation is its OWN row (`automations`, the 19th
+// Electric shape) binding ONE action to ONE device with a schedule ("daily at
+// 07:00") or an issue event ("when status changes") the bound device watches
+// for and fires locally (there is no server scheduler). The trigger jsonb is
+// the WHEN-PART ONLY — deviceId/enabled/agent/model/effort are columns on the
+// row, not fields of the trigger (they were, until EXP-530 split apart here).
+// Parsing is deliberately tolerant — an unknown kind/event or malformed JSON
+// reads as "no trigger", never a crash — so a future trigger shape can't brick
+// this client. Mirrors the web's `lib/action-triggers.ts` byte-for-byte.
 
 /// The event-trigger filter lists. Empty/absent lists mean "no filter on that
 /// axis"; `priorities` carries wire priority values, the id lists uuids.
-public struct ActionTriggerFilters: Sendable, Equatable {
+public struct AutomationTriggerFilters: Sendable, Equatable {
     public let boardIds: [String]
     public let labelIds: [String]
     public let priorities: [String]
@@ -38,10 +39,7 @@ public struct ActionTriggerFilters: Sendable, Equatable {
 }
 
 /// `kind: "schedule"` — fires on the bound device's LOCAL clock.
-public struct ActionScheduleTrigger: Sendable, Equatable {
-    public let deviceId: String
-    /// Paused automations keep their config; a missing wire flag reads true.
-    public var enabled: Bool
+public struct AutomationScheduleTrigger: Sendable, Equatable {
     /// Contract `actionScheduleIntervalValues`: daily | weekly | monthly.
     public let interval: String
     /// Minutes past local midnight, 0..<1440.
@@ -52,15 +50,11 @@ public struct ActionScheduleTrigger: Sendable, Equatable {
     public let dayOfMonth: Int?
 
     public init(
-        deviceId: String,
-        enabled: Bool = true,
         interval: String,
         minuteOfDay: Int,
         weekday: Int? = nil,
         dayOfMonth: Int? = nil
     ) {
-        self.deviceId = deviceId
-        self.enabled = enabled
         self.interval = interval
         self.minuteOfDay = minuteOfDay
         self.weekday = weekday
@@ -69,64 +63,31 @@ public struct ActionScheduleTrigger: Sendable, Equatable {
 }
 
 /// `kind: "event"` — fires when a matching issue event syncs to the device.
-public struct ActionEventTrigger: Sendable, Equatable {
-    public let deviceId: String
-    public var enabled: Bool
+public struct AutomationEventTrigger: Sendable, Equatable {
     /// Contract `actionTriggerEventValues` (created, status_changed, …).
     public let event: String
-    public let filters: ActionTriggerFilters
+    public let filters: AutomationTriggerFilters
 
     public init(
-        deviceId: String,
-        enabled: Bool = true,
         event: String,
-        filters: ActionTriggerFilters = ActionTriggerFilters()
+        filters: AutomationTriggerFilters = AutomationTriggerFilters()
     ) {
-        self.deviceId = deviceId
-        self.enabled = enabled
         self.event = event
         self.filters = filters
     }
 }
 
-public enum ActionTrigger: Sendable, Equatable {
-    case schedule(ActionScheduleTrigger)
-    case event(ActionEventTrigger)
-
-    public var deviceId: String {
-        switch self {
-        case let .schedule(s): s.deviceId
-        case let .event(e): e.deviceId
-        }
-    }
-
-    public var enabled: Bool {
-        switch self {
-        case let .schedule(s): s.enabled
-        case let .event(e): e.enabled
-        }
-    }
-
-    /// The same trigger with the paused flag flipped — the Automations
-    /// toggle's payload (`actions.update` replaces the whole object).
-    public func withEnabled(_ enabled: Bool) -> ActionTrigger {
-        switch self {
-        case var .schedule(s):
-            s.enabled = enabled
-            return .schedule(s)
-        case var .event(e):
-            e.enabled = enabled
-            return .event(e)
-        }
-    }
+public enum AutomationTrigger: Sendable, Equatable {
+    case schedule(AutomationScheduleTrigger)
+    case event(AutomationEventTrigger)
 
     // MARK: - Tolerant parse
 
     /// Parse the stored/synced JSON string. ANY malformation — unknown kind,
-    /// unknown event/interval, missing device or schedule fields, non-object
-    /// JSON — reads as nil ("no automation"): a future server shape must
-    /// never crash or half-render on this build.
-    public static func parse(_ raw: String?) -> ActionTrigger? {
+    /// unknown event/interval, missing schedule fields, non-object JSON —
+    /// reads as nil ("no trigger"): a future server shape must never crash or
+    /// half-render on this build.
+    public static func parse(_ raw: String?) -> AutomationTrigger? {
         guard let raw, !raw.isEmpty,
               let data = raw.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data),
@@ -135,12 +96,8 @@ public enum ActionTrigger: Sendable, Equatable {
         return parse(object: object)
     }
 
-    static func parse(object: [String: Any]) -> ActionTrigger? {
-        guard let kind = object["kind"] as? String,
-              let deviceId = object["deviceId"] as? String, !deviceId.isEmpty
-        else { return nil }
-        // Missing `enabled` defaults true (the wire may omit it).
-        let enabled = (object["enabled"] as? Bool) ?? true
+    static func parse(object: [String: Any]) -> AutomationTrigger? {
+        guard let kind = object["kind"] as? String else { return nil }
 
         switch kind {
         case "schedule":
@@ -157,9 +114,7 @@ public enum ActionTrigger: Sendable, Equatable {
             if interval == "monthly" {
                 guard let dayOfMonth, (1...28).contains(dayOfMonth) else { return nil }
             }
-            return .schedule(ActionScheduleTrigger(
-                deviceId: deviceId,
-                enabled: enabled,
+            return .schedule(AutomationScheduleTrigger(
                 interval: interval,
                 minuteOfDay: minuteOfDay,
                 weekday: interval == "weekly" ? weekday : nil,
@@ -170,18 +125,13 @@ public enum ActionTrigger: Sendable, Equatable {
                   DomainContract.actionTriggerEventValues.contains(event)
             else { return nil }
             let rawFilters = object["filters"] as? [String: Any] ?? [:]
-            let filters = ActionTriggerFilters(
+            let filters = AutomationTriggerFilters(
                 boardIds: idList(rawFilters["boardIds"]),
                 labelIds: idList(rawFilters["labelIds"]),
                 priorities: priorityList(rawFilters["priorities"]),
                 toStatusIds: idList(rawFilters["toStatusIds"])
             )
-            return .event(ActionEventTrigger(
-                deviceId: deviceId,
-                enabled: enabled,
-                event: event,
-                filters: filters
-            ))
+            return .event(AutomationEventTrigger(event: event, filters: filters))
         default:
             return nil
         }
@@ -197,7 +147,7 @@ public enum ActionTrigger: Sendable, Equatable {
     }
 
     /// Id lists drop empty entries (web `idList` parity — the filter count
-    /// and the toggle's whole-object rewrite must agree across clients).
+    /// must agree across clients).
     private static func idList(_ value: Any?) -> [String] {
         (value as? [Any])?.compactMap { $0 as? String }.filter { !$0.isEmpty } ?? []
     }
@@ -210,16 +160,14 @@ public enum ActionTrigger: Sendable, Equatable {
 
     // MARK: - Wire encoding
 
-    /// The wire JSON object with the server's field names (kind, deviceId,
-    /// enabled, interval/minuteOfDay/weekday/dayOfMonth or event/filters).
-    /// Empty filter lists are OMITTED, matching what the pickers produce.
+    /// The wire JSON object with the server's field names (kind, then
+    /// interval/minuteOfDay/weekday/dayOfMonth or event/filters). Empty filter
+    /// lists are OMITTED, matching what the pickers produce.
     public var wireObject: [String: Any] {
         switch self {
         case let .schedule(s):
             var out: [String: Any] = [
                 "kind": "schedule",
-                "deviceId": s.deviceId,
-                "enabled": s.enabled,
                 "interval": s.interval,
                 "minuteOfDay": s.minuteOfDay,
             ]
@@ -229,8 +177,6 @@ public enum ActionTrigger: Sendable, Equatable {
         case let .event(e):
             var out: [String: Any] = [
                 "kind": "event",
-                "deviceId": e.deviceId,
-                "enabled": e.enabled,
                 "event": e.event,
             ]
             var filters: [String: Any] = [:]
@@ -245,10 +191,10 @@ public enum ActionTrigger: Sendable, Equatable {
 
     /// Compact JSON string in the CANONICAL key order every client emits
     /// (web `JSON.stringify` insertion order, Android `toWireJsonString`,
-    /// desktop's preserve_order serde_json) — the machine-readable
-    /// description block must be byte-identical across the four clients, so
-    /// this is hand-composed rather than serialized (JSONSerialization only
-    /// offers alphabetical order).
+    /// desktop's preserve_order serde_json) — the machine-readable automation
+    /// note must be byte-identical across the four clients, so this is
+    /// hand-composed rather than serialized (JSONSerialization only offers
+    /// alphabetical order).
     public var wireJSONString: String {
         func list(_ values: [String]) -> String {
             "[" + values.map(Self.jsonQuoted).joined(separator: ",") + "]"
@@ -257,8 +203,6 @@ public enum ActionTrigger: Sendable, Equatable {
         case let .schedule(s):
             var parts = [
                 "\"kind\":\"schedule\"",
-                "\"deviceId\":\(Self.jsonQuoted(s.deviceId))",
-                "\"enabled\":\(s.enabled)",
                 "\"interval\":\(Self.jsonQuoted(s.interval))",
                 "\"minuteOfDay\":\(s.minuteOfDay)",
             ]
@@ -268,8 +212,6 @@ public enum ActionTrigger: Sendable, Equatable {
         case let .event(e):
             var parts = [
                 "\"kind\":\"event\"",
-                "\"deviceId\":\(Self.jsonQuoted(e.deviceId))",
-                "\"enabled\":\(e.enabled)",
                 "\"event\":\(Self.jsonQuoted(e.event))",
             ]
             var filters: [String] = []
@@ -303,11 +245,11 @@ public enum ActionTrigger: Sendable, Equatable {
     }
 }
 
-// Encodable so an `actions.update { id, trigger }` input can embed it as the
-// full JSON OBJECT (the server replaces the whole value, never merges).
-extension ActionTrigger: Encodable {
+// Encodable so an `automations.create/update { trigger }` input embeds it as
+// the full JSON OBJECT (the server replaces the whole value, never merges).
+extension AutomationTrigger: Encodable {
     private enum WireKeys: String, CodingKey {
-        case kind, deviceId, enabled, interval, minuteOfDay, weekday, dayOfMonth
+        case kind, interval, minuteOfDay, weekday, dayOfMonth
         case event, filters
     }
 
@@ -320,16 +262,12 @@ extension ActionTrigger: Encodable {
         switch self {
         case let .schedule(s):
             try c.encode("schedule", forKey: .kind)
-            try c.encode(s.deviceId, forKey: .deviceId)
-            try c.encode(s.enabled, forKey: .enabled)
             try c.encode(s.interval, forKey: .interval)
             try c.encode(s.minuteOfDay, forKey: .minuteOfDay)
             try c.encodeIfPresent(s.weekday, forKey: .weekday)
             try c.encodeIfPresent(s.dayOfMonth, forKey: .dayOfMonth)
         case let .event(e):
             try c.encode("event", forKey: .kind)
-            try c.encode(e.deviceId, forKey: .deviceId)
-            try c.encode(e.enabled, forKey: .enabled)
             try c.encode(e.event, forKey: .event)
             if !e.filters.isEmpty {
                 var f = c.nestedContainer(keyedBy: FilterKeys.self, forKey: .filters)
@@ -346,9 +284,69 @@ extension ActionTrigger: Encodable {
     }
 }
 
+// MARK: - The creator-run automation note
+
+/// What an "Action + automation" suggestion asks the creator agent to set up
+/// alongside the new action — the iOS twin of the web's `AutomationSpec`.
+public struct AutomationSpec: Sendable, Equatable {
+    public let trigger: AutomationTrigger
+    public let deviceId: String
+    public let agent: String?
+    public let model: String?
+    public let effort: String?
+
+    public init(
+        trigger: AutomationTrigger,
+        deviceId: String,
+        agent: String? = nil,
+        model: String? = nil,
+        effort: String? = nil
+    ) {
+        self.trigger = trigger
+        self.deviceId = deviceId
+        self.agent = agent
+        self.model = model
+        self.effort = effort
+    }
+}
+
+public enum AutomationNote {
+    /// The machine-readable block the create sheet appends to the builtin
+    /// "Create action" description: the creator agent creates the action,
+    /// then copies this JSON verbatim into `exponential_automations_create`
+    /// (adding the new action's id). BYTE-IDENTICAL to the web's
+    /// `formatAutomationBlock` — key order deviceId, trigger, then agent,
+    /// model, effort only when set; compact JSON, no spaces.
+    public static func format(_ spec: AutomationSpec) -> String {
+        var parts = [
+            "\"deviceId\":\(jsonQuoted(spec.deviceId))",
+            "\"trigger\":\(spec.trigger.wireJSONString)",
+        ]
+        if let agent = spec.agent, !agent.isEmpty {
+            parts.append("\"agent\":\(jsonQuoted(agent))")
+        }
+        if let model = spec.model, !model.isEmpty {
+            parts.append("\"model\":\(jsonQuoted(model))")
+        }
+        if let effort = spec.effort, !effort.isEmpty {
+            parts.append("\"effort\":\(jsonQuoted(effort))")
+        }
+        let payload = "{" + parts.joined(separator: ",") + "}"
+        return "\n\nAutomation — after creating the action, call exponential_automations_create with its id and exactly these fields: `\(payload)`. An automated run fills no inputs, so declare none as required."
+    }
+
+    private static func jsonQuoted(_ value: String) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: [value]),
+              let text = String(data: data, encoding: .utf8),
+              text.count >= 2
+        else { return "\"\"" }
+        return String(text.dropFirst().dropLast())
+    }
+}
+
 // MARK: - Display
 
-public enum ActionTriggerDisplay {
+public enum AutomationTriggerDisplay {
     /// 1 = Monday … 7 = Sunday (the wire convention, NOT Calendar's Sun-first).
     public static let weekdayNames = [
         "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
@@ -362,7 +360,7 @@ public enum ActionTriggerDisplay {
     /// The one-line trigger sentence, byte-matching the web's
     /// `triggerSummary`: `Daily at 07:00` / `Weekly on Monday at 09:00` /
     /// `Monthly on day 5 at 09:00`; `When status changes` (+ ` · N filters`).
-    public static func summary(_ trigger: ActionTrigger) -> String {
+    public static func summary(_ trigger: AutomationTrigger) -> String {
         switch trigger {
         case let .schedule(s):
             let time = clock(s.minuteOfDay)
@@ -392,13 +390,29 @@ public enum ActionTriggerDisplay {
         }
     }
 
+    /// The event PICKER label (web `TRIGGER_EVENT_LABELS`) — `summary` above
+    /// derives its "When …" sentence from the same vocabulary, so the two
+    /// surfaces can never disagree.
+    public static func eventLabel(_ value: String) -> String {
+        switch value {
+        case "created": "An issue is created"
+        case "status_changed": "Status changes"
+        case "assignee_changed": "The assignee changes"
+        case "label_added": "A label is added"
+        case "priority_changed": "Priority changes"
+        case "pr_opened": "A pull request is opened"
+        case "pr_merged": "A pull request is merged"
+        default: value.replacingOccurrences(of: "_", with: " ")
+        }
+    }
+
     /// The next occurrence STRICTLY AFTER `after`, computed in the given
     /// calendar's timezone. This is the DEVICE-VIEWER's local wall clock —
     /// the bound device fires on ITS OWN local time, so callers must label
     /// the result "(device time)". Nil for event triggers has no meaning
     /// here; pass a schedule.
     public static func nextScheduleRun(
-        _ schedule: ActionScheduleTrigger,
+        _ schedule: AutomationScheduleTrigger,
         after: Date,
         calendar: Calendar = .current
     ) -> Date? {

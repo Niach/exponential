@@ -282,6 +282,7 @@ describe(`codingSessions.start — action path (EXP-253)`, () => {
       actionId: ACTION_ID,
       actionName: `Code review`,
       startedReason: null,
+      automationId: null,
       userId: `actor`,
       hostUserId: null,
       deviceId: null,
@@ -306,6 +307,33 @@ describe(`codingSessions.start — action path (EXP-253)`, () => {
     await caller.start({ actionId: ACTION_ID, startedReason: `schedule` })
 
     expect(inserts[0]!.values.startedReason).toBe(`schedule`)
+  })
+
+  it(`links the firing automation when it targets the action (EXP-583)`, async () => {
+    const AUTOMATION_ID = `44444444-4444-4444-8444-444444444444`
+    selectResults.push([{ id: ACTION_ID, teamId: TEAM_ID, name: `Code review` }])
+    selectResults.push([{ id: AUTOMATION_ID }]) // automations probe hit
+    await caller.start({
+      actionId: ACTION_ID,
+      startedReason: `event`,
+      automationId: AUTOMATION_ID,
+    })
+    expect(inserts[0]!.values.automationId).toBe(AUTOMATION_ID)
+
+    // A stale/foreign automation id degrades to NULL instead of refusing.
+    selectResults.push([{ id: ACTION_ID, teamId: TEAM_ID, name: `Code review` }])
+    selectResults.push([])
+    await caller.start({
+      actionId: ACTION_ID,
+      startedReason: `event`,
+      automationId: AUTOMATION_ID,
+    })
+    expect(inserts[1]!.values.automationId).toBeNull()
+
+    // automationId without a reason is a zod-level reject.
+    await expect(
+      caller.start({ actionId: ACTION_ID, automationId: AUTOMATION_ID })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
   })
 
   it(`rejects startedReason without a real actionId (EXP-530)`, async () => {
