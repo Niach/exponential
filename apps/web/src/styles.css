@@ -915,6 +915,13 @@ html {
   flex-shrink: 0;
 }
 
+/* EXP-587: the static insert strip under a desktop editor (emoji / image /
+   attach). Rail buttons, no chrome: it reads as part of the text box. */
+.editor-insert-bar {
+  margin-top: 2px;
+  padding: 0;
+}
+
 /* The link mode's URL field — the rail's only text input. */
 .rail-link-input {
   width: 12rem;
