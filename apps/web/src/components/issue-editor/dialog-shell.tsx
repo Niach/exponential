@@ -68,10 +68,13 @@ interface IssueEditorDialogShellProps {
   dialogTestId?: string
   dueDate: Date | undefined
   editorRef?: Ref<MarkdownEditorRef>
-  footer: ReactNode
+  footer?: ReactNode
   formProps?: ComponentPropsWithoutRef<`form`>
   headerContent: ReactNode
   chipRowExtras?: ReactNode
+  // Right-aligned slot in the desktop chip row (EXP-586: the create dialog's
+  // submit button lives here instead of a footer).
+  chipRowAction?: ReactNode
   hideAssignee?: boolean
   hideDueDateChip?: boolean
   disableStatus?: boolean
@@ -95,10 +98,8 @@ interface IssueEditorDialogShellProps {
   open: boolean
   primaryAction?: PrimaryAction
   // Mobile renders properties as a native-style card of full-width rows
-  // inside the scroll region (EXP-247); "Create more" lives in that card, so
-  // the caller threads its state here and passes a slimmer `mobileFooter`.
-  createMore?: boolean
-  onCreateMoreChange?: (checked: boolean) => void
+  // inside the scroll region (EXP-247); callers may pass a slimmer
+  // `mobileFooter`.
   mobileFooter?: ReactNode
   priority: IssuePriority
   boardColor: string
@@ -128,6 +129,7 @@ export function IssueEditorDialogShell({
   dueDate,
   editorRef,
   chipRowExtras,
+  chipRowAction,
   footer,
   formProps,
   headerContent,
@@ -149,8 +151,6 @@ export function IssueEditorDialogShell({
   onToggleLabel,
   open,
   primaryAction,
-  createMore,
-  onCreateMoreChange,
   mobileFooter,
   priority,
   boardColor,
@@ -323,8 +323,6 @@ export function IssueEditorDialogShell({
             hideDueDateChip={hideDueDateChip}
             disableStatus={disableStatus}
             disabled={disabled}
-            createMore={createMore}
-            onCreateMoreChange={onCreateMoreChange}
             onStatusChange={onStatusChange}
             onPriorityChange={onPriorityChange}
             onAssigneeChange={onAssigneeChange}
@@ -407,6 +405,9 @@ export function IssueEditorDialogShell({
 
       <div className="flex items-center gap-1 px-4 py-2 border-t border-border">
         {chipNodes}
+        {chipRowAction ? (
+          <div className="ml-auto shrink-0 pl-2">{chipRowAction}</div>
+        ) : null}
       </div>
 
       {footer}

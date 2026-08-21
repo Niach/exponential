@@ -9,8 +9,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Switch } from "@/components/ui/switch"
-import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -33,9 +31,7 @@ import {
   type StatusRowOption,
 } from "@/lib/team-statuses"
 import {
-  extractMarkdownImageOccurrences,
   collectMarkdownImageUrls,
-  removeMarkdownImageByOccurrence,
   removeMarkdownImagesByUrl,
   replaceMarkdownImageUrls,
 } from "@/lib/storage/issue-attachments"
@@ -127,7 +123,6 @@ export function CreateIssueDialog({
   const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([])
   const [assigneeId, setAssigneeId] = useState<string | null>(null)
   const [dueDate, setDueDate] = useState<Date | undefined>()
-  const [createMore, setCreateMore] = useState(false)
   const [attachmentStatus, setAttachmentStatus] = useState<string | null>(null)
   const [draftImages, setDraftImages] = useState<DraftImage[]>([])
   // EXP-297: non-image attachments queued locally and uploaded (sequentially)
@@ -166,7 +161,7 @@ export function CreateIssueDialog({
 
   // In a solo team (exactly one human member) the assignee control is
   // hidden and new issues default to the sole member — mirrors the server's
-  // default assignment so optimistic UI + "Create more" resets stay correct.
+  // default assignment so optimistic UI + field resets stay correct.
   // `users` is the bot-excluded team member list; length 0 means the list
   // is still loading (never a genuine empty), so it never flags multi-member
   // teams as solo.
@@ -310,8 +305,7 @@ export function CreateIssueDialog({
   const handleClose = () => {
     setDiscardConfirmOpen(false)
     resetFields()
-    // Follow the caller's board again on the next open ("Create more" keeps
-    // the picked board for the batch).
+    // Follow the caller's board again on the next open.
     setPickedBoardId(null)
     onOpenChange(false)
   }
@@ -454,12 +448,6 @@ export function CreateIssueDialog({
         return
       }
 
-      if (createMore) {
-        resetFields()
-        titleRef.current?.focus()
-        return
-      }
-
       handleClose()
     } catch (error) {
       setAttachmentStatus(
@@ -472,18 +460,6 @@ export function CreateIssueDialog({
   const dialogDisabled = submitPhase !== `idle`
   const closeDisabled =
     submitPhase === `creating` || submitPhase === `uploading`
-  const imageOccurrences = extractMarkdownImageOccurrences(description)
-
-  const handleRemoveImageOccurrence = (occurrenceIndex: number) => {
-    const nextDescription = removeMarkdownImageByOccurrence(
-      descriptionRef.current,
-      occurrenceIndex
-    )
-
-    editorRef.current?.setMarkdown(nextDescription)
-    setDescriptionValue(nextDescription)
-    setAttachmentStatus(null)
-  }
 
   const displayPrefix = selectedBoard?.prefix ?? boardPrefix
   const boardPicker =
@@ -569,38 +545,18 @@ export function CreateIssueDialog({
         hideAssignee={isSolo}
         dueDate={dueDate}
         onDueDateSelect={setDueDate}
-        createMore={createMore}
-        onCreateMoreChange={setCreateMore}
-        mobileFooter={
-          submitPhase === `created_with_image_errors` ? (
-            <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-border">
-              <span className="text-xs text-destructive">
-                {attachmentStatus}
-              </span>
-              <Button
-                type="button"
-                variant="outline"
-                size="xs"
-                onClick={handleClose}
-              >
-                Close
-              </Button>
-            </div>
-          ) : (
-            // Submit lives in the header FAB and "Create more" in the property
-            // card, so the mobile footer is just the attachment rail.
-            <div className="px-4 py-3 border-t border-border">
-              <IssueEditorAttachmentRail
-                attachmentStatus={attachmentStatus}
-                files={draftFiles}
-                images={imageOccurrences}
-                onRemove={handleRemoveImageOccurrence}
-                onRemoveFile={handleRemoveDraftFile}
-                uploading={submitPhase === `uploading`}
-                disabled={closeDisabled}
-              />
-            </div>
-          )
+        chipRowAction={
+          <Button
+            type="submit"
+            disabled={!title.trim() || closeDisabled}
+            className="inline-flex items-center justify-center rounded-full bg-brand-strong px-3 text-xs font-medium text-brand-foreground transition-colors hover:bg-brand-strong/90 disabled:pointer-events-none disabled:opacity-50 h-7"
+          >
+            {submitPhase === `uploading`
+              ? `Uploading images...`
+              : submitPhase === `creating`
+                ? `Creating...`
+                : `Create issue`}
+          </Button>
         }
         footer={
           submitPhase === `created_with_image_errors` ? (
@@ -617,51 +573,21 @@ export function CreateIssueDialog({
                 Close
               </Button>
             </div>
-          ) : (
-            <div className="flex items-center justify-between px-4 py-3 border-t border-border">
-              <div className="min-w-0 flex-1">
-                <IssueEditorAttachmentRail
-                  attachmentStatus={attachmentStatus}
-                  files={draftFiles}
-                  images={imageOccurrences}
-                  onRemove={handleRemoveImageOccurrence}
-                  onRemoveFile={handleRemoveDraftFile}
-                  uploading={submitPhase === `uploading`}
-                  disabled={closeDisabled}
-                />
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-2">
-                  <Switch
-                    id="create-more"
-                    size="sm"
-                    checked={createMore}
-                    disabled={closeDisabled}
-                    onCheckedChange={(checked) =>
-                      setCreateMore(checked === true)
-                    }
-                  />
-                  <Label
-                    htmlFor="create-more"
-                    className="text-xs text-muted-foreground cursor-pointer select-none"
-                  >
-                    Create more
-                  </Label>
-                </div>
-                <Button
-                  type="submit"
-                  disabled={!title.trim() || closeDisabled}
-                  className="inline-flex items-center justify-center rounded-full bg-brand-strong px-3 text-xs font-medium text-brand-foreground transition-colors hover:bg-brand-strong/90 disabled:pointer-events-none disabled:opacity-50 h-7"
-                >
-                  {submitPhase === `uploading`
-                    ? `Uploading images...`
-                    : submitPhase === `creating`
-                      ? `Creating...`
-                      : `Create issue`}
-                </Button>
-              </div>
+          ) : draftFiles.length > 0 || attachmentStatus ? (
+            // EXP-586: images live inline in the description only; the footer
+            // row exists solely for queued non-image files and errors, and
+            // disappears when there are none. Submit sits in the chip row
+            // (desktop) or the header FAB (mobile).
+            <div className="px-4 py-3 border-t border-border">
+              <IssueEditorAttachmentRail
+                attachmentStatus={attachmentStatus}
+                files={draftFiles}
+                onRemoveFile={handleRemoveDraftFile}
+                uploading={submitPhase === `uploading`}
+                disabled={closeDisabled}
+              />
             </div>
-          )
+          ) : null
         }
       />
 

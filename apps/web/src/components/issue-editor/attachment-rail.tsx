@@ -1,53 +1,30 @@
 import { X } from "lucide-react"
 import { formatAttachmentSize, getAttachmentIcon } from "@/lib/attachment-files"
 import type { DraftFile } from "@/lib/create-issue-helpers"
-import type { MarkdownImageOccurrence } from "@/lib/storage/issue-attachments"
 import { cn } from "@/lib/utils"
 
 interface IssueEditorAttachmentRailProps {
   attachmentStatus?: string | null
   disabled?: boolean
   // EXP-297: non-image files queued for upload after the issue is created.
-  files?: DraftFile[]
-  images: MarkdownImageOccurrence[]
-  onRemove?: (occurrenceIndex: number) => void
+  files: DraftFile[]
   onRemoveFile?: (draftFileId: string) => void
   uploading?: boolean
-}
-
-function getAttachmentLabel(image: MarkdownImageOccurrence) {
-  if (image.alt.trim()) {
-    return image.alt.trim()
-  }
-
-  const filename = image.url.split(`/`).pop()?.split(`?`)[0]
-  return filename || `Image ${image.occurrenceIndex + 1}`
 }
 
 const chipClassName = `group flex shrink-0 items-center gap-1 rounded-md border border-glass-stroke-card bg-glass-section py-1 pr-1.5 pl-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition-colors hover:border-glass-stroke-active hover:bg-glass-card`
 
 // EXP-335: display-only — the pickers live in the editor's formatting toolbar
-// now (image + attach-file buttons), so the rail is just the draft chips and
-// the trailing count.
+// (image + attach-file buttons). EXP-586: images render inline in the
+// description only, so the rail carries just the queued non-image file chips
+// (no image chips, no count).
 export function IssueEditorAttachmentRail({
   attachmentStatus,
   disabled,
   files,
-  images,
-  onRemove,
   onRemoveFile,
   uploading,
 }: IssueEditorAttachmentRailProps) {
-  const draftFiles = files ?? []
-  const countLabel = [
-    `${images.length} image${images.length === 1 ? `` : `s`}`,
-    draftFiles.length > 0
-      ? `${draftFiles.length} file${draftFiles.length === 1 ? `` : `s`}`
-      : null,
-  ]
-    .filter(Boolean)
-    .join(`, `)
-  const removable = !disabled && typeof onRemove === `function`
   const fileRemovable = !disabled && typeof onRemoveFile === `function`
 
   return (
@@ -63,40 +40,7 @@ export function IssueEditorAttachmentRail({
         ) : (
           <>
             <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto py-0.5 pr-1">
-              {images.map((image) => {
-                const label = getAttachmentLabel(image)
-
-                return (
-                  <div
-                    key={`${image.occurrenceIndex}-${image.url}-${image.start}`}
-                    className={cn(
-                      chipClassName,
-                      removable ? `cursor-default` : `opacity-90`
-                    )}
-                    data-testid={`issue-attachment-chip-${image.occurrenceIndex}`}
-                  >
-                    <img
-                      src={image.url}
-                      alt=""
-                      className="h-7 w-7 shrink-0 rounded-[6px] border border-glass-stroke-card object-cover"
-                    />
-                    <span className="max-w-24 truncate text-xs text-foreground/88">
-                      {label}
-                    </span>
-                    {removable ? (
-                      <button
-                        type="button"
-                        className="flex size-5 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-glass-active hover:text-foreground"
-                        aria-label={`Remove attachment ${label}`}
-                        onClick={() => onRemove?.(image.occurrenceIndex)}
-                      >
-                        <X className="size-3" />
-                      </button>
-                    ) : null}
-                  </div>
-                )
-              })}
-              {draftFiles.map((draftFile) => {
+              {files.map((draftFile) => {
                 const Icon = getAttachmentIcon(draftFile.file.type)
 
                 return (
@@ -131,9 +75,11 @@ export function IssueEditorAttachmentRail({
                 )
               })}
             </div>
-            <span className="shrink-0 text-xs text-muted-foreground">
-              {uploading ? `Uploading...` : countLabel}
-            </span>
+            {uploading ? (
+              <span className="shrink-0 text-xs text-muted-foreground">
+                Uploading...
+              </span>
+            ) : null}
           </>
         )}
       </div>
