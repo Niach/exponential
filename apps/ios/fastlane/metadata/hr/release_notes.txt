@@ -1,42 +1,12 @@
 Sve od verzije 0.14.0:
 
-Coding sesije
-- Na upite agenta za dopuštenja i odobrenja odgovaraš izravno s telefona, umjesto da čekaš povratak za računalo
-- Priloži snimke zaslona i slike u živu coding sesiju
-- Pokreni rad na više zadataka odjednom (skupna izvođenja) iz dijaloga Start coding, koji sada unaprijed popunjava model, razinu truda, plan način rada i zadane dozvole odabranog računala
-- Dok je računalo offline, sesija se prikazuje kao pauzirana i nastavlja se s bilo kojeg mjesta
-- Prijavi agenta u CLI na daljinu kad sesija to zatraži
-- Riješi konflikte spajanja s telefona pomoću akcije Fix merge conflicts
-- Dugi feedovi aktivnosti više ne zamrzavaju aplikaciju, a gumb Jump to bottom pouzdano nestaje na kraju feeda
-- Slobodno pisani odgovori za usmjeravanje ograničeni su na 4000 znakova uz vidljivi brojač, umjesto da se tiho odbace
-
-Actions i Automations
-- Dodaj akciji raspored ili okidač na događaj u zadatku i jedno od tvojih računala pokreće je samo
-- Actions s karticama za automatizacije, prijedloge i ujednačenim rasporedom
-
-Računala
-- Svako računalo ima svoje postavke: preimenuj ga, podijeli s timom, uredi zadane postavke agenta i dok je offline te upravljaj njegovim worktreejevima na daljinu
-- Računala sa zastarjelim daemonom prikazuju gumb za ažuriranje jednim klikom
-
-Pisanje
-- Birač emojija i :shortcode automatsko dovršavanje u opisima i komentarima
-- Priloži slike i datoteke komentarima
-- Traka za oblikovanje u uređivaču; Clear formatting i prebacivanje naslova čuvaju podebljano i kurziv
-- Upisom # otvara se izbornik zadataka sa statusom, identifikatorom i naslovom, a reference na zadatke prikazuju se kao živi statusni čipovi
-
-Zadaci i ploče
-- Odabir izvršitelja na stranici zadatka
-- Arhiviraj ploče koje si završio i preimenuj ih na licu mjesta
-- Popisi zadataka grupiraju statuse istim redoslijedom kao stranica postavki i uredno pribadaju zaglavlja statusa
-- Na iOS-u 26 popisi zadataka naliježu tik ispod navigacijske trake, bez svijetle trake iznad prvog zaglavlja statusa
-- Kompaktna paleta ikona za ploče i akcije
-- Popis prvih koraka koji se sam dovršava
-
-Postavke tima
-- Poveži vlastite GitHub repozitorije i podijeli ih s timom; zastarjeli GitHub računi dobivaju gumb Disconnect
-- Postavke tima i računa na jednoj stranici, sa samoposlužnim odjeljkom za osobne API ključeve
-
-Još
-- Paneli, popisi i kartice animiraju se istim tempom
-- Ispravljena odjava pri svakom pokretanju nakon ažuriranja
-- Val popravaka stabilnosti, performansi i ispravnosti u cijeloj aplikaciji
+- Odgovaraj na agentova pitanja o dopuštenjima s mobitela umjesto da se vraćaš računalu
+- Priloži screenshotove živoj sesiji kodiranja i pokreni kodiranje na više zadataka odjednom
+- Sesije se prikazuju kao pauzirane dok im je računalo offline i nastavljaju se bilo gdje
+- Dodaj akciji raspored ili okidač i jedno od tvojih računala pokreće je samo
+- Upravljaj svakim računalom iz aplikacije: preimenuj ga, podijeli ga s timom, počisti mu worktreeove
+- Emoji picker, slike i datoteke u komentarima te traka za formatiranje u editoru
+- Upiši # da povežeš zadatak; reference se prikazuju kao žive oznake statusa
+- Odabir izvršitelja, boardovi koji se mogu arhivirati i checklista za početak
+- Poveži vlastite GitHub repozitorije i podijeli ih s timom
+- Popravljeno odjavljivanje pri svakom pokretanju plus val popravaka stabilnosti i performansi

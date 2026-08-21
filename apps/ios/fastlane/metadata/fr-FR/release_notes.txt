@@ -1,42 +1,12 @@
-Toutes les nouveautés depuis la 0.14.0 :
+Tout depuis la 0.14.0 :
 
-Sessions de code
-- Répondez aux demandes d'autorisation et de validation de l'agent depuis votre téléphone, sans attendre d'être revenu devant votre machine
-- Joignez des captures et des images à une session de code en cours
-- Lancez plusieurs issues d'un coup (exécutions groupées) depuis la fenêtre Start coding, qui pré-remplit désormais le modèle, l'effort, le mode plan et les autorisations par défaut de la machine choisie
-- Les sessions s'affichent en pause tant que leur machine est hors ligne, et reprennent depuis n'importe où
-- Connectez le CLI de l'agent à distance quand une session le demande
-- Résolvez les conflits de fusion depuis votre téléphone avec l'action Fix merge conflicts
-- Les longs fils d'activité ne bloquent plus l'application, et la pastille Jump to bottom disparaît bien à la fin du fil
-- Les réponses libres de pilotage sont limitées à 4000 caractères, avec un compteur visible au lieu d'être perdues en silence
-
-Actions et Automations
-- Donnez à une action une planification ou un déclencheur lié aux issues, et l'une de vos machines l'exécute toute seule
-- Espace Actions à onglets, avec les automations, les suggestions et une mise en page uniforme
-
-Machines
-- Chaque machine a sa vue de réglages : renommez-la, partagez-la avec votre équipe, modifiez ses réglages d'agent par défaut même hors ligne et gérez ses worktrees à distance
-- Les machines dont le daemon est obsolète affichent un bouton de mise à jour en un clic
-
-Écriture
-- Sélecteur d'emoji et autocomplétion :shortcode dans les descriptions et les commentaires
-- Joignez des images et des fichiers aux commentaires
-- Une barre de mise en forme dans l'éditeur ; Clear formatting et les bascules de titre préservent le gras et l'italique
-- Taper # ouvre un menu d'issues avec statut, identifiant et titre, et les références d'issue s'affichent en pastilles de statut en direct
-
-Issues et boards
-- Sélecteur d'assigné sur la page de l'issue
-- Archivez les boards terminés et renommez-les sur place
-- Les listes d'issues groupent les statuts dans le même ordre que votre page de réglages et épinglent proprement les en-têtes de statut
-- Sur iOS 26, les listes d'issues se calent sous la barre de navigation, sans bande claire au-dessus du premier en-tête de statut
-- Sélecteur d'icônes compact pour les boards et les actions
-- Une liste de démarrage qui se coche toute seule
-
-Réglages d'équipe
-- Connectez vos propres dépôts GitHub et partagez-les avec l'équipe ; les comptes GitHub obsolètes ont un bouton Disconnect
-- Réglages d'équipe et de compte réunis sur une page, avec une section en libre-service pour les clés d'API personnelles
-
-Aussi
-- Panneaux, listes et onglets s'animent sur un même rythme
-- Correction de la déconnexion à chaque relancement après une mise à jour
-- De nombreux correctifs de stabilité, de performance et de justesse dans toute l'application
+- Répondez aux demandes d'autorisation de l'agent depuis votre téléphone, sans retourner à la machine
+- Ajoutez des captures à une session de code en cours et lancez plusieurs issues à la fois
+- Les sessions passent en pause quand leur machine est hors ligne, et reprennent de partout
+- Donnez un horaire ou un déclencheur à une action : une de vos machines l'exécute toute seule
+- Gérez chaque machine depuis l'app : renommer, partager avec l'équipe, nettoyer ses worktrees
+- Sélecteur d'emoji, images et fichiers joints aux commentaires, barre de mise en forme dans l'éditeur
+- Tapez # pour lier une issue ; les références s'affichent en puces de statut en direct
+- Sélecteur d'assigné, boards archivables et une checklist de démarrage
+- Connectez vos propres dépôts GitHub et partagez-les avec l'équipe
+- Correction de la déconnexion à chaque lancement, plus de nombreux correctifs de stabilité et de performance

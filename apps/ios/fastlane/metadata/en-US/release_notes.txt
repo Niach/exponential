@@ -1,42 +1,12 @@
 Everything since 0.14.0:
 
-Coding sessions
-- Answer agent permission and approval prompts right from your phone instead of waiting until you are back at the machine
-- Attach screenshots and images to a live coding session
-- Start coding on several issues at once (batch runs) from the Start coding dialog, which now pre-fills the model, effort, plan mode and permission defaults of the machine you pick
+- Answer agent permission prompts from your phone instead of walking back to the machine
+- Attach screenshots to a live coding session, and start coding on several issues at once
 - Sessions show as paused while their machine is offline, and resume from anywhere
-- Sign the agent CLI in remotely when a session asks for it
-- Resolve merge conflicts from your phone with the Fix merge conflicts action
-- Long activity feeds no longer freeze the app, and the Jump to bottom pill hides reliably at the end of the feed
-- Free-text steering replies are capped at 4000 characters with a visible counter instead of being dropped silently
-
-Actions and automations
-- Give an action a schedule or an issue-event trigger and one of your machines runs it on its own
-- Tabbed Actions surface with automations, suggestions and a uniform layout
-
-Machines
-- Every machine gets a settings view: rename it, share it with your team, edit its agent defaults even while it is offline, and manage its worktrees remotely
-- Machines with an outdated daemon show a one-click update button
-
-Writing
-- Emoji picker and :shortcode autocomplete in descriptions and comments
-- Attach images and files to comments
-- A formatting rail in the editor; Clear formatting and heading toggles keep your bold and italic marks
-- Typing # opens an issue menu with status, identifier and title, and issue references render as live status chips
-
-Issues and boards
-- Assignee picker on the issue page
-- Archive boards you are done with, and rename them in place
-- Issue lists group statuses in the same order as your settings page and pin their status headers cleanly
-- Issue lists sit flush under the navigation bar on iOS 26, no more light band above the first status header
-- Compact icon swatch for board and action icons
-- A getting-started checklist that finishes itself
-
-Team settings
-- Connect your own GitHub repos and share them with the team; stale GitHub accounts get a Disconnect button
-- Team and account settings on one page, with a self-service section for personal API keys
-
-Also
-- Panels, lists and tabs animate with one shared timing
-- Fixed being logged out on every relaunch after an update
-- A wave of stability, performance and correctness fixes across the app
+- Give an action a schedule or a trigger and one of your machines runs it on its own
+- Manage every machine from the app: rename it, share it with your team, tidy its worktrees
+- Emoji picker, image and file attachments on comments, and a formatting rail in the editor
+- Type # to link an issue; references render as live status chips
+- Assignee picker, archivable boards, and a getting-started checklist
+- Connect your own GitHub repos and share them with the team
+- Fixed being logged out on every relaunch, plus a wave of stability and performance fixes

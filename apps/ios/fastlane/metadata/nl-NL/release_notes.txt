@@ -1,42 +1,12 @@
 Alles sinds 0.14.0:
 
-Codeersessies
-- Beantwoord vragen van de agent over rechten en goedkeuringen direct vanaf je telefoon, in plaats van te wachten tot je weer achter je machine zit
-- Voeg screenshots en afbeeldingen toe aan een lopende codeersessie
-- Begin met coderen aan meerdere issues tegelijk (batchruns) vanuit het Start coding-venster, dat nu het model, het effortniveau, de planmodus en de standaardrechten van de gekozen machine alvast invult
-- Sessies staan op pauze zolang hun machine offline is en je hervat ze vanaf elke plek
-- Log de agent-CLI op afstand in wanneer een sessie daarom vraagt
-- Los merge-conflicten op vanaf je telefoon met de actie Fix merge conflicts
-- Lange activiteitenfeeds laten de app niet meer vastlopen en de Jump to bottom-knop verdwijnt betrouwbaar onderaan de feed
-- Vrije-tekstantwoorden om bij te sturen zijn beperkt tot 4000 tekens met een zichtbare teller, in plaats van stilletjes te verdwijnen
-
-Actions en Automations
-- Geef een action een schema of een trigger op issue-gebeurtenissen en een van je machines voert hem zelf uit
-- Actions-scherm met tabbladen voor automations, suggesties en een uniforme opmaak
-
-Machines
-- Elke machine heeft nu een instellingenscherm: hernoem hem, deel hem met je team, pas de standaardinstellingen van de agent aan (ook als hij offline is) en beheer zijn worktrees op afstand
-- Machines met een verouderde daemon tonen een updateknop met één klik
-
-Schrijven
-- Emoji-kiezer en :shortcode-aanvulling in omschrijvingen en reacties
-- Voeg afbeeldingen en bestanden toe aan reacties
-- Een opmaakbalk in de editor; Clear formatting en de kopknoppen laten je vet en cursief intact
-- Typ # voor een issuemenu met status, identifier en titel, en issueverwijzingen verschijnen als live statuslabels
-
-Issues en boards
-- Kies de toegewezen persoon direct op de issuepagina
-- Archiveer boards die je niet meer nodig hebt en hernoem ze ter plekke
-- Issuelijsten groeperen statussen in dezelfde volgorde als je instellingenpagina en zetten de statuskoppen netjes vast
-- Issuelijsten sluiten op iOS 26 naadloos aan op de navigatiebalk, zonder lichte band boven de eerste statuskop
-- Compacte icoonkiezer voor board- en action-iconen
-- Een startchecklist die zichzelf afvinkt
-
-Teaminstellingen
-- Koppel je eigen GitHub-repo's en deel ze met je team; verouderde GitHub-accounts krijgen een Disconnect-knop
-- Team- en accountinstellingen op één pagina, met een selfservicegedeelte voor persoonlijke API-sleutels
-
-Verder
-- Panelen, lijsten en tabbladen animeren met dezelfde timing
-- Opgelost: na een update werd je bij elke herstart uitgelogd
-- Een reeks verbeteringen in stabiliteit, prestaties en correctheid door de hele app
+- Beantwoord permissievragen van je agent vanaf je telefoon, zonder terug naar je machine te lopen
+- Voeg screenshots toe aan een lopende codeersessie en start coding op meerdere issues tegelijk
+- Sessies staan op pauze zolang hun machine offline is, en hervatten waar je ook bent
+- Geef een actie een schema of een trigger en een van je machines draait hem vanzelf
+- Beheer al je machines in de app: hernoemen, delen met je team, worktrees opruimen
+- Emoji-kiezer, afbeeldingen en bestanden bij reacties, en een opmaakbalk in de editor
+- Typ # om een issue te linken; verwijzingen tonen live statuschips
+- Kiezer voor toegewezen persoon, archiveerbare boards en een checklist om te starten
+- Koppel je eigen GitHub-repo's en deel ze met je team
+- Opgelost: uitgelogd worden bij elke herstart, plus een reeks stabiliteits- en prestatiefixes

@@ -1,42 +1,12 @@
-Tot ce s-a schimbat de la 0.14.0:
+Tot ce e nou de la 0.14.0:
 
-Sesiuni de coding
-- Răspunzi la cererile de permisiune și aprobare ale agentului direct de pe telefon, fără să aștepți până revii la calculator
-- Atașezi capturi de ecran și imagini într-o sesiune de coding activă
-- Pornești lucrul la mai multe tichete deodată (rulări în lot) din dialogul Start coding, care precompletează acum modelul, nivelul de efort, modul plan și permisiunile implicite ale calculatorului ales
-- Cât timp calculatorul e offline, sesiunea apare ca pusă pe pauză și o reiei de oriunde
-- Autentifici agentul în CLI de la distanță atunci când sesiunea îți cere asta
-- Rezolvi conflictele de merge de pe telefon cu acțiunea Fix merge conflicts
-- Fluxurile lungi de activitate nu mai blochează aplicația, iar butonul Jump to bottom dispare fiabil la finalul fluxului
-- Răspunsurile libere de îndrumare au o limită de 4000 de caractere, cu un contor vizibil, în loc să fie pierdute în tăcere
-
-Actions și Automations
-- Îi dai unei acțiuni un program sau un declanșator legat de evenimentele unui tichet și unul dintre calculatoarele tale o rulează singur
-- Secțiunea Actions cu file pentru automatizări, sugestii și un aspect unitar
-
-Calculatoare
-- Fiecare calculator are propriile setări: îl redenumești, îl partajezi cu echipa, îi editezi valorile implicite ale agentului chiar și offline și îi administrezi worktree-urile de la distanță
-- Calculatoarele cu un daemon învechit afișează un buton de actualizare cu un singur clic
-
-Scriere
-- Selector de emoji și autocompletare :shortcode în descrieri și comentarii
-- Atașezi imagini și fișiere la comentarii
-- Bară de formatare în editor; Clear formatting și comutarea titlurilor păstrează textul aldin și cursiv
-- Dacă tastezi # se deschide un meniu de tichete cu status, identificator și titlu, iar referințele la tichete apar ca etichete de status live
-
-Tichete și panouri
-- Selector de responsabil pe pagina tichetului
-- Arhivezi panourile pe care le-ai terminat și le redenumești pe loc
-- Listele de tichete grupează statusurile în aceeași ordine ca pagina de setări și fixează curat antetele de status
-- Pe iOS 26 listele de tichete stau lipite sub bara de navigare, fără banda deschisă la culoare de deasupra primului antet de status
-- Paletă compactă de pictograme pentru panouri și acțiuni
-- O listă de pași inițiali care se completează singură
-
-Setările echipei
-- Îți conectezi propriile depozite GitHub și le partajezi cu echipa; conturile GitHub vechi primesc un buton Disconnect
-- Setările echipei și ale contului pe o singură pagină, cu o secțiune self-service pentru cheile API personale
-
-De asemenea
-- Panourile, listele și filele se animă cu aceeași sincronizare
-- Rezolvată deconectarea la fiecare pornire după o actualizare
-- Un val de corecții de stabilitate, performanță și acuratețe în toată aplicația
+- Răspunde de pe telefon la cererile de permisiune ale agentului, fără să te întorci la calculator
+- Atașează capturi de ecran unei sesiuni de cod live și pornește lucrul la mai multe taskuri deodată
+- Sesiunile apar ca puse pe pauză cât timp calculatorul lor e offline și se reiau de oriunde
+- Dă-i unei acțiuni un program sau un declanșator și unul dintre calculatoarele tale o rulează singur
+- Gestionează fiecare calculator din aplicație: redenumește-l, partajează-l cu echipa, curăță-i worktree-urile
+- Selector de emoji, imagini și fișiere atașate la comentarii și o bară de formatare în editor
+- Scrie # ca să legi un task; referințele apar ca badge-uri de status live
+- Selector de asignat, board-uri arhivabile și un checklist de start
+- Conectează-ți propriile repo-uri GitHub și partajează-le cu echipa
+- Rezolvată deconectarea la fiecare repornire, plus un val de îmbunătățiri de stabilitate și performanță

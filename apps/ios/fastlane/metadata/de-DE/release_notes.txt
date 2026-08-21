@@ -1,42 +1,12 @@
 Alles seit 0.14.0:
 
-Coding-Sessions
-- Berechtigungs- und Freigabeanfragen des Agents direkt vom Handy beantworten, statt zu warten, bis du wieder am Rechner bist
-- Screenshots und Bilder an eine laufende Coding-Session anhängen
-- Mit Start coding mehrere Issues auf einmal starten (Batch-Läufe); der Dialog übernimmt jetzt Modell, Effort, Plan-Modus und Berechtigungs-Voreinstellungen des gewählten Rechners
-- Sessions werden als pausiert angezeigt, solange ihr Rechner offline ist, und laufen von überall weiter
-- Die Agent-CLI aus der Ferne anmelden, wenn eine Session danach fragt
-- Merge-Konflikte per Fix merge conflicts direkt vom Handy lösen
-- Lange Aktivitätsfeeds legen die App nicht mehr lahm, und die Jump to bottom-Pille verschwindet am Ende des Feeds zuverlässig
-- Freitext-Antworten beim Steuern sind auf 4000 Zeichen begrenzt, mit sichtbarem Zähler statt stillem Verwerfen
-
-Actions und Automations
-- Einer Action einen Zeitplan oder einen Issue-Trigger geben, und einer deiner Rechner führt sie von selbst aus
-- Actions-Bereich mit Tabs für Automations, Vorschläge und einheitlichem Layout
-
-Rechner
-- Jeder Rechner hat jetzt eine eigene Einstellungsansicht: umbenennen, mit dem Team teilen, Agent-Voreinstellungen auch im Offline-Zustand ändern und Worktrees aus der Ferne verwalten
-- Rechner mit veraltetem Daemon zeigen einen Update-Button für einen Klick
-
-Schreiben
-- Emoji-Picker und :shortcode-Autovervollständigung in Beschreibungen und Kommentaren
-- Bilder und Dateien an Kommentare anhängen
-- Formatierungsleiste im Editor; Clear formatting und die Überschriften-Umschalter erhalten Fett- und Kursivmarkierungen
-- Ein # öffnet ein Issue-Menü mit Status, Identifier und Titel; Issue-Verweise erscheinen als Live-Status-Chips
-
-Issues und Boards
-- Auswahl der zuständigen Person auf der Issue-Seite
-- Erledigte Boards archivieren und direkt umbenennen
-- Issue-Listen gruppieren Status in derselben Reihenfolge wie deine Einstellungen und heften die Status-Überschriften sauber an
-- Issue-Listen schließen unter iOS 26 bündig an die Navigationsleiste an, kein heller Streifen mehr über der ersten Status-Überschrift
-- Kompakte Icon-Auswahl für Board- und Action-Icons
-- Eine Erste-Schritte-Checkliste, die sich selbst abhakt
-
-Team-Einstellungen
-- Eigene GitHub-Repos verbinden und mit dem Team teilen; veraltete GitHub-Konten bekommen einen Disconnect-Button
-- Team- und Kontoeinstellungen auf einer Seite, mit einem Self-Service-Bereich für persönliche API-Keys
-
-Außerdem
-- Panels, Listen und Tabs animieren jetzt im selben Rhythmus
-- Behoben: Abmeldung bei jedem Neustart nach einem Update
-- Viele Verbesserungen bei Stabilität, Performance und Korrektheit in der ganzen App
+- Beantworte Berechtigungsfragen deines Agents vom Handy, statt zum Rechner zu laufen
+- Häng Screenshots an eine laufende Coding-Session und starte mehrere Issues auf einmal
+- Sessions gelten als pausiert, solange ihr Rechner offline ist, und laufen überall weiter
+- Gib einer Action einen Zeitplan oder Trigger, und einer deiner Rechner führt sie selbst aus
+- Verwalte jeden Rechner in der App: umbenennen, mit dem Team teilen, Worktrees aufräumen
+- Emoji-Picker, Bild- und Dateianhänge in Kommentaren und eine Formatierungsleiste im Editor
+- Tippe #, um ein Issue zu verlinken; Referenzen werden zu Live-Status-Chips
+- Zuweisungs-Picker, archivierbare Boards und eine Checkliste für den Einstieg
+- Verbinde eigene GitHub-Repos und teile sie mit dem Team
+- Behoben: Logout bei jedem Neustart, dazu viele Stabilitäts- und Performance-Fixes

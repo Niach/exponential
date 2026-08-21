@@ -1,42 +1,12 @@
-Tudo o que chegou desde a 0.14.0:
+Tudo desde a 0.14.0:
 
-Sessões de código
-- Responde aos pedidos de permissão e aprovação do agente a partir do telemóvel, sem esperares até voltares à máquina
-- Anexa capturas de ecrã e imagens a uma sessão de código em curso
-- Começa a programar em vários issues ao mesmo tempo (execuções em lote) a partir da janela Start coding, que agora preenche o modelo, o nível de esforço, o modo de plano e as permissões predefinidas da máquina que escolheres
-- As sessões ficam em pausa enquanto a máquina está offline e retomam a partir de qualquer lado
-- Inicia sessão no CLI do agente à distância quando uma sessão o pedir
-- Resolve conflitos de merge a partir do telemóvel com a ação Fix merge conflicts
-- Feeds de atividade longos deixaram de bloquear a app e o botão Jump to bottom desaparece de forma fiável no fim do feed
-- As respostas de texto livre para orientar o agente têm um limite de 4000 caracteres com contador visível, em vez de serem descartadas em silêncio
-
-Actions e Automations
-- Dá a uma action um agendamento ou um acionador por eventos de issues e uma das tuas máquinas executa-a sozinha
-- Área Actions com separadores para automations, sugestões e um esquema uniforme
-
-Máquinas
-- Cada máquina passa a ter um ecrã de definições: muda-lhe o nome, partilha-a com a equipa, edita as predefinições do agente mesmo com ela offline e faz a gestão remota das suas worktrees
-- Máquinas com um daemon desatualizado mostram um botão de atualização com um clique
-
-Escrita
-- Seletor de emojis e conclusão automática de :shortcode nas descrições e nos comentários
-- Anexa imagens e ficheiros aos comentários
-- Barra de formatação no editor; Clear formatting e os botões de título mantêm o negrito e o itálico
-- Escreve # para abrir um menu de issues com estado, identificador e título; as referências a issues aparecem como etiquetas de estado em direto
-
-Issues e boards
-- Seletor de responsável na página do issue
-- Arquiva os boards que já não usas e muda-lhes o nome no mesmo sítio
-- As listas de issues agrupam os estados pela mesma ordem da página de definições e fixam os cabeçalhos de estado sem falhas
-- No iOS 26, as listas de issues encostam à barra de navegação, sem a faixa clara por cima do primeiro cabeçalho de estado
-- Seletor de ícones compacto para boards e actions
-- Uma lista de primeiros passos que se completa sozinha
-
-Definições da equipa
-- Liga os teus repositórios GitHub e partilha-os com a equipa; as contas GitHub obsoletas passam a ter um botão Disconnect
-- Definições da equipa e da conta numa só página, com uma secção self-service para chaves de API pessoais
-
-Também
-- Painéis, listas e separadores animam com a mesma cadência
-- Corrigida a sessão que terminava a cada reabertura da app depois de uma atualização
-- Uma vaga de correções de estabilidade, desempenho e comportamento em toda a app
+- Responde aos pedidos de permissão do agente pelo telemóvel, sem voltar à máquina
+- Anexa capturas de ecrã a uma sessão de código em curso e começa a programar em vários issues de uma vez
+- As sessões aparecem em pausa enquanto a máquina está offline e retomam a partir de qualquer lado
+- Dá um horário ou um gatilho a uma ação e uma das tuas máquinas corre-a sozinha
+- Gere todas as máquinas na app: mudar o nome, partilhar com a equipa, arrumar os worktrees
+- Seletor de emojis, imagens e ficheiros nos comentários e uma barra de formatação no editor
+- Escreve # para ligar um issue; as referências aparecem como chips de estado em direto
+- Seletor de responsável, boards arquiváveis e uma checklist para começar
+- Liga os teus próprios repositórios GitHub e partilha-os com a equipa
+- Corrigido o logout a cada arranque, mais uma vaga de correções de estabilidade e desempenho

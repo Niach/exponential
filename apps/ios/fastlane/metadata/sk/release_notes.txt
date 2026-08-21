@@ -1,42 +1,12 @@
 Všetko od verzie 0.14.0:
 
-Coding sessions
-- Na výzvy agenta na povolenie a schválenie odpovieš priamo z telefónu, nemusíš čakať, kým budeš späť pri počítači
-- K bežiacej coding session pripojíš snímky obrazovky a obrázky
-- Cez dialóg Start coding spustíš prácu na viacerých úlohách naraz (dávkové behy); dialóg teraz predvyplní model, mieru úsilia, plánovací režim a predvolené povolenia podľa zvoleného počítača
-- Kým je počítač offline, session sa zobrazuje ako pozastavená a pokračovať v nej môžeš odkiaľkoľvek
-- Keď si to session vyžiada, prihlásiš agenta v CLI na diaľku
-- Konflikty pri zlučovaní vyriešiš z telefónu akciou Fix merge conflicts
-- Dlhé feedy aktivity už aplikáciu nezaseknú a bublina Jump to bottom sa na konci feedu spoľahlivo skryje
-- Voľne písané odpovede pri usmerňovaní majú limit 4000 znakov s viditeľným počítadlom, namiesto tichého zahodenia
-
-Actions a Automations
-- Akcii nastavíš rozvrh alebo spúšťač podľa udalosti na úlohe a jeden z tvojich počítačov ju spustí sám
-- Prehľad Actions so záložkami pre automatizácie, návrhy a jednotným rozložením
-
-Počítače
-- Každý počítač má vlastné nastavenia: premenuješ ho, zdieľaš s tímom, upravíš predvoľby agenta aj keď je offline a na diaľku spravuješ jeho worktree
-- Počítače so zastaraným démonom zobrazia tlačidlo na aktualizáciu jedným klikom
-
-Písanie
-- Výber emoji a automatické dopĺňanie :shortcode v popisoch a komentároch
-- K komentárom pripojíš obrázky a súbory
-- Formátovacia lišta v editore; Clear formatting a prepínanie nadpisov zachovajú tučné písmo a kurzívu
-- Napísaním # otvoríš ponuku úloh so stavom, identifikátorom a názvom; odkazy na úlohy sa vykreslia ako živé stavové čipy
-
-Úlohy a boardy
-- Výber riešiteľa priamo na stránke úlohy
-- Dokončené boardy archivuješ a premenuješ na mieste
-- Zoznamy úloh zoskupujú stavy v rovnakom poradí ako stránka nastavení a hlavičky stavov sa pripínajú čisto
-- Na iOS 26 zoznamy úloh sedia tesne pod navigačnou lištou, bez svetlého pásu nad prvou hlavičkou stavu
-- Kompaktná paleta ikon pre boardy a akcie
-- Kontrolný zoznam prvých krokov, ktorý sa dokončí sám
-
-Nastavenia tímu
-- Pripojíš vlastné GitHub repozitáre a zdieľaš ich s tímom; neaktívne GitHub účty majú tlačidlo Disconnect
-- Nastavenia tímu a účtu na jednej stránke, so samoobslužnou sekciou pre osobné API kľúče
-
-Ďalej
-- Panely, zoznamy a záložky sa animujú s jednotným časovaním
-- Opravené odhlásenie pri každom spustení po aktualizácii
-- Vlna opráv stability, výkonu a správania v celej aplikácii
+- Odpovedaj na otázky agenta o povoleniach z mobilu, nemusíš bežať k počítaču
+- Pripoj screenshoty do bežiacej kódovacej session a spusti kódovanie na viacerých úlohách naraz
+- Session sa zobrazí ako pozastavená, kým je jej počítač offline, a pokračuje odkiaľkoľvek
+- Nastav akcii rozvrh alebo spúšťač a jeden z tvojich počítačov ju spustí sám
+- Spravuj každý počítač priamo v apke: premenuj ho, zdieľaj ho s tímom, uprac jeho worktree
+- Emoji picker, obrázky a súbory v komentároch a lišta formátovania v editore
+- Napíš # a prepoj úlohu; odkazy sa zobrazia ako živé stavové štítky
+- Výber riešiteľa, archivovateľné boardy a checklist na začiatok
+- Pripoj vlastné GitHub repozitáre a zdieľaj ich s tímom
+- Opravené odhlásenie pri každom spustení plus vlna opráv stability a výkonu
