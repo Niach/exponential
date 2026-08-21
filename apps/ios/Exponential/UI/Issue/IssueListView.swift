@@ -284,6 +284,13 @@ struct IssueListView: View {
                 // the filter chips and the first section header (Android: 8dp bar
                 // padding + 3dp flow + the header's own 8dp = ~19dp total).
                 .contentMargins(.top, 0, for: .scrollContent)
+                // EXP-590: on iOS 26 the nav bar's default SOFT scroll-edge
+                // effect reserves ~20pt below the bar, and plain List parks
+                // its pinned section header under that strip — the strip then
+                // read as a lighter band between the bar and the opaque
+                // status header (EXP-578 removed the inset strip, not this).
+                // A hard edge pins the header flush with the material bar.
+                .hardTopScrollEdge()
                 // Kill List's implicit 44pt minimum row height: Android rows are
                 // content-hugging (~40dp) with 3dp gaps, and the floor made every
                 // iOS row visibly chunkier than its Android twin (EXP-24 redux).
@@ -1172,3 +1179,15 @@ private struct BulkLabelsSheet: View {
     }
 }
 
+private extension View {
+    /// iOS 26's soft scroll-edge effect pads pinned List headers away from
+    /// the nav bar (EXP-590); older systems have no such effect to tune.
+    @ViewBuilder
+    func hardTopScrollEdge() -> some View {
+        if #available(iOS 26, *) {
+            scrollEdgeEffectStyle(.hard, for: .top)
+        } else {
+            self
+        }
+    }
+}
