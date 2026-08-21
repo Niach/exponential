@@ -115,6 +115,10 @@ platform :android do
     end
   end
 
+  # Release notes are en-US only: changelogs/<vc>.txt lives under en-US and Play
+  # falls back to it for every other locale. Never add a changelogs/default.txt
+  # (per-locale or en-US) — supply uploads it for any release without a <vc>.txt,
+  # which shipped the generic listing blurb as "What's new" to non-English users.
   # Newest committed changelogs/<versionCode>.txt. supply's metadata push needs an
   # explicit version code to anchor per-locale changelogs — without one it aborts on
   # the first localized listing (cs-CZ et al.) that has no changelogs dir.

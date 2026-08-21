@@ -1,0 +1,1 @@
+Refreshed Android look: glass text fields and buttons everywhere, sticky status headers in issue lists, a compact icon picker, and a uniform Actions layout.
