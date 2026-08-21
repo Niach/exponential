@@ -1,3 +1,42 @@
-- Kövesd és tereld a Codex és Pi munkameneteket élő aktivitási feeddel
-- A befejezett al-ügynökök mostantól szépen összecsukódnak a munkamenet-nézetben
-- Névjegy képernyő verzióinformációval és a csomagolt nyílt forráskódú licencekkel
+Minden újdonság a 0.14.0 óta:
+
+Coding munkamenetek
+- Az ügynök jogosultsági és jóváhagyási kérdéseire a telefonodról válaszolhatsz, nem kell megvárnod, míg visszaérsz a géphez
+- Csatolj képernyőképeket és képeket az élő coding munkamenethez
+- Indíts munkát több feladaton egyszerre (kötegelt futtatás) a Start coding párbeszédablakból, amely mostantól előre kitölti a kiválasztott gép modelljét, erőfeszítési szintjét, terv módját és alapértelmezett jogosultságait
+- Amíg a gép offline, a munkamenet szüneteltetettként látszik, és bárhonnan folytatható
+- Jelentkeztesd be az ügynök CLI-jét távolról, amikor a munkamenet ezt kéri
+- Oldd fel az összefésülési ütközéseket a telefonodról a Fix merge conflicts művelettel
+- A hosszú tevékenységi feedek már nem fagyasztják le az alkalmazást, a Jump to bottom gomb pedig megbízhatóan eltűnik a feed végén
+- A szabad szöveges terelő válaszok 4000 karakteresek lehetnek, látható számlálóval, ahelyett hogy csendben elvesznének
+
+Actions és Automations
+- Adj egy műveletnek ütemezést vagy feladateseményhez kötött indítót, és az egyik géped magától lefuttatja
+- Füles Actions felület automatizálásokkal, javaslatokkal és egységes elrendezéssel
+
+Gépek
+- Minden géphez tartozik beállítási nézet: átnevezheted, megoszthatod a csapatoddal, offline állapotban is szerkesztheted az ügynök alapértékeit, és távolról kezelheted a worktree-jeit
+- Az elavult daemont futtató gépeken egykattintásos frissítés gomb jelenik meg
+
+Írás
+- Emoji-választó és :shortcode automatikus kiegészítés a leírásokban és a hozzászólásokban
+- Csatolj képeket és fájlokat a hozzászólásokhoz
+- Formázósáv a szerkesztőben; a Clear formatting és a címsorváltás megőrzi a félkövér és dőlt formázást
+- A # begépelésére feladatmenü nyílik állapottal, azonosítóval és címmel, a feladathivatkozások pedig élő állapotcímkeként jelennek meg
+
+Feladatok és táblák
+- Felelősválasztó a feladat oldalán
+- Archiváld a befejezett táblákat, és nevezd át őket helyben
+- A feladatlisták ugyanabban a sorrendben csoportosítják az állapotokat, mint a beállítások oldal, és tisztán rögzítik az állapotfejléceket
+- iOS 26-on a feladatlisták közvetlenül a navigációs sáv alatt ülnek, nincs több világos sáv az első állapotfejléc fölött
+- Kompakt ikonválasztó a táblák és a műveletek ikonjaihoz
+- Egy első lépések lista, amely magától készül el
+
+Csapatbeállítások
+- Kösd be a saját GitHub tárolóidat, és oszd meg őket a csapattal; az elavult GitHub fiókok Disconnect gombot kapnak
+- Csapat- és fiókbeállítások egy oldalon, önkiszolgáló résszel a személyes API kulcsokhoz
+
+Továbbá
+- A panelek, listák és fülek egységes időzítéssel animálnak
+- Javítva a frissítés utáni kijelentkezés minden indításkor
+- Stabilitási, teljesítménybeli és működési javítások hulláma az egész alkalmazásban

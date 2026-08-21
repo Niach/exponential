@@ -1,3 +1,42 @@
-- Seuraa ja ohjaa Codexin ja Pi:n koodaussessioita live-aktiviteettisyötteellä
-- Valmiit subagentit siistiytyvät nyt pois sessionäkymässä
-- Tietoja-näyttö, jossa versiotiedot ja mukana tulevat open source -lisenssitiedot
+Kaikki uusi version 0.14.0 jälkeen:
+
+Koodausistunnot
+- Vastaa agentin lupa- ja hyväksyntäkyselyihin suoraan puhelimesta sen sijaan, että odottaisit pääsyä takaisin koneen ääreen
+- Liitä kuvakaappauksia ja kuvia käynnissä olevaan koodausistuntoon
+- Aloita koodaus useasta issuesta kerralla (eräajot) Start coding -valintaikkunasta, joka täyttää nyt valmiiksi valitsemasi koneen mallin, panostuksen, suunnittelutilan ja lupaoletukset
+- Istunnot näkyvät keskeytettyinä, kun niiden kone on offline-tilassa, ja niitä voi jatkaa mistä tahansa
+- Kirjaa agentin CLI sisään etänä, kun istunto sitä pyytää
+- Ratkaise yhdistämiskonfliktit puhelimella Fix merge conflicts -toiminnolla
+- Pitkät tapahtumavirrat eivät enää jumita sovellusta, ja Jump to bottom -painike piiloutuu luotettavasti virran lopussa
+- Vapaamuotoiset ohjausviestit on rajattu 4000 merkkiin näkyvän laskurin kanssa sen sijaan, että ne katoaisivat huomaamatta
+
+Actions ja Automations
+- Anna toiminnolle aikataulu tai issue-tapahtumaan perustuva liipaisin, niin jokin koneistasi ajaa sen itsenäisesti
+- Actions-näkymässä on nyt välilehdet automaatioille, ehdotuksille ja yhtenäinen ulkoasu
+
+Koneet
+- Jokaisella koneella on nyt asetusnäkymä: nimeä se uudelleen, jaa se tiimillesi, muokkaa sen agenttioletuksia myös offline-tilassa ja hallinnoi sen worktreeitä etänä
+- Koneet, joiden taustapalvelu on vanhentunut, näyttävät yhden klikkauksen päivityspainikkeen
+
+Kirjoittaminen
+- Emoji-valitsin ja :shortcode-täydennys kuvauksissa ja kommenteissa
+- Liitä kuvia ja tiedostoja kommentteihin
+- Muotoilupalkki editorissa; Clear formatting ja otsikkopainikkeet säilyttävät lihavoinnit ja kursivoinnit
+- Kirjoittamalla # avautuu issue-valikko, jossa näkyvät tila, tunnus ja otsikko, ja issue-viittaukset näkyvät reaaliaikaisina tilamerkkeinä
+
+Issuet ja taulut
+- Vastuuhenkilön valinta suoraan issue-sivulla
+- Arkistoi valmiit taulut ja nimeä ne uudelleen paikan päällä
+- Issue-listat ryhmittelevät tilat samassa järjestyksessä kuin asetussivusi ja kiinnittävät tilaotsikot siististi
+- Issue-listat asettuvat tiiviisti navigointipalkin alle iOS 26:ssa, eikä ensimmäisen tilaotsikon yläpuolella ole enää vaaleaa kaistaa
+- Tiivis kuvakevalitsin taulujen ja toimintojen kuvakkeille
+- Aloitustarkistuslista, joka viimeistelee itsensä
+
+Tiimin asetukset
+- Yhdistä omat GitHub-repositoriosi ja jaa ne tiimin kanssa; vanhentuneille GitHub-tileille tulee Disconnect-painike
+- Tiimin ja tilin asetukset samalla sivulla, ja mukana itsepalveluosio henkilökohtaisille API-avaimille
+
+Lisäksi
+- Paneelit, listat ja välilehdet animoituvat yhteisellä ajoituksella
+- Korjattu uloskirjautuminen jokaisen päivityksen jälkeisen käynnistyksen yhteydessä
+- Runsaasti vakaus-, suorituskyky- ja toimivuuskorjauksia kaikkialle sovellukseen

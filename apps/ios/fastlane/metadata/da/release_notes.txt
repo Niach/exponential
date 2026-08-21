@@ -1,3 +1,42 @@
-- Følg og styr Codex- og Pi-kodesessioner med et aktivitetsfeed i realtid
-- Færdige subagenter bliver nu ryddet pænt af vejen i sessionsvisningen
-- Om-skærm med versionsinfo og de medfølgende open source-licensnotitser
+Alt siden 0.14.0:
+
+Kodesessioner
+- Svar på agentens tilladelses- og godkendelsesspørgsmål direkte fra telefonen i stedet for at vente, til du er tilbage ved maskinen
+- Vedhæft skærmbilleder og billeder til en kørende kodesession
+- Start kodning på flere issues på én gang (batch-kørsler) fra Start coding-dialogen, som nu udfylder model, indsats, planlægningstilstand og tilladelser fra den maskine, du vælger
+- Sessioner vises som sat på pause, mens maskinen er offline, og kan genoptages hvor som helst
+- Log agentens CLI ind på afstand, når en session beder om det
+- Løs flettekonflikter fra telefonen med handlingen Fix merge conflicts
+- Lange aktivitetsfeeds fryser ikke længere appen, og Jump to bottom-knappen forsvinder pålideligt, når du er nederst i feedet
+- Fritekstbeskeder til agenten er nu begrænset til 4000 tegn med en synlig tæller i stedet for at blive kasseret i stilhed
+
+Actions og Automations
+- Giv en action en tidsplan eller en issue-hændelse som trigger, så kører en af dine maskiner den helt af sig selv
+- Actions med faneblade til automatiseringer, forslag og et ensartet layout
+
+Maskiner
+- Hver maskine har nu en indstillingsvisning: omdøb den, del den med dit team, rediger dens agent-standarder også når den er offline, og administrer dens worktrees på afstand
+- Maskiner med en forældet dæmon viser en opdateringsknap med ét klik
+
+Skrivning
+- Emoji-vælger og :shortcode-autofuldførelse i beskrivelser og kommentarer
+- Vedhæft billeder og filer til kommentarer
+- En formateringsrække i editoren; Clear formatting og overskriftsknapper bevarer fed og kursiv
+- Skriv # for at åbne en issue-menu med status, id og titel, og issue-henvisninger vises som statuschips i realtid
+
+Issues og boards
+- Vælg ansvarlig direkte på issue-siden
+- Arkivér boards, du er færdig med, og omdøb dem på stedet
+- Issue-lister grupperer statusser i samme rækkefølge som din indstillingsside og fastgør statusoverskrifterne pænt
+- Issue-lister ligger helt op ad navigationslinjen på iOS 26, ikke mere lyst bånd over den første statusoverskrift
+- Kompakt ikonvælger til board- og action-ikoner
+- En kom-godt-i-gang-tjekliste, der afslutter sig selv
+
+Teamindstillinger
+- Forbind dine egne GitHub-repositories og del dem med teamet; forældede GitHub-konti får en Disconnect-knap
+- Team- og kontoindstillinger på én side med et selvbetjeningsafsnit til personlige API-nøgler
+
+Desuden
+- Paneler, lister og faneblade animerer med den samme fælles timing
+- Rettet at du blev logget ud ved hver genstart efter en opdatering
+- En bølge af forbedringer af stabilitet, ydeevne og korrekthed i hele appen

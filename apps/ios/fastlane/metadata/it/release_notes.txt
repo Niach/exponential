@@ -1,3 +1,42 @@
-- Segui e guida le sessioni di coding di Codex e Pi con un feed di attività in diretta
-- I subagent terminati ora si riordinano nella vista sessione
-- Schermata Info con la versione e le note delle licenze open source incluse
+Tutte le novità dalla 0.14.0:
+
+Sessioni di coding
+- Rispondi alle richieste di permesso e approvazione dell'agente dal telefono, senza aspettare di essere di nuovo al computer
+- Allega screenshot e immagini a una sessione di coding attiva
+- Avvia più issue insieme (esecuzioni in blocco) dalla finestra Start coding, che ora precompila modello, effort, modalità piano e permessi predefiniti del computer scelto
+- Le sessioni risultano in pausa finché il loro computer è offline e riprendono da qualsiasi posto
+- Accedi al CLI dell'agente da remoto quando una sessione lo richiede
+- Risolvi i conflitti di merge dal telefono con l'azione Fix merge conflicts
+- I feed di attività lunghi non bloccano più l'app e il pulsante Jump to bottom sparisce come previsto a fine feed
+- Le risposte libere durante la guida della sessione hanno un limite di 4000 caratteri con contatore visibile, invece di andare perse in silenzio
+
+Actions e Automations
+- Assegna a un'azione una pianificazione o un trigger legato agli eventi delle issue e uno dei tuoi computer la esegue da solo
+- Area Actions a schede, con automations, suggerimenti e un layout uniforme
+
+Computer
+- Ogni computer ha la sua schermata di impostazioni: rinominalo, condividilo con il team, modifica i valori predefiniti dell'agente anche quando è offline e gestisci i suoi worktree da remoto
+- I computer con un daemon non aggiornato mostrano un pulsante di aggiornamento con un clic
+
+Scrittura
+- Selettore di emoji e completamento :shortcode in descrizioni e commenti
+- Allega immagini e file ai commenti
+- Barra di formattazione nell'editor; Clear formatting e i pulsanti dei titoli mantengono grassetto e corsivo
+- Digitando # si apre un menu delle issue con stato, identificatore e titolo, e i riferimenti alle issue diventano chip di stato aggiornati in tempo reale
+
+Issue e board
+- Selettore dell'assegnatario nella pagina della issue
+- Archivia le board che hai finito e rinominale sul posto
+- Gli elenchi di issue raggruppano gli stati nello stesso ordine della pagina impostazioni e fissano le intestazioni di stato in modo pulito
+- Su iOS 26 gli elenchi di issue si allineano alla barra di navigazione, senza più la banda chiara sopra la prima intestazione di stato
+- Selettore di icone compatto per board e azioni
+- Una checklist di primi passi che si completa da sola
+
+Impostazioni del team
+- Collega i tuoi repository GitHub e condividili con il team; gli account GitHub non più validi hanno un pulsante Disconnect
+- Impostazioni di team e account in un'unica pagina, con una sezione self-service per le chiavi API personali
+
+Inoltre
+- Pannelli, elenchi e schede si animano con lo stesso ritmo
+- Risolto il logout a ogni riavvio dopo un aggiornamento
+- Tanti interventi su stabilità, prestazioni e correttezza in tutta l'app

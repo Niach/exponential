@@ -1,3 +1,42 @@
-- Oglądaj i steruj sesjami kodowania Codex i Pi z aktywnością na żywo
-- Zakończone subagenty chowają się teraz w widoku sesji
-- Ekran O aplikacji z wersją i dołączonymi licencjami open source
+Wszystko, co pojawiło się od wersji 0.14.0:
+
+Sesje kodowania
+- Odpowiadaj na pytania agenta o uprawnienia i zgody prosto z telefonu, zamiast czekać, aż wrócisz do komputera
+- Dodawaj zrzuty ekranu i obrazy do trwającej sesji kodowania
+- Zaczynaj kodowanie nad kilkoma zadaniami naraz (uruchomienia zbiorcze) w oknie Start coding, które podpowiada teraz model, poziom wysiłku, tryb planowania i domyślne uprawnienia wybranego komputera
+- Sesje pokazują się jako wstrzymane, gdy ich komputer jest offline, i wznowisz je z dowolnego miejsca
+- Zaloguj CLI agenta zdalnie, kiedy sesja o to poprosi
+- Rozwiązuj konflikty scalania z telefonu za pomocą akcji Fix merge conflicts
+- Długie widoki aktywności nie zawieszają już aplikacji, a przycisk Jump to bottom niezawodnie znika na końcu listy
+- Odpowiedzi sterujące pisane odręcznie mają limit 4000 znaków i widoczny licznik, zamiast znikać bez śladu
+
+Actions i Automations
+- Nadaj akcji harmonogram albo wyzwalacz oparty na zdarzeniach zadań, a jeden z Twoich komputerów uruchomi ją sam
+- Sekcja Actions z zakładkami na automations, sugestie i jednolity układ
+
+Komputery
+- Każdy komputer ma własny ekran ustawień: zmień jego nazwę, udostępnij go zespołowi, edytuj domyślne ustawienia agenta nawet wtedy, gdy jest offline, i zarządzaj jego worktree zdalnie
+- Komputery z nieaktualnym demonem pokazują przycisk aktualizacji jednym kliknięciem
+
+Pisanie
+- Wybór emoji i autouzupełnianie :shortcode w opisach i komentarzach
+- Dodawaj obrazy i pliki do komentarzy
+- Pasek formatowania w edytorze; Clear formatting i przełączniki nagłówków zachowują pogrubienie i kursywę
+- Wpisanie # otwiera menu zadań ze statusem, identyfikatorem i tytułem, a odwołania do zadań wyświetlają się jako aktualne plakietki statusu
+
+Zadania i tablice
+- Wybór osoby przypisanej na stronie zadania
+- Archiwizuj tablice, których już nie potrzebujesz, i zmieniaj ich nazwy na miejscu
+- Listy zadań grupują statusy w tej samej kolejności co strona ustawień i czytelnie przypinają nagłówki statusów
+- Na iOS 26 listy zadań przylegają do paska nawigacji, bez jasnego pasa nad pierwszym nagłówkiem statusu
+- Kompaktowy wybór ikon dla tablic i akcji
+- Lista pierwszych kroków, która odhacza się sama
+
+Ustawienia zespołu
+- Podłącz własne repozytoria GitHub i udostępnij je zespołowi; nieaktualne konta GitHub mają teraz przycisk Disconnect
+- Ustawienia zespołu i konta na jednej stronie, z sekcją samoobsługową dla osobistych kluczy API
+
+Poza tym
+- Panele, listy i zakładki animują się w jednym, wspólnym tempie
+- Naprawione wylogowywanie przy każdym uruchomieniu po aktualizacji
+- Cała fala poprawek stabilności, wydajności i poprawnego działania w całej aplikacji

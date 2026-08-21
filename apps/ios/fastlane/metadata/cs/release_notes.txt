@@ -1,3 +1,42 @@
-- Sledujte a směrujte coding sessions Codexu a Pi se živým feedem aktivity
-- Dokončení subagenti se teď uklidí v pohledu session
-- Obrazovka O aplikaci s informacemi o verzi a licencemi open source knihoven
+Vše nové od verze 0.14.0:
+
+Coding sessions
+- Odpovídejte na dotazy agenta na oprávnění a schválení přímo z telefonu, místo abyste čekali, až budete zpátky u počítače
+- Přidávejte snímky obrazovky a obrázky do běžící coding session
+- Spusťte kódování na několika úkolech najednou (dávkové běhy) z dialogu Start coding, který teď předvyplní model, úroveň úsilí, plánovací režim a výchozí oprávnění vybraného počítače
+- Když je počítač offline, sessions se zobrazují jako pozastavené a pokračovat v nich můžete odkudkoli
+- Přihlaste agentní CLI na dálku, když si o to session řekne
+- Řešte konflikty při slučování z telefonu pomocí akce Fix merge conflicts
+- Dlouhé feedy aktivity už aplikaci nezaseknou a bublina Jump to bottom na konci feedu spolehlivě zmizí
+- Volné textové odpovědi pro směrování mají limit 4000 znaků s viditelným počítadlem, místo aby se potichu zahodily
+
+Actions a Automations
+- Dejte akci rozvrh nebo spouštěč podle událostí u úkolů a jeden z vašich počítačů ji spustí sám
+- Sekce Actions se záložkami pro automations, návrhy a jednotným vzhledem
+
+Počítače
+- Každý počítač má vlastní nastavení: přejmenujte ho, nasdílejte ho týmu, upravte výchozí nastavení agenta i když je offline a spravujte jeho worktree na dálku
+- Počítače se zastaralým démonem nabídnou tlačítko pro aktualizaci jedním klepnutím
+
+Psaní
+- Výběr emoji a našeptávání :shortcode v popisech a komentářích
+- Přikládejte obrázky a soubory ke komentářům
+- Lišta formátování v editoru; Clear formatting a přepínače nadpisů zachovají tučné písmo a kurzívu
+- Napsáním # otevřete nabídku úkolů se stavem, identifikátorem a názvem, odkazy na úkoly se vykreslí jako živé stavové štítky
+
+Úkoly a boardy
+- Výběr řešitele přímo na stránce úkolu
+- Archivujte boardy, které už nepotřebujete, a přejmenujte je na místě
+- Seznamy úkolů řadí stavy ve stejném pořadí jako stránka nastavení a čistě připínají hlavičky stavů
+- Na iOS 26 seznamy úkolů navazují přímo na navigační lištu, žádný světlý pruh nad první hlavičkou stavu
+- Kompaktní výběr ikon pro boardy a akce
+- Úvodní checklist, který se odškrtá sám
+
+Nastavení týmu
+- Připojte vlastní GitHub repozitáře a nasdílejte je týmu; u zastaralých GitHub účtů přibylo tlačítko Disconnect
+- Nastavení týmu a účtu na jedné stránce, včetně samoobslužné sekce pro osobní API klíče
+
+Dále
+- Panely, seznamy a záložky se animují se stejným časováním
+- Opraveno odhlašování při každém spuštění po aktualizaci
+- Řada oprav stability, výkonu a správného chování v celé aplikaci
