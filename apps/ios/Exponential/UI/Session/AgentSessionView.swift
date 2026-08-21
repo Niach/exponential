@@ -276,7 +276,7 @@ struct AgentSessionView: View {
     @ViewBuilder
     private func agentTabStrip(_ model: AgentSessionModel) -> some View {
         let agents = AgentFeed.visibleSubagentTabs(
-            AgentFeed.subagents(model.feed), selected: agentTab
+            model.subagents, selected: agentTab
         )
         if !agents.isEmpty {
             let active = agents.contains { $0.subagentId == agentTab } ? agentTab : nil
@@ -358,7 +358,7 @@ struct AgentSessionView: View {
                         // EXP-356: a selected agent tab focuses that subagent's
                         // conversation; Main keeps the grouped feed.
                         if let focused = agentTab.flatMap({ id in
-                            AgentFeed.subagents(model.feed).first { $0.subagentId == id }
+                            model.subagents.first { $0.subagentId == id }
                         }) {
                             SubagentRow(
                                 agentType: focused.agentType,
@@ -1412,8 +1412,48 @@ private struct AgentMarkdownText: View {
     /// Chat bubbles hug their text; full-width prose does not.
     var hugsWidth = false
 
-    @State private var displayModel = IssueEditorModel()
+    @State private var displayModel: IssueEditorModel
     @State private var displayedText: String?
+
+    init(
+        text: String,
+        context: AgentMarkdownContext? = nil,
+        options: MarkdownParseOptions = [],
+        imageMaxHeight: CGFloat? = 280,
+        hugsWidth: Bool = false
+    ) {
+        self.text = text
+        self.context = context
+        self.options = options
+        self.imageMaxHeight = imageMaxHeight
+        self.hugsWidth = hugsWidth
+        // EXP-582: a LazyVStack drops a row's @State the moment it scrolls
+        // off, so every re-realized bubble used to start EMPTY, re-run cmark
+        // in `.task` and then grow to its real height — the layout churn
+        // behind the scroll lag on long histories (and a feed replay made
+        // it N times over). A cache hit renders at full height on the first
+        // pass and parses nothing.
+        if let cached = Self.cache.object(forKey: Self.cacheKey(text: text, baseURL: context?.baseURL, options: options)) {
+            _displayModel = State(initialValue: cached)
+            _displayedText = State(initialValue: text)
+        } else {
+            _displayModel = State(initialValue: IssueEditorModel())
+        }
+    }
+
+    /// Parsed display models keyed by text + base URL + parse options. The
+    /// models are read-only (no focus, no edits), so sharing one between two
+    /// bubbles showing the same text is harmless. Bounded: a feed holds at
+    /// most `AgentFeed.feedCap` items, and NSCache evicts under pressure.
+    private static let cache: NSCache<NSString, IssueEditorModel> = {
+        let cache = NSCache<NSString, IssueEditorModel>()
+        cache.countLimit = 600
+        return cache
+    }()
+
+    private static func cacheKey(text: String, baseURL: URL?, options: MarkdownParseOptions) -> NSString {
+        "\(options.rawValue)|\(baseURL?.absoluteString ?? "")|\(text)" as NSString
+    }
 
     var body: some View {
         MarkdownEditor(
@@ -1430,8 +1470,14 @@ private struct AgentMarkdownText: View {
         .task(id: text) {
             guard displayedText != text else { return }
             displayedText = text
+            let key = Self.cacheKey(text: text, baseURL: context?.baseURL, options: options)
+            if let cached = Self.cache.object(forKey: key) {
+                displayModel = cached
+                return
+            }
             let model = IssueEditorModel()
             model.load(markdown: text, baseURL: context?.baseURL, options: options)
+            Self.cache.setObject(model, forKey: key)
             displayModel = model
         }
     }

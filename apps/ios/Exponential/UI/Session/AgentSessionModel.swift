@@ -39,7 +39,20 @@ final class AgentSessionModel {
     /// sends one to every activity viewer immediately before its join replay,
     /// so the client never has to guess when to wipe. Item shapes and the pure
     /// grouping/resolution rules live in ExpCore's AgentFeed.
-    private(set) var feed: [AgentFeedItem] = []
+    private(set) var feed: [AgentFeedItem] = [] {
+        didSet { if !applyingBatch { reproject() } }
+    }
+    /// EXP-582: the O(feed) projections, derived ONCE per feed change. They
+    /// used to be computed properties read from the view body — `rows` three
+    /// times per render (the list, the tab strip and the focused tab), and
+    /// `activeQuestionIds` once per question card plus the toolbar and the
+    /// composer — so a join replay of a long history was one full walk of
+    /// the feed per card per frame, and the main thread pinned at 100% for
+    /// as long as the replay lasted.
+    private(set) var rows: [AgentFeedRow] = []
+    private(set) var activeQuestionIds: Set<Int> = []
+    private(set) var subagents: [AgentSubagentRun] = []
+    private(set) var hasActivePlanCard = false
     /// Per-card answer lock (EXP-249): a tap locks its card immediately, the
     /// desktop's `answer_ack` makes that permanent (and advances a stepper),
     /// and an unanswered optimistic lock expires so the card stays retryable.
@@ -94,15 +107,23 @@ final class AgentSessionModel {
         return session?.userId == currentUserId
     }
 
-    /// Ids of the question items still answerable — the pure rule lives in
-    /// ExpCore (`AgentFeed.activeQuestionIds`), mirroring the Android
-    /// `activeQuestionIds`.
-    var activeQuestionIds: Set<Int> { AgentFeed.activeQuestionIds(feed) }
-
-    /// Render rows: subagent runs, multi-question ask steppers, and runs of ≥2
-    /// consecutive tool calls collapse (EXP-97/EXP-249) — a projection only,
-    /// the flat feed stays the state.
-    var rows: [AgentFeedRow] { AgentFeed.rows(feed) }
+    /// Recompute the cached projections (ids of the still-answerable question
+    /// items, the collapsed render rows, the subagent runs) — the pure rules
+    /// live in ExpCore's AgentFeed, mirroring Android.
+    private func reproject() {
+        let next = AgentFeed.rows(feed)
+        rows = next
+        subagents = next.compactMap { row in
+            if case let .subagentRun(run) = row { return run }
+            return nil
+        }
+        let active = AgentFeed.activeQuestionIds(feed)
+        activeQuestionIds = active
+        hasActivePlanCard = feed.contains { item in
+            guard let question = item.question else { return false }
+            return question.planMode && active.contains(question.id)
+        }
+    }
 
     /// Questions whose answer is out — sent (optimistic lock) or confirmed
     /// (`answer_ack`). What a stepper card advances on (web parity: advance on
@@ -128,14 +149,7 @@ final class AgentSessionModel {
     /// A plan-approval card is up (EXP-529) — the composer IS the "tell
     /// Claude what to change" path (the desktop Esc's the picker and types
     /// the message), so the input row advertises it via its placeholder.
-    var awaitingPlanApproval: Bool {
-        guard phase == .live else { return false }
-        let active = activeQuestionIds
-        return feed.contains { item in
-            guard let question = item.question else { return false }
-            return question.planMode && active.contains(question.id)
-        }
-    }
+    var awaitingPlanApproval: Bool { phase == .live && hasActivePlanCard }
 
     private let accountId: String
     private let codingSessionId: String
@@ -174,6 +188,18 @@ final class AgentSessionModel {
     /// to be cancelled by every newer lock, so several pending locks then all
     /// expired together and the stepper rolled back more than one step.
     private var answerExpiryTasks: [String: Task<Void, Never>] = [:]
+    /// EXP-582: inbound relay frames waiting for the next flush. The socket's
+    /// receive callback hops to the main actor ONCE PER FRAME, and with every
+    /// frame mutating `feed` directly each one bought a full SwiftUI render
+    /// plus a `scrollTo` — a join replay of a long history (the relay replays
+    /// its whole activity log frame by frame) froze the UI and heated the
+    /// device for the duration. Frames now queue here and are applied in one
+    /// batch per flush, so the replay costs one render per batch.
+    @ObservationIgnored private var pendingFrames: [String] = []
+    @ObservationIgnored private var flushScheduled = false
+    /// Set while a flush applies its batch — the projections are rebuilt once
+    /// at the end instead of after every frame.
+    @ObservationIgnored private var applyingBatch = false
 
     // Relay rejects input frames > 8 KiB; chunk pastes well under that. The
     // cap is measured in UTF-16 code units (the relay validates against JS
@@ -289,6 +315,7 @@ final class AgentSessionModel {
         deviceLivenessTask?.cancel()
         deviceLivenessTask = nil
         connected = false
+        pendingFrames = []
         // Reset to the pre-connection state so a later resume() can redial: the
         // socket is gone, so leaving phase at .live/.connecting would make
         // connect()'s guard early-return and the reopened view would show a
@@ -623,7 +650,7 @@ final class AgentSessionModel {
             switch result {
             case .success(.string(let text)):
                 Task { @MainActor in
-                    self?.onText(text)
+                    self?.enqueue(text)
                     self?.rearm()
                 }
             case .success:
@@ -653,6 +680,34 @@ final class AgentSessionModel {
         guard phase != .live else { return }
         phase = .live
         reconnectAttempts = 0
+    }
+
+    /// Queue a frame and arm one flush for the batch (EXP-582). The flush is a
+    /// plain main-actor task: everything the socket delivered before it gets
+    /// to run — the whole burst of a replay — is applied together, and a lone
+    /// live frame still lands within the same run-loop turn.
+    private func enqueue(_ text: String) {
+        guard !stopped, connected else { return }
+        pendingFrames.append(text)
+        guard !flushScheduled else { return }
+        flushScheduled = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.flushScheduled = false
+            let frames = self.pendingFrames
+            self.pendingFrames = []
+            self.applyingBatch = true
+            defer {
+                self.applyingBatch = false
+                self.reproject()
+            }
+            for frame in frames {
+                // A frame can tear the socket down (`no_such_session`); the
+                // rest of the batch belonged to that dead room.
+                guard self.connected else { return }
+                self.onText(frame)
+            }
+        }
     }
 
     private func onText(_ text: String) {
@@ -899,6 +954,7 @@ final class AgentSessionModel {
 
     private func disconnectSocket() {
         connected = false
+        pendingFrames = []
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
     }
@@ -906,6 +962,7 @@ final class AgentSessionModel {
     private func onSocketClosed() {
         guard !stopped else { return }
         connected = false
+        pendingFrames = []
         task = nil
         if sawEnd {
             phase = .ended(detail: endDetail)
