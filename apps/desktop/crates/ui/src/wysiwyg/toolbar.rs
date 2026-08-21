@@ -9,8 +9,11 @@
 //! splits it across two pages so a 10-button strip never floats over the
 //! text:
 //!
-//! * **Main** — emoji · image · attach · `#` · link | text-format · lists ·
-//!   quote · code. The insert-ish entries plus the block-ish ones.
+//! * **Main** — `#` · link | text-format · lists · quote · code. The
+//!   selection-shaped entries only: EXP-587 moved emoji · image · attach to
+//!   the static insert bar under the description ([`super::description`]'s
+//!   `render_insert_bar`), because inserting over a selection — which is the
+//!   only time the rail is up — replaced the selected text.
 //! * **Text** — back · Text · H1 · H2 · H3 | bold · italic · strike · clear.
 //!   Reached from Main's `a`-glyph and left by it or Escape.
 //! * **Link** — not a mode: it is derived from the host's `link_input`, and
@@ -19,6 +22,12 @@
 //! Main↔Text is a width wipe (EXP-523 motion tokens): the content is pinned
 //! at the target width and the chrome's clip morphs around it, so no glyph
 //! re-centers mid-flight.
+//!
+//! EXP-587: the chrome OCCLUDES. It floats over the editor, and gpui hit-tests
+//! every hitbox under the pointer unless one blocks the mouse — so a press on
+//! a rail button also reached the editor's gap-click / block caret handlers,
+//! which collapsed the selection and took the rail down before the button's
+//! click ever fired ("Aa just closes the bar").
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -49,6 +58,11 @@ pub(crate) enum RailMode {
 
 /// Gap between the selection's top edge and the rail's bottom edge.
 const RAIL_GAP_PX: f32 = 6.;
+
+/// Button / separator slots per page — the wipe geometry reads these, so
+/// they must track the pages' `items` exactly.
+const MAIN_PAGE_SLOTS: (usize, usize) = (6, 1);
+const TEXT_PAGE_SLOTS: (usize, usize) = (9, 1);
 
 fn separator(cx: &App) -> impl IntoElement {
     div().w_px().h_4().bg(cx.theme().border)
@@ -93,7 +107,7 @@ impl WysiwygDescription {
             }))
     }
 
-    fn icon_button(
+    pub(super) fn icon_button(
         id: &'static str,
         icon: ExpIcon,
         tooltip: &'static str,
@@ -153,9 +167,10 @@ impl WysiwygDescription {
     }
 
     fn rail_visible(&self, window: &Window, cx: &App) -> bool {
-        // A popover or the link field is up: the rail must survive them even
-        // though they have taken focus out of the block that anchors it.
-        if self.emoji_open || self.lists_open || self.link_input.is_some() {
+        // The lists popover or the link field is up: the rail must survive
+        // them even though they have taken focus out of the block that
+        // anchors it.
+        if self.lists_open || self.link_input.is_some() {
             return true;
         }
         // Otherwise: a selection AND the editor still owning focus. The
@@ -194,6 +209,11 @@ impl WysiwygDescription {
     ) -> gpui::AnyElement {
         let theme = cx.theme();
         let chrome = h_flex()
+            .id("wysiwyg-rail-chrome")
+            .occlude()
+            // Belt and braces with `occlude`: a press that lands on the
+            // chrome's padding must not travel on to the editor either.
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .items_center()
             .gap_0p5()
             .p_1()
@@ -243,46 +263,7 @@ impl WysiwygDescription {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
-        let has_attach = self.has_attach_handler();
         let mut items: Vec<gpui::AnyElement> = Vec::new();
-
-        // EXP-551: unicode at the caret, never `:shortcode:` text.
-        items.push(
-            crate::emoji_picker::emoji_picker_popover(
-                "wysiwyg-rail-emoji-popover",
-                Self::icon_button("wysiwyg-rail-emoji", registry::EDITOR_EMOJI, "Emoji", false),
-                self.emoji_picker.clone(),
-                self.emoji_open,
-                cx.listener(|this, open: &bool, _window, cx| {
-                    this.set_emoji_open(*open, cx);
-                }),
-            )
-            .into_any_element(),
-        );
-        items.push(
-            Self::icon_button(
-                "wysiwyg-rail-image",
-                registry::EDITOR_IMAGE,
-                "Insert image",
-                false,
-            )
-            .on_click(cx.listener(|this, _, window, cx| this.pick_image(window, cx)))
-            .into_any_element(),
-        );
-        // EXP-335: hidden for hosts without a Files destination (the
-        // action-prompt editor has none).
-        if has_attach {
-            items.push(
-                Self::icon_button(
-                    "wysiwyg-rail-attach",
-                    registry::UI_ATTACH,
-                    "Attach file",
-                    false,
-                )
-                .on_click(cx.listener(|this, _, window, cx| this.pick_attach(window, cx)))
-                .into_any_element(),
-            );
-        }
         items.push(
             Self::icon_button(
                 "wysiwyg-rail-ref",
@@ -342,7 +323,7 @@ impl WysiwygDescription {
             .into_any_element(),
         );
 
-        let wipe = self.rail_wipe(if has_attach { 9 } else { 8 }, 1, window);
+        let wipe = self.rail_wipe(MAIN_PAGE_SLOTS.0, MAIN_PAGE_SLOTS.1, window);
         self.rail_chrome(items, wipe, cx)
     }
 
@@ -439,7 +420,7 @@ impl WysiwygDescription {
             .into_any_element(),
         ];
 
-        let wipe = self.rail_wipe(9, 1, window);
+        let wipe = self.rail_wipe(TEXT_PAGE_SLOTS.0, TEXT_PAGE_SLOTS.1, window);
         self.rail_chrome(items, wipe, cx)
     }
 
@@ -614,11 +595,11 @@ impl WysiwygDescription {
         if self.rail_mode == mode {
             return;
         }
-        let has_attach = self.has_attach_handler();
-        let leaving = match self.rail_mode {
-            RailMode::Main => rail_content_width(if has_attach { 9 } else { 8 }, 1, window),
-            RailMode::Text => rail_content_width(9, 1, window),
+        let (buttons, separators) = match self.rail_mode {
+            RailMode::Main => MAIN_PAGE_SLOTS,
+            RailMode::Text => TEXT_PAGE_SLOTS,
         };
+        let leaving = rail_content_width(buttons, separators, window);
         self.rail_anim_from = Some(rail_box_width(leaving, window));
         self.rail_mode = mode;
         self.rail_anim_seq = self.rail_anim_seq.wrapping_add(1);

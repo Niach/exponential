@@ -37,6 +37,7 @@ import {
   UserCandidateRow,
 } from "@/components/autocomplete-rows"
 import { EditorSelectionRail } from "@/components/issue-editor/selection-rail"
+import { EditorInsertBar } from "@/components/issue-editor/formatting-rail"
 import { EditorMobileFormattingBar } from "@/components/issue-editor/mobile-formatting-bar"
 import { useIsMobile } from "@/hooks/use-mobile"
 import {
@@ -664,6 +665,12 @@ export const MarkdownEditor = forwardRef<
           )
         ) : null}
         <EditorContent editor={editor} />
+        {/* EXP-587: emoji / image / attach sit under the editor on desktop —
+            the selection rail only shows over a selection, where inserting
+            would replace it. */}
+        {editable && editor && !isMobile ? (
+          <EditorInsertBar editor={editor} imageUpload={imageUpload} />
+        ) : null}
         {editable && autocomplete && menuStyle
           ? createPortal(
               <div

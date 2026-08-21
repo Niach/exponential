@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import type { Editor } from "@tiptap/react"
 import {
+  EditorInsertBar,
   FormattingRail,
   issueRefInsertionText,
 } from "@/components/issue-editor/formatting-rail"
@@ -112,10 +113,9 @@ describe(`FormattingRail button order`, () => {
         onModeChange={vi.fn()}
       />
     )
+    // EXP-587: no insert controls on the desktop selection bubble — they
+    // live in EditorInsertBar under the editor.
     expect(railLabels(container)).toEqual([
-      `Insert emoji`,
-      `Insert image`,
-      `Attach file`,
       `Insert issue reference`,
       `Link`,
       `Text formatting`,
@@ -150,15 +150,24 @@ describe(`FormattingRail button order`, () => {
     ])
   })
 
+  it(`desktop insert bar: emoji, image, attach`, () => {
+    const { editor } = makeEditor()
+    const { container } = render(
+      <EditorInsertBar editor={editor} imageUpload={imageUpload} />
+    )
+    expect(railLabels(container)).toEqual([
+      `Insert emoji`,
+      `Insert image`,
+      `Attach file`,
+    ])
+  })
+
   it(`drops the attach button when the host has no Files destination`, () => {
     const { editor } = makeEditor()
     const { container } = render(
-      <FormattingRail
+      <EditorInsertBar
         editor={editor}
         imageUpload={{ enabled: true, onFiles: async () => {} }}
-        platform="desktop"
-        mode="main"
-        onModeChange={vi.fn()}
       />
     )
     expect(railLabels(container)).not.toContain(`Attach file`)
@@ -167,17 +176,9 @@ describe(`FormattingRail button order`, () => {
 
   it(`drops both pickers when uploads are off`, () => {
     const { editor } = makeEditor()
-    const { container } = render(
-      <FormattingRail
-        editor={editor}
-        platform="desktop"
-        mode="main"
-        onModeChange={vi.fn()}
-      />
-    )
+    const { container } = render(<EditorInsertBar editor={editor} />)
     const labels = railLabels(container)
-    expect(labels).not.toContain(`Insert image`)
-    expect(labels).not.toContain(`Attach file`)
+    expect(labels).toEqual([`Insert emoji`])
   })
 
   it(`has no keyboard-down button on desktop`, () => {

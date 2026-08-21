@@ -18,9 +18,14 @@ import { cn } from "@/lib/utils"
 
 // EXP-568 — the ONE formatting rail behind both editor chromes: the desktop
 // selection bubble (selection-rail.tsx) and the phone keyboard bar
-// (mobile-formatting-bar.tsx). It replaces the always-on static toolbar, so
-// every control that toolbar owned lives here — including the image/attach
-// file pickers, which have no keyboard shortcut to fall back on.
+// (mobile-formatting-bar.tsx). It replaces the always-on static toolbar.
+//
+// EXP-587: the INSERT controls (emoji · image · attach) are a separate piece,
+// `EditorInsertControls`. The phone keyboard bar still carries them (it is
+// up whenever the keyboard is, caret or selection), but the desktop bubble
+// only exists over a SELECTION, where inserting replaced the selected text —
+// so on desktop they live in the static `EditorInsertBar` under the editor
+// instead, Linear-style.
 //
 // The rail has three MODES and the host owns the mode state (the desktop
 // bubble has to keep itself visible while a non-main mode is up):
@@ -172,16 +177,6 @@ export function FormattingRail({
 }: FormattingRailProps) {
   useEditorTransactions(editor)
 
-  const imageInputRef = useRef<HTMLInputElement>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-
-  const routeFiles = (fileList: FileList | null) => {
-    if (!imageUpload) return
-    const { images, others } = partitionUploadFiles(fileList)
-    if (images.length > 0) void imageUpload.onFiles(images)
-    if (others.length > 0) void imageUpload.onOtherFiles?.(others)
-  }
-
   const isActive = (name: string, attrs?: Record<string, unknown>) => {
     try {
       return editor.isActive(name, attrs)
@@ -190,23 +185,7 @@ export function FormattingRail({
     }
   }
 
-  // A selected image (NodeSelection) would be REPLACED by inserted text —
-  // insert after it instead, mirroring MarkdownEditor's insertImage.
-  const insertPlainText = (text: string) => {
-    const { selection } = editor.state
-    editor
-      .chain()
-      .focus()
-      .command(({ tr }) => {
-        if (selection instanceof NodeSelection) {
-          tr.insertText(text, selection.to, selection.to)
-        } else {
-          tr.insertText(text)
-        }
-        return true
-      })
-      .run()
-  }
+  const insertPlainText = (text: string) => insertPlainTextAt(editor, text)
 
   const insertIssueRef = () => {
     const { $from } = editor.state.selection
@@ -221,94 +200,6 @@ export function FormattingRail({
         : undefined
     insertPlainText(issueRefInsertionText(charBefore))
   }
-
-  const hiddenInputs = imageUpload?.enabled ? (
-    <>
-      <input
-        ref={imageInputRef}
-        type="file"
-        accept={acceptedImageContentTypes.join(`,`)}
-        multiple
-        hidden
-        onChange={(event) => {
-          routeFiles(event.target.files)
-          event.target.value = ``
-        }}
-      />
-      {imageUpload.onOtherFiles && (
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          hidden
-          onChange={(event) => {
-            routeFiles(event.target.files)
-            event.target.value = ``
-          }}
-        />
-      )}
-    </>
-  ) : null
-
-  // ── main ──────────────────────────────────────────────────────────────────
-
-  const emojiControl = (
-    <EmojiPickerPopover
-      side={platform === `mobile` ? `top` : undefined}
-      onOpenChange={onOverlayOpenChange}
-      onPick={(unicode) => insertPlainText(unicode)}
-    >
-      <RailTriggerButton label="Insert emoji">
-        <EmojiIcon className="size-3.5" />
-      </RailTriggerButton>
-    </EmojiPickerPopover>
-  )
-
-  const attachControls = !imageUpload?.enabled ? null : platform ===
-    `desktop` ? (
-    <>
-      <RailButton
-        label="Insert image"
-        onClick={() => imageInputRef.current?.click()}
-      >
-        <ImageIcon className="size-3.5" />
-      </RailButton>
-      {imageUpload.onOtherFiles && (
-        <RailButton
-          label="Attach file"
-          onClick={() => fileInputRef.current?.click()}
-        >
-          <AttachIcon className="size-3.5" />
-        </RailButton>
-      )}
-    </>
-  ) : imageUpload.onOtherFiles ? (
-    // One glyph on a phone rail — the two destinations become menu items.
-    <DropdownMenu onOpenChange={onOverlayOpenChange}>
-      <DropdownMenuTrigger asChild>
-        <RailTriggerButton label="Insert image or file">
-          <ImageIcon className="size-3.5" />
-        </RailTriggerButton>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" side="top">
-        <DropdownMenuItem onSelect={() => imageInputRef.current?.click()}>
-          <ImageIcon className="size-4" />
-          Image
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => fileInputRef.current?.click()}>
-          <AttachIcon className="size-4" />
-          File
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  ) : (
-    <RailButton
-      label="Insert image"
-      onClick={() => imageInputRef.current?.click()}
-    >
-      <ImageIcon className="size-3.5" />
-    </RailButton>
-  )
 
   const bulletActive = isActive(`bulletList`)
   const orderedActive = isActive(`orderedList`)
@@ -357,8 +248,14 @@ export function FormattingRail({
 
   const mainContent = (
     <>
-      {emojiControl}
-      {attachControls}
+      {platform === `mobile` && (
+        <EditorInsertControls
+          editor={editor}
+          imageUpload={imageUpload}
+          platform="mobile"
+          onOverlayOpenChange={onOverlayOpenChange}
+        />
+      )}
       <RailButton label="Insert issue reference" onClick={insertIssueRef}>
         <IssueRefIcon className="size-3.5" />
       </RailButton>
@@ -504,10 +401,180 @@ export function FormattingRail({
         `animate-in fade-in zoom-in-95 duration-fast ease-standard motion-reduce:animate-none`
       )}
     >
-      {hiddenInputs}
       {mode === `main` && mainContent}
       {mode === `text` && textContent}
       {mode === `link` && linkContent}
+    </div>
+  )
+}
+
+/** A selected image (NodeSelection) would be REPLACED by inserted text —
+ *  insert after it instead, mirroring MarkdownEditor's insertImage. */
+function insertPlainTextAt(editor: Editor, text: string) {
+  const { selection } = editor.state
+  editor
+    .chain()
+    .focus()
+    .command(({ tr }) => {
+      if (selection instanceof NodeSelection) {
+        tr.insertText(text, selection.to, selection.to)
+      } else {
+        tr.insertText(text)
+      }
+      return true
+    })
+    .run()
+}
+
+interface EditorInsertControlsProps {
+  editor: Editor
+  imageUpload?: MarkdownEditorImageUploadConfig
+  platform: `desktop` | `mobile`
+  /** Fired while the emoji popover / the phone's image-or-file menu is open,
+   *  so a host that dies on blur (the keyboard bar) can hold itself up. */
+  onOverlayOpenChange?: (open: boolean) => void
+}
+
+/**
+ * EXP-587: emoji · image · attach. The file pickers have no keyboard shortcut
+ * to fall back on, so this is their only entry; the hidden `<input type=file>`
+ * elements ride along. Rendered inside the phone rail and, on desktop, by
+ * [`EditorInsertBar`].
+ */
+export function EditorInsertControls({
+  editor,
+  imageUpload,
+  platform,
+  onOverlayOpenChange,
+}: EditorInsertControlsProps) {
+  const imageInputRef = useRef<HTMLInputElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const routeFiles = (fileList: FileList | null) => {
+    if (!imageUpload) return
+    const { images, others } = partitionUploadFiles(fileList)
+    if (images.length > 0) void imageUpload.onFiles(images)
+    if (others.length > 0) void imageUpload.onOtherFiles?.(others)
+  }
+
+  const hiddenInputs = imageUpload?.enabled ? (
+    <>
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept={acceptedImageContentTypes.join(`,`)}
+        multiple
+        hidden
+        onChange={(event) => {
+          routeFiles(event.target.files)
+          event.target.value = ``
+        }}
+      />
+      {imageUpload.onOtherFiles && (
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          hidden
+          onChange={(event) => {
+            routeFiles(event.target.files)
+            event.target.value = ``
+          }}
+        />
+      )}
+    </>
+  ) : null
+
+  const emojiControl = (
+    <EmojiPickerPopover
+      side={platform === `mobile` ? `top` : undefined}
+      onOpenChange={onOverlayOpenChange}
+      onPick={(unicode) => insertPlainTextAt(editor, unicode)}
+    >
+      <RailTriggerButton label="Insert emoji">
+        <EmojiIcon className="size-3.5" />
+      </RailTriggerButton>
+    </EmojiPickerPopover>
+  )
+
+  const attachControls = !imageUpload?.enabled ? null : platform ===
+    `desktop` ? (
+    <>
+      <RailButton
+        label="Insert image"
+        onClick={() => imageInputRef.current?.click()}
+      >
+        <ImageIcon className="size-3.5" />
+      </RailButton>
+      {imageUpload.onOtherFiles && (
+        <RailButton
+          label="Attach file"
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <AttachIcon className="size-3.5" />
+        </RailButton>
+      )}
+    </>
+  ) : imageUpload.onOtherFiles ? (
+    // One glyph on a phone rail — the two destinations become menu items.
+    <DropdownMenu onOpenChange={onOverlayOpenChange}>
+      <DropdownMenuTrigger asChild>
+        <RailTriggerButton label="Insert image or file">
+          <ImageIcon className="size-3.5" />
+        </RailTriggerButton>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" side="top">
+        <DropdownMenuItem onSelect={() => imageInputRef.current?.click()}>
+          <ImageIcon className="size-4" />
+          Image
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => fileInputRef.current?.click()}>
+          <AttachIcon className="size-4" />
+          File
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  ) : (
+    <RailButton
+      label="Insert image"
+      onClick={() => imageInputRef.current?.click()}
+    >
+      <ImageIcon className="size-3.5" />
+    </RailButton>
+  )
+
+  return (
+    <>
+      {hiddenInputs}
+      {emojiControl}
+      {attachControls}
+    </>
+  )
+}
+
+/**
+ * EXP-587: the static Linear-style strip under a desktop editor. Shares the
+ * rail's button recipe (`.formatting-rail`) but is not a rail: it never
+ * floats, never hides, and needs no mode — it is the one place the insert
+ * controls live on desktop.
+ */
+export function EditorInsertBar({
+  editor,
+  imageUpload,
+}: {
+  editor: Editor
+  imageUpload?: MarkdownEditorImageUploadConfig
+}) {
+  return (
+    <div
+      data-editor-insert-bar=""
+      className="formatting-rail editor-insert-bar flex items-center gap-px"
+    >
+      <EditorInsertControls
+        editor={editor}
+        imageUpload={imageUpload}
+        platform="desktop"
+      />
     </div>
   )
 }

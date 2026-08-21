@@ -26,6 +26,7 @@ use gpui_markdown_editor::{
 
 use super::images::{self, SharedImageState, WysiwygImageResolver, WysiwygPasteHandler};
 use super::toolbar::RailMode;
+use crate::icons::registry;
 use super::refs::{refresh_ref_state, SharedRefState, WysiwygReferenceDecorator};
 use crate::markdown::image_paste::{markdown_for_save, DRAFT_SCHEME};
 use crate::markdown::{
@@ -1400,6 +1401,54 @@ impl WysiwygDescription {
         )
     }
 
+    /// EXP-587: the static insert bar under the description — emoji · image ·
+    /// attach, Linear-style. These used to ride the floating rail, but the
+    /// rail only exists over a SELECTION, and inserting there replaced the
+    /// selected text. Down here they act at the caret (or the last active
+    /// block when the press itself blurred it — `insert_text_at_caret` and
+    /// the image pipeline resolve through `format_target`).
+    fn render_insert_bar(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let muted = cx.theme().muted_foreground;
+        h_flex()
+            .w_full()
+            .flex_none()
+            .items_center()
+            .gap_0p5()
+            .pt_1()
+            .text_color(muted)
+            .child(crate::emoji_picker::emoji_picker_popover(
+                "wysiwyg-insert-emoji-popover",
+                Self::icon_button("wysiwyg-insert-emoji", registry::EDITOR_EMOJI, "Emoji", false),
+                self.emoji_picker.clone(),
+                self.emoji_open,
+                cx.listener(|this, open: &bool, _window, cx| {
+                    this.set_emoji_open(*open, cx);
+                }),
+            ))
+            .child(
+                Self::icon_button(
+                    "wysiwyg-insert-image",
+                    registry::EDITOR_IMAGE,
+                    "Insert image",
+                    false,
+                )
+                .on_click(cx.listener(|this, _, window, cx| this.pick_image(window, cx))),
+            )
+            // EXP-335: hidden for hosts without a Files destination (the
+            // action-prompt editor has none).
+            .when(self.has_attach_handler(), |bar| {
+                bar.child(
+                    Self::icon_button(
+                        "wysiwyg-insert-attach",
+                        registry::UI_ATTACH,
+                        "Attach file",
+                        false,
+                    )
+                    .on_click(cx.listener(|this, _, window, cx| this.pick_attach(window, cx))),
+                )
+            })
+    }
+
     /// Click-anywhere-to-dismiss layer under the open image menu. A plain
     /// `on_mouse_down` on the wrapper cannot do this job: the editor's blocks
     /// stop propagation on mouse-down, and clicks outside the description slot
@@ -1482,6 +1531,7 @@ impl Render for WysiwygDescription {
                         cx.listener(|this, _, window, cx| this.focus_end(window, cx)),
                     ),
             )
+            .child(self.render_insert_bar(cx))
             .children(rail)
             .children(completion_popup)
             .children(menu_backdrop)
