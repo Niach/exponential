@@ -79,6 +79,7 @@ import com.exponential.app.ui.components.defaultModelFor
 import com.exponential.app.ui.components.effortLabel
 import com.exponential.app.ui.components.effortValuesFor
 import com.exponential.app.ui.components.modelLabel
+import com.exponential.app.ui.components.modelOptionsFor
 import com.exponential.app.ui.components.modelValuesFor
 import com.exponential.app.ui.components.supportsPlanMode
 import com.exponential.app.ui.icons.ExpIcons
@@ -950,15 +951,10 @@ fun StartCodingSheet(
 
                 // ── Model / Effort ───────────────────────────────────────────
                 OptionGroup {
-                    val modelOptions = when (agent) {
-                        "codex" -> listOf(CLI_DEFAULT_MODEL) + DomainContract.codexModelValues
-                        "pi" -> listOf(CLI_DEFAULT_MODEL) + DomainContract.piModelValues
-                        else -> DomainContract.codingModelValues
-                    }
                     PickerRow(
                         label = "Model",
                         value = modelLabel(model),
-                        options = modelOptions,
+                        options = modelOptionsFor(agent),
                         selected = model,
                         optionLabel = ::modelLabel,
                         onSelect = { model = it },
