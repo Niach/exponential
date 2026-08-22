@@ -11,7 +11,7 @@
 //! drain.
 
 use alacritty_terminal::event::{Event as AlacTermEvent, EventListener, WindowSize};
-use alacritty_terminal::grid::Dimensions;
+use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::sync::FairMutex;
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::{Config, Osc52, Term, TermMode};
@@ -209,6 +209,24 @@ pub fn display_offset(term: &TermHandle) -> usize {
     term.lock().grid().display_offset()
 }
 
+/// Snap the viewport back to the live bottom of the grid (display offset 0).
+/// The steer remote-answer path uses this (EXP-611): a viewport a local user
+/// left scrolled into history feeds HISTORY rows to picker detection, so
+/// every remote answer was refused as transient until its retry TTL dropped
+/// it — the steerer saw "No confirmation from the desktop" forever. A remote
+/// answer targets the LIVE picker by construction, so snapping to the bottom
+/// is exactly what the local user would do before pressing the key.
+pub fn scroll_to_bottom(term: &TermHandle) {
+    term.lock().scroll_display(Scroll::Bottom);
+}
+
+/// Scroll the viewport up into history by `lines` (clamped by alacritty to
+/// the available scrollback) — how a harness simulates a user reading
+/// history without linking `alacritty_terminal` directly.
+pub fn scroll_up(term: &TermHandle, lines: usize) {
+    term.lock().scroll_display(Scroll::Delta(lines.min(i32::MAX as usize) as i32));
+}
+
 /// Free-function variant of [`Emulator::screen_lines`] usable with just a
 /// [`TermHandle`].
 pub fn screen_lines(term: &TermHandle) -> Vec<String> {
@@ -319,6 +337,24 @@ mod tests {
         let emulator = Emulator::new(20, 4);
         advance(&emulator, b"hello grid");
         assert_eq!(emulator.screen_lines()[0], "hello grid");
+    }
+
+    #[test]
+    fn scroll_to_bottom_snaps_a_scrolled_viewport() {
+        // EXP-611: a viewport scrolled into history feeds HISTORY rows to
+        // `screen_lines` — the steer answer path snaps it back before
+        // injecting.
+        let emulator = Emulator::new(20, 4);
+        for i in 0..20 {
+            advance(&emulator, format!("line {i}\r\n").as_bytes());
+        }
+        let term = emulator.term();
+        term.lock().scroll_display(Scroll::Delta(10));
+        assert!(display_offset(&term) > 0);
+        assert_ne!(screen_lines(&term)[0], "line 17");
+        scroll_to_bottom(&term);
+        assert_eq!(display_offset(&term), 0);
+        assert_eq!(screen_lines(&term)[0], "line 17");
     }
 
     #[test]

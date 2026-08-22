@@ -62,7 +62,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use regex::Regex;
 use serde_json::Value;
-use terminal::{display_offset, screen_lines, TermHandle};
+use terminal::{display_offset, screen_lines, scroll_to_bottom, TermHandle};
 
 use crate::frames::{ActivityEvent, QuestionOption, SubagentStatus};
 use crate::hooks::{HookEvent, HookEventKind, HookQuestion};
@@ -2871,8 +2871,15 @@ impl SteerState {
             return AnswerAttempt::Settled;
         };
         if display_offset(term) > 0 {
-            // Scrolled into history — the visible grid is not the picker.
-            return AnswerAttempt::Retry;
+            // Scrolled into history — the visible grid is not the picker, and
+            // nothing will move it back on its own while the TUI is parked on
+            // the picker: refusing here refused FOREVER (every tap parked,
+            // TTL-dropped, never acked — EXP-611: reading a long plan on the
+            // desktop and then approving from the phone always failed). The
+            // answer targets the LIVE picker by construction, so snap the
+            // viewport to the bottom exactly like local input would and
+            // proceed against the live rows.
+            scroll_to_bottom(term);
         }
         let lines = screen_lines(term);
         match live.kind {
