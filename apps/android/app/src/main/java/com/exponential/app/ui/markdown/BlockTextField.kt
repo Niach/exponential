@@ -64,7 +64,6 @@ import com.exponential.app.ui.components.GlassMenuSurface
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.emoji.EmojiRecord
 import com.exponential.app.ui.emoji.EmojiTokenMatch
-import com.exponential.app.ui.emoji.applySkinTone
 import com.exponential.app.ui.emoji.matchEmojiToken
 import com.exponential.app.ui.emoji.rememberEmojiData
 import com.exponential.app.ui.emoji.rememberEmojiPrefs
@@ -241,7 +240,7 @@ fun BlockTextField(
         val caret = value.selection.start
         val start = caret - match.length
         if (start < 0) return
-        val unicode = applySkinTone(record, emojiPrefs.skinTone())
+        val unicode = record.unicode
         val inserted = if (trailingSpace) unicode + " " else unicode
         val newText = value.text.substring(0, start) + inserted + value.text.substring(caret)
         val newCaret = start + inserted.length
@@ -490,7 +489,6 @@ fun BlockTextField(
                             mentionCandidates = mentionCandidates,
                             refCandidates = refCandidates,
                             emojiCandidates = emojiCandidates,
-                            emojiTone = emojiPrefs.skinTone(),
                             onPickMention = ::insertMention,
                             onPickIssueRef = ::insertIssueRef,
                             onPickEmoji = { insertEmoji(it, trailingSpace = true) },
@@ -513,7 +511,6 @@ private fun AutocompleteMenu(
     mentionCandidates: List<MentionMember>,
     refCandidates: List<IssueRefTarget>,
     emojiCandidates: List<EmojiRecord>,
-    emojiTone: Int,
     onPickMention: (MentionMember) -> Unit,
     onPickIssueRef: (IssueRefTarget) -> Unit,
     onPickEmoji: (EmojiRecord) -> Unit,
@@ -621,7 +618,7 @@ private fun AutocompleteMenu(
                             .padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(applySkinTone(emoji, emojiTone), style = MaterialTheme.typography.bodyLarge)
+                        Text(emoji.unicode, style = MaterialTheme.typography.bodyLarge)
                         Spacer(Modifier.width(10.dp))
                         Text(
                             ":" + (emoji.shortcodes.firstOrNull() ?: emoji.label) + ":",

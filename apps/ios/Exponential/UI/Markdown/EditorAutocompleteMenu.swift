@@ -74,7 +74,7 @@ struct EditorAutocompleteMenu: View {
                 } else {
                     ForEach(model.emojiCandidates) { record in
                         row { model.applyEmoji(record) } label: {
-                            Text(record.applyingTone(model.emojiSkinTone))
+                            Text(record.unicode)
                                 .font(.system(size: 18))
                                 .frame(width: 24)
                             Text(":\(record.shortcodes.first ?? record.label):")

@@ -148,9 +148,8 @@ struct MarkdownEditor: View {
             }
             model.mentionMembers = mentionMembers
             // EXP-551: decode the bundled dataset off-main once, then wire the
-            // `:shortcode` typeahead + the tone preference into the model.
+            // `:shortcode` typeahead into the model.
             EmojiCatalog.shared.preload()
-            model.emojiSkinTone = emojiPreferences.skinTone
             model.emojiSearch = { query in
                 EmojiCatalog.shared.search(query, limit: EmojiCatalog.typeaheadLimit)
             }
@@ -172,9 +171,6 @@ struct MarkdownEditor: View {
     /// The picker sheet took first responder; hand it back so the keyboard
     /// returns with the caret where the emoji landed (EXP-551).
     private func refocusAfterEmojiPicker() {
-        // The sheet may have changed the tone preference; the typeahead reads
-        // it off the model, so pull it back through.
-        model.emojiSkinTone = emojiPreferences.skinTone
         guard let target = emojiRefocusTarget else { return }
         emojiRefocusTarget = nil
         DispatchQueue.main.async {

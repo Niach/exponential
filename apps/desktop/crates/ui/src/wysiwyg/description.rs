@@ -14,9 +14,11 @@ use gpui::{
     FocusHandle, Focusable, InteractiveElement as _, IntoElement, MouseButton, ParentElement as _,
     Pixels, Point, Render, SharedString, Styled as _, Subscription, Window,
 };
+use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{InputEvent, InputState};
 use gpui_component::{
-    h_flex, notification::Notification, v_flex, ActiveTheme as _, Icon, WindowExt as _,
+    h_flex, notification::Notification, v_flex, ActiveTheme as _, Icon, Sizable as _,
+    WindowExt as _,
 };
 use gpui_markdown_editor::{
     DismissTransientUi, FocusNext, FocusPrev, FormatCommand, ImageSourceResolution, IndentBlock,
@@ -974,6 +976,9 @@ impl WysiwygDescription {
                                     cx,
                                 );
                             });
+                            // EXP-600: the auto-commit records a recent like a
+                            // picker pick does (web parity).
+                            crate::emoji::push_recent_emoji(cx, &unicode);
                             if had {
                                 cx.notify();
                             }
@@ -1009,6 +1014,12 @@ impl WysiwygDescription {
         self.editor.update(cx, |editor, cx| {
             editor.replace_text_before_caret(completion.token_len, &replacement, window, cx);
         });
+        // EXP-600: a typeahead pick feeds the picker's Recent row too (web
+        // parity — the emoji insert IS the base unicode the recents store).
+        if item.trigger == crate::markdown::CompletionTrigger::Emoji {
+            let unicode = item.insert.clone();
+            crate::emoji::push_recent_emoji(cx, &unicode);
+        }
         cx.notify();
     }
 
@@ -1407,18 +1418,36 @@ impl WysiwygDescription {
     /// selected text. Down here they act at the caret (or the last active
     /// block when the press itself blurred it — `insert_text_at_caret` and
     /// the image pipeline resolve through `format_target`).
+    ///
+    /// EXP-598: one step up from the rail's `icon_button` (Medium → 26px hit
+    /// boxes, 1rem glyphs) — the xsmall rail treatment read as misaligned
+    /// specks down here. The centered glyphs inside the boxes supply the
+    /// leading margin that lines them up with the editor text above.
+    fn insert_bar_button(
+        id: &'static str,
+        icon: crate::icons::ExpIcon,
+        tooltip: &'static str,
+    ) -> Button {
+        Button::new(id)
+            .ghost()
+            .cursor_pointer()
+            .with_size(gpui_component::Size::Medium)
+            .icon(Icon::from(icon))
+            .tooltip(tooltip)
+    }
+
     fn render_insert_bar(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let muted = cx.theme().muted_foreground;
         h_flex()
             .w_full()
             .flex_none()
             .items_center()
-            .gap_0p5()
-            .pt_1()
+            .gap_1()
+            .pt_1p5()
             .text_color(muted)
             .child(crate::emoji_picker::emoji_picker_popover(
                 "wysiwyg-insert-emoji-popover",
-                Self::icon_button("wysiwyg-insert-emoji", registry::EDITOR_EMOJI, "Emoji", false),
+                Self::insert_bar_button("wysiwyg-insert-emoji", registry::EDITOR_EMOJI, "Emoji"),
                 self.emoji_picker.clone(),
                 self.emoji_open,
                 cx.listener(|this, open: &bool, _window, cx| {
@@ -1426,11 +1455,10 @@ impl WysiwygDescription {
                 }),
             ))
             .child(
-                Self::icon_button(
+                Self::insert_bar_button(
                     "wysiwyg-insert-image",
                     registry::EDITOR_IMAGE,
                     "Insert image",
-                    false,
                 )
                 .on_click(cx.listener(|this, _, window, cx| this.pick_image(window, cx))),
             )
@@ -1438,11 +1466,10 @@ impl WysiwygDescription {
             // action-prompt editor has none).
             .when(self.has_attach_handler(), |bar| {
                 bar.child(
-                    Self::icon_button(
+                    Self::insert_bar_button(
                         "wysiwyg-insert-attach",
                         registry::UI_ATTACH,
                         "Attach file",
-                        false,
                     )
                     .on_click(cx.listener(|this, _, window, cx| this.pick_attach(window, cx))),
                 )

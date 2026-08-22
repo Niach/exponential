@@ -53,8 +53,7 @@ pub enum CompletionDecoration {
     Status(domain::statuses::ResolvedStatus),
     /// The member's profile image URL (`None` = initials fallback).
     User { image_url: Option<String> },
-    /// EXP-551: the emoji glyph itself (already skin-toned — it IS what the
-    /// row inserts).
+    /// EXP-551: the emoji glyph itself (it IS what the row inserts).
     Emoji { glyph: SharedString },
 }
 
@@ -78,7 +77,14 @@ pub fn completion_row_content(item: &CompletionItem, cx: &mut App) -> gpui::AnyE
             ));
         }
         Some(CompletionDecoration::Emoji { glyph }) => {
-            row = row.child(div().text_base().child(glyph.clone()));
+            // EXP-600: pin the COLOR emoji face — the default fallback chain
+            // can reach a monochrome symbol font first.
+            row = row.child(
+                div()
+                    .text_base()
+                    .font_family(crate::emoji::EMOJI_FONT_FAMILY)
+                    .child(glyph.clone()),
+            );
         }
         None => {}
     }
@@ -282,19 +288,17 @@ impl CompletionSource for StoreCompletionSource {
     }
 }
 
-/// EXP-551: the `:shortcode` candidates — the shared catalog's ranking, the
-/// saved skin tone applied to what each row inserts. The row reads
-/// glyph · `:shortcode:` · label, so the shortcode a user half-remembers is
-/// always visible.
-fn emoji_items(query: &str, cx: &App) -> Vec<CompletionItem> {
-    let tone = crate::emoji::skin_tone(cx);
+/// EXP-551: the `:shortcode` candidates — the shared catalog's ranking. The
+/// row reads glyph · `:shortcode:` · label, so the shortcode a user
+/// half-remembers is always visible.
+fn emoji_items(query: &str, _cx: &App) -> Vec<CompletionItem> {
     let catalog = crate::emoji::catalog();
     catalog
         .search(query, MAX_ITEMS)
         .into_iter()
         .filter_map(|index| catalog.get(index))
         .map(|emoji| {
-            let glyph = crate::emoji::apply_skin_tone(emoji, tone).to_string();
+            let glyph = emoji.unicode.clone();
             let shortcode = emoji
                 .shortcodes
                 .first()
@@ -313,12 +317,12 @@ fn emoji_items(query: &str, cx: &App) -> Vec<CompletionItem> {
         .collect()
 }
 
-/// EXP-551: the skin-toned unicode for an EXACT shortcode, or `None`. Both
-/// hosts call this on a closed `:tada:` token to auto-commit; nothing else
-/// expands shortcodes (stored markdown keeps literal `:text:` literal).
-pub fn exact_emoji(shortcode: &str, cx: &App) -> Option<String> {
+/// EXP-551: the unicode for an EXACT shortcode, or `None`. Both hosts call
+/// this on a closed `:tada:` token to auto-commit; nothing else expands
+/// shortcodes (stored markdown keeps literal `:text:` literal).
+pub fn exact_emoji(shortcode: &str, _cx: &App) -> Option<String> {
     let emoji = crate::emoji::catalog().find_shortcode(shortcode)?;
-    Some(crate::emoji::apply_skin_tone(emoji, crate::emoji::skin_tone(cx)).to_string())
+    Some(emoji.unicode.clone())
 }
 
 /// Match a `@` candidate the way the web `MentionProvider.search` does (iOS

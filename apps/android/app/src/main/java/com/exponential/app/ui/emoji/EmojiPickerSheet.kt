@@ -1,11 +1,8 @@
 package com.exponential.app.ui.emoji
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,7 +19,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -37,7 +33,6 @@ import androidx.compose.ui.unit.sp
 import com.exponential.app.ExponentialApp
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetSearchField
-import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import dagger.hilt.android.EntryPointAccessors
 
@@ -45,14 +40,13 @@ import dagger.hilt.android.EntryPointAccessors
 // floating markdown toolbar, the comment composer, the comment editor) opens
 // THIS sheet, and every pick inserts the UNICODE, never `:shortcode:` text.
 
-private const val TONE_SAMPLE_SHORTCODE = "hand"
 private const val PICKER_LIMIT = 64
 
 /**
- * Search + skin tone + a grouped grid, in the shared glass sheet chrome. The
- * search results REPLACE the grouped grid while a query is typed; picking
- * records the base unicode in recents, hands the toned unicode to [onPick] and
- * dismisses.
+ * Search + a grouped grid, in the shared glass sheet chrome. The search
+ * results REPLACE the grouped grid while a query is typed; picking records
+ * the base unicode in recents, hands it to [onPick] (always the base yellow
+ * glyph — EXP-600 dropped the skin-tone row) and dismisses.
  */
 @Composable
 fun EmojiPickerSheet(
@@ -62,7 +56,6 @@ fun EmojiPickerSheet(
     val data = rememberEmojiData(enabled = true)
     val prefs = rememberEmojiPrefs()
     var query by remember { mutableStateOf("") }
-    var tone by remember { mutableIntStateOf(prefs.skinTone()) }
     var recents by remember { mutableStateOf(prefs.recents()) }
 
     val results = remember(data, query) {
@@ -82,15 +75,6 @@ fun EmojiPickerSheet(
             placeholder = "Search emoji",
         )
         Spacer(Modifier.height(8.dp))
-        SkinToneRow(
-            data = data,
-            tone = tone,
-            onSelect = {
-                tone = it
-                prefs.setSkinTone(it)
-            },
-        )
-        Spacer(Modifier.height(4.dp))
         if (data == null) {
             Text(
                 "Loading emoji…",
@@ -115,19 +99,19 @@ fun EmojiPickerSheet(
                     }
                 }
                 items(results) { emoji ->
-                    EmojiCell(applySkinTone(emoji, tone), emoji.label) { unicode ->
+                    EmojiCell(emoji.unicode, emoji.label) { unicode ->
                         pick(unicode, emoji.unicode)
                     }
                 }
                 return@LazyVerticalGrid
             }
-            // Recents first (base unicodes, so a tone change re-tones them),
-            // then the dataset's nine groups in order.
+            // Recents first (base unicodes), then the dataset's nine groups
+            // in order.
             val recentRecords = recents.mapNotNull { data.findUnicode(it) }
             if (recentRecords.isNotEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader("Recent") }
                 items(recentRecords) { emoji ->
-                    EmojiCell(applySkinTone(emoji, tone), emoji.label) { unicode ->
+                    EmojiCell(emoji.unicode, emoji.label) { unicode ->
                         pick(unicode, emoji.unicode)
                     }
                 }
@@ -136,7 +120,7 @@ fun EmojiPickerSheet(
                 if (group.emojis.isEmpty()) return@forEach
                 item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader(group.label) }
                 items(group.emojis) { emoji ->
-                    EmojiCell(applySkinTone(emoji, tone), emoji.label) { unicode ->
+                    EmojiCell(emoji.unicode, emoji.label) { unicode ->
                         pick(unicode, emoji.unicode)
                     }
                 }
@@ -165,44 +149,6 @@ private fun EmojiCell(unicode: String, label: String, onClick: (String) -> Unit)
         contentAlignment = Alignment.Center,
     ) {
         Text(unicode, fontSize = 24.sp, textAlign = TextAlign.Center)
-    }
-}
-
-/**
- * "None" plus the five uniform tones, sampled on ✋ so the swatches show the
- * actual skin tone rather than a color chip. The sample comes from the dataset
- * (never a hardcoded sequence) so it can't drift from what picks insert.
- */
-@Composable
-private fun SkinToneRow(data: EmojiData?, tone: Int, onSelect: (Int) -> Unit) {
-    val sample = data?.findShortcode(TONE_SAMPLE_SHORTCODE) ?: return
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        for (option in 0..EMOJI_TONES) {
-            val selected = option == tone
-            Box(
-                modifier = Modifier
-                    .size(34.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(if (selected) GlassTokens.RowFill else Color.Transparent)
-                    .border(
-                        if (selected) 1.5.dp else 1.dp,
-                        if (selected) Color.White.copy(alpha = 0.6f) else Color.White.copy(alpha = TextEmphasis.Quaternary),
-                        RoundedCornerShape(10.dp),
-                    )
-                    .clickable(
-                        onClickLabel = if (option == 0) "Default skin tone" else "Skin tone $option",
-                    ) { onSelect(option) },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(applySkinTone(sample, option), fontSize = 18.sp)
-            }
-        }
     }
 }
 

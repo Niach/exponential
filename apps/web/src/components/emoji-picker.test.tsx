@@ -115,21 +115,20 @@ describe(`EmojiPicker`, () => {
     await waitFor(() => expect(screen.getByText(`No emoji found`)).toBeTruthy())
   })
 
-  it(`applies and persists the skin tone`, async () => {
+  it(`offers no skin-tone picker and always inserts the base glyph`, async () => {
+    // EXP-600: only the yellow ones — a record's `k` variants never render
+    // and a stale stored tone from before the removal changes nothing.
+    window.localStorage.setItem(`exp.emojiSkinTone`, `3`)
     const onPick = vi.fn()
     render(<EmojiPicker onPick={onPick} />)
     await screen.findByRole(`heading`, { name: `People & body` })
-    fireEvent.click(screen.getByRole(`radio`, { name: `Medium skin tone` }))
-    expect(window.localStorage.getItem(`exp.emojiSkinTone`)).toBe(`3`)
+    expect(screen.queryByRole(`radiogroup`, { name: `Skin tone` })).toBeNull()
     const thumbs = screen.getByRole(`button`, { name: `thumbs up` })
-    expect(thumbs.textContent).toBe(`👍🏽`)
+    expect(thumbs.textContent).toBe(`👍`)
     fireEvent.click(thumbs)
-    // Toned unicode goes to the caller, the BASE is what recents remember.
-    expect(onPick).toHaveBeenCalledWith(`👍🏽`, expect.objectContaining({ u: `👍` }))
+    expect(onPick).toHaveBeenCalledWith(`👍`, expect.objectContaining({ u: `👍` }))
     expect(JSON.parse(window.localStorage.getItem(`exp.emojiRecent`)!)).toEqual([
       `👍`,
     ])
-    // Tone-less emoji are unaffected.
-    expect(screen.getByRole(`button`, { name: `bug` }).textContent).toBe(`🐛`)
   })
 })

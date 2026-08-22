@@ -141,12 +141,11 @@ pub struct Settings {
     /// merge-preserving per-install store. `None`/blank = auto (the
     /// platform's `default_shell()` resolution in the terminal crate).
     pub terminal_shell: Option<String>,
-    /// EXP-551: the emoji picker's skin-tone preference — `0` = none,
-    /// `1..=5` light → dark. Per-DEVICE like the rail state, never synced;
-    /// `None` = never chosen (→ untoned).
-    pub emoji_skin_tone: Option<u8>,
     /// EXP-551: recently picked BASE emoji unicodes, most recent first (the
-    /// picker's "Recent" section). Capped at 24 by the ui writer.
+    /// picker's "Recent" section). Capped at 24 by the ui writer. Per-DEVICE
+    /// like the rail state, never synced. (The EXP-551 `emojiSkinTone` key is
+    /// retired — EXP-600 dropped skin tones — and merges through saves like
+    /// any other unknown key.)
     pub emoji_recents: Vec<String>,
     /// EXP-367: whether this install has shown the first-run "Set up your
     /// tools" onboarding step. Per-DEVICE (the toolchain is local), so it
@@ -191,7 +190,6 @@ impl Default for Settings {
             rail_expanded: None,
             terminal_shell: None,
             tools_setup_seen: false,
-            emoji_skin_tone: None,
             emoji_recents: Vec::new(),
         }
     }
@@ -242,9 +240,8 @@ impl Settings {
         settings.terminal_shell = settings
             .terminal_shell
             .filter(|shell| !shell.trim().is_empty());
-        // EXP-551: a hand-edited file must not produce an out-of-range tone
-        // or an unbounded recents list.
-        settings.emoji_skin_tone = settings.emoji_skin_tone.filter(|tone| *tone <= 5);
+        // EXP-551: a hand-edited file must not produce an unbounded recents
+        // list.
         settings.emoji_recents.truncate(24);
         settings
     }
@@ -783,7 +780,6 @@ mod tests {
             rail_expanded: Some(true),
             terminal_shell: Some("/opt/homebrew/bin/fish".to_string()),
             tools_setup_seen: true,
-            emoji_skin_tone: Some(3),
             emoji_recents: vec!["🎉".to_string()],
         };
         settings.save(&path).unwrap();
@@ -808,7 +804,8 @@ mod tests {
     }
 
     /// EXP-551: the emoji prefs are hand-editable like every other key —
-    /// `load` clamps a bogus tone away and caps the recents list.
+    /// `load` caps the recents list (and ignores the retired EXP-551
+    /// `emojiSkinTone` key like any other unknown key).
     #[test]
     fn emoji_prefs_normalize_on_load() {
         let dir = TempDir::new("emoji");
@@ -820,11 +817,8 @@ mod tests {
         });
         fs::write(&path, raw.to_string()).unwrap();
         let loaded = Settings::load(&path);
-        assert_eq!(loaded.emoji_skin_tone, None, "out-of-range tone drops");
         assert_eq!(loaded.emoji_recents.len(), 24);
         assert_eq!(loaded.emoji_recents[0], "e0");
-        // A missing key is simply "never chosen".
-        assert_eq!(Settings::default().emoji_skin_tone, None);
         assert!(Settings::default().emoji_recents.is_empty());
     }
 

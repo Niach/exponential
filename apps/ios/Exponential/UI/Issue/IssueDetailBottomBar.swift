@@ -402,8 +402,6 @@ struct IssueDetailBottomBar: View {
     /// (EXP-551) — otherwise the keyboard stays down and the blur-collapse
     /// guard above would have to keep the composer open forever.
     private func refocusAfterEmojiPicker() {
-        // A tone change in the sheet has to reach the composer's typeahead too.
-        composerEditor.emojiSkinTone = EmojiPreferences().skinTone
         guard let target = emojiRefocusTarget else { return }
         emojiRefocusTarget = nil
         DispatchQueue.main.async {

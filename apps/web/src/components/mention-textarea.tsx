@@ -11,11 +11,9 @@ import {
   type ResolvedIssueRef,
 } from "@/components/issue-ref-provider"
 import {
-  applySkinTone,
   findEmojiByShortcode,
   matchEmojiToken,
   pushRecentEmoji,
-  readSkinTone,
   searchEmoji,
   useEmojiData,
   type EmojiRecord,
@@ -168,7 +166,7 @@ export const MentionTextarea = forwardRef<
     insertToken(`#${issue.identifier}`)
   const insertEmoji = (emoji: EmojiRecord, trailingSpace: boolean) => {
     pushRecentEmoji(emoji.u)
-    insertToken(applySkinTone(emoji, readSkinTone()), trailingSpace)
+    insertToken(emoji.u, trailingSpace)
   }
 
   const insertActive = () => {
@@ -283,7 +281,7 @@ export const MentionTextarea = forwardRef<
               <EmojiCandidateRow
                 key={emoji.u}
                 emoji={emoji}
-                unicode={applySkinTone(emoji, readSkinTone())}
+                unicode={emoji.u}
                 query={menu.query}
                 active={i === active}
                 onSelect={() => insertEmoji(emoji, true)}

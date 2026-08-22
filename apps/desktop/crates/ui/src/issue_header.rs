@@ -1057,8 +1057,10 @@ impl IssueHeader {
         // which would still occupy a gap slot in the row.
         let start_coding = self.start_coding.read(cx).is_visible(cx);
 
-        // EXP-568: the properties live in one glass tray; Start coding stays
-        // OUTSIDE it, leading — it is an action, not a property of the issue.
+        // EXP-568/EXP-601: everything lives in ONE glass tray — the property
+        // chips grow from the left, Start coding floats on the right edge of
+        // the same card (`ml_auto`; an action, so it keeps its visual
+        // distance from the chips even after wrapping).
         let properties = crate::surface::glass_tray()
             .child(self.status_control(issue, cx))
             .child(self.priority_control(issue, cx))
@@ -1068,20 +1070,26 @@ impl IssueHeader {
             .child(self.labels_control(issue, cx))
             .child(self.due_control(issue, cx))
             .children(self.board_chip(issue, cx))
-            .children(self.origin_chip(issue, cx));
+            .children(self.origin_chip(issue, cx))
+            .when(start_coding, |tray| {
+                tray.child(
+                    div()
+                        .ml_auto()
+                        .flex_shrink_0()
+                        .child(self.start_coding.clone()),
+                )
+            });
 
         h_flex()
             .w_full()
-            .flex_wrap()
-            .gap_1p5()
             .items_center()
             .px(px(DETAIL_GUTTER))
-            .pb_1()
-            .when(start_coding, |row| row.child(self.start_coding.clone()))
-            // flex_1 + min_w_0: the tray takes the width left beside the
-            // launcher, which is what gives its own `flex_wrap` a definite
-            // width to wrap the chips against (a shrink-to-fit tray would size
-            // to max-content and paint past the reading column instead).
+            // EXP-601: a small gap between the prop bar and the description.
+            .pb_3()
+            // flex_1 + min_w_0: the tray takes the full column width, which
+            // is what gives its own `flex_wrap` a definite width to wrap the
+            // chips against (a shrink-to-fit tray would size to max-content
+            // and paint past the reading column instead).
             .child(properties.flex_1().min_w_0())
             .into_any_element()
     }

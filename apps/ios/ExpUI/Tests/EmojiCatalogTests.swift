@@ -4,8 +4,8 @@ import XCTest
 
 // EXP-551 — the shared emoji dataset contract on iOS: the generated
 // `packages/emoji` file decodes with the short keys, the search ranking matches
-// the semantics every client implements, and the tone/recents preferences use
-// the shared UserDefaults keys.
+// the semantics every client implements, and the recents preference uses the
+// shared UserDefaults key.
 final class EmojiCatalogTests: XCTestCase {
     // MARK: - Decoding
 
@@ -51,22 +51,8 @@ final class EmojiCatalogTests: XCTestCase {
         XCTAssertNil(index.find(shortcode: "nope"))
     }
 
-    // MARK: - Tones
-
-    func testApplyingToneUsesTheVariantOrFallsBack() throws {
-        let index = try fixtureIndex()
-        let thumbs = try XCTUnwrap(index.find(shortcode: "+1"))
-        XCTAssertEqual(thumbs.applyingTone(0), "\u{1F44D}")
-        XCTAssertEqual(thumbs.applyingTone(1), "\u{1F44D}\u{1F3FB}")
-        XCTAssertEqual(thumbs.applyingTone(5), "\u{1F44D}\u{1F3FF}")
-        // Out-of-range tones never index out of `k`.
-        XCTAssertEqual(thumbs.applyingTone(9), "\u{1F44D}")
-        XCTAssertEqual(thumbs.applyingTone(-1), "\u{1F44D}")
-
-        // A record without `k` ignores the global preference entirely.
-        let grinning = try XCTUnwrap(index.find(shortcode: "grinning"))
-        XCTAssertEqual(grinning.applyingTone(3), "\u{1F600}")
-    }
+    // EXP-600: skin tones are gone — pickers only ever insert `unicode`; the
+    // `k` variants stay decodable (dataset shape) but deliberately unread.
 
     // MARK: - The REAL generated dataset
 
@@ -145,18 +131,6 @@ final class EmojiCatalogTests: XCTestCase {
         let defaults = UserDefaults(suiteName: suite)!
         addTeardownBlock { UserDefaults().removePersistentDomain(forName: suite) }
         return defaults
-    }
-
-    func testSkinTonePreferenceRoundTripsAndClamps() {
-        let prefs = EmojiPreferences(defaults: throwawayDefaults())
-        XCTAssertEqual(prefs.skinTone, 0)
-        prefs.skinTone = 3
-        XCTAssertEqual(prefs.skinTone, 3)
-        prefs.skinTone = 42
-        XCTAssertEqual(prefs.skinTone, 5)
-        prefs.skinTone = -1
-        XCTAssertEqual(prefs.skinTone, 0)
-        XCTAssertEqual(EmojiPreferences.skinToneKey, "exp.emojiSkinTone")
     }
 
     func testRecentsAreMostRecentFirstDedupedAndCappedAt24() {

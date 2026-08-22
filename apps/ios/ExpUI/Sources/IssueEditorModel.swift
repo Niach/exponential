@@ -142,11 +142,6 @@ public final class IssueEditorModel {
     /// while the bundled dataset is still decoding off-main.
     public var emojiSearch: ((String) -> [EmojiRecord])?
 
-    /// EXP-551 — the user's skin-tone preference (0 = none, 1...5 light to
-    /// dark), applied to every emoji this model inserts. Hosts mirror
-    /// `EmojiPreferences.skinTone` into it.
-    public var emojiSkinTone: Int = 0
-
     /// EXP-551 — fired after an emoji is committed from the typeahead so the
     /// host can record it in the shared recents list.
     public var onEmojiInserted: ((EmojiRecord) -> Void)?
@@ -676,7 +671,7 @@ public final class IssueEditorModel {
             clearEmoji()
             return
         }
-        let token = record.applyingTone(emojiSkinTone) + (trailingSpace ? " " : "")
+        let token = record.unicode + (trailingSpace ? " " : "")
         let replaceRange = NSRange(
             location: active.colonOffset,
             length: 1 + active.queryLength + active.closingColonLength
