@@ -527,11 +527,8 @@
   min-width: 0;
 }
 
-/* Height override for the chat-only canvas (base .web-root is 680px). */
-.web-root.co-helproot {
-  height: 460px;
-}
-
+/* HelpdeskChatDemo sizes its .web-root inline (desktop 460px with the
+   rail, phones 560px chat-only) — no height override here. */
 .co-helpsup {
   flex: 1;
   min-width: 0;
