@@ -779,7 +779,8 @@ class IssueListViewModel @Inject constructor(
 
 
     // Suspends until the issue (and any image upload/patch) is committed, then
-    // returns success. The caller awaits this before navigating away — the create
+    // returns the new issue's id (null = the create failed) so the caller can
+    // land on it. The caller awaits this before navigating away — the create
     // screen has its own ViewModel scope, so a fire-and-forget launch would be
     // cancelled the moment the screen pops, dropping the write.
     suspend fun createIssueAwait(
@@ -794,12 +795,12 @@ class IssueListViewModel @Inject constructor(
         // Draft file attachments (EXP-327): uploaded once the issue exists,
         // like the images above — attachments need an issue id.
         pendingFiles: List<android.net.Uri> = emptyList(),
-    ): Boolean {
-        if (title.isBlank()) return false
+    ): String? {
+        if (title.isBlank()) return null
         _busy.value = true
         _error.value = null
         return try {
-            val accountId = auth.activeAccountId.value ?: return false
+            val accountId = auth.activeAccountId.value ?: return null
             val rawDescription = description?.takeIf { it.isNotBlank() }
             // The create screen's pending map is add-only — deleting an image
             // row in the editor removes its placeholder from the markdown but
@@ -854,10 +855,10 @@ class IssueListViewModel @Inject constructor(
             if (pendingFiles.isNotEmpty()) {
                 uploadPendingFiles(accountId, created.id, pendingFiles)
             }
-            true
+            created.id
         } catch (error: Throwable) {
             _error.value = error.message ?: "Failed to create issue"
-            false
+            null
         } finally {
             _busy.value = false
         }

@@ -60,7 +60,7 @@ final class ShareSubmitter {
                     title: titleText.isEmpty ? "Shared" : titleText,
                     description: base.isEmpty ? nil : base
                 )
-            )
+            ).id
             createdIssueId = issueId
         }
 

@@ -101,6 +101,10 @@ import kotlinx.coroutines.launch
 @Composable
 fun CreateIssueScreen(
     onBack: () -> Unit,
+    // The issue was filed: land on it (EXP-596). Never called in "Create more"
+    // mode — the screen stays up for the next issue, and a run of creates has
+    // no single destination.
+    onCreated: (String) -> Unit,
     sharePrefill: SharePrefill? = null,
     onSharePrefillConsumed: () -> Unit = {},
     // Share mode (system "Share into Exponential"): the screen has no board
@@ -229,10 +233,11 @@ fun CreateIssueScreen(
     val scope = rememberCoroutineScope()
     fun submit() {
         if (!canSubmit) return
-        // Await the create on the screen's scope, then pop — popping cancels the
-        // route's ViewModel scope, so a fire-and-forget create would be dropped.
+        // Await the create on the screen's scope, then leave — leaving cancels
+        // the route's ViewModel scope, so a fire-and-forget create would be
+        // dropped.
         scope.launch {
-            val ok = viewModel.createIssueAwait(
+            val createdId = viewModel.createIssueAwait(
                 title = title,
                 status = status,
                 priority = priority,
@@ -245,7 +250,7 @@ fun CreateIssueScreen(
                 pendingImages = pendingImages.toMap(),
                 pendingFiles = pendingFiles.toList(),
             )
-            if (ok) {
+            if (createdId != null) {
                 // The share prefill (if any) made it into this issue — consume
                 // it now so it can't prefill another create.
                 if (sharePrefill != null) onSharePrefillConsumed()
@@ -256,7 +261,7 @@ fun CreateIssueScreen(
                     pendingImages.clear()
                     pendingFiles.clear()
                 } else {
-                    onBack()
+                    onCreated(createdId)
                 }
             }
         }

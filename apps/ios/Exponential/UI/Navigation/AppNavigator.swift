@@ -264,11 +264,20 @@ struct MainNavigator: View {
     // team yet — re-run it on the next boards emission.
     @State private var pendingTeamAlign = false
     @State private var composeTarget: ComposeTarget?
+    /// The issue a finished compose should land on (EXP-596). Pushed from the
+    /// sheet's `onDismiss`, not the create itself: a push that starts while the
+    /// sheet is still animating away loses the transition.
+    @State private var createdIssue: CreatedIssue?
 
     private struct ComposeTarget: Identifiable {
         let accountId: String
         let boardId: String
         var id: String { "\(accountId)/\(boardId)" }
+    }
+
+    private struct CreatedIssue {
+        let accountId: String
+        let issueId: String
     }
 
     var body: some View {
@@ -424,10 +433,22 @@ struct MainNavigator: View {
                 path.removeAll { $0 == .support }
             }
         }
-        .sheet(item: $composeTarget) { target in
-            CreateIssueSheet(boardId: target.boardId, onCreated: {})
-                .environment(\.accountId, target.accountId)
-                .presentationBackground(.ultraThinMaterial)
+        .sheet(item: $composeTarget, onDismiss: {
+            // Land on what was just filed (EXP-596). "Create more" hands nothing
+            // over, so a run of creates still just returns to the board.
+            if let created = createdIssue {
+                createdIssue = nil
+                appendIssueRoute(accountId: created.accountId, issueId: created.issueId)
+            }
+        }) { target in
+            CreateIssueSheet(
+                boardId: target.boardId,
+                onCreated: { issueId in
+                    createdIssue = CreatedIssue(accountId: target.accountId, issueId: issueId)
+                }
+            )
+            .environment(\.accountId, target.accountId)
+            .presentationBackground(.ultraThinMaterial)
         }
     }
 

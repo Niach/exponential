@@ -499,6 +499,7 @@ private fun AuthenticatedNav(
             val shareState by shareVm.state.collectAsStateWithLifecycle()
             CreateIssueScreen(
                 onBack = { navController.popBackStack() },
+                onCreated = { issueId -> navController.openCreatedIssue(issueId) },
                 sharePrefill = sharePrefill,
                 onSharePrefillConsumed = { teamSelection.consumePendingShare() },
                 shareMode = true,
@@ -532,6 +533,7 @@ private fun AuthenticatedNav(
             val sharePrefill = remember(pendingShare) { pendingShare?.let { buildSharePrefill(it) } }
             CreateIssueScreen(
                 onBack = { navController.popBackStack() },
+                onCreated = { issueId -> navController.openCreatedIssue(issueId) },
                 sharePrefill = sharePrefill,
                 onSharePrefillConsumed = { teamSelection.consumePendingShare() },
             )
@@ -658,6 +660,22 @@ private fun AuthenticatedNav(
             modifier = Modifier.align(Alignment.BottomCenter),
         )
     }
+    }
+}
+
+/**
+ * Land on a just-created issue (EXP-596). The create form is REPLACED rather
+ * than left under the issue, so Back from it returns to wherever the compose
+ * started (the board list, the home shell for a share) instead of re-showing an
+ * empty form.
+ */
+private fun NavHostController.openCreatedIssue(issueId: String) {
+    // Popped by destination id, so each caller's route pattern stays its own
+    // business, and in the SAME transaction as the push — a pop-then-navigate
+    // pair puts the form back on screen for the frame in between.
+    val formId = currentBackStackEntry?.destination?.id
+    navigate("issue/$issueId") {
+        if (formId != null) popUpTo(formId) { inclusive = true }
     }
 }
 

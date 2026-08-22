@@ -37,7 +37,10 @@ private func readDraftFileBytes(from url: URL) -> Result<Data, DraftFileReadFail
 
 struct CreateIssueSheet: View {
     let boardId: String
-    let onCreated: () -> Void
+    /// The sheet is done with a created issue, carrying its id so the host can
+    /// land on it (EXP-596). NOT called in "Create more" mode — the sheet stays
+    /// up for the next issue, and a run of creates has no single destination.
+    let onCreated: (String) -> Void
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -586,6 +589,35 @@ struct CreateIssueSheet: View {
         return true
     }
 
+    /// Mirror the freshly-created row (and its label joins) into the local
+    /// store instead of waiting for the Electric long-poll, so the issue the
+    /// sheet lands on (EXP-596) renders immediately — IssueDetail's own
+    /// fallback for an unsynced row is a 2s spinner and a server read (EXP-264).
+    /// Best-effort and idempotent, exactly like Android's (EXP-19): sync
+    /// re-delivers the same row and overwrites this one.
+    private func mirrorCreatedIssue(
+        _ created: IssueCreateResult,
+        description: String?,
+        labelIds: Set<String>
+    ) async {
+        // A row this build couldn't decode is simply not mirrored — the create
+        // itself already succeeded.
+        guard let fetched = created.issue,
+              let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+        let entity = fetched.entity().replacingDescription(description)
+        // `issue_labels` carries its team denormalized; without the team (the
+        // board's row hasn't synced) the joins wait for sync like before.
+        let labelRows = teamId.map { id in
+            labelIds.map { IssueLabelEntity(issueId: entity.id, labelId: $0, teamId: id) }
+        } ?? []
+        try? await pool.write { db in
+            try entity.save(db)
+            for row in labelRows {
+                try row.save(db)
+            }
+        }
+    }
+
     private func createIssue() async {
         loading = true
         error = nil
@@ -619,7 +651,11 @@ struct CreateIssueSheet: View {
         )
 
         do {
-            let createdId = try await deps.issuesApi.create(accountId: accountId, input)
+            let created = try await deps.issuesApi.create(accountId: accountId, input)
+            let createdId = created.id
+            // What the issue's description ends up as — the create above sent
+            // the image-stripped markdown, the patch below may replace it.
+            var finalDescription = stripped.isEmpty ? nil : stripped
 
             // Upload drafts atomically against the new issue id and patch the
             // final markdown (with real attachment URLs swapped in by block).
@@ -646,6 +682,7 @@ struct CreateIssueSheet: View {
                             description: finalMarkdown.isEmpty ? nil : finalMarkdown
                         )
                     )
+                    finalDescription = finalMarkdown.isEmpty ? nil : finalMarkdown
                 }
             }
 
@@ -659,6 +696,12 @@ struct CreateIssueSheet: View {
             // Remember the board so the Share Extension defaults its picker to it.
             SharedBoardMirror.writeLastUsed(accountId: accountId, boardId: boardId)
 
+            await mirrorCreatedIssue(
+                created,
+                description: finalDescription,
+                labelIds: validLabelIds
+            )
+
             if createMore {
                 title = ""
                 editor = IssueEditorModel()
@@ -666,15 +709,20 @@ struct CreateIssueSheet: View {
                 selectedLabelIds = []
                 configureEditor()
                 titleFocused = true
+                // No hand-off: a run of creates has no single issue to land on,
+                // and the sheet stays up for the next one.
             } else if draftsUploaded {
+                onCreated(createdId)
                 dismiss()
             } else {
                 // The issue exists; only an attachment failed. Hold the sheet
                 // so the error is actually read, and latch the create so
-                // acknowledging it can't file a duplicate issue.
+                // acknowledging it can't file a duplicate issue. Cancelling it
+                // still lands on the issue — it is real, and the attachment can
+                // be retried there.
                 createCommitted = true
+                onCreated(createdId)
             }
-            onCreated()
         } catch {
             self.error = error.localizedDescription
         }
