@@ -440,21 +440,9 @@ struct ChangesView: View {
                             vm.actionErrorFrom == .merge,
                             canReview,
                             !(vm.issue?.branch ?? "").isEmpty {
-                            Button {
+                            GlassPillButton("Fix conflicts", icon: AppIcons.uiBranch) {
                                 fixSheetOpen = true
-                            } label: {
-                                HStack(spacing: 4) {
-                                    AppIcon(AppIcons.uiBranch, size: 11)
-                                    Text("Fix conflicts")
-                                        .font(.caption.weight(.medium))
-                                }
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(.white.opacity(0.08), in: Capsule())
-                                .overlay(Capsule().stroke(.white.opacity(0.12), lineWidth: 0.5))
                             }
-                            .buttonStyle(.plain)
                         }
 
                         if let runCaption = startWatcher.sentCaption {

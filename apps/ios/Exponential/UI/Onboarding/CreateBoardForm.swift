@@ -50,36 +50,24 @@ struct CreateBoardForm: View {
                 fieldLabel("Board name")
                 HStack(spacing: 8) {
                     IconPicker(selection: $icon, tint: Color(hex: color))
-                    TextField("e.g. Backend API", text: Binding(
+                    GlassTextField("e.g. Backend API", text: Binding(
                         get: { name },
                         set: { onNameChange($0) }
                     ))
                     .font(.subheadline)
-                    .textFieldStyle(.plain)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(Color.white.opacity(0.06))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
             }
 
             if !minimal {
                 VStack(alignment: .leading, spacing: 8) {
                     fieldLabel("Prefix")
-                    TextField("e.g. API", text: Binding(
+                    GlassTextField("e.g. API", text: Binding(
                         get: { prefix },
                         set: { onPrefixChange($0) }
                     ))
                     .font(.subheadline.monospaced())
-                    .textFieldStyle(.plain)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.characters)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(Color.white.opacity(0.06))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
 
                 // Color
@@ -120,22 +108,9 @@ struct CreateBoardForm: View {
                 .glassRow()
             }
 
-            Button {
+            GlassSubmitButton(saving ? "Creating…" : "Create board", enabled: canCreate) {
                 Task { await create() }
-            } label: {
-                Text(saving ? "Creating…" : "Create board")
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
             }
-            .disabled(!canCreate)
-            .background(canCreate ? Color.white.opacity(0.15) : Color.white.opacity(0.06))
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
-            )
         }
     }
 

@@ -301,24 +301,12 @@ struct ActionsListView: View {
     /// EXP-431: creation left the list ("Create action" no longer poses as a
     /// row) — this button opens the sheet in its create mode.
     private var newActionButton: some View {
-        Button {
+        GlassPillButton("New action", icon: AppIcons.actionCreate, enabled: teamState.activeTeam != nil) {
             guard let teamId = teamState.activeTeam?.id else { return }
             createMode = true
             runTarget = ActionDto.builtinCreateAction(teamId: teamId)
             Task { await viewModel?.refreshStartCandidates() }
-        } label: {
-            HStack(spacing: 4) {
-                AppIcon(AppIcons.actionCreate, size: 12)
-                Text("New action")
-                    .font(.caption.weight(.medium))
-            }
-            .foregroundStyle(.white)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .glassButton()
         }
-        .buttonStyle(.plain)
-        .disabled(teamState.activeTeam == nil)
         .accessibilityLabel("New action")
     }
 
@@ -386,21 +374,9 @@ struct ActionsListView: View {
     @ViewBuilder
     private func newAutomationButton(_ vm: ActionsViewModel) -> some View {
         if steerEnabled {
-            Button {
+            GlassPillButton("New automation", icon: AppIcons.uiAdd, enabled: teamState.activeTeam != nil) {
                 formTarget = AutomationFormTarget(id: "new", automation: nil)
-            } label: {
-                HStack(spacing: 4) {
-                    AppIcon(AppIcons.uiAdd, size: 12)
-                    Text("New automation")
-                        .font(.caption.weight(.medium))
-                }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .glassButton()
             }
-            .buttonStyle(.plain)
-            .disabled(teamState.activeTeam == nil)
             .accessibilityLabel("New automation")
         }
     }
@@ -609,19 +585,10 @@ struct ActionsListView: View {
 
             Spacer(minLength: 0)
 
-            Button {
+            GlassPillButton("Use suggestion") {
                 useSuggestion(suggestion)
-            } label: {
-                Text("Use suggestion")
-                    .font(.caption.weight(.medium))
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .glassButton()
             }
-            .buttonStyle(.plain)
+            .fixedSize(horizontal: true, vertical: false)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
@@ -722,20 +689,12 @@ struct ActionsListView: View {
 
             Spacer(minLength: 0)
 
-            Button {
+            GlassPillButton("Run") {
                 runTarget = action
                 // Rebuild the Issues-tab pool at open time — the sheet
                 // self-heals if the read lands after presentation.
                 Task { await viewModel?.refreshStartCandidates() }
-            } label: {
-                Text("Run")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .glassButton()
             }
-            .buttonStyle(.plain)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)

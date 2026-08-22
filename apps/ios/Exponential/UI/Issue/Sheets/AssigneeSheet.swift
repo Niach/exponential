@@ -30,6 +30,8 @@ struct AssigneeSheet: View {
     var body: some View {
         GlassSheetChrome(title: "Assignee", detents: [.medium, .large]) {
             GlassSheetSearchField(placeholder: "Search members", text: $searchText)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
             ScrollView {
                 VStack(spacing: 2) {
                     GlassSheetRow(

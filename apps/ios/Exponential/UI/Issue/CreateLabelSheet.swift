@@ -52,12 +52,7 @@ struct LabelEditorSheet: View {
                 .font(.headline)
                 .foregroundStyle(.white)
 
-            TextField("Label name", text: $name)
-                .textFieldStyle(.plain)
-                .foregroundStyle(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+            GlassTextField("Label name", text: $name)
 
             FlowLayout(spacing: 8) {
                 ForEach(suggestedLabelColors, id: \.self) { swatch in

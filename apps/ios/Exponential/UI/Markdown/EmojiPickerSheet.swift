@@ -32,6 +32,8 @@ struct EmojiPickerSheet: View {
         GlassSheetChrome(title: "Emoji", detents: [.medium, .large]) {
             VStack(spacing: 0) {
                 GlassSheetSearchField(placeholder: "Search emoji", text: $query)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
                 content
             }
         }

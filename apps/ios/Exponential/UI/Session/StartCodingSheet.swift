@@ -514,22 +514,8 @@ struct StartCodingSheet: View {
     private var searchField: some View {
         // Inline search field. NOT system .searchable — same rationale as
         // DuplicatePickerSheet (iOS 26 renders it as a bottom-edge glass bar).
-        HStack(spacing: 8) {
-            AppIcon(AppIcons.navSearch, size: AppIcon.Size.small)
-                .foregroundStyle(.secondary)
-            TextField("Search issues", text: $searchText)
-                .textFieldStyle(.plain)
-                .submitLabel(.search)
-            if !searchText.isEmpty {
-                Button {
-                    searchText = ""
-                } label: {
-                    AppIcon(AppIcons.uiClear, size: AppIcon.Size.small)
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-        }
+        // Bare (no chrome) — it lives in an already-chromed Form row.
+        GlassSheetSearchField(placeholder: "Search issues", text: $searchText, showsBackground: false)
     }
 
     private func issueRow(_ option: IssueOption) -> some View {
@@ -734,22 +720,7 @@ struct StartCodingSheet: View {
     }
 
     private var actionSearchField: some View {
-        HStack(spacing: 8) {
-            AppIcon(AppIcons.navSearch, size: AppIcon.Size.small)
-                .foregroundStyle(.secondary)
-            TextField("Search actions", text: $actionSearchText)
-                .textFieldStyle(.plain)
-                .submitLabel(.search)
-            if !actionSearchText.isEmpty {
-                Button {
-                    actionSearchText = ""
-                } label: {
-                    AppIcon(AppIcons.uiClear, size: AppIcon.Size.small)
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-        }
+        GlassSheetSearchField(placeholder: "Search actions", text: $actionSearchText, showsBackground: false)
     }
 
     private func actionRow(_ action: ActionDto) -> some View {

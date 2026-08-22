@@ -25,20 +25,9 @@ struct TeamLabelsSection: View {
                 Spacer()
                 // "New label" rides the header (Boards' "New board" pattern,
                 // EXP-331) — labels stay member-level, so no owner gating.
-                Button {
+                GlassPillButton("New label", icon: AppIcons.uiAdd) {
                     showCreate = true
-                } label: {
-                    HStack(spacing: 4) {
-                        AppIcon(AppIcons.uiAdd, size: 11, weight: .semibold)
-                        Text("New label")
-                            .font(.caption.weight(.medium))
-                    }
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .glassButton()
                 }
-                .buttonStyle(.plain)
             }
 
             ForEach(labels, id: \.id) { label in

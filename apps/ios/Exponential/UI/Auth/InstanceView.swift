@@ -115,14 +115,14 @@ struct InstanceView: View {
         }
         if let vm = viewModel {
             if vm.appleAvailable {
-                oauthButton(label: "Continue with Apple", action: { vm.startCloudApple() }) {
+                GlassOAuthButton("Continue with Apple", action: { vm.startCloudApple() }) {
                     // Apple's brand mark, not a registry glyph (see LoginView).
                     Image(systemName: "apple.logo")
                         .font(.body.weight(.medium))
                 }
             }
             if vm.googleAvailable {
-                oauthButton(label: "Continue with Google", action: { vm.startCloudGoogle() }) {
+                GlassOAuthButton("Continue with Google", action: { vm.startCloudGoogle() }) {
                     // SF Symbols has no Google mark — the official multi-color G
                     // is drawn in GoogleLogoMark.
                     GoogleLogoMark()
@@ -157,71 +157,30 @@ struct InstanceView: View {
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
 
-            TextField("https://exp.example.com", text: $input)
-                .textFieldStyle(.plain)
-                .keyboardType(.URL)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-                .background(Color.white.opacity(0.06))
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(Color.white.opacity(focused ? 0.3 : 0.1), lineWidth: 0.5)
-                )
-                .foregroundStyle(.white)
-                .focused($focused)
-                .accessibilityIdentifier("instance-url-field")
-                .onSubmit {
-                    if canSubmit {
-                        deps.auth.setInstanceUrl(input)
-                    }
+            GlassTextField(
+                "https://exp.example.com",
+                text: $input,
+                accessibilityIdentifier: "instance-url-field"
+            )
+            .keyboardType(.URL)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .focused($focused)
+            .onSubmit {
+                if canSubmit {
+                    deps.auth.setInstanceUrl(input)
                 }
+            }
         }
 
-        Button {
+        GlassSubmitButton("Continue", enabled: canSubmit) {
             deps.auth.setInstanceUrl(input)
-        } label: {
-            Text("Continue")
-                .font(.body.weight(.medium))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
         }
-        .disabled(!canSubmit)
         .accessibilityIdentifier("instance-continue-button")
-        .background(canSubmit ? Color.white.opacity(0.15) : Color.white.opacity(0.06))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
-        )
 
         Text("Self-hosted? Enter the full URL of your server.")
             .font(.caption)
             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
     }
 
-    // MARK: - OAuth button (mirrors LoginView.oauthButton)
-
-    @ViewBuilder
-    private func oauthButton(label: String, action: @escaping () -> Void, @ViewBuilder icon: () -> some View) -> some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                icon()
-                Text(label)
-            }
-            .font(.body.weight(.medium))
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-        }
-        .background(Color.white.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
-        )
-    }
 }

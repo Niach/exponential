@@ -412,17 +412,9 @@ struct AgentsView: View {
             // for a machine with nothing runnable (EXP-409: every installed
             // agent signed out); its status line carries the reason.
             if device.isOnline, device.hasRunnableAgent {
-                Button {
+                GlassPillButton("Start coding") {
                     startSheetDevice = device
-                } label: {
-                    Text("Start coding")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .glassButton()
                 }
-                .buttonStyle(.plain)
             }
 
             // EXP-432: rename / remove / update are OWN-machine actions —
@@ -725,21 +717,9 @@ struct AgentsView: View {
             // representative issue its Merge button used — the sheet's PR
             // picker normalizes any linked issue id to its option.
             if let issue = row.issue ?? row.batchPrIssue, canFixConflicts(issue) {
-                Button {
+                GlassPillButton("Fix conflicts", icon: AppIcons.uiBranch) {
                     fixTarget = FixConflictsTarget(rowId: row.id, issueId: issue.id)
-                } label: {
-                    HStack(spacing: 4) {
-                        AppIcon(AppIcons.uiBranch, size: 11)
-                        Text("Fix conflicts")
-                            .font(.caption.weight(.medium))
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(.white.opacity(0.08), in: Capsule())
-                    .overlay(Capsule().stroke(.white.opacity(0.12), lineWidth: 0.5))
                 }
-                .buttonStyle(.plain)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

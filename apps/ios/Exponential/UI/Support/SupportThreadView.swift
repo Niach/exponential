@@ -128,10 +128,7 @@ struct SupportThreadView: View {
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(Color.white.opacity(0.08), in: Capsule())
-                    .overlay(
-                        Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.5)
-                    )
+                    .glassButton()
                 }
                 .buttonStyle(.plain)
             }

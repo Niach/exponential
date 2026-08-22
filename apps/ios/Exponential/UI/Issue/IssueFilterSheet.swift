@@ -115,12 +115,7 @@ struct IssueFilterSheet: View {
 
     private var labelsView: some View {
         subView(title: "Labels") {
-            TextField("Filter labels…", text: $labelQuery)
-                .textFieldStyle(.plain)
-                .foregroundStyle(.white)
-                .padding(10)
-                .background(Color.white.opacity(0.06))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+            GlassTextField("Filter labels…", text: $labelQuery)
                 .padding(.bottom, 4)
 
             let query = labelQuery.trimmingCharacters(in: .whitespaces)

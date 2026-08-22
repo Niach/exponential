@@ -57,6 +57,8 @@ struct LabelsSheet: View {
     var body: some View {
         GlassSheetChrome(title: "Labels", detents: [.medium, .large]) {
             GlassSheetSearchField(placeholder: "Search or create labels", text: $searchText)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
             ScrollView {
                 VStack(spacing: 2) {
                     ForEach(filtered, id: \.id) { label in

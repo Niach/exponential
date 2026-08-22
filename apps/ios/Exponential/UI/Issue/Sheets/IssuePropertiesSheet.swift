@@ -100,20 +100,9 @@ struct IssuePropertiesSheet: View {
                             }
                             .buttonStyle(.plain)
                         }
-                        Button {
+                        GlassPillButton("Label", icon: AppIcons.uiAdd) {
                             onNavigate(.labels)
-                        } label: {
-                            HStack(spacing: 4) {
-                                AppIcon(AppIcons.uiAdd, size: 11)
-                                Text("Label")
-                                    .font(.caption)
-                            }
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .glassButton()
                         }
-                        .buttonStyle(.plain)
                     }
                     .padding(.horizontal, 14)
 
