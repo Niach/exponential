@@ -5,3 +5,8 @@ dist
 # Remotion render output (movie:render / movie:still) and its cached browser
 out
 .remotion
+
+# Raw web-app captures the social cards are composed from (EXP-597) — like the
+# store screenshots (EXP-348) these stay out of git; regenerate via
+# `bun run screenshots:social` in apps/web.
+social-shots
