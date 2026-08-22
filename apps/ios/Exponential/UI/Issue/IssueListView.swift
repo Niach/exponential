@@ -463,9 +463,19 @@ struct IssueListView: View {
         .padding(.bottom, 2)
         .padding(.horizontal, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        // Opaque app colour: plain List's pinned headers otherwise get a
-        // system material backing that mismatches AppBackground (EXP-578).
-        .background(Zinc._950)
+        // EXP-593: a glassy full-width band — the group's status colour washed
+        // over real material, so rows blur through while they scroll under the
+        // pinned header (web/desktop parity: statusHeaderBg's 10% tint +
+        // backdrop blur + hairline bottom edge). Replaces the opaque Zinc._950
+        // slab, which read as a hard-edged black bar; the material still covers
+        // the whole pinned cell, so EXP-578's stray system backing stays hidden.
+        .background(group.color.opacity(0.1))
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.white.opacity(0.08))
+                .frame(height: 0.5)
+        }
     }
 
     @ViewBuilder
