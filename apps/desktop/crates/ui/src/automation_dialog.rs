@@ -333,16 +333,15 @@ impl Render for AutomationDialogView {
         v_flex()
             .size_full()
             .gap_3()
-            .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .child(crate::scroll_pane::v_scroll_pane(
-                        "automation-dialog-scroll",
-                        &self.scroll,
-                        form.pr_2().pb_2(),
-                    )),
-            )
+            // The pane must be a DIRECT flex item: `div()` defaults to
+            // `Display::Block`, so an intermediate wrapper ignores the pane's
+            // `flex_1` and its `size_full` scroll area resolves against an
+            // indefinite height — the whole form collapses to nothing.
+            .child(crate::scroll_pane::v_scroll_pane(
+                "automation-dialog-scroll",
+                &self.scroll,
+                form.pr_2().pb_2(),
+            ))
             .when(unsupported, |this| {
                 this.child(div().text_sm().text_color(danger).child(
                     "This automation was set up by a newer version. Update the app to edit it.",
