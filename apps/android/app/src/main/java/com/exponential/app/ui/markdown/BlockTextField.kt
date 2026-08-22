@@ -328,22 +328,31 @@ fun BlockTextField(
     // issues bringIntoView on focus GAIN, so a run that grows taller while
     // typing (soft wrap or Enter — no focus handoff anymore) walks the caret
     // below the viewport / behind the formatting bar. Re-request whenever the
-    // post-layout caret rect changes while THIS field holds focus. Keyed on
-    // caretRect: a keystroke fires once with the coerced stale-layout rect and
-    // again when the fresh TextLayoutResult lands; the restart cancels the
-    // in-flight scroll animation, so the correct rect always wins and fast
-    // typing conflates instead of queueing. The request propagates through
-    // every scrollable ancestor, covering both the page scroll (issue
-    // detail/create) and the comment composer's bounded box. The rect is the
-    // caret rect EXACTLY — no breathing-room margin: a rect reaching outside
-    // the requester node's bounds sends ContentInViewNode into a creeping
-    // never-visible scroll animation (verified on foundation 1.7.6), and the
-    // viewport is already inset by the toolbar + IME so the bare rect is
-    // enough.
+    // post-layout caret rect changes while THIS field holds focus. The request
+    // propagates through every scrollable ancestor, covering both the page
+    // scroll (issue detail/create) and the comment composer's bounded box. The
+    // rect is the caret rect EXACTLY — no breathing-room margin: a rect
+    // reaching outside the requester node's bounds sends ContentInViewNode
+    // into a creeping never-visible scroll animation (verified on foundation
+    // 1.7.6), and the viewport is already inset by the toolbar + IME so the
+    // bare rect is enough.
+    //
+    // Requests are gated on the layout MATCHING the text (EXP-609): a
+    // keystroke recomposes with the previous frame's TextLayoutResult, and a
+    // rect coerced against that stale layout can itself reach outside the
+    // node's fresh bounds — backspacing over a newline shrinks the field by a
+    // line while the coerced rect still points at the old last line — which
+    // trips exactly the creeping-scroll animation above and read as the page
+    // jumping while typing under an image (tall-enough-to-scroll content).
+    // Skipping the stale frame loses nothing: the fresh layout lands a frame
+    // later, recomputes caretRect, and re-fires this effect with a rect that
+    // is always inside the node.
     val bringIntoViewRequester = remember(row.id) { BringIntoViewRequester() }
-    LaunchedEffect(caretRect, hasOsFocus) {
+    val layoutMatchesText =
+        textLayout?.layoutInput?.text?.length == chipTransform.display.length
+    LaunchedEffect(caretRect, hasOsFocus, layoutMatchesText) {
         val rect = caretRect
-        if (hasOsFocus && rect != null) {
+        if (hasOsFocus && rect != null && layoutMatchesText) {
             bringIntoViewRequester.bringIntoView(rect)
         }
     }
@@ -479,6 +488,46 @@ fun BlockTextField(
                                 up.consume()
                                 issueRefs.onOpen(chip.target)
                             }
+                        }
+                        // EXP-608: a tap on an EMPTY line must land the caret ON
+                        // that line. Empty lines render as a lone zero-width
+                        // space (the '\n' substitution in ChipVisualTransformation),
+                        // and platform hit-testing resolves a tap past a
+                        // zero-width glyph — to the offset AFTER it, which
+                        // belongs to the NEXT paragraph. Untouched, the caret
+                        // landed one line below and an empty first line could
+                        // never take the caret at all. Intercept those taps
+                        // (Initial pass, same preemption as the chip handler)
+                        // and place the caret at the line start ourselves.
+                        .pointerInput(chipTransform) {
+                            awaitEachGesture {
+                                val down = awaitFirstDown(
+                                    requireUnconsumed = false,
+                                    pass = PointerEventPass.Initial,
+                                )
+                                val layout = textLayout ?: return@awaitEachGesture
+                                val display = layout.layoutInput.text
+                                // A layout lagging the transform by a frame can
+                                // misattribute lines; leave those taps to the
+                                // field's own handling.
+                                if (display.length != chipTransform.display.length) {
+                                    return@awaitEachGesture
+                                }
+                                val line = layout.getLineForVerticalPosition(down.position.y)
+                                val target = emptyDisplayLineStart(
+                                    display.text,
+                                    layout.getLineStart(line),
+                                    layout.getLineEnd(line),
+                                ) ?: return@awaitEachGesture
+                                down.consume()
+                                val up = waitForUpOrCancellation(PointerEventPass.Initial)
+                                    ?: return@awaitEachGesture
+                                up.consume()
+                                val caret = chipTransform.transformedToOriginal(target)
+                                value = value.copy(selection = TextRange(caret))
+                                model.updateSelection(row.id, caret..caret)
+                                if (!hasOsFocus) runCatching { focusRequester.requestFocus() }
+                            }
                         },
                 ) {
                     inner()
@@ -503,6 +552,18 @@ fun BlockTextField(
     // menu is up, so the LIFO dispatcher gives it priority over the screen's).
     BackHandler(enabled = menuOpen) { armed = false }
 }
+
+/**
+ * The display offset a tap on a laid-out line should place the caret at when
+ * that line is an EMPTY source line — rendered as a lone zero-width space by
+ * the '\n' substitution in [ChipVisualTransformation] — or null for every
+ * other line (EXP-608). A real trailing empty line (kept as an actual '\n',
+ * EXP-567) has `lineEnd == lineStart` and correctly returns null: default hit
+ * testing already handles it.
+ */
+internal fun emptyDisplayLineStart(displayText: String, lineStart: Int, lineEnd: Int): Int? =
+    if (lineEnd == lineStart + 1 && displayText.getOrNull(lineStart) == '\u200B') lineStart
+    else null
 
 @Composable
 private fun AutocompleteMenu(
