@@ -316,7 +316,7 @@ export const LabelChip: React.FC<{ name: string; dot: string }> = ({
 
 export type SidebarPills = { labels: string[]; activeIndex?: number } | boolean
 
-// The board header's right cluster ("≡ Filter" ghost + indigo "+ New Issue").
+// The board header's right cluster ("≡ Filter" ghost + primary "+ New Issue").
 export const BoardActions: React.FC = () => (
   <div style={{ display: `flex`, alignItems: `center`, gap: 8 }}>
     <span
@@ -340,8 +340,8 @@ export const BoardActions: React.FC = () => (
         height: 26,
         padding: `0 9px`,
         borderRadius: 8,
-        backgroundColor: C.indigo,
-        color: `#ffffff`,
+        backgroundColor: C.primary,
+        color: C.primaryFg,
         fontFamily: UI_FONT,
         fontSize: 12,
         fontWeight: 500,
@@ -482,7 +482,7 @@ export const BoardTool: React.FC<{
   regroup?: { id: string; t: number; from?: IssueStatus } // FLIP slide between groups; from = group being left (defaults to the row's base status)
   showLabels?: boolean // ref truth: the real 260px sidebar board hides label chips (titles win)
   insertAt?: { id: string; at: number } // row pops in at `at`: height 0→ROW_H + fade, rows below slide down
-  flashAt?: { id: string; at: number } // soft indigo pulse on a row at `at` (a teammate's live edit, EXP-337)
+  flashAt?: { id: string; at: number } // soft white pulse on a row at `at` (a teammate's live edit, EXP-337)
 }> = ({
   frame,
   rows,
@@ -636,7 +636,7 @@ export const BoardTool: React.FC<{
         isMover && t > 0
           ? interpolate(t, [0, 0.18, 0.38], [0.4, 1.18, 1], CLAMP)
           : 1
-      // Inserted-row entrance: height 0→ROW_H + fade, plus a soft indigo flash that decays.
+      // Inserted-row entrance: height 0→ROW_H + fade, plus a soft white flash that decays.
       const liveFlash =
         flashAt !== undefined && flashAt.id === row.id && frame >= flashAt.at
           ? interpolate(frame, [flashAt.at, flashAt.at + 44], [0.22, 0], {
@@ -688,7 +688,7 @@ export const BoardTool: React.FC<{
               style={{
                 position: `absolute`,
                 inset: 0,
-                backgroundColor: `rgba(99,102,241,${insertFlash})`,
+                backgroundColor: `rgba(255,255,255,${insertFlash})`,
               }}
             />
           ) : null}
@@ -955,7 +955,7 @@ export const ReviewsTool: React.FC<{
             height: 8,
             flex: `none`,
             borderRadius: 999,
-            backgroundColor: C.indigoSoft,
+            backgroundColor: C.neutral,
           }}
         />
         <span style={{ fontSize: 12, fontWeight: 600, color: C.muted }}>
@@ -1089,7 +1089,7 @@ export const ActionsTool: React.FC<{
             height: 8,
             flex: `none`,
             borderRadius: 999,
-            backgroundColor: C.indigoSoft,
+            backgroundColor: C.neutral,
           }}
         />
         <span style={{ fontSize: 12, fontWeight: 600, color: C.muted }}>

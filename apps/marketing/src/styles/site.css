@@ -1,7 +1,7 @@
 /* ─── Site chrome (dark zinc, glass over the ONE gradient) ─── */
 
 ::selection {
-  background: color-mix(in oklab, var(--brand) 30%, transparent);
+  background: oklch(1 0 0 / 25%);
 }
 
 /* ─── Layout ─── */
@@ -124,17 +124,17 @@
   background: var(--glass-fill-active);
 }
 
-/* The ONE colored button per view (orca-style) — reserved for the hero's
-   OS-detected download primary. brandStrong is the only brand surface that
-   clears AA under white text. */
+/* The ONE solid button per view (orca-style) — reserved for the hero's
+   OS-detected download primary. Near-white primary with dark text
+   (EXP-594: the indigo brand accent is retired). */
 .btn-accent {
-  background: var(--brand-strong);
-  color: #fff;
-  border-color: var(--brand-strong);
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--accent);
 }
 .btn-accent:hover {
-  background: #4338ca;
-  border-color: #4338ca;
+  background: #d4d4d4;
+  border-color: #d4d4d4;
 }
 
 .btn-sm {

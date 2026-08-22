@@ -51,9 +51,7 @@ export const C = {
   primary: "#e5e5e5", // primary button bg (text #171717)
   primaryFg: "#171717",
   destructive: "#ff6467",
-  indigo: "#4f46e5", // New Issue button / brand-strong
-  indigoSoft: "#6366f1", // board dot / rail active tint / brand accent
-  indigoGlow: "#818cf8",
+  neutral: "#a1a1aa", // board/project dots (EXP-594: indigo retired)
   // status (contract issueStatusDefaults — done is BLUE, not green)
   statusBacklog: "#a1a1aa",
   statusTodo: "#fafafa",

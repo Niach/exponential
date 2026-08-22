@@ -59,36 +59,14 @@ type OnToggleValue<V> = Rc<dyn Fn(V, &mut Window, &mut App)>;
 /// Toggle a fixed row (label rows capture their own id).
 type OnToggleRow = Rc<dyn Fn(&mut Window, &mut App)>;
 
-/// Web `bg-indigo-500/20` — the count-badge pill background (a literal
-/// Tailwind color on web too, not a theme token).
-pub(crate) fn indigo_badge_bg() -> gpui::Hsla {
-    gpui::Rgba {
-        r: 99. / 255.,
-        g: 102. / 255.,
-        b: 241. / 255.,
-        a: 0.2,
-    }
-    .into()
-}
-
-/// Web `text-indigo-400`.
-pub(crate) fn indigo_badge_fg() -> gpui::Hsla {
-    gpui::Rgba {
-        r: 129. / 255.,
-        g: 140. / 255.,
-        b: 248. / 255.,
-        a: 1.,
-    }
-    .into()
-}
-
-/// The rounded indigo count pill (web `rounded-full bg-indigo-500/20
-/// text-indigo-400 px-1.5 text-[0.625rem] font-medium`).
+/// The rounded count pill (web `rounded-full bg-glass-active text-foreground
+/// px-1.5 text-[0.625rem] font-medium` — EXP-594: the indigo badge went
+/// white/glass).
 pub(crate) fn count_badge(count: usize) -> impl IntoElement {
     div()
         .rounded_full()
-        .bg(indigo_badge_bg())
-        .text_color(indigo_badge_fg())
+        .bg(theme::tokens::glass::FILL_ACTIVE.to_hsla())
+        .text_color(theme::tokens::FOREGROUND.to_hsla())
         .px_1p5()
         .text_size(px(10.))
         .font_weight(FontWeight::MEDIUM)

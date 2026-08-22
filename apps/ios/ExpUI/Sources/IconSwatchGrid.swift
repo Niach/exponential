@@ -61,7 +61,7 @@ public struct IconSwatchGrid: View {
                 .overlay(
                     RoundedRectangle(cornerRadius: 6)
                         .stroke(
-                            selected ? Accent.indigo.opacity(0.6) : Color.white.opacity(0.08),
+                            selected ? Color.white.opacity(0.6) : Color.white.opacity(0.08),
                             lineWidth: 1
                         )
                 )

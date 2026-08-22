@@ -248,7 +248,7 @@ export const MobileTabBar: React.FC<{
                 width: 6,
                 height: 6,
                 borderRadius: 999,
-                backgroundColor: id === "agents" ? C.green : C.indigoSoft,
+                backgroundColor: id === "agents" ? C.green : C.primary,
               }}
             />
           ) : null}
@@ -989,7 +989,7 @@ export const IssueScreen: React.FC<IssueScreenProps> = ({
           >
             <span
               style={{
-                color: merged ? C.indigoGlow : C.green,
+                color: merged ? C.statusDone : C.green,
                 display: "flex",
               }}
             >

@@ -41,7 +41,7 @@ const Spinner: React.FC<{ frame: number; size?: number }> = ({
   </span>
 )
 
-// Phone twin of the real agent pill strip (selected = solid indigo capsule).
+// Phone twin of the real agent pill strip (selected = solid primary capsule).
 const AGENT_TABS = [
   { id: "claude", label: "Claude Code", Mark: ClaudeMark, active: true },
   { id: "codex", label: "Codex", Mark: CodexMark, active: false },
@@ -64,11 +64,11 @@ const AgentTabs: React.FC<{ flickT: number }> = ({ flickT }) => (
             padding: "0 10px",
             borderRadius: 999,
             backgroundColor: active
-              ? C.indigo
+              ? C.primary
               : flick > 0
                 ? `rgba(255,255,255,${0.06 + 0.07 * flick})`
                 : "rgba(255,255,255,0.06)",
-            color: active ? "#ffffff" : C.muted,
+            color: active ? C.primaryFg : C.muted,
           }}
         >
           <Mark size={11} />
@@ -323,10 +323,10 @@ export const StartPhone: React.FC<StartPhoneProps> = ({
                 alignItems: "center",
                 gap: 7,
                 padding: "0 12px",
-                backgroundColor: "rgba(99,102,241,0.12)",
+                backgroundColor: "rgba(255,255,255,0.10)",
               }}
             >
-              <span style={{ color: C.indigoSoft, display: "flex" }}>
+              <span style={{ color: C.text, display: "flex" }}>
                 <Glyph size={14} sw={2}>
                   <circle cx="12" cy="12" r="9" />
                   <path d="m8.5 12 2.5 2.5 5-5" />

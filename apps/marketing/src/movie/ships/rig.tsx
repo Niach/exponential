@@ -95,10 +95,10 @@ export const Camera: React.FC<{
 // wallpaper is a static smooth gradient, the offset replica is pixel-identical
 // to true translucency.
 const WALLPAPER_BLOBS = [
-  { w: 720, h: 520, x: 960, y: 324, color: "rgba(99,102,241,0.16)" },
+  { w: 720, h: 520, x: 960, y: 324, color: "rgba(255,255,255,0.10)" },
   { w: 640, h: 480, x: 230, y: 1037, color: "rgba(124,58,237,0.55)" },
   { w: 520, h: 620, x: 1843, y: 670, color: "rgba(139,92,246,0.38)" },
-  { w: 480, h: 360, x: 1690, y: 1037, color: "rgba(129,140,248,0.25)" },
+  { w: 480, h: 360, x: 1690, y: 1037, color: "rgba(255,255,255,0.16)" },
 ] as const
 
 export const wallpaperBackground = (dx = 0, dy = 0): string =>

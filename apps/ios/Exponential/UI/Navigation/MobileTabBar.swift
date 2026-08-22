@@ -68,7 +68,7 @@ struct MobileTabBar: View {
                     label: "My Work",
                     active: myWorkActive,
                     badge: unreadCount > 0,
-                    badgeColor: Accent.indigo,
+                    badgeColor: DesignTokens.Palette.primary,
                     action: onMyWork
                 )
                 .accessibilityIdentifier("tab-mywork")
@@ -81,7 +81,7 @@ struct MobileTabBar: View {
                         label: "Support",
                         active: supportActive,
                         badge: supportUnread,
-                        badgeColor: Accent.indigo,
+                        badgeColor: DesignTokens.Palette.primary,
                         action: onSupport
                     )
                     .accessibilityIdentifier("tab-support")
@@ -150,7 +150,7 @@ struct MobileTabBar: View {
         label: String,
         active: Bool,
         badge: Bool = false,
-        badgeColor: Color = Accent.indigo,
+        badgeColor: Color = DesignTokens.Palette.primary,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {

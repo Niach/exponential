@@ -548,7 +548,7 @@ function CreateStatusForm({
       <div className="flex items-center gap-2">
         <Button
           size="xs"
-          variant="brand"
+          variant="default"
           disabled={!name.trim() || busy}
           onClick={() => void create()}
         >

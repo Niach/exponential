@@ -378,7 +378,7 @@ struct IssueDetailBottomBar: View {
                         .foregroundStyle(
                             submitting || !canSend
                                 ? Color.white.opacity(0.3)
-                                : Accent.indigo
+                                : Color.white
                         )
                 }
                 .buttonStyle(.plain)

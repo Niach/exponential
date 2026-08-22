@@ -59,16 +59,14 @@ function parseBlockVars(
   return vars
 }
 
-// The brand + glass tokens are theme-invariant (the app is dark-only) and are
+// The glass tokens are theme-invariant (the app is dark-only) and are
 // deliberately duplicated into BOTH :root and .dark. Only .dark is parity-
 // checked against tokens.json, so this is the set the two blocks must agree on.
 function themeInvariantVars(
   vars: Record<string, string>
 ): Record<string, string> {
   return Object.fromEntries(
-    Object.entries(vars).filter(
-      ([k]) => k.startsWith(`brand`) || k.startsWith(`glass-`)
-    )
+    Object.entries(vars).filter(([k]) => k.startsWith(`glass-`))
   )
 }
 
@@ -106,34 +104,32 @@ describe(`design-tokens parity with web styles.css`, () => {
     }
   })
 
-  it(`the brand accent matches --brand`, () => {
-    expect(darkVars.brand).toBe(tokens.semantic.brand)
+  // EXP-594 retired the indigo --brand accent — the main scheme is white/glass.
+  // Nothing may reintroduce a brand color var or token.
+  it(`no brand accent exists in tokens.json or styles.css`, () => {
+    expect(tokens.semantic).not.toHaveProperty(`brand`)
+    expect(tokens.semantic).not.toHaveProperty(`brandStrong`)
+    for (const vars of [darkVars, rootVars]) {
+      expect(Object.keys(vars).filter((k) => k.startsWith(`brand`))).toEqual([])
+    }
   })
 
-  // EXP-280: --brand-strong is the fill every client must use for a solid
-  // brand surface carrying text (white on --brand is 4.28:1, under AA). It was
-  // web-only until it landed in tokens.json; keep the two in lockstep so the
-  // native clients can't drift back onto the raw accent.
-  it(`the text-bearing brand fill matches --brand-strong`, () => {
-    expect(darkVars[`brand-strong`]).toBe(tokens.semantic.brandStrong)
-  })
-
-  // EXP-269 duplicated the brand + glass vars into :root as well, but only the
+  // EXP-269 duplicated the glass vars into :root as well, but only the
   // .dark copy is parity-checked above — so nothing kept the two in sync.
-  it(`the :root and .dark brand + glass blocks are identical`, () => {
+  it(`the :root and .dark glass blocks are identical`, () => {
     const rootInvariant = themeInvariantVars(rootVars)
     expect(
       Object.keys(rootInvariant).length,
-      `expected :root to carry the brand + glass vars`
+      `expected :root to carry the glass vars`
     ).toBeGreaterThan(0)
     expect(
       rootInvariant,
-      `the theme-invariant brand/glass vars must be byte-identical in :root and .dark`
+      `the theme-invariant glass vars must be byte-identical in :root and .dark`
     ).toEqual(themeInvariantVars(darkVars))
   })
 
   // EXP-523: motion tokens are theme-invariant, so styles.css carries them in
-  // :root ONLY (unlike the brand/glass vars, which are duplicated into .dark).
+  // :root ONLY (unlike the glass vars, which are duplicated into .dark).
   // The generator emits `motion` for the three native clients; web is hand-
   // authored, so this is the only thing keeping all four in step. Durations
   // render as `<n>ms`; easings render with JSON's own number formatting, so

@@ -14,7 +14,7 @@
 //!   staged image, rewrite the URLs and `issues.update` the final description
 //! - chip row: status / priority / assignee / labels / due-date (date only —
 //!   REV2-49 deleted the time-of-day fields, §4.2) + the right-aligned
-//!   indigo submit button (EXP-586: no "Create more", no image chips —
+//!   primary submit button (EXP-586: no "Create more", no image chips —
 //!   images live inline in the description only)
 //! - footer: ONLY when there are queued non-image files or an error — the
 //!   file chips / the error line; otherwise absent.
@@ -888,7 +888,7 @@ impl CreateIssueDialogView {
     }
 
     /// The chip row's right-aligned submit (web `chipRowAction`): SOLID
-    /// indigo, label swaps while creating, no spinner.
+    /// primary, label swaps while creating, no spinner.
     fn submit_button(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let title_empty = self.title.read(cx).value().trim().is_empty();
         let submit_disabled = title_empty || self.submitting;
@@ -898,7 +898,7 @@ impl CreateIssueDialogView {
             "Create issue"
         };
 
-        indigo_button("create-issue-submit", submit_disabled, cx)
+        primary_button("create-issue-submit", submit_disabled, cx)
             .child(SharedString::from(submit_label))
             .when(!submit_disabled, |button| {
                 button.on_click(cx.listener(|this, _, window, cx| this.submit(window, cx)))
@@ -1038,23 +1038,9 @@ impl Render for CreateIssueDialogView {
 // helpers
 // ---------------------------------------------------------------------------
 
-/// Web `bg-indigo-600` (a literal Tailwind color on web, not a theme token).
-fn indigo_600() -> gpui::Hsla {
-    rgb_hsla(0x4f, 0x46, 0xe5)
-}
-
-/// Web `hover:bg-indigo-700`.
-fn indigo_700() -> gpui::Hsla {
-    rgb_hsla(0x43, 0x38, 0xca)
-}
-
-/// Pressed state: indigo-800.
-fn indigo_800() -> gpui::Hsla {
-    rgb_hsla(0x37, 0x30, 0xa3)
-}
-
-/// The web's solid primary-action button (`bg-indigo-600 hover:bg-indigo-700
-/// text-white text-xs font-medium rounded-md`, size xs) — used by the board
+/// The web's solid primary-action button (`bg-primary text-primary-foreground
+/// hover:bg-primary/90 text-xs font-medium rounded-md`, size xs — EXP-594:
+/// near-white, the retired indigo accent's replacement) — used by the board
 /// "New Issue" button and the create-dialog submit.
 ///
 /// Hand-rolled `div` on purpose: the pinned gpui-component
@@ -1063,11 +1049,18 @@ fn indigo_800() -> gpui::Hsla {
 /// (`mix_oklab(transparent, 0.2..0.4)` in `button.rs`), so it cannot produce
 /// this solid fill. Callers add label/icon children and — when not disabled —
 /// an `.on_click`.
-pub(crate) fn indigo_button(
+pub(crate) fn primary_button(
     id: impl Into<gpui::ElementId>,
     disabled: bool,
     cx: &App,
 ) -> gpui::Stateful<gpui::Div> {
+    let theme = cx.theme();
+    let (fill, fill_hover, fill_active, label) = (
+        theme.primary,
+        theme.primary_hover,
+        theme.primary_active,
+        theme.primary_foreground,
+    );
     let base = div()
         .id(id)
         .flex()
@@ -1077,19 +1070,19 @@ pub(crate) fn indigo_button(
         .gap_1()
         .h_6()
         .px_2p5()
-        .rounded(cx.theme().radius)
+        .rounded(theme.radius)
         .text_xs()
         .font_weight(FontWeight::MEDIUM)
-        .text_color(gpui::white())
-        .bg(indigo_600())
+        .text_color(label)
+        .bg(fill)
         .cursor_default();
     if disabled {
         // Web `disabled:opacity-50 disabled:pointer-events-none` (callers
         // skip `.on_click` while disabled).
         base.opacity(0.5)
     } else {
-        base.hover(|style| style.bg(indigo_700()))
-            .active(|style| style.bg(indigo_800()))
+        base.hover(move |style| style.bg(fill_hover))
+            .active(move |style| style.bg(fill_active))
     }
 }
 

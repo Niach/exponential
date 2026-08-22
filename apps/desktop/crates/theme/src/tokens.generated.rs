@@ -33,8 +33,6 @@ pub const GREEN: Srgb8 = Srgb8 { r: 34, g: 197, b: 94, a: 255 };
 pub const RED: Srgb8 = Srgb8 { r: 239, g: 68, b: 68, a: 255 };
 pub const ORANGE: Srgb8 = Srgb8 { r: 249, g: 115, b: 22, a: 255 };
 pub const BLUE: Srgb8 = Srgb8 { r: 59, g: 130, b: 246, a: 255 };
-pub const BRAND: Srgb8 = Srgb8 { r: 99, g: 102, b: 241, a: 255 };
-pub const BRAND_STRONG: Srgb8 = Srgb8 { r: 79, g: 70, b: 229, a: 255 };
 
 // Glass surfaces (EXP-269) — the mobile GlassTheme transcription. The nested
 // module keeps the short fill/stroke keys from colliding with palette names.

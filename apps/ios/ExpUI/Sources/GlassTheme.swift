@@ -146,20 +146,10 @@ public enum TextOpacity {
     public static let quaternary: Double = 0.3
 }
 
-// MARK: - Accent
-
-public enum Accent {
-    /// The web app's primary indigo (#6366f1) — used for icons, unread dots,
-    /// tints and selection accents. Replaces system blue. Comes from the
-    /// shared tokens (`--brand` on web) instead of a hand-transcribed literal.
-    public static let indigo = DesignTokens.Semantic.brand
-
-    /// Fill variant for SOLID indigo surfaces that carry text (#4f46e5,
-    /// `--brand-strong` on web). White on `indigo` is only 4.28:1, under the
-    /// WCAG AA 4.5:1 floor; on `indigoStrong` it is 6.02:1. Dots, tints and
-    /// icon/stroke usages keep `indigo` — it stays the brighter accent.
-    public static let indigoStrong = DesignTokens.Semantic.brandStrong
-}
+// EXP-594: the indigo `Accent` enum is retired — the main scheme is white/
+// glass. Solid accent fills that carry text use `DesignTokens.Palette.primary`
+// (+ `primaryForeground` text), selections use the glass fills/strokes, and
+// icon/dot accents are plain white.
 
 // MARK: - Status Colors
 

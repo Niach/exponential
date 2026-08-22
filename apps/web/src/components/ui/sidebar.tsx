@@ -478,11 +478,11 @@ function SidebarMenuItem({ className, ...props }: React.ComponentProps<`li`>) {
   )
 }
 
-// Glass capsules (EXP-269): white-alpha hover/press washes and a brand-tinted
+// Glass capsules (EXP-269): white-alpha hover/press washes and a glass-active
 // active state. data-[status=active] is TanStack Router's Link active flag —
 // nav links get the highlight without callers wiring isActive.
 const sidebarMenuButtonVariants = cva(
-  `peer/menu-button flex w-full items-center gap-2 overflow-hidden rounded-full p-2 text-left text-sm ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! hover:bg-glass-row hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-glass-active active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-brand/15 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[status=active]:bg-brand/15 data-[status=active]:font-medium data-[status=active]:text-sidebar-accent-foreground data-[state=open]:hover:bg-glass-row data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0`,
+  `peer/menu-button flex w-full items-center gap-2 overflow-hidden rounded-full p-2 text-left text-sm ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! hover:bg-glass-row hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-glass-active active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-glass-active data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[status=active]:bg-glass-active data-[status=active]:font-medium data-[status=active]:text-sidebar-accent-foreground data-[state=open]:hover:bg-glass-row data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0`,
   {
     variants: {
       variant: {

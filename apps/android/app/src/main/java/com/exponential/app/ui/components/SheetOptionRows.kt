@@ -31,7 +31,6 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.R
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.theme.AccentIndigo
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -125,12 +124,12 @@ internal fun PickerRow(
                     text = { Text(optionLabel(option)) },
                     trailingIcon = if (option == selected) {
                         {
-                            // Indigo checkmark — GlassSheetRow's selection idiom.
+                            // White checkmark — GlassSheetRow's selection idiom.
                             Icon(
                                 ExpIcons.uiCheck,
                                 contentDescription = "Selected",
                                 modifier = Modifier.size(16.dp),
-                                tint = AccentIndigo,
+                                tint = Color.White,
                             )
                         }
                     } else {
@@ -147,8 +146,9 @@ internal fun PickerRow(
 }
 
 // One agent tab in the pill strip: brand icon + label; the selected tab is a
-// brand-indigo filled capsule, unselected tabs are subdued glass — the exact
-// treatment of the iOS sheet's agentTab (EXP-574 parity).
+// solid near-white primary capsule with dark content (EXP-594 — the indigo
+// accent is retired), unselected tabs are subdued glass — the exact treatment
+// of the iOS sheet's agentTab (EXP-574 parity).
 @Composable
 internal fun AgentTab(
     value: String,
@@ -157,7 +157,7 @@ internal fun AgentTab(
 ) {
     val capsule = RoundedCornerShape(percent = 50)
     val tint = if (selected) {
-        Color.White
+        DesignTokens.Palette.PrimaryForeground
     } else {
         MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
     }
@@ -167,7 +167,7 @@ internal fun AgentTab(
             .clip(capsule)
             .background(
                 if (selected) {
-                    DesignTokens.Semantic.BrandStrong
+                    DesignTokens.Palette.Primary
                 } else {
                     Color.White.copy(alpha = 0.06f)
                 },

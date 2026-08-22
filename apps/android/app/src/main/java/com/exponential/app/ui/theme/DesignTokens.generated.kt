@@ -44,8 +44,6 @@ object DesignTokens {
         val Red: Color = Color(0xFFEF4444)
         val Orange: Color = Color(0xFFF97316)
         val Blue: Color = Color(0xFF3B82F6)
-        val Brand: Color = Color(0xFF6366F1)
-        val BrandStrong: Color = Color(0xFF4F46E5)
     }
 
     // Glass surfaces (EXP-269) — mobile UI keeps its hand-written

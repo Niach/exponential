@@ -280,7 +280,7 @@ export function TeamSidebar({
                     <TooltipTrigger asChild>
                       <Button
                         asChild
-                        variant="brand"
+                        variant="default"
                         size="icon"
                         className="size-8 shrink-0"
                         aria-label="New issue"

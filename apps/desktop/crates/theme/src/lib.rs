@@ -125,17 +125,16 @@ pub fn exponential_dark() -> ThemeColor {
     let red = t::RED.to_hsla();
     let blue = t::BLUE.to_hsla();
     let yellow = t::YELLOW.to_hsla();
-    // EXP-269: the unified product accent (mobile Accent.indigo / web --brand).
-    let indigo = t::BRAND.to_hsla();
 
     // ---- Core surfaces (direct 1:1 token fields) ----------------------------
     c.background = bg;
     c.foreground = fg;
     c.border = border;
     c.input = input;
-    // EXP-269: focus rings carry the brand accent (mobile-style interaction
-    // color); the neutral RING token still drives the scrollbar thumb below.
-    c.ring = indigo;
+    // EXP-594: the indigo brand accent is retired — focus rings return to the
+    // neutral RING token (web `--ring` parity; it also drives the scrollbar
+    // thumb below).
+    c.ring = t::RING.to_hsla();
     c.muted = t::MUTED.to_hsla();
     c.muted_foreground = muted_foreground;
     c.accent = accent;
@@ -270,10 +269,9 @@ pub fn exponential_dark() -> ThemeColor {
     // ---- Overlay / selection / caret ----------------------------------------
     // web dialog overlay is `bg-black/60` (components/ui/dialog.tsx)
     c.overlay = gpui::black().opacity(0.6);
-    // text selection: brand indigo at the component's 0.3 alpha clamp
-    // (EXP-269 — the mobile selection accent; a near-white primary selection
-    // is illegible over dark surfaces)
-    c.selection = indigo.opacity(0.3);
+    // text selection: white-alpha primary (EXP-594 — the glass selection
+    // wash; 0.25 keeps the selected glyphs legible over dark surfaces)
+    c.selection = primary.opacity(0.25);
     // web caret is currentColor → foreground (component fallback uses primary;
     // same near-white family, foreground is the web-true pick)
     c.caret = fg;
@@ -286,20 +284,17 @@ pub fn exponential_dark() -> ThemeColor {
     c.group_box_foreground = fg;
     c.description_list_label = bg.blend(border.opacity(0.2));
     c.description_list_label_foreground = muted_foreground;
-    // EXP-269: interaction accents go brand indigo (links/progress/drag/slider
-    // match the mobile accent usage; primary stays near-white for buttons).
-    c.drag_border = indigo.opacity(0.65);
-    c.drop_target = indigo.opacity(0.2);
-    // Links are the one brand accent that is BODY TEXT, so it needs the 4.5:1
-    // AA floor rather than the 3:1 non-text one. Raw indigo lands at ~4.0-4.5:1
-    // over the zinc gradient; lightening it clears the floor while reading as
-    // the same accent. That applies to the PRESSED state too — it is still body
-    // text — so `link_active` only reads darker than `link`, it never drops to
-    // raw indigo. The non-text accents below do stay on raw indigo.
-    c.link = indigo.lighten(0.12);
-    c.link_hover = indigo.lighten(0.22);
-    c.link_active = indigo.lighten(0.06);
-    c.progress_bar = indigo;
+    // EXP-594: interaction accents are white/glass (the indigo brand accent
+    // is retired; primary stays near-white for buttons).
+    c.drag_border = fg.opacity(0.65);
+    c.drop_target = t::glass::FILL_ACTIVE.to_hsla();
+    // Links are BODY TEXT — full foreground white (the component underlines
+    // them, which carries the affordance); hover brightens to pure white and
+    // the pressed state dims, so the three states stay distinct.
+    c.link = fg;
+    c.link_hover = gpui::white();
+    c.link_active = fg.opacity(0.8);
+    c.progress_bar = primary;
     // web skeleton is `bg-accent` (components/ui/skeleton.tsx)
     c.skeleton = accent;
     // scrollbar: transparent track (stock-dark behavior — a solid track would
@@ -308,9 +303,9 @@ pub fn exponential_dark() -> ThemeColor {
     c.scrollbar = transparent;
     c.scrollbar_thumb = t::RING.to_hsla().opacity(0.7);
     c.scrollbar_thumb_hover = t::RING.to_hsla();
-    // slider: filled bar = brand indigo (EXP-269), thumb = background
-    // (readable on the indigo bar)
-    c.slider_bar = indigo;
+    // slider: filled bar = near-white primary (EXP-594), thumb = background
+    // (the dark thumb reads on the white bar)
+    c.slider_bar = primary;
     c.slider_thumb = bg;
     // switch: single thumb token serves checked (primary, near-white) AND
     // unchecked tracks, so the thumb must be dark → background (stock-dark
@@ -690,11 +685,12 @@ mod tests {
     }
 
     #[test]
-    fn glass_chrome_and_brand_accent() {
+    fn glass_chrome_and_white_accents() {
         // EXP-269: transparent titlebar strips (the gradient shows through the
         // gpui-component TitleBar via theme.tokens); EXP-277 dropped the
-        // chrome hairlines so bars and panels blend into one surface. The
-        // indigo brand accent stays on the interaction colors.
+        // chrome hairlines so bars and panels blend into one surface. EXP-594
+        // retired the indigo brand accent — every interaction color is
+        // white/glass.
         let c = exponential_dark();
         assert!(approx(c.title_bar.a, 0.0), "title_bar is transparent: {:?}", c.title_bar);
         assert!(approx(c.tab_bar.a, 0.0), "tab_bar is transparent: {:?}", c.tab_bar);
@@ -709,11 +705,12 @@ mod tests {
             c.status_bar_border
         );
         assert_hsla_eq(c.window_border, tokens::glass::STROKE_ACTIVE.to_hsla(), "window_border");
-        assert_hsla_eq(c.ring, tokens::BRAND.to_hsla(), "ring");
-        // link is the lightened brand (body text needs the 4.5:1 AA floor);
-        // ring/selection keep raw brand since they are non-text accents.
-        assert_hsla_eq(c.link, tokens::BRAND.to_hsla().lighten(0.12), "link");
-        assert_hsla_eq(c.selection, tokens::BRAND.to_hsla().opacity(0.3), "selection");
+        // EXP-594: ring is the neutral token (web --ring parity), links are
+        // foreground body text (underline carries the affordance), selection
+        // is the white-alpha glass wash.
+        assert_hsla_eq(c.ring, tokens::RING.to_hsla(), "ring");
+        assert_hsla_eq(c.link, tokens::FOREGROUND.to_hsla(), "link");
+        assert_hsla_eq(c.selection, tokens::PRIMARY.to_hsla().opacity(0.25), "selection");
         // primary deliberately stays near-white (web/mobile primary button).
         assert_hsla_eq(c.primary, tokens::PRIMARY.to_hsla(), "primary");
     }

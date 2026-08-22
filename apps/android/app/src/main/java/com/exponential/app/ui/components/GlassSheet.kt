@@ -33,7 +33,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.theme.AccentIndigo
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
@@ -131,7 +130,7 @@ fun GlassSheetRow(
                 ExpIcons.uiCheck,
                 contentDescription = "Selected",
                 modifier = Modifier.size(18.dp),
-                tint = AccentIndigo,
+                tint = Color.White,
             )
         }
     }

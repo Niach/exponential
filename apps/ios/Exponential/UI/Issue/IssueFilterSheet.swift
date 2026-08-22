@@ -43,7 +43,7 @@ struct IssueFilterSheet: View {
                 if !vm.filters.isEmpty {
                     Button("Clear all") { vm.clearFilters() }
                         .font(.subheadline)
-                        .foregroundStyle(Accent.indigo)
+                        .foregroundStyle(Color.white)
                 }
             }
             .padding(.bottom, 8)
@@ -185,7 +185,7 @@ struct IssueFilterSheet: View {
                 Spacer()
                 if selected {
                     AppIcon(AppIcons.uiCheck, size: 15, weight: .semibold)
-                        .foregroundStyle(Accent.indigo)
+                        .foregroundStyle(Color.white)
                 }
             }
             .padding(.vertical, 11)

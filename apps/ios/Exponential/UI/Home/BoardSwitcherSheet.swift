@@ -134,7 +134,7 @@ struct BoardSwitcherSheet: View {
 
             if isCurrent {
                 AppIcon(AppIcons.uiCheck, size: AppIcon.Size.small, weight: .semibold)
-                    .foregroundStyle(Accent.indigo)
+                    .foregroundStyle(Color.white)
             }
         }
         .padding(.horizontal, 16)

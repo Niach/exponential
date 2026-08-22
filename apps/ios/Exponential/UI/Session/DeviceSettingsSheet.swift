@@ -148,6 +148,9 @@ struct DeviceSettingsSheet: View {
         // Closing (Done, swipe-down, or the row vanishing) must not drop a
         // debounced edit.
         .onDisappear { flushAll() }
+        // EXP-594: white control tint — system blue is retired (toggles,
+        // menu pickers).
+        .tint(DesignTokens.Palette.primary)
         .alert(
             "Remove worktree?",
             isPresented: Binding(

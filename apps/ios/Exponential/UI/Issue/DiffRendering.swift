@@ -45,7 +45,7 @@ enum DiffRendering {
 
     static func color(_ kind: DiffLineKind) -> Color {
         switch kind {
-        case .hunk: Accent.indigo
+        case .hunk: .white.opacity(TextOpacity.tertiary)
         case .addition: .green
         case .deletion: .red
         case .meta: .white.opacity(TextOpacity.tertiary)

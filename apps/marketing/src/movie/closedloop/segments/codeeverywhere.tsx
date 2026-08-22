@@ -78,7 +78,7 @@ const B = {
   phoneFeed: [142, 152, 162] as const, // CL_PHONE_FEED mirror rows
   typeAt: 172, // steer typing on the phone (2 cpf)
   sendAt: 210, // send tap → user bubble
-  steerGlow: 214, // prompt-box indigo pulse in the dock
+  steerGlow: 214, // prompt-box white pulse in the dock
   steerLand: 218, // the steer lands as a highlighted terminal line
   reply: [226, 238, 250] as const, // CL_STEER_REPLY events
 } as const

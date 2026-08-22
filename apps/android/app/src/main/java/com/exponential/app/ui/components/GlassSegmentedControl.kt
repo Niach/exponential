@@ -27,7 +27,7 @@ import com.exponential.app.ui.theme.TextEmphasis
  * Full-width glass-pill segmented control — a 1:1 port of the iOS My Work
  * Inbox/My Issues tab language (EXP-192): one glass capsule container holding
  * equal-width segments, the active one filled white-0.12. Optional
- * per-segment count [badge] (indigo capsule, the Inbox unread count).
+ * per-segment count [badge] (white primary capsule, the Inbox unread count).
  */
 @Composable
 fun <T> GlassSegmentedControl(
@@ -79,10 +79,10 @@ fun <T> GlassSegmentedControl(
                         count.toString(),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.SemiBold,
-                        color = Color.White,
+                        color = DesignTokens.Palette.PrimaryForeground,
                         modifier = Modifier
                             .clip(capsule)
-                            .background(BadgeIndigo, capsule)
+                            .background(BadgeFill, capsule)
                             .padding(horizontal = 6.dp, vertical = 2.dp),
                     )
                 }
@@ -92,8 +92,7 @@ fun <T> GlassSegmentedControl(
 }
 
 /**
- * The count-badge fill. EXP-280: white text on the raw brand indigo (#6366f1)
- * lands at 4.28:1, under the AA floor — the badge takes `brandStrong` (#4f46e5)
- * like its iOS counterpart, which clears it.
+ * The count-badge fill: the solid near-white primary with dark text (EXP-594
+ * — the indigo accent is retired), like its iOS counterpart.
  */
-private val BadgeIndigo = DesignTokens.Semantic.BrandStrong
+private val BadgeFill = DesignTokens.Palette.Primary

@@ -74,7 +74,7 @@ function PrPhrase({
           href={url}
           target="_blank"
           rel="noreferrer"
-          className="font-medium text-brand-soft hover:underline"
+          className="font-medium text-foreground hover:underline"
         >
           {phrase}
         </a>

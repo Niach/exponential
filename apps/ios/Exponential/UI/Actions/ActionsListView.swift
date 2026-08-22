@@ -471,6 +471,7 @@ struct ActionsListView: View {
                 set: { vm.setAutomationEnabled(automation, enabled: $0) }
             ))
             .labelsHidden()
+            .tint(DesignTokens.Palette.primary)
             .disabled(!vm.permissions.isOwner || busy)
             .accessibilityLabel("Automation enabled")
         }

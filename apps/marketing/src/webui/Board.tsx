@@ -1,5 +1,5 @@
 /* ─── Board — filter bar + grouped issue list ───
-   Mirrors apps/web issue-filter-bar.tsx ("Issues" title, pill tabs, indigo
+   Mirrors apps/web issue-filter-bar.tsx ("Issues" title, pill tabs, primary
    New Issue) and issue-list.tsx (grid rows [priority | identifier | status |
    title | labels | assignee | due], tinted sticky group headers). */
 import {

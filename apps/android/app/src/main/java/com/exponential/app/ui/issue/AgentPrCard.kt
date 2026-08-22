@@ -39,7 +39,6 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.theme.AccentIndigo
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
@@ -71,9 +70,10 @@ internal val ReviewGreen = DesignTokens.Semantic.Green
 internal val DoneBlue = DesignTokens.Semantic.Blue
 internal val NeedsInputAmber = DesignTokens.Semantic.Yellow
 
-// GitHub PR-state tints (EXP-240): open green / merged indigo / closed red.
+// PR-state tints (EXP-240): open green / merged blue (the done-status
+// semantic, web/desktop parity — EXP-594 retired the indigo) / closed red.
 private val PrOpenGreen = DesignTokens.Semantic.Green
-private val PrMergedIndigo = Color(0xFF818CF8)
+private val PrMergedBlue = DesignTokens.Semantic.Blue
 private val PrClosedRed = DesignTokens.Semantic.Red
 
 @Composable
@@ -207,7 +207,7 @@ private fun SessionRow(
 @Composable
 private fun PrRow(prState: String?, prNumber: Int?, onOpenChanges: () -> Unit) {
     val tint = when (prState) {
-        DomainContract.prStateMerged -> PrMergedIndigo
+        DomainContract.prStateMerged -> PrMergedBlue
         DomainContract.prStateClosed -> PrClosedRed
         else -> PrOpenGreen
     }
@@ -268,7 +268,7 @@ private fun BranchRow(branch: String, onOpenChanges: () -> Unit) {
             ExpIcons.uiBranch,
             contentDescription = null,
             modifier = Modifier.size(14.dp),
-            tint = AccentIndigo,
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
         )
         Text(
             branch,

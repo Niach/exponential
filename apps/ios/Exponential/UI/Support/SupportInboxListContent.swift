@@ -122,7 +122,7 @@ struct SupportInboxListContent: View {
 
             if thread.unread {
                 Circle()
-                    .fill(Accent.indigo)
+                    .fill(DesignTokens.Palette.primary)
                     .frame(width: 8, height: 8)
                     .padding(.top, 6)
             }

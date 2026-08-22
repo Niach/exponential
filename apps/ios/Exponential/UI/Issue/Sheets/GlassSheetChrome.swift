@@ -90,7 +90,7 @@ struct GlassSheetRow<Leading: View>: View {
                 Spacer(minLength: 0)
                 if selected {
                     AppIcon(AppIcons.uiCheck, size: 15, weight: .semibold)
-                        .foregroundStyle(Accent.indigo)
+                        .foregroundStyle(Color.white)
                 }
             }
             .padding(.horizontal, 14)
@@ -166,7 +166,7 @@ struct GlassPickerSheet<Item, ID: Hashable, Row: View>: View {
                                 Spacer(minLength: 0)
                                 if let selectedID, wrapped.id == selectedID {
                                     AppIcon(AppIcons.uiCheck, size: 15, weight: .semibold)
-                                        .foregroundStyle(Accent.indigo)
+                                        .foregroundStyle(Color.white)
                                 }
                             }
                             .padding(.horizontal, 14)

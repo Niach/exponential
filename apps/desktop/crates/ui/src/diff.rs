@@ -70,11 +70,7 @@ const GUTTER_W: f32 = 40.0;
 /// Estimated mono advance at 11px — sizes rows for horizontal scrolling
 /// (slightly generous so the longest line never clips at the right edge).
 const CHAR_W: f32 = 6.8;
-/// EXP-282: hunk-header tint alpha. The header keeps its BLUE hue (the web
-/// `bg-indigo-500/5` marker), but the strength is pinned to the glass row
-/// fill's alpha instead of a hand-picked 0.05 — same step of the ladder as
-/// every other row fill in the app.
-const HUNK_TINT_ALPHA: f32 = theme::tokens::glass::FILL_ROW.a as f32 / 255.;
+
 
 /// One populated cell of a line row, highlight spans precomputed. The
 /// [`Anchor`] is carried on every cell (§7.8 read-only-but-anchored mandate).
@@ -455,16 +451,16 @@ impl DiffView {
                 .child(message.clone())
                 .into_any_element(),
             RenderRow::HunkHeader { header } => {
-                // Web: `text-indigo-300/80 bg-indigo-500/5` → token-locked
-                // BLUE tints (§4 tokens; no indigo token exists). Scrolls
-                // with the columns (same shift) inside its clip. EXP-282:
-                // no border, alpha normalized onto the glass ladder.
+                // Web: `bg-glass-section text-muted-foreground` (EXP-594 —
+                // the indigo/blue hunk tint went white/glass on every
+                // client). Scrolls with the columns (same shift) inside its
+                // clip. EXP-282: no border, alpha on the glass ladder.
                 h_flex()
                     .w_full()
                     .h(px(LINE_ROW_H))
                     .items_center()
-                    .bg(theme.blue.opacity(HUNK_TINT_ALPHA))
-                    .text_color(theme.blue.lighten(0.4).opacity(0.8))
+                    .bg(theme::tokens::glass::FILL_SECTION.to_hsla())
+                    .text_color(theme.muted_foreground)
                     .font_family(mono)
                     .text_size(px(CODE_TEXT_SIZE))
                     .overflow_hidden()

@@ -36,6 +36,6 @@ public struct TeamAvatar: View {
             .font(.caption.weight(.bold))
             .foregroundStyle(.white)
             .frame(width: size, height: size)
-            .background(Accent.indigo.opacity(0.6))
+            .background(Color.white.opacity(0.15))
     }
 }

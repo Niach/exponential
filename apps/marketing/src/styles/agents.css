@@ -154,7 +154,7 @@
 }
 
 .mss-checkon {
-  color: #6366f1;
+  color: #fafafa;
   flex: none;
 }
 
@@ -202,8 +202,8 @@
 }
 
 .mss-chip.is-active {
-  background: #6366f1;
-  color: #fff;
+  background: #e5e5e5;
+  color: #171717;
 }
 
 /* iOS switch */

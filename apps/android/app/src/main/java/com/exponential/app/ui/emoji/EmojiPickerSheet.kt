@@ -37,7 +37,6 @@ import androidx.compose.ui.unit.sp
 import com.exponential.app.ExponentialApp
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetSearchField
-import com.exponential.app.ui.theme.AccentIndigo
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import dagger.hilt.android.EntryPointAccessors
@@ -193,7 +192,7 @@ private fun SkinToneRow(data: EmojiData?, tone: Int, onSelect: (Int) -> Unit) {
                     .background(if (selected) GlassTokens.RowFill else Color.Transparent)
                     .border(
                         if (selected) 1.5.dp else 1.dp,
-                        if (selected) AccentIndigo else Color.White.copy(alpha = TextEmphasis.Quaternary),
+                        if (selected) Color.White.copy(alpha = 0.6f) else Color.White.copy(alpha = TextEmphasis.Quaternary),
                         RoundedCornerShape(10.dp),
                     )
                     .clickable(

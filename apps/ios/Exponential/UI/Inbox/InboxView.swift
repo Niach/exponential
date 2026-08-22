@@ -102,7 +102,7 @@ struct InboxListContent: View {
                 }
                 if unread {
                     Circle()
-                        .fill(Accent.indigo)
+                        .fill(DesignTokens.Palette.primary)
                         .frame(width: 8, height: 8)
                 }
             }
@@ -157,7 +157,7 @@ struct InboxListContent: View {
                 }
                 if unread {
                     Circle()
-                        .fill(Accent.indigo)
+                        .fill(DesignTokens.Palette.primary)
                         .frame(width: 8, height: 8)
                 }
             }

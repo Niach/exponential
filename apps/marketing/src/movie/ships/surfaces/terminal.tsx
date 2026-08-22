@@ -282,7 +282,7 @@ export const TerminalDock: React.FC<{
   tabs: DockTab[]
   activeTab: string
   feed: TerminalFeed
-  inputGlow?: number // global frame: soft indigo pulse on the prompt box (remote-steer beat)
+  inputGlow?: number // global frame: soft white pulse on the prompt box (remote-steer beat)
   exitAt?: number // global frame: exit strip fades in, input/footer fade out, tab gets green `0`
   exitBadgeTab?: string // tab receiving the exit badge (defaults to activeTab)
   inputText?: { text: string; at: number; cpf?: number } // optional typed text after "❯ "
@@ -428,8 +428,8 @@ export const TerminalDock: React.FC<{
             padding: `0 ${PADX}px`,
             borderTop: `1px solid ${C.strokeStrong}`,
             borderBottom: `1px solid ${C.strokeStrong}`,
-            backgroundColor: `rgba(99,102,241,${0.1 * glowT})`,
-            boxShadow: `0 0 ${16 * glowT}px rgba(129,140,248,${0.4 * glowT})`,
+            backgroundColor: `rgba(255,255,255,${0.08 * glowT})`,
+            boxShadow: `0 0 ${16 * glowT}px rgba(255,255,255,${0.3 * glowT})`,
             fontFamily: MONO_FONT,
             fontSize: FS,
           }}

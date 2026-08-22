@@ -17,7 +17,7 @@ export type BoardRow = {
 export const IDENTITY = {
   workspace: "Exponential",
   project: "Exponential",
-  projectColor: "#6366f1",
+  projectColor: "#a1a1aa",
   prefix: "EXP",
   repo: "niach/exponential",
   defaultBranch: "main",
@@ -31,7 +31,7 @@ export const IDENTITY = {
 export const LABELS = {
   bug: { name: "bug", dot: "#ef4444" },
   desktop: { name: "desktop", dot: "#3b82f6" },
-  web: { name: "web", dot: "#6366f1" },
+  web: { name: "web", dot: "#f97316" },
   widget: { name: "widget", dot: "#22c55e" },
 } as const
 

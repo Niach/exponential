@@ -291,7 +291,7 @@ export function TeamLabelsSection({ teamId }: { teamId: string }) {
             <div className="flex items-center gap-2">
               <Button
                 size="xs"
-                variant="brand"
+                variant="default"
                 disabled={!newName.trim() || submitting || newNameIsDuplicate}
                 onClick={handleCreate}
               >

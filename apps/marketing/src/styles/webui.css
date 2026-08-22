@@ -2,8 +2,8 @@
    Pixel-faithful recreation of the Exponential WEB app (TanStack Start,
    shadcn zinc dark). Colors come from the shared demo tokens in tokens.css,
    which translate the app's OKLCH zinc theme: --bg ≈ background zinc-950,
-   --bg-elev ≈ sidebar/card, --bg-soft ≈ muted/accent, --accent = indigo-600
-   (the app's New Issue / reply-bubble indigo). The ide-c-* utilities and the
+   --bg-elev ≈ sidebar/card, --bg-soft ≈ muted/accent, --accent = the app's
+   near-white primary (New Issue / reply bubble). The ide-c-* utilities and the
    shared atom classes (ide-avatar, ide-chip, ide-due, ide-inlinecode,
    ide-refpill, ide-mentionpill, ide-diff-*) are reused from ide.css. */
 
@@ -343,7 +343,7 @@
   padding: 0 8px;
   border-radius: 6px;
   background: var(--accent);
-  color: #ffffff;
+  color: var(--accent-fg);
   font-size: 11px;
   font-weight: 500;
   white-space: nowrap;
@@ -940,7 +940,7 @@
   align-self: flex-end;
   border-bottom-right-radius: 4px;
   background: var(--accent);
-  color: #ffffff;
+  color: var(--accent-fg);
 }
 .web-bubble.is-internal {
   align-self: flex-end;

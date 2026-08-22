@@ -692,7 +692,7 @@ export const ExpandedRail: React.FC<ExpandedRailProps> = ({
             color: fgOf("board"),
           }}
         >
-          <span style={{ color: C.indigoSoft, display: "flex" }}>
+          <span style={{ color: C.text, display: "flex" }}>
             {boardGlyph === "code" ? (
               <CodeIcon size={14} />
             ) : (

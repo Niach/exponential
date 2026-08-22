@@ -852,9 +852,10 @@ impl Render for SupportThreadView {
             .children(context_section)
             .child(escalate_section);
 
-        // ---- messages (web bubble colors: inbound muted, outbound brand,
+        // ---- messages (web bubble colors: inbound muted, outbound primary,
         // internal amber; meta line UNDER the body) -------------------------
-        let brand = theme::tokens::BRAND_STRONG.to_hsla();
+        let outbound = theme::tokens::PRIMARY.to_hsla();
+        let outbound_fg = theme::tokens::PRIMARY_FOREGROUND.to_hsla();
         let bubbles: Vec<gpui::AnyElement> = rows
             .iter()
             .map(|row| {
@@ -873,7 +874,7 @@ impl Render for SupportThreadView {
                         muted,
                     )
                 } else {
-                    (brand, None, gpui::white(), gpui::white().opacity(0.7))
+                    (outbound, None, outbound_fg, outbound_fg.opacity(0.7))
                 };
                 let mut bubble = v_flex()
                     .max_w(relative(0.85))
