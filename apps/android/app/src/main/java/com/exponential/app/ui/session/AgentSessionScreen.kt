@@ -25,7 +25,6 @@ import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -69,6 +68,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -76,6 +76,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -1036,7 +1038,7 @@ private fun FoldableMarkdown(
     MarkdownView(
         text,
         modifier = if (folds && !expanded) {
-            Modifier.heightIn(max = clampHeight).clipToBounds()
+            Modifier.foldedTo(clampHeight)
         } else {
             Modifier
         },
@@ -1046,6 +1048,21 @@ private fun FoldableMarkdown(
         ShowMoreToggle(expanded, onToggle)
     }
 }
+
+/** The fold CLIPS naturally-laid-out content instead of constraining its
+ *  measurement — iOS `.frame(maxHeight:).clipped()` / web `max-h-40
+ *  overflow-hidden` parity. A max-height CONSTRAINT squeezes every block's
+ *  measure pass, and an `aspectRatio` image whose width is pinned by
+ *  `fillMaxWidth` degenerates under a too-small max height (EXP-605: prompt
+ *  images collapsing onto the surrounding text). */
+private fun Modifier.foldedTo(clampHeight: Dp): Modifier =
+    clipToBounds().layout { measurable, constraints ->
+        val placeable = measurable.measure(
+            constraints.copy(minHeight = 0, maxHeight = Constraints.Infinity),
+        )
+        val height = minOf(placeable.height, clampHeight.roundToPx())
+        layout(placeable.width, height) { placeable.placeRelative(0, 0) }
+    }
 
 // A human turn (EXP-78): the initial prompt or a steered message — rendered
 // end-aligned like the sender's own chat bubble, long text folded.
