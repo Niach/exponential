@@ -13,11 +13,14 @@ import com.exponential.app.data.db.CommentEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueEventEntity
+import com.exponential.app.data.db.IssueStatusEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.MAX_COMMENT_ATTACHMENTS
+import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.MAX_FILE_UPLOAD_BYTES
 import com.exponential.app.domain.MAX_IMAGE_UPLOAD_BYTES
 import com.exponential.app.domain.canonicalContentType
@@ -30,10 +33,12 @@ import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -48,6 +53,11 @@ data class CommentThreadState(
     val usersById: Map<String, UserEntity> = emptyMap(),
     val labelsById: Map<String, LabelEntity> = emptyMap(),
     val currentUserId: String? = null,
+    /** The issue's team statuses in render order (EXP-595) — the status-change
+     *  rows' glyph + color resolve against the same vocabulary every other
+     *  status surface uses. Empty while the shape is syncing (resolution
+     *  degrades to the constructed builtin defaults). */
+    val statuses: List<ResolvedIssueStatus> = emptyList(),
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -91,6 +101,26 @@ class CommentThreadViewModel @Inject constructor(
             }
         }
 
+    // The issue's team statuses (EXP-595) — the teamId comes off the issue's
+    // BOARD (issues don't denormalize it), re-keyed on issue/account switches,
+    // feeding the timeline's status-change glyphs.
+    private val statusRows: Flow<List<IssueStatusEntity>> =
+        combine(dbFlow, issueIdFlow) { db, id -> db to id }
+            .flatMapLatest { (db, id) ->
+                if (db == null || id == null) {
+                    flowOf(emptyList())
+                } else {
+                    combine(db.issueDao().observeById(id), db.boardDao().observeAll()) { issue, boards ->
+                        boards.firstOrNull { it.id == issue?.boardId }?.teamId
+                    }
+                        .distinctUntilChanged()
+                        .flatMapLatest { teamId ->
+                            if (teamId == null) flowOf(emptyList())
+                            else db.issueStatusDao().observeByTeam(teamId)
+                        }
+                }
+            }
+
     val state: StateFlow<CommentThreadState> = combine(
         combine(dbFlow, issueIdFlow) { db, id -> db to id }
             .flatMapLatest { (db, id) ->
@@ -99,7 +129,8 @@ class CommentThreadViewModel @Inject constructor(
         commentsEventsLabels,
         dbFlow.scopedQuery(emptyList()) { it.userDao().observeAll() },
         auth.userId,
-    ) { issue, (comments, events, labels), users, userId ->
+        statusRows,
+    ) { issue, (comments, events, labels), users, userId, statusRows ->
         CommentThreadState(
             issue = issue,
             comments = comments,
@@ -107,6 +138,7 @@ class CommentThreadViewModel @Inject constructor(
             usersById = users.associateBy { it.id },
             labelsById = labels.associateBy { it.id },
             currentUserId = userId,
+            statuses = IssueStatusResolver.teamStatuses(statusRows),
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CommentThreadState())
 

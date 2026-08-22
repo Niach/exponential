@@ -3,8 +3,13 @@ package com.exponential.app.ui.issue
 import com.exponential.app.data.db.IssueEventEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.domain.IssueStatusCategory
+import com.exponential.app.domain.ResolvedIssueStatus
+import com.exponential.app.ui.icons.ExpIcons
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -196,5 +201,52 @@ class EventPhrasesTest {
         assertTrue(eventRowVisible("status_changed"))
         assertTrue(eventRowVisible("priority_changed"))
         assertTrue(eventRowVisible("something_new"))
+    }
+
+    // ── EXP-595: timeline glyphs (web `EventRow` / desktop `EventGlyph` parity) ──
+
+    @Test
+    fun glyphsMapEventTypesToTheSharedConceptIcons() {
+        fun plain(type: String) =
+            (eventGlyph(event(type, null), emptyList()) as EventGlyph.Plain).icon
+        assertSame(ExpIcons.eventAssigneeChanged, plain("assignee_changed"))
+        assertSame(ExpIcons.eventLabelAdded, plain("label_added"))
+        assertSame(ExpIcons.eventLabelAdded, plain("label_removed"))
+        assertSame(ExpIcons.eventBoardMoved, plain("board_moved"))
+        assertSame(ExpIcons.prOpen, plain("pr_opened"))
+        assertSame(ExpIcons.prMerged, plain("pr_merged"))
+        assertSame(ExpIcons.eventPriorityChanged, plain("priority_changed"))
+    }
+
+    /** EXP-525 parity: the TARGET status's real row wins over the anchor. */
+    @Test
+    fun statusGlyphResolvesTheTargetRow() {
+        val shipping = ResolvedIssueStatus(
+            id = "row-1",
+            rowId = "row-1",
+            name = "Shipping",
+            category = IssueStatusCategory.Started,
+            colorHex = "#00ff00",
+            builtinKey = null,
+            iconName = "progress-2-4",
+        )
+        val glyph = eventGlyph(
+            event("status_changed", """{"to":"in_progress","toStatusId":"row-1"}"""),
+            listOf(shipping),
+        ) as EventGlyph.Status
+        assertEquals("row-1", glyph.status.id)
+    }
+
+    @Test
+    fun statusGlyphDegradesToTheConstructedDefault() {
+        // No team rows synced yet: the constructed builtin for the anchor.
+        val glyph =
+            eventGlyph(event("status_changed", """{"to":"done"}"""), emptyList()) as EventGlyph.Status
+        assertEquals("builtin:done", glyph.status.id)
+    }
+
+    @Test
+    fun unknownEventTypesKeepThePlainDot() {
+        assertNull(eventGlyph(event("something_new", null), emptyList()))
     }
 }

@@ -1,4 +1,5 @@
 import ExpCore
+import ExpUI
 import Foundation
 
 // Rendering helpers for the issue activity timeline (status/assignee/label/PR
@@ -49,6 +50,43 @@ func eventField(_ payload: String?, _ key: String) -> String? {
     if let i = value as? Int { return String(i) }
     if let d = value as? Double { return String(Int(d)) }
     return nil
+}
+
+/// The leading glyph of one activity row (EXP-595 — web `EventRow` / desktop
+/// `EventGlyph` parity): every known event type leads with its shared-registry
+/// concept icon in the muted text color, and a status change leads with the
+/// TARGET status's real resolved icon in its color (EXP-525).
+enum EventGlyph {
+    /// Shared-registry icon name, rendered in the muted event-text color.
+    case plain(String)
+    /// A resolved team status — rendered via its own icon + color.
+    case status(ResolvedIssueStatus)
+}
+
+/// Glyph for one issue event, mirroring the web `EventRow` icon switch. Nil =
+/// no glyph (unknown event types keep the plain timeline dot). `statuses` is
+/// the issue's team vocabulary in render order — status changes resolve the
+/// payload's `toStatusId` (or the legacy anchor) against it, and the shared
+/// fallback chain never fails.
+func eventGlyph(
+    _ event: IssueEventEntity,
+    statuses: [ResolvedIssueStatus]
+) -> EventGlyph? {
+    switch event.type {
+    case "status_changed":
+        return .status(IssueStatusResolver.resolve(
+            statusId: eventField(event.payload, "toStatusId"),
+            anchor: eventField(event.payload, "to"),
+            team: statuses
+        ))
+    case "assignee_changed": return .plain(AppIcons.eventAssigneeChanged)
+    case "label_added", "label_removed": return .plain(AppIcons.eventLabelAdded)
+    case "board_moved": return .plain(AppIcons.eventBoardMoved)
+    case "pr_opened": return .plain(AppIcons.prOpen)
+    case "pr_merged": return .plain(AppIcons.prMerged)
+    case "priority_changed": return .plain(AppIcons.eventPriorityChanged)
+    default: return nil
+    }
 }
 
 /// A rich activity phrase from the event type + payload (status from→to, PR #N,
