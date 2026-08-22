@@ -26,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.AnnotatedString
@@ -41,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
 import com.exponential.app.ui.markdown.model.BlockKind
 import com.exponential.app.ui.markdown.model.ContentBlock
 import com.exponential.app.ui.markdown.model.InlineKind
@@ -99,14 +101,26 @@ private fun ImageBlockView(url: String, alt: String) {
     // its real height instead of measuring 0 and jumping when the bitmap
     // lands. Our own attachments whose probe hasn't synced yet reserve the
     // editor's 4:3 tile; EXTERNAL image URLs (never probed) keep their natural
-    // sizing rather than being letterboxed forever.
+    // sizing rather than being letterboxed forever. Once the bitmap decodes,
+    // ITS ratio wins (iOS `ImageBlockView.aspectRatio` parity) — the agent
+    // feed renders attachments of OTHER issues (a batch prompt's embeds,
+    // EXP-605) whose probes never sync here, and holding the 4:3 tile past
+    // decode letterboxes those forever.
     val dims = LocalAttachmentDims.current
-    val aspect = dims.aspectRatioOf(url)
+    var decodedAspect by remember(url) { mutableStateOf<Float?>(null) }
+    val aspect = decodedAspect
+        ?: dims.aspectRatioOf(url)
         ?: if (attachmentIdFromUrl(url) != null) DEFAULT_IMAGE_ASPECT_RATIO else null
     AsyncImage(
         model = url,
         contentDescription = alt,
         contentScale = ContentScale.Fit,
+        onState = { state ->
+            val size = (state as? AsyncImagePainter.State.Success)?.painter?.intrinsicSize
+            if (size != null && size.isSpecified && size.width > 0f && size.height > 0f) {
+                decodedAspect = size.width / size.height
+            }
+        },
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
