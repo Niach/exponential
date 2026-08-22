@@ -333,6 +333,31 @@ public struct FetchedIssue: Decodable, Sendable {
     public let updatedAt: String
 }
 
+/// `issues.create`'s envelope. The id is the only REQUIRED part; the full
+/// inserted row is decoded best-effort so the creating client can mirror the
+/// new issue into its local store and open it immediately (EXP-596) instead of
+/// waiting for the Electric long-poll. A row this build can't decode (an older
+/// or newer server) must never turn a committed create into a client-side
+/// failure — the mirror is simply skipped and sync delivers the row.
+public struct IssueCreateResult: Decodable, Sendable {
+    public let id: String
+    public let issue: FetchedIssue?
+
+    private enum CodingKeys: String, CodingKey {
+        case issue
+    }
+
+    private struct IdOnly: Decodable {
+        let id: String
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(IdOnly.self, forKey: .issue).id
+        issue = try? container.decode(FetchedIssue.self, forKey: .issue)
+    }
+}
+
 /// `issues.get`'s envelope. `teamId` is TOP-LEVEL, not a field of the issue:
 /// it isn't part of the synced row, but the local `issue_labels` rows carry it
 /// denormalized, so writing the labels needs it.
@@ -351,9 +376,8 @@ public final class IssuesApi: Sendable {
         self.trpc = trpc
     }
 
-    public func create(accountId: String, _ input: CreateIssueInput) async throws -> String {
-        let result: IssueResult = try await trpc.mutation(accountId: accountId, path: "issues.create", input: input)
-        return result.issue.id
+    public func create(accountId: String, _ input: CreateIssueInput) async throws -> IssueCreateResult {
+        try await trpc.mutation(accountId: accountId, path: "issues.create", input: input)
     }
 
     public func update(accountId: String, _ input: UpdateIssueInput) async throws {

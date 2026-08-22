@@ -39,3 +39,37 @@ public extension FetchedIssue {
         )
     }
 }
+
+public extension IssueEntity {
+    /// The same row with a replaced description. The create response is
+    /// captured BEFORE the draft images are uploaded and the markdown is
+    /// patched, so mirroring it verbatim would store the image-stripped text
+    /// until sync lands the patched row (EXP-596).
+    func replacingDescription(_ description: String?) -> IssueEntity {
+        IssueEntity(
+            id: id,
+            boardId: boardId,
+            number: number,
+            identifier: identifier,
+            title: title,
+            description: description,
+            status: status,
+            statusId: statusId,
+            priority: priority,
+            assigneeId: assigneeId,
+            creatorId: creatorId,
+            source: source,
+            dueDate: dueDate,
+            sortOrder: sortOrder,
+            completedAt: completedAt,
+            duplicateOfId: duplicateOfId,
+            prUrl: prUrl,
+            prNumber: prNumber,
+            prState: prState,
+            branch: branch,
+            prMergedAt: prMergedAt,
+            createdAt: createdAt,
+            updatedAt: updatedAt
+        )
+    }
+}
