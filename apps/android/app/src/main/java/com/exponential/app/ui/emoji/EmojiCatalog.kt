@@ -15,16 +15,14 @@ import kotlinx.serialization.json.Json
 // committed byte-identically into all four clients, so every client searches
 // the same labels, GitHub shortcodes and tags. Never hand-edit it.
 //
-// The ranking, skin-tone and recents rules below are the hand-mirrored twin of
-// web's `lib/emoji.ts` (and iOS `EmojiCatalog.swift` / desktop `emoji.rs`).
-// Pickers insert the UNICODE — never `:shortcode:` text — because
-// `issues.description` / `comments.body` are plain GFM shared with clients
-// that render only unicode.
+// The ranking and recents rules below are the hand-mirrored twin of web's
+// `lib/emoji.ts` (and iOS `EmojiCatalog.swift` / desktop `emoji.rs`).
+// Pickers insert the UNICODE — always the base yellow glyph (EXP-600 dropped
+// skin tones; the dataset's `k` variants are deliberately unread), never
+// `:shortcode:` text — because `issues.description` / `comments.body` are
+// plain GFM shared with clients that render only unicode.
 
 private const val EMOJI_ASSET = "emoji.json"
-
-/** Number of skin-tone variants a toned emoji carries (`k.size`). */
-const val EMOJI_TONES = 5
 
 /** Recently picked base emoji kept per device. */
 const val MAX_RECENT_EMOJI = 24
@@ -43,9 +41,9 @@ data class EmojiRecord(
     /** Search tags. */
     @SerialName("t") val tags: List<String> = emptyList(),
     /**
-     * The five uniform skin-tone variants, light → dark, present only when the
-     * emoji supports every one of them (mixed-tone multi-person emoji are
-     * deliberately not offered).
+     * The dataset's five uniform skin-tone variants — decoded for shape
+     * parity but deliberately unread (EXP-600: pickers only ever insert the
+     * base yellow glyph).
      */
     @SerialName("k") val tones: List<String>? = null,
 )
@@ -149,13 +147,6 @@ object EmojiCatalog {
     fun parse(rawJson: String): EmojiData = EmojiData(json.decodeFromString(EmojiDataset.serializer(), rawJson))
 }
 
-/** The unicode to insert for [emoji] under [tone] (the base when untoned). */
-fun applySkinTone(emoji: EmojiRecord, tone: Int): String {
-    val tones = emoji.tones
-    if (tone <= 0 || tones == null || tones.size != EMOJI_TONES) return emoji.unicode
-    return tones.getOrNull(tone - 1) ?: emoji.unicode
-}
-
 // --- `:shortcode` typeahead -------------------------------------------------
 
 /**
@@ -198,16 +189,11 @@ interface EmojiPrefsStore {
 }
 
 /**
- * Skin-tone preference (0 = none, 1..5 light → dark) and the recently picked
- * BASE emoji, most recent first. Same keys as the other clients.
+ * The recently picked BASE emoji, most recent first. Same key as the other
+ * clients. (The EXP-551 `exp.emojiSkinTone` key is retired — EXP-600 dropped
+ * skin tones.)
  */
 class EmojiPrefs(private val store: EmojiPrefsStore) {
-    fun skinTone(): Int = store.get(TONE_KEY)?.toIntOrNull()?.takeIf { it in 0..EMOJI_TONES } ?: 0
-
-    fun setSkinTone(tone: Int) {
-        store.set(TONE_KEY, tone.coerceIn(0, EMOJI_TONES).toString())
-    }
-
     fun recents(): List<String> = store.get(RECENT_KEY)
         ?.split(SEPARATOR)
         ?.filter { it.isNotEmpty() }
@@ -223,7 +209,6 @@ class EmojiPrefs(private val store: EmojiPrefsStore) {
     }
 
     companion object {
-        const val TONE_KEY = "exp.emojiSkinTone"
         const val RECENT_KEY = "exp.emojiRecent"
 
         // '\n' can never appear inside an emoji sequence, so a joined string

@@ -13,7 +13,8 @@ private let log = Logger(subsystem: "com.exponential", category: "EmojiCatalog")
 // `bun run --filter @exp/emoji generate`.
 //
 // The semantics implemented here are shared by web, desktop and Android:
-//   * pickers insert UNICODE (`u`, or `k[tone - 1]` under a skin-tone pref),
+//   * pickers insert UNICODE (`u` — always the base yellow glyph, EXP-600
+//     dropped skin tones; the dataset's `k` variants are deliberately unread),
 //     never `:shortcode:` text — the markdown bodies are plain GFM interchange
 //   * search ranks shortcode-prefix over label-prefix over tag exact/prefix over
 //     label/tag substring
@@ -33,8 +34,9 @@ public struct EmojiRecord: Codable, Sendable, Hashable, Identifiable {
     public let shortcodes: [String]
     /// Search tags.
     public let tags: [String]
-    /// The five uniform skin-tone variants, light → dark. Present only when the
-    /// emoji supports every one of them.
+    /// The five uniform skin-tone variants of the dataset's `k` field —
+    /// decoded for shape parity but deliberately unread (EXP-600: pickers
+    /// only ever insert the base yellow glyph).
     public let tones: [String]?
 
     /// The base unicode identifies a record — recents are stored by it.
@@ -63,15 +65,6 @@ public struct EmojiRecord: Codable, Sendable, Hashable, Identifiable {
         self.shortcodes = shortcodes
         self.tags = tags
         self.tones = tones
-    }
-
-    /// The variant to insert for `tone` (0 = none, 1…5 light → dark). Falls back
-    /// to the base sequence when the record carries no tones — the picker's tone
-    /// preference is global, most emoji simply ignore it.
-    public func applyingTone(_ tone: Int) -> String {
-        guard tone >= 1, tone <= EmojiPreferences.toneCount,
-              let tones, tones.count == EmojiPreferences.toneCount else { return unicode }
-        return tones[tone - 1]
     }
 
     /// Case-insensitive exact shortcode test — drives the `:code:` auto-commit.
@@ -140,14 +133,13 @@ public struct EmojiCatalogIndex: Sendable {
     }
 
     /// Exact shortcode lookup, case-insensitive — powers the `:code:`
-    /// auto-commit and the recents/tone round-trip.
+    /// auto-commit and the recents round-trip.
     public func find(shortcode: String) -> EmojiRecord? {
         guard let i = byShortcode[shortcode.lowercased()] else { return nil }
         return dataset.emojis[i]
     }
 
-    /// Exact base-unicode lookup — recents are persisted as base unicodes and
-    /// re-toned at render time.
+    /// Exact base-unicode lookup — recents are persisted as base unicodes.
     public func find(unicode: String) -> EmojiRecord? {
         guard let i = byUnicode[unicode] else { return nil }
         return dataset.emojis[i]
@@ -291,14 +283,12 @@ public final class EmojiCatalog {
 
 // MARK: - Preferences
 
-/// Skin-tone preference + recents, persisted under the keys every client uses
-/// (`exp.emojiSkinTone`, `exp.emojiRecent`). Injectable `UserDefaults` so tests
-/// can use a throwaway suite.
+/// Recents, persisted under the key every client uses (`exp.emojiRecent`).
+/// Injectable `UserDefaults` so tests can use a throwaway suite. (The EXP-551
+/// `exp.emojiSkinTone` key is retired — EXP-600 dropped skin tones; pickers
+/// only ever insert the base yellow glyph.)
 public struct EmojiPreferences {
-    public static let skinToneKey = "exp.emojiSkinTone"
     public static let recentsKey = "exp.emojiRecent"
-    /// Number of skin-tone variants a toned record carries.
-    public static let toneCount = 5
     /// Recents keep the last 24 picked BASE unicodes, most recent first.
     public static let maxRecents = 24
 
@@ -308,21 +298,11 @@ public struct EmojiPreferences {
         self.defaults = defaults
     }
 
-    /// 0 = no tone, 1…5 = light → dark. Clamped on both read and write so a
-    /// value written by a future client can never index out of `tones`.
-    public var skinTone: Int {
-        get { min(max(defaults.integer(forKey: Self.skinToneKey), 0), Self.toneCount) }
-        nonmutating set {
-            defaults.set(min(max(newValue, 0), Self.toneCount), forKey: Self.skinToneKey)
-        }
-    }
-
     public var recents: [String] {
         defaults.stringArray(forKey: Self.recentsKey) ?? []
     }
 
-    /// Record a pick. Stores the BASE unicode (never the toned variant) so the
-    /// row re-tones when the preference changes; dedupes and caps at 24.
+    /// Record a pick. Stores the BASE unicode; dedupes and caps at 24.
     public func recordRecent(_ baseUnicode: String) {
         guard !baseUnicode.isEmpty else { return }
         var list = recents.filter { $0 != baseUnicode }

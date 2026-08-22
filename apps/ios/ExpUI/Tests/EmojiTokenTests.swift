@@ -123,25 +123,24 @@ final class EmojiEditorModelTests: XCTestCase {
         XCTAssertEqual(model.currentMarkdown(), "Nice :sm")
     }
 
-    func testSkinTonePreferenceAppliesToTheInsertedUnicode() {
+    // EXP-600: skin tones are gone — an insert is always the BASE unicode,
+    // even for records that carry `k` variants.
+    func testInsertsTheBaseUnicodeForTonedRecords() {
         let model = IssueEditorModel()
         model.emojiSearch = { [self] in search($0) }
-        model.emojiSkinTone = 3
         typed("Ship it :+1", into: model)
         XCTAssertEqual(model.emojiCandidates.map(\.unicode), ["\u{1F44D}"])
         model.applyEmoji(model.emojiCandidates[0])
-        XCTAssertEqual(model.currentMarkdown(), "Ship it \u{1F44D}\u{1F3FD}")
+        XCTAssertEqual(model.currentMarkdown(), "Ship it \u{1F44D}")
     }
 
     func testRecordsTheBaseUnicodeForRecents() {
         let model = IssueEditorModel()
         model.emojiSearch = { [self] in search($0) }
-        model.emojiSkinTone = 5
         var recorded: [String] = []
         model.onEmojiInserted = { recorded.append($0.unicode) }
         typed("Ship it :+1", into: model)
         model.applyEmoji(model.emojiCandidates[0])
-        // Recents store the BASE unicode so the row re-tones with the pref.
         XCTAssertEqual(recorded, ["\u{1F44D}"])
     }
 }

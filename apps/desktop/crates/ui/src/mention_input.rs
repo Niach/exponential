@@ -23,7 +23,7 @@ use gpui_component::{h_flex, v_flex, ActiveTheme as _};
 
 use crate::markdown::{
     byte_offset_to_position, detect_trigger, exact_emoji, CompletionItem, CompletionSource,
-    PendingToken,
+    CompletionTrigger, PendingToken,
 };
 
 struct ActiveCompletion {
@@ -183,6 +183,11 @@ impl MentionInput {
             return;
         };
         replace_token(&self.input, &completion.token, &item.insert, true, window, cx);
+        // EXP-600: a typeahead pick feeds the picker's Recent row too (web
+        // parity — the emoji insert IS the base unicode the recents store).
+        if item.trigger == CompletionTrigger::Emoji {
+            crate::emoji::push_recent_emoji(cx, &item.insert);
+        }
         cx.notify();
     }
 
@@ -195,6 +200,8 @@ impl MentionInput {
             return;
         };
         replace_token(&self.input, &token, &unicode, false, window, cx);
+        // EXP-600: the `:tada:` auto-commit records a recent like a pick does.
+        crate::emoji::push_recent_emoji(cx, &unicode);
     }
 
     fn move_completion(&mut self, delta: isize, cx: &mut gpui::Context<Self>) {

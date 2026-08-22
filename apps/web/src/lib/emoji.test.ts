@@ -1,22 +1,19 @@
 // EXP-551 — the web half of the shared emoji dataset semantics: search
-// ranking, skin tones, recents and the `:shortcode` token rule. The natives
-// mirror these rules by hand (EmojiCatalog.swift / EmojiCatalog.kt /
-// emoji.rs); this file pins them against the REAL generated dataset so a
-// regenerated emoji.generated.json cannot silently change behaviour.
+// ranking, recents and the `:shortcode` token rule. The natives mirror these
+// rules by hand (EmojiCatalog.swift / EmojiCatalog.kt / emoji.rs); this file
+// pins them against the REAL generated dataset so a regenerated
+// emoji.generated.json cannot silently change behaviour.
 
 import { beforeAll, beforeEach, describe, expect, it } from "vitest"
 import dataset from "@/lib/emoji.generated.json"
 import {
-  applySkinTone,
   findEmojiByShortcode,
   indexEmojiData,
   matchEmojiToken,
   MAX_RECENT_EMOJI,
   pushRecentEmoji,
   readRecentEmoji,
-  readSkinTone,
   searchEmoji,
-  writeSkinTone,
 } from "@/lib/emoji"
 
 const data = indexEmojiData(dataset)
@@ -93,18 +90,8 @@ describe(`searchEmoji`, () => {
   })
 })
 
-describe(`applySkinTone`, () => {
-  it(`returns the toned variant for a toned emoji and the base otherwise`, () => {
-    const thumbs = findEmojiByShortcode(data, `+1`)!
-    expect(thumbs.k).toHaveLength(5)
-    expect(applySkinTone(thumbs, 0)).toBe(thumbs.u)
-    expect(applySkinTone(thumbs, 1)).toBe(`👍🏻`)
-    expect(applySkinTone(thumbs, 5)).toBe(`👍🏿`)
-    const tada = findEmojiByShortcode(data, `tada`)!
-    expect(tada.k).toBeUndefined()
-    expect(applySkinTone(tada, 3)).toBe(`🎉`)
-  })
-})
+// EXP-600: skin tones are gone — pickers only ever offer and insert the base
+// yellow record; the dataset's `k` variants stay deliberately unread.
 
 describe(`per-device prefs`, () => {
   beforeAll(() => {
@@ -137,18 +124,6 @@ describe(`per-device prefs`, () => {
     expect(readRecentEmoji()).toEqual([])
     window.localStorage.setItem(`exp.emojiRecent`, `[1, "🎉", null]`)
     expect(readRecentEmoji()).toEqual([`🎉`])
-    window.localStorage.setItem(`exp.emojiSkinTone`, `9`)
-    expect(readSkinTone()).toBe(0)
-    window.localStorage.setItem(`exp.emojiSkinTone`, `banana`)
-    expect(readSkinTone()).toBe(0)
-  })
-
-  it(`round-trips the skin tone`, () => {
-    expect(readSkinTone()).toBe(0)
-    writeSkinTone(4)
-    expect(readSkinTone()).toBe(4)
-    writeSkinTone(0)
-    expect(readSkinTone()).toBe(0)
   })
 })
 

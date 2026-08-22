@@ -277,7 +277,10 @@ export function CommentComposer({
         onValueChange={setText}
         users={users}
         disabled={submitting}
-        className="min-h-16 border-none bg-transparent text-sm shadow-none focus-visible:ring-0 dark:bg-transparent"
+        // `resize-none`: the textarea auto-grows (`field-sizing-content`), so
+        // the native resize grip — which would float mid-card above the tool
+        // row — earns nothing (EXP-599).
+        className="min-h-16 resize-none border-none bg-transparent text-sm shadow-none focus-visible:ring-0 dark:bg-transparent"
         onKeyDown={(event) => {
           if (
             event.key === `Enter` &&

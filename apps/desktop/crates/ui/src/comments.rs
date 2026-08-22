@@ -427,18 +427,39 @@ pub(crate) fn composer_row(
                     cx,
                 ))
                 .child(div().flex_1())
-                .child(
-                    Button::new("comment-submit")
-                        .primary()
-                        .web_icon_sm()
-                        .icon(Icon::from(registry::UI_SUBMIT))
-                        .loading(submitting)
-                        .disabled(submitting || !has_draft)
-                        .on_click(
-                            cx.listener(|this, _, window, cx| this.submit_comment(window, cx)),
-                        ),
-                ),
+                .child(submit_button(
+                    submitting,
+                    submitting || !has_draft,
+                    cx,
+                )),
         )
+}
+
+/// EXP-599: the send button, styled like the web composer's — a GHOST
+/// capsule around the `ui-submit` glyph (which IS the circled arrow, so a
+/// filled button would draw a second ring), primary-tinted, 24px inside a
+/// 32px hit box (web `size-icon rounded-full text-primary` + `!size-6`).
+fn submit_button(
+    submitting: bool,
+    disabled: bool,
+    cx: &mut gpui::Context<IssueTimeline>,
+) -> Button {
+    // Web `disabled:opacity-40` — the explicit icon tint would otherwise
+    // override the ghost variant's own disabled treatment.
+    let tint = if disabled {
+        cx.theme().primary.opacity(0.4)
+    } else {
+        cx.theme().primary
+    };
+    Button::new("comment-submit")
+        .ghost()
+        .with_size(gpui::px(32.))
+        .rounded_full()
+        .cursor_pointer()
+        .icon(Icon::new(registry::UI_SUBMIT).text_color(tint))
+        .loading(submitting)
+        .disabled(disabled)
+        .on_click(cx.listener(|this, _, window, cx| this.submit_comment(window, cx)))
 }
 
 /// A composer tool button: the muted ghost treatment `attach_button` and

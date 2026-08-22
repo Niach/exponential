@@ -1,10 +1,10 @@
 //! EXP-551: the emoji picker popover — the ONE picker surface the description
 //! toolbar and the comment composers share (web parity: `emoji-picker.tsx`).
 //!
-//! Search on top, the skin-tone row next to it, then a "Recent" section
-//! followed by the nine dataset groups; a search replaces the grid with its
-//! ranked results. A pick records the recent, applies the saved tone and hands
-//! the host the UNICODE to insert — never `:shortcode:` text.
+//! Search on top, then a "Recent" section followed by the nine dataset
+//! groups; a search replaces the grid with its ranked results. A pick records
+//! the recent and hands the host the UNICODE to insert — never `:shortcode:`
+//! text (and always the base yellow glyph — EXP-600 dropped skin tones).
 //!
 //! The grid is a [`uniform_list`] of EQUAL-HEIGHT rows (section headers and
 //! 8-cell emoji rows alike), so the 1906 cells cost only what is on screen.
@@ -26,7 +26,7 @@ use gpui_component::{
 
 use crate::emoji;
 
-/// Pick callback: the (skin-toned) unicode the host inserts at its caret.
+/// Pick callback: the unicode the host inserts at its caret.
 pub(crate) type OnPickEmoji = Rc<dyn Fn(&str, &mut Window, &mut App)>;
 
 /// Emoji per grid row — 8 × 30px cells plus the popover's padding is the
@@ -51,8 +51,6 @@ enum GridRow {
 
 pub(crate) struct EmojiPicker {
     query: Entity<InputState>,
-    /// 0 = none, 1..=5 light → dark.
-    tone: u8,
     /// Base unicodes, most recent first.
     recents: Vec<String>,
     rows: Vec<GridRow>,
@@ -75,7 +73,6 @@ impl EmojiPicker {
         });
         let mut this = Self {
             query,
-            tone: emoji::skin_tone(cx),
             recents: emoji::recent_emoji(cx),
             rows: Vec::new(),
             on_pick,
@@ -90,7 +87,6 @@ impl EmojiPicker {
     pub(crate) fn reset(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         self.query
             .update(cx, |input, cx| input.set_value("", window, cx));
-        self.tone = emoji::skin_tone(cx);
         self.recents = emoji::recent_emoji(cx);
         self.rebuild_rows(cx);
         self.query.read(cx).focus_handle(cx).focus(window, cx);
@@ -98,8 +94,8 @@ impl EmojiPicker {
     }
 
     /// Recompute the row plan. Called on every state change rather than per
-    /// frame — the group grid is ~250 rows and only changes when the query,
-    /// the recents or the tone do.
+    /// frame — the group grid is ~250 rows and only changes when the query
+    /// or the recents do.
     fn rebuild_rows(&mut self, cx: &App) {
         let query = self.query.read(cx).value().trim().to_string();
         let catalog = emoji::catalog();
@@ -129,23 +125,12 @@ impl EmojiPicker {
         self.rows = rows;
     }
 
-    fn choose_tone(&mut self, tone: u8, cx: &mut gpui::Context<Self>) {
-        if self.tone == tone {
-            return;
-        }
-        self.tone = tone;
-        emoji::set_skin_tone(cx, tone);
-        // Toned glyphs are baked into the row plan.
-        self.rebuild_rows(cx);
-        cx.notify();
-    }
-
     fn pick(&mut self, index: usize, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let catalog = emoji::catalog();
         let Some(record) = catalog.get(index) else {
             return;
         };
-        let unicode = emoji::apply_skin_tone(record, self.tone).to_string();
+        let unicode = record.unicode.clone();
         let base = record.unicode.clone();
         emoji::push_recent_emoji(cx, &base);
         self.recents = emoji::recent_emoji(cx);
@@ -178,7 +163,6 @@ impl EmojiPicker {
         cx: &mut gpui::Context<Self>,
     ) -> Vec<gpui::AnyElement> {
         let catalog = emoji::catalog();
-        let tone = self.tone;
         let muted = cx.theme().muted_foreground;
         let hover = cx.theme().accent;
         let radius = cx.theme().radius;
@@ -201,7 +185,7 @@ impl EmojiPicker {
                             let Some(record) = catalog.get(index) else {
                                 continue;
                             };
-                            let glyph = emoji::apply_skin_tone(record, tone).to_string();
+                            let glyph = record.unicode.clone();
                             grid = grid.child(
                                 div()
                                     .id(ElementId::from(("emoji-cell", index)))
@@ -219,7 +203,15 @@ impl EmojiPicker {
                                                 .build(window, cx)
                                         }
                                     })
-                                    .child(div().text_lg().child(SharedString::from(glyph)))
+                                    .child(
+                                        div()
+                                            .text_lg()
+                                            // EXP-600: pin the COLOR emoji face —
+                                            // the default fallback chain can reach
+                                            // a monochrome symbol font first.
+                                            .font_family(emoji::EMOJI_FONT_FAMILY)
+                                            .child(SharedString::from(glyph)),
+                                    )
                                     .on_click(cx.listener(move |this, _, window, cx| {
                                         this.pick(index, window, cx);
                                     })),
@@ -243,35 +235,6 @@ fn push_cells(rows: &mut Vec<GridRow>, indices: &[usize]) {
 impl Render for EmojiPicker {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let row_count = self.rows.len();
-        let tone = self.tone;
-        // Own row under the search field: six 22px swatches plus a search box
-        // do not both fit across an 8-cell grid.
-        let mut tones = h_flex().gap_0p5().px_1().flex_shrink_0();
-        for option in 0..=emoji::EMOJI_TONES as u8 {
-            let selected = option == tone;
-            tones = tones.child(
-                div()
-                    .id(ElementId::from(("emoji-tone", option as usize)))
-                    .size(px(22.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded(cx.theme().radius)
-                    .cursor_pointer()
-                    .when(selected, |el| el.bg(cx.theme().accent))
-                    .hover(|style| style.bg(cx.theme().accent))
-                    .tooltip(move |window, cx| {
-                        gpui_component::tooltip::Tooltip::new(emoji::TONE_LABELS[option as usize])
-                            .build(window, cx)
-                    })
-                    .child(
-                        div()
-                            .text_sm()
-                            .child(SharedString::from(emoji::TONE_SWATCHES[option as usize])),
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| this.choose_tone(option, cx))),
-            );
-        }
         v_flex()
             .key_context("EmojiPicker")
             .w(px(EMOJI_PICKER_WIDTH))
@@ -283,7 +246,6 @@ impl Render for EmojiPicker {
                     .appearance(false)
                     .cleanable(true),
             )
-            .child(tones)
             .child(div().h(px(1.)).w_full().bg(cx.theme().border.opacity(0.5)))
             .map(|column| {
                 if row_count == 0 {

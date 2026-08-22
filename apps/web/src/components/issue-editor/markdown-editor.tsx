@@ -41,10 +41,8 @@ import { EditorInsertBar } from "@/components/issue-editor/formatting-rail"
 import { EditorMobileFormattingBar } from "@/components/issue-editor/mobile-formatting-bar"
 import { useIsMobile } from "@/hooks/use-mobile"
 import {
-  applySkinTone,
   findEmojiByShortcode,
   pushRecentEmoji,
-  readSkinTone,
   searchEmoji,
   useEmojiData,
 } from "@/lib/emoji"
@@ -517,13 +515,13 @@ export const MarkdownEditor = forwardRef<
         .run()
     }
 
-    // An emoji pick inserts the (skin-toned) unicode — never the shortcode.
+    // An emoji pick inserts the unicode — never the shortcode.
     const insertEmoji = (
       emoji: (typeof emojiCandidates)[number],
       trailingSpace: boolean
     ) => {
       pushRecentEmoji(emoji.u)
-      insertToken(applySkinTone(emoji, readSkinTone()), trailingSpace)
+      insertToken(emoji.u, trailingSpace)
     }
 
     const insertActive = (index: number) => {
@@ -710,7 +708,7 @@ export const MarkdownEditor = forwardRef<
                     <EmojiCandidateRow
                       key={emoji.u}
                       emoji={emoji}
-                      unicode={applySkinTone(emoji, readSkinTone())}
+                      unicode={emoji.u}
                       query={autocomplete.query}
                       active={i === activeIndex}
                       onSelect={() => insertActive(i)}
