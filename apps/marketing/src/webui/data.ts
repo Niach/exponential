@@ -1,7 +1,18 @@
 /* ─── Web-app demo fixtures — ONLY what the web chrome adds ───
    Issues, inbox items, reviews and issue bodies come from the single fixture
    universe in ../ide/data (dogfood: Exponential building Exponential). */
-import { PROJECT } from "../ide/data"
+import { PROJECT, type Issue } from "../ide/data"
+
+/* The issue the collab scene's widget report files onto the board
+   (EXP-602) — mirrors Mara's support thread below: a fresh widget report,
+   unassigned, labelled feedback. Injected into WebDemo, never in ISSUES. */
+export const WIDGET_FILED_ISSUE: Issue = {
+  id: `EXP-14`,
+  title: `Screenshot upload never finishes`,
+  status: `todo`,
+  priority: `none`,
+  labels: [{ name: `feedback`, color: `#22c55e` }],
+}
 
 /* ─── Sidebar boards — colored icons ─── */
 

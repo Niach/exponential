@@ -44,7 +44,7 @@ const softwareApplication: Record<string, unknown> = {
   name: SITE_NAME,
   applicationCategory: `DeveloperApplication`,
   operatingSystem: `Web, iOS, Android, macOS, Windows, Linux`,
-  description: `Issues, customer support and coding agents in one realtime tracker. AI agents run locally on your machines, on your subscription, and open GitHub pull requests.`,
+  description: `The next generation dev platform for teams. Issues, customer feedback and coding agents in one realtime tracker. AI agents run locally on your machines, on your subscription, and open GitHub pull requests.`,
   url: `${SITE_ORIGIN}/`,
   /* SoftwareApplication is also eligible for Google's product rich result.
      Give that item the same crawlable image and complete offer as the pricing
@@ -116,9 +116,10 @@ export const PAGES: PageSeo[] = [
       `src/components/PlanCards.tsx`,
       `src/components/SocialProof.tsx`,
       `src/lib/plans.ts`,
+      `src/webui/HelpdeskChatDemo.tsx`,
     ],
-    title: `Exponential · Vibecode together`,
-    description: `Issues, customer support and coding agents in one realtime tracker. Agents run locally on your machines, on your subscription. Native on web, iOS, Android, macOS, Windows and Linux. Free for teams of three, open source and free to self-host.`,
+    title: `Exponential · The next generation dev platform for teams`,
+    description: `The next generation dev platform for teams. Issues, customer feedback and coding agents in one realtime tracker. Agents run on your hardware, on your subscription, no cloud agents. Native on web, iOS, Android, macOS, Windows and Linux. Free for teams of three, open source and free to self-host.`,
     ogImage: `/og/og-home.png`,
     jsonLd: [organization, softwareApplication],
   },

@@ -212,7 +212,7 @@
 }
 
 h1.hero-title {
-  font-size: clamp(44px, 6vw, 80px);
+  font-size: clamp(30px, 8.5vw, 72px);
   font-weight: 600;
   line-height: 1;
   letter-spacing: -0.04em;
@@ -437,7 +437,7 @@ h1.hero-title {
     padding-top: 28px;
   }
   h1.hero-title {
-    font-size: clamp(36px, 4vw, 56px);
+    font-size: clamp(30px, 4vw, 48px);
     margin-bottom: 14px;
   }
   .hero-sub {

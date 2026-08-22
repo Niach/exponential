@@ -8,7 +8,14 @@ import {
   staggerContainer,
   viewportOnce,
 } from "../lib/animations"
-import { IcGitMerge, IcGitPr, IcRocket, IcSparkles } from "./icons"
+import {
+  IcCal,
+  IcGitMerge,
+  IcGitPr,
+  IcRocket,
+  IcSparkles,
+  IcZap,
+} from "./icons"
 
 const ACTIONS = [
   {
@@ -64,6 +71,31 @@ export function ActionsSection() {
               <span className={`ac-card-text`}>{text}</span>
             </motion.div>
           ))}
+        </motion.div>
+
+        {/* ── Automations (EXP-583): actions bound to a device, fired by a
+               schedule or an event, always running locally. ── */}
+        <motion.div className={`glass-card ac-autos`} {...sectionReveal}>
+          <div className={`ac-autos-head`}>
+            <span className={`ac-autos-badge`}>New</span>
+            <h3 className={`ac-autos-title`}>Automations</h3>
+          </div>
+          <p className={`ac-autos-text`}>
+            Bind any action to one of your devices and run it on a schedule or
+            when something happens. Sort incoming issues, autofix them, review
+            every PR each morning. Everything runs on your own machines, on
+            your own subscription.
+          </p>
+          <div className={`ac-autos-chips`}>
+            <span className={`ac-autos-chip`}>
+              <IcCal size={13} />
+              On a schedule
+            </span>
+            <span className={`ac-autos-chip`}>
+              <IcZap size={13} />
+              When something happens
+            </span>
+          </div>
         </motion.div>
       </div>
     </section>

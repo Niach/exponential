@@ -46,8 +46,8 @@ type Card = { file: string; title: string; subtitle: string }
 const CARDS: Card[] = [
   {
     file: `og-home.png`,
-    title: `Vibecode together`,
-    subtitle: `Issues, customer support and coding agents in one realtime tracker. Agents run locally on your machines.`,
+    title: `The next generation dev platform for teams`,
+    subtitle: `Issues, customer feedback and coding agents in one realtime tracker. Agents run on your hardware, on your subscription.`,
   },
   {
     file: `og-pricing.png`,

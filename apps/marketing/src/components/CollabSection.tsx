@@ -1,17 +1,18 @@
-/* ─── Collaboration — merged Teamwork + Helpdesk section (EXP-176) ───
+/* ─── Collaboration — feedback widget → board, plus helpdesk (EXP-602) ───
    The visitor side is a scripted, looping widget scene (real-UI widget
-   recreation, Get-help path — support requests are what open Support-inbox
-   threads); the team side is the FULL web app recreation (EXP-217: the
-   complete WebDemo — sidebar + 3-pane Support inbox — not a partial
-   composite), shown statically so the page never shifts as the loop runs.
-   Stage is decorative (aria-hidden + inert); reduced motion renders the
-   finished widget state statically. */
+   recreation, GIVE-FEEDBACK path); the team side is the web app recreation
+   on the BOARD view, side by side — submitting the report files a new issue
+   row into the board. Below, a small helpdesk subsection shows the Support
+   conversation view (chat + details rail only). Stages are decorative
+   (aria-hidden + inert); reduced motion renders the finished composite
+   statically (widget success + board including the filed row). */
 import { motion } from "motion/react"
 import { useEffect, useState } from "react"
 import { EASE_EXPO, sectionReveal } from "../lib/animations"
 import { useScenePlayer } from "../lib/use-scene-player"
-import { SUPPORT_THREADS } from "../webui/data"
+import { WIDGET_FILED_ISSUE } from "../webui/data"
 import { WebDemo } from "../webui/WebDemo"
+import { HelpdeskChatDemo } from "../webui/HelpdeskChatDemo"
 import { DownloadIconRow } from "./DownloadSection"
 import {
   MegaphoneIcon,
@@ -19,23 +20,24 @@ import {
   type WidgetDemoView,
 } from "./WidgetPanelDemo"
 
-/* Beat script (~10.5s loop). Beat 0 is the SSR resting state. */
+/* Beat script (~11.6s loop). Beat 0 is the SSR resting state. */
 const B = {
   fab: 0,
   home: 1,
   form: 2,
   sent: 3,
   handoff: 4,
-  hold: 5,
+  filed: 5,
 } as const
-const BEATS = [1200, 1100, 2600, 1600, 900, 3200]
+const BEATS = [1400, 1100, 3400, 1300, 800, 3600]
 
-/* The typed message is Mara's fixture thread opener (webui/data.ts) — the
-   same conversation the full inbox demo below has selected. */
-const MARA = SUPPORT_THREADS[0]
+/* The typed report title IS the injected issue's title (webui/data.ts) —
+   the same bug Mara's helpdesk fixture thread below is about. */
+const REPORT_TITLE = WIDGET_FILED_ISSUE.title
+const REPORT_DETAILS = `The upload spinner runs forever when I attach a screenshot. Safari 17 on macOS.`
 
-/* Types the widget message in while `active` (client-only — the scene
-   never types during SSR, whose resting beat shows only the FAB). */
+/* Types the widget title in while `active` (client-only — the scene never
+   types during SSR, whose resting beat shows only the FAB). */
 function useTypedText(text: string, active: boolean): string {
   const [count, setCount] = useState(0)
   useEffect(() => {
@@ -62,13 +64,13 @@ export function CollabSection() {
   const at = (from: number) => reduced || beat >= from
 
   const typing = !reduced && beat === B.form
-  const typed = useTypedText(MARA.messages[0].body, typing)
-  const typedDone = typed.length >= MARA.messages[0].body.length
+  const typed = useTypedText(REPORT_TITLE, typing)
+  const typedDone = typed.length >= REPORT_TITLE.length
 
   const widgetView: WidgetDemoView = at(B.sent)
     ? `success`
     : beat === B.form
-      ? `support`
+      ? `feedback`
       : `home`
 
   /* Entrance props — collapse to nothing under reduced motion. */
@@ -93,20 +95,17 @@ export function CollabSection() {
       <div className={`shell`}>
         <motion.div className={`co-copy`} {...sectionReveal}>
           <h2 className={`section-title`}>
-            Customer support and feedback in one place
+            Embed our widget, get customer feedback on your board
           </h2>
           <p className={`section-sub`}>
-            Embed our feedback and support widget into your site and fix your
-            customers&rsquo; needs faster.
+            Visitors report bugs and ideas without leaving your site,
+            screenshot included. Every report lands as an issue on your board,
+            ready to triage with the team.
           </p>
-          <span className={`co-pro`}>
-            <span className={`co-pro-badge`}>Team</span> Helpdesk is included in
-            the Team plan.
-          </span>
         </motion.div>
 
         <div className={stageClass} ref={ref} aria-hidden inert>
-          {/* ── The visitor's page: real widget, Get-help path ── */}
+          {/* ── The visitor's page: real widget, Give-feedback path ── */}
           <div className={`co-widgetcol`}>
             <div className={`co-page`}>
               <span className={`co-page-bar is-w60`} />
@@ -121,7 +120,8 @@ export function CollabSection() {
                 <motion.div className={`co-panel`} {...pop}>
                   <WidgetPanelDemo
                     view={widgetView}
-                    message={reduced ? `` : typed}
+                    title={reduced ? `` : typed}
+                    details={reduced || typedDone ? REPORT_DETAILS : ``}
                     emailFilled={reduced || typedDone}
                     caret={typing && !typedDone}
                   />
@@ -130,18 +130,42 @@ export function CollabSection() {
             </div>
           </div>
 
-          {/* ── Connector: the request travels into the inbox ── */}
+          {/* ── Connector: the report travels onto the board ── */}
           <div className={`co-conn`}>
-            <span className={`co-conn-line`} />
-            <span className={`co-conn-label`}>lands in your Support inbox</span>
-            <span className={`co-conn-line`} />
-            <span className={`co-conn-dot`} />
+            <span className={`co-conn-label`}>lands on your board</span>
+            <span className={`co-conn-track`}>
+              <span className={`co-conn-dot`} />
+            </span>
           </div>
 
-          {/* ── The team's Support inbox — the FULL web app recreation,
-                 always mounted so the looping scene never shifts layout ── */}
+          {/* ── The team's board — the web app recreation, always mounted
+                 so the looping scene never shifts layout ── */}
           <div className={`co-webuicol`}>
-            <WebDemo view={`support`} interactive={false} />
+            <WebDemo
+              view={`board`}
+              interactive={false}
+              injectedIssue={at(B.filed) ? WIDGET_FILED_ISSUE : null}
+            />
+          </div>
+        </div>
+
+        {/* ── Helpdesk subsection: the Support conversation view ── */}
+        <div className={`co-help`}>
+          <motion.div className={`co-help-copy`} {...sectionReveal}>
+            <h3 className={`co-help-title`}>
+              Stay in touch with your customers with our helpdesk
+            </h3>
+            <p className={`co-help-sub`}>
+              Support requests from the widget open email conversations in a
+              shared inbox, and any ticket escalates to an issue in one click.
+            </p>
+            <span className={`co-pro`}>
+              <span className={`co-pro-badge`}>Team</span> Helpdesk is included
+              in the Team plan.
+            </span>
+          </motion.div>
+          <div className={`co-help-demo`} aria-hidden inert>
+            <HelpdeskChatDemo />
           </div>
         </div>
 
