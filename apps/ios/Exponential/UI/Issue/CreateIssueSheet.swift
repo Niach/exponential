@@ -219,20 +219,9 @@ struct CreateIssueSheet: View {
                                 }
                                 // "+ Label" — create a new team label and
                                 // pre-select it on this draft in one step.
-                                Button {
+                                GlassPillButton("Label", icon: AppIcons.uiAdd) {
                                     showCreateLabel = true
-                                } label: {
-                                    HStack(spacing: 4) {
-                                        AppIcon(AppIcons.uiAdd, size: 11)
-                                        Text("Label")
-                                            .font(.caption)
-                                    }
-                                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 6)
-                                    .glassButton()
                                 }
-                                .buttonStyle(.plain)
                             }
                         }
 

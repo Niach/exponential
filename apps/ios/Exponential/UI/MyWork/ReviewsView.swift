@@ -258,20 +258,13 @@ struct ReviewsListContent: View {
                 // its tap and only pushes the detail, so this uses the same
                 // contentShape + onTapGesture pattern as IssueListView's
                 // inline status/priority glyphs.
-                HStack(spacing: 4) {
+                GlassPillLabel("Merge") {
                     if merging.contains(entry.id) {
                         ProgressView().controlSize(.mini)
                     } else {
-                        AppIcon(AppIcons.prMerged, size: 11)
+                        AppIcon(AppIcons.prMerged, size: 14)
                     }
-                    Text("Merge")
-                        .font(.caption.weight(.medium))
                 }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(.white.opacity(0.08), in: Capsule())
-                .overlay(Capsule().stroke(.white.opacity(0.12), lineWidth: 0.5))
                 .contentShape(Capsule())
                 .onTapGesture {
                     guard !merging.contains(entry.id) else { return }
@@ -332,21 +325,9 @@ struct ReviewsListContent: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             if canFixConflicts(entry) {
-                Button {
+                GlassPillButton("Fix conflicts", icon: AppIcons.uiBranch) {
                     fixTarget = entry
-                } label: {
-                    HStack(spacing: 4) {
-                        AppIcon(AppIcons.uiBranch, size: 11)
-                        Text("Fix conflicts")
-                            .font(.caption.weight(.medium))
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(.white.opacity(0.08), in: Capsule())
-                    .overlay(Capsule().stroke(.white.opacity(0.12), lineWidth: 0.5))
                 }
-                .buttonStyle(.plain)
             }
 
             if let runCaption = startWatcher.sentCaption {

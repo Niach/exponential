@@ -1300,17 +1300,9 @@ private struct QuestionCard: View {
             // Semantic multi-select submits every picked key at once; a legacy
             // picker already toggled each digit and only needs the Tab.
             let disabled = locked || (question.isSemantic && picked.isEmpty)
-            Button(submitTitle) {
+            GlassPillButton(submitTitle, isActive: !disabled, enabled: !disabled) {
                 submit()
             }
-            .font(.caption.weight(.medium))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .glassButton(isActive: !disabled)
-            .buttonStyle(.plain)
-            .disabled(disabled)
-            .opacity(disabled ? 0.5 : 1)
         }
         if locked, !question.resolved {
             HStack(spacing: 6) {

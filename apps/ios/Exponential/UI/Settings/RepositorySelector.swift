@@ -74,24 +74,14 @@ struct RepositorySelector: View {
                 // Empty state doubles as the inline "Connect GitHub" affordance
                 // (shared mobile onboarding spec): the picker sheet it opens
                 // handles the not-installed case with the in-app install flow.
-                Button {
+                GlassPillButton(
+                    repos.isEmpty && addedRepo == nil
+                        ? "Connect GitHub…"
+                        : "Add another repository…",
+                    icon: repos.isEmpty && addedRepo == nil ? AppIcons.uiGithub : AppIcons.uiAdd
+                ) {
                     showAddByName = true
-                } label: {
-                    HStack(spacing: 6) {
-                        AppIcon(repos.isEmpty && addedRepo == nil
-                            ? AppIcons.uiGithub
-                            : AppIcons.uiAdd, size: 11)
-                        Text(repos.isEmpty && addedRepo == nil
-                            ? "Connect GitHub…"
-                            : "Add another repository…")
-                            .font(.caption.weight(.medium))
-                    }
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .glassButton()
                 }
-                .buttonStyle(.plain)
             }
 
             if let errorText {

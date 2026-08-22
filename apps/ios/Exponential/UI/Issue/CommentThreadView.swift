@@ -199,22 +199,14 @@ struct CommentThreadView: View {
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
         ) {
-            Button {
+            GlassPillButton("Show \(events.count) activity items") {
                 // EXP-523: `motion.standard` is nil under Reduce Motion and
                 // `withAnimation(nil)` applies the change instantly, so the
                 // explicit branch this used to carry is gone.
                 withAnimation(motion.standard) {
                     _ = expandedRuns.insert(key)
                 }
-            } label: {
-                Text("Show \(events.count) activity items")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .glassButton()
             }
-            .buttonStyle(.plain)
         }
     }
 

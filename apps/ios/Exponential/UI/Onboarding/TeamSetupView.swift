@@ -48,14 +48,8 @@ struct TeamSetupView: View {
                     .font(.caption)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
 
-                TextField("e.g. Acme Inc", text: $teamName)
+                GlassTextField("e.g. Acme Inc", text: $teamName)
                     .font(.subheadline)
-                    .textFieldStyle(.plain)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(Color.white.opacity(0.06))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
 
                 if let createError {
                     Text(createError)
@@ -63,7 +57,7 @@ struct TeamSetupView: View {
                         .foregroundStyle(.red.opacity(0.8))
                 }
 
-                actionButton(creating ? "Creating…" : "Create team", enabled: canCreate) {
+                GlassSubmitButton(creating ? "Creating…" : "Create team", enabled: canCreate) {
                     Task { await createTeam() }
                 }
             }
@@ -79,16 +73,10 @@ struct TeamSetupView: View {
                     .font(.caption)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
 
-                TextField("Invite link or token", text: $inviteInput)
+                GlassTextField("Invite link or token", text: $inviteInput)
                     .font(.subheadline)
-                    .textFieldStyle(.plain)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(Color.white.opacity(0.06))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
 
                 if let joinError {
                     Text(joinError)
@@ -96,32 +84,13 @@ struct TeamSetupView: View {
                         .foregroundStyle(.red.opacity(0.8))
                 }
 
-                actionButton(joining ? "Joining…" : "Join team", enabled: canJoin) {
+                GlassSubmitButton(joining ? "Joining…" : "Join team", enabled: canJoin) {
                     Task { await joinTeam() }
                 }
             }
             .padding(20)
             .glassCard()
         }
-    }
-
-    private func actionButton(
-        _ title: String, enabled: Bool, action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.body.weight(.medium))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-        }
-        .disabled(!enabled)
-        .background(enabled ? Color.white.opacity(0.15) : Color.white.opacity(0.06))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
-        )
     }
 
     // MARK: - Actions

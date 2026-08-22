@@ -28,29 +28,9 @@ struct DuplicatePickerSheet: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Inline search field. NOT system .searchable — on iOS 26+ it
-                // renders as a bottom-edge glass bar (see IssueListView).
-                HStack(spacing: 8) {
-                    AppIcon(AppIcons.navSearch, size: AppIcon.Size.small)
-                        .foregroundStyle(.secondary)
-                    TextField("Search issues", text: $searchText)
-                        .textFieldStyle(.plain)
-                        .submitLabel(.search)
-                    if !searchText.isEmpty {
-                        Button {
-                            searchText = ""
-                        } label: {
-                            AppIcon(AppIcons.uiClear, size: AppIcon.Size.small)
-                                .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
-                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
+                GlassSheetSearchField(placeholder: "Search issues", text: $searchText)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
 
                 pickerContent
             }

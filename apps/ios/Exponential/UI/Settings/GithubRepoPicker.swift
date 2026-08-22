@@ -157,18 +157,9 @@ struct GithubRepoPicker: View {
                     reconnectNotice(data)
                 }
 
-                HStack(spacing: 8) {
-                    AppIcon(AppIcons.navSearch, size: AppIcon.Size.small)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    TextField("Search repositories…", text: $query)
-                        .textFieldStyle(.plain)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .foregroundStyle(.white)
-                }
-                .padding(12)
-                .background(Color.white.opacity(0.05))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                GlassSheetSearchField(placeholder: "Search repositories…", text: $query)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
 
                 if repos.isEmpty {
                     Text("No repositories found.")

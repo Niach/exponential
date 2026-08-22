@@ -90,18 +90,8 @@ struct UpdateRequiredView: View {
                 )
         } else {
             Link(destination: AppConstants.appStoreUrl) {
-                Text("Update on the App Store")
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
+                GlassSubmitLabel("Update on the App Store")
             }
-            .background(Color.white.opacity(0.15))
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
-            )
         }
     }
 

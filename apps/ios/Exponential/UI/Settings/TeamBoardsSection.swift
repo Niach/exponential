@@ -29,20 +29,9 @@ struct TeamBoardsSection: View {
                 // New boards require repo-connect rights — owner-gated, matching
                 // the server's create policy.
                 if isOwner {
-                    Button {
+                    GlassPillButton("New board", icon: AppIcons.uiAdd) {
                         showCreate = true
-                    } label: {
-                        HStack(spacing: 4) {
-                            AppIcon(AppIcons.uiAdd, size: 11, weight: .semibold)
-                            Text("New board")
-                                .font(.caption.weight(.medium))
-                        }
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .glassButton()
                     }
-                    .buttonStyle(.plain)
                 }
             }
 

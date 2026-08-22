@@ -88,20 +88,9 @@ struct TeamRepositoriesSection: View {
                 // GitHub App — the picker itself handles the not-yet-connected
                 // case with its inline connect hop.
                 if let github, github.configured {
-                    Button {
+                    GlassPillButton("Add repository", icon: AppIcons.uiAdd) {
                         showAddRepo = true
-                    } label: {
-                        HStack(spacing: 4) {
-                            AppIcon(AppIcons.uiAdd, size: 11, weight: .semibold)
-                            Text("Add repository")
-                                .font(.caption.weight(.medium))
-                        }
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .glassButton()
                     }
-                    .buttonStyle(.plain)
                 }
             }
 
@@ -150,17 +139,9 @@ struct TeamRepositoriesSection: View {
                         .font(.caption)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     Spacer()
-                    Button {
+                    GlassPillButton("Retry") {
                         Task { await reload(refreshGithub: true) }
-                    } label: {
-                        Text("Retry")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .glassButton()
                     }
-                    .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
@@ -387,33 +368,18 @@ struct TeamRepositoriesSection: View {
                     // Unsuspend happens on GitHub's installation settings page.
                     if let url = URL(string: suspended[0].manageUrl) {
                         Link(destination: url) {
-                            HStack(spacing: 4) {
-                                AppIcon(AppIcons.uiExternalLink, size: 11)
-                                Text("Manage")
-                                    .font(.caption.weight(.medium))
+                            GlassPillLabel("Manage") {
+                                AppIcon(AppIcons.uiExternalLink, size: 14)
                             }
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .glassButton()
                         }
                     }
                 } else if (github.connectUrl ?? github.installUrl) != nil {
-                    Button {
+                    GlassPillButton(
+                        needsReauth ? "Reconnect" : (github.installations.isEmpty ? "Connect GitHub" : "Manage"),
+                        icon: needsReauth ? AppIcons.uiRefresh : AppIcons.uiGithub
+                    ) {
                         openConnect(github)
-                    } label: {
-                        HStack(spacing: 4) {
-                            AppIcon(needsReauth ? AppIcons.uiRefresh : AppIcons.uiGithub,
-                                    size: 11, weight: .semibold)
-                            Text(needsReauth ? "Reconnect" : (github.installations.isEmpty ? "Connect GitHub" : "Manage"))
-                                .font(.caption.weight(.medium))
-                        }
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .glassButton()
                     }
-                    .buttonStyle(.plain)
                 } else if let url = webRepositoriesURL {
                     // The server mints no connect/install URL — the web
                     // repositories page explains and handles it.
@@ -460,12 +426,7 @@ struct TeamRepositoriesSection: View {
             Button {
                 disconnectTarget = installation
             } label: {
-                Text("Disconnect account")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .glassButton()
+                GlassPillLabel("Disconnect account")
             }
             .buttonStyle(.plain)
         }

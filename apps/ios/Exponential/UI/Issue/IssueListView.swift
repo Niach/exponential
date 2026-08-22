@@ -381,16 +381,9 @@ struct IssueListView: View {
                 // "Clear all" closes the pills row, mirroring the web's
                 // ActiveFilterPills — this row exists exactly when filters are
                 // active, so Clear needs no spot in the (space-tight) tab row.
-                Button {
+                GlassPillButton("Clear all") {
                     vm.clearFilters()
-                } label: {
-                    Text("Clear all")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
                 }
-                .glassButton()
             }
         }
     }
@@ -1138,6 +1131,8 @@ private struct BulkLabelsSheet: View {
     var body: some View {
         GlassSheetChrome(title: "Labels", detents: [.medium, .large]) {
             GlassSheetSearchField(placeholder: "Search labels", text: $searchText)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
             ScrollView {
                 VStack(spacing: 2) {
                     ForEach(filtered, id: \.id) { label in

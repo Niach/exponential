@@ -69,28 +69,12 @@ struct SearchView: View {
     // navigationBarDrawer placement renders as a bottom-edge glass bar on
     // iPhone, colliding with the floating tab bar.
     private var searchField: some View {
-        HStack(spacing: 8) {
-            AppIcon(AppIcons.navSearch, size: AppIcon.Size.small)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            TextField("Search issues", text: $query)
-                .textFieldStyle(.plain)
-                .foregroundStyle(.white)
-                .focused($searchFocused)
-                .submitLabel(.search)
-                .accessibilityIdentifier("search-field")
-            if !query.isEmpty {
-                Button {
-                    query = ""
-                } label: {
-                    AppIcon(AppIcons.uiClear, size: AppIcon.Size.small)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+        GlassSheetSearchField(
+            placeholder: "Search issues",
+            text: $query,
+            accessibilityIdentifier: "search-field"
+        )
+        .focused($searchFocused)
     }
 
     // MARK: - Empty-query state (search hint)

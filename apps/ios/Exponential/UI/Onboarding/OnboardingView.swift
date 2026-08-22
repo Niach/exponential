@@ -82,7 +82,7 @@ struct OnboardingView: View {
 
             Spacer().frame(height: 48)
 
-            primaryButton("Get started", enabled: true) {
+            GlassSubmitButton("Get started") {
                 withAnimation(motion.standard) { page = 1 }
             }
         }
@@ -121,15 +121,17 @@ struct OnboardingView: View {
                             .font(.subheadline)
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                             .multilineTextAlignment(.center)
-                        primaryButton("Try again", enabled: true) {
+                        GlassSubmitButton("Try again") {
                             Task { await resolveTeam() }
                         }
                         // The wizard is the FIRST authed surface, so a session
                         // the server has invalidated (deleted account, revoked
                         // session) lands here with a failure "Try again" can
                         // never clear. Signing out is the way back to LoginView.
-                        secondaryButton("Sign out") {
+                        GlassOAuthButton("Sign out", action: {
                             signOut()
+                        }) {
+                            EmptyView()
                         }
                     }
                     .padding(24)
@@ -216,44 +218,10 @@ struct OnboardingView: View {
 
             Spacer().frame(height: 48)
 
-            primaryButton(finishing ? "Opening…" : "Open Exponential", enabled: !finishing) {
+            GlassSubmitButton(finishing ? "Opening…" : "Open Exponential", enabled: !finishing) {
                 Task { await finish() }
             }
         }
-    }
-
-    private func primaryButton(_ title: String, enabled: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.body.weight(.medium))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-        }
-        .disabled(!enabled)
-        .background(enabled ? Color.white.opacity(0.15) : Color.white.opacity(0.06))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
-        )
-    }
-
-    private func secondaryButton(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.body.weight(.medium))
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-        }
-        .buttonStyle(.plain)
-        .background(Color.white.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
-        )
     }
 
     // MARK: - Actions

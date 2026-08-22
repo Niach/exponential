@@ -101,38 +101,8 @@ struct GlassSheetRow<Leading: View>: View {
     }
 }
 
-/// Inline search field for the searchable sheets — deliberately NOT system
-/// `.searchable` (iOS 26 renders that as a bottom-edge glass bar; see
-/// DuplicatePickerSheet, whose styling this extracts).
-struct GlassSheetSearchField: View {
-    let placeholder: String
-    @Binding var text: String
-
-    var body: some View {
-        HStack(spacing: 8) {
-            AppIcon(AppIcons.navSearch, size: AppIcon.Size.small)
-                .foregroundStyle(.secondary)
-            TextField(placeholder, text: $text)
-                .textFieldStyle(.plain)
-                .foregroundStyle(.white)
-                .submitLabel(.search)
-            if !text.isEmpty {
-                Button {
-                    text = ""
-                } label: {
-                    AppIcon(AppIcons.uiClear, size: AppIcon.Size.small)
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
-        .padding(.horizontal, 16)
-        .padding(.bottom, 8)
-    }
-}
+// GlassSheetSearchField moved to ExpUI (GlassControls.swift, EXP-604) — its
+// baked-in outer margin moved out to the call sites.
 
 /// Glass twin of `PickerSheet` (same generic signature): scrollable rows with
 /// a trailing checkmark, immediate commit + dismiss on tap.
