@@ -21,7 +21,7 @@ export const CL = {
   reporter: "Jamie Lee",
   reporterEmail: "jamie@lee.dev",
   project: "Acme Shop",
-  projectColor: "#6366f1",
+  projectColor: "#a1a1aa",
   repo: "acme/shop",
   branch: "exp/EXP-151",
   pr: 218,
@@ -33,7 +33,7 @@ export const CL = {
 
 export const CL_LABELS = {
   bug: { name: "bug", dot: "#ef4444" },
-  web: { name: "web", dot: "#6366f1" },
+  web: { name: "web", dot: "#f97316" },
   widget: { name: "widget", dot: "#22c55e" },
   infra: { name: "infra", dot: "#3b82f6" },
 } as const

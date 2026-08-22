@@ -64,7 +64,6 @@ import com.exponential.app.ui.markdown.MarkdownEditor
 import com.exponential.app.ui.markdown.MentionMember
 import com.exponential.app.ui.theme.LocalReduceMotion
 import com.exponential.app.ui.theme.Motion
-import com.exponential.app.ui.theme.AccentIndigo
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import kotlinx.coroutines.delay
@@ -485,7 +484,7 @@ private fun ExpandedCommentComposer(
                     ExpIcons.uiSubmit,
                     contentDescription = "Send",
                     modifier = Modifier.size(30.dp),
-                    tint = if (canSend) AccentIndigo else Color.White.copy(alpha = 0.3f),
+                    tint = if (canSend) Color.White else Color.White.copy(alpha = 0.3f),
                 )
             }
         }

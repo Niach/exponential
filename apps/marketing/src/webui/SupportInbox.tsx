@@ -1,6 +1,6 @@
 /* ─── Support — Featurebase-style 3-pane helpdesk inbox ───
    Mirrors apps/web helpdesk/support-inbox.tsx (EXP-388 re-match): thread list
-   (Open/Resolved pills, unread indigo dot), conversation headed by reporter +
+   (Open/Resolved pills, unread primary dot), conversation headed by reporter +
    THREAD title with the Close-ticket button, reply / internal-note composer,
    and the details rail — Reporter, widget Context (page URL / user agent /
    viewport), then Linked issue OR the Escalate board picker, lock footer. */

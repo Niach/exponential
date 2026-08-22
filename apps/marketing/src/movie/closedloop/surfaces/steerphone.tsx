@@ -419,7 +419,7 @@ export const SteerPhone: React.FC<{
             padding: "9px 12px",
             borderRadius: 12,
             backgroundColor: "rgba(255,255,255,0.06)",
-            border: `1px solid ${frame >= typeAt && !sent ? "rgba(99,102,241,0.55)" : "rgba(255,255,255,0.10)"}`,
+            border: `1px solid ${frame >= typeAt && !sent ? "rgba(255,255,255,0.45)" : "rgba(255,255,255,0.10)"}`,
             fontSize: 12,
             lineHeight: 1.5,
             color: typedMsg ? C.text : C.dim,

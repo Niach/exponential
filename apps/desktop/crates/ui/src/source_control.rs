@@ -1627,11 +1627,13 @@ fn squash_links(
 // the precedent; PathBuilder, never the raw scene Path)
 // ---------------------------------------------------------------------------
 
-/// The lane color palette — fixed brand accents, cycled by the layout's
-/// color index (a branch keeps its color for its whole run).
+/// The lane color palette — fixed semantic accents, cycled by the layout's
+/// color index (a branch keeps its color for its whole run). Lane 0 is
+/// neutral (EXP-594: the indigo brand accent is retired; trunk reads as the
+/// calm gray lane, the colored lanes mark diverging branches).
 fn lane_color(ix: usize) -> Hsla {
     const PALETTE: [theme::Srgb8; 6] = [
-        theme::tokens::BRAND,
+        theme::tokens::NEUTRAL,
         theme::tokens::GREEN,
         theme::tokens::ORANGE,
         theme::tokens::BLUE,

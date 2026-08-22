@@ -82,7 +82,6 @@ import com.exponential.app.ui.components.modelLabel
 import com.exponential.app.ui.components.modelValuesFor
 import com.exponential.app.ui.components.supportsPlanMode
 import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.theme.AccentIndigo
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
 
@@ -1302,7 +1301,6 @@ private fun ActionInputField(
                     selected = value,
                     onSelect = onValueChange,
                     allowsNone = !def.required,
-                    accentColor = AccentIndigo,
                 )
             }
         }

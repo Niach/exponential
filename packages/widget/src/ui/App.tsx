@@ -490,7 +490,7 @@ export function App({ state }: { state: WidgetRuntimeState }) {
       ...label,
       color: /^#[0-9a-fA-F]{6}$/.test(label.color ?? ``)
         ? label.color
-        : `#6366f1`,
+        : `#a1a1aa`,
     }))
 
   // The submission's customData: typed field values merged over the host's

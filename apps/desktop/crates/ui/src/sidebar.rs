@@ -2991,8 +2991,8 @@ impl SidebarPanel {
         // EXP-277: rows use the glass list fills (EXP-269 list_* tokens).
         let row_hover = theme.list_hover;
         let row_active = theme.list_active;
-        // The unread dot rides the brand accent (web `bg-brand`).
-        let unread_dot = theme::tokens::BRAND.to_hsla();
+        // The unread dot is the white primary (web `bg-primary`).
+        let unread_dot = theme::tokens::PRIMARY.to_hsla();
 
         let selected = matches!(
             resolved_screen(&self.nav, cx),

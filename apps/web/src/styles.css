@@ -53,13 +53,9 @@ html {
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
-  /* EXP-269 glass design system — brand accent + glass surface tokens.
-     Values mirror packages/design-tokens/tokens.json (semantic.brand + the
-     glass group); design-tokens.test.ts guards the parity. */
-  --color-brand: var(--brand);
-  --color-brand-strong: var(--brand-strong);
-  --color-brand-foreground: var(--brand-foreground);
-  --color-brand-soft: var(--brand-soft);
+  /* EXP-269 glass design system — glass surface tokens. Values mirror
+     packages/design-tokens/tokens.json (the glass group);
+     design-tokens.test.ts guards the parity. */
   --color-glass-section: var(--glass-fill-section);
   --color-glass-row: var(--glass-fill-row);
   --color-glass-card: var(--glass-fill-card);
@@ -71,7 +67,7 @@ html {
   --color-glass-stroke-active: var(--glass-stroke-active);
   /* EXP-523 — Tailwind v4's `--ease-*` theme namespace, so `ease-standard`,
      `ease-decelerate` and `ease-accelerate` exist as utilities. Same
-     var-indirection shape as --color-brand above; the raw vars carry the
+     var-indirection shape as --color-glass-* above; the raw vars carry the
      --motion- prefix precisely so this is not a self-referential cycle. */
   --ease-standard: var(--motion-ease-standard);
   --ease-decelerate: var(--motion-ease-decelerate);
@@ -126,17 +122,10 @@ html {
   --hljs-tag: oklch(0.5 0.17 30);
   --hljs-deletion: oklch(0.5 0.19 25);
   --hljs-addition: oklch(0.5 0.15 145);
-  /* EXP-269 brand + glass tokens (theme-invariant — the app is dark-only;
-     kept identical in :root and .dark). --brand and --glass-* mirror
-     tokens.json verbatim; --brand-foreground/--brand-soft are web-only
-     derivations. */
-  --brand: #6366F1;
-  /* Fill variant for brand surfaces that carry small text. --brand itself is
-     indigo-500 and only reaches ~4.4:1 against --brand-foreground, just under
-     the 4.5:1 AA floor; the tint (/5–/20) and dot usages keep --brand. */
-  --brand-strong: #4F46E5;
-  --brand-foreground: oklch(0.985 0 0);
-  --brand-soft: color-mix(in oklab, var(--brand) 60%, white);
+  /* EXP-269 glass tokens (theme-invariant — the app is dark-only; kept
+     identical in :root and .dark). --glass-* mirror tokens.json verbatim.
+     EXP-594 retired the indigo --brand accent: solid accent fills use
+     --primary, selections use the glass fills/strokes. */
   --glass-background-top: #09090B;
   --glass-background-bottom: #18181B;
   --glass-fill-section: oklch(1 0 0 / 4%);
@@ -148,7 +137,7 @@ html {
   --glass-stroke-card: oklch(1 0 0 / 10%);
   --glass-stroke-strong: oklch(1 0 0 / 12%);
   --glass-stroke-active: oklch(1 0 0 / 20%);
-  /* EXP-523 motion tokens. THEME-INVARIANT, so unlike --brand/--glass-* these
+  /* EXP-523 motion tokens. THEME-INVARIANT, so unlike --glass-* these
      live in :root ONLY and are never duplicated into .dark. Values mirror
      packages/design-tokens/tokens.json `motion` (the source the three native
      clients are generated from); design-tokens.test.ts guards the parity.
@@ -205,15 +194,8 @@ html {
   --hljs-tag: oklch(0.72 0.15 30);
   --hljs-deletion: oklch(0.65 0.18 25);
   --hljs-addition: oklch(0.72 0.14 145);
-  /* EXP-269 brand + glass tokens — see the :root copy. This block is the one
+  /* EXP-269 glass tokens — see the :root copy. This block is the one
      design-tokens.test.ts parity-checks against tokens.json. */
-  --brand: #6366F1;
-  /* Fill variant for brand surfaces that carry small text. --brand itself is
-     indigo-500 and only reaches ~4.4:1 against --brand-foreground, just under
-     the 4.5:1 AA floor; the tint (/5–/20) and dot usages keep --brand. */
-  --brand-strong: #4F46E5;
-  --brand-foreground: oklch(0.985 0 0);
-  --brand-soft: color-mix(in oklab, var(--brand) 60%, white);
   --glass-background-top: #09090B;
   --glass-background-bottom: #18181B;
   --glass-fill-section: oklch(1 0 0 / 4%);

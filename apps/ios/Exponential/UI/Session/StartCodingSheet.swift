@@ -424,6 +424,9 @@ struct StartCodingSheet: View {
             .navigationTitle(createActionMode ? "New action" : "")
             .navigationBarTitleDisplayMode(.inline)
             .listSectionSpacing(12)
+            // EXP-594: white control tint — system blue is retired (toggles,
+            // menu pickers).
+            .tint(DesignTokens.Palette.primary)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -539,7 +542,7 @@ struct StartCodingSheet: View {
                 // glyph swap plus a tinted row background below — the old
                 // caption-size circle alone read as decoration, not a control.
                 AppIcon(isChecked ? AppIcons.uiSelected : AppIcons.uiUnselected, size: AppIcon.Size.medium)
-                    .foregroundStyle(isChecked ? Accent.indigo : .secondary)
+                    .foregroundStyle(isChecked ? Color.white : .secondary)
 
                 // Issue-list row anatomy (EXP-173): priority icon, mono
                 // identifier, status icon, title.
@@ -565,7 +568,7 @@ struct StartCodingSheet: View {
             .padding(.vertical, 6)
             .padding(.horizontal, 6)
             .background(
-                isChecked ? Accent.indigo.opacity(0.12) : Color.clear,
+                isChecked ? Color.white.opacity(0.1) : Color.clear,
                 in: RoundedRectangle(cornerRadius: 8)
             )
             // Cancel the highlight inset so text stays aligned with the
@@ -756,7 +759,7 @@ struct StartCodingSheet: View {
         } label: {
             HStack(spacing: 10) {
                 AppIcon(isSelected ? AppIcons.uiSelected : AppIcons.uiUnselected, size: AppIcon.Size.medium)
-                    .foregroundStyle(isSelected ? Accent.indigo : .secondary)
+                    .foregroundStyle(isSelected ? Color.white : .secondary)
 
                 // The builtin "Create action" wears the create affordance;
                 // real actions keep the bolt (the Actions surface glyph).
@@ -789,7 +792,7 @@ struct StartCodingSheet: View {
             .padding(.vertical, 6)
             .padding(.horizontal, 6)
             .background(
-                isSelected ? Accent.indigo.opacity(0.12) : Color.clear,
+                isSelected ? Color.white.opacity(0.1) : Color.clear,
                 in: RoundedRectangle(cornerRadius: 8)
             )
             .padding(.horizontal, -6)
@@ -1390,10 +1393,17 @@ struct StartCodingSheet: View {
                 Text(Self.agentLabel(value))
                     .font(.subheadline.weight(.medium))
             }
-            .foregroundStyle(selected ? .white : .white.opacity(TextOpacity.secondary))
+            .foregroundStyle(
+                selected
+                    ? DesignTokens.Palette.primaryForeground
+                    : .white.opacity(TextOpacity.secondary)
+            )
             .padding(.horizontal, 14)
             .padding(.vertical, 7)
-            .background(selected ? Accent.indigoStrong : Color.white.opacity(0.06), in: Capsule())
+            .background(
+                selected ? DesignTokens.Palette.primary : Color.white.opacity(0.06),
+                in: Capsule()
+            )
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)

@@ -149,11 +149,11 @@ struct AgentPrCard: View {
 
     // MARK: - PR / branch chips (GitHub-style, EXP-240)
 
-    /// Pull-request icon tint per PR state — GitHub's palette: open green,
-    /// merged indigo (purple), closed red.
+    /// Pull-request icon tint per PR state: open green, merged blue (the
+    /// done-status semantic, web/desktop parity), closed red.
     private var prTint: Color {
         switch issue.prState {
-        case DomainContract.prStateMerged: Accent.indigo
+        case DomainContract.prStateMerged: DesignTokens.Semantic.blue
         case DomainContract.prStateClosed: DesignTokens.Semantic.red
         default: DesignTokens.Semantic.green
         }
@@ -200,7 +200,7 @@ struct AgentPrCard: View {
         NavigationLink(value: AppRoute.changes(accountId: accountId, issueId: issue.id)) {
             HStack(spacing: 8) {
                 AppIcon(AppIcons.actionRepository, size: AppIcon.Size.small)
-                    .foregroundStyle(Accent.indigo)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 Text(branch)
                     .font(.caption.monospaced())
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))

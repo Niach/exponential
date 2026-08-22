@@ -346,9 +346,9 @@ struct IssueListView: View {
             if vm.filters.count > 0 {
                 Text("\(vm.filters.count)")
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(DesignTokens.Palette.primaryForeground)
                     .frame(minWidth: 15, minHeight: 15)
-                    .background(Accent.indigoStrong, in: Circle())
+                    .background(DesignTokens.Palette.primary, in: Circle())
                     .offset(x: 2, y: -2)
                     // The badge sits above the button; it must not swallow
                     // taps meant for the filter control underneath it.
@@ -1158,7 +1158,7 @@ private struct BulkLabelsSheet: View {
                                 switch state {
                                 case .all:
                                     AppIcon(AppIcons.uiCheck, size: 15, weight: .semibold)
-                                        .foregroundStyle(Accent.indigo)
+                                        .foregroundStyle(Color.white)
                                 case .some:
                                     AppIcon(AppIcons.uiMinus, size: 15, weight: .semibold)
                                         .foregroundStyle(.white.opacity(TextOpacity.secondary))

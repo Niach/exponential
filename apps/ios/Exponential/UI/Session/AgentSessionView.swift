@@ -813,7 +813,7 @@ struct AgentSessionView: View {
                 } label: {
                     AppIcon(AppIcons.uiSend, size: 28)
                         .foregroundStyle(
-                            sendDisabled ? Color.white.opacity(0.3) : Accent.indigo
+                            sendDisabled ? Color.white.opacity(0.3) : Color.white
                         )
                 }
                 .buttonStyle(.plain)

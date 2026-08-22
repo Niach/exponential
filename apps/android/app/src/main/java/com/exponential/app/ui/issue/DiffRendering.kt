@@ -23,7 +23,7 @@ import androidx.compose.ui.unit.sp
 
 val DiffAddColor = Color(0xFF6EE7B7) // emerald-300
 val DiffDelColor = Color(0xFFFDA4AF) // rose-300
-val DiffHunkColor = Color(0xFFA5B4FC) // indigo-300
+val DiffHunkColor = Color.White.copy(alpha = 0.5f) // muted (EXP-594, iOS parity)
 
 /** Foreground color for one unified-diff line. `+++`/`---` file headers are meta, not changes. */
 fun diffLineColor(line: String, context: Color): Color = when {

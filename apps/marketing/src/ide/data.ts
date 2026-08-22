@@ -19,7 +19,7 @@ export type Issue = {
 
 export const DS: Assignee = { initials: `DS`, name: `Danny Strähhuber` }
 
-export const PROJECT = { name: `Exponential`, color: `#4f46e5` }
+export const PROJECT = { name: `Exponential`, color: `#a1a1aa` }
 
 export const ISSUES: Issue[] = [
   {

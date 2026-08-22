@@ -30,16 +30,16 @@
   --pr-low: #3b82f6;
   --neutral: #a1a1aa;
 
-  /* Product accent (indigo) — same value as --brand-strong below */
-  --accent: #4f46e5;
+  /* Product accent — the app's near-white primary (EXP-594: the indigo
+     brand accent is retired; solid accent fills carry dark text). */
+  --accent: #e5e5e5;
+  --accent-fg: #171717;
 
   /* ─── Glass ladder (EXP-337) — values mirror apps/web styles.css
      (EXP-269 block) / the desktop IDE theme: pure white alphas over ONE
      top→bottom zinc gradient; 1px strokes, never fractional. ─── */
   --glass-bg-top: #09090b;
   --glass-bg-bottom: #18181b;
-  --brand: #6366f1;
-  --brand-strong: #4f46e5; /* required under white text (AA) */
   --glass-fill-section: oklch(1 0 0 / 4%);
   --glass-fill-row: oklch(1 0 0 / 5%);
   --glass-fill-card: oklch(1 0 0 / 6%);

@@ -110,7 +110,7 @@ struct SupportThreadView: View {
                     .lineLimit(1)
                 Spacer()
             }
-            .foregroundStyle(vm.isOpen ? Accent.indigo : .white.opacity(TextOpacity.secondary))
+            .foregroundStyle(vm.isOpen ? Color.white : .white.opacity(TextOpacity.secondary))
 
             if let issue = vm.linkedIssue {
                 NavigationLink(value: AppRoute.issue(accountId: accountId, id: issue.id)) {
@@ -156,11 +156,11 @@ struct SupportThreadView: View {
                 }
                 Text(message.body)
                     .font(.subheadline)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(bubbleForeground(message))
                     .fixedSize(horizontal: false, vertical: true)
                 Text(relativeDate(message.createdAt))
                     .font(.caption2)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .foregroundStyle(bubbleForeground(message).opacity(TextOpacity.tertiary))
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -173,7 +173,14 @@ struct SupportThreadView: View {
     private func bubbleBackground(_ message: SupportMessage) -> Color {
         if message.isInternal { return Color.orange.opacity(0.18) }
         if message.isInbound { return Color.white.opacity(0.08) }
-        return Accent.indigo.opacity(0.35)
+        return DesignTokens.Palette.primary
+    }
+
+    /// Body/meta text color per bubble — the solid near-white outbound fill
+    /// (web `bg-primary text-primary-foreground`, EXP-594) needs dark text.
+    private func bubbleForeground(_ message: SupportMessage) -> Color {
+        if message.isInternal || message.isInbound { return .white }
+        return DesignTokens.Palette.primaryForeground
     }
 
     // MARK: - Composer
@@ -216,7 +223,7 @@ struct SupportThreadView: View {
                         .foregroundStyle(
                             sendDisabled(vm)
                                 ? Color.white.opacity(0.3)
-                                : (internalNote ? Color.orange : Accent.indigo)
+                                : (internalNote ? Color.orange : Color.white)
                         )
                 }
                 .buttonStyle(.plain)

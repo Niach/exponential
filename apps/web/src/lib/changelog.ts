@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-white-glass-accent`,
+    date: `2026-08-22`,
+    title: `A calmer, glassier look`,
+    summary: `The indigo accent is gone: selections, badges and buttons now use the white glass language on web, desktop, iOS and Android.`,
+    body: `- **One selection language**: the selected agent tab, checked rows and pickers now use the same white glass fill on every platform instead of an indigo one on mobile.
+- **White accents**: unread dots, count badges, send buttons and the New Issue button switch from indigo to the near-white primary.
+- **Merged stays blue**: merged pull requests now use the same status blue everywhere; before, iOS and Android tinted them indigo.
+- **iOS controls**: toggles and pickers drop the system tint for the white scheme.
+- **Details**: text selection, focus rings, links, diff hunk headers and the desktop's drag and slider accents follow suit.`,
+  },
+  {
     id: `2026-08-ios-autocomplete-above-keyboard`,
     date: `2026-08-22`,
     title: `iOS @, # and : menus are back`,

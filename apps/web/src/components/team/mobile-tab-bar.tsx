@@ -73,13 +73,13 @@ export function resolveBoardTarget(
 function InboxDot() {
   const unread = useUnreadNotificationCount()
   if (unread === 0) return null
-  return <TabDot className="bg-brand" />
+  return <TabDot className="bg-primary" />
 }
 
 function SupportDot({ teamId }: { teamId?: string }) {
   const unread = useUnreadSupportCount(teamId)
   if (unread === 0) return null
-  return <TabDot className="bg-brand" />
+  return <TabDot className="bg-primary" />
 }
 
 // Review green (EXP-214): open PRs are "stuff to do", colored like the

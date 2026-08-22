@@ -38,7 +38,7 @@ pub(crate) const APP_TITLE: &str = "Exponential (staging)";
 const BAR_INSET: f32 = 8.;
 
 /// EXP-449: the fixed width of the labelled "New Issue" button — glyph + gap
-/// + the `text_xs` label inside `indigo_button`'s `px_2p5`, with a little
+/// + the `text_xs` label inside `primary_button`'s `px_2p5`, with a little
 /// slack absorbed by its `justify_center`. Fixed (not content-sized) so the
 /// strip's reserve below can never drift from the rendered width.
 const NEW_ISSUE_BUTTON_W: f32 = 96.;
@@ -259,11 +259,11 @@ impl Render for AppTitleBar {
         // from My Issues, which the filter bar's own gate already allowed).
         // Keeps its glyph + label, exactly as it read in the filter bar.
         let new_issue =
-            crate::create_issue_dialog::indigo_button("titlebar-new-issue", !can_create, cx)
+            crate::create_issue_dialog::primary_button("titlebar-new-issue", !can_create, cx)
                 .w(px(NEW_ISSUE_BUTTON_W))
                 .child(Icon::new(registry::UI_ADD).small())
                 .child("New Issue")
-                // `indigo_button`'s disabled contract: callers skip `on_click`.
+                // `primary_button`'s disabled contract: callers skip `on_click`.
                 .when(can_create, |button| {
                     button.on_click(|_, window, cx| {
                         window.dispatch_action(Box::new(crate::actions::NewIssue), cx)

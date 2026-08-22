@@ -705,7 +705,7 @@ struct ChangesView: View {
         switch status {
         case "added": .green
         case "removed": .red
-        case "renamed", "copied": Accent.indigo
+        case "renamed", "copied": DesignTokens.Semantic.blue
         default: .white.opacity(TextOpacity.secondary)
         }
     }

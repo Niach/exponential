@@ -92,7 +92,6 @@ import com.exponential.app.ui.home.HomeViewModel
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.onboarding.CreateBoardSheet
 import com.exponential.app.ui.parseColor
-import com.exponential.app.ui.theme.AccentIndigo
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -1288,7 +1287,7 @@ private fun BulkLabelSheet(
                                 ExpIcons.uiCheck,
                                 contentDescription = "On every selected issue",
                                 modifier = Modifier.size(18.dp),
-                                tint = AccentIndigo,
+                                tint = Color.White,
                             )
                             someHave -> Icon(
                                 ExpIcons.uiMinus,

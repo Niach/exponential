@@ -69,7 +69,7 @@ const B = {
   dragFrom: 58,
   dragTo: 78,
   pushAt: 100, // the status change lands as a push banner (+ inbox rail dot)
-  liveEdit: 160, // EXP-150: assignee pops in with an indigo flash
+  liveEdit: 160, // EXP-150: assignee pops in with a white flash
   remoteOut: 212,
 } as const
 

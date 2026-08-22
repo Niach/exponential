@@ -65,7 +65,7 @@ struct EmojiPickerSheet: View {
                         .frame(width: 34, height: 34)
                         .background(
                             Circle().fill(
-                                value == tone ? Accent.indigo.opacity(0.35) : Color.white.opacity(0.06)
+                                value == tone ? Color.white.opacity(0.15) : Color.white.opacity(0.06)
                             )
                         )
                 }

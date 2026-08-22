@@ -53,10 +53,10 @@ struct GlassSegmentedControl<Option: Hashable>: View {
                 if count > 0 {
                     Text("\(count)")
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(DesignTokens.Palette.primaryForeground)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(Accent.indigoStrong, in: Capsule())
+                        .background(DesignTokens.Palette.primary, in: Capsule())
                 }
             }
             .frame(maxWidth: .infinity)

@@ -98,7 +98,6 @@ import com.exponential.app.ui.markdown.LocalMarkdownAutolink
 import com.exponential.app.ui.markdown.MarkdownMediaUtils
 import com.exponential.app.ui.markdown.MarkdownView
 import com.exponential.app.ui.markdown.MdStyle
-import com.exponential.app.ui.theme.AccentIndigo
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -1874,7 +1873,7 @@ private fun SteerComposer(
                         ExpIcons.uiSend,
                         contentDescription = "Send",
                         modifier = Modifier.size(24.dp),
-                        tint = if (canSend) AccentIndigo else Color.White.copy(alpha = 0.3f),
+                        tint = if (canSend) Color.White else Color.White.copy(alpha = 0.3f),
                     )
                 }
             }
