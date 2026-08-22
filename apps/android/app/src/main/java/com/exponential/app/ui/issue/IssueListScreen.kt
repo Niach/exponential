@@ -99,6 +99,7 @@ import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.dueDateColor
 import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.theme.glassRow
+import com.exponential.app.ui.theme.resolvedStatusColor
 import kotlinx.coroutines.delay
 
 /**
@@ -718,17 +719,31 @@ private fun IssueListContent(
                     // fill hides the rows passing under the pinned header.
                     stickyHeader(key = "header-${group.status.id}") {
                         // EXP-523: headers ride the same reflow as their rows.
+                        // EXP-593: a glassy band instead of the plain black
+                        // slab — the group's status colour washed over the
+                        // fill + a hairline bottom edge (web/desktop parity:
+                        // statusHeaderBg's 10% tint). The opaque base stays
+                        // underneath: Compose has no cheap backdrop blur
+                        // (GlassTokens), so it still hides passing rows.
                         Box(
                             Modifier
                                 .animateItem()
                                 .fillMaxWidth()
-                                .background(GlassTokens.BackgroundTop),
+                                .background(GlassTokens.BackgroundTop)
+                                .background(resolvedStatusColor(group.status).copy(alpha = 0.10f)),
                         ) {
                             StatusHeader(
                                 status = group.status,
                                 count = group.issues.size,
                                 collapsed = isCollapsed,
                                 onToggle = { onToggleCollapsed(group.status.id, isCollapsed) },
+                            )
+                            Box(
+                                Modifier
+                                    .align(Alignment.BottomStart)
+                                    .fillMaxWidth()
+                                    .height(GlassTokens.Hairline)
+                                    .background(GlassTokens.StrokeSection),
                             )
                         }
                     }
