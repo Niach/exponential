@@ -6,6 +6,7 @@ Everything since 0.14.0:
 - Give an action a schedule or a trigger and one of your machines runs it on its own
 - Manage every machine from the app: rename it, share it with your team, tidy its worktrees
 - Emoji picker, image and file attachments on comments, and a formatting rail in the editor
+- Issue lists group by status with clearer headers, a refreshed look, and smoother create and select menus
 - Type # to link an issue; references render as live status chips
 - Assignee picker, archivable boards, and a getting-started checklist
 - Connect your own GitHub repos and share them with the team
