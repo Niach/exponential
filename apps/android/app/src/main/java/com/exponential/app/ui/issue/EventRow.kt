@@ -6,29 +6,40 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.IssueEventEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.IssueStatus
+import com.exponential.app.domain.IssueStatusResolver
+import com.exponential.app.domain.ResolvedIssueStatus
+import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.components.userDisplayName
+import com.exponential.app.ui.icons.ExpIcons
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 
 // Compact Linear-style activity line for non-agent events (status/assignee/label),
-// with the shared timeline gutter (dot + connecting rail — EXP-240).
+// with the shared timeline gutter on the connecting rail (EXP-240). The gutter
+// marker is the event type's concept icon — a status change leads with the
+// TARGET status's resolved icon in its color (EXP-595, web/desktop parity) —
+// and only unknown event types keep the plain dot.
 // Phrase functions untouched (EventPhrasesTest locks them).
 @Composable
 internal fun EventRow(
     event: IssueEventEntity,
     usersById: Map<String, UserEntity>,
     labelsById: Map<String, LabelEntity>,
+    statuses: List<ResolvedIssueStatus>,
     lineAbove: Boolean = false,
     lineBelow: Boolean = false,
 ) {
@@ -40,12 +51,38 @@ internal fun EventRow(
         // unparseable createdAt must not leave a dangling "·" (EXP-169).
         if (time.isNotEmpty()) append(" · ").append(time)
     }
+    val glyph = eventGlyph(event, statuses)
     Row(
         modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        TimelineGutter(lineAbove = lineAbove, lineBelow = lineBelow)
+        TimelineGutter(
+            lineAbove = lineAbove,
+            lineBelow = lineBelow,
+            marker = when (glyph) {
+                is EventGlyph.Status -> {
+                    {
+                        StatusIcon(
+                            glyph.status,
+                            modifier = Modifier.align(Alignment.Center),
+                            size = 14.dp,
+                        )
+                    }
+                }
+                is EventGlyph.Plain -> {
+                    {
+                        Icon(
+                            glyph.icon,
+                            contentDescription = null,
+                            modifier = Modifier.align(Alignment.Center).size(14.dp),
+                            tint = CommentMeta,
+                        )
+                    }
+                }
+                null -> null
+            },
+        )
         Text(
             text,
             style = MaterialTheme.typography.labelSmall,
@@ -53,6 +90,37 @@ internal fun EventRow(
             modifier = Modifier.padding(vertical = 8.dp),
         )
     }
+}
+
+// The leading glyph of one activity row (EXP-595 — mirrors the web `EventRow`
+// icon switch and the desktop `EventGlyph`): a shared-registry concept icon,
+// or the resolved TARGET status for status changes (EXP-525). Null = no glyph
+// (unknown event types keep the plain timeline dot).
+internal sealed interface EventGlyph {
+    data class Plain(val icon: ImageVector) : EventGlyph
+    data class Status(val status: ResolvedIssueStatus) : EventGlyph
+}
+
+// [statuses] is the issue's team vocabulary in render order — a status change
+// resolves the payload's `toStatusId` (or the legacy enum anchor) against it,
+// and the shared fallback chain never fails.
+internal fun eventGlyph(
+    event: IssueEventEntity,
+    statuses: List<ResolvedIssueStatus>,
+): EventGlyph? = when (event.type) {
+    "status_changed" -> {
+        val payload = parsedPayload(event.payload)
+        fun field(key: String): String? =
+            (payload?.get(key) as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
+        EventGlyph.Status(IssueStatusResolver.resolve(field("toStatusId"), field("to"), statuses))
+    }
+    "assignee_changed" -> EventGlyph.Plain(ExpIcons.eventAssigneeChanged)
+    "label_added", "label_removed" -> EventGlyph.Plain(ExpIcons.eventLabelAdded)
+    "board_moved" -> EventGlyph.Plain(ExpIcons.eventBoardMoved)
+    "pr_opened" -> EventGlyph.Plain(ExpIcons.prOpen)
+    "pr_merged" -> EventGlyph.Plain(ExpIcons.prMerged)
+    "priority_changed" -> EventGlyph.Plain(ExpIcons.eventPriorityChanged)
+    else -> null
 }
 
 // Human-readable verb for a synced issue event. Covers the surviving event kinds

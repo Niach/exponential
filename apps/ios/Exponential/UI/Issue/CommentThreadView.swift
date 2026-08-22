@@ -34,6 +34,10 @@ struct CommentThreadView: View {
     @State private var users: [String: UserEntity] = [:]
     @State private var labels: [String: LabelEntity] = [:]
     @State private var boards: [String: BoardEntity] = [:]
+    /// EXP-595: every synced team's `issue_statuses` rows — the status-change
+    /// rows' glyphs resolve against this issue's team subset, so the timeline
+    /// shows the same colored status icon the list and the picker do.
+    @State private var statusRows: [IssueStatusEntity] = []
     /// EXP-554 — this issue's comment-linked attachment rows, grouped by
     /// `comment_id` and ordered (created_at, id) like every other timeline list.
     @State private var attachmentsByComment: [String: [AttachmentEntity]] = [:]
@@ -49,6 +53,14 @@ struct CommentThreadView: View {
 
     private var humanComments: [CommentEntity] {
         comments.filter { $0.commentKind == .regular }
+    }
+
+    /// This issue's team statuses in render order (EXP-314). Empty while the
+    /// boards/statuses shapes are still syncing — `IssueStatusResolver.resolve`
+    /// degrades to the constructed builtin defaults, so rendering never fails.
+    private var teamStatuses: [ResolvedIssueStatus] {
+        guard let teamId = boards[issue.boardId]?.teamId else { return [] }
+        return IssueStatusResolver.teamStatuses(statusRows.filter { $0.teamId == teamId })
     }
 
     private var timeline: [TimelineItem] {
@@ -163,7 +175,7 @@ struct CommentThreadView: View {
                 markerSize: 16,
                 topPadding: 5,
                 bottomPadding: 5,
-                marker: { eventDot }
+                marker: { eventMarker(event) }
             ) {
                 Text(time.isEmpty ? "\(who) \(phrase)" : "\(who) \(phrase) · \(time)")
                     .font(.caption)
@@ -210,6 +222,24 @@ struct CommentThreadView: View {
         Circle()
             .fill(.white.opacity(0.25))
             .frame(width: 6, height: 6)
+    }
+
+    /// The leading glyph of one event row (EXP-595 — web/desktop parity): the
+    /// event type's shared-registry concept icon in the muted text color, a
+    /// status change's resolved status icon in its color, and the plain dot
+    /// only for unknown event types.
+    @ViewBuilder
+    private func eventMarker(_ event: IssueEventEntity) -> some View {
+        switch eventGlyph(event, statuses: teamStatuses) {
+        case .status(let status)?:
+            AppIcon(status.iconName, size: 12)
+                .foregroundStyle(status.color)
+        case .plain(let name)?:
+            AppIcon(name, size: 12)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+        case nil:
+            eventDot
+        }
     }
 
     @ViewBuilder
@@ -401,6 +431,19 @@ struct CommentThreadView: View {
                         grouping: ordered,
                         by: { $0.commentId ?? "" }
                     )
+                }
+            } catch {}
+        })
+
+        // Team statuses (EXP-595) — resolve the status-change rows' glyph +
+        // color against the same vocabulary every other status surface uses.
+        let statusObs = ValueObservation.tracking { db in
+            try IssueStatusEntity.fetchAll(db)
+        }
+        observationTasks.append(Task {
+            do {
+                for try await rows in statusObs.values(in: pool) {
+                    self.statusRows = rows
                 }
             } catch {}
         })

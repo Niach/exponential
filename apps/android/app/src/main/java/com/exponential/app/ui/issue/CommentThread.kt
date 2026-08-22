@@ -171,6 +171,7 @@ fun CommentThread(
                             event = item.event,
                             usersById = state.usersById,
                             labelsById = state.labelsById,
+                            statuses = state.statuses,
                             lineAbove = lineAbove,
                             lineBelow = lineBelow,
                         )
