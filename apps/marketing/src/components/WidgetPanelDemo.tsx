@@ -5,7 +5,8 @@
    submit, "Powered by Exponential" footer, megaphone FAB). The real widget
    lives in a shadow root under exp-* classes; this recreation uses cw-*
    (collab.css) so the two can never collide. Decorative only — rendered
-   inside an inert, aria-hidden stage. */
+   inside an inert, aria-hidden stage. Plays the GIVE-FEEDBACK path
+   (EXP-602): captured screenshot, title + details, filed as an issue. */
 
 const svgProps = {
   viewBox: `0 0 24 24`,
@@ -48,20 +49,23 @@ function CheckIcon() {
   )
 }
 
-export type WidgetDemoView = `home` | `support` | `success`
+export type WidgetDemoView = `home` | `feedback` | `success`
 
 export function WidgetPanelDemo({
   view,
-  message,
+  title,
+  details,
   emailFilled,
   caret,
 }: {
   view: WidgetDemoView
-  /* Support-form message body (the scene types it in). */
-  message: string
-  /* The email field fills once the message is done. */
+  /* Feedback-form title (the scene types it in). */
+  title: string
+  /* Details body — fills at once when the title finishes typing. */
+  details: string
+  /* The email field fills once the details are in. */
   emailFilled: boolean
-  /* Blinking caret in the message box while typing. */
+  /* Blinking caret in the title input while typing. */
   caret: boolean
 }) {
   return (
@@ -71,23 +75,22 @@ export function WidgetPanelDemo({
           <span className={`cw-success-icon`}>
             <CheckIcon />
           </span>
-          <span className={`cw-success-title`}>We got your request!</span>
+          <span className={`cw-success-title`}>Thanks for the report!</span>
           <span className={`cw-success-sub`}>
-            Check your email. We sent you a link to track the conversation and
-            reply.
+            Your feedback has been sent.
           </span>
         </div>
       ) : (
         <>
           <div className={`cw-header`}>
             <span className={`cw-header-lead`}>
-              {view === `support` && (
+              {view === `feedback` && (
                 <span className={`cw-back`}>
                   <BackIcon />
                 </span>
               )}
               <span className={`cw-title`}>
-                {view === `home` ? `Hi there 👋` : `Get help`}
+                {view === `home` ? `Hi there 👋` : `Send feedback`}
               </span>
             </span>
             <span className={`cw-close`}>
@@ -98,13 +101,13 @@ export function WidgetPanelDemo({
           {view === `home` ? (
             <div className={`cw-body`}>
               <span className={`cw-home-sub`}>How can we help?</span>
-              <div className={`cw-mode-card`}>
+              <div className={`cw-mode-card is-picked`}>
                 <span className={`cw-mode-title`}>Give feedback</span>
                 <span className={`cw-mode-sub`}>
                   Report a bug or share an idea, screenshot included.
                 </span>
               </div>
-              <div className={`cw-mode-card is-picked`}>
+              <div className={`cw-mode-card`}>
                 <span className={`cw-mode-title`}>Get help</span>
                 <span className={`cw-mode-sub`}>
                   Ask us anything. We&apos;ll reply by email.
@@ -113,16 +116,42 @@ export function WidgetPanelDemo({
             </div>
           ) : (
             <div className={`cw-body`}>
+              {/* Captured screenshot preview + action chips (the real form's
+                  post-capture state; the thumbnail is a page silhouette). */}
+              <div className={`cw-shot`}>
+                <div className={`cw-shot-img`}>
+                  <span className={`cw-shot-bar is-w60`} />
+                  <span className={`cw-shot-bar is-w80`} />
+                  <span className={`cw-shot-bar is-w40`} />
+                </div>
+                <div className={`cw-shot-actions`}>
+                  <span className={`cw-chip`}>Annotate</span>
+                  <span className={`cw-chip`}>Retake</span>
+                  <span className={`cw-chip`}>Remove</span>
+                </div>
+              </div>
               <div className={`cw-field`}>
-                <span className={`cw-label`}>How can we help?</span>
-                <div className={`cw-textarea`}>
-                  {message.length === 0 && (
+                <span className={`cw-label`}>Title</span>
+                <div className={`cw-input`}>
+                  {title.length === 0 && (
                     <span className={`cw-placeholder`}>
-                      Describe your question or problem&hellip;
+                      Something&apos;s broken on this page&hellip;
                     </span>
                   )}
-                  {message}
+                  {title}
                   {caret && <span className={`cw-caret`} />}
+                </div>
+              </div>
+              <div className={`cw-field`}>
+                <span className={`cw-label`}>Details</span>
+                <div className={`cw-textarea is-short`}>
+                  {details.length === 0 ? (
+                    <span className={`cw-placeholder`}>
+                      What happened? What did you expect?
+                    </span>
+                  ) : (
+                    details
+                  )}
                 </div>
               </div>
               <div className={`cw-field`}>
@@ -136,7 +165,7 @@ export function WidgetPanelDemo({
                 </div>
               </div>
               <div className={`cw-footer`}>
-                <span className={`cw-submit`}>Send request</span>
+                <span className={`cw-submit`}>Send feedback</span>
               </div>
             </div>
           )}

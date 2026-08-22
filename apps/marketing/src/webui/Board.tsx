@@ -20,11 +20,18 @@ const TABS: { id: FilterTab; label: string }[] = [
   { id: `backlog`, label: `Backlog` },
 ]
 
-export function WebIssueRow({ issue }: { issue: Issue }) {
+export function WebIssueRow({
+  issue,
+  entering,
+}: {
+  issue: Issue
+  /* Scene-injected row (EXP-602): plays the is-new entrance animation. */
+  entering?: boolean
+}) {
   const { openIssue, interactive } = useWeb()
   return (
     <div
-      className={`web-row${interactive ? ` is-click` : ``}`}
+      className={`web-row${interactive ? ` is-click` : ``}${entering ? ` is-new` : ``}`}
       onClick={interactive ? () => openIssue(issue.id) : undefined}
     >
       <span className="web-row-cell">
@@ -58,7 +65,7 @@ export function WebIssueRow({ issue }: { issue: Issue }) {
 }
 
 function GroupedList({ issues }: { issues: Issue[] }) {
-  const { collapsedGroups, toggleGroup, interactive } = useWeb()
+  const { collapsedGroups, toggleGroup, interactive, injectedIssue } = useWeb()
   return (
     <div className="web-board-list">
       {GROUP_ORDER.map((g) => {
@@ -78,7 +85,14 @@ function GroupedList({ issues }: { issues: Issue[] }) {
               <span className="web-group-name">{g.label}</span>
               <span className="web-group-count">{groupIssues.length}</span>
             </div>
-            {!isCollapsed && groupIssues.map((i) => <WebIssueRow key={i.id} issue={i} />)}
+            {!isCollapsed &&
+              groupIssues.map((i) => (
+                <WebIssueRow
+                  key={i.id}
+                  issue={i}
+                  entering={i.id === injectedIssue?.id}
+                />
+              ))}
           </div>
         )
       })}
@@ -87,9 +101,11 @@ function GroupedList({ issues }: { issues: Issue[] }) {
 }
 
 export function WebBoard() {
-  const { filter, setFilter, interactive } = useWeb()
+  const { filter, setFilter, interactive, injectedIssue } = useWeb()
   const visibleStatuses = FILTER_STATUSES[filter]
-  const visible = ISSUES.filter((i) => visibleStatuses.includes(i.status))
+  /* The injected row leads the list, so it lands FIRST in its status group. */
+  const source = injectedIssue ? [injectedIssue, ...ISSUES] : ISSUES
+  const visible = source.filter((i) => visibleStatuses.includes(i.status))
   return (
     <div className="web-board">
       <div className="web-filterbar">

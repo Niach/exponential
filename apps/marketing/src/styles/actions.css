@@ -50,6 +50,68 @@
   color: var(--fg-muted);
 }
 
+/* ── Automations sub-block (EXP-583 marketing, EXP-602) ── */
+.ac-autos {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 20px;
+}
+
+.ac-autos-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ac-autos-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg);
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.ac-autos-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--fg);
+  letter-spacing: -0.01em;
+}
+
+.ac-autos-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--fg-muted);
+  max-width: 640px;
+}
+
+.ac-autos-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.ac-autos-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-muted);
+  border: 1px solid var(--glass-stroke-row);
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+
 /* ── Social proof (renders only once TESTIMONIALS has entries) ── */
 .sp-grid {
   display: grid;

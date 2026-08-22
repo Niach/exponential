@@ -5,7 +5,7 @@
    and the details rail — Reporter, widget Context (page URL / user agent /
    viewport), then Linked issue OR the Escalate board picker, lock footer. */
 import { useState, type KeyboardEvent } from "react"
-import { getIssue } from "../ide/data"
+import { getIssue, type Issue } from "../ide/data"
 import { useWeb } from "./state"
 import { IcCheck, IcChevDown, IcSend } from "../ide/icons"
 import {
@@ -50,6 +50,78 @@ export function Bubble({
       <p className="web-bubble-meta">
         {`${isInbound ? reporter : message.author} · ${message.time}`}
       </p>
+    </div>
+  )
+}
+
+/* Presentational details rail (Reporter · Context · Linked issue /
+   Escalate) — context-free so the home page's HelpdeskChatDemo can compose
+   it outside the full 3-pane inbox. */
+export function SupportRail({
+  thread,
+  issue,
+  interactive,
+  onOpenIssue,
+}: {
+  thread: SupportThread
+  issue: Issue | null
+  interactive: boolean
+  onOpenIssue?: () => void
+}) {
+  return (
+    <div className="web-sup-rail">
+      {/* Divs, not <section>/<h2>/<p> — the site stylesheet pads bare
+          sections (80px), which would blow the rail apart. */}
+      <div>
+        <div className="web-rail-label">Reporter</div>
+        <div className="web-rail-name">{thread.reporterName}</div>
+        <div className="web-rail-sub">{thread.reporterEmail}</div>
+        <div className="web-rail-sub">{`Last seen ${thread.lastSeen}`}</div>
+      </div>
+      {thread.context && (
+        <div>
+          <div className="web-rail-label">Context</div>
+          <div className="web-rail-sub">{thread.context.pageUrl}</div>
+          <div className="web-rail-sub is-wrap">{thread.context.userAgent}</div>
+          <div className="web-rail-sub">{`Viewport ${thread.context.viewport}`}</div>
+        </div>
+      )}
+      {issue ? (
+        <div>
+          <div className="web-rail-label">Linked issue</div>
+          <button
+            className={`web-rail-issue${interactive ? ` is-click` : ``}`}
+            type="button"
+            onClick={interactive ? onOpenIssue : undefined}
+          >
+            {issue.id}
+            <IcExternalLink size={11} className="ide-c-muted" />
+          </button>
+          <div className="web-rail-sub">{issue.title}</div>
+        </div>
+      ) : (
+        <div>
+          <div className="web-rail-label">Escalate</div>
+          <div className="web-rail-sub is-wrap">
+            Create an issue from this ticket on one of the team&rsquo;s boards.
+          </div>
+          <div className="web-rail-escalate">
+            <button className="web-rail-select" type="button">
+              Pick a board
+              <IcChevDown size={12} className="ide-c-muted" />
+            </button>
+            <button className="web-rail-create" type="button" disabled>
+              Create issue
+            </button>
+          </div>
+        </div>
+      )}
+      <div className="web-rail-foot">
+        <div className="web-rail-lock">
+          <IcLock size={11} />
+          Replies are emailed to the reporter with a private conversation link.
+        </div>
+      </div>
     </div>
   )
 }
@@ -241,71 +313,19 @@ export function WebSupportInbox() {
 
       {/* Right — details rail (Reporter · Context · Linked issue / Escalate) */}
       {shown && (
-        <div className="web-sup-rail">
-          {/* Divs, not <section>/<h2>/<p> — the site stylesheet pads bare
-              sections (80px), which would blow the rail apart. */}
-          <div>
-            <div className="web-rail-label">Reporter</div>
-            <div className="web-rail-name">{shown.reporterName}</div>
-            <div className="web-rail-sub">{shown.reporterEmail}</div>
-            <div className="web-rail-sub">{`Last seen ${shown.lastSeen}`}</div>
-          </div>
-          {shown.context && (
-            <div>
-              <div className="web-rail-label">Context</div>
-              <div className="web-rail-sub">{shown.context.pageUrl}</div>
-              <div className="web-rail-sub is-wrap">
-                {shown.context.userAgent}
-              </div>
-              <div className="web-rail-sub">{`Viewport ${shown.context.viewport}`}</div>
-            </div>
-          )}
-          {issue ? (
-            <div>
-              <div className="web-rail-label">Linked issue</div>
-              <button
-                className={`web-rail-issue${interactive ? ` is-click` : ``}`}
-                type="button"
-                onClick={
-                  interactive
-                    ? () => {
-                        setNav(`project`)
-                        openIssue(issue.id)
-                      }
-                    : undefined
+        <SupportRail
+          thread={shown}
+          issue={issue}
+          interactive={interactive}
+          onOpenIssue={
+            issue
+              ? () => {
+                  setNav(`project`)
+                  openIssue(issue.id)
                 }
-              >
-                {issue.id}
-                <IcExternalLink size={11} className="ide-c-muted" />
-              </button>
-              <div className="web-rail-sub">{issue.title}</div>
-            </div>
-          ) : (
-            <div>
-              <div className="web-rail-label">Escalate</div>
-              <div className="web-rail-sub is-wrap">
-                Create an issue from this ticket on one of the team&rsquo;s
-                boards.
-              </div>
-              <div className="web-rail-escalate">
-                <button className="web-rail-select" type="button">
-                  Pick a board
-                  <IcChevDown size={12} className="ide-c-muted" />
-                </button>
-                <button className="web-rail-create" type="button" disabled>
-                  Create issue
-                </button>
-              </div>
-            </div>
-          )}
-          <div className="web-rail-foot">
-            <div className="web-rail-lock">
-              <IcLock size={11} />
-              Replies are emailed to the reporter with a private conversation
-              link.
-            </div>
-          </div>
-        </div>
+              : undefined
+          }
+        />
       )}
     </div>
   )

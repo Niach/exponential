@@ -2,7 +2,7 @@
    Mirrors ide/state.tsx: one context object owns the interactive state, the
    view components read it through useWeb(). */
 import { createContext, useContext } from "react"
-import type { FilterTab } from "../ide/data"
+import type { FilterTab, Issue } from "../ide/data"
 
 /* Embedding views the docs can request. */
 export type WebView = `board` | `issue` | `inbox` | `support`
@@ -14,6 +14,11 @@ export type WebNav = `project` | `my-issues` | `inbox` | `support`
 
 export type WebApi = {
   interactive: boolean
+
+  /* Scene-injected extra issue (EXP-602: the collab demo files a widget
+     report onto the board) — rendered first in its status group with an
+     entrance animation. Null everywhere else. */
+  injectedIssue: Issue | null
 
   nav: WebNav
   setNav: (nav: WebNav) => void

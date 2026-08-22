@@ -448,6 +448,31 @@
 .web-row:hover {
   background: rgba(38, 38, 38, 0.3);
 }
+/* Scene-injected row entrance (EXP-602: the collab demo files a widget
+   report onto the board) — slides in with a highlight that fades out. */
+.web-row.is-new {
+  animation: web-row-in 0.9s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes web-row-in {
+  0% {
+    opacity: 0;
+    transform: translateY(-6px);
+    background: rgba(38, 38, 38, 0.9);
+  }
+  35% {
+    opacity: 1;
+    transform: translateY(0);
+    background: rgba(38, 38, 38, 0.9);
+  }
+  100% {
+    background: rgba(38, 38, 38, 0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .web-row.is-new {
+    animation: none;
+  }
+}
 .web-row-cell {
   display: flex;
   align-items: center;

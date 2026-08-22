@@ -32,16 +32,37 @@ export function HomePage() {
           >
             {/* Words are individually animated spans; the real space text
                 nodes between them keep copy/screen-reader output intact.
-                One authored nowrap line (block + nowrap), so the H1 height
+                Two authored nowrap lines (block + nowrap), so the H1 height
                 is constant at every viewport (EXP-176: no page jump). */}
             <motion.h1 className={`hero-title`} variants={heroTitleStagger}>
               <span className={`hero-title-line`}>
                 <motion.span className={`hero-word`} variants={heroWord}>
-                  Vibecode
+                  The
                 </motion.span>
                 {` `}
                 <motion.span className={`hero-word`} variants={heroWord}>
-                  together
+                  next
+                </motion.span>
+                {` `}
+                <motion.span className={`hero-word`} variants={heroWord}>
+                  generation
+                </motion.span>
+              </span>
+              <span className={`hero-title-line`}>
+                <motion.span className={`hero-word`} variants={heroWord}>
+                  dev
+                </motion.span>
+                {` `}
+                <motion.span className={`hero-word`} variants={heroWord}>
+                  platform
+                </motion.span>
+                {` `}
+                <motion.span className={`hero-word`} variants={heroWord}>
+                  for
+                </motion.span>
+                {` `}
+                <motion.span className={`hero-word`} variants={heroWord}>
+                  teams
                 </motion.span>
               </span>
             </motion.h1>

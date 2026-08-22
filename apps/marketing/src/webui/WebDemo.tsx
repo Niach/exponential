@@ -3,7 +3,7 @@
    the container via the shared useDemoScale hook, one context object owns
    the interactive state, fixtures come from the shared universe in ide/data. */
 import { useMemo, useState } from "react"
-import type { FilterTab } from "../ide/data"
+import type { FilterTab, Issue } from "../ide/data"
 import { toggledSet } from "../ide/state"
 import { INBOX_ITEMS } from "../ide/data"
 import { useDemoScale } from "../lib/use-demo-scale"
@@ -41,9 +41,16 @@ export type WebDemoProps = {
   view?: WebView
   interactive?: boolean
   className?: string
+  /* Scene-injected extra board issue (EXP-602 collab demo). */
+  injectedIssue?: Issue | null
 }
 
-export function WebDemo({ view = `board`, interactive = true, className }: WebDemoProps) {
+export function WebDemo({
+  view = `board`,
+  interactive = true,
+  className,
+  injectedIssue = null,
+}: WebDemoProps) {
   const init = useMemo(() => initialState(view), [view])
 
   const [nav, setNav] = useState<WebNav>(init.nav)
@@ -57,6 +64,7 @@ export function WebDemo({ view = `board`, interactive = true, className }: WebDe
 
   const api: WebApi = {
     interactive,
+    injectedIssue,
     nav,
     setNav,
     openIssueId,
