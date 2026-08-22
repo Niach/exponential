@@ -8,6 +8,7 @@
     "build": "tsc --noEmit && vite build && bun run scripts/prerender.tsx",
     "typecheck": "tsc --noEmit",
     "screenshots:frame": "bun scripts/frame-store-screenshots.tsx",
+    "social:generate": "bun scripts/generate-social.tsx",
     "preview": "vite preview"
   },
   "dependencies": {
