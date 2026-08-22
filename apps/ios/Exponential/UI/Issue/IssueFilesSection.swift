@@ -85,39 +85,41 @@ struct IssueFilesSection: View {
     private func attachmentRow(_ attachment: AttachmentEntity) -> some View {
         let isDownloading = downloadingId == attachment.id
         let isDeleting = viewModel.deletingAttachmentIds.contains(attachment.id)
-        return Button {
-            preview(attachment)
-        } label: {
-            row(
-                symbol: AttachmentFiles.sfSymbolName(forContentType: attachment.contentType),
-                title: attachment.filename,
-                subtitle: formatSize(attachment.sizeBytes)
-            ) {
-                if isDownloading || isDeleting {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(.white)
-                } else {
-                    AppIcon(AppIcons.uiDownload, size: AppIcon.Size.small)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                }
+        // EXP-603: the row is a tap target rather than a `Button` so the
+        // actions menu (which replaced a long-press `.contextMenu`) can be a
+        // button of its own inside it. Tapping the row still previews.
+        return row(
+            symbol: AttachmentFiles.sfSymbolName(forContentType: attachment.contentType),
+            title: attachment.filename,
+            subtitle: formatSize(attachment.sizeBytes)
+        ) {
+            if isDownloading || isDeleting {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(.white)
+            } else {
+                AppIcon(AppIcons.uiDownload, size: AppIcon.Size.small)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
-        }
-        .buttonStyle(.plain)
-        .disabled(isDeleting)
-        .contextMenu {
-            Button {
-                preview(attachment)
+            GlassMenu {
+                GlassMenuItem("Preview", icon: AppIcons.uiWatch) {
+                    preview(attachment)
+                }
+                if canManage {
+                    GlassMenuItem("Delete", icon: AppIcons.uiDelete, destructive: true) {
+                        pendingDelete = attachment
+                    }
+                }
             } label: {
-                Label("Preview", appIcon: AppIcons.uiWatch)
+                AppIcon(AppIcons.uiMore, size: AppIcon.Size.small)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .padding(6)
             }
-            if canManage {
-                Button(role: .destructive) {
-                    pendingDelete = attachment
-                } label: {
-                    Label("Delete", appIcon: AppIcons.uiDelete)
-                }
-            }
+            .accessibilityLabel("File actions")
+        }
+        .onTapGesture {
+            guard !isDeleting else { return }
+            preview(attachment)
         }
     }
 

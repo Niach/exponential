@@ -29,7 +29,15 @@ struct EditorAutocompleteMenu: View {
     private static let visibleRows: CGFloat = 5
     private static let rowHeight: CGFloat = 40
 
+    // EXP-603: the chrome is `GlassMenuSurface`, the one menu container —
+    // this used to hand-roll a brighter, blurred, shadowed variant of it.
     var body: some View {
+        GlassMenuSurface {
+            list
+        }
+    }
+
+    private var list: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
                 if !model.mentionCandidates.isEmpty {
@@ -95,13 +103,6 @@ struct EditorAutocompleteMenu: View {
         }
         .frame(maxHeight: Self.rowHeight * Self.visibleRows + 8)
         .fixedSize(horizontal: false, vertical: true)
-        .background(.ultraThinMaterial)
-        .background(Color.black.opacity(0.35))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.12), lineWidth: 0.5)
-        )
-        .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
     }
 
     private func row<Label: View>(

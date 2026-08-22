@@ -321,15 +321,16 @@ struct StartCodingSheet: View {
                 // switch would only lead out of the creation flow.
                 if actionsEnabled, !createActionMode {
                     Section {
-                        Picker("Subject", selection: $subjectTab) {
-                            Text("Issues").tag(SubjectTab.issues)
-                            Text("Actions").tag(SubjectTab.actions)
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
+                        GlassSegmentedControl(
+                            options: [SubjectTab.issues, .actions],
+                            selection: subjectTab,
+                            label: { $0 == .issues ? "Issues" : "Actions" },
+                            onSelect: { subjectTab = $0 }
+                        )
+                        .accessibilityLabel("Subject")
                     }
                     .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets())
+                    .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
                 }
 
                 if subjectTab == .issues {
@@ -360,39 +361,46 @@ struct StartCodingSheet: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                    .listRowBackground(glassFormRowFill)
                 } else if candidateDevices.count > 1 {
                     Section {
-                        Picker("Desktop", selection: deviceBinding) {
-                            ForEach(candidateDevices) { device in
-                                Text(Self.deviceCaption(device))
-                                    .tag(device.deviceId)
+                        GlassPickerRow(
+                            "Desktop",
+                            selection: deviceBinding,
+                            options: candidateDevices.map(\.deviceId),
+                            label: { id in
+                                candidateDevices.first { $0.deviceId == id }
+                                    .map(Self.deviceCaption) ?? id
                             }
-                        }
+                        )
                     }
+                    .listRowBackground(glassFormRowFill)
                 }
 
                 // The agent strip rides the Model section's HEADER (EXP-211):
                 // a standalone clear Section pads its lone row to the 44pt list
                 // minimum, which read as a bigger gap than listSectionSpacing.
                 Section {
-                    Picker("Model", selection: $model) {
-                        ForEach(modelValues, id: \.self) { value in
-                            Text(Self.modelLabel(value)).tag(value)
-                        }
-                    }
-                    Picker(effortTitle, selection: $effort) {
-                        Text("CLI default").tag(Self.cliDefault)
-                        ForEach(effortValues, id: \.self) { value in
-                            Text(Self.effortLabel(value)).tag(value)
-                        }
-                    }
-                    .disabled(ultracode)
+                    GlassPickerRow(
+                        "Model",
+                        selection: $model,
+                        options: modelValues,
+                        label: { Self.modelLabel($0) }
+                    )
+                    GlassPickerRow(
+                        effortTitle,
+                        selection: $effort,
+                        options: [Self.cliDefault] + effortValues,
+                        label: { $0 == Self.cliDefault ? "CLI default" : Self.effortLabel($0) },
+                        enabled: !ultracode
+                    )
                 } header: {
                     if availableAgents.count > 1 {
                         agentTabStrip
                             .textCase(nil)
                     }
                 }
+                .listRowBackground(glassFormRowFill)
 
                 // One footer-less toggle section (EXP-208 — no helper notices,
                 // like the IDE). Ultracode is claude-only, plan mode is
@@ -417,7 +425,12 @@ struct StartCodingSheet: View {
                         Text("A worktree for \(candidate.issueIdentifier ?? "this issue") already exists (\(candidate.branch)).")
                     }
                 }
+                .listRowBackground(glassFormRowFill)
             }
+            // EXP-603: the sheet wears the app background instead of the
+            // system grouped-list gray; rows carry the glass fill.
+            .scrollContentBackground(.hidden)
+            .background(AppBackground())
             // No navigation title (EXP-211) — the confirm button already says
             // "Start coding"; the bar carries only Cancel + Start. Create mode
             // (EXP-431) is the one host that needs to say what it is.
@@ -509,6 +522,7 @@ struct StartCodingSheet: View {
                 issuesFooter
             }
         }
+        .listRowBackground(glassFormRowFill)
     }
 
     private var searchField: some View {
@@ -675,12 +689,14 @@ struct StartCodingSheet: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            .listRowBackground(glassFormRowFill)
         } else if let actionsError {
             Section {
                 Text(actionsError)
                     .font(.caption)
                     .foregroundStyle(DesignTokens.Semantic.red)
             }
+            .listRowBackground(glassFormRowFill)
         }
     }
 
@@ -717,6 +733,7 @@ struct StartCodingSheet: View {
         } header: {
             Text("Actions")
         }
+        .listRowBackground(glassFormRowFill)
     }
 
     private var actionSearchField: some View {
@@ -780,6 +797,7 @@ struct StartCodingSheet: View {
                 inputField(def)
             }
         }
+        .listRowBackground(glassFormRowFill)
     }
 
     @ViewBuilder
@@ -804,19 +822,27 @@ struct StartCodingSheet: View {
                     .lineLimit(3...8)
             }
         case "repo":
-            Picker(inputLabel(def), selection: inputBinding(def.key)) {
-                Text(def.isRequired ? "Select a repository" : "None").tag("")
-                ForEach(repos) { repo in
-                    Text(repo.fullName).tag(repo.id)
+            // The leading `""` is the unset sentinel the picker used to spell
+            // as a bare `Text(...).tag("")` row.
+            GlassPickerRow(
+                inputLabel(def),
+                selection: inputBinding(def.key),
+                options: [""] + repos.map(\.id),
+                label: { id in
+                    guard !id.isEmpty else { return def.isRequired ? "Select a repository" : "None" }
+                    return repos.first { $0.id == id }?.fullName ?? id
                 }
-            }
+            )
         case "board":
-            Picker(inputLabel(def), selection: inputBinding(def.key)) {
-                Text(def.isRequired ? "Select a board" : "None").tag("")
-                ForEach(boards) { board in
-                    Text(board.name).tag(board.id)
+            GlassPickerRow(
+                inputLabel(def),
+                selection: inputBinding(def.key),
+                options: [""] + boards.map(\.id),
+                label: { id in
+                    guard !id.isEmpty else { return def.isRequired ? "Select a board" : "None" }
+                    return boards.first { $0.id == id }?.name ?? id
                 }
-            }
+            )
         case "icon":
             // EXP-273: the value is a curated registry NAME (e.g. `rocket`) —
             // the same string a board stores — picked with the same picker as
@@ -842,12 +868,15 @@ struct StartCodingSheet: View {
                         .foregroundStyle(.secondary)
                 }
             } else {
-                Picker(inputLabel(def), selection: inputBinding(def.key)) {
-                    Text(def.isRequired ? "Select a pull request" : "None").tag("")
-                    ForEach(pullRequests) { pull in
-                        Text(pull.label).tag(pull.issueId)
+                GlassPickerRow(
+                    inputLabel(def),
+                    selection: inputBinding(def.key),
+                    options: [""] + pullRequests.map(\.issueId),
+                    label: { id in
+                        guard !id.isEmpty else { return def.isRequired ? "Select a pull request" : "None" }
+                        return pullRequests.first { $0.issueId == id }?.label ?? id
                     }
-                }
+                )
             }
         default:
             // Unknown future input type — block the run instead of silently
@@ -1106,71 +1135,95 @@ struct StartCodingSheet: View {
     @ViewBuilder
     private var automationSection: some View {
         Section {
-            Picker("Trigger", selection: $automationKind) {
-                Text("Schedule").tag("schedule")
-                Text("On event").tag("event")
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
+            GlassSegmentedControl(
+                options: ["schedule", "event"],
+                selection: automationKind,
+                label: { $0 == "schedule" ? "Schedule" : "On event" },
+                onSelect: { automationKind = $0 }
+            )
+            .accessibilityLabel("Trigger")
 
             if automationKind == "schedule" {
-                Picker("Every", selection: $schedInterval) {
-                    Text("Day").tag("daily")
-                    Text("Week").tag("weekly")
-                    Text("Month").tag("monthly")
-                }
-                if schedInterval == "weekly" {
-                    Picker("Weekday", selection: $schedWeekday) {
-                        ForEach(1...7, id: \.self) { day in
-                            Text(AutomationTriggerDisplay.weekdayNames[day - 1]).tag(day)
+                GlassPickerRow(
+                    "Every",
+                    selection: $schedInterval,
+                    options: ["daily", "weekly", "monthly"],
+                    label: { value in
+                        switch value {
+                        case "weekly": "Week"
+                        case "monthly": "Month"
+                        default: "Day"
                         }
                     }
+                )
+                if schedInterval == "weekly" {
+                    GlassPickerRow(
+                        "Weekday",
+                        selection: $schedWeekday,
+                        options: Array(1...7),
+                        label: { AutomationTriggerDisplay.weekdayNames[$0 - 1] }
+                    )
                 }
                 if schedInterval == "monthly" {
-                    Picker("Day of month", selection: $schedDayOfMonth) {
-                        ForEach(1...28, id: \.self) { day in
-                            Text("\(day)").tag(day)
-                        }
-                    }
+                    GlassPickerRow(
+                        "Day of month",
+                        selection: $schedDayOfMonth,
+                        options: Array(1...28),
+                        label: { "\($0)" }
+                    )
                 }
                 DatePicker("Time", selection: $schedTime, displayedComponents: .hourAndMinute)
             }
 
             if automationKind == "event" {
-                Picker("Event", selection: $eventType) {
-                    ForEach(DomainContract.actionTriggerEventValues, id: \.self) { value in
-                        Text(AutomationTriggerDisplay.eventLabel(value)).tag(value)
+                GlassPickerRow(
+                    "Event",
+                    selection: $eventType,
+                    options: DomainContract.actionTriggerEventValues,
+                    label: { AutomationTriggerDisplay.eventLabel($0) }
+                )
+                GlassPickerRow(
+                    "Board",
+                    selection: $filterBoardId,
+                    options: [""] + boards.map(\.id),
+                    label: { id in
+                        guard !id.isEmpty else { return "Any" }
+                        return boards.first { $0.id == id }?.name ?? id
                     }
-                }
-                Picker("Board", selection: $filterBoardId) {
-                    Text("Any").tag("")
-                    ForEach(boards) { board in
-                        Text(board.name).tag(board.id)
-                    }
-                }
+                )
                 if eventType == "label_added" {
-                    Picker("Label", selection: $filterLabelId) {
-                        Text("Any").tag("")
-                        ForEach(teamLabels) { label in
-                            Text(label.name).tag(label.id)
+                    GlassPickerRow(
+                        "Label",
+                        selection: $filterLabelId,
+                        options: [""] + teamLabels.map(\.id),
+                        label: { id in
+                            guard !id.isEmpty else { return "Any" }
+                            return teamLabels.first { $0.id == id }?.name ?? id
                         }
-                    }
+                    )
                 }
                 if eventType == "created" || eventType == "priority_changed" {
-                    Picker("Priority", selection: $filterPriority) {
-                        Text("Any").tag("")
-                        ForEach(IssuePriority.displayOrder) { priority in
-                            Text(priority.label).tag(priority.rawValue)
+                    GlassPickerRow(
+                        "Priority",
+                        selection: $filterPriority,
+                        options: [""] + IssuePriority.displayOrder.map(\.rawValue),
+                        label: { value in
+                            guard !value.isEmpty else { return "Any" }
+                            return IssuePriority.displayOrder
+                                .first { $0.rawValue == value }?.label ?? value
                         }
-                    }
+                    )
                 }
                 if eventType == "status_changed" {
-                    Picker("To status", selection: $filterToStatusId) {
-                        Text("Any").tag("")
-                        ForEach(teamStatuses) { status in
-                            Text(status.name).tag(status.id)
+                    GlassPickerRow(
+                        "To status",
+                        selection: $filterToStatusId,
+                        options: [""] + teamStatuses.map(\.id),
+                        label: { id in
+                            guard !id.isEmpty else { return "Any" }
+                            return teamStatuses.first { $0.id == id }?.name ?? id
                         }
-                    }
+                    )
                 }
             }
 
@@ -1179,30 +1232,34 @@ struct StartCodingSheet: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                Picker("Runs on", selection: automationDeviceBinding) {
-                    ForEach(automationDevices) { device in
-                        Text(Self.automationDeviceCaption(device)).tag(device.deviceId)
+                GlassPickerRow(
+                    "Runs on",
+                    selection: automationDeviceBinding,
+                    options: automationDevices.map(\.deviceId),
+                    label: { id in
+                        automationDevices.first { $0.deviceId == id }
+                            .map(Self.automationDeviceCaption) ?? id
                     }
-                }
-                Picker("Agent", selection: automationAgentBinding) {
-                    Text("Device default").tag("")
-                    ForEach(automationAgents, id: \.self) { value in
-                        Text(Self.agentLabel(value)).tag(value)
-                    }
-                }
+                )
+                GlassPickerRow(
+                    "Agent",
+                    selection: automationAgentBinding,
+                    options: [""] + automationAgents,
+                    label: { $0.isEmpty ? "Device default" : Self.agentLabel($0) }
+                )
                 if let pinned = pinnedAutomationAgent {
-                    Picker("Model", selection: $automationModel) {
-                        Text("Device default").tag("")
-                        ForEach(Self.automationModelValues(for: pinned), id: \.self) { value in
-                            Text(Self.modelLabel(value)).tag(value)
-                        }
-                    }
-                    Picker(Self.automationEffortTitle(for: pinned), selection: $automationEffort) {
-                        Text("Device default").tag("")
-                        ForEach(Self.effortValues(for: pinned), id: \.self) { value in
-                            Text(Self.effortLabel(value)).tag(value)
-                        }
-                    }
+                    GlassPickerRow(
+                        "Model",
+                        selection: $automationModel,
+                        options: [""] + Self.automationModelValues(for: pinned),
+                        label: { $0.isEmpty ? "Device default" : Self.modelLabel($0) }
+                    )
+                    GlassPickerRow(
+                        Self.automationEffortTitle(for: pinned),
+                        selection: $automationEffort,
+                        options: [""] + Self.effortValues(for: pinned),
+                        label: { $0.isEmpty ? "Device default" : Self.effortLabel($0) }
+                    )
                 }
             }
         } header: {
@@ -1210,6 +1267,7 @@ struct StartCodingSheet: View {
         } footer: {
             Text("The agent sets this up after writing the action.")
         }
+        .listRowBackground(glassFormRowFill)
     }
 
     /// The automation's model list: the sheet's own "Device default" row

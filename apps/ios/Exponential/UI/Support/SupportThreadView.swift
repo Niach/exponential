@@ -15,6 +15,9 @@ struct SupportThreadView: View {
     @State private var viewModel: SupportThreadViewModel?
     @State private var composerText = ""
     @State private var internalNote = false
+    /// EXP-603: the board choice used to be a nested `Menu`; a glass menu has
+    /// no submenus, so escalation picks its board in a sheet.
+    @State private var escalateOpen = false
     @FocusState private var composerFocused: Bool
 
     var body: some View {
@@ -41,6 +44,28 @@ struct SupportThreadView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if let vm = viewModel {
                 composer(vm)
+            }
+        }
+        .sheet(isPresented: $escalateOpen) {
+            if let vm = viewModel {
+                GlassPickerSheet(
+                    title: "Escalate to issue",
+                    items: vm.boards,
+                    selectedID: nil as String?,
+                    idFor: { $0.id },
+                    onSelect: { board in
+                        Task { await vm.escalate(boardId: board.id) }
+                    }
+                ) { board in
+                    Label {
+                        Text(board.name)
+                    } icon: {
+                        // Board glyph tinted with the board color — the move-to-board
+                        // picker's idiom (EXP-449).
+                        AppIcon(BoardTypeDisplay.iconName(for: board), size: 16)
+                            .foregroundStyle(Color(hex: board.color ?? "#888888") ?? .gray)
+                    }
+                }
             }
         }
         .onAppear {
@@ -271,29 +296,19 @@ struct SupportThreadView: View {
 
     @ViewBuilder
     private func toolbarMenu(_ vm: SupportThreadViewModel) -> some View {
-        Menu {
+        GlassMenu {
             if vm.linkedIssue == nil, !vm.boards.isEmpty {
-                Menu {
-                    ForEach(vm.boards) { board in
-                        Button(board.name) {
-                            Task { await vm.escalate(boardId: board.id) }
-                        }
-                    }
-                } label: {
-                    Label("Escalate to issue", appIcon: AppIcons.uiExternalLink)
+                GlassMenuItem("Escalate to issue", icon: AppIcons.uiExternalLink) {
+                    escalateOpen = true
                 }
             }
             if vm.isOpen {
-                Button {
+                GlassMenuItem("Close ticket", icon: AppIcons.supportResolved) {
                     Task { await vm.close() }
-                } label: {
-                    Label("Close ticket", appIcon: AppIcons.supportResolved)
                 }
             } else {
-                Button {
+                GlassMenuItem("Reopen ticket", icon: AppIcons.supportOpen) {
                     Task { await vm.reopen() }
-                } label: {
-                    Label("Reopen ticket", appIcon: AppIcons.supportOpen)
                 }
             }
         } label: {

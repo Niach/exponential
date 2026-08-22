@@ -95,9 +95,15 @@ struct AutomationFormSheet: View {
                     launchSection
                 }
             }
+            // EXP-603: the app background instead of the system grouped-list
+            // gray; rows carry the glass fill.
+            .scrollContentBackground(.hidden)
+            .background(AppBackground())
             .navigationTitle(editing == nil ? "New automation" : "Edit automation")
             .navigationBarTitleDisplayMode(.inline)
             .listSectionSpacing(12)
+            // EXP-594: white control tint — system blue is retired.
+            .tint(DesignTokens.Palette.primary)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -125,82 +131,112 @@ struct AutomationFormSheet: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                Picker("Action", selection: $actionId) {
-                    ForEach(eligibleActions) { action in
-                        Text(action.name).tag(action.id)
+                GlassPickerRow(
+                    "Action",
+                    selection: $actionId,
+                    options: eligibleActions.map(\.id),
+                    label: { id in
+                        eligibleActions.first { $0.id == id }?.name ?? id
                     }
-                }
+                )
             }
         } header: {
             Text("Action")
         }
+        .listRowBackground(glassFormRowFill)
     }
 
     private var triggerSection: some View {
         Section {
-            Picker("Trigger", selection: $kind) {
-                Text("Schedule").tag("schedule")
-                Text("On event").tag("event")
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
+            GlassSegmentedControl(
+                options: ["schedule", "event"],
+                selection: kind,
+                label: { $0 == "schedule" ? "Schedule" : "On event" },
+                onSelect: { kind = $0 }
+            )
+            .accessibilityLabel("Trigger")
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
 
             if kind == "schedule" {
-                Picker("Every", selection: $schedInterval) {
-                    Text("Day").tag("daily")
-                    Text("Week").tag("weekly")
-                    Text("Month").tag("monthly")
-                }
-                if schedInterval == "weekly" {
-                    Picker("Weekday", selection: $schedWeekday) {
-                        ForEach(1...7, id: \.self) { day in
-                            Text(AutomationTriggerDisplay.weekdayNames[day - 1]).tag(day)
+                GlassPickerRow(
+                    "Every",
+                    selection: $schedInterval,
+                    options: ["daily", "weekly", "monthly"],
+                    label: { value in
+                        switch value {
+                        case "weekly": "Week"
+                        case "monthly": "Month"
+                        default: "Day"
                         }
                     }
+                )
+                if schedInterval == "weekly" {
+                    GlassPickerRow(
+                        "Weekday",
+                        selection: $schedWeekday,
+                        options: Array(1...7),
+                        label: { AutomationTriggerDisplay.weekdayNames[$0 - 1] }
+                    )
                 }
                 if schedInterval == "monthly" {
-                    Picker("Day of month", selection: $schedDayOfMonth) {
-                        ForEach(1...28, id: \.self) { day in
-                            Text("\(day)").tag(day)
-                        }
-                    }
+                    GlassPickerRow(
+                        "Day of month",
+                        selection: $schedDayOfMonth,
+                        options: Array(1...28),
+                        label: { "\($0)" }
+                    )
                 }
                 DatePicker("Time", selection: $schedTime, displayedComponents: .hourAndMinute)
             } else {
-                Picker("Event", selection: $eventType) {
-                    ForEach(DomainContract.actionTriggerEventValues, id: \.self) { value in
-                        Text(AutomationTriggerDisplay.eventLabel(value)).tag(value)
+                GlassPickerRow(
+                    "Event",
+                    selection: $eventType,
+                    options: DomainContract.actionTriggerEventValues,
+                    label: { AutomationTriggerDisplay.eventLabel($0) }
+                )
+                GlassPickerRow(
+                    "Board",
+                    selection: $filterBoardId,
+                    options: [""] + boards.map(\.id),
+                    label: { id in
+                        guard !id.isEmpty else { return "Any" }
+                        return boards.first { $0.id == id }?.name ?? id
                     }
-                }
-                Picker("Board", selection: $filterBoardId) {
-                    Text("Any").tag("")
-                    ForEach(boards) { board in
-                        Text(board.name).tag(board.id)
-                    }
-                }
+                )
                 if eventType == "label_added" {
-                    Picker("Label", selection: $filterLabelId) {
-                        Text("Any").tag("")
-                        ForEach(teamLabels) { label in
-                            Text(label.name).tag(label.id)
+                    GlassPickerRow(
+                        "Label",
+                        selection: $filterLabelId,
+                        options: [""] + teamLabels.map(\.id),
+                        label: { id in
+                            guard !id.isEmpty else { return "Any" }
+                            return teamLabels.first { $0.id == id }?.name ?? id
                         }
-                    }
+                    )
                 }
                 if eventType == "created" || eventType == "priority_changed" {
-                    Picker("Priority", selection: $filterPriority) {
-                        Text("Any").tag("")
-                        ForEach(IssuePriority.displayOrder) { priority in
-                            Text(priority.label).tag(priority.rawValue)
+                    GlassPickerRow(
+                        "Priority",
+                        selection: $filterPriority,
+                        options: [""] + IssuePriority.displayOrder.map(\.rawValue),
+                        label: { value in
+                            guard !value.isEmpty else { return "Any" }
+                            return IssuePriority.displayOrder
+                                .first { $0.rawValue == value }?.label ?? value
                         }
-                    }
+                    )
                 }
                 if eventType == "status_changed" {
-                    Picker("To status", selection: $filterToStatusId) {
-                        Text("Any").tag("")
-                        ForEach(teamStatuses) { status in
-                            Text(status.name).tag(status.id)
+                    GlassPickerRow(
+                        "To status",
+                        selection: $filterToStatusId,
+                        options: [""] + teamStatuses.map(\.id),
+                        label: { id in
+                            guard !id.isEmpty else { return "Any" }
+                            return teamStatuses.first { $0.id == id }?.name ?? id
                         }
-                    }
+                    )
                 }
             }
         } header: {
@@ -210,6 +246,7 @@ struct AutomationFormSheet: View {
                 Text("Schedules fire on the machine's own clock.")
             }
         }
+        .listRowBackground(glassFormRowFill)
     }
 
     @ViewBuilder
@@ -220,40 +257,57 @@ struct AutomationFormSheet: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                Picker("Runs on", selection: deviceBinding) {
-                    ForEach(devices) { device in
-                        Text(Self.deviceCaption(device)).tag(device.deviceId)
+                GlassPickerRow(
+                    "Runs on",
+                    selection: deviceBinding,
+                    options: devices.map(\.deviceId),
+                    label: { id in
+                        devices.first { $0.deviceId == id }.map(Self.deviceCaption) ?? id
                     }
-                }
-                Picker("Agent", selection: agentBinding) {
-                    Text("Device default").tag(Self.deviceDefault)
-                    ForEach(availableAgents, id: \.self) { value in
-                        Text(StartCodingSheet.agentLabel(value)).tag(value)
+                )
+                GlassPickerRow(
+                    "Agent",
+                    selection: agentBinding,
+                    options: [Self.deviceDefault] + availableAgents,
+                    label: { value in
+                        value == Self.deviceDefault
+                            ? "Device default"
+                            : StartCodingSheet.agentLabel(value)
                     }
-                }
+                )
             }
         } header: {
             Text("Runs on")
         }
+        .listRowBackground(glassFormRowFill)
     }
 
     @ViewBuilder
     private var launchSection: some View {
         if let pinnedAgent {
             Section {
-                Picker("Model", selection: $model) {
-                    Text("Device default").tag(Self.deviceDefault)
-                    ForEach(Self.modelOptions(for: pinnedAgent), id: \.self) { value in
-                        Text(StartCodingSheet.modelLabel(value)).tag(value)
+                GlassPickerRow(
+                    "Model",
+                    selection: $model,
+                    options: [Self.deviceDefault] + Self.modelOptions(for: pinnedAgent),
+                    label: { value in
+                        value == Self.deviceDefault
+                            ? "Device default"
+                            : StartCodingSheet.modelLabel(value)
                     }
-                }
-                Picker(Self.effortTitle(for: pinnedAgent), selection: $effort) {
-                    Text("Device default").tag(Self.deviceDefault)
-                    ForEach(StartCodingSheet.effortValues(for: pinnedAgent), id: \.self) { value in
-                        Text(StartCodingSheet.effortLabel(value)).tag(value)
+                )
+                GlassPickerRow(
+                    Self.effortTitle(for: pinnedAgent),
+                    selection: $effort,
+                    options: [Self.deviceDefault] + StartCodingSheet.effortValues(for: pinnedAgent),
+                    label: { value in
+                        value == Self.deviceDefault
+                            ? "Device default"
+                            : StartCodingSheet.effortLabel(value)
                     }
-                }
+                )
             }
+            .listRowBackground(glassFormRowFill)
         }
     }
 

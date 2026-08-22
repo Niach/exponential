@@ -34,6 +34,9 @@ struct IssueDetailView: View {
     // The board picked in the move sheet, pending confirmation (EXP-57) —
     // non-nil drives the "Move issue" alert.
     @State private var moveTarget: BoardEntity?
+    /// EXP-603: `ShareLink` cannot live inside a `GlassMenu` (its rows are
+    /// plain buttons), so the menu item hands the URL to a host-level sheet.
+    @State private var shareTarget: ShareTarget?
     /// EXP-536: consumed-once push into the run this screen just started —
     /// single AND batch (a batch row is issue-less, so the start circle can
     /// never reflect it).
@@ -330,50 +333,41 @@ struct IssueDetailView: View {
                 // readable instead of guessed), next to Move to board. The MENU
                 // is available to everyone; only the mutating items are
                 // moderator-gated (parity with Android).
+                .sheet(item: $shareTarget) { target in
+                    ActivityShareSheet(items: [target.text, target.url])
+                }
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
-                        Menu {
+                        GlassMenu {
                             if let shareURL = vm.shareURL {
-                                ShareLink(
-                                    item: shareURL,
-                                    subject: Text(vm.shareText),
-                                    message: Text(vm.shareText)
-                                ) {
-                                    Label("Share", appIcon: AppIcons.uiShare)
+                                GlassMenuItem("Share", icon: AppIcons.uiShare) {
+                                    shareTarget = ShareTarget(url: shareURL, text: vm.shareText)
                                 }
                             }
-                            Button {
+                            GlassMenuItem(
+                                vm.isSubscribed ? "Unsubscribe" : "Subscribe",
+                                icon: vm.isSubscribed ? AppIcons.uiUnsubscribe : AppIcons.uiSubscribe
+                            ) {
                                 Task { await vm.toggleSubscribe() }
-                            } label: {
-                                Label(
-                                    vm.isSubscribed ? "Unsubscribe" : "Subscribe",
-                                    appIcon: vm.isSubscribed ? AppIcons.uiUnsubscribe : AppIcons.uiSubscribe
-                                )
                             }
                             if vm.permissions.isModerator {
                                 // Duplicate = status interception (L27): unmark is
                                 // the only duplicate action here; marking happens via
                                 // the `duplicate` status picker.
                                 if issue.duplicateOfId != nil {
-                                    Button {
+                                    GlassMenuItem("Unmark duplicate", icon: AppIcons.statusDuplicate) {
                                         Task { await vm.unmarkDuplicate() }
-                                    } label: {
-                                        Label("Unmark duplicate", appIcon: AppIcons.statusDuplicate)
                                     }
                                 }
                                 // Move to another board in the same team
                                 // (EXP-57) — hidden when there's nowhere to go.
                                 if !vm.moveTargetBoards.isEmpty {
-                                    Button {
+                                    GlassMenuItem("Move to board", icon: AppIcons.navBoards) {
                                         activeSheet = .moveBoard
-                                    } label: {
-                                        Label("Move to board", appIcon: AppIcons.navBoards)
                                     }
                                 }
-                                Button(role: .destructive) {
+                                GlassMenuItem("Delete issue", icon: AppIcons.uiDelete, destructive: true) {
                                     showDeleteConfirm = true
-                                } label: {
-                                    Label("Delete issue", appIcon: AppIcons.uiDelete)
                                 }
                             }
                         } label: {
@@ -576,9 +570,9 @@ struct IssueDetailView: View {
         case .moveBoard:
             // Move to board (EXP-57): pick a same-team target, then
             // confirm — the issue is renumbered in the target board, so
-            // the move deserves an explicit yes before it fires.
-            // Deliberately still the stock PickerSheet.
-            PickerSheet(
+            // the move deserves an explicit yes before it fires. Glass since
+            // EXP-603 retired the stock `PickerSheet`.
+            GlassPickerSheet(
                 title: "Move to board",
                 items: vm.moveTargetBoards,
                 selectedID: issue.boardId,

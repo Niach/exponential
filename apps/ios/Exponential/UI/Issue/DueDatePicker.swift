@@ -75,7 +75,7 @@ struct DueDatePicker: View {
                 )
                 .datePickerStyle(.graphical)
                 .labelsHidden()
-                .tint(.blue)
+                .tint(DesignTokens.Palette.primary)
                 .colorScheme(.dark)
                 .padding(.horizontal, 8)
                 .padding(.bottom, 8)

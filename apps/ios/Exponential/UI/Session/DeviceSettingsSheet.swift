@@ -112,8 +112,13 @@ struct DeviceSettingsSheet: View {
                             .font(.caption)
                             .foregroundStyle(DesignTokens.Semantic.red)
                     }
+                    .listRowBackground(glassFormRowFill)
                 }
             }
+            // EXP-603: the app background instead of the system grouped-list
+            // gray; rows carry the glass fill.
+            .scrollContentBackground(.hidden)
+            .background(AppBackground())
             .navigationTitle(device.deviceLabel.isEmpty ? device.deviceId : device.deviceLabel)
             .navigationBarTitleDisplayMode(.inline)
             .listSectionSpacing(12)
@@ -247,6 +252,7 @@ struct DeviceSettingsSheet: View {
                 }
             }
         }
+        .listRowBackground(glassFormRowFill)
     }
 
     private var trimmedName: String {
@@ -309,13 +315,16 @@ struct DeviceSettingsSheet: View {
 
     private func sharingSection(_ device: SteerDevice) -> some View {
         Section {
-            Picker("Shared with", selection: $sharedTeamTag) {
-                Text("Not shared").tag(Self.notShared)
-                ForEach(teams) { team in
-                    Text(team.name).tag(team.id)
-                }
-            }
-            .disabled(savingShare)
+            GlassPickerRow(
+                "Shared with",
+                selection: $sharedTeamTag,
+                options: [Self.notShared] + teams.map(\.id),
+                label: { id in
+                    guard id != Self.notShared else { return "Not shared" }
+                    return teams.first { $0.id == id }?.name ?? id
+                },
+                enabled: !savingShare
+            )
             .onChange(of: sharedTeamTag) { oldValue, newValue in
                 guard seeded, oldValue != newValue else { return }
                 // The live echo writes this too — a re-seed to what the row
@@ -328,6 +337,7 @@ struct DeviceSettingsSheet: View {
         } footer: {
             Text("Teammates of the shared team can start coding sessions on this server. Moving or clearing the share ends their running sessions.")
         }
+        .listRowBackground(glassFormRowFill)
     }
 
     private func saveShare(teamId: String?) {
@@ -366,33 +376,38 @@ struct DeviceSettingsSheet: View {
         let agents = editableAgents(device)
         return Section {
             if agents.count > 1 {
-                Picker("Default agent", selection: defaultAgentBinding) {
-                    ForEach(agents, id: \.self) { value in
-                        Text(Self.agentLabel(value)).tag(value)
-                    }
-                }
+                GlassPickerRow(
+                    "Default agent",
+                    selection: defaultAgentBinding,
+                    options: agents,
+                    label: { Self.agentLabel($0) }
+                )
                 // Which agent's options are on screen — a view choice, never
                 // an edit, so it deliberately bypasses the autosave.
-                Picker("Agent", selection: $selectedAgent) {
-                    ForEach(agents, id: \.self) { value in
-                        Text(Self.agentLabel(value)).tag(value)
-                    }
-                }
-                .pickerStyle(.segmented)
+                GlassSegmentedControl(
+                    options: agents,
+                    selection: selectedAgent,
+                    label: { Self.agentLabel($0) },
+                    onSelect: { selectedAgent = $0 }
+                )
+                .accessibilityLabel("Agent")
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
             }
             if let draft = drafts[selectedAgent] {
-                Picker("Model", selection: draftBinding(\.model)) {
-                    ForEach(Self.modelValues(for: selectedAgent), id: \.self) { value in
-                        Text(Self.modelLabel(value)).tag(value)
-                    }
-                }
-                Picker(Self.effortTitle(for: selectedAgent), selection: draftBinding(\.effort)) {
-                    Text("CLI default").tag(Self.cliDefault)
-                    ForEach(Self.effortValues(for: selectedAgent), id: \.self) { value in
-                        Text(Self.effortLabel(value)).tag(value)
-                    }
-                }
-                .disabled(selectedAgent == "claude" && draft.ultracode)
+                GlassPickerRow(
+                    "Model",
+                    selection: draftBinding(\.model),
+                    options: Self.modelValues(for: selectedAgent),
+                    label: { Self.modelLabel($0) }
+                )
+                GlassPickerRow(
+                    Self.effortTitle(for: selectedAgent),
+                    selection: draftBinding(\.effort),
+                    options: [Self.cliDefault] + Self.effortValues(for: selectedAgent),
+                    label: { $0 == Self.cliDefault ? "CLI default" : Self.effortLabel($0) },
+                    enabled: !(selectedAgent == "claude" && draft.ultracode)
+                )
                 if selectedAgent == "claude" {
                     Toggle("Ultracode", isOn: draftBinding(\.ultracode))
                 }
@@ -408,6 +423,7 @@ struct DeviceSettingsSheet: View {
                 Text("Applies when the device comes online.")
             }
         }
+        .listRowBackground(glassFormRowFill)
     }
 
     /// Like `draftBinding`, a choke point that only a USER pick runs through —
@@ -559,6 +575,7 @@ struct DeviceSettingsSheet: View {
                 Text("Runs when the device comes online.")
             }
         }
+        .listRowBackground(glassFormRowFill)
     }
 
     @ViewBuilder

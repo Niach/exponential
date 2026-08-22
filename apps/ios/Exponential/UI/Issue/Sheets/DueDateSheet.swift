@@ -26,7 +26,7 @@ struct DueDateSheet: View {
                     )
                     .datePickerStyle(.graphical)
                     .labelsHidden()
-                    .tint(.blue)
+                    .tint(DesignTokens.Palette.primary)
                     .colorScheme(.dark)
                     // No date yet: the calendar previews today until a tap
                     // commits — dim it slightly so "unset" stays legible.

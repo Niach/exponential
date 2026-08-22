@@ -420,7 +420,7 @@ struct AgentsView: View {
             // EXP-432: rename / remove / update are OWN-machine actions —
             // a teammate's shared server is startable but not manageable.
             if device.isMine, device.isRegistered {
-                Menu {
+                GlassMenu {
                     deviceMenu(device)
                 } label: {
                     AppIcon(AppIcons.uiMore, size: AppIcon.Size.medium)
@@ -482,25 +482,19 @@ struct AgentsView: View {
     /// and it needs the machine online to pick the request up.
     @ViewBuilder
     private func deviceMenu(_ device: SteerDevice) -> some View {
-        Button {
+        GlassMenuItem("Edit", icon: AppIcons.uiEdit) {
             settingsTarget = DeviceSettingsTarget(id: device.deviceId)
-        } label: {
-            Label("Edit", appIcon: AppIcons.uiEdit)
         }
         // EXP-420: offered only when a newer CLI version really exists.
         if device.isServer, device.isOnline, !isUpdating(device),
             device.updateAvailable(latest: latestVersions?.cli)
         {
-            Button {
+            GlassMenuItem("Update", icon: AppIcons.uiUpdate) {
                 requestUpdate(device)
-            } label: {
-                Label("Update", appIcon: AppIcons.uiUpdate)
             }
         }
-        Button(role: .destructive) {
+        GlassMenuItem("Remove", icon: AppIcons.uiDelete, destructive: true) {
             removeTarget = device
-        } label: {
-            Label("Remove", appIcon: AppIcons.uiDelete)
         }
     }
 
