@@ -105,6 +105,19 @@ pub struct QuestionSnapshot {
 /// The label is cut at the first such character.
 const PREVIEW_PANE_CHARS: &[char] = &['│', '┌', '┐', '└', '┘', '├', '┤', '─'];
 
+/// The gutter glyph claude ≥2.1.239 renders in front of each WRAPPED
+/// question-text line (EXP-610; a single-line question stays bare). It is
+/// presentation, not content — stripped from the extracted text so it keeps
+/// matching the hook's question and the transcript twin.
+const TEXT_GUTTER: char = '│';
+
+/// Strip the leading `│ ` gutter off one question-text line (see
+/// [`TEXT_GUTTER`]). A bare gutter glyph strips to empty, which the callers'
+/// boundary logic then treats like a blank line.
+fn strip_text_gutter(t: &str) -> &str {
+    t.strip_prefix(TEXT_GUTTER).map(str::trim_start).unwrap_or(t)
+}
+
 /// Claude's synthetic free-text row ("Type something." — the trailing dot
 /// varies by version). On a SINGLE-select picker its digit only moves the
 /// cursor, typed characters then fill the row in place, and Enter submits
@@ -372,9 +385,11 @@ fn detect_impl(lines: &[String], ask_pending: bool) -> Option<QuestionSnapshot> 
     // Question text: the contiguous non-blank block right above the options
     // (long questions wrap — re-join the lines), bounded by the tab bar (when
     // visible — an overflowed one leaves the block bounded by the screen top).
+    // Wrapped text renders behind a `│` gutter on claude ≥2.1.239 (EXP-610) —
+    // stripped per line so the joined text matches the hook's question.
     let mut text_lines: Vec<&str> = Vec::new();
     for line in lines[tab_idx.map_or(0, |idx| idx + 1)..first_idx].iter().rev() {
-        let t = line.trim();
+        let t = strip_text_gutter(line.trim());
         if is_boundary(t) || parse_option_row(t).is_some() {
             if text_lines.is_empty() {
                 continue; // still skipping the gap under the question
@@ -404,9 +419,14 @@ fn detect_impl(lines: &[String], ask_pending: bool) -> Option<QuestionSnapshot> 
 
 /// Whitespace-insensitive question-text identity — the grid renders the text
 /// re-wrapped, the transcript carries it raw; stripping ALL whitespace makes
-/// the two comparable (and survives mid-word wrap points).
+/// the two comparable (and survives mid-word wrap points). The `│` wrap
+/// gutter is stripped too (EXP-610): the grid interleaves it into wrapped
+/// text, and dropping it from BOTH sides keeps a question that legitimately
+/// contains the glyph (a markdown table) comparable as well.
 pub fn normalize_question_text(s: &str) -> String {
-    s.chars().filter(|c| !c.is_whitespace()).collect()
+    s.chars()
+        .filter(|c| !c.is_whitespace() && *c != TEXT_GUTTER)
+        .collect()
 }
 
 /// The option number the `❯` cursor sits on, if any. The free-text reply
@@ -705,6 +725,51 @@ mod tests {
         lines[9] = "  4. Type something.".into();
         assert_eq!(selected_option(&screen(&["no picker here"])), None);
         assert_eq!(selected_option(&lines), None);
+    }
+
+    /// Captured against claude v2.1.239 at 80x24 (EXP-610): a question text
+    /// that WRAPS renders each of its lines behind a `│ ` gutter (single-line
+    /// questions stay bare). The gutter used to leak into the extracted text,
+    /// so it matched neither the hook's question nor the transcript twin —
+    /// every remote answer was refused as "wrong tab up" until the retry TTL
+    /// dropped it, no ack ever came, and the mobile stepper rolled back with
+    /// "No confirmation from the desktop".
+    #[test]
+    fn wrap_gutter_is_stripped_from_the_question_text() {
+        let lines = screen(&[
+            "────────────────────────────────────────────────────────────────",
+            "←  ☐ Docs label  ☐ Pricing  ☐ Scope  ☐ Tone  ✔ Submit  →",
+            "│ The `/docs/coding/` page is titled \"Coding with Claude\" in the nav, page",
+            "│ title, H1, SEO meta and breadcrumb - but the product runs claude, codex and",
+            "│ pi. What should it become? (The URL stays `/docs/coding/` either way.)",
+            "❯ 1. \"Coding agents\" (Recommended)",
+            "     Neutral, matches the products own vocabulary.",
+            "  2. \"Coding with agents\"",
+            "  3. \"Coding\"",
+            "  4. Type something.",
+            "────────────────────────────────────────────────────────────────",
+            "  5. Chat about this",
+            "Enter to select · Tab/Arrow keys to navigate · Esc to cancel",
+        ]);
+        let snap = detect(&lines).expect("guttered picker detected");
+        assert_eq!(
+            snap.text,
+            "The `/docs/coding/` page is titled \"Coding with Claude\" in the nav, page \
+             title, H1, SEO meta and breadcrumb - but the product runs claude, codex and \
+             pi. What should it become? (The URL stays `/docs/coding/` either way.)"
+        );
+        assert_eq!(snap.current_tab, Some(0));
+        assert!(!snap.review);
+    }
+
+    #[test]
+    fn normalization_is_gutter_insensitive() {
+        // Belt and braces under the extraction fix: even a gutter variant the
+        // extractor misses must still compare equal to the hook's raw text.
+        assert_eq!(
+            normalize_question_text("│ Which color │ do you prefer?"),
+            normalize_question_text("Which color do you prefer?")
+        );
     }
 
     #[test]

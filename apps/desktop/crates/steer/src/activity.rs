@@ -421,6 +421,22 @@ pub struct TranscriptState {
     /// EXP-249: ask ids the HOOK already published (identity, not text) —
     /// their post-answer transcript twins are swallowed outright.
     pub hook_published_asks: HashSet<String>,
+    /// EXP-610: the hooks sidecar is wired, so every `AskUserQuestion` is (or
+    /// is about to be) published by identity from its hook — the transcript's
+    /// ask twin is then ALWAYS swallowed. Matching on
+    /// [`Self::hook_published_asks`] alone raced exactly like the Task
+    /// headlines ([`Self::suppress_task_headlines`]): an ask that resolves
+    /// within one poll tick (the free-text Esc-reroute dismisses a picker the
+    /// moment a steered message lands) flushes its twin BEFORE the hook that
+    /// announced it drains, and the twin then published every question as a
+    /// stale answerable id-less card.
+    pub suppress_ask_questions: bool,
+    /// EXP-610: ask ids whose tool_result already flushed (truncated to
+    /// `ID_MAX`, the hook side's key) — the other half of the same race: the
+    /// late-draining `QuestionsAsked` hook must NOT publish cards for a
+    /// picker that no longer exists (their `question_resolved` already went
+    /// by, so the stepper would wedge forever).
+    pub resolved_asks: Vec<String>,
     /// EXP-483: `ExitPlanMode` tool_use ids the plan HOOK saw — when the
     /// withheld twin entry flushes, prose in that same entry anchors above
     /// the already-published plan card (`beforeQuestionId`). Kept separate
@@ -481,6 +497,9 @@ const TASK_EVENTS_CAP: usize = 32;
 const RECENT_GRID_QUESTIONS_CAP: usize = 16;
 /// Un-resulted AskUserQuestion tool_use cap.
 const PENDING_ASKS_CAP: usize = 8;
+/// Resolved-ask memory cap (EXP-610) — only a hook racing its own ask's
+/// resolution inside one tick ever reads this back.
+const RESOLVED_ASKS_CAP: usize = 8;
 
 impl TranscriptState {
     /// Remember a grid-published question so its transcript twin is swallowed.
@@ -544,11 +563,18 @@ pub fn process_transcript_line(
         Some("assistant") => {
             let ask_ids = record_pending_asks(&entry, state);
             // EXP-249: the hook published this ask by identity — its twin is
-            // swallowed whole, no text matching involved.
+            // swallowed whole, no text matching involved. EXP-610: with the
+            // sidecar wired the hook may not have DRAINED yet (an ask that
+            // resolves within one tick flushes its twin first) — the entry's
+            // own id is then the identity the hook will publish under.
             let hook_ask = ask_ids
                 .iter()
                 .find(|id| state.hook_published_asks.contains(*id))
-                .cloned();
+                .cloned()
+                .or_else(|| {
+                    (state.suppress_ask_questions && !ask_ids.is_empty())
+                        .then(|| ask_ids[0].clone())
+                });
             // EXP-483: a hook-published plan whose withheld twin this entry
             // carries — consumed here so the set never outlives its flush.
             let hook_plan =
@@ -881,6 +907,14 @@ fn take_ask_answers(
         };
         let (ask_id, questions) = state.pending_asks.remove(pos);
         state.hook_published_asks.remove(&ask_id);
+        // EXP-610: remember the resolution under the hook side's key — a
+        // `QuestionsAsked` hook draining AFTER this flush must not publish
+        // cards for the dead picker (see `TranscriptState::resolved_asks`).
+        state.resolved_asks.push(truncate(&ask_id, ID_MAX));
+        if state.resolved_asks.len() > RESOLVED_ASKS_CAP {
+            let excess = state.resolved_asks.len() - RESOLVED_ASKS_CAP;
+            state.resolved_asks.drain(..excess);
+        }
         let answers = entry
             .get("toolUseResult")
             .and_then(|v| v.get("answers"))
@@ -2199,6 +2233,16 @@ impl SteerState {
                     return;
                 };
                 let ask_id = truncate(&ask_id, ID_MAX);
+                // EXP-610: the ask can be DEAD by the time its hook drains —
+                // the free-text Esc-reroute dismisses a picker the moment a
+                // steered message lands, and the twin + result then flush in
+                // the same tick, before this delivery. Publishing would mint
+                // answerable cards (and a stepper) for a picker that no
+                // longer exists, wedged forever: their `question_resolved`
+                // already went by.
+                if transcript.resolved_asks.iter().any(|id| id == &ask_id) {
+                    return;
+                }
                 transcript.hook_published_asks.insert(ask_id.clone());
                 let total = questions.len() as u32;
                 let mut published_options = Vec::with_capacity(questions.len());
@@ -3436,6 +3480,7 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
     let mut permission_watcher = PermissionPickerWatcher::new();
     let mut transcript_state = TranscriptState {
         suppress_task_headlines: config.hooks.is_some(),
+        suppress_ask_questions: config.hooks.is_some(),
         ..TranscriptState::default()
     };
     let mut steer = SteerState::default();
@@ -4919,6 +4964,114 @@ mod tests {
             other => panic!("expected two narrations + a resolution, got {other:?}"),
         }
         assert!(state.hook_published_asks.is_empty(), "the ask is over");
+    }
+
+    #[test]
+    fn a_hook_wired_session_swallows_an_ask_twin_that_beats_its_hook() {
+        // EXP-610: an ask that resolves within one poll tick (the free-text
+        // Esc-reroute dismisses the picker the moment a steered message
+        // lands) flushes its twin BEFORE the QuestionsAsked hook drains —
+        // `hook_published_asks` is still empty then, and the twin published
+        // every question as a stale answerable id-less card ("shows all
+        // questions at once"). With the sidecar wired the twin is swallowed
+        // by FLAG, exactly like the Task headlines.
+        let redactor = Redactor::new(vec![]);
+        let mut state = TranscriptState {
+            suppress_ask_questions: true,
+            ..Default::default()
+        };
+        let (tool_use, tool_result) = answered_ask_lines();
+        assert_eq!(
+            process_transcript_line(&tool_use, &redactor, &mut state),
+            vec![],
+            "the twin never publishes while the sidecar owns asks"
+        );
+        // The resolution still flows (narrations + the semantic retirement).
+        assert_eq!(
+            process_transcript_line(&tool_result, &redactor, &mut state).len(),
+            3
+        );
+    }
+
+    #[test]
+    fn a_hook_draining_after_its_asks_resolution_publishes_nothing() {
+        // The other half of the EXP-610 race: by the time the QuestionsAsked
+        // hook drains, the twin + result already flushed — the picker is
+        // gone and its `question_resolved` already went by. Publishing cards
+        // now would wedge a stepper forever.
+        let redactor = Redactor::new(vec![]);
+        let (sender, rx) = ActivitySender::test_pair();
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState {
+            suppress_ask_questions: true,
+            ..Default::default()
+        };
+        let (tool_use, tool_result) = answered_ask_lines();
+        process_transcript_line(&tool_use, &redactor, &mut transcript);
+        process_transcript_line(&tool_result, &redactor, &mut transcript);
+        steer.apply_hook(
+            hook(HookEventKind::QuestionsAsked {
+                tool_use_id: Some("toolu_ask1".to_string()),
+                questions: vec![HookQuestion {
+                    question: "Which toppings do you want?".to_string(),
+                    header: None,
+                    options: vec![HookQuestionOption {
+                        label: "Cheese".to_string(),
+                        description: None,
+                    }],
+                    multi_select: false,
+                }],
+            }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        assert!(
+            drained(&rx)
+                .iter()
+                .all(|event| !matches!(event, ActivityEvent::Question { .. })),
+            "no cards for a dead picker"
+        );
+        assert!(steer.ask.is_none(), "and no pending ask to route against");
+        // A FRESH ask id (claude re-asking the dismissed questions) still
+        // publishes normally.
+        steer.apply_hook(ask_hook(), &sender, &redactor, &mut transcript);
+        assert!(drained(&rx)
+            .iter()
+            .any(|event| matches!(event, ActivityEvent::Question { .. })));
+        assert!(steer.ask.is_some());
+    }
+
+    #[test]
+    fn prose_still_anchors_when_the_twin_beats_its_hook() {
+        // EXP-483 anchoring must survive the EXP-610 race: the entry's own
+        // tool_use id IS the identity the hook publishes under, so the prose
+        // anchors to it even before `hook_published_asks` learns the id.
+        let redactor = Redactor::new(vec![]);
+        let mut state = TranscriptState {
+            suppress_ask_questions: true,
+            ..Default::default()
+        };
+        let entry = serde_json::json!({
+            "type": "assistant",
+            "message": { "content": [
+                { "type": "text", "text": "Here is the summary of my findings." },
+                { "type": "tool_use", "id": "toolu_ask1", "name": "AskUserQuestion",
+                  "input": { "questions": [
+                    { "question": "Which size?",
+                      "options": [ { "label": "Small" }, { "label": "Large" } ] },
+                  ] } },
+            ]}
+        })
+        .to_string();
+        assert_eq!(
+            process_transcript_line(&entry, &redactor, &mut state),
+            vec![ActivityEvent::Narration {
+                text: "Here is the summary of my findings.".to_string(),
+                before_question_id: Some("toolu_ask1".to_string()),
+                at: None,
+            }]
+        );
     }
 
     #[test]
