@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-mobile-lists-create-polish`,
+    date: `2026-08-22`,
+    title: `Mobile lists, create and menus polished`,
+    summary: `Status-grouped issue lists, a faster create flow and glassy native menus land on iOS and Android, plus a simpler emoji picker everywhere.`,
+    body: `- **Status headers**: issue lists on iOS and Android now group under tinted status headers, matching the web.
+- **Create sheet**: creating an issue on mobile opens the new issue immediately, and "create more" keeps the sheet ready for the next one.
+- **Select menus**: pickers and context menus on mobile move to the shared glass components for a more native feel.
+- **Emoji picker**: a simpler picker that inserts plain emoji; the separate skin-tone preference is gone.
+- **Fixes**: the Android markdown editor no longer jumps while typing, Android steering images render again, and remote plan approval and steering questions are reliable with the newest Claude Code.`,
+  },
+  {
     id: `2026-08-white-glass-accent`,
     date: `2026-08-22`,
     title: `A calmer, glassier look`,

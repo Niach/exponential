@@ -1,0 +1,1 @@
+Issue lists group by status, creating issues is faster, and menus get a cleaner glass look.
