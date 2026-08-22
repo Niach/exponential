@@ -2,15 +2,17 @@ package com.exponential.app.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -38,7 +40,10 @@ import com.exponential.app.ui.theme.TextEmphasis
 // The grouped-sheet building blocks the unified Start-coding sheet introduced
 // (EXP-208/EXP-211 — iOS Form parity), extracted for reuse by the
 // device-settings sheet (EXP-481). Visuals are byte-identical to the
-// originals; only the visibility moved.
+// originals; only the visibility moved — except [PickerRow], which since
+// EXP-607 opens a [GlassSheet] instead of an anchored dropdown (a dropdown
+// over a bottom sheet lands wherever M3 can fit it; a sheet always presents
+// the same way, and matches how every other picker in the app reads).
 
 /** Aligned with the grouped cards' inner content edge (16dp card inset + 16dp row padding). */
 @Composable
@@ -73,7 +78,7 @@ internal fun GroupDivider() {
 }
 
 // iOS-Form-style picker row: label left, selected value + chevron right; tap
-// opens a glass menu of the options. Disabled = dimmed + non-interactive.
+// opens a glass sheet of the options. Disabled = dimmed + non-interactive.
 @Composable
 internal fun PickerRow(
     label: String,
@@ -84,63 +89,58 @@ internal fun PickerRow(
     onSelect: (String) -> Unit,
     enabled: Boolean = true,
 ) {
-    var expanded by remember { mutableStateOf(false) }
+    var open by remember { mutableStateOf(false) }
     val contentAlpha = if (enabled) TextEmphasis.Primary else TextEmphasis.Quaternary
-    Box(Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(enabled = enabled) { expanded = true }
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                label,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha),
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                value,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(
-                    alpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Quaternary,
-                ),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Icon(
-                ExpIcons.uiChevronDown,
-                contentDescription = null,
-                modifier = Modifier.size(20.dp),
-                tint = MaterialTheme.colorScheme.onSurface.copy(
-                    alpha = if (enabled) TextEmphasis.Tertiary else TextEmphasis.Quaternary,
-                ),
-            )
-        }
-        GlassDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            options.forEach { option ->
-                GlassMenuItem(
-                    text = { Text(optionLabel(option)) },
-                    trailingIcon = if (option == selected) {
-                        {
-                            // White checkmark — GlassSheetRow's selection idiom.
-                            Icon(
-                                ExpIcons.uiCheck,
-                                contentDescription = "Selected",
-                                modifier = Modifier.size(16.dp),
-                                tint = Color.White,
-                            )
-                        }
-                    } else {
-                        null
-                    },
-                    onClick = {
-                        expanded = false
-                        onSelect(option)
-                    },
-                )
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled) { open = true }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha),
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface.copy(
+                alpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Quaternary,
+            ),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Icon(
+            ExpIcons.uiChevronRight,
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+            tint = MaterialTheme.colorScheme.onSurface.copy(
+                alpha = if (enabled) TextEmphasis.Tertiary else TextEmphasis.Quaternary,
+            ),
+        )
+    }
+    if (open) {
+        GlassSheet(title = label, onDismiss = { open = false }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                options.forEach { option ->
+                    GlassSheetRow(
+                        label = optionLabel(option),
+                        selected = option == selected,
+                        onClick = {
+                            open = false
+                            onSelect(option)
+                        },
+                    )
+                }
             }
+            Spacer(Modifier.height(8.dp))
         }
     }
 }
@@ -233,6 +233,11 @@ internal fun effortValuesFor(agent: String): List<String> = when (agent) {
     "pi" -> DomainContract.piThinkingValues
     else -> DomainContract.codingEffortValues
 }
+
+/** The Start-coding sheet's model vocabulary: claude has no CLI-default entry. */
+internal fun modelOptionsFor(agent: String): List<String> =
+    if (agent == DEFAULT_AGENT) DomainContract.codingModelValues
+    else listOf(CLI_DEFAULT_MODEL) + modelValuesFor(agent)
 
 /** claude has no CLI-default model entry; codex/pi default to the blank one. */
 internal fun defaultModelFor(agent: String): String =

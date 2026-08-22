@@ -11,6 +11,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -41,14 +43,21 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
-import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
+import com.exponential.app.ui.components.GlassMenuSurface
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.model.BlockKind
 import com.exponential.app.ui.markdown.model.InlineKind
@@ -179,19 +188,7 @@ private fun MainRailItems(
             ToolbarButton(ExpIcons.editorImage, "Attach", active = false, enabled = imageEnabled) {
                 attachMenuOpen = !attachMenuOpen
             }
-            // This whole toolbar only exists while the IME is up
-            // (MarkdownToolbarHost gates the overlay on imeVisible), so a
-            // FOCUSABLE popup would take focus, drop the keyboard, and tear its
-            // own menu out of composition — the same trap BlockTextField's
-            // `@`/`#` menu documents. Non-focusable keeps the keyboard, so
-            // dismissal rides the item taps, a re-tap of the button, and
-            // BackHandler.
-            BackHandler(enabled = attachMenuOpen) { attachMenuOpen = false }
-            GlassDropdownMenu(
-                expanded = attachMenuOpen,
-                onDismissRequest = { attachMenuOpen = false },
-                properties = PopupProperties(focusable = false),
-            ) {
+            RailMenuPopup(expanded = attachMenuOpen, onDismiss = { attachMenuOpen = false }) {
                 GlassMenuItem(
                     leadingIcon = { Icon(ExpIcons.uiAttach, contentDescription = null) },
                     text = { Text("Files") },
@@ -228,7 +225,7 @@ private fun MainRailItems(
             model.setFocused(model.activeRowId)
         }
     }
-    // ONE list button; the three kinds live in its menu (same non-focusable
+    // ONE list button; the three kinds live in its menu (same above-the-rail
     // popup treatment as the attach menu above).
     val activeListType = attrs?.takeIf { it.kind == BlockKind.ListItem }?.listType
     Box {
@@ -243,12 +240,7 @@ private fun MainRailItems(
         ) {
             listMenuOpen = !listMenuOpen
         }
-        BackHandler(enabled = listMenuOpen) { listMenuOpen = false }
-        GlassDropdownMenu(
-            expanded = listMenuOpen,
-            onDismissRequest = { listMenuOpen = false },
-            properties = PopupProperties(focusable = false),
-        ) {
+        RailMenuPopup(expanded = listMenuOpen, onDismiss = { listMenuOpen = false }) {
             ListMenuItem(ExpIcons.editorList, "List", ListType.Bullet, activeListType) { type ->
                 listMenuOpen = false
                 activeRowId?.let { model.toggleList(it, type) }
@@ -268,6 +260,58 @@ private fun MainRailItems(
     }
     ToolbarButton(ExpIcons.editorCode, "Code block", active = attrs?.kind == BlockKind.CodeBlock) {
         activeRowId?.let { model.toggleCodeBlock(it) }
+    }
+}
+
+/**
+ * A rail button's menu. It hand-rolls its `Popup` rather than reusing
+ * `GlassDropdownMenu` because M3's provider only ever places a menu against
+ * the window, which in an edge-to-edge window still includes the keyboard
+ * band — and the rail sits directly ON the IME, so "below the anchor" is
+ * always behind the keyboard (EXP-607). [railMenuPopupOffset] puts it ABOVE
+ * the button instead, left-aligned and clamped into the window.
+ *
+ * The popup MUST stay non-focusable: this whole toolbar only exists while the
+ * IME is up (MarkdownToolbarHost gates the overlay on imeVisible), so a
+ * focusable popup would take focus, drop the keyboard, and tear its own menu
+ * out of composition — the same trap BlockTextField's `@`/`#` menu documents.
+ * Dismissal therefore rides the item taps, a re-tap of the button, and
+ * [BackHandler].
+ */
+@Composable
+private fun RailMenuPopup(
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    if (!expanded) return
+    BackHandler(onBack = onDismiss)
+    val density = LocalDensity.current
+    val marginPx = with(density) { 8.dp.roundToPx() }
+    val gapPx = with(density) { 4.dp.roundToPx() }
+    val provider = remember(marginPx, gapPx) {
+        object : PopupPositionProvider {
+            override fun calculatePosition(
+                anchorBounds: IntRect,
+                windowSize: IntSize,
+                layoutDirection: LayoutDirection,
+                popupContentSize: IntSize,
+            ): IntOffset = railMenuPopupOffset(anchorBounds, popupContentSize, windowSize, marginPx, gapPx)
+        }
+    }
+    Popup(
+        popupPositionProvider = provider,
+        onDismissRequest = onDismiss,
+        properties = PopupProperties(focusable = false),
+    ) {
+        GlassMenuSurface {
+            // Match M3's DropdownMenuContent sizing so the GlassMenuItem rows
+            // keep today's metrics.
+            Column(
+                modifier = Modifier.width(IntrinsicSize.Max).padding(vertical = 8.dp),
+                content = content,
+            )
+        }
     }
 }
 

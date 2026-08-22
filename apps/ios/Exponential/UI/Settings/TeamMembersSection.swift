@@ -115,33 +115,25 @@ struct TeamMembersSection: View {
             let canLeave = isSelf && !isLastOwner
             let canRemove = isOwner && !isSelf
             if canMakeOwner || canMakeMember || canLeave || canRemove {
-                Menu {
+                GlassMenu {
                     if canMakeOwner {
-                        Button {
+                        GlassMenuItem("Make owner", icon: AppIcons.uiOwner) {
                             confirm = .changeRole(member, to: DomainContract.teamRoleOwner)
-                        } label: {
-                            Label("Make owner", appIcon: AppIcons.uiOwner)
                         }
                     }
                     if canMakeMember {
-                        Button {
+                        GlassMenuItem("Make member", icon: AppIcons.uiMember) {
                             confirm = .changeRole(member, to: DomainContract.teamRoleMember)
-                        } label: {
-                            Label("Make member", appIcon: AppIcons.uiMember)
                         }
                     }
                     if canLeave {
-                        Button(role: .destructive) {
+                        GlassMenuItem("Leave", icon: AppIcons.uiClose, destructive: true) {
                             confirm = .remove(member, isSelf: true)
-                        } label: {
-                            Label("Leave", appIcon: AppIcons.uiClose)
                         }
                     }
                     if canRemove {
-                        Button(role: .destructive) {
+                        GlassMenuItem("Remove", icon: AppIcons.uiClose, destructive: true) {
                             confirm = .remove(member, isSelf: false)
-                        } label: {
-                            Label("Remove", appIcon: AppIcons.uiClose)
                         }
                     }
                 } label: {

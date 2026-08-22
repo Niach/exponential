@@ -121,6 +121,9 @@ struct ShareComposeView: View {
             // Destination first (EXP-60): choosing where the share lands
             // leads the form, matching the Android share composer.
             Section("Share to") {
+                // Deliberately the system `Picker` (EXP-603): the glass
+                // menu/sheet language lives in ExpUI, which the share
+                // extension does not link.
                 Picker("Board", selection: $selectedBoardKey) {
                     ForEach(boards) { board in
                         Text("\(board.teamName) / \(board.boardName)")

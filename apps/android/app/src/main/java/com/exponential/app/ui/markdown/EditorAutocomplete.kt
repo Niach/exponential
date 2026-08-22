@@ -76,3 +76,22 @@ internal fun autocompletePopupOffset(
     // menu drawn under the keyboard.
     return IntOffset(x, (usableBottom - popupSize.height).coerceAtLeast(marginPx))
 }
+
+/**
+ * Where a rail-button menu goes: ABOVE the button (the rail sits directly on
+ * the IME, so below-the-anchor always lands in the keyboard band, which M3's
+ * provider can't see in an edge-to-edge window — EXP-607), left-aligned to it,
+ * clamped into the window. Pure for the same reason [autocompletePopupOffset] is.
+ */
+internal fun railMenuPopupOffset(
+    anchorBounds: IntRect,
+    popupSize: IntSize,
+    windowSize: IntSize,
+    marginPx: Int,
+    gapPx: Int,
+): IntOffset {
+    val maxX = (windowSize.width - popupSize.width - marginPx).coerceAtLeast(marginPx)
+    val x = anchorBounds.left.coerceIn(marginPx, maxX)
+    val y = (anchorBounds.top - gapPx - popupSize.height).coerceAtLeast(marginPx)
+    return IntOffset(x, y)
+}

@@ -696,6 +696,10 @@ private fun RepositoryRow(
 ) {
     val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
     val tertiary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+    // Tapping a "Used by" chip retargets that board — the same sheet the
+    // Boards section's swap glyph opens (EXP-607), instead of a second
+    // hand-rolled menu that only listed the OTHER repos.
+    var retargetBoard by remember { mutableStateOf<BoardEntity?>(null) }
     Column(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -753,50 +757,33 @@ private fun RepositoryRow(
                 val board = boards.firstOrNull { it.id == ref.id }
                 // Any member can retarget a board to a different connected repo
                 // (boards.setRepository is member-level since EXP-557 — the
-                // registry is shared) — tap the chip to pick another repo.
-                val otherRepos = allRepos.filter { it.id != repo.id }
-                var retargetMenu by remember(ref.id) { mutableStateOf(false) }
-                val chipClickable = otherRepos.isNotEmpty()
-                Box {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .glassRow()
-                            .then(if (chipClickable) Modifier.clickable { retargetMenu = true } else Modifier)
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                    ) {
-                        if (board != null) {
-                            BoardIcon(board, size = 14.dp)
-                            Spacer(Modifier.width(6.dp))
-                        }
-                        Text(
-                            ref.name,
-                            style = MaterialTheme.typography.labelMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.widthIn(max = 160.dp),
+                // registry is shared) — tap the chip to pick another repo. The
+                // sheet lists ALL connected repos with this one check-marked.
+                val chipClickable = board != null && allRepos.size > 1
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .glassRow()
+                        .then(
+                            if (chipClickable) {
+                                Modifier.clickable { retargetBoard = board }
+                            } else {
+                                Modifier
+                            },
                         )
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                ) {
+                    if (board != null) {
+                        BoardIcon(board, size = 14.dp)
+                        Spacer(Modifier.width(6.dp))
                     }
-                    if (chipClickable) {
-                        GlassDropdownMenu(expanded = retargetMenu, onDismissRequest = { retargetMenu = false }) {
-                            Text(
-                                "Change repository",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = tertiary,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            )
-                            otherRepos.forEach { target ->
-                                GlassMenuItem(
-                                    text = { Text(target.fullName, fontFamily = FontFamily.Monospace) },
-                                    leadingIcon = { Icon(ExpIcons.uiRepository, contentDescription = null, modifier = Modifier.size(14.dp)) },
-                                    onClick = {
-                                        retargetMenu = false
-                                        viewModel.setBoardRepository(ref.id, target.id)
-                                    },
-                                )
-                            }
-                        }
-                    }
+                    Text(
+                        ref.name,
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.widthIn(max = 160.dp),
+                    )
                 }
             }
             // Informational for everyone (EXP-557): who shared this repo with
@@ -811,6 +798,17 @@ private fun RepositoryRow(
                 )
             }
         }
+    }
+    retargetBoard?.let { board ->
+        ChangeRepositorySheet(
+            board = board,
+            repos = allRepos,
+            onPick = { target ->
+                if (target.id != board.repositoryId) viewModel.setBoardRepository(board.id, target.id)
+                retargetBoard = null
+            },
+            onDismiss = { retargetBoard = null },
+        )
     }
 }
 

@@ -450,24 +450,28 @@ struct ActionsListView: View {
             .tint(DesignTokens.Palette.primary)
             .disabled(!vm.permissions.isOwner || busy)
             .accessibilityLabel("Automation enabled")
+
+            // EXP-603: edit/delete used to hide behind a long press. Same
+            // owner gate, now a visible affordance.
+            if vm.permissions.isOwner {
+                GlassMenu {
+                    GlassMenuItem("Edit", icon: AppIcons.uiEdit) {
+                        formTarget = AutomationFormTarget(id: automation.id, automation: automation)
+                    }
+                    GlassMenuItem("Delete", icon: AppIcons.uiDelete, destructive: true) {
+                        pendingDelete = automation
+                    }
+                } label: {
+                    AppIcon(AppIcons.uiMore, size: AppIcon.Size.medium)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .padding(6)
+                }
+                .accessibilityLabel("Automation actions")
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .glassRow()
-        .contextMenu {
-            if vm.permissions.isOwner {
-                Button {
-                    formTarget = AutomationFormTarget(id: automation.id, automation: automation)
-                } label: {
-                    Label("Edit", systemImage: "pencil")
-                }
-                Button(role: .destructive) {
-                    pendingDelete = automation
-                } label: {
-                    Label("Delete", systemImage: "trash")
-                }
-            }
-        }
         .accessibilityIdentifier("automation-row")
     }
 

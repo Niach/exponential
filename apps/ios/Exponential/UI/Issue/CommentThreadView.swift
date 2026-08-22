@@ -591,9 +591,9 @@ private struct RegularCommentRow: View {
                 }
                 Spacer()
                 if canModify && !isEditing {
-                    Menu {
-                        Button("Edit", action: onEdit)
-                        Button("Delete", role: .destructive, action: onDelete)
+                    GlassMenu {
+                        GlassMenuItem("Edit", icon: AppIcons.uiEdit, action: onEdit)
+                        GlassMenuItem("Delete", icon: AppIcons.uiDelete, destructive: true, action: onDelete)
                     } label: {
                         AppIcon(AppIcons.uiMore, size: AppIcon.Size.small)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))

@@ -1,14 +1,23 @@
-import ExpUI
 import SwiftUI
 
-// Shared chrome for the redesigned issue-detail property sheets (EXP-240):
-// glass background, rounded top, a title header with a circular ✕ close, and
-// rows styled as [leading icon · label · trailing checkmark]. `PickerSheet`
-// stays untouched — it still serves CreateIssueSheet and the move-board flow.
+// Shared chrome for the glass property sheets (EXP-240) — the iOS twin of
+// Android's ui/components/GlassSheet.kt: glass background, rounded top, a title
+// header with a circular ✕ close, and rows styled as
+// [leading icon · label · trailing checkmark].
+//
+// Moved here from Exponential/UI/Issue/Sheets/GlassSheetChrome.swift by
+// EXP-603, which retired the last stock `PickerSheet` call sites: a sheet is
+// now the app's ONE answer to "pick one of these", so it belongs in ExpUI next
+// to the glass controls (EXP-604) rather than under the issue feature folder.
+//
+// Absent twins, deliberately: Android's `GlassSheet` takes a `BackgroundBottom`
+// gradient stop because a Compose bottom sheet paints its own container; here
+// `.presentationBackground(.ultraThinMaterial)` continues the app background
+// through the system's own presentation host.
 
 /// The sheet shell: header (title + circular close) over caller content, on
 /// ultra-thin material with a 24pt corner radius.
-struct GlassSheetChrome<Content: View>: View {
+public struct GlassSheetChrome<Content: View>: View {
     let title: String
     var detents: Set<PresentationDetent> = [.medium]
     /// The caller-measured natural height of `content` (EXP-577). While it
@@ -24,8 +33,20 @@ struct GlassSheetChrome<Content: View>: View {
     // from a raised keyboard are ignored (they'd inflate the detent).
     @State private var bottomInset: CGFloat = 0
 
+    public init(
+        title: String,
+        detents: Set<PresentationDetent> = [.medium],
+        fittedContentHeight: CGFloat? = nil,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.title = title
+        self.detents = detents
+        self.fittedContentHeight = fittedContentHeight
+        self.content = content
+    }
+
     /// The header's vertical footprint (top 18 + 30pt close circle + bottom 10).
-    static var headerHeight: CGFloat { 58 }
+    public static var headerHeight: CGFloat { 58 }
 
     private var resolvedDetents: Set<PresentationDetent> {
         guard let height = fittedContentHeight, height > 0 else { return detents }
@@ -34,7 +55,7 @@ struct GlassSheetChrome<Content: View>: View {
         return [.height(fitted)]
     }
 
-    var body: some View {
+    public var body: some View {
         VStack(spacing: 0) {
             HStack {
                 Text(title)
@@ -71,14 +92,28 @@ struct GlassSheetChrome<Content: View>: View {
 
 /// One tap-target row inside a glass sheet: leading slot, label, optional
 /// trailing checkmark. 44pt minimum height.
-struct GlassSheetRow<Leading: View>: View {
+public struct GlassSheetRow<Leading: View>: View {
     let label: String
     var selected: Bool = false
     var labelOpacity: Double = 1
     let action: () -> Void
     @ViewBuilder let leading: () -> Leading
 
-    var body: some View {
+    public init(
+        label: String,
+        selected: Bool = false,
+        labelOpacity: Double = 1,
+        action: @escaping () -> Void,
+        @ViewBuilder leading: @escaping () -> Leading
+    ) {
+        self.label = label
+        self.selected = selected
+        self.labelOpacity = labelOpacity
+        self.action = action
+        self.leading = leading
+    }
+
+    public var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
                 leading()
@@ -101,12 +136,11 @@ struct GlassSheetRow<Leading: View>: View {
     }
 }
 
-// GlassSheetSearchField moved to ExpUI (GlassControls.swift, EXP-604) — its
-// baked-in outer margin moved out to the call sites.
-
-/// Glass twin of `PickerSheet` (same generic signature): scrollable rows with
-/// a trailing checkmark, immediate commit + dismiss on tap.
-struct GlassPickerSheet<Item, ID: Hashable, Row: View>: View {
+/// The ONE "pick one of these" sheet (EXP-603 retired the stock `PickerSheet`
+/// it was cloned from): scrollable rows with a trailing checkmark, immediate
+/// commit + dismiss on tap. It measures its own rows, so a three-option list
+/// presents as a short sheet instead of a half-screen of empty glass.
+public struct GlassPickerSheet<Item, ID: Hashable, Row: View>: View {
     let title: String
     let items: [Item]
     let selectedID: ID?
@@ -115,15 +149,32 @@ struct GlassPickerSheet<Item, ID: Hashable, Row: View>: View {
     @ViewBuilder let row: (Item) -> Row
 
     @Environment(\.dismiss) private var dismiss
+    @State private var contentHeight: CGFloat = 0
+
+    public init(
+        title: String,
+        items: [Item],
+        selectedID: ID?,
+        idFor: @escaping (Item) -> ID,
+        onSelect: @escaping (Item) -> Void,
+        @ViewBuilder row: @escaping (Item) -> Row
+    ) {
+        self.title = title
+        self.items = items
+        self.selectedID = selectedID
+        self.idFor = idFor
+        self.onSelect = onSelect
+        self.row = row
+    }
 
     private struct IdentifiedItem: Identifiable {
         let id: ID
         let value: Item
     }
 
-    var body: some View {
+    public var body: some View {
         let identified = items.map { IdentifiedItem(id: idFor($0), value: $0) }
-        GlassSheetChrome(title: title) {
+        GlassSheetChrome(title: title, fittedContentHeight: contentHeight) {
             ScrollView {
                 VStack(spacing: 2) {
                     ForEach(identified) { wrapped in
@@ -148,6 +199,9 @@ struct GlassPickerSheet<Item, ID: Hashable, Row: View>: View {
                 }
                 .padding(.horizontal, 6)
                 .padding(.bottom, 16)
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
+                    contentHeight = height
+                }
             }
         }
     }

@@ -3,65 +3,18 @@ import ExpUI
 import GRDB
 import SwiftUI
 
-/// A reusable bottom-sheet picker used by the issue editor surfaces in place
-/// of `Menu` popovers. Matches Linear's mobile UX where property pickers
-/// open as half-height sheets containing a tap-target-friendly list of
-/// options.
-///
-/// Selecting a row commits immediately via `onSelect` and dismisses the
-/// sheet. The current selection is shown with a trailing checkmark.
-struct PickerSheet<Item, ID: Hashable, Row: View>: View {
-    let title: String
-    let items: [Item]
-    let selectedID: ID?
-    let idFor: (Item) -> ID
-    let onSelect: (Item) -> Void
-    @ViewBuilder let row: (Item) -> Row
-
-    @Environment(\.dismiss) private var dismiss
-
-    private struct IdentifiedItem: Identifiable {
-        let id: ID
-        let value: Item
-    }
-
-    var body: some View {
-        let identified = items.map { IdentifiedItem(id: idFor($0), value: $0) }
-        NavigationStack {
-            List {
-                ForEach(identified) { wrapped in
-                    Button {
-                        onSelect(wrapped.value)
-                        dismiss()
-                    } label: {
-                        HStack {
-                            row(wrapped.value)
-                            Spacer()
-                            if let selectedID, wrapped.id == selectedID {
-                                AppIcon(AppIcons.uiCheck, size: 15, weight: .semibold)
-                                    .foregroundStyle(.tint)
-                            }
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-            }
-        }
-        .presentationDetents([.medium])
-    }
-}
+// The assignee-picker vocabulary and the team-member lookups the create and
+// detail surfaces share.
+//
+// The `PickerSheet` this file was named for is gone (EXP-603): the stock
+// `NavigationStack`+`List` sheet was the last non-glass picker in the app, and
+// `GlassPickerSheet` (ExpUI/GlassSheet.swift) took its call sites over with the
+// same generic signature. The filename stays — Tuist globs it, and these
+// helpers have no better home.
 
 // MARK: - Assignee picker helper
 
-/// Row model for the assignee `PickerSheet`. Wraps an optional user so we
+/// Row model for the assignee picker. Wraps an optional user so we
 /// can render the "Unassigned" sentinel as a first-class option with a
 /// stable identifier (`"__unassigned"`).
 struct AssigneeOption: Identifiable, Hashable {

@@ -369,7 +369,7 @@ struct CreateIssueSheet: View {
                 }
             }
             .sheet(isPresented: $showStatusPicker) {
-                PickerSheet(
+                GlassPickerSheet(
                     title: "Status",
                     // Duplicate CATEGORY = status interception (L27): a new issue
                     // can't be a duplicate (nothing to link yet), so it's not a
@@ -389,7 +389,7 @@ struct CreateIssueSheet: View {
                 }
             }
             .sheet(isPresented: $showPriorityPicker) {
-                PickerSheet(
+                GlassPickerSheet(
                     title: "Priority",
                     items: IssuePriority.displayOrder,
                     selectedID: priority.id,
@@ -405,7 +405,7 @@ struct CreateIssueSheet: View {
                 }
             }
             .sheet(isPresented: $showAssigneePicker) {
-                PickerSheet(
+                GlassPickerSheet(
                     title: "Assignee",
                     items: assigneeOptions(users: users),
                     selectedID: assigneeId ?? AssigneeOption.unassigned.id,
