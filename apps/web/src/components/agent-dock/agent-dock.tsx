@@ -10,6 +10,7 @@ import { sessionDisplayState } from "@/components/issue-coding-rows"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { useAgentDock } from "@/components/agent-dock/agent-dock-provider"
+import { retainSteerSessions } from "@/lib/steer-session-store"
 import { useIsMobile } from "@/hooks/use-mobile"
 import {
   clampAgentDockHeight,
@@ -119,6 +120,17 @@ export function AgentDock({
     setResizing(false)
     if (drag.latestHeight !== null) writeAgentDockHeight(drag.latestHeight)
   }
+
+  // EXP-621: the reaper for background steer connections — stores for the
+  // user's running sessions (and the expanded one) are kept alive so a
+  // collapsed or re-opened session resumes instantly; anything else ages out
+  // inside the registry (grace-delayed, so a transiently empty live query
+  // can't kill a socket).
+  useEffect(() => {
+    const keep = new Set(running.map((row) => row.session.id))
+    if (expandedId) keep.add(expandedId)
+    retainSteerSessions(keep)
+  }, [running, expandedId])
 
   // Query the expanded session by id in ANY status, so a session that flips to
   // `ended` while expanded stays visible until the user collapses it.

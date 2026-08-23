@@ -17,6 +17,10 @@ final class AppDependencies: @unchecked Sendable {
     // connectivity half of the wake kick the scene phase drives.
     let networkPathWatcher: NetworkPathWatcher
     let deepLinkBus: DeepLinkBus
+    // Live steer sessions outlive the screen showing them (EXP-621): their
+    // sockets, feeds and composer drafts are app-scoped, so navigating away and
+    // back costs no reconnect and loses no draft.
+    let steerSessions = SteerSessionStore()
 
     // API services
     let authApi: AuthApi

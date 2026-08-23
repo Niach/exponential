@@ -75,6 +75,21 @@ final class AgentSessionModel {
     /// Why the last image-carrying send failed, shown under the thumbnail
     /// strip; cleared on the next attempt.
     var steerImageError: String?
+    /// EXP-621: the composer draft — text and picked images — lives on the
+    /// MODEL, not the view. It has to survive both a reconnect (the composer
+    /// stays up while the socket is down, so a message typed mid-drop goes out
+    /// when it returns) and navigating away and back, and the model is the only
+    /// thing that outlives the screen (SteerSessionStore).
+    var draftText = ""
+    /// EXP-511: images picked for the next steer message, shown as a strip
+    /// above the input row until they are sent or removed.
+    var pendingImages: [PendingSteerImage] = []
+
+    /// The draft as it would be sent — what the send button's enablement and
+    /// the empty-message guard read.
+    var trimmedDraft: String {
+        draftText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     /// Over as far as this client can tell: an explicitly `ended` row, or a
     /// row that VANISHED. The model is always constructed with a real row, so
@@ -86,6 +101,23 @@ final class AgentSessionModel {
         guard let session else { return true }
         return session.status == DomainContract.codingSessionStatusEnded
     }
+
+    /// EXP-621: the session is finished as far as this screen is concerned —
+    /// the relay said `bye` or the synced row ended/vanished. The ONLY state
+    /// that retires the composer: every other one (connecting, starting,
+    /// reconnecting) keeps it on screen with sending disabled, so a draft is
+    /// never lost to a hiccup. Also what SteerSessionStore reaps on.
+    var isOver: Bool {
+        if case .ended = phase { return true }
+        return sessionEnded
+    }
+
+    /// Whether a steer can go out right now — a live socket on a live session.
+    /// `connected` matters beyond the phase: a silent slow-consumer redial
+    /// (4008) deliberately keeps `phase == .live` while the socket is briefly
+    /// down, and the send button should dim honestly for that gap instead of
+    /// offering a tap that would no-op.
+    var canSteer: Bool { phase == .live && connected && !sessionEnded }
 
     /// EXP-550: the host machine is offline while the run is still coding —
     /// the session is PAUSED, not ended (it resumes when the machine comes
@@ -297,11 +329,11 @@ final class AgentSessionModel {
         }
     }
 
-    /// Revive after a shutdown() (EXP-221): as a pushed destination the view
-    /// stays in the navigation stack while e.g. a deep link covers it —
-    /// onDisappear tears the socket down, so popping back must re-arm the
-    /// session observation and redial (the relay replays the full activity
-    /// log on join, rebuilding the feed).
+    /// Revive after a shutdown(): re-arm the session observation and redial
+    /// (the relay replays the full activity log on join, rebuilding the feed).
+    /// Since EXP-621 the socket outlives the screen — SteerSessionStore only
+    /// shuts a model down when it retires it — so this is a no-op on the
+    /// normal navigate-away-and-back path, kept for the paths that do stop.
     func resume() {
         guard stopped else { return }
         startObservingSession()
@@ -309,7 +341,9 @@ final class AgentSessionModel {
         connect()
     }
 
-    /// Tear everything down (view dismissed).
+    /// Tear everything down. Called by SteerSessionStore when it retires this
+    /// session (over, evicted, or the account went away) — NOT when the screen
+    /// merely goes off-view (EXP-621).
     func shutdown() {
         stopped = true
         retryTask?.cancel()
@@ -353,8 +387,13 @@ final class AgentSessionModel {
     /// Send one message to the agent: the text (chunked ≤4 KiB), then a
     /// SEPARATE `\r` frame — bundled into one write TUI apps treat the
     /// trailing return as a paste, which inserts instead of submitting.
-    func sendMessage(_ text: String) {
-        guard !text.isEmpty, connected else { return }
+    ///
+    /// Returns whether the message actually went out (EXP-621): the composer
+    /// stays usable while the socket is down, and a caller that cleared the
+    /// draft on this no-op wiped it with nothing sent.
+    @discardableResult
+    func sendMessage(_ text: String) -> Bool {
+        guard !text.isEmpty, connected else { return false }
         // Chunk by UTF-16 code units, never splitting a surrogate pair —
         // web parity (agent-session.tsx extends the boundary by one unit
         // when it would land mid-pair; 4097 units still sit well under the
@@ -382,6 +421,7 @@ final class AgentSessionModel {
             recentEchoes.removeFirst(recentEchoes.count - Self.echoCap)
         }
         append(.userMessage(id: takeEventId(), text: text))
+        return true
     }
 
     /// Send a steer message carrying attached images (EXP-511): upload every
@@ -426,9 +466,12 @@ final class AgentSessionModel {
             steerImageError = "Not connected. Wait for the session to reconnect."
             return pending
         }
-        sendMessage(SteerImageMessage.build(
+        guard sendMessage(SteerImageMessage.build(
             text: text, attachmentIds: pending.compactMap(\.uploadedId)
-        ))
+        )) else {
+            steerImageError = "Not connected. Wait for the session to reconnect."
+            return pending
+        }
         return nil
     }
 
@@ -668,7 +711,17 @@ final class AgentSessionModel {
                 // only source left and it is never renderable here.
                 Task { @MainActor in self?.rearm() }
             case .failure:
-                Task { @MainActor in self?.onSocketClosed() }
+                Task { @MainActor in
+                    guard let self else { return }
+                    // EXP-621: the relay's close code decides what happens next
+                    // (SteerReconnectPolicy) — read it BEFORE onSocketClosed
+                    // drops the task. `closeCode` is an imported ObjC enum with
+                    // no case for the relay's 4xxx codes, so only its rawValue
+                    // is ever touched; anything unrecognizable (0/.invalid)
+                    // falls through to the ordinary backoff path.
+                    let code = self.task?.closeCode.rawValue
+                    self.onSocketClosed(closeCode: code)
+                }
             }
         }
     }
@@ -968,24 +1021,62 @@ final class AgentSessionModel {
         task = nil
     }
 
-    private func onSocketClosed() {
+    /// - Parameter closeCode: the relay's close code when the socket reported
+    ///   one. Nil for every teardown this model drives itself (a
+    ///   `no_such_session` frame, a failed foreground ping), which keeps their
+    ///   pre-EXP-621 behavior.
+    private func onSocketClosed(closeCode: Int? = nil) {
         guard !stopped else { return }
         connected = false
         pendingFrames = []
         task = nil
         if sawEnd {
             phase = .ended(detail: endDetail)
-        } else if retryStarting, session.map({ CodingSessionLiveness.isLive($0) }) == true {
+            return
+        }
+        if retryStarting, session.map({ CodingSessionLiveness.isLive($0) }) == true {
             // Liveness (not just status) gates the redial — a heartbeat-stale
             // row is a phantom, not a session that's still starting (EXP-153).
             phase = .starting
             scheduleStartingRetry()
-        } else {
+            return
+        }
+        switch SteerReconnectPolicy.decide(closeCode: closeCode, sessionOver: sessionEnded) {
+        case .ended:
+            // The row already says ended — the redial loops exit on exactly
+            // this, so skip straight to the end state instead of scheduling a
+            // retry whose only job is to notice it.
+            phase = .ended(detail: nil)
+        case .redialImmediately:
+            redialNow()
+        case .terminalClosed:
+            // The relay refused this viewer (4003). Backoff would just
+            // re-refuse; the mint's own FORBIDDEN path is equally terminal.
+            phase = .closed(
+                detail: "You're no longer authorized for this session.", reconnecting: false
+            )
+        case .reconnectWithBackoff:
             // Never park on a dead socket behind a manual button (EXP-243) —
             // auto-redial on backoff; the phase carries the reconnecting flag
             // so the UI shows "Reconnecting…" instead of a Reconnect action.
             phase = .closed(detail: endDetail ?? "Connection lost.", reconnecting: true)
             scheduleReconnect()
+        }
+    }
+
+    /// EXP-621: redial without touching the phase — the relay evicted a slow
+    /// consumer (4008), which says nothing about the session, the ticket or the
+    /// network. Flipping to `.closed(reconnecting:)` would flash a
+    /// "Reconnecting…" banner and hide the composer for a round trip, and
+    /// counting it as a failed attempt would walk the backoff curve up towards
+    /// 30s for a drop the client caused. The join replay repaints the feed.
+    private func redialNow() {
+        retryTask?.cancel()
+        reconnectAttempts = 0
+        retryTask = Task { [weak self] in
+            guard let self, !self.stopped, !Task.isCancelled else { return }
+            self.resetDialState()
+            await self.dial()
         }
     }
 
@@ -1040,11 +1131,11 @@ final class AgentSessionModel {
 }
 
 /// An image picked for the steer composer but not sent yet (EXP-511). Held by
-/// the view (the strip is composer state, not session state) and handed back to
-/// `sendSteerImages`; `uploadedId` is stamped on a successful upload so a retry
-/// after a mid-batch failure never uploads the same file twice. A top-level
-/// type, not nested in the @MainActor model, so it stays free of actor
-/// isolation.
+/// the MODEL since EXP-621 (the draft has to survive both a reconnect and
+/// navigating away) and handed back to `sendSteerImages`; `uploadedId` is
+/// stamped on a successful upload so a retry after a mid-batch failure never
+/// uploads the same file twice. A top-level type, not nested in the @MainActor
+/// model, so it stays free of actor isolation.
 struct PendingSteerImage: Identifiable, Equatable, Sendable {
     let id = UUID()
     let data: Data

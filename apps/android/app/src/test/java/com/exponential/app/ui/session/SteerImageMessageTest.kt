@@ -1,5 +1,6 @@
 package com.exponential.app.ui.session
 
+import com.exponential.app.domain.buildSteerImageMessage
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

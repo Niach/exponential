@@ -20,12 +20,12 @@ import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.MAX_COMMENT_ATTACHMENTS
+import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.MAX_FILE_UPLOAD_BYTES
 import com.exponential.app.domain.MAX_IMAGE_UPLOAD_BYTES
 import com.exponential.app.domain.canonicalContentType
 import com.exponential.app.domain.isInlineImage
-import com.exponential.app.ui.components.PendingAttachment
 import com.exponential.app.ui.markdown.MarkdownMediaUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File

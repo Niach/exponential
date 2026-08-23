@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react"
 import { toast } from "sonner"
 import { linkSegments } from "@/lib/linkify"
@@ -27,44 +28,29 @@ import { trpc } from "@/lib/trpc-client"
 import { useSessionDevice } from "@/hooks/use-session-device"
 import type { SessionDevice } from "@/lib/session-device"
 import {
-  ackAnswer,
   activeQuestionIds,
   answerKey,
-  applyQuestionResolved,
   askStepperView,
-  attachQuestionAnswer,
-  beginAnswer,
-  clearAnswer,
   collectSubagents,
-  consumeEcho,
-  createActivityCoalescer,
-  dismissPendingQuestions,
-  failAnswer,
   groupFeedRows,
-  hasSemanticQuestions,
   isAnswerLocked,
   looksLikeMarkdown,
-  pushEcho,
-  spliceBeforeQuestion,
   summarizeSubagentRow,
-  upsertQuestion,
   visibleSubagentTabs,
-  ANSWER_ACK_TIMEOUT_MS,
-  FEED_CAP,
-  PLAN_RESOLVED_NARRATION,
-  QUESTION_ANSWERED_PREFIX,
-  QUESTION_DISMISSED_NARRATION,
   type AnswerState,
   type AnswerStates,
-  type EchoEntry,
   type SubagentSummary,
 } from "@/lib/agent-feed"
-import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import {
-  acceptedImageContentTypes,
-  isAcceptedImageContentType,
-  maxImageUploadBytes,
-} from "@/lib/storage/issue-attachments"
+  acquireSteerSession,
+  type FeedItem,
+  type QuestionItem,
+  type QuestionOption,
+  type SteerSessionStore,
+  type ViewerPhase,
+} from "@/lib/steer-session-store"
+import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
+import { acceptedImageContentTypes } from "@/lib/storage/issue-attachments"
 import { uploadIssueImageFile } from "@/lib/storage/issue-image-upload"
 import {
   buildSteerImageMessage,
@@ -123,111 +109,12 @@ const UiUnselectedIcon = conceptIcon(`ui-unselected`)
 // delegates its chrome (title, collapse) to the dock; the "coding now" rows +
 // remote-start affordances moved to issue-coding-rows.tsx.
 
-// ── Wire protocol (activity-viewer side of apps/steer-relay/src/protocol.ts) ─
+// ── Wire protocol ────────────────────────────────────────────────────────────
+// EXP-621: the relay protocol handling, the connection lifecycle and the feed
+// reducer all moved to lib/steer-session-store.ts — a module-level per-session
+// store that OUTLIVES this view, so collapsing the dock or navigating away
+// keeps the socket, the feed and the composer draft. This file only renders.
 
-// Relay rejects input frames > 8 KiB; chunk pastes well under that.
-const INPUT_CHUNK_CHARS = 4096
-/** Redial backoff while the desktop's publisher socket is still starting:
- *  3s doubling to 30s. Each redial mints a fresh ticket and opens a fresh
- *  relay socket, so a fixed cadence across many waiting viewers would eat the
- *  relay's per-IP connect budget in lockstep. */
-const STARTING_RETRY_BASE_MS = 3_000
-const STARTING_RETRY_MAX_MS = 30_000
-
-/** Equal jitter (half fixed, half random) — desynchronizes viewers that
- *  started waiting together while keeping a floor on the delay. */
-function startingRetryDelay(retries: number): number {
-  const capped = Math.min(
-    STARTING_RETRY_BASE_MS * 2 ** retries,
-    STARTING_RETRY_MAX_MS
-  )
-  return capped / 2 + Math.random() * (capped / 2)
-}
-
-interface QuestionOption {
-  label: string
-  /** Raw keystroke that selects this option in the desktop TUI picker — also
-   *  the token the semantic `answer` frame carries back. */
-  key: string
-  /** Claude's per-option blurb (protocol v2), rendered under the label. */
-  description?: string
-  /** EXP-513: claude's synthetic free-text row ("Type something.") —
-   *  selecting it reveals an inline input and the typed reply rides the
-   *  answer frame's `text`. Absent from older desktops. */
-  freeText?: boolean
-}
-
-type ActivityEvent =
-  // `beforeQuestionId` (EXP-483) anchors late-flushed prose above the
-  // already-published question card it was written before.
-  | { kind: `narration`; text: string; beforeQuestionId?: string; at?: number }
-  // `subagentId` (protocol v2) nests the call under its subagent group.
-  | { kind: `tool`; name: string; detail?: string; subagentId?: string; at?: number }
-  | { kind: `diff`; diff: string; at?: number }
-  // EXP-78 (member-only on the relay): a human turn from the transcript…
-  | { kind: `user_message`; text: string; at?: number }
-  // …and an interactive question (AskUserQuestion / plan approval).
-  // `planMode` marks an ExitPlanMode plan-approval picker (EXP-97) — absent
-  // on generic questions and on events from older desktops/relays.
-  // Protocol v2 (EXP-249) adds the identity fields: `id` makes the card
-  // answerable through the semantic `answer` frame and lets a re-emission
-  // replace the card in place; `askId` + `index`/`total` group a
-  // multi-question ask into one stepper (an `askId` event WITHOUT `index` is
-  // the ask's final review/submit step).
-  | {
-      kind: `question`
-      text: string
-      options: QuestionOption[]
-      multiSelect?: boolean
-      planMode?: boolean
-      id?: string
-      askId?: string
-      index?: number
-      total?: number
-      header?: string
-      at?: number
-    }
-  // Resolution of a question (by id, else the whole ask), the desktop's
-  // confirmation that an answer was injected, a subagent's lifecycle, and an
-  // informational permission prompt — all protocol v2.
-  | {
-      kind: `question_resolved`
-      id?: string
-      askId?: string
-      answers?: string[]
-      dismissed?: boolean
-      at?: number
-    }
-  | { kind: `answer_ack`; id: string; askId?: string; at?: number }
-  | {
-      kind: `subagent`
-      id: string
-      agentType: string
-      status: `started` | `completed`
-      detail?: string
-      at?: number
-    }
-  | { kind: `permission`; tool: string; detail?: string; at?: number }
-
-type ServerFrame =
-  | { t: `activity`; event: ActivityEvent }
-  // Protocol v2: "clear your feed now" — sent before every join replay and
-  // whenever the desktop re-publishes its full history.
-  | { t: `activity_reset` }
-  | { t: `bye`; outcome?: string }
-  | { t: `error`; code: string; message?: string }
-  | { t: string }
-
-function parseServerFrame(raw: string): ServerFrame | null {
-  try {
-    const json = JSON.parse(raw) as unknown
-    if (!json || typeof json !== `object`) return null
-    if (typeof (json as { t?: unknown }).t !== `string`) return null
-    return json as ServerFrame
-  } catch {
-    return null
-  }
-}
 
 // ── steer.config, fetched once per app lifetime (env-derived, static) ─────────
 
@@ -265,62 +152,6 @@ export function useSteerConfig(): SteerConfig | null {
 
 // ── The agent-session view: structured activity feed over the relay ─────────
 
-type ViewerPhase =
-  | { kind: `idle` }
-  | { kind: `connecting` }
-  // no_such_session while the synced row still says running — the desktop is
-  // still dialing its publisher socket; the view auto-redials with jittered
-  // backoff (3s → 30s).
-  | { kind: `starting` }
-  | { kind: `live` }
-  // The session ended (relay `bye`, or the room was never live).
-  | { kind: `ended`; detail?: string }
-  // Unexpected socket loss — offer a manual Reconnect (fresh ticket).
-  | { kind: `closed`; detail?: string }
-
-type FeedItem =
-  | { id: number; kind: `narration`; text: string }
-  | { id: number; kind: `tool`; name: string; detail?: string; subagentId?: string }
-  | { id: number; kind: `user_message`; text: string }
-  | { id: number; kind: `permission`; tool: string; detail?: string }
-  | {
-      id: number
-      kind: `subagent`
-      subagentId: string
-      agentType: string
-      status: `started` | `completed`
-      detail?: string
-    }
-  | {
-      id: number
-      kind: `question`
-      text: string
-      options: QuestionOption[]
-      multiSelect: boolean
-      planMode: boolean
-      /** Wire identity (protocol v2) — absent on legacy cards. */
-      questionId?: string
-      askId?: string
-      index?: number
-      total?: number
-      header?: string
-      /** Set once the question resolved — a resolved card renders `answer`
-       *  (or "Dismissed") and is never active again. */
-      resolved?: boolean
-      answer?: string
-      dismissed?: boolean
-    }
-
-type QuestionItem = Extract<FeedItem, { kind: `question` }>
-
-/** `Omit` that distributes over the FeedItem union (plain `Omit` collapses a
- *  union to its common keys, losing the per-kind fields). */
-type NewFeedItem = FeedItem extends infer T
-  ? T extends FeedItem
-    ? Omit<T, `id`>
-    : never
-  : never
-
 // Mounted ONLY by the global agent dock (one at a time), keyed by session id.
 // Always auto-connects; the caller owns the membership + config.enabled gating
 // (the relay enforces both regardless) and supplies the `title` + `onCollapse`
@@ -343,483 +174,40 @@ export function AgentSessionView({
   isFullscreen?: boolean
   onToggleFullscreen?: () => void
 }) {
-  // Bumping `attempt` (re)runs the whole connect lifecycle with a fresh ticket.
-  // Always starts at 1 — the dock only mounts this while it should be live.
-  const [attempt, setAttempt] = useState(1)
-  const [phase, setPhase] = useState<ViewerPhase>({ kind: `idle` })
-  const [feed, setFeed] = useState<FeedItem[]>([])
-  /** The most recent worktree diff — each one replaces the previous. */
-  const [latestDiff, setLatestDiff] = useState<string | null>(null)
+  // EXP-621: the connection lives in a module-level per-session store that
+  // outlives this view — mounting subscribes to the retained state (feed,
+  // phase, answers) and dials only when nothing is connected yet, so
+  // reopening a session renders instantly with no reconnect phase.
+  const store = useMemo(() => acquireSteerSession(session.id), [session.id])
+  const { phase, feed, latestDiff, answerStates, connected } =
+    useSyncExternalStore(store.subscribe, store.getSnapshot)
+  useEffect(() => store.connect(), [store])
+  // The synced row is the truth for "still running" inside the redial loops.
+  useEffect(
+    () => store.noteSessionStatus(session.status),
+    [store, session.status]
+  )
+
   const [diffOpen, setDiffOpen] = useState(false)
   const [confirmKill, setConfirmKill] = useState(false)
   const [killing, setKilling] = useState(false)
   const [atBottom, setAtBottom] = useState(true)
-  /** Per-card answer locks, keyed by `answerKey` — a card locks the instant
-   *  its answer goes out and only re-enables when the ack times out. */
-  const [answerStates, setAnswerStates] = useState<AnswerStates>({})
   /** EXP-356: the selected conversation tab — `null` is the main agent; a
    *  subagent id focuses that agent's stream. Falls back to Main whenever the
    *  id vanishes from the feed (an `activity_reset` replay). */
   const [agentTab, setAgentTab] = useState<string | null>(null)
 
-  const wsRef = useRef<WebSocket | null>(null)
-  const nextIdRef = useRef(0)
-  /** Locally-echoed sent messages awaiting their transcript-derived event. */
-  const recentEchoesRef = useRef<EchoEntry[]>([])
-  /** Per-card `answer_ack` deadlines (see ANSWER_ACK_TIMEOUT_MS). */
-  const ackTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>())
   const scrollRef = useRef<HTMLDivElement | null>(null)
-  // The synced row is the truth for "still running" inside the redial loop.
-  const sessionStatusRef = useRef(session.status)
-  sessionStatusRef.current = session.status
 
-  const clearAckTimer = (key: string) => {
-    const timer = ackTimersRef.current.get(key)
-    if (timer) {
-      clearTimeout(timer)
-      ackTimersRef.current.delete(key)
-    }
-  }
-
-  /** `activity_reset`: the relay/desktop is about to (re)publish the whole
-   *  history — everything derived from the old feed goes with it. */
-  const resetFeed = () => {
-    for (const timer of ackTimersRef.current.values()) clearTimeout(timer)
-    ackTimersRef.current.clear()
-    setFeed([])
-    setLatestDiff(null)
-    setAnswerStates({})
-    // After a reset the replayed transcript event is the ONLY copy of a sent
-    // message and must render.
-    recentEchoesRef.current = []
-  }
-
-  useEffect(() => {
-    if (attempt === 0) return
-
-    let disposed = false
-    let retryTimer: ReturnType<typeof setTimeout> | null = null
-    let ws: WebSocket | null = null
-    // Consecutive `starting` redials — drives the backoff; a live connection
-    // resets it so the next stall starts fast again.
-    let startingRetries = 0
-
-    const markLive = () => {
-      startingRetries = 0
-      setPhase((prev) => (prev.kind === `live` ? prev : { kind: `live` }))
-    }
-
-    const append = (item: NewFeedItem) => {
-      setFeed((prev) =>
-        [...prev, { ...item, id: nextIdRef.current++ } as FeedItem].slice(
-          -FEED_CAP
-        )
-      )
-    }
-
-    const handleActivity = (event: ActivityEvent) => {
-      switch (event.kind) {
-        case `narration`: {
-          const trimmed = event.text.trim()
-          if (!trimmed) return
-          // Resolution narrations are the LEGACY signal (EXP-197): a protocol
-          // v2 desktop emits them beside `question_resolved` purely for old
-          // clients, so they are dropped once the feed carries question ids.
-          // On a legacy feed they fold into the pending card instead of
-          // rendering as a narration row; with no card waiting the answer
-          // still renders, so it is never lost.
-          if (trimmed.startsWith(QUESTION_ANSWERED_PREFIX)) {
-            const answer = trimmed.slice(QUESTION_ANSWERED_PREFIX.length)
-            setFeed((prev) => {
-              if (hasSemanticQuestions(prev)) return prev
-              return (
-                attachQuestionAnswer(prev, answer) ??
-                [
-                  ...prev,
-                  {
-                    id: nextIdRef.current++,
-                    kind: `narration` as const,
-                    text: event.text,
-                  },
-                ].slice(-FEED_CAP)
-              )
-            })
-            return
-          }
-          if (trimmed === QUESTION_DISMISSED_NARRATION) {
-            setFeed((prev) =>
-              hasSemanticQuestions(prev)
-                ? prev
-                : (dismissPendingQuestions(prev) ?? prev)
-            )
-            return
-          }
-          if (trimmed === PLAN_RESOLVED_NARRATION) {
-            // Legacy feeds need it IN the feed — `activeQuestionIds` reads it
-            // as the plan card's only retirement signal.
-            setFeed((prev) =>
-              hasSemanticQuestions(prev)
-                ? prev
-                : [
-                    ...prev,
-                    {
-                      id: nextIdRef.current++,
-                      kind: `narration` as const,
-                      text: event.text,
-                    },
-                  ].slice(-FEED_CAP)
-            )
-            return
-          }
-          // EXP-483: prose from the withheld ask/plan entry flushes AFTER
-          // its already-published card — splice it back above the card.
-          const anchor = event.beforeQuestionId
-          if (anchor !== undefined) {
-            setFeed((prev) => {
-              const item: FeedItem = {
-                id: nextIdRef.current++,
-                kind: `narration`,
-                text: event.text,
-              }
-              return (
-                spliceBeforeQuestion(prev, anchor, item) ?? [...prev, item]
-              ).slice(-FEED_CAP)
-            })
-            return
-          }
-          append({ kind: `narration`, text: event.text })
-          return
-        }
-        case `tool`: {
-          const detail = event.detail?.trim() ? event.detail : undefined
-          append({
-            kind: `tool`,
-            name: event.name,
-            detail,
-            subagentId: event.subagentId,
-          })
-          return
-        }
-        case `user_message`: {
-          if (!event.text.trim()) return
-          // A message this client just sent was already echoed locally — skip
-          // its transcript-derived twin.
-          if (consumeEcho(recentEchoesRef.current, event.text, Date.now()))
-            return
-          append({ kind: `user_message`, text: event.text })
-          return
-        }
-        case `question`: {
-          if (!event.text.trim() || !event.options?.length) return
-          const item: Omit<QuestionItem, `id`> = {
-            kind: `question`,
-            text: event.text,
-            options: event.options,
-            multiSelect: event.multiSelect === true,
-            planMode: event.planMode === true,
-            questionId: event.id,
-            askId: event.askId,
-            index: event.index,
-            total: event.total,
-            header: event.header,
-          }
-          setFeed((prev) => {
-            // A re-emission of a known id replaces the card in place (the
-            // desktop augments options as it learns them).
-            const replaced = event.id
-              ? upsertQuestion(prev, event.id, item)
-              : null
-            return (
-              replaced ??
-              [...prev, { ...item, id: nextIdRef.current++ }].slice(-FEED_CAP)
-            )
-          })
-          return
-        }
-        case `question_resolved`: {
-          setFeed((prev) => applyQuestionResolved(prev, event) ?? prev)
-          return
-        }
-        case `answer_ack`: {
-          if (!event.id) return
-          clearAckTimer(event.id)
-          setAnswerStates((prev) => ackAnswer(prev, event.id))
-          return
-        }
-        case `subagent`: {
-          if (!event.id) return
-          append({
-            kind: `subagent`,
-            subagentId: event.id,
-            agentType: event.agentType,
-            status: event.status === `completed` ? `completed` : `started`,
-            detail: event.detail?.trim() ? event.detail : undefined,
-          })
-          return
-        }
-        case `permission`: {
-          if (!event.tool?.trim()) return
-          append({
-            kind: `permission`,
-            tool: event.tool,
-            detail: event.detail?.trim() ? event.detail : undefined,
-          })
-          return
-        }
-        case `diff`: {
-          // Diffs never enter the feed — the latest replaces the previous one
-          // behind the pinned "Latest changes" strip.
-          setLatestDiff(event.diff.trim() ? event.diff : null)
-          return
-        }
-        default:
-          // Future kinds from a newer desktop: ignore, never crash the socket.
-          return
-      }
-    }
-
-    // REV-33: a join replay fans the relay's whole activity log (up to
-    // FEED_CAP frames) out as individual ws messages. Handling each one
-    // directly meant one render per frame over the full non-virtualized feed
-    // — O(n²) work that froze the tab on open/reconnect. Frames buffer here
-    // and apply in one synchronous pass per window instead; `activity_reset`
-    // rides the same queue so a reset can never overtake buffered frames.
-    // The queue outlives redials (order is preserved across them) and only
-    // the effect teardown cancels it.
-    const activityQueue = createActivityCoalescer<
-      { t: `reset` } | { t: `event`; event: ActivityEvent }
-    >((batch) => {
-      if (disposed) return
-      for (const op of batch) {
-        if (op.t === `reset`) resetFeed()
-        else handleActivity(op.event)
-      }
-    })
-
-    const dial = async (retrying: boolean) => {
-      if (disposed) return
-      // Hold the `starting` phase steady across auto-retry redials — flipping
-      // to `connecting` per attempt makes the header flicker on every redial.
-      if (!retrying) setPhase({ kind: `connecting` })
-
-      // `bye` / no_such_session must win over the generic close handler.
-      let sawEnd = false
-      let retryStarting = false
-      let detail: string | null = null
-
-      try {
-        const minted = await trpc.steer.mintTicket.mutate(
-          { kind: `viewer`, codingSessionId: session.id },
-          { context: { skipErrorToast: true } }
-        )
-        if (disposed) return
-        if (`disabled` in minted && minted.disabled) {
-          setPhase({
-            kind: `closed`,
-            detail: `Live steering is unavailable on this instance.`,
-          })
-          return
-        }
-        const { url } = minted as { ticket: string; url: string }
-
-        ws = new WebSocket(url)
-        wsRef.current = ws
-        ws.onopen = () => {
-          if (disposed) return
-          // The feed is NEVER wiped here (protocol v2): the relay sends an
-          // explicit `activity_reset` immediately before its join replay, so
-          // a redial that never lands keeps showing what was already there.
-          ws?.send(JSON.stringify({ t: `join`, channel: `activity` }))
-          // NOT live yet — the relay may answer the join with no_such_session
-          // (desktop still starting). The phase flips to live on the first
-          // confirming server frame instead (the relay sends activity_reset
-          // immediately on a successful join).
-        }
-        ws.onmessage = (event) => {
-          if (disposed || typeof event.data !== `string`) return
-          const frame = parseServerFrame(event.data)
-          if (!frame) return
-          switch (frame.t) {
-            case `activity`: {
-              const f = frame as Extract<ServerFrame, { t: `activity` }>
-              activityQueue.enqueue({ t: `event`, event: f.event })
-              markLive()
-              return
-            }
-            case `activity_reset`: {
-              activityQueue.enqueue({ t: `reset` })
-              markLive()
-              return
-            }
-            case `bye`: {
-              const f = frame as Extract<ServerFrame, { t: `bye` }>
-              if (f.outcome === `publisher_lost`) {
-                // The desktop's relay socket dropped but the session may still
-                // be running — the synced row is the truth. Stay retryable.
-                detail = `The desktop's connection to the relay dropped. Retry once it reconnects.`
-              } else {
-                sawEnd = true
-                detail = f.outcome && f.outcome !== `ended` ? f.outcome : null
-              }
-              return
-            }
-            case `error`: {
-              const f = frame as Extract<ServerFrame, { t: `error` }>
-              if (f.code === `no_such_session`) {
-                // Not live on the relay (yet) — auto-retry while the synced
-                // row still says running.
-                detail = `The live stream isn't up yet. The desktop may still be connecting.`
-                retryStarting = true
-                ws?.close()
-              } else {
-                detail = f.message ?? f.code
-              }
-              return
-            }
-            default:
-              return
-          }
-        }
-        ws.onclose = () => {
-          if (disposed) return
-          wsRef.current = null
-          if (sawEnd) {
-            setPhase({ kind: `ended`, detail: detail ?? undefined })
-            return
-          }
-          if (retryStarting) {
-            // An `in_review` terminal is still alive and steerable (EXP-194)
-            // — only a truly ended session stops the redial.
-            if (sessionStatusRef.current !== `ended`) {
-              setPhase({ kind: `starting` })
-              retryTimer = setTimeout(
-                () => void dial(true),
-                startingRetryDelay(startingRetries++)
-              )
-            } else {
-              setPhase({ kind: `ended` })
-            }
-            return
-          }
-          setPhase({ kind: `closed`, detail: detail ?? undefined })
-        }
-      } catch (error) {
-        if (disposed) return
-        setPhase({
-          kind: `closed`,
-          detail: trpcErrorMessage(error, `Couldn't get a viewer ticket`),
-        })
-      }
-    }
-
-    void dial(false)
-
-    return () => {
-      disposed = true
-      if (retryTimer) clearTimeout(retryTimer)
-      activityQueue.cancel()
-      wsRef.current = null
-      ws?.close()
-    }
-  }, [attempt, session.id])
-
-  // ── Steering (message-shaped; owner-only — the mint refuses anyone else) ──
-
-  /**
-   * Forward raw input (chunked ≤4 KiB, never splitting a surrogate pair).
-   */
-  const sendInput = (data: string): boolean => {
-    const sock = wsRef.current
-    if (sock?.readyState !== WebSocket.OPEN) return false
-    for (let i = 0; i < data.length; ) {
-      let end = Math.min(i + INPUT_CHUNK_CHARS, data.length)
-      const last = end < data.length ? data.charCodeAt(end - 1) : 0
-      if (last >= 0xd800 && last <= 0xdbff) end += 1
-      sock.send(JSON.stringify({ t: `input`, data: data.slice(i, end) }))
-      i = end
-    }
-    return true
-  }
-
-  /**
-   * Send one message to the agent: the text, then a SEPARATE `\r` frame —
-   * bundled into one write TUI apps treat the trailing return as a paste,
-   * which inserts instead of submitting. The sent text is echoed into the
-   * local feed immediately (EXP-78); its transcript-derived `user_message`
-   * event is deduped against the echo FIFO when it arrives.
-   */
-  const sendMessage = (text: string): boolean => {
-    if (!text || !sendInput(text)) return false
-    wsRef.current?.send(JSON.stringify({ t: `input`, data: `\r` }))
-    pushEcho(recentEchoesRef.current, text, Date.now())
-    setFeed((prev) =>
-      [
-        ...prev,
-        { id: nextIdRef.current++, kind: `user_message` as const, text },
-      ].slice(-FEED_CAP)
-    )
-    return true
-  }
-
-  /** Legacy answer path (a desktop that publishes no question ids): raw
-   *  keystrokes — the desktop passes single-byte frames to the PTY unwrapped,
-   *  so the TUI sees keypresses, not a paste. NO trailing `\r`: a digit
-   *  already selects AND advances in claude's picker, so the extra return
-   *  cascaded into the next question and auto-answered it (EXP-249).
-   *  Multi-select taps toggle with the digit alone; Continue sends `\t`. */
-  const sendKeystrokes = (keys: string[]): boolean => {
-    const sock = wsRef.current
-    if (sock?.readyState !== WebSocket.OPEN) return false
-    for (const key of keys) sock.send(JSON.stringify({ t: `input`, data: key }))
-    return true
-  }
-
-  /** Protocol v2 answer: the relay forwards it verbatim to the desktop, which
-   *  drives its own picker and confirms with `answer_ack`. */
-  const sendAnswerFrame = (
-    questionId: string,
-    askId: string | undefined,
-    keys: string[],
-    text?: string
-  ): boolean => {
-    const sock = wsRef.current
-    if (sock?.readyState !== WebSocket.OPEN) return false
-    sock.send(JSON.stringify({ t: `answer`, questionId, askId, keys, text }))
-    return true
-  }
-
-  /** Submit a card's answer and LOCK it immediately — a locked card never
-   *  fires again. `answer_ack` confirms the lock; `question_resolved`
-   *  finalizes it; ANSWER_ACK_TIMEOUT_MS without either re-enables the card
-   *  with an inline note. */
+  const sendMessage = (text: string): boolean => store.sendMessage(text)
   const answerQuestion = (
     item: QuestionItem,
     keys: string[],
     labels: string[],
     text?: string
-  ) => {
-    const key = answerKey(item)
-    if (isAnswerLocked(answerStates[key]) || item.resolved === true) return
-    const sent = item.questionId
-      ? sendAnswerFrame(item.questionId, item.askId, keys, text)
-      : sendKeystrokes(keys)
-    if (!sent) return
-    setAnswerStates((prev) => beginAnswer(prev, key, keys, labels))
-    clearAckTimer(key)
-    ackTimersRef.current.set(
-      key,
-      setTimeout(() => {
-        ackTimersRef.current.delete(key)
-        setAnswerStates((prev) => failAnswer(prev, key))
-      }, ANSWER_ACK_TIMEOUT_MS)
-    )
-  }
+  ) => store.answerQuestion(item, keys, labels, text)
+  const toggleLegacyOption = (key: string) => store.toggleLegacyOption(key)
 
-  /** A legacy multi-select toggle — one keystroke, no lock: the selection is
-   *  only submitted by Continue. */
-  const toggleLegacyOption = (key: string) => {
-    sendKeystrokes([key])
-  }
 
   const kill = async () => {
     setKilling(true)
@@ -878,30 +266,6 @@ export function AgentSessionView({
 
   useEffect(() => () => contentObserverRef.current?.disconnect(), [])
 
-  // A resolved card carries its own answer — drop its lock so a stale ack
-  // deadline can't flip a finished card into the retry state.
-  useEffect(() => {
-    setAnswerStates((prev) => {
-      let next = prev
-      for (const item of feed) {
-        if (item.kind !== `question` || item.resolved !== true) continue
-        const key = answerKey(item)
-        if (!(key in next)) continue
-        clearAckTimer(key)
-        next = clearAnswer(next, key)
-      }
-      return next
-    })
-  }, [feed])
-
-  useEffect(
-    () => () => {
-      for (const timer of ackTimersRef.current.values()) clearTimeout(timer)
-      ackTimersRef.current.clear()
-    },
-    []
-  )
-
   useEffect(() => {
     if (!atBottom) return
     const el = scrollRef.current
@@ -936,7 +300,10 @@ export function AgentSessionView({
   const live = phase.kind === `live`
   const sessionEnded = session.status === `ended`
   // EXP-312: live implies ownership — the mint refuses everyone else.
-  const composerVisible = live && !sessionEnded
+  // EXP-621: the composer stays MOUNTED through connection flaps (only send
+  // is disabled) — unmounting it on a phase change was how a slow-consumer
+  // eviction ate a typed draft. It only leaves with the session itself.
+  const composerVisible = !sessionEnded && phase.kind !== `ended`
 
   /** Identity-scoped questions stay answerable until they resolve; legacy
    *  cards fall back to the trailing-run heuristic, with a plan-approval card
@@ -1023,9 +390,9 @@ export function AgentSessionView({
     }
     if (deviceOnline === true && wasOfflineRef.current) {
       wasOfflineRef.current = false
-      if (phase.kind === `closed` && !sessionEnded) setAttempt((n) => n + 1)
+      if (phase.kind === `closed` && !sessionEnded) store.reconnect()
     }
-  }, [deviceOnline, phase.kind, sessionEnded])
+  }, [deviceOnline, phase.kind, sessionEnded, store])
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -1044,7 +411,7 @@ export function AgentSessionView({
             variant="outline"
             size="sm"
             className="shrink-0"
-            onClick={() => setAttempt((n) => n + 1)}
+            onClick={() => store.reconnect()}
           >
             <UiRefreshIcon />
             Reconnect
@@ -1313,6 +680,11 @@ export function AgentSessionView({
           {composerVisible && (
             <div className="border-t border-border p-2">
               <MessageComposer
+                store={store}
+                // `connected` matters beyond the phase: a silent slow-consumer
+                // redial keeps `live` while the socket is briefly down, and
+                // the send button should dim honestly for that gap.
+                live={live && connected}
                 onSend={sendMessage}
                 issueId={session.issueId}
                 placeholder={
@@ -2273,95 +1645,82 @@ function ToolGroupRow({
   )
 }
 
-/** An image picked into the composer but not yet part of a sent message.
- *  `uploadedId` survives a failed send so a retry never re-uploads. */
-type PendingSteerImage = {
-  file: File
-  url: string
-  uploadedId?: string
-}
-
 function MessageComposer({
+  store,
+  live,
   onSend,
   issueId,
   placeholder,
 }: {
+  store: SteerSessionStore
+  /** Sending is possible — the composer itself stays mounted regardless
+   *  (EXP-621), so a connection flap never eats the draft. */
+  live: boolean
   onSend: (text: string) => boolean
   issueId: string | null
   /** Context-aware hint (e.g. the plan-approval "Tell Claude what to
    *  change…"); the default stays the generic prompt. */
   placeholder?: string
 }) {
-  const [text, setText] = useState(``)
-  const [pending, setPending] = useState<PendingSteerImage[]>([])
+  // EXP-621: the draft lives in the per-session store, so it survives
+  // reconnects, dock collapse/reopen and navigation. Blob URLs are the
+  // store's to revoke — no unmount cleanup here.
+  const { text, images: pending } = useSyncExternalStore(
+    store.subscribe,
+    store.getDraftSnapshot
+  )
   const [sending, setSending] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // A file chooser steals focus without moving it anywhere in the document
+  // AND can stall the tab long enough for the relay to evict the viewer —
+  // latched on the click that opens one, released when it resolves either
+  // way (the comment composer's pattern).
+  const filePickerOpenRef = useRef(false)
 
-  const pendingRef = useRef(pending)
-  pendingRef.current = pending
-  useEffect(
-    () => () => {
-      for (const image of pendingRef.current) URL.revokeObjectURL(image.url)
-    },
-    []
-  )
+  useEffect(() => {
+    const release = () => {
+      filePickerOpenRef.current = false
+    }
+    window.addEventListener(`focus`, release)
+    return () => window.removeEventListener(`focus`, release)
+  }, [])
 
   const addFiles = (files: File[]) => {
-    const accepted = files.filter(
-      (file) =>
-        isAcceptedImageContentType(file.type) &&
-        file.size <= maxImageUploadBytes
-    )
-    if (accepted.length < files.length) {
+    const { rejected, overflow } = store.addDraftImages(files)
+    if (rejected > 0) {
       toast.error(`Only images up to 10 MB can be attached`)
     }
-    const taking = accepted.slice(0, Math.max(0, MAX_STEER_IMAGES - pending.length))
-    if (taking.length < accepted.length) {
+    if (overflow > 0) {
       toast.error(`Up to ${MAX_STEER_IMAGES} images per message`)
     }
-    if (taking.length === 0) return
-    setPending([
-      ...pending,
-      ...taking.map((file) => ({ file, url: URL.createObjectURL(file) })),
-    ])
-  }
-
-  const removeImage = (url: string) => {
-    URL.revokeObjectURL(url)
-    setPending((prev) => prev.filter((image) => image.url !== url))
   }
 
   const send = async () => {
-    if (sending) return
+    if (sending || !live) return
     if (!text.trim() && pending.length === 0) return
     if (pending.length === 0 || !issueId) {
-      if (onSend(text)) setText(``)
+      if (onSend(text)) store.clearDraftAfterSend()
       return
     }
     setSending(true)
     try {
       // Upload sequentially, persisting each id as it lands — a mid-batch
       // failure keeps the composer intact and a retry only uploads the rest.
-      const images = [...pending]
       const ids: string[] = []
-      for (let i = 0; i < images.length; i++) {
-        if (!images[i].uploadedId) {
-          const uploaded = await uploadIssueImageFile(issueId, images[i].file)
-          images[i] = { ...images[i], uploadedId: uploaded.id }
-          const image = images[i]
-          setPending((prev) =>
-            prev.map((p) => (p.url === image.url ? image : p))
-          )
+      for (const image of pending) {
+        let uploadedId = image.uploadedId
+        if (!uploadedId) {
+          const uploaded = await uploadIssueImageFile(issueId, image.file)
+          uploadedId = uploaded.id
+          store.setDraftImageUploaded(image.url, uploadedId)
         }
-        ids.push(images[i].uploadedId!)
+        ids.push(uploadedId)
       }
       if (!onSend(buildSteerImageMessage(text, ids))) {
         toast.error(`The session is no longer connected`)
         return
       }
-      setText(``)
-      for (const image of images) URL.revokeObjectURL(image.url)
-      setPending([])
+      store.clearDraftAfterSend()
     } catch (error) {
       toast.error(`Couldn't upload image`, {
         description: error instanceof Error ? error.message : undefined,
@@ -2374,7 +1733,17 @@ function MessageComposer({
   // One rounded card with the send button inside the box — the comment
   // composer's chrome (EXP-554); behavior and wire format are unchanged.
   return (
-    <div className="rounded-lg border border-border bg-muted/40">
+    <div
+      className="rounded-lg border border-border bg-muted/40"
+      onDrop={(event) => {
+        if (issueId === null || event.dataTransfer.files.length === 0) return
+        event.preventDefault()
+        addFiles(Array.from(event.dataTransfer.files))
+      }}
+      onDragOver={(event) => {
+        if (event.dataTransfer.types.includes(`Files`)) event.preventDefault()
+      }}
+    >
       {pending.length > 0 && (
         <div className="flex flex-wrap gap-2 px-2 pt-2">
           {pending.map((image) => (
@@ -2388,7 +1757,7 @@ function MessageComposer({
                 type="button"
                 aria-label="Remove image"
                 disabled={sending}
-                onClick={() => removeImage(image.url)}
+                onClick={() => store.removeDraftImage(image.url)}
                 className="absolute -right-1.5 -top-1.5 rounded-full border border-border bg-background p-0.5 text-muted-foreground hover:text-foreground"
               >
                 <X className="size-3" />
@@ -2407,6 +1776,7 @@ function MessageComposer({
               accept={acceptedImageContentTypes.join(`,`)}
               className="hidden"
               onChange={(e) => {
+                filePickerOpenRef.current = false
                 if (e.target.files) addFiles(Array.from(e.target.files))
                 e.target.value = ``
               }}
@@ -2418,7 +1788,10 @@ function MessageComposer({
               aria-label="Attach image"
               title="Attach image"
               disabled={sending}
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => {
+                filePickerOpenRef.current = true
+                fileInputRef.current?.click()
+              }}
             >
               <Plus />
             </Button>
@@ -2426,7 +1799,7 @@ function MessageComposer({
         )}
         <Textarea
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => store.setDraftText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === `Enter` && !e.shiftKey) {
               e.preventDefault()
@@ -2451,7 +1824,9 @@ function MessageComposer({
           size="icon"
           className="shrink-0"
           aria-label="Send"
-          disabled={sending || (!text.trim() && pending.length === 0)}
+          disabled={
+            sending || !live || (!text.trim() && pending.length === 0)
+          }
           onClick={() => void send()}
         >
           <ArrowUp />

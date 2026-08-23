@@ -53,9 +53,9 @@ struct AgentSessionView: View {
     let session: CodingSessionEntity
 
     @Environment(AppDependencies.self) private var deps
-    @Environment(\.scenePhase) private var scenePhase
+    /// A cache of the SteerSessionStore lookup (EXP-621) — the model itself is
+    /// app-scoped, so this view neither creates nor tears it down.
     @State private var model: AgentSessionModel?
-    @State private var inputText = ""
     @State private var showDiffSheet = false
     @State private var showKillConfirm = false
     /// Whether the feed is scrolled to (within slack of) its bottom —
@@ -66,9 +66,6 @@ struct AgentSessionView: View {
     /// subagent id focuses that agent's stream. Falls back to Main whenever
     /// the id vanishes from the feed (an `activity_reset` replay).
     @State private var agentTab: String?
-    /// EXP-511: images picked for the next steer message, shown as a strip
-    /// above the input row until they are sent or removed.
-    @State private var pendingImages: [PendingSteerImage] = []
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var showPhotoPicker = false
     @FocusState private var inputFocused: Bool
@@ -146,21 +143,16 @@ struct AgentSessionView: View {
             guard !newItems.isEmpty else { return }
             Task { await ingestPhotos(newItems) }
         }
-        .onChange(of: scenePhase) { _, newPhase in
-            // Returning from the background (EXP-243): the socket rarely
-            // survives suspension — reconnect automatically instead of
-            // parking behind a manual button.
-            if newPhase == .active {
-                model?.reconnectNow()
-            }
-        }
+        // No scenePhase handler here: foreground revival (EXP-243) is
+        // app-scoped since EXP-621 — the root handler reconnects every retained
+        // session, not just the one that happens to be on screen.
         .onAppear {
-            if let model {
-                // Popped back to (something was pushed on top, whose
-                // onDisappear shut the socket down) — revive.
-                model.resume()
-            } else {
-                let m = AgentSessionModel(
+            // The socket owner is app-scoped (EXP-621): popping back to this
+            // screen re-attaches to the SAME model, so the feed is already
+            // there, the composer still holds its draft, and there is no
+            // connect phase to sit through.
+            model = deps.steerSessions.attach(accountId: accountId, sessionId: session.id) {
+                AgentSessionModel(
                     accountId: accountId,
                     session: session,
                     currentUserId: deps.auth.userId,
@@ -168,13 +160,12 @@ struct AgentSessionView: View {
                     issueImagesApi: deps.issueImagesApi,
                     db: deps.db
                 )
-                model = m
-                m.start()
             }
         }
         .onDisappear {
-            // Close the socket when dismissed.
-            model?.shutdown()
+            // NOT a teardown: the store keeps the socket up while the session
+            // runs and retires it once it is over (or falls off the cap).
+            deps.steerSessions.detach(accountId: accountId, sessionId: session.id)
         }
         .sheet(isPresented: $showDiffSheet) {
             if let diff = model?.latestDiff {
@@ -689,7 +680,11 @@ struct AgentSessionView: View {
     @ViewBuilder
     private func bottomBar(_ model: AgentSessionModel) -> some View {
         // EXP-312: live implies ownership — the ticket mint refuses others.
-        let inputVisible = model.phase == .live && !model.sessionEnded
+        // EXP-621: the composer is tied to the SESSION, not the socket — it
+        // stays up through a reconnect (send disabled, draft intact) and only
+        // goes away once the session is over. It used to vanish on every drop,
+        // taking the half-typed message with it.
+        let inputVisible = !model.isOver
         if model.latestDiff != nil || inputVisible {
             VStack(alignment: .leading, spacing: 8) {
                 if let diff = model.latestDiff {
@@ -737,27 +732,27 @@ struct AgentSessionView: View {
         .glassRow()
     }
 
-    private var trimmedInput: String {
-        inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
     /// EXP-554: the steer composer now wears the comment composer's chrome — ONE
     /// rounded (rc20) ultraThinMaterial card holding the pending strip, a
     /// transparent field, and the `[+]`·spacer·send row. Behavior is untouched:
     /// four images max, the same `sendSteerImages` upload, the same frozen
     /// `SteerImageMessage` wire format.
     private func composerCard(_ model: AgentSessionModel) -> some View {
+        @Bindable var model = model
         // Images attach to the session's ISSUE, so a batch or action run has
         // nowhere to put them (EXP-511).
         let canAttach = model.session?.issueId != nil
-        let attachFull = pendingImages.count >= SteerImageMessage.maxImages
-        let canSend = !trimmedInput.isEmpty || !pendingImages.isEmpty
-        let sendDisabled = !canSend || model.steerSending
+        let attachFull = model.pendingImages.count >= SteerImageMessage.maxImages
+        let canSend = !model.trimmedDraft.isEmpty || !model.pendingImages.isEmpty
+        // EXP-621: only SENDING waits for the socket — the field, the picker
+        // and the strip stay usable so the draft is ready the moment the
+        // reconnect lands.
+        let sendDisabled = !canSend || model.steerSending || !model.canSteer
         let attachDisabled = attachFull || model.steerSending
         return VStack(alignment: .leading, spacing: 0) {
-            if !pendingImages.isEmpty {
-                PendingAttachmentStrip(items: pendingImages) { id in
-                    pendingImages.removeAll { $0.id == id }
+            if !model.pendingImages.isEmpty {
+                PendingAttachmentStrip(items: model.pendingImages) { id in
+                    model.pendingImages.removeAll { $0.id == id }
                 }
                 .padding(.horizontal, 8)
                 .padding(.top, 8)
@@ -778,7 +773,7 @@ struct AgentSessionView: View {
                 // message) — say so instead of the generic prompt (EXP-529).
                 model.awaitingPlanApproval
                     ? "Tell Claude what to change…" : "Message the agent…",
-                text: $inputText,
+                text: $model.draftText,
                 axis: .vertical
             )
                 .textFieldStyle(.plain)
@@ -832,10 +827,12 @@ struct AgentSessionView: View {
     }
 
     private func sendMessage(_ model: AgentSessionModel) {
-        guard !pendingImages.isEmpty else {
-            guard !trimmedInput.isEmpty else { return }
-            model.sendMessage(inputText)
-            inputText = ""
+        guard !model.pendingImages.isEmpty else {
+            guard !model.trimmedDraft.isEmpty else { return }
+            // Clear ONLY once the frames are actually out (EXP-621): a send
+            // into a dropped socket used to wipe the composer with nothing
+            // sent.
+            if model.sendMessage(model.draftText) { model.draftText = "" }
             return
         }
         guard !model.steerSending else { return }
@@ -846,11 +843,13 @@ struct AgentSessionView: View {
     /// failure keeps the draft and the strip — the model hands back the images
     /// with their already-uploaded ids so a retry only uploads the rest.
     private func sendWithImages(_ model: AgentSessionModel) async {
-        if let remaining = await model.sendSteerImages(inputText, images: pendingImages) {
-            pendingImages = remaining
+        if let remaining = await model.sendSteerImages(
+            model.draftText, images: model.pendingImages
+        ) {
+            model.pendingImages = remaining
         } else {
-            inputText = ""
-            pendingImages = []
+            model.draftText = ""
+            model.pendingImages = []
         }
     }
 
@@ -859,9 +858,10 @@ struct AgentSessionView: View {
     /// the share extension does, and cap the strip at four.
     private func ingestPhotos(_ items: [PhotosPickerItem]) async {
         defer { photoItems = [] }
-        model?.steerImageError = nil
+        guard let model else { return }
+        model.steerImageError = nil
         for item in items {
-            guard pendingImages.count < SteerImageMessage.maxImages else { break }
+            guard model.pendingImages.count < SteerImageMessage.maxImages else { break }
             guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
             let type = item.supportedContentTypes.first
             // EXP-554: one shared normalizer for every composer (steer + the two
@@ -872,10 +872,10 @@ struct AgentSessionView: View {
                 filenameExtensionHint: type?.preferredFilenameExtension
             )
             guard let normalized = outcome.attachment else {
-                model?.steerImageError = outcome.failure
+                model.steerImageError = outcome.failure
                 continue
             }
-            pendingImages.append(PendingSteerImage(
+            model.pendingImages.append(PendingSteerImage(
                 data: normalized.data,
                 filename: normalized.filename,
                 contentType: normalized.contentType,

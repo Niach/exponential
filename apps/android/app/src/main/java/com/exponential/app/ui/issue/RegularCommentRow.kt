@@ -39,10 +39,10 @@ import com.exponential.app.data.db.AttachmentEntity
 import com.exponential.app.data.db.CommentEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.MAX_COMMENT_ATTACHMENTS
+import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.ui.components.CommentAttachmentsStrip
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
-import com.exponential.app.ui.components.PendingAttachment
 import com.exponential.app.ui.components.PendingAttachmentStrip
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.emoji.EmojiPickerSheet

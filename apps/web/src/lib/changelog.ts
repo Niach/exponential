@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-live-sessions-stay-connected`,
+    date: `2026-08-24`,
+    title: `Live sessions stay connected`,
+    summary: `Coding sessions keep streaming in the background while you move around the app, and a steering draft survives reconnects on web, iOS and Android.`,
+    body: `- **No more reconnect loops**: opening a session again shows the feed instantly; the connection now lives outside the session view, so collapsing the panel or navigating away no longer drops it.
+- **Drafts are safe**: text typed into the steering box survives attaching an image, connection blips, navigation and rotation. The box also stays visible while reconnecting; only Send waits for the live stream.
+- **Quiet recovery**: when the relay drops a viewer that briefly stalled (like while a file picker is open), the session reconnects silently instead of showing "Disconnected".
+- **Web composer**: images can now be dragged onto the steering box, and attaching twice in a row no longer loses the first image.`,
+  },
+  {
     id: `2026-08-pr-notification-ownership`,
     date: `2026-08-23`,
     title: `No more notifications about your own pull requests`,

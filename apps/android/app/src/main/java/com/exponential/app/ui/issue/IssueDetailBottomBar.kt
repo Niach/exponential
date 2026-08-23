@@ -53,8 +53,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.domain.MAX_COMMENT_ATTACHMENTS
+import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.ui.components.BottomBarPillFill
-import com.exponential.app.ui.components.PendingAttachment
 import com.exponential.app.ui.components.PendingAttachmentStrip
 import com.exponential.app.ui.emoji.EmojiPickerSheet
 import com.exponential.app.ui.icons.ExpIcons

@@ -30,7 +30,13 @@ struct ExponentialApp: App {
                 .onChange(of: scenePhase) { _, newPhase in
                     switch newPhase {
                     case .background: dependencies.syncManager.sceneDidEnterBackground()
-                    case .active: dependencies.syncManager.sceneDidBecomeActive()
+                    case .active:
+                        dependencies.syncManager.sceneDidBecomeActive()
+                        // The steer sockets rarely survive a suspension either
+                        // (EXP-243) — and since EXP-621 they are app-scoped, so
+                        // revival belongs here rather than in the one session
+                        // screen that happens to be mounted.
+                        dependencies.steerSessions.reconnectAll()
                     default: break
                     }
                 }
