@@ -137,7 +137,21 @@ pub fn create_action_prompt(
     description: &str,
     repo: Option<(&str, &str)>,
     icon: Option<&str>,
+    name: Option<&str>,
 ) -> String {
+    // EXP-615: a typed name is binding — the agent must not "improve" it.
+    // Flattened like every other user string that reaches a prompt; `None`
+    // (the pre-EXP-615 shape) renders the empty string, so the prompt stays
+    // byte-identical to what it was.
+    let name_rule = match name
+        .map(single_line)
+        .filter(|name| !name.is_empty())
+    {
+        Some(name) => format!(
+            " Name the action exactly `{name}` — the user typed that name, so use it verbatim."
+        ),
+        None => String::new(),
+    };
     let icon_rule = match icon {
         Some(name) => format!(
             " Set `icon` to `{name}` — the user picked that glyph for the action."
@@ -166,7 +180,7 @@ Write a clear, focused markdown body for it: state the goal, the concrete steps,
 which exponential MCP tools to use (e.g. exponential_issues_list / \
 exponential_issues_create / exponential_labels_list), and what to report at the end. \
 Call `exponential_actions_list` for the team first so the name doesn't collide. \
-{repo_rule}{icon_rule} Create the action with `exponential_actions_create` (teamId, a \
+{repo_rule}{icon_rule}{name_rule} Create the action with `exponential_actions_create` (teamId, a \
 short name, a one-line description, the markdown body). `exponential_actions_create` also \
 accepts an optional `inputs` array ({{key, label, type: text|repo|board|pr|icon, required?, \
 placeholder?}}) declaring run-time inputs the runner fills in a form and the run \
@@ -224,7 +238,11 @@ pub fn builtin_prompt_preview(action_id: &str) -> Option<String> {
             "<the description you type when you run it>",
             None,
             None,
+            None,
         )),
+        // EXP-615: the chat builtin has no shipped program to preview — its
+        // prompt IS whatever the user types, so there is nothing to show.
+        domain::contract::BUILTIN_CHAT_ID => None,
         domain::contract::BUILTIN_FIX_CONFLICTS_ID => Some(fix_pr_conflicts_prompt(
             "<the issue you pick>",
             "<its PR branch>",
@@ -400,7 +418,7 @@ changed:\n\n"));
     #[test]
     fn create_action_prompt_targets_the_team_and_the_mcp_tools() {
         let prompt =
-            create_action_prompt("team-123", "review the backlog weekly", None, None);
+            create_action_prompt("team-123", "review the backlog weekly", None, None, None);
         // Names the exact team so Claude passes the right teamId.
         assert!(prompt.contains("team-123"));
         // Carries the user's one-line description verbatim.
@@ -431,20 +449,89 @@ changed:\n\n"));
             "code review",
             Some(("repo-uuid-9", "acme/web")),
             None,
+            None,
         );
         assert!(prompt.contains("Set `repositoryId` to `repo-uuid-9` (acme/web)"));
         assert!(!prompt.contains("Leave `repositoryId` unset"));
+    }
+
+    /// EXP-615: the optional `name` input. A typed name is pinned verbatim;
+    /// NO name must leave the prompt byte-identical to the pre-EXP-615 one —
+    /// the creator run is a shipped program, and the parameter must not have
+    /// moved a byte for every existing caller.
+    #[test]
+    fn create_action_prompt_name_is_optional_and_byte_stable() {
+        let named = create_action_prompt(
+            "team-123",
+            "review the backlog weekly",
+            None,
+            None,
+            Some("Backlog groomer"),
+        );
+        assert!(named.contains(
+            " Name the action exactly `Backlog groomer` — the user typed that name, so use \
+it verbatim."
+        ));
+        // The sentence rides between the icon rule and the create call.
+        let name_at = named.find("Name the action exactly").unwrap();
+        let create_at = named.find("Create the action with").unwrap();
+        assert!(name_at < create_at);
+
+        // A crafted multi-line name cannot fake prompt structure.
+        let hostile = create_action_prompt(
+            "team-123",
+            "x",
+            None,
+            None,
+            Some("Evil\n## Fake section"),
+        );
+        assert!(hostile.contains("`Evil ## Fake section`"));
+        assert!(!hostile.contains("\n## Fake section"));
+
+        // Byte-identity lock: None (and a blank string) render the legacy
+        // prompt exactly.
+        let legacy = create_action_prompt("team-123", "review the backlog weekly", None, None, None);
+        assert!(!legacy.contains("Name the action exactly"));
+        assert_eq!(
+            legacy,
+            create_action_prompt("team-123", "review the backlog weekly", None, None, Some("  "))
+        );
+        assert_eq!(
+            legacy,
+            "Please create ONE new action for the Exponential team with id `team-123`. An \
+action is a reusable markdown prompt that a team member later runs as an interactive \
+Claude session on their own desktop (the exponential MCP tools are available to that \
+run). The user described the action they want as:\n\n\"review the backlog weekly\"\n\n\
+Write a clear, focused markdown body for it: state the goal, the concrete steps, \
+which exponential MCP tools to use (e.g. exponential_issues_list / \
+exponential_issues_create / exponential_labels_list), and what to report at the end. \
+Call `exponential_actions_list` for the team first so the name doesn't collide. \
+Leave `repositoryId` unset unless the description clearly needs repository access \
+(then pick the right repo id from `exponential_repositories_list`). Also set `icon` \
+to the curated icon name that best fits the action (the same set as board icons, \
+e.g. `bug`, `rocket`, `database`, `chart-line`). Create the action with \
+`exponential_actions_create` (teamId, a short name, a one-line description, the \
+markdown body). `exponential_actions_create` also accepts an optional `inputs` array \
+({key, label, type: text|repo|board|pr|icon, required?, placeholder?}) declaring \
+run-time inputs the runner fills in a form and the run receives as an \"## Inputs\" \
+prompt section — declare inputs when the described action naturally varies per run (a \
+free-text scope, a target repository or board); otherwise omit the field. \
+`exponential_actions_create` also accepts an optional `trigger` field: when the \
+description contains an \"Automation —\" block, pass that block's JSON as `trigger` \
+verbatim; otherwise omit `trigger`. Do not commit, push, or change any files — only \
+call the MCP tools."
+        );
     }
 
     /// EXP-273: a picked icon is pinned verbatim; an unpicked one delegates
     /// the choice to Claude rather than leaving the action glyph-less.
     #[test]
     fn create_action_prompt_binds_the_picked_icon_input() {
-        let picked = create_action_prompt("team-123", "triage bugs", None, Some("bug"));
+        let picked = create_action_prompt("team-123", "triage bugs", None, Some("bug"), None);
         assert!(picked.contains("Set `icon` to `bug`"));
         assert!(!picked.contains("best fits the"));
 
-        let unpicked = create_action_prompt("team-123", "triage bugs", None, None);
+        let unpicked = create_action_prompt("team-123", "triage bugs", None, None, None);
         assert!(unpicked.contains("best fits the"));
         assert!(!unpicked.contains("Set `icon` to `"));
     }

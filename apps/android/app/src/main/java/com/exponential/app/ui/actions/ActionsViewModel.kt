@@ -208,7 +208,36 @@ class ActionsViewModel @Inject constructor(
      * Success needs no local write: Electric echoes the row back. */
     fun setAutomationEnabled(automationId: String, enabled: Boolean) {
         mutateAutomation("The automation could not be updated") { accountId ->
-            automationsApi.update(accountId, id = automationId, enabled = enabled)
+            automationsApi.setEnabled(accountId, id = automationId, enabled = enabled)
+        }
+    }
+
+    /**
+     * Save an edited automation (EXP-615) — the same form as create, on an
+     * existing row. Null [agent]/[model]/[effort] clear the pins back to the
+     * bound machine's own launch defaults.
+     */
+    fun updateAutomation(
+        automationId: String,
+        actionId: String,
+        deviceId: String,
+        trigger: AutomationTrigger,
+        agent: String?,
+        model: String?,
+        effort: String?,
+        onDone: () -> Unit,
+    ) {
+        mutateAutomation("The automation could not be updated", onDone) { accountId ->
+            automationsApi.update(
+                accountId,
+                id = automationId,
+                actionId = actionId,
+                deviceId = deviceId,
+                trigger = trigger,
+                agent = agent,
+                model = model,
+                effort = effort,
+            )
         }
     }
 

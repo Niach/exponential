@@ -7,6 +7,8 @@ import { actions, automations, repositories } from "@/db/schema"
 import { assertTeamMember, assertTeamOwner } from "@/lib/team-membership"
 import {
   BUILTIN_CREATE_ACTION_ID,
+  BUILTIN_CHAT_ID,
+  BUILTIN_CHAT_NAME,
   BUILTIN_CREATE_ACTION_NAME,
   BUILTIN_FIX_CONFLICTS_ID,
   BUILTIN_FIX_CONFLICTS_NAME,
@@ -154,6 +156,7 @@ const actionIdSchema = z
   .uuid()
   .or(z.literal(BUILTIN_CREATE_ACTION_ID))
   .or(z.literal(BUILTIN_FIX_CONFLICTS_ID))
+  .or(z.literal(BUILTIN_CHAT_ID))
 
 function rejectBuiltin(id: string, verb: string): void {
   if (isBuiltinActionId(id)) {
@@ -171,6 +174,10 @@ function assertNotReservedName(name: string): void {
   for (const reserved of [
     BUILTIN_CREATE_ACTION_NAME,
     BUILTIN_FIX_CONFLICTS_NAME,
+    // EXP-615: chat session rows carry actionName "Chat" and clients watch
+    // started runs by that snapshot — a team action named "Chat" would
+    // hijack the watch.
+    BUILTIN_CHAT_NAME,
   ]) {
     if (normalized === reserved.toLowerCase()) {
       throw new TRPCError({

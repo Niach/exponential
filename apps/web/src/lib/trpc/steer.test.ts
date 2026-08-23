@@ -90,6 +90,11 @@ vi.mock(`@/lib/team-membership`, () => ({
 }))
 vi.mock(`@/lib/trpc/repositories`, () => ({
   resolveBoardRepository: h.resolveBoardRepository,
+  // Mirrors the real helper (EXP-462): override wins over GitHub's default.
+  effectiveDefaultBranch: (repo: {
+    defaultBranch: string
+    defaultBranchOverride: string | null
+  }) => repo.defaultBranchOverride ?? repo.defaultBranch,
 }))
 vi.mock(`@/lib/steer`, () => ({
   getSteerRelayConfig: h.getSteerRelayConfig,
@@ -799,6 +804,102 @@ describe(`steer.startSession — builtin create-action (EXP-257)`, () => {
       })
     )
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+  })
+})
+
+// ── The hidden chat builtin (EXP-615) ────────────────────────────────────────
+
+const CHAT_ID = `builtin:chat`
+
+describe(`steer.startSession — builtin chat (EXP-615)`, () => {
+  it(`routes a chat start with the override-aware repo group`, async () => {
+    actionsCapableDevice([`actions`, `action-inputs`, `chat`])
+    // resolveActionInputs' repo resolver, then the chat repo-group lookup.
+    h.dbQueue.push([{ teamId: BUILTIN_TEAM_ID, fullName: `acme/api` }])
+    h.dbQueue.push([
+      {
+        id: REPO_INPUT_ID,
+        fullName: `acme/api`,
+        defaultBranch: `main`,
+        defaultBranchOverride: `develop`,
+      },
+    ])
+    await caller.startSession({
+      actionId: CHAT_ID,
+      teamId: BUILTIN_TEAM_ID,
+      deviceId: `dev-1`,
+      inputs: { prompt: `Fix the flaky retry test`, repo: REPO_INPUT_ID },
+    })
+    expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, BUILTIN_TEAM_ID)
+    expect(lastStartBody()).toMatchObject({
+      actionId: CHAT_ID,
+      actionName: `Chat`,
+      teamId: BUILTIN_TEAM_ID,
+      repo: {
+        repositoryId: REPO_INPUT_ID,
+        fullName: `acme/api`,
+        defaultBranch: `develop`,
+      },
+    })
+    expect(lastStartBody().inputs).toEqual([
+      {
+        key: `prompt`,
+        label: `Prompt`,
+        type: `textarea`,
+        value: `Fix the flaky retry test`,
+        display: `Fix the flaky retry test`,
+      },
+      {
+        key: `repo`,
+        label: `Repository`,
+        type: `repo`,
+        value: REPO_INPUT_ID,
+        display: `acme/api`,
+      },
+    ])
+  })
+
+  it(`enforces the required prompt and repo inputs`, async () => {
+    actionsCapableDevice([`actions`, `action-inputs`, `chat`])
+    const error = await rejectionOf(
+      caller.startSession({
+        actionId: CHAT_ID,
+        teamId: BUILTIN_TEAM_ID,
+        deviceId: `dev-1`,
+        inputs: { prompt: `hello` },
+      })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect((error as TRPCError).message).toContain(
+      `Missing required input "repo"`
+    )
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`chat starts require the chat cap`, async () => {
+    // An EXP-257-era desktop advertises actions + action-inputs but has no
+    // chat launch path — the dedicated cap must block it.
+    actionsCapableDevice([`actions`, `action-inputs`])
+    h.dbQueue.push([{ teamId: BUILTIN_TEAM_ID, fullName: `acme/api` }])
+    h.dbQueue.push([
+      {
+        id: REPO_INPUT_ID,
+        fullName: `acme/api`,
+        defaultBranch: `main`,
+        defaultBranchOverride: null,
+      },
+    ])
+    const error = await rejectionOf(
+      caller.startSession({
+        actionId: CHAT_ID,
+        teamId: BUILTIN_TEAM_ID,
+        deviceId: `dev-1`,
+        inputs: { prompt: `hello`, repo: REPO_INPUT_ID },
+      })
+    )
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toContain(`can't run chat`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 })
 

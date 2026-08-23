@@ -123,6 +123,14 @@ public extension ActionDto {
                     required: true,
                     placeholder: "What should this action do?"
                 ),
+                // EXP-615: an optional name — blank lets the agent pick one.
+                ActionInputDto(
+                    key: "name",
+                    label: "Name",
+                    type: "text",
+                    required: false,
+                    placeholder: "Leave blank to let the agent name it"
+                ),
                 ActionInputDto(key: "repo", label: "Repository", type: "repo", required: false),
                 // EXP-273: the author picks the new action's glyph up front.
                 ActionInputDto(key: "icon", label: "Icon", type: "icon", required: false),
@@ -156,7 +164,39 @@ public extension ActionDto {
         )
     }
 
-    /// Both builtins, in the order every client pins them (EXP-270 — mobile
+    /// The HIDDEN "Chat" builtin (EXP-615): a free-prompt agent session on a
+    /// repository's trunk clone at its default branch — the iOS twin of the
+    /// desktop's chat tab. Unlike the other two it is appended to NO list and
+    /// belongs in NO picker: the Start-coding sheet's Chat tab constructs it
+    /// directly for its submit. Mirrors apps/web/src/lib/builtin-actions.ts
+    /// field-for-field.
+    static func builtinChatAction(teamId: String) -> ActionDto {
+        ActionDto(
+            id: DomainContract.builtinChatId,
+            teamId: teamId,
+            repositoryId: nil,
+            name: "Chat",
+            description: "Chat with your agent on a repository",
+            icon: "message-circle",
+            body: "",
+            sortOrder: 1e9 + 2,
+            createdAt: "1970-01-01T00:00:00.000Z",
+            updatedAt: "1970-01-01T00:00:00.000Z",
+            inputs: [
+                ActionInputDto(
+                    key: "prompt",
+                    label: "Prompt",
+                    type: "textarea",
+                    required: true,
+                    placeholder: "What should the agent do?"
+                ),
+                ActionInputDto(key: "repo", label: "Repository", type: "repo", required: true),
+            ],
+            builtin: true
+        )
+    }
+
+    /// Both LISTED builtins, in the order every client pins them (EXP-270 — mobile
     /// used to construct only "Create action", so "Fix merge conflicts"
     /// silently disappeared from iOS when EXP-268 moved the list onto the
     /// synced shape).

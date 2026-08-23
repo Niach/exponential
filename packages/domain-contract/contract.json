@@ -266,7 +266,8 @@
   },
   "builtinAction": {
     "createActionId": "builtin:create-action",
-    "fixConflictsId": "builtin:fix-conflicts"
+    "fixConflictsId": "builtin:fix-conflicts",
+    "chatId": "builtin:chat"
   },
   "actionInputs": {
     "max": 10,

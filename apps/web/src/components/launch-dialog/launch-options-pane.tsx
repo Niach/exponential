@@ -28,6 +28,10 @@ import type { SteerDevice } from "@/lib/steer-devices"
 // EXP-481 splits the agent strip + model/effort/toggles cluster into
 // `AgentOptionsFields` so the device-settings dialog's defaults editor
 // renders the identical controls without duplicating them.
+// EXP-615 adds the `automation` variant of that cluster: the same strip and
+// selects, but every choice may stay unpinned ("Device default" — the
+// automations row stores NULL and the bound machine launches with its own
+// configured defaults), so there are no run-time toggles.
 
 export const AGENT_LABELS: Record<string, string> = {
   claude: `Claude Code`,
@@ -52,6 +56,11 @@ const ResumeBranchIcon = conceptIcon(`ui-branch`)
 // model/effort rides this sentinel inside the dialog only.
 export const CLI_DEFAULT_EFFORT = `cli-default`
 export const CLI_DEFAULT_MODEL = `cli-default`
+
+// The automation variant's twin sentinel: blank agent/model/effort = "run with
+// whatever the bound device is configured to launch with" (the row stores
+// NULL).
+export const DEVICE_DEFAULT = `device-default`
 
 // Display labels derive from the contract values (same rule as the iOS and
 // Android sheets), so a new contract value can never render unlabeled; the
@@ -80,35 +89,9 @@ export interface ResumeRowProps {
   branch: string
 }
 
-/** The agent strip + model/effort selects + capability toggles — shared
- * verbatim by the launch dialog and the device-settings defaults editor.
- * `idPrefix` keeps element ids unique when both render at once. */
-export function AgentOptionsFields({
-  idPrefix,
-  agent,
-  availableAgents,
-  onAgentChange,
-  model,
-  onModelChange,
-  effortValue,
-  onEffortChange,
-  ultracode,
-  onUltracodeChange,
-  planMode,
-  onPlanModeChange,
-  planModeHidden = false,
-  skipPermissions,
-  onSkipPermissionsChange,
-  resumeRow,
-}: {
-  idPrefix: string
-  agent: string
-  availableAgents: string[]
-  onAgentChange: (agent: string) => void
-  model: string
-  onModelChange: (model: string) => void
-  effortValue: string
-  onEffortChange: (effort: string) => void
+/** The launch variant's run-time switches — never rendered for an automation,
+ * which has nobody to answer a permission prompt. */
+interface LaunchToggleProps {
   ultracode: boolean
   onUltracodeChange: (value: boolean) => void
   planMode: boolean
@@ -119,14 +102,64 @@ export function AgentOptionsFields({
   skipPermissions: boolean
   onSkipPermissionsChange: (value: boolean) => void
   resumeRow?: ResumeRowProps | null
-}) {
+}
+
+type AgentOptionsFieldsProps = {
+  idPrefix: string
+  /** `` in the automation variant = device default. */
+  agent: string
+  availableAgents: string[]
+  onAgentChange: (agent: string) => void
+  model: string
+  onModelChange: (model: string) => void
+  effortValue: string
+  onEffortChange: (effort: string) => void
+} & (
+  | ({ variant?: `launch` } & LaunchToggleProps)
+  | { variant: `automation` }
+)
+
+/** The agent strip + model/effort selects + capability toggles — shared
+ * verbatim by the launch dialog and the device-settings defaults editor.
+ * `idPrefix` keeps element ids unique when both render at once. */
+export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
+  const {
+    idPrefix,
+    agent,
+    availableAgents,
+    onAgentChange,
+    model,
+    onModelChange,
+    effortValue,
+    onEffortChange,
+  } = props
+  const automation = props.variant === `automation`
+  const toggles = props.variant === `automation` ? null : props
+  // A model or effort is only meaningful against a pinned agent (the server
+  // validates the pair), so both stay locked on "Device default" until one is.
+  const pinned = !automation || agent !== ``
+  const modelSentinel = automation ? DEVICE_DEFAULT : CLI_DEFAULT_MODEL
+  const effortSentinel = automation ? DEVICE_DEFAULT : CLI_DEFAULT_EFFORT
+  const sentinelLabel = automation ? `Device default` : `CLI default`
   return (
     <>
-      {availableAgents.length > 1 && (
+      {(automation || availableAgents.length > 1) && (
         <div className="space-y-2">
           <Label>Agent</Label>
-          <Tabs value={agent} onValueChange={onAgentChange}>
+          <Tabs
+            value={agent === `` ? DEVICE_DEFAULT : agent}
+            onValueChange={(value) =>
+              onAgentChange(
+                automation && value === DEVICE_DEFAULT ? `` : value
+              )
+            }
+          >
             <TabsList className="w-full">
+              {automation && (
+                <TabsTrigger value={DEVICE_DEFAULT} className="flex-1">
+                  Device default
+                </TabsTrigger>
+              )}
               {availableAgents.map((value) => {
                 const AgentIcon = AGENT_ICONS[value]
                 return (
@@ -144,23 +177,25 @@ export function AgentOptionsFields({
         <div className="space-y-2">
           <Label htmlFor={`${idPrefix}-model`}>Model</Label>
           <Select
-            value={model === `` ? CLI_DEFAULT_MODEL : model}
+            value={model === `` ? modelSentinel : model}
             onValueChange={(value) =>
-              onModelChange(value === CLI_DEFAULT_MODEL ? `` : value)
+              onModelChange(value === modelSentinel ? `` : value)
             }
+            disabled={!pinned}
           >
             <SelectTrigger id={`${idPrefix}-model`} className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {agentAllowsBlankModel(agent) && (
-                <SelectItem value={CLI_DEFAULT_MODEL}>CLI default</SelectItem>
+              {(automation || agentAllowsBlankModel(agent)) && (
+                <SelectItem value={modelSentinel}>{sentinelLabel}</SelectItem>
               )}
-              {agentModelValues(agent).map((value) => (
-                <SelectItem key={value} value={value}>
-                  {modelLabel(value)}
-                </SelectItem>
-              ))}
+              {pinned &&
+                agentModelValues(agent).map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {modelLabel(value)}
+                  </SelectItem>
+                ))}
             </SelectContent>
           </Select>
         </div>
@@ -173,24 +208,54 @@ export function AgentOptionsFields({
                 : `Effort`}
           </Label>
           <Select
-            value={effortValue}
-            onValueChange={onEffortChange}
-            disabled={ultracode && agentSupportsUltracode(agent)}
+            value={effortValue === `` ? effortSentinel : effortValue}
+            onValueChange={(value) =>
+              onEffortChange(
+                automation && value === effortSentinel ? `` : value
+              )
+            }
+            disabled={
+              automation
+                ? !pinned
+                : toggles!.ultracode && agentSupportsUltracode(agent)
+            }
           >
             <SelectTrigger id={`${idPrefix}-effort`} className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={CLI_DEFAULT_EFFORT}>CLI default</SelectItem>
-              {agentEffortValues(agent).map((value) => (
-                <SelectItem key={value} value={value}>
-                  {effortLabel(value)}
-                </SelectItem>
-              ))}
+              <SelectItem value={effortSentinel}>{sentinelLabel}</SelectItem>
+              {pinned &&
+                agentEffortValues(agent).map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {effortLabel(value)}
+                  </SelectItem>
+                ))}
             </SelectContent>
           </Select>
         </div>
       </div>
+      {toggles && (
+        <LaunchToggles {...toggles} idPrefix={idPrefix} agent={agent} />
+      )}
+    </>
+  )
+}
+
+function LaunchToggles({
+  idPrefix,
+  agent,
+  ultracode,
+  onUltracodeChange,
+  planMode,
+  onPlanModeChange,
+  planModeHidden = false,
+  skipPermissions,
+  onSkipPermissionsChange,
+  resumeRow,
+}: LaunchToggleProps & { idPrefix: string; agent: string }) {
+  return (
+    <>
       {(resumeRow ||
         agentSupportsUltracode(agent) ||
         (agentSupportsPlanMode(agent) && !planModeHidden) ||
@@ -323,10 +388,12 @@ export function LaunchOptionsPane({
     <div className="flex shrink-0 flex-col gap-3 sm:min-h-0 sm:shrink sm:overflow-y-auto">
       {devices.length > 1 && (
         <div className="space-y-2">
-          <Label htmlFor="start-coding-device">Desktop</Label>
+          {/* EXP-615: "Device", byte-identical on all four clients — a
+              machine here can equally be a headless CLI daemon. */}
+          <Label htmlFor="start-coding-device">Device</Label>
           <Select value={device?.deviceId ?? ``} onValueChange={onDeviceChange}>
             <SelectTrigger id="start-coding-device" className="w-full">
-              <SelectValue placeholder="Select a desktop" />
+              <SelectValue placeholder="Select a device" />
             </SelectTrigger>
             <SelectContent>
               {devices.map((candidate) => (

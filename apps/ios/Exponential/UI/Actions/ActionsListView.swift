@@ -6,7 +6,7 @@ import SwiftUI
 /// the active team's action prompts, each with a Run affordance that
 /// remote-starts the action on one of the caller's actions-capable desktops.
 /// The "New action" button (EXP-431, in the web-parity "Actions" section
-/// header since EXP-574) opens the same sheet in its dedicated create mode —
+/// header since EXP-574) opens the dedicated `CreateActionSheet` (EXP-615) —
 /// the "Create action" builtin left the list.
 /// After a successful send the screen waits for the desktop's synced
 /// coding_sessions row and jumps into the existing live steer screen once.
@@ -19,17 +19,11 @@ struct ActionsListView: View {
     @State private var steerEnabled = false
     /// The action the run sheet was opened for (non-nil = sheet up).
     @State private var runTarget: ActionDto?
-    /// EXP-431: the toolbar's "New action" entry opens the SAME sheet locked
-    /// to the create builtin, presented as a creation flow.
-    @State private var createMode = false
+    /// EXP-615: creation has its own sheet — non-nil presents it, carrying a
+    /// suggestion's seed when one opened it.
+    @State private var createTarget: CreateActionSeed?
     /// Consumed-once navigation target (the SettingsView pendingTeam idiom).
     @State private var sessionTarget: StartedRunWatcher.StartedSession?
-    /// EXP-530: "Use suggestion" prefill for the create sheet (description +
-    /// icon input values); cleared on dismiss.
-    @State private var suggestionPrefill: [String: String]?
-    /// EXP-583: the suggested trigger of an "Action + automation" seed — the
-    /// ONLY thing that turns on the create sheet's Automation block.
-    @State private var suggestionAutomation: AutomationTrigger?
     /// EXP-583: the automation form sheet's target (nil = closed; a nil
     /// `automation` inside = create).
     @State private var formTarget: AutomationFormTarget?
@@ -44,6 +38,16 @@ struct ActionsListView: View {
     private struct AutomationFormTarget: Identifiable {
         let id: String
         let automation: AutomationDto?
+    }
+
+    /// Sheet item for the create-action sheet (EXP-615): `id` distinguishes a
+    /// plain "New action" from a suggestion seed, so switching between them
+    /// rebuilds the sheet's state.
+    private struct CreateActionSeed: Identifiable {
+        let id: String
+        var description = ""
+        var icon = ""
+        var automation: AutomationTrigger?
     }
 
     private enum Segment: String, CaseIterable {
@@ -99,11 +103,7 @@ struct ActionsListView: View {
         // preselected on the tapped row (it filters device candidates by
         // capability itself). The Issues tab carries the team's real
         // candidate pool (Android parity) so flipping over never dead-ends.
-        .sheet(item: $runTarget, onDismiss: {
-            createMode = false
-            suggestionPrefill = nil
-            suggestionAutomation = nil
-        }) { action in
+        .sheet(item: $runTarget) { action in
             StartCodingSheet(
                 devices: devices ?? [],
                 issues: viewModel?.startCandidates ?? [],
@@ -111,10 +111,6 @@ struct ActionsListView: View {
                 teamId: teamState.activeTeam?.id,
                 initialTab: .actions,
                 preselectedActionId: action.id,
-                createActionMode: createMode,
-                prefilledInputs: suggestionPrefill,
-                suggestedAutomation: suggestionAutomation,
-                automationDevices: viewModel?.allDevices.filter(\.canRunAutomations) ?? [],
                 onStart: { device, issueIds, options in
                     viewModel?.startCoding(
                         device: device,
@@ -133,6 +129,34 @@ struct ActionsListView: View {
                     )
                 }
             )
+        }
+        // EXP-615: creation is its own sheet — the builtin create run behind
+        // an icon/name/description/repository form with an optional
+        // automation. Suggestions seed it.
+        .sheet(item: $createTarget) { seed in
+            if let teamId = teamState.activeTeam?.id {
+                CreateActionSheet(
+                    teamId: teamId,
+                    devices: (devices ?? []).filter { device in
+                        device.isOnline && device.hasRunnableAgent
+                            && device.canRunActions && device.canRunActionInputs
+                    },
+                    automationDevices: viewModel?.allDevices.filter(\.canRunAutomations) ?? [],
+                    prefillDescription: seed.description,
+                    prefillIcon: seed.icon,
+                    prefillAutomation: seed.automation,
+                    onSubmit: { device, action, options, inputs in
+                        viewModel?.run(
+                            action: action,
+                            device: device,
+                            options: options,
+                            inputs: inputs,
+                            userId: deps.auth.userId
+                        )
+                    }
+                )
+                .environment(\.accountId, accountId)
+            }
         }
         // EXP-583: the owner-only automation form, in create or edit mode.
         .sheet(item: $formTarget) { target in
@@ -169,8 +193,10 @@ struct ActionsListView: View {
                 pendingDelete = nil
             }
             Button("Cancel", role: .cancel) { pendingDelete = nil }
-        } message: { _ in
-            Text("The action stays; only this trigger goes away.")
+        } message: { automation in
+            Text(AutomationCopy.deleteBody(
+                actionName: viewModel?.actions.first { $0.id == automation.actionId }?.name
+            ))
         }
         // The desktop picked the start up — jump into the live steer screen
         // ONCE (the same destination the .agentSession route arm builds).
@@ -299,13 +325,11 @@ struct ActionsListView: View {
     }
 
     /// EXP-431: creation left the list ("Create action" no longer poses as a
-    /// row) — this button opens the sheet in its create mode.
+    /// row); EXP-615 gave it its own sheet.
     private var newActionButton: some View {
         GlassPillButton("New action", icon: AppIcons.actionCreate, enabled: teamState.activeTeam != nil) {
-            guard let teamId = teamState.activeTeam?.id else { return }
-            createMode = true
-            runTarget = ActionDto.builtinCreateAction(teamId: teamId)
-            Task { await viewModel?.refreshStartCandidates() }
+            guard teamState.activeTeam != nil else { return }
+            createTarget = CreateActionSeed(id: "new")
         }
         .accessibilityLabel("New action")
     }
@@ -481,13 +505,13 @@ struct ActionsListView: View {
     private func launchCaption(_ automation: AutomationDto) -> String? {
         var parts: [String] = []
         if let agent = automation.agent, !agent.isEmpty {
-            parts.append(StartCodingSheet.agentLabel(agent))
+            parts.append(LaunchVocabulary.agentLabel(agent))
         }
         if let model = automation.model, !model.isEmpty {
-            parts.append(StartCodingSheet.modelLabel(model))
+            parts.append(LaunchVocabulary.modelLabel(model))
         }
         if let effort = automation.effort, !effort.isEmpty {
-            parts.append(StartCodingSheet.effortLabel(effort))
+            parts.append(LaunchVocabulary.effortLabel(effort))
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
@@ -601,21 +625,17 @@ struct ActionsListView: View {
     }
 
     /// "Use suggestion": the create sheet, prefilled with the suggestion's
-    /// description + icon input values (the same keys the create builtin's
-    /// input defs declare) and, for an "Action + automation" seed, its
-    /// suggested trigger.
+    /// description + icon and, for an "Action + automation" seed, its
+    /// suggested trigger (EXP-615: the sheet always offers an automation —
+    /// the seed only pre-fills one).
     private func useSuggestion(_ suggestion: ActionSuggestion) {
-        guard let teamId = teamState.activeTeam?.id else { return }
-        suggestionPrefill = [
-            "description": suggestion.description,
-            "icon": suggestion.icon,
-        ]
-        // EXP-583: only an "Action + automation" seed opens the create
-        // sheet's Automation block — the plain "New action" path never does.
-        suggestionAutomation = suggestion.automation
-        createMode = true
-        runTarget = ActionDto.builtinCreateAction(teamId: teamId)
-        Task { await viewModel?.refreshStartCandidates() }
+        guard teamState.activeTeam != nil else { return }
+        createTarget = CreateActionSeed(
+            id: suggestion.id,
+            description: suggestion.description,
+            icon: suggestion.icon,
+            automation: suggestion.automation
+        )
     }
 
     private var emptyState: some View {
@@ -693,7 +713,9 @@ struct ActionsListView: View {
 
             Spacer(minLength: 0)
 
-            GlassPillButton("Run") {
+            // EXP-615: the play glyph, not a "Run" pill — the same affordance
+            // web and desktop wear on their action cards.
+            CircleIconButton(AppIcons.actionRun, accessibilityLabel: "Run") {
                 runTarget = action
                 // Rebuild the Issues-tab pool at open time — the sheet
                 // self-heals if the read lands after presentation.

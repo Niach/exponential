@@ -51,7 +51,11 @@ interface Contract {
   piModel: Section
   piThinking: Section
   actionInputType: Section
-  builtinAction: { createActionId: string; fixConflictsId: string }
+  builtinAction: {
+    createActionId: string
+    fixConflictsId: string
+    chatId: string
+  }
   actionInputs: { max: number; maxTextLength: number }
   actionTrigger: {
     eventValues: string[]
@@ -208,6 +212,7 @@ ${swiftStringArray("actionScheduleIntervalValues", contract.actionTrigger.schedu
     public static let deviceOnlineWindowMs: Int = ${deviceOnlineWindowMs}
     public static let builtinCreateActionId: String = "${contract.builtinAction.createActionId}"
     public static let builtinFixConflictsId: String = "${contract.builtinAction.fixConflictsId}"
+    public static let builtinChatId: String = "${contract.builtinAction.chatId}"
     public static let actionInputsMax: Int = ${contract.actionInputs.max}
     public static let actionInputTextMax: Int = ${contract.actionInputs.maxTextLength}
     public static let actionTriggerMaxFilterIds: Int = ${contract.actionTrigger.maxFilterIds}
@@ -265,6 +270,7 @@ ${kotlinStringArray("actionScheduleIntervalValues", contract.actionTrigger.sched
     const val deviceOnlineWindowMs: Long = ${deviceOnlineWindowMs}L
     const val builtinCreateActionId: String = "${contract.builtinAction.createActionId}"
     const val builtinFixConflictsId: String = "${contract.builtinAction.fixConflictsId}"
+    const val builtinChatId: String = "${contract.builtinAction.chatId}"
     const val actionInputsMax: Int = ${contract.actionInputs.max}
     const val actionInputTextMax: Int = ${contract.actionInputs.maxTextLength}
     const val actionTriggerMaxFilterIds: Int = ${contract.actionTrigger.maxFilterIds}
@@ -324,6 +330,7 @@ pub const CODING_SESSION_STALE_MS: i64 = ${codingSessionStaleMs};
 pub const DEVICE_ONLINE_WINDOW_MS: i64 = ${deviceOnlineWindowMs};
 pub const BUILTIN_CREATE_ACTION_ID: &str = "${contract.builtinAction.createActionId}";
 pub const BUILTIN_FIX_CONFLICTS_ID: &str = "${contract.builtinAction.fixConflictsId}";
+pub const BUILTIN_CHAT_ID: &str = "${contract.builtinAction.chatId}";
 pub const ACTION_INPUTS_MAX: usize = ${contract.actionInputs.max};
 pub const ACTION_INPUT_TEXT_MAX: usize = ${contract.actionInputs.maxTextLength};
 pub const ACTION_TRIGGER_MAX_FILTER_IDS: usize = ${contract.actionTrigger.maxFilterIds};

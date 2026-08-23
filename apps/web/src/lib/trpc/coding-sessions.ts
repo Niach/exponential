@@ -12,6 +12,7 @@ import {
   getIssueTeamContext,
 } from "@/lib/team-membership"
 import {
+  BUILTIN_CHAT_ID,
   BUILTIN_CREATE_ACTION_ID,
   BUILTIN_FIX_CONFLICTS_ID,
   builtinActionName,
@@ -27,6 +28,7 @@ const actionIdInput = z
   .uuid()
   .or(z.literal(BUILTIN_CREATE_ACTION_ID))
   .or(z.literal(BUILTIN_FIX_CONFLICTS_ID))
+  .or(z.literal(BUILTIN_CHAT_ID))
 
 // EXP-432: a remote start on a teammate's SHARED server device is attributed
 // to the requester — `startedBy` rides the relay frame and the daemon echoes

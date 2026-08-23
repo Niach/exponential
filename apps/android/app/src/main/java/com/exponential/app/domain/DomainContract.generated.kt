@@ -39,6 +39,7 @@ object DomainContract {
     const val deviceOnlineWindowMs: Long = 90000L
     const val builtinCreateActionId: String = "builtin:create-action"
     const val builtinFixConflictsId: String = "builtin:fix-conflicts"
+    const val builtinChatId: String = "builtin:chat"
     const val actionInputsMax: Int = 10
     const val actionInputTextMax: Int = 4096
     const val actionTriggerMaxFilterIds: Int = 20

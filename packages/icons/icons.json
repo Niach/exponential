@@ -185,7 +185,7 @@
 
     "action-default": "zap",
     "action-run": "play",
-    "action-create": "plus",
+    "action-create": "sparkles",
     "action-repository": "git-branch",
 
     "ui-add": "plus",

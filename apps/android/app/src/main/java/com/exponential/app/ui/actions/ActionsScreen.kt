@@ -49,7 +49,6 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.SteerDevice
-import com.exponential.app.data.api.builtinCreateAction
 import com.exponential.app.data.db.AutomationEntity
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.domain.AutomationTrigger
@@ -83,7 +82,7 @@ import java.util.Date
 // full agent/model/effort/toggle options. The "Fix merge conflicts" builtin
 // pins first by its flag; "Create action" left the list (EXP-431) — the
 // "Actions" section header's "New action" button (web-parity placement,
-// EXP-574) opens the sheet in its dedicated create mode instead. After a
+// EXP-574) opens the dedicated [CreateActionSheet] (EXP-615) instead. After a
 // successful send the screen waits for the desktop's synced coding_sessions
 // row and jumps into the existing agent session viewer once.
 //
@@ -92,8 +91,9 @@ import java.util.Date
 // Suggestions (seed cards whose "Use" opens the create sheet prefilled).
 // EXP-583 made automations their OWN entity: an action carries no trigger
 // anymore, the Automations segment lists `automations` rows (action + trigger
-// + bound machine + agent pins) with an owner-only enable Switch, a Delete in
-// the row overflow and a "+ New automation" form sheet.
+// + bound machine + agent pins) with an owner-only enable Switch, Edit +
+// Delete in the row overflow (EXP-615) and a "New automation" form sheet;
+// an action row only says HOW MANY automations point at it.
 
 // rememberSaveable-friendly segment keys (plain strings, no custom Saver).
 private const val SEGMENT_ACTIONS = "actions"
@@ -126,17 +126,17 @@ fun ActionsScreen(
 
     // The action the unified sheet was opened for (non-null = sheet open).
     var sheetAction by remember { mutableStateOf<ActionDto?>(null) }
-    // EXP-431: the top bar's "New action" entry opens the SAME sheet locked
-    // to the create builtin, presented as a creation flow.
-    var createMode by remember { mutableStateOf(false) }
+    // EXP-615: authoring lives in its own sheet now (true = open).
+    var createOpen by remember { mutableStateOf(false) }
     // EXP-530: a used suggestion's description + icon, seeded into the create
     // sheet's input values (the iOS prefilledInputs pattern).
     var suggestionPrefill by remember { mutableStateOf<Map<String, String>?>(null) }
-    // EXP-583: an "Action + automation" suggestion's proposed trigger — the
-    // ONLY thing that turns on the create sheet's Automation block.
+    // EXP-583: an "Action + automation" suggestion's proposed trigger, which
+    // seeds the create sheet's Automation row.
     var suggestionAutomation by remember { mutableStateOf<AutomationTrigger?>(null) }
-    // The owner-only "New automation" form (non-null = sheet open).
+    // The owner-only automation form: true = creating, non-null row = editing.
     var automationForm by remember { mutableStateOf(false) }
+    var automationEditTarget by remember { mutableStateOf<AutomationEntity?>(null) }
 
     // Re-poll device presence each time the screen comes to the foreground.
     LifecycleResumeEffect(Unit) {
@@ -196,6 +196,10 @@ fun ActionsScreen(
                         error = automationError,
                         onSetEnabled = viewModel::setAutomationEnabled,
                         onDelete = viewModel::deleteAutomation,
+                        onEdit = { automation ->
+                            viewModel.clearAutomationError()
+                            automationEditTarget = automation
+                        },
                         onNew = {
                             viewModel.clearAutomationError()
                             automationForm = true
@@ -203,15 +207,12 @@ fun ActionsScreen(
                     )
                     SEGMENT_SUGGESTIONS -> SuggestionsContent(
                         onUse = { suggestion ->
-                            selectedTeamId?.let {
-                                createMode = true
-                                suggestionPrefill = mapOf(
-                                    "description" to suggestion.description,
-                                    "icon" to suggestion.icon,
-                                )
-                                suggestionAutomation = suggestion.automation
-                                sheetAction = builtinCreateAction(it)
-                            }
+                            suggestionPrefill = mapOf(
+                                "description" to suggestion.description,
+                                "icon" to suggestion.icon,
+                            )
+                            suggestionAutomation = suggestion.automation
+                            createOpen = true
                         },
                     )
                     else -> when {
@@ -234,12 +235,7 @@ fun ActionsScreen(
                                         label = "New action",
                                         icon = ExpIcons.actionCreate,
                                         enabled = selectedTeamId != null,
-                                        onClick = {
-                                            selectedTeamId?.let {
-                                                createMode = true
-                                                sheetAction = builtinCreateAction(it)
-                                            }
-                                        },
+                                        onClick = { createOpen = true },
                                         modifier = Modifier.testTag("new-action"),
                                     )
                                 }
@@ -253,7 +249,16 @@ fun ActionsScreen(
                                 state.actions.sortedByDescending { it.isBuiltin },
                                 key = { it.id },
                             ) { action ->
-                                ActionRow(action = action, onRun = { sheetAction = action })
+                                ActionRow(
+                                    action = action,
+                                    // EXP-583: an action only says HOW MANY
+                                    // automations point at it — they are their
+                                    // own rows on their own tab.
+                                    automationCount = automations.count {
+                                        it.actionId == action.id
+                                    },
+                                    onRun = { sheetAction = action },
+                                )
                             }
                         }
                     }
@@ -269,47 +274,79 @@ fun ActionsScreen(
             issues = startCandidates,
             preselectedIds = emptySet(),
             preselectedActionId = action.id,
-            createActionMode = createMode,
-            prefilledInputs = suggestionPrefill.takeIf { createMode },
-            suggestionAutomation = suggestionAutomation.takeIf { createMode },
             onStart = viewModel::startCoding,
             onRunAction = viewModel::runAction,
-            onDismiss = {
-                sheetAction = null
-                createMode = false
-                suggestionPrefill = null
-                suggestionAutomation = null
-            },
+            onDismiss = { sheetAction = null },
         )
     }
 
-    if (automationForm) {
+    // EXP-615: authoring an action is its own sheet — a form, not a run picker.
+    if (createOpen) {
+        selectedTeamId?.let { teamId ->
+            CreateActionSheet(
+                teamId = teamId,
+                devices = devices ?: emptyList(),
+                prefilledInputs = suggestionPrefill,
+                suggestionAutomation = suggestionAutomation,
+                onRunAction = viewModel::runAction,
+                onDismiss = {
+                    createOpen = false
+                    suggestionPrefill = null
+                    suggestionAutomation = null
+                },
+            )
+        }
+    }
+
+    if (automationForm || automationEditTarget != null) {
+        val editing = automationEditTarget
         AutomationFormSheet(
             actions = state.actions,
             devices = automationDevices,
             busy = automationBusy,
             error = automationError,
+            editing = editing,
             onSubmit = { actionId, deviceId, trigger, agent, model, effort ->
-                viewModel.createAutomation(
-                    actionId = actionId,
-                    deviceId = deviceId,
-                    trigger = trigger,
-                    agent = agent,
-                    model = model,
-                    effort = effort,
-                    onDone = { automationForm = false },
-                )
+                val close = {
+                    automationForm = false
+                    automationEditTarget = null
+                }
+                if (editing == null) {
+                    viewModel.createAutomation(
+                        actionId = actionId,
+                        deviceId = deviceId,
+                        trigger = trigger,
+                        agent = agent,
+                        model = model,
+                        effort = effort,
+                        onDone = close,
+                    )
+                } else {
+                    viewModel.updateAutomation(
+                        automationId = editing.id,
+                        actionId = actionId,
+                        deviceId = deviceId,
+                        trigger = trigger,
+                        agent = agent,
+                        model = model,
+                        effort = effort,
+                        onDone = close,
+                    )
+                }
             },
-            onDismiss = { automationForm = false },
+            onDismiss = {
+                automationForm = false
+                automationEditTarget = null
+            },
         )
     }
 }
 
-// One action: bolt glyph (a create + for the virtual builtin), name (+ a
-// small repo indicator when the action clones a repository), optional
-// description, and a trailing Run affordance.
+// One action: its curated glyph, name (+ a small repo indicator when the
+// action clones a repository), optional description, how many automations
+// point at it (EXP-583), and a trailing play button.
 @Composable
-private fun ActionRow(action: ActionDto, onRun: () -> Unit) {
+private fun ActionRow(action: ActionDto, automationCount: Int, onRun: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -357,22 +394,34 @@ private fun ActionRow(action: ActionDto, onRun: () -> Unit) {
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            if (automationCount > 0) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Icon(
+                        ExpIcons.actionAutomation,
+                        contentDescription = null,
+                        modifier = Modifier.size(10.dp),
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    )
+                    Text(
+                        "$automationCount " +
+                            if (automationCount == 1) "automation" else "automations",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        maxLines = 1,
+                    )
+                }
+            }
         }
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
-            modifier = Modifier.padding(start = 8.dp),
-        ) {
+        // EXP-615: an icon-only play button, like every other Run affordance.
+        IconButton(onClick = onRun, modifier = Modifier.padding(start = 8.dp)) {
             Icon(
                 ExpIcons.actionRun,
-                contentDescription = null,
-                modifier = Modifier.size(15.dp),
+                contentDescription = "Run",
+                modifier = Modifier.size(18.dp),
                 tint = MaterialTheme.colorScheme.primary,
-            )
-            Text(
-                "Run",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
             )
         }
     }
@@ -392,6 +441,7 @@ private fun AutomationsContent(
     error: String?,
     onSetEnabled: (String, Boolean) -> Unit,
     onDelete: (String) -> Unit,
+    onEdit: (AutomationEntity) -> Unit,
     onNew: () -> Unit,
 ) {
     val actionsById = remember(actions) { actions.associateBy { it.id } }
@@ -452,6 +502,7 @@ private fun AutomationsContent(
                     busy = busy,
                     onSetEnabled = { enabled -> onSetEnabled(automation.id, enabled) },
                     onDelete = { onDelete(automation.id) },
+                    onEdit = { onEdit(automation) },
                 )
             }
         }
@@ -486,6 +537,7 @@ private fun AutomationRow(
     busy: Boolean,
     onSetEnabled: (Boolean) -> Unit,
     onDelete: () -> Unit,
+    onEdit: () -> Unit,
 ) {
     val trigger = remember(automation.trigger) { AutomationTrigger.parse(automation.trigger) }
     val boundDevice = devices.firstOrNull { it.deviceId == automation.deviceId }
@@ -585,13 +637,21 @@ private fun AutomationRow(
             Box {
                 IconButton(onClick = { menuOpen = true }, enabled = !busy) {
                     Icon(
-                        ExpIcons.uiMoreVertical,
+                        ExpIcons.uiMore,
                         contentDescription = "Automation options",
                         modifier = Modifier.size(18.dp),
                         tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                     )
                 }
                 GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    GlassMenuItem(
+                        text = { Text("Edit") },
+                        leadingIcon = { Icon(ExpIcons.uiEdit, contentDescription = null) },
+                        onClick = {
+                            menuOpen = false
+                            onEdit()
+                        },
+                    )
                     GlassMenuItem(
                         text = { Text("Delete") },
                         leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
@@ -610,7 +670,12 @@ private fun AutomationRow(
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
             title = { Text("Delete automation?") },
-            text = { Text("The action stays. Only this schedule or event trigger goes away.") },
+            text = {
+                Text(
+                    "Stop automating \"${action?.name ?: "this action"}\"? The action itself " +
+                        "stays, and runs already going keep going.",
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
                     confirmDelete = false

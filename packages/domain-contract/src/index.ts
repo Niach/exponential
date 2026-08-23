@@ -76,7 +76,11 @@ export interface DomainContract {
   /** Typed action-input kinds (EXP-257; EXP-259 adds `pr`): text | repo | board | pr. */
   actionInputType: { values: readonly string[] }
   /** Server-defined virtual actions injected into actions.list (EXP-257/EXP-259). */
-  builtinAction: { createActionId: string; fixConflictsId: string }
+  builtinAction: {
+    createActionId: string
+    fixConflictsId: string
+    chatId: string
+  }
   /** Action-input limits — parity-locked with @exp/db-schema/domain. */
   actionInputs: { max: number; maxTextLength: number }
   /**

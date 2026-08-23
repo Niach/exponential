@@ -654,6 +654,65 @@ describe(`codingSessions — builtin fix-conflicts (EXP-259)`, () => {
   })
 })
 
+describe(`codingSessions — builtin chat (EXP-615)`, () => {
+  const CHAT_ID = `builtin:chat`
+
+  it(`start requires teamId alongside the literal`, async () => {
+    const error = await rejectionOf(caller.start({ actionId: CHAT_ID }))
+    expect(error).toBeInstanceOf(TRPCError)
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect(inserts).toHaveLength(0)
+  })
+
+  it(`start inserts batch-shaped with actionId NULL + its own constant name`, async () => {
+    const result = await caller.start({
+      actionId: CHAT_ID,
+      teamId: TEAM_ID,
+      deviceLabel: `MacBook`,
+    })
+    expect(inserts).toHaveLength(1)
+    expect(inserts[0]!.values).toMatchObject({
+      teamId: TEAM_ID,
+      actionId: null,
+      actionName: `Chat`,
+      status: `running`,
+    })
+    expect(result.session).toMatchObject({ actionName: `Chat` })
+  })
+
+  it(`start still refuses startedReason on the builtin literal`, async () => {
+    const error = await rejectionOf(
+      caller.start({
+        actionId: CHAT_ID,
+        teamId: TEAM_ID,
+        startedReason: `schedule`,
+      })
+    )
+    expect(error).toBeInstanceOf(TRPCError)
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect(inserts).toHaveLength(0)
+  })
+
+  it(`heartbeat resurrects with the chat constant name`, async () => {
+    selectResults.push([])
+    const result = await caller.heartbeat({
+      id: SESSION_ID,
+      teamId: TEAM_ID,
+      actionId: CHAT_ID,
+      actionName: `client-sent junk`,
+    })
+    expect(result).toEqual({ alive: true })
+    expect(inserts).toHaveLength(1)
+    expect(inserts[0]!.values).toMatchObject({
+      id: SESSION_ID,
+      teamId: TEAM_ID,
+      actionId: null,
+      actionName: `Chat`,
+      status: `running`,
+    })
+  })
+})
+
 describe(`codingSessions.setNeedsInput — attention flag (EXP-214)`, () => {
   it(`writes exactly needs_input on a live owned row`, async () => {
     selectResults.push([{ userId: `actor`, status: `running` }])

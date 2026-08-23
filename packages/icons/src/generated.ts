@@ -281,7 +281,7 @@ export type CustomIcon = (typeof CUSTOM_ICONS)[number]
 /** Stable concept id -> icon name. Call sites reference the concept. */
 export const SEMANTIC_ICONS = {
   "action-automation": `zap`,
-  "action-create": `plus`,
+  "action-create": `sparkles`,
   "action-default": `zap`,
   "action-repository": `git-branch`,
   "action-run": `play`,

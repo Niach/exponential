@@ -23,7 +23,7 @@ use sync::Store;
 
 use crate::coding_flow::{self, SessionSubject};
 use crate::queries;
-use api::actions::{is_builtin_action_id, BUILTIN_FIX_CONFLICTS_ID};
+use api::actions::{is_builtin_action_id, BUILTIN_CHAT_ID, BUILTIN_FIX_CONFLICTS_ID};
 use coding::{
     ActionInputValue, ActionLaunchRequest, ActionRunKind, LaunchOptions, LaunchOrigin, Prepared,
     PrepareRequest,
@@ -112,6 +112,60 @@ pub(crate) fn fetch_repositories(
         team_id: &'a str,
     }
     trpc.query_with_input("repositories.list", &Input { team_id })
+}
+
+/// The ONE repository dropdown (EXP-615): the launch dialog's Chat tab and
+/// the create-action dialog pick a repo through this, so the two read
+/// identically. `optional` adds the leading "None" row (the create dialog's
+/// repo-less default); `pick` writes the choice back onto the host view.
+pub(crate) fn repo_dropdown<V: gpui::Render>(
+    id: SharedString,
+    picked: Option<&ActionRepoRow>,
+    repos: Vec<ActionRepoRow>,
+    optional: bool,
+    pick: fn(&mut V, Option<ActionRepoRow>, &mut gpui::Context<V>),
+    cx: &mut gpui::Context<V>,
+) -> impl gpui::IntoElement {
+    use crate::controls::WebControl as _;
+    use gpui_component::button::Button;
+    use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
+
+    let label: SharedString = match picked {
+        Some(repo) => repo.full_name.clone().into(),
+        // Web parity ("Select a repository" placeholder), in the desktop's
+        // own ellipsis form like every other picker in these dialogs.
+        None => "Select a repository…".into(),
+    };
+    let view = cx.entity().downgrade();
+    Button::new(id)
+        .outline()
+        .web_input_sm()
+        .label(label)
+        .dropdown_menu(move |mut menu, _window, _cx| {
+            if optional {
+                let view = view.clone();
+                menu = menu.item(PopupMenuItem::new("None").on_click(move |_, _, cx| {
+                    if let Some(view) = view.upgrade() {
+                        view.update(cx, |view, cx| pick(view, None, cx));
+                    }
+                }));
+            }
+            for repo in &repos {
+                let view = view.clone();
+                let repo = repo.clone();
+                menu = menu.item(
+                    PopupMenuItem::new(SharedString::from(repo.full_name.clone())).on_click(
+                        move |_, _, cx| {
+                            if let Some(view) = view.upgrade() {
+                                let repo = repo.clone();
+                                view.update(cx, |view, cx| pick(view, Some(repo), cx));
+                            }
+                        },
+                    ),
+                );
+            }
+            menu
+        })
 }
 
 /// The EXP-530 poison-pill hook: called ONCE on every path that ends a start
@@ -204,6 +258,17 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
     let fix_kind = fix_target
         .as_ref()
         .map(|fix| (fix.branch.clone(), fix.identifier.clone(), fix.issue_id.clone()));
+    // EXP-615: the chat run's `repo` input, snapshotted for the background
+    // resolution (`inputs` itself rides on into the launch request).
+    let chat_repo_input = (action_id == BUILTIN_CHAT_ID)
+        .then(|| {
+            inputs
+                .iter()
+                .find(|input| input.key == "repo")
+                .map(|input| input.value.trim().to_string())
+                .filter(|value| !value.is_empty())
+        })
+        .flatten();
 
     cx.spawn(async move |cx| {
         // EXP-505: the reservation rides this future through the fetch and
@@ -220,14 +285,48 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
             .spawn(async move {
                 if builtin {
                     let fixing = action_id == BUILTIN_FIX_CONFLICTS_ID;
+                    let chatting = action_id == BUILTIN_CHAT_ID;
                     let mut action = if fixing {
                         api::actions::builtin_fix_conflicts_action(&team_id)
+                    } else if chatting {
+                        api::actions::builtin_chat_action(&team_id)
                     } else {
                         api::actions::builtin_create_action(&team_id)
                     };
                     // The runner composes the builtin prompts itself — the
                     // input schema is a dialog-side concern only.
                     action.inputs = Vec::new();
+                    // EXP-615: chat runs IN the picked repository's trunk
+                    // clone, so its `repo` input is the run's cwd (not, like
+                    // the creator's, a property of the action being written).
+                    if chatting {
+                        let repo_group = match repo {
+                            // Remote start: the server-resolved group.
+                            ActionRepo::Provided(group) => group,
+                            ActionRepo::Resolve => {
+                                let Some(repository_id) = chat_repo_input else {
+                                    return Err("Pick a repository for the chat.".to_string());
+                                };
+                                let rows = fetch_repositories(&trpc, &action.team_id)
+                                    .map_err(|err| {
+                                        format!("Could not resolve the repository: {err}")
+                                    })?;
+                                let Some(row) =
+                                    rows.into_iter().find(|row| row.id == repository_id)
+                                else {
+                                    return Err(
+                                        "That repository is no longer connected.".to_string()
+                                    );
+                                };
+                                Some(coding::RepoGroup {
+                                    repository_id: row.id,
+                                    full_name: row.full_name,
+                                    default_branch: row.default_branch.unwrap_or_default(),
+                                })
+                            }
+                        };
+                        return Ok((action, repo_group));
+                    }
                     let repo_group = if fixing {
                         match repo {
                             // Remote start: the frame's server-resolved group.
@@ -344,6 +443,9 @@ team settings → Repositories.";
                         issue_id,
                     }
                 }
+                // EXP-615: the builtin kinds are id-dispatched — chat and the
+                // creator share nothing but the "not a DB row" shape.
+                None if action.id == BUILTIN_CHAT_ID => ActionRunKind::Chat,
                 None if builtin => ActionRunKind::CreateAction,
                 None => ActionRunKind::Team,
             };

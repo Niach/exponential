@@ -107,6 +107,8 @@ describe(`actions.list — builtin injection (EXP-257)`, () => {
       builtin: true,
       inputs: [
         { key: `description`, type: `text`, required: true },
+        // EXP-615: the optional up-front name (blank = the agent names it).
+        { key: `name`, type: `text`, required: false },
         { key: `repo`, type: `repo`, required: false },
         // EXP-273: the author picks the new action's glyph up front.
         { key: `icon`, type: `icon`, required: false },
@@ -121,6 +123,12 @@ describe(`actions.list — builtin injection (EXP-257)`, () => {
       builtin: true,
       inputs: [{ key: `pr`, type: `pr`, required: true }],
     })
+  })
+
+  it(`never appends the hidden chat builtin (EXP-615)`, async () => {
+    selectResults.push([])
+    const { actions } = await caller.list({ teamId: TEAM_ID })
+    expect(actions.map((a) => a.id)).toEqual([BUILTIN_ID, FIX_CONFLICTS_ID])
   })
 })
 
@@ -151,6 +159,18 @@ describe(`actions — builtin is read/write-protected`, () => {
       caller.get({ id: FIX_CONFLICTS_ID }),
       caller.update({ id: FIX_CONFLICTS_ID, name: `Hijack` }),
       caller.delete({ id: FIX_CONFLICTS_ID }),
+    ]) {
+      const error = await rejectionOf(call)
+      expect(error).toBeInstanceOf(TRPCError)
+      expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    }
+  })
+
+  it(`get/update/delete refuse the chat builtin id too (EXP-615)`, async () => {
+    for (const call of [
+      caller.get({ id: `builtin:chat` }),
+      caller.update({ id: `builtin:chat`, name: `Hijack` }),
+      caller.delete({ id: `builtin:chat` }),
     ]) {
       const error = await rejectionOf(call)
       expect(error).toBeInstanceOf(TRPCError)
@@ -201,6 +221,16 @@ describe(`actions.create — inputs + reserved name (EXP-257)`, () => {
   it(`refuses the reserved builtin name, case-insensitively`, async () => {
     const error = await rejectionOf(
       caller.create({ teamId: TEAM_ID, name: `create ACTION`, body: `x` })
+    )
+    expect((error as TRPCError).code).toBe(`CONFLICT`)
+    expect(inserts).toHaveLength(0)
+  })
+
+  it(`refuses the reserved chat name (EXP-615)`, async () => {
+    // Chat session rows carry actionName "Chat" and clients watch started
+    // runs by that snapshot — a team action named "Chat" would hijack it.
+    const error = await rejectionOf(
+      caller.create({ teamId: TEAM_ID, name: `chat`, body: `x` })
     )
     expect((error as TRPCError).code).toBe(`CONFLICT`)
     expect(inserts).toHaveLength(0)

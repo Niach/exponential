@@ -38,9 +38,11 @@ import {
 } from "@/lib/steer"
 import { resolveActionInputs } from "@/lib/action-inputs"
 import {
+  BUILTIN_CHAT_ID,
   BUILTIN_CREATE_ACTION_ID,
   BUILTIN_FIX_CONFLICTS_ID,
   builtinActionName,
+  builtinChatAction,
   builtinCreateAction,
   builtinFixConflictsAction,
   isBuiltinActionId,
@@ -214,6 +216,7 @@ export const steerRouter = router({
             .uuid()
             .or(z.literal(BUILTIN_CREATE_ACTION_ID))
             .or(z.literal(BUILTIN_FIX_CONFLICTS_ID))
+            .or(z.literal(BUILTIN_CHAT_ID))
             .optional(),
           // Required iff actionId is the builtin (there is no DB row to
           // derive the team from); forbidden otherwise.
@@ -435,7 +438,9 @@ export const steerRouter = router({
           const virtual =
             input.actionId === BUILTIN_FIX_CONFLICTS_ID
               ? builtinFixConflictsAction(input.teamId!)
-              : builtinCreateAction(input.teamId!)
+              : input.actionId === BUILTIN_CHAT_ID
+                ? builtinChatAction(input.teamId!)
+                : builtinCreateAction(input.teamId!)
           action = {
             id: virtual.id,
             teamId: virtual.teamId,
@@ -562,6 +567,36 @@ export const steerRouter = router({
             fullName: repoRow.fullName,
             defaultBranch: effectiveDefaultBranch(repoRow),
           }
+        } else if (input.actionId === BUILTIN_CHAT_ID) {
+          // The chat builtin's repo is its required `repo` input — resolved
+          // above (team-owned, exists), re-fetched here for the
+          // override-aware default branch the frame must carry (EXP-615).
+          const repoId = resolved.inputs.find(
+            (value) => value.key === `repo`
+          )?.value
+          const [row] = repoId
+            ? await db
+                .select({
+                  id: repositories.id,
+                  fullName: repositories.fullName,
+                  defaultBranch: repositories.defaultBranch,
+                  defaultBranchOverride: repositories.defaultBranchOverride,
+                })
+                .from(repositories)
+                .where(eq(repositories.id, repoId))
+                .limit(1)
+            : []
+          if (!row) {
+            throw new TRPCError({
+              code: `PRECONDITION_FAILED`,
+              message: `That repository is no longer connected`,
+            })
+          }
+          repo = {
+            repositoryId: row.id,
+            fullName: row.fullName,
+            defaultBranch: effectiveDefaultBranch(row),
+          }
         } else if (action.repositoryId) {
           const [row] = await db
             .select({
@@ -612,6 +647,14 @@ export const steerRouter = router({
           throw new TRPCError({
             code: `PRECONDITION_FAILED`,
             message: `That desktop app can't fix merge conflicts yet. Update it.`,
+          })
+        }
+        // The chat builtin (EXP-615) likewise needs its own launch path —
+        // an older desktop would treat the id as a real action and fail.
+        if (input.actionId === BUILTIN_CHAT_ID && !caps.includes(`chat`)) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `That desktop app can't run chat yet. Update it.`,
           })
         }
         // EXP-257: actions run on any agent the device advertised, same

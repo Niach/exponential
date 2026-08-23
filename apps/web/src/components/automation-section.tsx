@@ -14,10 +14,10 @@ import {
 import { TRIGGER_EVENT_LABELS, weekdayName } from "@/lib/action-triggers"
 import { issuePriorityOptions } from "@/lib/domain"
 import { agentEffortValues, agentModelValues } from "@/lib/coding-launch-prefs"
+import { AgentOptionsFields } from "@/components/launch-dialog/launch-options-pane"
 import {
   deviceAgentIds,
   deviceCanRunAutomations,
-  deviceIsOnline,
   type SteerDevice,
 } from "@/lib/steer-devices"
 import {
@@ -26,11 +26,6 @@ import {
   labelCollection,
 } from "@/lib/collections"
 import { buildStatusOptions } from "@/lib/team-statuses"
-import {
-  AGENT_LABELS,
-  effortLabel,
-  modelLabel,
-} from "@/components/launch-dialog/launch-options-pane"
 import type { Board, IssueStatusRow, Label as TeamLabel } from "@/db/schema"
 import {
   MobilePopover,
@@ -349,16 +344,12 @@ export function AutomationDevicePicker({
               <span className="text-muted-foreground">{unknownDeviceId}</span>
             </SelectItem>
           )}
+          {/* EXP-615: no online dot here — every automation-capable machine is
+              equally bindable (a schedule catches up on reconnect), so the
+              live state belongs on the Automations tab's rows, not in the
+              picker. */}
           {devices.map((device) => (
             <SelectItem key={device.deviceId} value={device.deviceId}>
-              <span
-                aria-hidden
-                className={`size-1.5 shrink-0 rounded-full ${
-                  deviceIsOnline(device)
-                    ? `bg-green-500`
-                    : `bg-muted-foreground/40`
-                }`}
-              />
               {device.deviceLabel || device.deviceId}
             </SelectItem>
           ))}
@@ -368,14 +359,12 @@ export function AutomationDevicePicker({
   )
 }
 
-// Radix Select forbids an empty-string item value; the blank "Device default"
-// agent/model/effort rides this sentinel inside the dialogs only.
-export const DEVICE_DEFAULT = `device-default`
-
-/** Agent + Model + Effort for an automated run. Blank on every select means
- * "whatever the device is configured to launch with" (the row stores NULL).
- * Agents are limited to what the bound device advertises; the model/effort
- * lists come from the contract per agent, exactly like the launch dialog. */
+/** Agent + Model + Effort for an automated run — the launch dialog's own
+ * cluster in its `automation` variant (EXP-615), so the strip, the selects and
+ * their labels can never drift between the two surfaces. Blank on every
+ * control means "whatever the device is configured to launch with" (the row
+ * stores NULL). Only the agent list is automation-specific: it is bounded by
+ * what the bound device advertises. */
 export function AutomationAgentFields({
   device,
   agent,
@@ -404,86 +393,19 @@ export function AutomationAgentFields({
     const ids = device ? deviceAgentIds(device) : []
     return agent !== `` && !ids.includes(agent) ? [...ids, agent] : ids
   }, [device, agent])
-  // A model or effort is only meaningful against a pinned agent (the server
-  // validates the pair), so both stay locked on "Device default" until one is.
-  const pinned = agent !== ``
   return (
     <div className="space-y-3">
-      <div className="space-y-2">
-        <Label htmlFor={`${idPrefix}-agent`}>Agent</Label>
-        <Select
-          value={agent === `` ? DEVICE_DEFAULT : agent}
-          onValueChange={(value) =>
-            onAgentChange(value === DEVICE_DEFAULT ? `` : value)
-          }
-        >
-          <SelectTrigger id={`${idPrefix}-agent`} className="w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={DEVICE_DEFAULT}>Device default</SelectItem>
-            {availableAgents.map((value) => (
-              <SelectItem key={value} value={value}>
-                {AGENT_LABELS[value] ?? value}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-2">
-          <Label htmlFor={`${idPrefix}-model`}>Model</Label>
-          <Select
-            value={model === `` ? DEVICE_DEFAULT : model}
-            onValueChange={(value) =>
-              onModelChange(value === DEVICE_DEFAULT ? `` : value)
-            }
-            disabled={!pinned}
-          >
-            <SelectTrigger id={`${idPrefix}-model`} className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={DEVICE_DEFAULT}>Device default</SelectItem>
-              {pinned &&
-                agentModelValues(agent).map((value) => (
-                  <SelectItem key={value} value={value}>
-                    {modelLabel(value)}
-                  </SelectItem>
-                ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor={`${idPrefix}-effort`}>
-            {agent === `pi`
-              ? `Thinking`
-              : agent === `codex`
-                ? `Reasoning`
-                : `Effort`}
-          </Label>
-          <Select
-            value={effort === `` ? DEVICE_DEFAULT : effort}
-            onValueChange={(value) =>
-              onEffortChange(value === DEVICE_DEFAULT ? `` : value)
-            }
-            disabled={!pinned}
-          >
-            <SelectTrigger id={`${idPrefix}-effort`} className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={DEVICE_DEFAULT}>Device default</SelectItem>
-              {pinned &&
-                agentEffortValues(agent).map((value) => (
-                  <SelectItem key={value} value={value}>
-                    {effortLabel(value)}
-                  </SelectItem>
-                ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
+      <AgentOptionsFields
+        variant="automation"
+        idPrefix={idPrefix}
+        agent={agent}
+        availableAgents={availableAgents}
+        onAgentChange={onAgentChange}
+        model={model}
+        onModelChange={onModelChange}
+        effortValue={effort}
+        onEffortChange={onEffortChange}
+      />
     </div>
   )
 }

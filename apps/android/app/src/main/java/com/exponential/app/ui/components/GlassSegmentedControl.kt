@@ -10,9 +10,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -28,6 +30,9 @@ import com.exponential.app.ui.theme.TextEmphasis
  * Inbox/My Issues tab language (EXP-192): one glass capsule container holding
  * equal-width segments, the active one filled white-0.12. Optional
  * per-segment count [badge] (white primary capsule, the Inbox unread count).
+ * EXP-615 adds an optional per-segment [leadingIcon] (the agent strip's brand
+ * marks); it draws in the segment's own content color via [LocalContentColor],
+ * so callers pass a tint-less `Icon`.
  */
 @Composable
 fun <T> GlassSegmentedControl(
@@ -37,6 +42,7 @@ fun <T> GlassSegmentedControl(
     onSelect: (T) -> Unit,
     modifier: Modifier = Modifier,
     badge: (T) -> Int = { 0 },
+    leadingIcon: (@Composable (T) -> Unit)? = null,
 ) {
     val capsule = RoundedCornerShape(percent = 50)
     Row(
@@ -64,13 +70,20 @@ fun <T> GlassSegmentedControl(
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                val contentColor = MaterialTheme.colorScheme.onSurface.copy(
+                    alpha = if (active) 1f else TextEmphasis.Secondary,
+                )
+                if (leadingIcon != null) {
+                    CompositionLocalProvider(LocalContentColor provides contentColor) {
+                        leadingIcon(option)
+                    }
+                    Spacer(Modifier.width(6.dp))
+                }
                 Text(
                     label(option),
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
-                    color = MaterialTheme.colorScheme.onSurface.copy(
-                        alpha = if (active) 1f else TextEmphasis.Secondary,
-                    ),
+                    color = contentColor,
                 )
                 val count = badge(option)
                 if (count > 0) {

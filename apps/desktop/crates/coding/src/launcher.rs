@@ -221,6 +221,13 @@ pub enum ActionRunKind {
         /// argument (EXP-324).
         issue_id: String,
     },
+    /// The hidden "Chat" builtin (EXP-615): a free-prompt session on the
+    /// picked repository's TRUNK CLONE at its default branch — no worktree,
+    /// no branch, no PR contract. The `prompt` input rides to the agent
+    /// VERBATIM (no action preamble, no inputs section): this is the "open a
+    /// terminal tab on the repo" shape, so anything we wrapped around it
+    /// would be words the user did not write.
+    Chat,
 }
 
 impl ActionRunKind {
@@ -1321,6 +1328,32 @@ fn prepare_action(
             "the fix-conflicts run needs the pull request's repository".to_string(),
         ));
     }
+    // EXP-615: a chat run is repo-BOUND (its `repo` input is required — a
+    // scratch-dir chat would be a shell with no code in it) and prompt-BOUND
+    // (its `prompt` input IS the program). Both are validated here, before
+    // any doctor/git/network work, so a malformed start costs nothing.
+    let chat_prompt = match &req.kind {
+        ActionRunKind::Chat => {
+            if repo.is_none() {
+                return Err(CodingError::Io(
+                    "the chat run needs a repository".to_string(),
+                ));
+            }
+            let Some(prompt) = req
+                .inputs
+                .iter()
+                .find(|input| input.key == "prompt")
+                .map(|input| input.value.trim())
+                .filter(|value| !value.is_empty())
+            else {
+                return Err(CodingError::Io(
+                    "the chat run is missing its prompt".to_string(),
+                ));
+            };
+            Some(prompt.to_string())
+        }
+        _ => None,
+    };
 
     // Step 0 — doctor: the selected agent always; git only when a clone is
     // involved.
@@ -1508,8 +1541,20 @@ fn prepare_action(
                 .iter()
                 .find(|input| input.key == "icon" && !input.value.trim().is_empty())
                 .map(|input| input.value.trim());
-            create_action_prompt(&req.team_id, description, repo_input, icon_input)
+            // EXP-615: the optional name the author typed — blank leaves the
+            // naming to the agent (the pre-EXP-615 behavior).
+            let name_input = req
+                .inputs
+                .iter()
+                .find(|input| input.key == "name" && !input.value.trim().is_empty())
+                .map(|input| input.value.trim());
+            create_action_prompt(&req.team_id, description, repo_input, icon_input, name_input)
         }
+        // EXP-615: the user's own words, verbatim — no preamble, no inputs
+        // section (validated non-empty at the top of this function).
+        // Everything else (trunk clone cwd, MCP wiring, session row,
+        // steering) is the ordinary action-run path.
+        ActionRunKind::Chat => chat_prompt.clone().unwrap_or_default(),
         ActionRunKind::FixConflicts {
             branch,
             default_branch,
@@ -1580,7 +1625,20 @@ fn prepare_action(
         claude_session_id.as_deref(),
         SessionTail::Prompt(delivery.positional()),
     );
-    let tab_title = format!("action · {}", req.action_name);
+    // EXP-615: a chat tab is named after the REPO it opened on — every chat
+    // carries the same action name ("Chat"), so `action · Chat` would make a
+    // strip of them unreadable.
+    let tab_prefix = match &req.kind {
+        ActionRunKind::Chat => repo
+            .as_ref()
+            .map(|repo| repo_short_name(&repo.full_name).to_string())
+            .unwrap_or_else(|| req.action_name.clone()),
+        _ => req.action_name.clone(),
+    };
+    let tab_title = match &req.kind {
+        ActionRunKind::Chat => format!("chat · {tab_prefix}"),
+        _ => format!("action · {tab_prefix}"),
+    };
     let mut spawn = SpawnSpec::new(&deps.settings.resolved_path_for(agent))
         .args(args)
         .cwd(&cwd);
@@ -1619,7 +1677,7 @@ fn prepare_action(
         branch,
         spawn,
         tab_title,
-        tab_title_prefix: req.action_name.clone(),
+        tab_title_prefix: tab_prefix,
         heartbeat_scope: coding_sessions::HeartbeatScope {
             issue_id: None,
             team_id: session.team_id.clone(),
@@ -1818,6 +1876,12 @@ fn agent_shell_cwd(req: &AgentShellRequest, clone: &Path) -> PathBuf {
     req.cwd_override
         .clone()
         .unwrap_or_else(|| clone.to_path_buf())
+}
+
+/// The segment after the owner in a `owner/repo` full name — the tab label
+/// the agent-shell and the EXP-615 chat tabs share (`acme/web` → `web`).
+fn repo_short_name(full_name: &str) -> &str {
+    full_name.rsplit('/').next().unwrap_or(full_name)
 }
 
 /// The agent-shell tab title: `claude · <repo>` on the trunk clone, and
@@ -2957,6 +3021,156 @@ mod tests {
             }
             other => panic!("expected the missing-repo error, got {other:?}"),
         }
+    }
+
+    /// A chat request (EXP-615) — the hidden builtin's shape: no body, the
+    /// two inputs the dialog fills, and the picked repository's group.
+    fn chat_request(repository_id: &str) -> ActionLaunchRequest {
+        let mut req = action_request();
+        req.action_id = "builtin:chat".to_string();
+        req.action_name = "Chat".to_string();
+        req.body = String::new();
+        req.kind = ActionRunKind::Chat;
+        req.repo = Some(RepoGroup {
+            repository_id: repository_id.to_string(),
+            full_name: "acme/web".to_string(),
+            default_branch: "main".to_string(),
+        });
+        req.inputs = vec![
+            ActionInputValue {
+                key: "prompt".to_string(),
+                label: "Prompt".to_string(),
+                input_type: "textarea".to_string(),
+                value: "  where does the widget rate limit live?  ".to_string(),
+                display: None,
+            },
+            ActionInputValue {
+                key: "repo".to_string(),
+                label: "Repository".to_string(),
+                input_type: "repo".to_string(),
+                value: repository_id.to_string(),
+                display: Some("acme/web".to_string()),
+            },
+        ];
+        req
+    }
+
+    /// EXP-615: chat is repo-BOUND — its `repo` input is required, and a
+    /// scratch-dir chat would be a shell with no code in it. Refused before
+    /// any doctor/network work.
+    #[test]
+    fn prepare_action_chat_requires_the_repo() {
+        let dir = temp_dir("action-chat-repoless");
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let deps = make_deps("http://127.0.0.1:1", &dir.0, worktrees);
+        let mut req = chat_request("repo-chat-none");
+        req.repo = None;
+
+        match prepare(&PrepareRequest::Action(req), &deps) {
+            Err(CodingError::Io(message)) => {
+                assert_eq!(message, "the chat run needs a repository");
+            }
+            other => panic!("expected the missing-repo error, got {other:?}"),
+        }
+    }
+
+    /// EXP-615: the `prompt` input IS the chat's program — an empty one is a
+    /// hard error, never a session spawned with nothing to say.
+    #[test]
+    fn prepare_action_chat_requires_the_prompt() {
+        let dir = temp_dir("action-chat-promptless");
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let deps = make_deps("http://127.0.0.1:1", &dir.0, worktrees);
+        let mut req = chat_request("repo-chat-empty");
+        req.inputs.retain(|input| input.key != "prompt");
+
+        match prepare(&PrepareRequest::Action(req), &deps) {
+            Err(CodingError::Io(message)) => {
+                assert_eq!(message, "the chat run is missing its prompt");
+            }
+            other => panic!("expected the missing-prompt error, got {other:?}"),
+        }
+    }
+
+    /// EXP-615: the happy path — the run lands on the repo's TRUNK CLONE (no
+    /// worktree, no branch), the prompt rides VERBATIM (trimmed, no action
+    /// preamble and no `## Inputs` section), and the tab is named after the
+    /// repository, not after the always-identical action name.
+    #[test]
+    fn prepare_action_chat_runs_the_raw_prompt_on_the_trunk_clone() {
+        let dir = temp_dir("action-chat-ok");
+        let (base, captured) = canned_server_recording(vec![
+            (200, TOKEN_OK.to_string()),
+            (
+                200,
+                r#"{"result":{"data":{"session":{"id":"sess-chat","issueId":null,"teamId":"ws-1","actionId":null,"actionName":"Chat","status":"running"}}}}"#
+                    .to_string(),
+            ),
+        ]);
+        // Pre-seed the clone at the §7.1 layout path so `ensure_clone` reuses
+        // it instead of cloning over the network (the autopull and the
+        // excludes write are best-effort and no-op on it).
+        let clone = dir.0.join("repos").join("acme").join("web");
+        fs::create_dir_all(&clone).unwrap();
+        for args in [
+            &["init", "--quiet"][..],
+            // `git_credentials::ensure` re-points origin at the bare URL —
+            // the seeded clone needs the remote to exist for that.
+            &["remote", "add", "origin", "https://github.com/acme/web.git"][..],
+        ] {
+            let status = std::process::Command::new("git")
+                .args(args)
+                .current_dir(&clone)
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {args:?}");
+        }
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let deps = make_deps(&base, &dir.0, worktrees.clone());
+
+        let prepared = match prepare(
+            &PrepareRequest::Action(chat_request("repo-chat-ok")),
+            &deps,
+        )
+        .unwrap()
+        {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        // The trunk clone itself — no session worktree was ever cut.
+        assert_eq!(prepared.worktree, clone);
+        assert_eq!(prepared.clone, clone);
+        assert!(prepared.branch.is_empty());
+        assert!(worktrees.seen.lock().unwrap().is_empty(), "no worktree for chat");
+        assert_eq!(prepared.repository_id.as_deref(), Some("repo-chat-ok"));
+        // The prompt is the user's own words — nothing wrapped around them.
+        let prompt = prepared.spawn.args.last().unwrap();
+        assert_eq!(prompt, "where does the widget rate limit live?");
+        // Named after the repo (`owner/repo` → `repo`).
+        assert_eq!(prepared.tab_title, "chat · web");
+        assert_eq!(prepared.tab_title_prefix, "web");
+        // The session row is a BUILTIN row: the literal id + teamId, and the
+        // heartbeat keeps re-sending the action scope.
+        let requests = captured.lock().unwrap();
+        assert!(requests
+            .iter()
+            .any(|request| request.contains(r#""actionId":"builtin:chat""#)
+                && request.contains(r#""teamId":"ws-1""#)));
+        assert_eq!(prepared.session_id, "sess-chat");
+        assert_eq!(
+            prepared.heartbeat_scope.action_id.as_deref(),
+            Some("builtin:chat")
+        );
+        assert_eq!(prepared.heartbeat_scope.action_name.as_deref(), Some("Chat"));
     }
 
     /// A fix-conflicts action request with the PR's repo group attached

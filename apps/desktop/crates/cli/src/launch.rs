@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Context as _};
-use api::actions::BUILTIN_FIX_CONFLICTS_ID;
+use api::actions::{BUILTIN_CHAT_ID, BUILTIN_FIX_CONFLICTS_ID};
 use api::issues::FetchedIssue;
 use coding::{
     ActionInputValue, ActionLaunchRequest, ActionRunKind, CodingDeps, GitWorktrees, IssueSeed,
@@ -215,6 +215,9 @@ pub fn resolve_action_request(
 ) -> anyhow::Result<ActionLaunchRequest> {
     let builtin = api::actions::is_builtin_action_id(action_id);
     let fixing = action_id == BUILTIN_FIX_CONFLICTS_ID;
+    // EXP-615: the hidden chat builtin — a free prompt on a repo's trunk
+    // clone (desktop `action_run.rs` parity).
+    let chatting = action_id == BUILTIN_CHAT_ID;
 
     // EXP-259: the fix-conflicts PR target — resolved from the `pr` input
     // BEFORE anything else so a bad pick fails fast.
@@ -244,13 +247,40 @@ pub fn resolve_action_request(
     let (action, repo_group) = if builtin {
         let mut action = if fixing {
             api::actions::builtin_fix_conflicts_action(team_id)
+        } else if chatting {
+            api::actions::builtin_chat_action(team_id)
         } else {
             api::actions::builtin_create_action(team_id)
         };
         // The runner composes the builtin prompts itself — the input schema
         // is a dialog-side concern only (desktop parity).
         action.inputs = Vec::new();
-        let repo_group = if fixing {
+        let repo_group = if chatting {
+            // EXP-615: chat runs IN the picked repository's trunk clone, so
+            // its `repo` input is the run's cwd.
+            match repo {
+                ActionRepo::Provided(group) => group,
+                ActionRepo::Resolve => {
+                    let repository_id = inputs
+                        .iter()
+                        .find(|input| input.key == "repo")
+                        .map(|input| input.value.trim().to_string())
+                        .filter(|value| !value.is_empty())
+                        .ok_or_else(|| anyhow!("Pick a repository for the chat."))?;
+                    let rows = fetch_repositories(&ctx.trpc, &action.team_id)
+                        .context("resolve the repository")?;
+                    let row = rows
+                        .into_iter()
+                        .find(|row| row.id == repository_id)
+                        .ok_or_else(|| anyhow!("That repository is no longer connected."))?;
+                    Some(RepoGroup {
+                        repository_id: row.id,
+                        full_name: row.full_name,
+                        default_branch: row.default_branch.unwrap_or_default(),
+                    })
+                }
+            }
+        } else if fixing {
             match repo {
                 ActionRepo::Provided(group) => group,
                 ActionRepo::Resolve => {
@@ -318,6 +348,8 @@ pub fn resolve_action_request(
                 issue_id,
             }
         }
+        // EXP-615: the builtin kinds are id-dispatched (desktop parity).
+        None if chatting => ActionRunKind::Chat,
         None if builtin => ActionRunKind::CreateAction,
         None => ActionRunKind::Team,
     };

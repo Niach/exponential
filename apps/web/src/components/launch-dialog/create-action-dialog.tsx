@@ -1,13 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from "react"
-import { LoaderCircle, Sparkles } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { LoaderCircle } from "lucide-react"
 import {
   MAX_ACTION_INPUT_TEXT,
   type AutomationTrigger,
   type BoardIcon,
 } from "@exp/db-schema/domain"
+import { conceptIcon } from "@/lib/icons.generated"
 import { builtinCreateAction } from "@/lib/builtin-actions"
 import { missingRequiredInputs, buildInputsPayload } from "@/lib/action-inputs"
-import { formatAutomationBlock } from "@/lib/action-triggers"
+import { formatAutomationBlock, triggerSummary } from "@/lib/action-triggers"
 import {
   AutomationAgentFields,
   AutomationDevicePicker,
@@ -20,28 +21,17 @@ import {
   type AutomationDraft,
 } from "@/components/automation-section"
 import {
-  agentSeed,
-  agentSupportsPlanMode,
-  agentSupportsSkipPermissions,
-  agentSupportsUltracode,
-  DEFAULT_LAUNCH_AGENT,
-} from "@/lib/coding-launch-prefs"
-import {
-  deviceAgentIds,
-  deviceAgentLaunchDefaults,
   deviceCanRunActionInputs,
   deviceCanRunActions,
-  deviceDefaultAgent,
   deviceHasRunnableAgent,
   deviceIsOnline,
   type SteerDevice,
 } from "@/lib/steer-devices"
+import { cn } from "@/lib/utils"
 import type { ActionRepoOption } from "@/components/action-editor-dialog"
 import type { StartCodingOptions } from "@/components/launch-dialog/launch-dialog"
-import {
-  CLI_DEFAULT_EFFORT,
-  LaunchOptionsPane,
-} from "@/components/launch-dialog/launch-options-pane"
+import { LaunchOptionsPane } from "@/components/launch-dialog/launch-options-pane"
+import { useLaunchOptions } from "@/components/launch-dialog/use-launch-options"
 import { IconPicker } from "@/components/ui/icon-picker"
 import { Button } from "@/components/ui/button"
 import {
@@ -51,6 +41,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
   Select,
@@ -63,16 +54,28 @@ import { Textarea } from "@/components/ui/textarea"
 
 // The dedicated "New action" dialog (EXP-431): the builtin "Create action"
 // run got its own creation-flavored surface instead of riding the generic
-// launch dialog as just another list row. The description leads as a
-// Textarea (the generic input renderer would give the locked `text` def a
-// one-line field), repo + icon follow, and the right column reuses the
+// launch dialog as just another list row. Icon + name lead, the description
+// follows as a Textarea (the generic input renderer would give the locked
+// `text` def a one-line field), then the repo, and the right column reuses the
 // launch dialog's options pane verbatim. Submitting is still an ordinary
 // remote builtin run — the shell calls `remote.runAction` with the locked
-// builtin id and the {description, repo?, icon?} inputs payload.
+// builtin id and the {description, name?, repo?, icon?} inputs payload.
+// EXP-615: the automation is a always-visible summary row that slides into its
+// own detail view, so the suggestion-prefilled flow and the plain one are ONE
+// layout (they were two before).
 
 // Radix Select forbids an empty-string item value; the unset optional repo
 // rides this sentinel inside the dialog only.
 const NO_REPO = `none`
+
+const AutomationIcon = conceptIcon(`action-automation`)
+const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
+const BackIcon = conceptIcon(`ui-back`)
+const CreateIcon = conceptIcon(`action-create`)
+
+/** Which half of the dialog body is on screen — the form, or the automation
+ * detail it slides over. */
+type DialogView = `form` | `automation`
 
 export function CreateActionDialog({
   open,
@@ -96,11 +99,11 @@ export function CreateActionDialog({
   /** EXP-530 suggestion prefill — applied on OPEN only (the reset effect). */
   initialDescription?: string
   initialIcon?: string
-  /** EXP-583: an "Action + automation" suggestion's trigger. Present = the
-   * dialog renders its Automation block (trigger editable, plus its own
-   * "Runs on" device and agent pins) and appends the machine-readable block
-   * the creator agent copies into `exponential_automations_create`. The plain
-   * "New action" path passes nothing and shows no Automation block. */
+  /** EXP-583: an "Action + automation" suggestion's trigger — seeds the
+   * automation row so the suggestion arrives with its schedule already
+   * filled in. The dialog itself never talks to the automations API: the
+   * choices ride the description as a machine-readable block the creator
+   * agent copies into `exponential_automations_create`. */
   automationPrefill?: AutomationTrigger
   onCreate: (
     device: SteerDevice,
@@ -109,18 +112,20 @@ export function CreateActionDialog({
   ) => void
 }) {
   // Input defs come from the builtin factory so the payload keys, the
-  // required flag, and the description placeholder can never drift from the
+  // required flag, and the placeholders can never drift from the
   // cross-client contract.
   const inputDefs = useMemo(() => builtinCreateAction(teamId).inputs, [teamId])
   const descriptionDef = inputDefs.find((def) => def.key === `description`)
+  const nameDef = inputDefs.find((def) => def.key === `name`)
 
+  const [view, setView] = useState<DialogView>(`form`)
   const [description, setDescription] = useState(``)
+  const [name, setName] = useState(``)
   const [repoId, setRepoId] = useState(``)
   const [icon, setIcon] = useState(``)
-  // EXP-583: the Automation block's controlled state — only rendered for a
-  // suggestion that carries a trigger. Nothing here is written by the dialog:
-  // it all rides the description as a machine-readable block the creator
-  // agent copies into `exponential_automations_create`.
+  // EXP-583: the automation's controlled state. Nothing here is written by
+  // the dialog — it all rides the description block above.
+  const [hasAutomation, setHasAutomation] = useState(false)
   const [automation, setAutomation] = useState<AutomationDraft>(
     emptyAutomationDraft
   )
@@ -130,45 +135,6 @@ export function CreateActionDialog({
   const [automationAgent, setAutomationAgent] = useState(``)
   const [automationModel, setAutomationModel] = useState(``)
   const [automationEffort, setAutomationEffort] = useState(``)
-
-  // Launch options — the same device-seeded cluster as the launch dialog
-  // shell (a deliberate small duplication; the 677-line shell isn't worth a
-  // hook extraction for one sibling).
-  const [agent, setAgent] = useState<string>(DEFAULT_LAUNCH_AGENT)
-  const [model, setModel] = useState(``)
-  const [effortValue, setEffortValue] = useState(CLI_DEFAULT_EFFORT)
-  const [ultracode, setUltracode] = useState(false)
-  const [planMode, setPlanMode] = useState(false)
-  const [skipPermissions, setSkipPermissions] = useState(false)
-  const [deviceId, setDeviceId] = useState<string | null>(null)
-  // EXP-437: the deviceId whose launch defaults last seeded the options —
-  // re-polls with the same device must not stomp in-dialog edits.
-  const seededDeviceRef = useRef<string | null>(null)
-
-  // Seed fields + options on OPEN only — a desktop connecting mid-dialog
-  // (the settle effect below) must never wipe a typed description. Options
-  // start at static contract defaults; the device-seed effect below overlays
-  // the selected machine's advertised defaults (EXP-437).
-  useEffect(() => {
-    if (!open) return
-    setDescription(initialDescription ?? ``)
-    setRepoId(``)
-    setIcon(initialIcon ?? ``)
-    setAutomation(draftFromTrigger(automationPrefill ?? null))
-    setAutomationDeviceId(null)
-    setAutomationAgent(``)
-    setAutomationModel(``)
-    setAutomationEffort(``)
-    setDeviceId(null)
-    seededDeviceRef.current = null
-    const seed = agentSeed(DEFAULT_LAUNCH_AGENT, null)
-    setAgent(DEFAULT_LAUNCH_AGENT)
-    setModel(seed.model)
-    setEffortValue(CLI_DEFAULT_EFFORT)
-    setUltracode(seed.ultracode)
-    setPlanMode(seed.planMode)
-    setSkipPermissions(seed.skipPermissions)
-  }, [open])
 
   // The builtin always needs the action-inputs cap (same gate the launch
   // dialog applies to it), so an outdated desktop can't be picked here.
@@ -182,22 +148,43 @@ export function CreateActionDialog({
     [devices]
   )
 
-  // The Automation block's own runner list — automation-capable machines,
-  // online or not (a schedule catches up on reconnect), independent from the
-  // desktop that runs the creator agent right now.
-  const showAutomation = automationPrefill !== undefined
+  // The same device-settle + device-seeded options cluster the launch dialog
+  // runs (EXP-437/EXP-201).
+  const launch = useLaunchOptions({ open, devices: candidateDevices })
+  const device = launch.device
+
+  // Seed fields on OPEN only — a desktop connecting mid-dialog (the settle
+  // effect inside the hook) must never wipe a typed description.
+  useEffect(() => {
+    if (!open) return
+    setView(`form`)
+    setDescription(initialDescription ?? ``)
+    setName(``)
+    setRepoId(``)
+    setIcon(initialIcon ?? ``)
+    setHasAutomation(automationPrefill !== undefined)
+    setAutomation(draftFromTrigger(automationPrefill ?? null))
+    setAutomationDeviceId(null)
+    setAutomationAgent(``)
+    setAutomationModel(``)
+    setAutomationEffort(``)
+  }, [open])
+
+  // The automation's own runner list — automation-capable machines, online or
+  // not (a schedule catches up on reconnect), independent from the desktop
+  // that runs the creator agent right now.
   const automationCandidates = useMemo(
     () => automationDevices(devices),
     [devices]
   )
   useEffect(() => {
-    if (!open || !showAutomation) return
+    if (!open || !hasAutomation) return
     setAutomationDeviceId((current) =>
       current && automationCandidates.some((d) => d.deviceId === current)
         ? current
         : (automationCandidates[0]?.deviceId ?? null)
     )
-  }, [open, showAutomation, automationCandidates])
+  }, [open, hasAutomation, automationCandidates])
   const automationDevice = automationCandidates.find(
     (candidate) => candidate.deviceId === automationDeviceId
   )
@@ -208,80 +195,29 @@ export function CreateActionDialog({
     setAutomationEffort(clamped.effort)
   }
 
-  // Settle the device on open + whenever the candidate list changes; a
-  // still-valid current choice is kept, else the first candidate wins.
-  useEffect(() => {
-    if (!open) return
-    setDeviceId((current) =>
-      current && candidateDevices.some((d) => d.deviceId === current)
-        ? current
-        : (candidateDevices[0]?.deviceId ?? null)
-    )
-  }, [open, candidateDevices])
-
-  const device =
-    candidateDevices.find((candidate) => candidate.deviceId === deviceId) ??
-    candidateDevices[0]
-
-  // Switching the agent tab re-seeds model/effort/toggles to the SELECTED
-  // DEVICE's defaults for that agent (EXP-437; static when it advertises
-  // none), capability-clamped.
-  const switchAgent = (next: string) => {
-    if (next === agent) return
-    setAgent(next)
-    const seed = agentSeed(next, deviceAgentLaunchDefaults(device, next))
-    setModel(seed.model)
-    setEffortValue(seed.effort === `` ? CLI_DEFAULT_EFFORT : seed.effort)
-    setUltracode(seed.ultracode)
-    setPlanMode(seed.planMode)
-    setSkipPermissions(seed.skipPermissions)
+  const openAutomation = () => {
+    setHasAutomation(true)
+    setView(`automation`)
+  }
+  const removeAutomation = () => {
+    setHasAutomation(false)
+    setAutomation(emptyAutomationDraft())
+    setAutomationAgent(``)
+    setAutomationModel(``)
+    setAutomationEffort(``)
+    setView(`form`)
   }
 
-  // EXP-437: seed the launch options from the selected device's advertised
-  // per-agent defaults — once a device settles after open, and again on
-  // every actual device change (the ref latch skips same-device re-polls).
-  useEffect(() => {
-    if (!open || !device) return
-    if (seededDeviceRef.current === device.deviceId) return
-    seededDeviceRef.current = device.deviceId
-    const available = deviceAgentIds(device)
-    const next =
-      deviceDefaultAgent(device) ??
-      (available.includes(agent)
-        ? agent
-        : (available[0] ?? DEFAULT_LAUNCH_AGENT))
-    const seed = agentSeed(next, deviceAgentLaunchDefaults(device, next))
-    setAgent(next)
-    setModel(seed.model)
-    setEffortValue(seed.effort === `` ? CLI_DEFAULT_EFFORT : seed.effort)
-    setUltracode(seed.ultracode)
-    setPlanMode(seed.planMode)
-    setSkipPermissions(seed.skipPermissions)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, device?.deviceId])
+  const inputValues = { description, name, repo: repoId, icon }
 
-  // EXP-201: only agents the chosen device advertised are offerable; a
-  // device change re-clamps a now-unavailable selection.
-  const availableAgents = deviceAgentIds(device)
-  const availableAgentsKey = availableAgents.join(`,`)
-  useEffect(() => {
-    if (!open) return
-    if (!availableAgents.includes(agent)) {
-      switchAgent(availableAgents[0] ?? `claude`)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, availableAgentsKey, agent])
-
-  const inputValues = { description, repo: repoId, icon }
-
-  // EXP-583: a suggestion's automation rides the description input as a
-  // trailing machine-readable block the creator agent copies into
+  // EXP-583: a configured automation rides the description input as a trailing
+  // machine-readable block the creator agent copies into
   // `exponential_automations_create` — the combined value must still fit the
   // server's per-value text cap, so an overflow blocks submit with an inline
   // message instead of a server-side reject. Without a bindable machine there
   // is nothing to run it on, so the block is simply left off.
   const descriptionWithTrigger =
-    showAutomation && automationDeviceId
+    hasAutomation && automationDeviceId
       ? `${description}${formatAutomationBlock({
           trigger: draftToTrigger(automation),
           deviceId: automationDeviceId,
@@ -296,17 +232,9 @@ export function CreateActionDialog({
 
   const submit = () => {
     if (!device || submitBlocked) return
-    const options: StartCodingOptions = {
-      agent,
-      model,
-      effort: effortValue === CLI_DEFAULT_EFFORT ? `` : effortValue,
-      ultracode: ultracode && agentSupportsUltracode(agent),
-      planMode: planMode && agentSupportsPlanMode(agent),
-      skipPermissions: skipPermissions && agentSupportsSkipPermissions(agent),
-    }
     onCreate(
       device,
-      options,
+      launch.buildOptions(),
       buildInputsPayload(inputDefs, {
         ...inputValues,
         description: descriptionWithTrigger,
@@ -314,110 +242,184 @@ export function CreateActionDialog({
     )
   }
 
+  const automationSummary = hasAutomation
+    ? [
+        triggerSummary(draftToTrigger(automation)),
+        automationDevice?.deviceLabel || automationDeviceId,
+      ]
+        .filter(Boolean)
+        .join(` · `)
+    : `No automation`
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="gap-3 sm:max-h-[85dvh] sm:max-w-2xl">
+      {/* Fixed panel height from `sm` up (EXP-615): the automation detail
+          slides over the form inside ONE frame, so the dialog must not resize
+          between the two. Mobile stays the full-screen page. */}
+      <DialogContent className="gap-3 sm:h-[min(85dvh,34rem)] sm:max-h-[85dvh] sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>New action</DialogTitle>
         </DialogHeader>
-        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] sm:gap-5 sm:overflow-y-visible">
-          <div className="flex shrink-0 flex-col gap-3 sm:min-h-0 sm:shrink sm:overflow-y-auto">
-            <div className="space-y-2">
-              <Label htmlFor="create-action-description">Description</Label>
-              <Textarea
-                id="create-action-description"
-                autoFocus
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder={descriptionDef?.placeholder}
-                className="min-h-28"
-                // Client parity with the server's per-value cap, so a long
-                // paste is refused at the field instead of at submit.
-                maxLength={MAX_ACTION_INPUT_TEXT}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="create-action-repo">Repository (optional)</Label>
-              <Select
-                value={repoId || NO_REPO}
-                onValueChange={(value) =>
-                  setRepoId(value === NO_REPO ? `` : value)
-                }
-              >
-                <SelectTrigger id="create-action-repo" className="w-full">
-                  <SelectValue placeholder="Select a repository" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NO_REPO}>None</SelectItem>
-                  {repos.map((repo) => (
-                    <SelectItem key={repo.id} value={repo.id}>
-                      {repo.fullName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Icon (optional)</Label>
-              <IconPicker
-                value={icon as BoardIcon | ``}
-                onChange={setIcon}
-                allowsNone
-              />
-            </div>
-            {showAutomation && (
-              <div className="space-y-3 rounded-md border border-border p-3">
-                <Label>Automation</Label>
-                <AutomationTriggerFields
-                  draft={automation}
-                  onChange={setAutomation}
-                  teamId={teamId}
-                />
-                <AutomationDevicePicker
-                  id="create-action-automation-device"
-                  deviceId={automationDeviceId}
-                  devices={automationCandidates}
-                  onChange={setAutomationDeviceId}
-                />
-                <AutomationAgentFields
-                  idPrefix="create-action-automation"
-                  device={automationDevice}
-                  agent={automationAgent}
-                  onAgentChange={switchAutomationAgent}
-                  model={automationModel}
-                  onModelChange={setAutomationModel}
-                  effort={automationEffort}
-                  onEffortChange={setAutomationEffort}
+        <div className="relative min-h-0 flex-1 overflow-hidden">
+          <div
+            // `inert` (not aria-hidden) keeps focus and the tab order out of
+            // the off-screen half without hiding a focused element from AT.
+            inert={view === `automation`}
+            className={cn(
+              `absolute inset-0 flex flex-col gap-3 overflow-y-auto transition-transform duration-200 ease-out sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] sm:gap-5 sm:overflow-y-visible`,
+              view === `automation` &&
+                `pointer-events-none -translate-x-full opacity-0`
+            )}
+          >
+            <div className="flex shrink-0 flex-col gap-3 sm:min-h-0 sm:shrink sm:overflow-y-auto">
+              <div className="space-y-2">
+                <Label htmlFor="create-action-name">Name (optional)</Label>
+                <div className="flex items-center gap-2">
+                  <IconPicker
+                    id="create-action-icon"
+                    value={icon as BoardIcon | ``}
+                    onChange={setIcon}
+                    allowsNone
+                  />
+                  <Input
+                    id="create-action-name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder={nameDef?.placeholder}
+                    maxLength={MAX_ACTION_INPUT_TEXT}
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="create-action-description">Description</Label>
+                <Textarea
+                  id="create-action-description"
+                  autoFocus
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder={descriptionDef?.placeholder}
+                  className="min-h-28"
+                  // Client parity with the server's per-value cap, so a long
+                  // paste is refused at the field instead of at submit.
+                  maxLength={MAX_ACTION_INPUT_TEXT}
                 />
               </div>
-            )}
-            {triggerOverflow && (
-              <p className="text-xs text-destructive">
-                Description plus the automation block exceeds the
-                {` ${MAX_ACTION_INPUT_TEXT}`}-character input limit. Shorten
-                the description.
-              </p>
-            )}
+              <div className="space-y-2">
+                <Label htmlFor="create-action-repo">Repository (optional)</Label>
+                <Select
+                  value={repoId || NO_REPO}
+                  onValueChange={(value) =>
+                    setRepoId(value === NO_REPO ? `` : value)
+                  }
+                >
+                  <SelectTrigger id="create-action-repo" className="w-full">
+                    <SelectValue placeholder="Select a repository" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_REPO}>None</SelectItem>
+                    {repos.map((repo) => (
+                      <SelectItem key={repo.id} value={repo.id}>
+                        {repo.fullName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <button
+                type="button"
+                onClick={openAutomation}
+                className="flex w-full items-center gap-2 rounded-md border border-border px-3 py-2 text-left hover:bg-muted/50"
+              >
+                <AutomationIcon className="size-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm">Automation</span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {automationSummary}
+                  </span>
+                </span>
+                <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" />
+              </button>
+              {triggerOverflow && (
+                <p className="text-xs text-destructive">
+                  Description plus the automation block exceeds the
+                  {` ${MAX_ACTION_INPUT_TEXT}`}-character input limit. Shorten
+                  the description.
+                </p>
+              )}
+            </div>
+            <LaunchOptionsPane
+              devices={candidateDevices}
+              device={device}
+              onDeviceChange={launch.setDeviceId}
+              noDeviceNote={`No capable desktop online. This action needs a desktop app new enough to run action inputs.`}
+              agent={launch.agent}
+              availableAgents={launch.availableAgents}
+              onAgentChange={launch.switchAgent}
+              model={launch.model}
+              onModelChange={launch.setModel}
+              effortValue={launch.effortValue}
+              onEffortChange={launch.setEffortValue}
+              ultracode={launch.ultracode}
+              onUltracodeChange={launch.setUltracode}
+              planMode={launch.planMode}
+              onPlanModeChange={launch.setPlanMode}
+              skipPermissions={launch.skipPermissions}
+              onSkipPermissionsChange={launch.setSkipPermissions}
+            />
           </div>
-          <LaunchOptionsPane
-            devices={candidateDevices}
-            device={device}
-            onDeviceChange={setDeviceId}
-            noDeviceNote={`No capable desktop online. This action needs a desktop app new enough to run action inputs.`}
-            agent={agent}
-            availableAgents={availableAgents}
-            onAgentChange={switchAgent}
-            model={model}
-            onModelChange={setModel}
-            effortValue={effortValue}
-            onEffortChange={setEffortValue}
-            ultracode={ultracode}
-            onUltracodeChange={setUltracode}
-            planMode={planMode}
-            onPlanModeChange={setPlanMode}
-            skipPermissions={skipPermissions}
-            onSkipPermissionsChange={setSkipPermissions}
-          />
+
+          <div
+            inert={view === `form`}
+            className={cn(
+              `absolute inset-0 flex flex-col gap-3 transition-transform duration-200 ease-out`,
+              view === `form` && `pointer-events-none translate-x-full opacity-0`
+            )}
+          >
+            <div className="flex shrink-0 items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Back"
+                onClick={() => setView(`form`)}
+              >
+                <BackIcon />
+              </Button>
+              <span className="flex-1 text-sm font-medium">Automation</span>
+              {hasAutomation && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive"
+                  onClick={removeAutomation}
+                >
+                  Remove automation
+                </Button>
+              )}
+            </div>
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-1">
+              <AutomationTriggerFields
+                draft={automation}
+                onChange={setAutomation}
+                teamId={teamId}
+              />
+              <AutomationDevicePicker
+                id="create-action-automation-device"
+                deviceId={automationDeviceId}
+                devices={automationCandidates}
+                onChange={setAutomationDeviceId}
+              />
+              <AutomationAgentFields
+                idPrefix="create-action-automation"
+                device={automationDevice}
+                agent={automationAgent}
+                onAgentChange={switchAutomationAgent}
+                model={automationModel}
+                onModelChange={setAutomationModel}
+                effort={automationEffort}
+                onEffortChange={setAutomationEffort}
+              />
+            </div>
+          </div>
         </div>
         <DialogFooter>
           <Button
@@ -428,7 +430,11 @@ export function CreateActionDialog({
             Cancel
           </Button>
           <Button onClick={submit} disabled={starting || !device || submitBlocked}>
-            {starting ? <LoaderCircle className="animate-spin" /> : <Sparkles />}
+            {starting ? (
+              <LoaderCircle className="animate-spin" />
+            ) : (
+              <CreateIcon />
+            )}
             Create
           </Button>
         </DialogFooter>

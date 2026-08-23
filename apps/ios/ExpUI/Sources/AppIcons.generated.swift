@@ -279,7 +279,7 @@ public enum AppIcons {
     /// Concept `action-automation`.
     public static let actionAutomation: String = "zap"
     /// Concept `action-create`.
-    public static let actionCreate: String = "plus"
+    public static let actionCreate: String = "sparkles"
     /// Concept `action-default`.
     public static let actionDefault: String = "zap"
     /// Concept `action-repository`.

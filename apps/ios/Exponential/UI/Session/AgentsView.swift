@@ -412,7 +412,9 @@ struct AgentsView: View {
             // for a machine with nothing runnable (EXP-409: every installed
             // agent signed out); its status line carries the reason.
             if device.isOnline, device.hasRunnableAgent {
-                GlassPillButton("Start coding") {
+                // EXP-615: the play glyph, not a "Start coding" pill — the
+                // same affordance web and desktop wear on their machine rows.
+                CircleIconButton(AppIcons.actionRun, accessibilityLabel: "Start coding") {
                     startSheetDevice = device
                 }
             }

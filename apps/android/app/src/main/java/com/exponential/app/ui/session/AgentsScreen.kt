@@ -324,8 +324,8 @@ fun AgentsScreen(
             title = { Text("Remove machine?") },
             text = {
                 Text(
-                    "Removes “${device.displayLabel}” from your machines. A machine with the " +
-                        "daemon still running re-registers itself on its next heartbeat.",
+                    "Remove “${device.displayLabel}” from your machines? A machine with the " +
+                        "daemon still running will re-register itself on its next heartbeat.",
                 )
             },
             confirmButton = {
@@ -539,16 +539,19 @@ private fun MachineRow(
                 }
             }
         }
-        // Text-only glass chip, matching the iOS AgentsView "Start coding"
-        // button (EXP-331 — no play glyph). Offline machines can't take a
-        // start (the relay refuses it), nor can ones with every agent signed
-        // out (EXP-409), so the affordance is simply absent.
+        // EXP-615: an icon-only play button (one Run/Start affordance across
+        // the clients). Offline machines can't take a start (the relay refuses
+        // it), nor can ones with every agent signed out (EXP-409), so the
+        // affordance is simply absent.
         if (startable) {
-            GlassPillButton(
-                label = "Start coding",
-                onClick = onStart,
-                modifier = Modifier.padding(start = 8.dp),
-            )
+            IconButton(onClick = onStart, modifier = Modifier.padding(start = 8.dp)) {
+                Icon(
+                    ExpIcons.actionRun,
+                    contentDescription = "Start coding",
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
         }
         // Rename / Update / Remove all mutate the OWNER's registry row, so a
         // teammate's shared machine carries no menu at all (EXP-432).

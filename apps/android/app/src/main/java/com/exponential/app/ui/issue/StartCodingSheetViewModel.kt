@@ -108,6 +108,13 @@ class StartCodingSheetViewModel @Inject constructor(
         accountId to teamId
     }
 
+    /**
+     * The selected team — the hidden "Chat" builtin (EXP-615) is constructed
+     * locally, and every builtin start has to carry its teamId (there is no DB
+     * row for the server to derive it from).
+     */
+    val teamId: StateFlow<String?> = selection.selectedId
+
     /** The selected team's actions (both virtual builtin rows are prepended). */
     val actionsState: StateFlow<SheetActionsState> = combine(dbFlow, selection.selectedId) { db, teamId ->
         db to teamId

@@ -83,6 +83,14 @@ fun builtinCreateAction(teamId: String): ActionDto = ActionDto(
             required = true,
             placeholder = "What should this action do?",
         ),
+        // EXP-615: an optional name — blank lets the creator agent pick one.
+        ActionInputDto(
+            key = "name",
+            label = "Name",
+            type = "text",
+            required = false,
+            placeholder = "Leave blank to let the agent name it",
+        ),
         ActionInputDto(
             key = "repo",
             label = "Repository",
@@ -127,7 +135,40 @@ fun builtinFixConflictsAction(teamId: String): ActionDto = ActionDto(
 )
 
 /**
- * Both builtins in the order every client pins them. EXP-270: mobile used to
+ * The HIDDEN "Chat" builtin (EXP-615): a free-prompt agent session on a
+ * repository's trunk clone at its default branch. Deliberately in NO list —
+ * the start-coding sheet's Chat tab constructs this row directly, so it never
+ * shows up as a runnable action anywhere. Mirrors
+ * apps/web/src/lib/builtin-actions.ts field-for-field.
+ */
+fun builtinChatAction(teamId: String): ActionDto = ActionDto(
+    id = DomainContract.builtinChatId,
+    teamId = teamId,
+    name = "Chat",
+    description = "Chat with your agent on a repository",
+    icon = "message-circle",
+    inputs = listOf(
+        ActionInputDto(
+            key = "prompt",
+            label = "Prompt",
+            type = "textarea",
+            required = true,
+            placeholder = "What should the agent do?",
+        ),
+        ActionInputDto(
+            key = "repo",
+            label = "Repository",
+            type = "repo",
+            required = true,
+        ),
+    ),
+    sortOrder = 1e9 + 2,
+    builtin = true,
+)
+
+/**
+ * Both LISTED builtins in the order every client pins them (the hidden chat
+ * row is deliberately absent). EXP-270: mobile used to
  * construct only "Create action", so "Fix merge conflicts" silently vanished
  * from Android when EXP-268 moved the list onto the synced shape.
  */

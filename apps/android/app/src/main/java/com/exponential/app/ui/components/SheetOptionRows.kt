@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -27,13 +26,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.exponential.app.R
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
@@ -145,47 +142,8 @@ internal fun PickerRow(
     }
 }
 
-// One agent tab in the pill strip: brand icon + label; the selected tab is a
-// solid near-white primary capsule with dark content (EXP-594 — the indigo
-// accent is retired), unselected tabs are subdued glass — the exact treatment
-// of the iOS sheet's agentTab (EXP-574 parity).
-@Composable
-internal fun AgentTab(
-    value: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    val capsule = RoundedCornerShape(percent = 50)
-    val tint = if (selected) {
-        DesignTokens.Palette.PrimaryForeground
-    } else {
-        MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
-    }
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .clip(capsule)
-            .background(
-                if (selected) {
-                    DesignTokens.Palette.Primary
-                } else {
-                    Color.White.copy(alpha = 0.06f)
-                },
-                capsule,
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-    ) {
-        Icon(
-            painterResource(agentIconRes(value)),
-            contentDescription = null,
-            modifier = Modifier.size(14.dp),
-            tint = tint,
-        )
-        Spacer(Modifier.width(6.dp))
-        Text(agentLabel(value), style = MaterialTheme.typography.labelLarge, color = tint)
-    }
-}
+// EXP-615: the loose agent pill strip is gone — every surface now renders ONE
+// segmented capsule via [AgentSegmentedTabs] (LaunchOptionsSection.kt).
 
 @Composable
 internal fun SwitchRow(
