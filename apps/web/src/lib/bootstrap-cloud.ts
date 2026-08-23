@@ -2,6 +2,7 @@ import { and, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { users } from "@/db/auth-schema"
 import { emailEnabled } from "@/lib/email-enabled"
+import { runGithubIdentityBackfill } from "@/lib/integrations/github-identity-backfill"
 // Vite's ?raw suffix inlines file contents as a string at build time. We
 // do this so the server bundle ships the SQL alongside the JS, no fs reads
 // required at runtime (which Vite also can't tree-shake for browser builds).
@@ -93,6 +94,12 @@ export function bootstrapCloud(): Promise<void> {
     for (let attempt = 1; ; attempt++) {
       try {
         await runBootstrapPass()
+        // EXP-617: deliberately OUTSIDE the retrying pass and not awaited.
+        // It talks to GitHub, so it must never be able to fail a boot or
+        // trigger the backoff loop above — and nothing downstream waits on
+        // it (an unmapped user just keeps today's attribution until the
+        // next restart or their next GitHub connect).
+        void runGithubIdentityBackfill()
         return
       } catch (err) {
         const delayMs = Math.min(

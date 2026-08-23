@@ -118,6 +118,37 @@ async function ghApp(path: string, init?: RequestInit): Promise<Response> {
   })
 }
 
+// The ACCOUNT an installation belongs to, straight off the installation object
+// (App JWT, no user token needed). EXP-617's identity backfill reads the
+// numeric id from here rather than resolving a stored login through
+// `GET /users/{login}` — a login lookup returns whoever holds that name TODAY,
+// so after a rename-and-squat it would hand us a stranger. The installation is
+// a stable object and its account follows the human across renames.
+// Null on anything unexpected: the backfill treats that as "skip", never as an
+// error worth failing a boot over.
+export async function getInstallationAccount(
+  installationId: number
+): Promise<{ id: number; login: string; type: string } | null> {
+  try {
+    const res = await ghApp(`/app/installations/${installationId}`)
+    if (!res.ok) return null
+    const data = (await res.json()) as {
+      account?: { id?: number; login?: string; type?: string }
+    }
+    const account = data.account
+    if (
+      typeof account?.id !== `number` ||
+      !account.login ||
+      !account.type
+    ) {
+      return null
+    }
+    return { id: account.id, login: account.login, type: account.type }
+  } catch {
+    return null
+  }
+}
+
 // repo "owner/name" → installation id, or null if the App isn't installed there.
 // Exported for the connect-path authorization check (the repo's installation
 // must be one the caller is attributed to).
