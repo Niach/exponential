@@ -89,8 +89,15 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
   applyPrReopenedState: vi.fn(async () => {}),
   findIssueIdByBranch: vi.fn(async () => null),
 }))
+// EXP-617: the resolver itself (bot filter, id-over-login rule) is covered in
+// github-identity.test.ts — here we only assert WHICH actor the webhook hands
+// it and that the answer reaches the writers.
+vi.mock(`@/lib/integrations/github-identity`, () => ({
+  resolveAppUserForGithubActor: vi.fn(async () => null),
+}))
 
 import * as prSync from "@/lib/integrations/pr-sync"
+import { resolveAppUserForGithubActor } from "@/lib/integrations/github-identity"
 import * as integrations from "@/lib/trpc/integrations"
 import { githubInstallations, repositories } from "@/db/schema"
 // Deliberately the REAL module (in-memory, no I/O): these tests exercise the
@@ -194,6 +201,7 @@ describe(`github webhook — batch PR fan-out (multi-issue pr_url resolution)`, 
         headBranch: `exp/batch-a1b2c3d4`,
         mergedAt: new Date(MERGED_AT_ISO),
         actorUserId: null,
+        githubActorUserId: null,
       })
     }
     // The exact-prUrl match short-circuits the branch parse.
@@ -265,6 +273,7 @@ describe(`github webhook — batch PR fan-out (multi-issue pr_url resolution)`, 
       headBranch: `exp/batch-a1b2c3d4`,
       mergedAt: new Date(MERGED_AT_ISO),
       actorUserId: null,
+      githubActorUserId: null,
     })
   })
 
@@ -306,6 +315,7 @@ describe(`github webhook — batch PR fan-out (multi-issue pr_url resolution)`, 
       prNumber: 7,
       branch: `exp/batch-a1b2c3d4`,
       actorUserId: null,
+      githubActorUserId: null,
     })
   })
 
@@ -339,6 +349,7 @@ describe(`github webhook — batch PR fan-out (multi-issue pr_url resolution)`, 
         mergedAt: new Date(MERGED_AT_ISO),
         actorUserId: `u-merger`,
         actorViaAgent: true,
+        githubActorUserId: null,
       })
     }
 
@@ -362,6 +373,7 @@ describe(`github webhook — batch PR fan-out (multi-issue pr_url resolution)`, 
       headBranch: `exp/batch-a1b2c3d4`,
       mergedAt: new Date(MERGED_AT_ISO),
       actorUserId: null,
+      githubActorUserId: null,
     })
   })
 
@@ -387,6 +399,7 @@ describe(`github webhook — batch PR fan-out (multi-issue pr_url resolution)`, 
       branch: `exp/batch-a1b2c3d4`,
       actorUserId: `u-opener`,
       actorViaAgent: true,
+      githubActorUserId: null,
     })
   })
 
@@ -407,6 +420,7 @@ describe(`github webhook — batch PR fan-out (multi-issue pr_url resolution)`, 
       prNumber: 7,
       branch: `exp/batch-a1b2c3d4`,
       actorUserId: null,
+      githubActorUserId: null,
     })
   })
 
@@ -585,5 +599,129 @@ describe(`github webhook — installation_repositories heal scoping`, () => {
     // old full_name-only heal never touched db.select at all.
     expect(h.select).toHaveBeenCalled()
     expect(repositoryUpdates()[0].where).toBeDefined()
+  })
+})
+
+// EXP-617: the merge-side answer to "the webhook is all we get". GitHub tells
+// us who acted; the mapping turns that into an app user so they can be kept
+// out of a notification about their own click.
+describe(`github webhook — GitHub actor identity (EXP-617)`, () => {
+  const resolve = vi.mocked(resolveAppUserForGithubActor)
+  const HUMAN = { id: 4242, login: `niach`, type: `User` }
+  const BOT = { id: 1, login: `exponential[bot]`, type: `Bot` }
+
+  function actorPayload(overrides: {
+    action: string
+    merged?: boolean
+    sender?: unknown
+    user?: unknown
+    merged_by?: unknown
+  }): unknown {
+    return {
+      action: overrides.action,
+      pull_request: {
+        html_url: HTML_URL,
+        number: 7,
+        merged: overrides.merged ?? false,
+        merged_at: overrides.merged ? MERGED_AT_ISO : null,
+        head: { ref: `exp/EXP-9` },
+        user: overrides.user,
+        merged_by: overrides.merged_by,
+      },
+      repository: { full_name: `org/repo` },
+      sender: overrides.sender,
+    }
+  }
+
+  it(`prefers merged_by over sender and forwards the resolved user`, async () => {
+    h.selectQueue.push([{ id: ISSUE_A }])
+    resolve.mockResolvedValue(`u-merger`)
+
+    const res = await postHandler({
+      request: webhookRequest(
+        `pull_request`,
+        actorPayload({
+          action: `closed`,
+          merged: true,
+          merged_by: HUMAN,
+          sender: BOT,
+        })
+      ),
+    })
+
+    expect(res.status).toBe(200)
+    expect(resolve).toHaveBeenCalledWith(HUMAN)
+    expect(prSyncMock.applyPrMergeState).toHaveBeenCalledWith(
+      expect.objectContaining({ githubActorUserId: `u-merger` })
+    )
+  })
+
+  it(`falls back to sender when merged_by is absent`, async () => {
+    h.selectQueue.push([{ id: ISSUE_A }])
+    resolve.mockResolvedValue(`u-sender`)
+
+    await postHandler({
+      request: webhookRequest(
+        `pull_request`,
+        actorPayload({ action: `closed`, merged: true, sender: HUMAN })
+      ),
+    })
+
+    expect(resolve).toHaveBeenCalledWith(HUMAN)
+  })
+
+  it(`resolves once per delivery, so one lookup covers a batch PR's issues`, async () => {
+    h.selectQueue.push([{ id: ISSUE_A }, { id: ISSUE_B }])
+    resolve.mockResolvedValue(`u-merger`)
+
+    await postHandler({
+      request: webhookRequest(
+        `pull_request`,
+        actorPayload({ action: `closed`, merged: true, merged_by: HUMAN })
+      ),
+    })
+
+    expect(prSyncMock.applyPrMergeState).toHaveBeenCalledTimes(2)
+    expect(resolve).toHaveBeenCalledTimes(1)
+  })
+
+  it(`opened resolves the PR author and forwards it alongside the claim`, async () => {
+    h.selectQueue.push([{ id: ISSUE_A }])
+    resolve.mockResolvedValue(`u-author`)
+    claimPrOpen(`org/repo`, `exp/EXP-9`, { userId: `u-claim`, viaAgent: true })
+
+    await postHandler({
+      request: webhookRequest(
+        `pull_request`,
+        actorPayload({ action: `opened`, user: HUMAN })
+      ),
+    })
+
+    expect(resolve).toHaveBeenCalledWith(HUMAN)
+    // The claim still owns the title; the GitHub identity rides along so both
+    // views of the same act are excluded.
+    expect(prSyncMock.applyPrOpenedState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorUserId: `u-claim`,
+        actorViaAgent: true,
+        githubActorUserId: `u-author`,
+      })
+    )
+  })
+
+  it(`forwards a null for an unmapped or bot actor`, async () => {
+    h.selectQueue.push([{ id: ISSUE_A }])
+    resolve.mockResolvedValue(null)
+
+    await postHandler({
+      request: webhookRequest(
+        `pull_request`,
+        actorPayload({ action: `opened`, user: BOT })
+      ),
+    })
+
+    expect(prSyncMock.applyPrOpenedState).toHaveBeenCalledWith(
+      expect.objectContaining({ githubActorUserId: null, actorUserId: null })
+    )
   })
 })

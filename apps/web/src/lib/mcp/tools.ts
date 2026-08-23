@@ -73,6 +73,7 @@ import { applyPrLifecycleStatusInTx } from "@/lib/integrations/pr-sync"
 import { fireAndForgetPrNotify } from "@/lib/integrations/notifications"
 import {
   claimPrOpen,
+  noteAgentIssueActivity,
   releasePrOpenClaim,
 } from "@/lib/integrations/pr-actor-claims"
 import { escapeLikePattern } from "@/lib/like-pattern"
@@ -596,6 +597,10 @@ export function registerExponentialTools(
           ...rest,
           description: descriptionText ? descriptionText : undefined,
         })
+        // EXP-617: an issue filed mid-session has no coding_sessions row of
+        // its own, so nothing else ties its later PR back to the human whose
+        // agent wrote it. Exclusion-only (see noteAgentIssueActivity).
+        noteAgentIssueActivity(result.issue.id, user.id)
         return ok(result.issue)
       } catch (e) {
         return err(e)
@@ -638,6 +643,7 @@ export function registerExponentialTools(
           ...rest,
           description,
         })
+        noteAgentIssueActivity(rest.id, user.id)
         return ok(result.issue)
       } catch (e) {
         return err(e)
@@ -958,6 +964,7 @@ export function registerExponentialTools(
           issueId,
           body: bodyText,
         })
+        noteAgentIssueActivity(issueId, user.id)
         return ok(result.comment)
       } catch (e) {
         return err(e)
@@ -986,6 +993,7 @@ export function registerExponentialTools(
           assertBoardGranted(access, ctxIssue.boardId, ctxIssue.teamId)
         }
         const result = await caller(user, request).issues.update({ id, status })
+        noteAgentIssueActivity(id, user.id)
         return ok(result.issue)
       } catch (e) {
         return err(e)
@@ -1155,6 +1163,11 @@ export function registerExponentialTools(
           userId: user.id,
           viaAgent: true,
         })
+        // EXP-617 backstop: the claim is keyed on the head branch, so it is
+        // lost whenever the branch we compute here is not byte-identical to
+        // the `head` GitHub reports back. The issue-keyed record has no such
+        // dependency, and it only ever suppresses — never names.
+        for (const id of ids) noteAgentIssueActivity(id, user.id)
         let created: Awaited<ReturnType<typeof createPullRequest>>
         try {
           created = await createPullRequest({
@@ -1384,6 +1397,7 @@ export function registerExponentialTools(
           issueId: id,
           base,
         })
+        noteAgentIssueActivity(id, user.id)
         return ok({ retargeted: true, base: result.base })
       } catch (e) {
         return err(e)

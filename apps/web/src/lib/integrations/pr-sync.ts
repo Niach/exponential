@@ -400,6 +400,10 @@ export async function applyPrOpenedState(opts: {
   // forwarded to the notify so shared-server host attribution can swap to
   // the session's requester.
   actorViaAgent?: boolean
+  // EXP-617: the webhook's `sender`/`pull_request.user` already mapped to an
+  // app user. Notification-only — it never touches the PR linkage or the
+  // status automation, whose actor stays the in-app one.
+  githubActorUserId?: string | null
 }): Promise<void> {
   const applied = await db.transaction(async (tx) => {
     const txId = await generateTxId(tx)
@@ -469,6 +473,7 @@ export async function applyPrOpenedState(opts: {
       type: `pr_opened`,
       actorUserId: opts.actorUserId ?? null,
       actorViaAgent: opts.actorViaAgent,
+      githubActorUserId: opts.githubActorUserId ?? null,
     })
   }
 }
@@ -493,8 +498,10 @@ export async function applyPrMergeState(opts: {
   headBranch?: string
   mergedAt?: Date | null
   actorUserId?: string | null
-  // EXP-494: see applyPrOpenedState.
+  // EXP-494/EXP-617: see applyPrOpenedState. On this path the GitHub actor is
+  // `merged_by` — whoever pressed Merge on github.com.
   actorViaAgent?: boolean
+  githubActorUserId?: string | null
 }): Promise<void> {
   const result = await db.transaction(
     async (
@@ -616,6 +623,7 @@ export async function applyPrMergeState(opts: {
       type: `pr_merged`,
       actorUserId: opts.actorUserId ?? null,
       actorViaAgent: opts.actorViaAgent,
+      githubActorUserId: opts.githubActorUserId ?? null,
     })
     // EXP-324: heal the stack — retarget open child PRs that were based on
     // the just-merged head branch. GitHub only does this itself when the

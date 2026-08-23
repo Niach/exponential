@@ -113,7 +113,84 @@ export function releasePrMergeClaim(
   claims.delete(mergeKey(repoFullName, prNumber))
 }
 
+// ---------------------------------------------------------------------------
+// Agent issue activity (EXP-617)
+//
+// The claims above are PER-PR-EVENT and only exist when the PR flowed through
+// our own server. This second, coarser record answers a different question:
+// "did a human's agent credential WRITE to this issue recently?" It is
+// deliberately EXCLUSION-ONLY — it never supplies a title, because "your agent
+// touched this issue" is not evidence of who opened the PR, only evidence that
+// notifying that person about it would be telling them what they already know.
+//
+// It is the SECOND line of defence, not the primary one. EXP-617's actual
+// incident (PR #507 / EXP-616) was a PR opened by the reporter's own GitHub
+// account on github.com — no claim, no session, no server call of any kind —
+// and only github-identity.ts can resolve that. What this covers is the
+// remainder: a user whose GitHub account has never been connected here, a
+// claim key that did not match the head branch GitHub echoed back, and a
+// restart between the claim and the webhook.
+//
+// Three properties that differ from the PR claims on purpose:
+//   - keyed on the ISSUE, not on a repo/branch/PR number, so it survives every
+//     branch-naming and session-shape mismatch;
+//   - a SET of users per issue (two people's agents may both have touched it);
+//   - PEEKED, never consumed — one record has to cover the `opened` webhook,
+//     the tool's own fan-out, and any later merge.
+// Same single-process caveat as above: a miss degrades to today's behavior.
+
+// Sized against the real incident, which is the only measurement we have: the
+// agent filed EXP-616 at 14:43 and its PR was opened at 15:25 — 42 minutes, so
+// the 30 minutes this started at would have expired with nothing to show for
+// it. Four hours covers a long session without letting a record survive into
+// the next working block. It is still the mitigation for this mechanism's one
+// wrong-suppression risk (a teammate whose agent touched the issue misses a PR
+// notification someone else caused), so it stays bounded rather than growing
+// to match a session's lifetime.
+const AGENT_ACTIVITY_TTL_MS = 4 * 60 * 60 * 1000
+
+const agentIssueActivity = new Map<string, Map<string, number>>()
+
+export function noteAgentIssueActivity(issueId: string, userId: string): void {
+  const now = Date.now()
+  for (const [key, actors] of agentIssueActivity) {
+    for (const [actorId, expiresAt] of actors) {
+      if (expiresAt <= now) actors.delete(actorId)
+    }
+    if (actors.size === 0) agentIssueActivity.delete(key)
+  }
+  const existing = agentIssueActivity.get(issueId)
+  const actors = existing ?? new Map<string, number>()
+  if (!existing) {
+    // Refresh insertion order the same way put() does, so the cap below drops
+    // the oldest issue rather than an arbitrary one.
+    while (agentIssueActivity.size >= MAX_CLAIMS) {
+      const oldest = agentIssueActivity.keys().next().value
+      if (oldest === undefined) break
+      agentIssueActivity.delete(oldest)
+    }
+    agentIssueActivity.set(issueId, actors)
+  }
+  actors.set(userId, now + AGENT_ACTIVITY_TTL_MS)
+}
+
+// Live actors for an issue. Peek, NOT take (see the header above).
+export function peekAgentIssueActors(issueId: string): string[] {
+  const actors = agentIssueActivity.get(issueId)
+  if (!actors) return []
+  const now = Date.now()
+  for (const [actorId, expiresAt] of actors) {
+    if (expiresAt <= now) actors.delete(actorId)
+  }
+  if (actors.size === 0) {
+    agentIssueActivity.delete(issueId)
+    return []
+  }
+  return [...actors.keys()]
+}
+
 // Test hook.
 export function _clearPrActorClaims(): void {
   claims.clear()
+  agentIssueActivity.clear()
 }

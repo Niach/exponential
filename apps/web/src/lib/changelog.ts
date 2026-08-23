@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-pr-notification-ownership`,
+    date: `2026-08-23`,
+    title: `No more notifications about your own pull requests`,
+    summary: `Opening or merging a pull request on GitHub itself is now credited to your account here, so you stop hearing about your own work.`,
+    body: `- **GitHub actions get a name**: a pull request opened or merged on github.com used to arrive as "a pull request was opened", with nobody excluded, so it reached the very person who had just done it. Your GitHub account is now linked when you connect GitHub in team settings, and those events are credited to you and skipped for you.
+- **Your agent's work counts as yours**: filing an issue mid-session and having your agent implement it no longer notifies you about the resulting pull request, even when nothing can name who opened it.
+- **Shared machines**: the owner of a machine hosting someone else's coding session no longer gets notified about that session's pull requests.
+- **No more doubles**: a pull request event can no longer produce two inbox rows when the two paths that report it disagree about who acted.`,
+  },
+  {
     id: `2026-08-mobile-lists-create-polish`,
     date: `2026-08-22`,
     title: `Mobile lists, create and menus polished`,

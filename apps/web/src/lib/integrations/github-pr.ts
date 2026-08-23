@@ -2,6 +2,7 @@ import {
   githubApiHeaders,
   resolveRepoInstallationToken,
 } from "@/lib/integrations/github-app"
+import type { GithubActorRef } from "@/lib/integrations/github-identity"
 
 export interface PullFile {
   filename: string
@@ -157,6 +158,11 @@ export async function closePullRequest(opts: {
 export interface PullState {
   state: `open` | `closed`
   merged: boolean
+  // EXP-617: whoever pressed Merge, straight out of the response the poller
+  // already fetches. Self-hosted instances have no webhook, so this is their
+  // ONLY attribution source — without it every polled merge fans out
+  // anonymously and reaches the person who merged it. Null on an open PR.
+  mergedBy: GithubActorRef | null
 }
 
 // Fetch a PR's open/closed/merged state (server-side merge detection).
@@ -173,10 +179,15 @@ export async function fetchPullState(
   if (!res.ok) {
     throw new Error(`GitHub returned ${res.status} for ${repo}#${prNumber}`)
   }
-  const data = (await res.json()) as { state: string; merged: boolean }
+  const data = (await res.json()) as {
+    state: string
+    merged: boolean
+    merged_by?: GithubActorRef | null
+  }
   return {
     state: data.state === `closed` ? `closed` : `open`,
     merged: Boolean(data.merged),
+    mergedBy: data.merged_by ?? null,
   }
 }
 
