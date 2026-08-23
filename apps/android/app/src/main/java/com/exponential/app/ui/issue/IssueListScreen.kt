@@ -98,7 +98,6 @@ import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.dueDateColor
 import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.theme.glassRow
-import com.exponential.app.ui.theme.resolvedStatusColor
 import kotlinx.coroutines.delay
 
 /**
@@ -720,37 +719,26 @@ private fun IssueListContent(
             } else {
                 state.groups.forEach { group ->
                     val isCollapsed = group.status.id in collapsed
-                    // EXP-578: status headers pin to the top while their rows
-                    // scroll beneath (iOS parity — plain-List section headers
-                    // there are sticky by default). The opaque app-background
-                    // fill hides the rows passing under the pinned header.
-                    stickyHeader(key = "header-${group.status.id}") {
+                    // EXP-620: a plain scrolling item, not a stickyHeader.
+                    // Pinning (EXP-578) is what forced a background onto the
+                    // header in the first place — an opaque fill to hide the
+                    // rows passing underneath, since Compose has no cheap
+                    // backdrop blur — and EXP-593 then washed the status colour
+                    // over it. Scrolling with its rows, the header needs
+                    // neither: it reads as plain text on AppBackground, like
+                    // the My Issues headers. Web desktop keeps the tint.
+                    item(key = "header-${group.status.id}") {
                         // EXP-523: headers ride the same reflow as their rows.
-                        // EXP-593: a glassy band instead of the plain black
-                        // slab — the group's status colour washed over the
-                        // fill + a hairline bottom edge (web/desktop parity:
-                        // statusHeaderBg's 10% tint). The opaque base stays
-                        // underneath: Compose has no cheap backdrop blur
-                        // (GlassTokens), so it still hides passing rows.
                         Box(
                             Modifier
                                 .animateItem()
-                                .fillMaxWidth()
-                                .background(GlassTokens.BackgroundTop)
-                                .background(resolvedStatusColor(group.status).copy(alpha = 0.10f)),
+                                .fillMaxWidth(),
                         ) {
                             StatusHeader(
                                 status = group.status,
                                 count = group.issues.size,
                                 collapsed = isCollapsed,
                                 onToggle = { onToggleCollapsed(group.status.id, isCollapsed) },
-                            )
-                            Box(
-                                Modifier
-                                    .align(Alignment.BottomStart)
-                                    .fillMaxWidth()
-                                    .height(GlassTokens.Hairline)
-                                    .background(GlassTokens.StrokeSection),
                             )
                         }
                     }
@@ -878,9 +866,10 @@ private fun StatusHeader(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onToggle)
-            // The band itself is full-bleed (EXP-614), so the content carries
-            // the list gutter on top of the header's own 8dp inset — the
-            // glyphs stay lined up with the rows below.
+            // The list carries no horizontal contentPadding (EXP-614), so the
+            // content carries the gutter on top of the header's own 8dp inset
+            // — the glyphs stay lined up with the rows below, matching
+            // MyIssuesScreen's 16dp contentPadding + 8dp.
             .padding(horizontal = ListGutter + 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

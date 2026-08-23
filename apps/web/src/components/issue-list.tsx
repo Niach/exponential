@@ -58,6 +58,11 @@ const statusHeaderBg: Record<IssueStatus, string> = {
   duplicate: `bg-zinc-500/10`,
 }
 
+// Mobile's un-tinted header (EXP-620).
+const EMPTY_WASH: { className: string; style?: React.CSSProperties } = {
+  className: ``,
+}
+
 function groupHeaderWash(option: StatusRowOption): {
   className: string
   style?: React.CSSProperties
@@ -122,18 +127,21 @@ const NO_LABELS: Label[] = []
 
 function IssueListSkeleton() {
   return (
-    <div data-testid="issue-list-skeleton">
-      <div className="flex items-center gap-2 pl-3 pr-3 md:pr-6 py-2 border-b border-border/50 bg-accent/20">
+    <div
+      data-testid="issue-list-skeleton"
+      className="max-md:flex max-md:flex-col max-md:gap-[3px] max-md:px-4 max-md:pt-1"
+    >
+      <div className="flex items-center gap-2 max-md:px-2 max-md:py-2 md:pl-3 md:pr-6 md:py-2 md:border-b md:border-border/50 md:bg-accent/20">
         <Skeleton className="h-3.5 w-3.5 rounded-full" />
         <Skeleton className="h-3.5 w-24" />
       </div>
       {Array.from({ length: 5 }, (_, i) => (
         <div
           key={i}
-          className="flex items-center gap-3 h-12 md:h-10 px-3 md:px-6 border-b border-border/30"
+          className="flex items-center gap-3 h-12 md:h-10 px-3 md:px-6 md:border-b md:border-border/30 max-md:rounded-md max-md:border max-md:border-glass-stroke max-md:bg-glass-row"
         >
           <Skeleton className="h-4 w-4 rounded-full" />
-          <Skeleton className="hidden md:block h-3 w-14" />
+          <Skeleton className="h-3 w-14" />
           <Skeleton className="h-4 w-4 rounded-full" />
           <Skeleton className="h-3.5 flex-1 max-w-72" />
         </div>
@@ -204,7 +212,14 @@ const IssueRow = memo(function IssueRow({
       isSelected={isSelected}
     >
       <div
-        className={`grid ${rowGridClass} items-center h-12 md:h-10 px-3 md:px-6 hover:bg-glass-row border-b border-border/30 group/row cursor-pointer ${isSelected ? `max-md:bg-glass-active` : ``}`}
+        // EXP-620: below md the row is a native-style glass CARD in a flex
+        // line (mirroring the iOS HStack / Compose Row), at md+ the flush
+        // table grid it has always been. Flex on mobile is what lets the
+        // mobile-only cells below appear without a second set of grid
+        // templates. The mobile fill is chosen here rather than by class
+        // order: `bg-glass-active` and `bg-glass-row` are both `bg-*`
+        // utilities, so which one won would come down to stylesheet order.
+        className={`max-md:flex max-md:items-center max-md:gap-2.5 max-md:rounded-md max-md:border max-md:border-glass-stroke md:grid ${rowGridClass} items-center h-12 md:h-10 px-3 md:px-6 md:hover:bg-glass-row md:border-b md:border-border/30 group/row cursor-pointer ${isSelected ? `max-md:bg-glass-active` : `max-md:bg-glass-row`}`}
         onClick={() => {
           if (mobileSelectionActive) {
             onToggleSelect(issue.id, false)
@@ -248,7 +263,10 @@ const IssueRow = memo(function IssueRow({
             disabled={!canMutateRow}
           />
         </div>
-        <span className="hidden md:inline text-xs text-muted-foreground font-mono truncate">
+        {/* Native parity (EXP-620): the identifier shows on mobile too, on a
+            min-width column so the status glyph and title line up across rows
+            for typical digit counts without clipping longer identifiers. */}
+        <span className="text-xs text-muted-foreground font-mono truncate max-md:min-w-[3.75rem] max-md:shrink-0">
           {issue.identifier}
         </span>
         <div
@@ -262,9 +280,11 @@ const IssueRow = memo(function IssueRow({
             disabled={!canMutateRow}
           />
         </div>
-        <span className="flex items-center gap-1.5 text-sm truncate ml-2 min-w-0">
+        <span className="flex items-center gap-1.5 text-sm truncate md:ml-2 min-w-0 max-md:flex-1">
           <span className="truncate">{issue.title}</span>
         </span>
+        {/* Full pills at md+; below md the natives draw up to three bare
+            colour dots instead, which is all a phone-width row can hold. */}
         <div className="hidden md:flex items-center gap-1.5 ml-4 shrink-0">
           {issueLabels.map((label) => (
             <span
@@ -279,9 +299,24 @@ const IssueRow = memo(function IssueRow({
             </span>
           ))}
         </div>
+        {issueLabels.length > 0 && (
+          <div className="flex md:hidden items-center gap-1 shrink-0">
+            {issueLabels.slice(0, 3).map((label) => (
+              <div
+                key={label.id}
+                className="h-2 w-2 rounded-full shrink-0"
+                style={{ backgroundColor: label.color }}
+              />
+            ))}
+          </div>
+        )}
+        {/* Solo teams hide the avatar entirely on every client (`isSolo` here,
+            `singleMemberTeam` on iOS, `soloMemberId` on Android). `order` puts
+            it after the due date on mobile, matching the native row; at md+
+            the grid keeps the established column sequence. */}
         {!isSolo && (
           <div
-            className="hidden md:flex items-center justify-center"
+            className="flex items-center justify-center max-md:order-1"
             onClick={(e) => e.stopPropagation()}
           >
             <AssigneeDropdown
@@ -311,12 +346,16 @@ const IssueRow = memo(function IssueRow({
         </div>
         {renderRowAction && (
           <div
-            className="flex items-center justify-end"
+            className="flex items-center justify-end max-md:order-2"
             onClick={(e) => e.stopPropagation()}
           >
             {renderRowAction(issue)}
           </div>
         )}
+        {/* Both natives end the row with a disclosure chevron (Android draws
+            one, iOS gets it from NavigationLink); desktop's table has no such
+            affordance, so it stays mobile-only. */}
+        <ChevronRight className="size-4 shrink-0 text-muted-foreground md:hidden max-md:order-3" />
       </div>
     </IssueRowContextMenu>
   )
@@ -539,24 +578,26 @@ export function IssueList({
   const isSolo = users.length === 1
 
   // The row grid grows a leading checkbox column (md+ when bulk select is
-  // on), drops the md assignee column on solo teams, and grows a trailing
+  // on), drops the assignee column on solo teams, and grows a trailing
   // action column when the caller renders one. Every combination is a full
-  // literal — Tailwind only sees complete class strings.
+  // literal — Tailwind only sees complete class strings. md+ ONLY: below the
+  // breakpoint the row is a flex card (EXP-620), so there is no mobile
+  // template to keep in step here.
   const rowGridClass = bulkEnabled
     ? renderRowAction
       ? isSolo
-        ? `grid-cols-[2rem_2rem_1fr_auto_2rem] md:grid-cols-[1.25rem_1.5rem_4.5rem_1.5rem_1fr_auto_4.5rem_2rem]`
-        : `grid-cols-[2rem_2rem_1fr_auto_2rem] md:grid-cols-[1.25rem_1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem_2rem]`
+        ? `md:grid-cols-[1.25rem_1.5rem_4.5rem_1.5rem_1fr_auto_4.5rem_2rem]`
+        : `md:grid-cols-[1.25rem_1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem_2rem]`
       : isSolo
-        ? `grid-cols-[2rem_2rem_1fr_auto] md:grid-cols-[1.25rem_1.5rem_4.5rem_1.5rem_1fr_auto_4.5rem]`
-        : `grid-cols-[2rem_2rem_1fr_auto] md:grid-cols-[1.25rem_1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem]`
+        ? `md:grid-cols-[1.25rem_1.5rem_4.5rem_1.5rem_1fr_auto_4.5rem]`
+        : `md:grid-cols-[1.25rem_1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem]`
     : renderRowAction
       ? isSolo
-        ? `grid-cols-[2rem_2rem_1fr_auto_2rem] md:grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_4.5rem_2rem]`
-        : `grid-cols-[2rem_2rem_1fr_auto_2rem] md:grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem_2rem]`
+        ? `md:grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_4.5rem_2rem]`
+        : `md:grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem_2rem]`
       : isSolo
-        ? `grid-cols-[2rem_2rem_1fr_auto] md:grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_4.5rem]`
-        : `grid-cols-[2rem_2rem_1fr_auto] md:grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem]`
+        ? `md:grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_4.5rem]`
+        : `md:grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem]`
 
   const toggleGroup = (groupKey: string) => {
     setCollapsedGroups((prev) => {
@@ -611,12 +652,21 @@ export function IssueList({
   }
 
   return (
-    <div ref={listRef}>
+    // EXP-620: below md the list is the natives' 3dp-gapped card stack inside
+    // a 16px gutter (the same gutter IssueFilterBar uses above it); at md+ it
+    // stays a flush, edge-to-edge table.
+    <div
+      ref={listRef}
+      className="max-md:flex max-md:flex-col max-md:gap-[3px] max-md:px-4 max-md:pt-1"
+    >
       {visibleGroups.map((group) => {
         const option = group.status
         const Icon = ICON_COMPONENTS[option.icon]
         const isOpen = !collapsedGroups.has(option.id)
-        const wash = groupHeaderWash(option)
+        // EXP-620: mobile headers are plain text on the app background —
+        // no tint, matching iOS/Android. `useIsMobile` shares the 768px
+        // breakpoint with `md:`, so this agrees with the classes below.
+        const wash = isMobile ? EMPTY_WASH : groupHeaderWash(option)
         const limit = renderLimit(option.id)
         const renderedIssues =
           group.issues.length > limit ? group.issues.slice(0, limit) : group.issues
@@ -626,16 +676,19 @@ export function IssueList({
             key={option.id}
             open={isOpen}
             onOpenChange={() => toggleGroup(option.id)}
+            className="max-md:flex max-md:flex-col max-md:gap-[3px]"
             data-testid={`issue-group-${option.id}`}
             // Stable across custom-status renames/ids: the builtin anchor key
             // for builtin groups, the row id otherwise. E2E selects on this.
             data-status-key={option.builtinKey ?? option.id}
           >
             {/* Group header */}
-            {/* backdrop-blur is load-bearing: the tint is translucent and
-                rows scroll under the sticky header. */}
+            {/* md+: backdrop-blur is load-bearing — the tint is translucent
+                and rows scroll under the sticky header. Below md there is no
+                band and no pinning (EXP-620), so none of it applies; the
+                content sits 24px in (16px gutter + 8px), as on native. */}
             <div
-              className={`group sticky top-0 z-10 flex items-center justify-between pl-3 pr-3 md:pr-6 py-1.5 border-b border-border/40 backdrop-blur-md ${wash.className}`}
+              className={`group md:sticky md:top-0 md:z-10 flex items-center justify-between max-md:px-2 max-md:py-2 md:pl-3 md:pr-6 md:py-1.5 md:border-b md:border-border/40 md:backdrop-blur-md ${wash.className}`}
               style={wash.style}
             >
               <div className="flex items-center gap-1.5">
@@ -679,7 +732,11 @@ export function IssueList({
             </div>
 
             {/* Issue rows */}
-            <CollapsiblePrimitive.Content className="overflow-hidden data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down">
+            {/* The 3px row gap rides margins, NOT `flex`+`gap`: Radix hides a
+                closed Content with the `hidden` ATTRIBUTE, and a `display`
+                utility would out-specify the preflight `[hidden]` rule and
+                leave collapsed groups showing their rows. */}
+            <CollapsiblePrimitive.Content className="overflow-hidden data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down max-md:space-y-[3px]">
               {renderedIssues.map((issue) => {
                 const rowCanMutate = canMutateIssue
                   ? canMutateIssue(issue)
@@ -711,7 +768,7 @@ export function IssueList({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="w-full rounded-none border-b border-border/30 text-xs text-muted-foreground"
+                  className="w-full text-xs text-muted-foreground md:rounded-none md:border-b md:border-border/30 max-md:rounded-md max-md:border max-md:border-glass-stroke max-md:bg-glass-row"
                   onClick={() =>
                     setExtraRows((prev) =>
                       new Map(prev).set(
