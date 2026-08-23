@@ -179,10 +179,8 @@ export function AgentSessionView({
   // phase, answers) and dials only when nothing is connected yet, so
   // reopening a session renders instantly with no reconnect phase.
   const store = useMemo(() => acquireSteerSession(session.id), [session.id])
-  const { phase, feed, latestDiff, answerStates } = useSyncExternalStore(
-    store.subscribe,
-    store.getSnapshot
-  )
+  const { phase, feed, latestDiff, answerStates, connected } =
+    useSyncExternalStore(store.subscribe, store.getSnapshot)
   useEffect(() => store.connect(), [store])
   // The synced row is the truth for "still running" inside the redial loops.
   useEffect(
@@ -683,7 +681,10 @@ export function AgentSessionView({
             <div className="border-t border-border p-2">
               <MessageComposer
                 store={store}
-                live={live}
+                // `connected` matters beyond the phase: a silent slow-consumer
+                // redial keeps `live` while the socket is briefly down, and
+                // the send button should dim honestly for that gap.
+                live={live && connected}
                 onSend={sendMessage}
                 issueId={session.issueId}
                 placeholder={

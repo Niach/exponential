@@ -171,9 +171,11 @@ describe(`slow-consumer eviction (4008)`, () => {
     await vi.advanceTimersByTimeAsync(1_000)
 
     socket.serverClose(4008)
-    // The eviction is not surfaced: the phase holds and the feed stays.
+    // The eviction is not surfaced as a phase change: the phase holds and the
+    // feed stays — but `connected` dips so send affordances dim honestly.
     expect(store.getSnapshot().phase.kind).toBe(`live`)
     expect(store.getSnapshot().feed).toHaveLength(1)
+    expect(store.getSnapshot().connected).toBe(false)
 
     // A redial is scheduled (jittered 1.5-3s first step).
     await vi.advanceTimersByTimeAsync(3_100)
@@ -181,6 +183,7 @@ describe(`slow-consumer eviction (4008)`, () => {
     sockets[1].open()
     sockets[1].frame({ t: `activity_reset` })
     expect(store.getSnapshot().phase.kind).toBe(`live`)
+    expect(store.getSnapshot().connected).toBe(true)
     store.dispose()
   })
 

@@ -233,6 +233,10 @@ export interface SteerSessionSnapshot {
   feed: FeedItem[]
   latestDiff: string | null
   answerStates: AnswerStates
+  /** The socket is actually open. Distinct from the phase: a silent
+   *  slow-consumer redial keeps `phase: live` while the socket is briefly
+   *  down, and send affordances should dim honestly for that gap. */
+  connected: boolean
 }
 
 export interface SteerDraftSnapshot {
@@ -321,6 +325,7 @@ export function createSteerSessionStore(
   let feed: FeedItem[] = []
   let latestDiff: string | null = null
   let answerStates: AnswerStates = {}
+  let connected = false
   let nextId = 0
   /** Locally-echoed sent messages awaiting their transcript-derived event. */
   const recentEchoes: EchoEntry[] = []
@@ -335,14 +340,20 @@ export function createSteerSessionStore(
   // compares by Object.is, so a per-call allocation would render-loop, and
   // the split keeps keystrokes from re-rendering the feed (and frames from
   // re-rendering the composer).
-  let snapshot: SteerSessionSnapshot = { phase, feed, latestDiff, answerStates }
+  let snapshot: SteerSessionSnapshot = {
+    phase,
+    feed,
+    latestDiff,
+    answerStates,
+    connected,
+  }
   let draftSnapshot: SteerDraftSnapshot = { text: draftText, images: draftImages }
 
   const notify = () => {
     for (const listener of listeners) listener()
   }
   const commit = () => {
-    snapshot = { phase, feed, latestDiff, answerStates }
+    snapshot = { phase, feed, latestDiff, answerStates, connected }
     notify()
   }
   const commitDraft = () => {
@@ -602,6 +613,8 @@ export function createSteerSessionStore(
       ws = sock
       sock.onopen = () => {
         if (disposed || gen !== generation) return
+        connected = true
+        commit()
         // The feed is NEVER wiped here (protocol v2): the relay sends an
         // explicit `activity_reset` immediately before its join replay, so
         // a redial that never lands keeps showing what was already there.
@@ -660,6 +673,7 @@ export function createSteerSessionStore(
       sock.onclose = (event) => {
         if (disposed || gen !== generation) return
         ws = null
+        connected = false
         if (sawEnd) {
           phase = { kind: `ended`, detail: detail ?? undefined }
           commit()
@@ -683,9 +697,11 @@ export function createSteerSessionStore(
         // EXP-621: a slow-consumer eviction is not an ending — the session
         // is still live on the relay. Redial silently (the phase — usually
         // `live` — holds steady, so nothing flickers and the composer never
-        // loses its footing); the shared backoff bounds a pathological
-        // evict-redial loop.
+        // loses its footing; the commit still surfaces `connected: false` so
+        // the send button dims honestly for the gap); the shared backoff
+        // bounds a pathological evict-redial loop.
         if (event.code === CLOSE_SLOW_CONSUMER && sessionStatus !== `ended`) {
+          commit()
           scheduleRedial()
           return
         }
@@ -793,6 +809,7 @@ export function createSteerSessionStore(
       generation++
       ws?.close()
       ws = null
+      connected = false
       void dial(false)
     },
     noteSessionStatus(status) {

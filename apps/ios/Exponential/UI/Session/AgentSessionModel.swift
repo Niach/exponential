@@ -113,7 +113,11 @@ final class AgentSessionModel {
     }
 
     /// Whether a steer can go out right now — a live socket on a live session.
-    var canSteer: Bool { phase == .live && !sessionEnded }
+    /// `connected` matters beyond the phase: a silent slow-consumer redial
+    /// (4008) deliberately keeps `phase == .live` while the socket is briefly
+    /// down, and the send button should dim honestly for that gap instead of
+    /// offering a tap that would no-op.
+    var canSteer: Bool { phase == .live && connected && !sessionEnded }
 
     /// EXP-550: the host machine is offline while the run is still coding —
     /// the session is PAUSED, not ended (it resumes when the machine comes

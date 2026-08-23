@@ -10,22 +10,22 @@ import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.domain.ActivityFeedState
+import com.exponential.app.domain.AgentPhase
+import com.exponential.app.domain.AnswerState
 import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.INLINE_IMAGE_CONTENT_TYPES
 import com.exponential.app.domain.MAX_IMAGE_UPLOAD_BYTES
+import com.exponential.app.domain.MAX_STEER_IMAGES
+import com.exponential.app.domain.PendingAttachment
+import com.exponential.app.domain.appendUserMessage
+import com.exponential.app.domain.applyActivityEvent
+import com.exponential.app.domain.buildSteerImageMessage
 import com.exponential.app.domain.canonicalContentType
-import com.exponential.app.ui.components.PendingAttachment
-import com.exponential.app.ui.session.ActivityFeedState
-import com.exponential.app.ui.session.AgentPhase
-import com.exponential.app.ui.session.AnswerState
-import com.exponential.app.ui.session.MAX_STEER_IMAGES
-import com.exponential.app.ui.session.appendUserMessage
-import com.exponential.app.ui.session.applyActivityEvent
-import com.exponential.app.ui.session.buildSteerImageMessage
-import com.exponential.app.ui.session.failUnacknowledged
-import com.exponential.app.ui.session.lockAnswer
-import com.exponential.app.ui.session.locksCard
+import com.exponential.app.domain.failUnacknowledged
+import com.exponential.app.domain.lockAnswer
+import com.exponential.app.domain.locksCard
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.websocket.DefaultClientWebSocketSession
 import io.ktor.client.plugins.websocket.webSocketSession
@@ -145,6 +145,19 @@ class SteerConnection(
 
     private val _phase = MutableStateFlow<AgentPhase>(AgentPhase.Idle)
     val phase: StateFlow<AgentPhase> = _phase
+
+    /**
+     * Whether a socket is actually up right now — true from the join frame
+     * until the socket goes away, independent of [phase].
+     *
+     * The two differ during the silent 4008 redial (a slow-consumer eviction
+     * redials at once and deliberately HOLDS the Live phase, so the header
+     * doesn't flicker). The composer needs the honest answer: without it its
+     * send button stayed enabled over a dead socket and a tap no-oped in
+     * silence.
+     */
+    private val _connected = MutableStateFlow(false)
+    val connected: StateFlow<Boolean> = _connected
 
     // The feed survives reconnects, navigation and the session end — only the
     // relay's activity_reset starts it empty (EXP-249).
@@ -282,6 +295,7 @@ class SteerConnection(
         connectJob = null
         runCatching { ws?.cancel() }
         ws = null
+        _connected.value = false
         _phase.value = AgentPhase.Idle
     }
 
@@ -300,6 +314,7 @@ class SteerConnection(
         connectJob = null
         runCatching { ws?.cancel() }
         ws = null
+        _connected.value = false
         scope.cancel()
     }
 
@@ -380,6 +395,7 @@ class SteerConnection(
             // ONLY copy of a sent message — no stale echo may swallow it.
             recentEchoes.clear()
             opened.send(Frame.Text("""{"t":"join","channel":"activity"}"""))
+            _connected.value = true
             // NOT Live yet — the relay may answer the join with no_such_session
             // (desktop still starting). The phase flips to Live on the first
             // confirming server frame instead (the relay sends activity_reset
@@ -437,6 +453,7 @@ class SteerConnection(
             }
         } finally {
             ws = null
+            _connected.value = false
             runCatching { socket?.cancel() }
         }
 

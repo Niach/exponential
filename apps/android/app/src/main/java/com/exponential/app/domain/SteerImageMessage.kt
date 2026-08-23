@@ -1,4 +1,4 @@
-package com.exponential.app.ui.session
+package com.exponential.app.domain
 
 // The steer message composed from typed text plus attached images (EXP-511):
 // one string, byte-identical across web (lib/steer-image-message.ts), iOS

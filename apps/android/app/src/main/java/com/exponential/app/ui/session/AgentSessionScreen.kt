@@ -81,10 +81,24 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.domain.AgentFeedItem
+import com.exponential.app.domain.AgentFeedRow
+import com.exponential.app.domain.AgentPhase
+import com.exponential.app.domain.AnswerState
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.MAX_STEER_IMAGES
+import com.exponential.app.domain.PendingAttachment
+import com.exponential.app.domain.QuestionOption
+import com.exponential.app.domain.activeQuestionIds
+import com.exponential.app.domain.collectSubagents
+import com.exponential.app.domain.currentStepperStep
+import com.exponential.app.domain.groupFeedRows
+import com.exponential.app.domain.localAnswerSummary
+import com.exponential.app.domain.locksCard
+import com.exponential.app.domain.questionLockKey
+import com.exponential.app.domain.visibleSubagentTabs
 import com.exponential.app.ui.components.BottomBarPillFill
 import com.exponential.app.ui.components.GlassTextField
-import com.exponential.app.ui.components.PendingAttachment
 import com.exponential.app.ui.components.PendingAttachmentStrip
 import com.exponential.app.ui.components.TopBarActionButton
 import com.exponential.app.ui.components.TopBarBackButton
@@ -148,6 +162,10 @@ fun AgentSessionScreen(
 ) {
     val session by viewModel.session.collectAsStateWithLifecycle()
     val phase by viewModel.phase.collectAsStateWithLifecycle()
+    // Whether the socket is actually up (EXP-621). The header and banners read
+    // the PHASE — a silent redial must not flicker them — but the composer
+    // reads this, so its send button never sits enabled over a dead socket.
+    val connected by viewModel.connected.collectAsStateWithLifecycle()
     // EXP-549/550: the host machine via its LIVE devices row — the current
     // label, and "offline" = the run is PAUSED on a machine that went away
     // (lid closed). It is not ended and nothing here stops redialing; only
@@ -554,7 +572,11 @@ fun AgentSessionScreen(
                     pendingImages = pendingImages,
                     canAttach = session?.issueId != null,
                     sending = steerSending,
-                    live = phase == AgentPhase.Live,
+                    // Phase alone lies here: the silent 4008 redial holds Live
+                    // while the socket is briefly gone, and a send over it was
+                    // dropped without a word. Gate on the socket too, so the
+                    // button dims and the placeholder says "reconnecting…".
+                    live = phase == AgentPhase.Live && connected,
                     planPending = planAwaitingApproval,
                     onPickImages = {
                         imagePicker.launch(
