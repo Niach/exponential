@@ -389,10 +389,9 @@ struct AgentsView: View {
                     }
                     // EXP-622: the machine every device picker prefills.
                     if device.isDefaultDevice {
-                        Text("Default")
-                            .font(.caption2)
+                        AppIcon(AppIcons.uiDeviceDefault, size: AppIcon.Size.small)
                             .foregroundStyle(.white.opacity(TextOpacity.quaternary))
-                            .lineLimit(1)
+                            .accessibilityLabel("Default machine")
                     }
                     // EXP-432: a teammate's machine is attributed to its owner;
                     // one of the caller's own that is shared just says so (the

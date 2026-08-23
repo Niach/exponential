@@ -481,11 +481,11 @@ private fun MachineRow(
                 // EXP-622: the machine every device picker prefills.
                 if (device.isDefault) {
                     Spacer(Modifier.width(6.dp))
-                    Text(
-                        "Default",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        maxLines = 1,
+                    Icon(
+                        ExpIcons.uiDeviceDefault,
+                        contentDescription = "Default machine",
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        modifier = Modifier.size(13.dp),
                     )
                 }
                 if (device.isMine && device.sharedTeamId != null) {

@@ -46,6 +46,7 @@ const DesktopIcon = conceptIcon(`ui-device`)
 const StartCodingIcon = conceptIcon(`action-run`)
 const ServerIcon = conceptIcon(`ui-server`)
 const OfflineIcon = conceptIcon(`ui-device-offline`)
+const DefaultIcon = conceptIcon(`ui-device-default`)
 const AddIcon = conceptIcon(`ui-add`)
 const UpdateIcon = conceptIcon(`ui-update`)
 const EditIcon = conceptIcon(`ui-edit`)
@@ -235,10 +236,11 @@ export function MyMachines({
                     )}
                     {device.isDefault && (
                       <span
-                        className="shrink-0 rounded-sm border border-border/60 px-1 text-[10px] text-muted-foreground"
+                        className="shrink-0 text-muted-foreground"
                         title={`Your default machine — preselected when you start a coding session.`}
+                        aria-label="Default machine"
                       >
-                        Default
+                        <DefaultIcon className="size-3 fill-current" />
                       </span>
                     )}
                     {device.sharedTeamId && (

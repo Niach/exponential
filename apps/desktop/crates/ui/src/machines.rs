@@ -568,11 +568,10 @@ impl MachinesSection {
                     // EXP-622: the machine every device picker prefills.
                     .when(device.is_default, |this| {
                         this.child(
-                            div()
+                            Icon::new(registry::UI_DEVICE_DEFAULT)
+                                .xsmall()
                                 .flex_shrink_0()
-                                .text_xs()
-                                .text_color(muted)
-                                .child("Default"),
+                                .text_color(muted),
                         )
                     })
                     .when_some(device.version.clone(), |this, version| {

@@ -224,6 +224,7 @@
     "ui-private": "lock",
     "ui-device": "monitor",
     "ui-device-offline": "monitor-off",
+    "ui-device-default": "star",
     "ui-server": "server",
     "ui-offline": "wifi-off",
     "ui-update": "circle-arrow-up",
