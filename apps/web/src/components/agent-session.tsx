@@ -1111,7 +1111,10 @@ export function AgentSessionView({
             <div
               ref={scrollRef}
               onScroll={handleFeedScroll}
-              className="h-full overflow-y-auto"
+              // EXP-619: the feed rides its own bottom edge, so without
+              // containment every downward wheel tick over the terminal
+              // scrolled the page behind the dock instead.
+              className="h-full overflow-y-auto overscroll-contain"
             >
               {feed.length === 0 && paused ? (
                 <CenteredState>
@@ -1298,7 +1301,7 @@ export function AgentSessionView({
                 </span>
               </CollapsibleTrigger>
               <CollapsibleContent>
-                <div className="max-h-72 overflow-y-auto border-t border-border/60">
+                <div className="max-h-72 overflow-y-auto overscroll-contain border-t border-border/60">
                   <FileDiffList files={diffFiles} />
                 </div>
               </CollapsibleContent>

@@ -18,6 +18,7 @@ import {
 } from "@/lib/agent-dock-height"
 import { MOTION_DURATION_MS } from "@/lib/motion"
 import { useExitPresence } from "@/hooks/use-exit-presence"
+import { useWheelContainment } from "@/hooks/use-wheel-containment"
 
 // The global agent-coding dock (EXP-106) — an IDE-style bottom strip of the
 // current user's OWN running sessions (EXP-312: live sessions are owner-only;
@@ -70,6 +71,12 @@ export function AgentDock({
   useEffect(() => {
     if (!expandedId) setFullscreen(false)
   }, [expandedId])
+
+  // EXP-619: the expanded panel floats over the page, which keeps scrolling
+  // underneath it — a wheel gesture the terminal cannot use must die here
+  // rather than slide the issue list behind it. Only the panel is guarded;
+  // the bare tab strip sits at the bottom edge of every page.
+  const containWheel = useWheelContainment<HTMLDivElement>()
 
   // Drag-to-resize (EXP-234) — the panel height persists per device, like the
   // IDE terminal dock. `max-h-[85vh]` on the panel keeps an oversized saved
@@ -197,6 +204,7 @@ export function AgentDock({
     if (!panelRow) return null
     return (
       <div
+        ref={containWheel}
         className={cn(
           `fixed inset-0 z-40 bg-app-gradient pb-[env(safe-area-inset-bottom)]`,
           // EXP-523: the takeover rises from the bottom edge it was opened
@@ -243,6 +251,7 @@ export function AgentDock({
     >
       {panelRow && (
         <div
+          ref={containWheel}
           className={cn(
             fullscreen ? `min-h-0 flex-1` : `relative max-h-[85vh]`,
             // EXP-523: the height IS the animation. It must be off while the
