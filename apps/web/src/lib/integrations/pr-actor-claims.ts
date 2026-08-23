@@ -117,17 +117,19 @@ export function releasePrMergeClaim(
 // Agent issue activity (EXP-617)
 //
 // The claims above are PER-PR-EVENT and only exist when the PR flowed through
-// our own server. They cannot cover the reported case: an agent working a
-// session on issue A files issue B mid-session, implements it, and its PR is
-// linked to B — no coding_sessions row names B, so the actor ladder falls all
-// the way through and the ANONYMOUS fan-out reaches the very human whose agent
-// did the work (they are B's auto-subscribed creator).
+// our own server. This second, coarser record answers a different question:
+// "did a human's agent credential WRITE to this issue recently?" It is
+// deliberately EXCLUSION-ONLY — it never supplies a title, because "your agent
+// touched this issue" is not evidence of who opened the PR, only evidence that
+// notifying that person about it would be telling them what they already know.
 //
-// This second, coarser record answers a different question: "did a human's
-// agent credential WRITE to this issue recently?" It is deliberately
-// EXCLUSION-ONLY — it never supplies a title, because "your agent touched this
-// issue" is not evidence of who opened the PR, only evidence that notifying
-// that person about it would be telling them what they already know.
+// It is the SECOND line of defence, not the primary one. EXP-617's actual
+// incident (PR #507 / EXP-616) was a PR opened by the reporter's own GitHub
+// account on github.com — no claim, no session, no server call of any kind —
+// and only github-identity.ts can resolve that. What this covers is the
+// remainder: a user whose GitHub account has never been connected here, a
+// claim key that did not match the head branch GitHub echoed back, and a
+// restart between the claim and the webhook.
 //
 // Three properties that differ from the PR claims on purpose:
 //   - keyed on the ISSUE, not on a repo/branch/PR number, so it survives every
@@ -137,10 +139,15 @@ export function releasePrMergeClaim(
 //     the tool's own fan-out, and any later merge.
 // Same single-process caveat as above: a miss degrades to today's behavior.
 
-// Short on purpose. This window IS the mitigation for the one wrong-suppression
-// risk the mechanism carries (a teammate whose agent touched the issue misses a
-// PR notification someone else caused) — do not stretch it to match CLAIM_TTL_MS.
-const AGENT_ACTIVITY_TTL_MS = 30 * 60 * 1000
+// Sized against the real incident, which is the only measurement we have: the
+// agent filed EXP-616 at 14:43 and its PR was opened at 15:25 — 42 minutes, so
+// the 30 minutes this started at would have expired with nothing to show for
+// it. Four hours covers a long session without letting a record survive into
+// the next working block. It is still the mitigation for this mechanism's one
+// wrong-suppression risk (a teammate whose agent touched the issue misses a PR
+// notification someone else caused), so it stays bounded rather than growing
+// to match a session's lifetime.
+const AGENT_ACTIVITY_TTL_MS = 4 * 60 * 60 * 1000
 
 const agentIssueActivity = new Map<string, Map<string, number>>()
 

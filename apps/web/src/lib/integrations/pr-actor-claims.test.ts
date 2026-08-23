@@ -117,23 +117,25 @@ describe(`agent issue activity`, () => {
     expect(peekAgentIssueActors(`issue-3`)).toEqual([])
   })
 
-  it(`expires after 30 minutes`, () => {
+  // The real EXP-617 incident had 42 minutes between the agent filing the
+  // issue and the PR being opened, so anything under an hour is useless here.
+  it(`still covers the issue an hour later, and expires by four`, () => {
     vi.useFakeTimers()
     noteAgentIssueActivity(`issue-1`, `u1`)
-    vi.advanceTimersByTime(29 * 60 * 1000)
+    vi.advanceTimersByTime(60 * 60 * 1000)
     expect(peekAgentIssueActors(`issue-1`)).toEqual([`u1`])
-    vi.advanceTimersByTime(2 * 60 * 1000)
-    // The short window is the whole mitigation for suppressing a teammate who
-    // merely touched the issue — it must not silently outlive itself.
+    vi.advanceTimersByTime(3 * 60 * 60 * 1000 + 60 * 1000)
+    // Still bounded: the window is the mitigation for suppressing a teammate
+    // who merely touched the issue, so it must not outlive itself.
     expect(peekAgentIssueActors(`issue-1`)).toEqual([])
   })
 
   it(`re-noting refreshes the actor's expiry`, () => {
     vi.useFakeTimers()
     noteAgentIssueActivity(`issue-1`, `u1`)
-    vi.advanceTimersByTime(29 * 60 * 1000)
+    vi.advanceTimersByTime(3 * 60 * 60 * 1000)
     noteAgentIssueActivity(`issue-1`, `u1`)
-    vi.advanceTimersByTime(29 * 60 * 1000)
+    vi.advanceTimersByTime(3 * 60 * 60 * 1000)
     expect(peekAgentIssueActors(`issue-1`)).toEqual([`u1`])
   })
 

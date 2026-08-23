@@ -428,13 +428,47 @@ describe(`fireAndForgetPrNotify actor attribution (EXP-463)`, () => {
     )
   })
 
-  // EXP-617: the reported bug. An agent working a session on issue A files
-  // issue B mid-session and implements it too — no coding_sessions row names
-  // B, so nothing can be attributed and the anonymous webhook leg used to push
-  // "A pull request was opened for EXP-B" at the person whose agent wrote it
-  // (they are B's auto-subscribed creator). The agent-activity record from
-  // exponential_issues_create keeps them out WITHOUT pretending to know who
-  // opened the PR.
+  // EXP-617's actual incident, reproduced from the real data: PR #507 on
+  // EXP-616 was opened by the reporter's OWN GitHub account on github.com
+  // (`pull_request.user` = a human, not the App bot), three seconds before the
+  // notification landed. No claim, no coding session, nothing server-side to
+  // attribute — the mapped GitHub identity is the only thing that can name
+  // them, and it must keep them out of their own fan-out even though they are
+  // the issue's creator AND assignee.
+  it(`keeps the github.com PR author out of their own fan-out (EXP-616)`, async () => {
+    h.selectQueue.push(
+      // loadIssueMeta: creator and assignee are the same human who opened it
+      [{ ...issueMeta, assigneeId: `u-author`, branch: `exp/EXP-9` }],
+      // deliverableRecipients: the membership gate on the GitHub actor
+      [{ id: `u-author` }],
+      // subscriberRecipients: auto-subscribed as creator
+      [{ userId: `u-author` }, { userId: `u2` }],
+      // actorName
+      [{ name: `Danny Strähhuber`, email: `danny@acme.test` }],
+      // deliverableRecipients (deliver)
+      [{ id: `u2` }]
+    )
+    h.executeRows.push({ id: `n21`, user_id: `u2` })
+
+    fireAndForgetPrNotify({
+      issueId: issueMeta.id,
+      type: `pr_opened`,
+      actorUserId: null,
+      githubActorUserId: `u-author`,
+    })
+
+    await vi.waitFor(() => expect(h.sendToUsers).toHaveBeenCalledTimes(1))
+    expect(h.sendToUsers).toHaveBeenCalledWith(
+      [{ userId: `u2`, data: { notificationId: `n21` } }],
+      expect.objectContaining({
+        title: `Danny Strähhuber opened a pull request for EXP-9`,
+      })
+    )
+  })
+
+  // The second line of defence, for a PR author whose GitHub account has never
+  // been connected here: an agent that filed the issue under someone's MCP
+  // credential means notifying that person is telling them what they know.
   it(`keeps an agent-activity actor out of an anonymous fan-out`, async () => {
     noteAgentIssueActivity(issueMeta.id, `u-agent`)
     h.selectQueue.push(

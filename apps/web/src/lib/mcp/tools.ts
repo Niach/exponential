@@ -597,10 +597,9 @@ export function registerExponentialTools(
           ...rest,
           description: descriptionText ? descriptionText : undefined,
         })
-        // EXP-617: the load-bearing one. An agent that files an issue
-        // mid-session and then implements it produces a PR no coding_sessions
-        // row can be matched to, so without this record the fan-out goes out
-        // anonymous and pushes the issue's own author about their own work.
+        // EXP-617: an issue filed mid-session has no coding_sessions row of
+        // its own, so nothing else ties its later PR back to the human whose
+        // agent wrote it. Exclusion-only (see noteAgentIssueActivity).
         noteAgentIssueActivity(result.issue.id, user.id)
         return ok(result.issue)
       } catch (e) {

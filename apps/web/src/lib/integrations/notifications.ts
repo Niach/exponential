@@ -570,7 +570,11 @@ async function loadPrSessionCandidates(
  *      is a fact about THIS pull request, which retires the old wart where a
  *      teammate merging on github.com was credited to the session owner. Only
  *      names a CURRENT member of the issue's team; an outside contributor is
- *      still excluded, just not printed.
+ *      still excluded, just not printed. This rung is the one that actually
+ *      fixes EXP-617: the reported notification came from a PR opened by the
+ *      reporter's own GitHub account on github.com, where every other rung
+ *      here is structurally blind — there is no claim, no session, and no
+ *      server call to attribute.
  *   3. The coding-session owner — a correlation heuristic, unchanged.
  *   4. Nobody: the anonymous title.
  *
