@@ -27,6 +27,7 @@ import com.exponential.app.domain.SessionDevicePresentation
 import com.exponential.app.domain.StartedRunKey
 import com.exponential.app.domain.StartedRunMatch
 import com.exponential.app.domain.resolveSessionDevice
+import com.exponential.app.domain.stableDeviceOrder
 import com.exponential.app.domain.toSteerDevice
 import com.exponential.app.ui.issue.StartIssueOption
 import com.exponential.app.ui.issue.SteerStartState
@@ -520,10 +521,11 @@ fun resolveBatchPrIssue(
 
 /**
  * The synced devices rows → the tab's SteerDevice list (EXP-481): the
- * caller's own machines first (last-seen desc — the server list's order),
- * then the SELECTED team's shared servers with their owner resolved from the
- * synced users (a sharing owner is always a member of the sharing team, hence
- * inside the users shape). Signed out (null [currentUserId]) lists nothing.
+ * caller's own machines first, then the SELECTED team's shared servers with
+ * their owner resolved from the synced users (a sharing owner is always a
+ * member of the sharing team, hence inside the users shape). Each group in
+ * [stableDeviceOrder] (EXP-623) — online-by-label first, so heartbeats can't
+ * reorder the list. Signed out (null [currentUserId]) lists nothing.
  */
 fun composeDeviceList(
     rows: List<DeviceEntity>,
@@ -536,7 +538,7 @@ fun composeDeviceList(
     val usersById = users.associateBy { it.id }
     val own = rows
         .filter { it.userId == currentUserId }
-        .sortedByDescending { it.lastSeenAt ?: "" }
+        .sortedWith(stableDeviceOrder(nowMs))
         .map { it.toSteerDevice(nowMs, currentUserId) }
     val shared = rows
         .filter {
@@ -545,7 +547,7 @@ fun composeDeviceList(
                 it.sharedTeamId == teamId &&
                 it.kind == SteerDevice.KIND_SERVER
         }
-        .sortedByDescending { it.lastSeenAt ?: "" }
+        .sortedWith(stableDeviceOrder(nowMs))
         .map { it.toSteerDevice(nowMs, currentUserId, usersById[it.userId]?.name) }
     return own + shared
 }

@@ -24,6 +24,7 @@ import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.StartedRunKey
 import com.exponential.app.domain.StartedRunMatch
+import com.exponential.app.domain.stableDeviceOrder
 import com.exponential.app.domain.toSteerDevice
 import com.exponential.app.ui.issue.StartIssueOption
 import com.exponential.app.ui.steer.ActionRunState
@@ -115,7 +116,7 @@ class ActionsViewModel @Inject constructor(
         DeviceLiveness.ticker(),
         auth.userId,
     ) { rows, nowMs, userId ->
-        rows.map { it.toSteerDevice(nowMs, userId) }
+        rows.sortedWith(stableDeviceOrder(nowMs)).map { it.toSteerDevice(nowMs, userId) }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The machines an automation can be bound to: every synced device that

@@ -134,9 +134,11 @@ public enum DeviceQueries {
             .filter(\.isOnline)
     }
 
-    /// Pure composition (unit-testable): own rows sorted most-recently-seen
-    /// first, then teammates' rows shared with [teamId] — the `devices.list`
-    /// ordering the surfaces already render.
+    /// Pure composition (unit-testable): own rows first, then teammates' rows
+    /// shared with [teamId] — the `devices.list` grouping the surfaces
+    /// already render. Within each group online machines lead, sorted by
+    /// label so heartbeats can't reorder them (EXP-623); offline rows don't
+    /// beat, so last-seen desc is stable there.
     public static func compose(
         rows: [DeviceEntity],
         users: [UserEntity],
@@ -155,15 +157,28 @@ public enum DeviceQueries {
                 ownerName: nameById[entity.userId]
             )
         }
+        func stableOrder(_ a: DeviceEntity, _ b: DeviceEntity) -> Bool {
+            let aOnline = DeviceLiveness.isOnline(lastSeenAt: a.lastSeenAt, now: now)
+            let bOnline = DeviceLiveness.isOnline(lastSeenAt: b.lastSeenAt, now: now)
+            if aOnline != bOnline { return aOnline }
+            if !aOnline, a.lastSeenAt != b.lastSeenAt {
+                // ISO stamps order lexicographically — desc = most recent first.
+                return (a.lastSeenAt ?? "") > (b.lastSeenAt ?? "")
+            }
+            let aLabel = a.label.lowercased()
+            let bLabel = b.label.lowercased()
+            if aLabel != bLabel { return aLabel < bLabel }
+            return a.deviceId < b.deviceId
+        }
         let own = rows
             .filter { userId != nil && $0.userId == userId }
-            .sorted { ($0.lastSeenAt ?? "") > ($1.lastSeenAt ?? "") }
+            .sorted(by: stableOrder)
         let shared = rows
             .filter { row in
                 guard row.userId != userId, let teamId else { return false }
                 return row.sharedTeamId == teamId
             }
-            .sorted { ($0.lastSeenAt ?? "") > ($1.lastSeenAt ?? "") }
+            .sorted(by: stableOrder)
         return own.map(mapped) + shared.map(mapped)
     }
 

@@ -127,6 +127,30 @@ final class WorktreeResumeTests: XCTestCase {
         XCTAssertEqual(composed[0].rowId, "r2")
     }
 
+    // EXP-623: online rows sort by label (heartbeats can't reorder them);
+    // offline rows sit below, most recently seen first.
+    func testComposeOrdersOnlineByLabelThenOfflineByLastSeen() {
+        let now = WireTimestamps.parse("2026-08-11T10:00:00.000Z")!
+        let rows = [
+            // Freshest beat — would lead under last-seen ordering.
+            entity(id: "r1", userId: "me", deviceId: "zeta",
+                   lastSeenAt: "2026-08-11T09:59:59Z"),
+            entity(id: "r2", userId: "me", deviceId: "Alpha",
+                   lastSeenAt: "2026-08-11T09:58:40Z"),
+            entity(id: "r3", userId: "me", deviceId: "aaa-stale",
+                   lastSeenAt: "2026-08-11T08:00:00Z"),
+            entity(id: "r4", userId: "me", deviceId: "zzz-recent",
+                   lastSeenAt: "2026-08-11T09:50:00Z"),
+        ]
+        let composed = DeviceQueries.compose(
+            rows: rows, users: [], teamId: nil, userId: "me", now: now
+        )
+        XCTAssertEqual(
+            composed.map(\.deviceId),
+            ["Alpha", "zeta", "zzz-recent", "aaa-stale"]
+        )
+    }
+
     func testComposeWithoutTeamScopesToOwnRows() {
         let rows = [
             entity(id: "r1", userId: "me", deviceId: "mine", lastSeenAt: nil),

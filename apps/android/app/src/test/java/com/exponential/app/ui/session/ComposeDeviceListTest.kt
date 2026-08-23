@@ -8,13 +8,16 @@ import org.junit.Test
 
 /**
  * EXP-481: the synced devices rows → the Agents tab's list. Own machines
- * first (last-seen desc), then ONLY the selected team's shared servers with
- * their owner resolved — a machine shared with a DIFFERENT common team must
- * not appear under this team.
+ * first, then ONLY the selected team's shared servers with their owner
+ * resolved — a machine shared with a DIFFERENT common team must not appear
+ * under this team. Each group in the EXP-623 stable order: online machines
+ * by label (heartbeats can't reorder them), offline below by last-seen desc.
  */
 class ComposeDeviceListTest {
 
     private val nowMs = 1_754_900_000_000L
+
+    private fun iso(offsetMs: Long) = java.time.Instant.ofEpochMilli(nowMs + offsetMs).toString()
 
     private fun device(
         id: String,
@@ -43,7 +46,23 @@ class ComposeDeviceListTest {
     )
 
     @Test
-    fun `own rows first (last-seen desc), then the selected team's shared servers`() {
+    fun `EXP-623 online rows sort by label, offline rows below by last-seen desc`() {
+        val rows = listOf(
+            // Freshest beat — would lead under last-seen ordering.
+            device("zeta", "me", iso(0)),
+            device("alpha", "me", iso(-80_000)),
+            device("aaa-stale", "me", iso(-2 * 60 * 60_000L)),
+            device("zzz-recent", "me", iso(-10 * 60_000L)),
+        )
+        val list = composeDeviceList(rows, users, null, "me", nowMs)
+        assertEquals(
+            listOf("steer-alpha", "steer-zeta", "steer-zzz-recent", "steer-aaa-stale"),
+            list.map { it.deviceId },
+        )
+    }
+
+    @Test
+    fun `own rows first, then the selected team's shared servers`() {
         val rows = listOf(
             device("old-mine", "me", "2026-08-01T10:00:00Z"),
             device("new-mine", "me", "2026-08-11T10:00:00Z"),

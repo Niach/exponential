@@ -201,9 +201,11 @@ export function steerDeviceFromRow(
   }
 }
 
-/** EXP-481: compose the device list from synced rows — own rows first
- * (last-seen desc), then servers shared with `teamId` (mirrors the legacy
- * `devices.list` ordering, so the UI grouping is unchanged). */
+/** EXP-481: compose the device list from synced rows — own rows first, then
+ * servers shared with `teamId` (the legacy `devices.list` grouping). Within
+ * each group online machines lead, sorted by label so heartbeats can't
+ * reorder them (EXP-623); offline rows don't beat, so last-seen desc is
+ * stable there. */
 export function composeDeviceList(
   rows: Device[],
   usersById: Map<string, Pick<User, `id` | `name`>>,
@@ -211,11 +213,24 @@ export function composeDeviceList(
   currentUserId: string,
   teamId?: string
 ): SteerDevice[] {
-  const byLastSeen = (a: Device, b: Device) =>
-    new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime()
+  const stableOrder = (a: Device, b: Device) => {
+    const aOnline = deviceRowIsOnline(a.lastSeenAt, now)
+    const bOnline = deviceRowIsOnline(b.lastSeenAt, now)
+    if (aOnline !== bOnline) return aOnline ? -1 : 1
+    if (!aOnline) {
+      const byLastSeen =
+        new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime()
+      if (byLastSeen !== 0) return byLastSeen
+    }
+    const byLabel = a.label
+      .toLocaleLowerCase()
+      .localeCompare(b.label.toLocaleLowerCase())
+    if (byLabel !== 0) return byLabel
+    return a.deviceId.localeCompare(b.deviceId)
+  }
   const own = rows
     .filter((row) => row.userId === currentUserId)
-    .sort(byLastSeen)
+    .sort(stableOrder)
   const shared = teamId
     ? rows
         .filter(
@@ -224,7 +239,7 @@ export function composeDeviceList(
             row.sharedTeamId === teamId &&
             row.kind === `server`
         )
-        .sort(byLastSeen)
+        .sort(stableOrder)
     : []
   return [...own, ...shared].map((row) =>
     steerDeviceFromRow(row, {

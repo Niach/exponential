@@ -289,10 +289,12 @@ impl MachinesSection {
     }
 
     /// EXP-481: the rows from the SYNCED devices shape, mapped into the
-    /// legacy `DeviceEntry` shape `render_row` consumes — own rows first
-    /// (last-seen desc), teammates' shared rows appended with their owner.
-    /// `None` while the shape is Waiting (cold start / old server) — the
-    /// caller falls back to the tRPC list rows.
+    /// legacy `DeviceEntry` shape `render_row` consumes — own rows first,
+    /// teammates' shared rows appended with their owner, each group in the
+    /// EXP-623 stable order (online-by-label first, so heartbeats can't
+    /// reorder the list; offline rows don't beat, so last-seen desc is
+    /// stable there). `None` while the shape is Waiting (cold start / old
+    /// server) — the caller falls back to the tRPC list rows.
     fn synced_entries(&self, cx: &App) -> Option<Vec<api::devices::DeviceEntry>> {
         let collections = sync::Store::global(cx).collections();
         let devices = collections.devices.read(cx);
@@ -344,9 +346,28 @@ impl MachinesSection {
                 shared.push(entry);
             }
         }
-        // ISO timestamps order lexicographically — desc = most recent first.
-        mine.sort_by(|a, b| b.last_seen_at.cmp(&a.last_seen_at));
-        shared.sort_by(|a, b| b.last_seen_at.cmp(&a.last_seen_at));
+        // Online first, then by label so heartbeats can't reorder the online
+        // group; offline rows don't beat, so last-seen desc (ISO stamps order
+        // lexicographically) is stable there.
+        let stable_order = |a: &api::devices::DeviceEntry, b: &api::devices::DeviceEntry| {
+            b.online
+                .cmp(&a.online)
+                .then_with(|| {
+                    if a.online {
+                        std::cmp::Ordering::Equal
+                    } else {
+                        b.last_seen_at.cmp(&a.last_seen_at)
+                    }
+                })
+                .then_with(|| {
+                    a.device_label
+                        .to_lowercase()
+                        .cmp(&b.device_label.to_lowercase())
+                })
+                .then_with(|| a.device_id.cmp(&b.device_id))
+        };
+        mine.sort_by(stable_order);
+        shared.sort_by(stable_order);
         mine.extend(shared);
         Some(mine)
     }
