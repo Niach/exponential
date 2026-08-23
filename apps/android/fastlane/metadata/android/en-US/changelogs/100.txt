@@ -1,0 +1,1 @@
+Pick a default machine for coding sessions, live sessions stay connected while you move around the app, and no more notifications about your own pull requests.

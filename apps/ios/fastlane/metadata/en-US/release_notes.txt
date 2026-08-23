@@ -1,5 +1,8 @@
 Everything since 0.14.0:
 
+- Pick a default machine and every Start coding dialog preselects it
+- Live sessions keep streaming while you move around the app, and steering drafts survive reconnects
+- No more notifications about your own pull requests
 - Answer agent permission prompts from your phone instead of walking back to the machine
 - Attach screenshots to a live coding session, and start coding on several issues at once
 - Sessions show as paused while their machine is offline, and resume from anywhere
