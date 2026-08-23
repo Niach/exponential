@@ -20,9 +20,9 @@ import {
   type SteerDevice,
 } from "@/lib/steer-devices"
 import { CopySnippetButton } from "@/components/getting-started/mcp-setup-tabs"
-import { SectionLabel } from "@/components/agent-session-row"
 import { DeviceSettingsDialog } from "@/components/device-settings-dialog"
 import { Button } from "@/components/ui/button"
+import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
 import {
   Dialog,
   DialogContent,
@@ -164,12 +164,11 @@ export function MyMachines({
   }
 
   return (
-    <div className="mb-4">
-      {/* EXP-449: same full-width band + trailing-button treatment as the
-          Actions section below. */}
-      <SectionLabel
+    <div className="mb-6">
+      {/* EXP-616: the iOS Agents screen's plain-text section header — no
+          count, the trailing control rides along. */}
+      <GlassSectionHeader
         label="My machines"
-        count={mine?.length ?? 0}
         trailing={
           <Button
             variant="outline"
@@ -184,200 +183,68 @@ export function MyMachines({
       />
 
       {mine === null ? (
-        <div className="px-3 py-3 text-sm text-muted-foreground">Loading…</div>
+        <div className="px-1 py-3 text-sm text-muted-foreground">Loading…</div>
       ) : mine.length === 0 ? (
-        <div className="flex items-center gap-2 px-3 py-3 text-xs text-muted-foreground">
+        <div className="flex items-center gap-2 px-1 py-3 text-xs text-muted-foreground">
           <OfflineIcon className="size-3.5 shrink-0" />
           No machines yet. Open the Exponential desktop app, or add a server.
         </div>
       ) : (
-        mine.map((device) => {
-          const online = deviceIsOnline(device)
-          // EXP-409: installed-but-signed-out agents grey the machine out
-          // (online but nothing runnable) or annotate it (a runnable
-          // sibling still covers coding).
-          const unauthed = deviceUnauthedAgentIds(device)
-          const runnable = deviceHasRunnableAgent(device)
-          const signInNeeded = online && !runnable && unauthed.length > 0
-          const KindIcon = device.kind === `server` ? ServerIcon : DesktopIcon
-          const latest =
-            device.kind === `server`
-              ? latestVersions?.cli
-              : latestVersions?.desktop
-          const outdated = deviceUpdateAvailable(device.version, latest)
-          return (
-            <div
-              key={device.deviceId}
-              className={`flex items-center gap-3 border-b border-border/30 px-3 py-2 ${
-                signInNeeded ? `opacity-60` : ``
-              }`}
-            >
-              <KindIcon className="size-4 shrink-0 text-muted-foreground" />
-              {/* FEED-15: the native two-line row — name + version (+ Shared)
-                  on top, live/last-seen state beneath, controls trailing —
-                  so phones never wrap the launcher onto its own line. */}
-              <div className="min-w-0 flex-1">
-                <div className="flex min-w-0 items-baseline gap-1.5">
-                  <span className="min-w-0 truncate text-sm font-medium">
-                    {device.deviceLabel || device.deviceId}
-                  </span>
-                  {device.version && (
-                    <span
-                      className={`shrink-0 text-[10px] ${
-                        outdated
-                          ? `text-amber-500`
-                          : `text-muted-foreground/60`
-                      }`}
-                      title={
-                        outdated ? `Update available: ${latest}` : undefined
-                      }
-                    >
-                      v{device.version}
-                    </span>
-                  )}
-                  {device.sharedTeamId && (
-                    <span
-                      className="shrink-0 rounded-sm border border-border/60 px-1 text-[10px] text-muted-foreground"
-                      title={
-                        device.sharedTeamId === teamId
-                          ? `Shared with this team — teammates can start coding sessions on this machine.`
-                          : `Shared with another team.`
-                      }
-                    >
-                      Shared
-                    </span>
-                  )}
-                </div>
-                <DeviceStatusLine
-                  online={online}
-                  signInNeeded={signInNeeded}
-                  unauthed={unauthed}
-                  lastSeenAt={device.lastSeenAt}
-                />
-              </div>
-              <div className="flex shrink-0 items-center gap-1">
-                {/* EXP-420: only when a newer version really exists (or an
-                    update is already in flight — keep its progress visible). */}
-                {(showDeviceUpdateButton(device, latest) ||
-                  updatingId === device.deviceId) && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className={outdated ? `text-amber-500` : `text-muted-foreground`}
-                    disabled={device.updateRequested || updatingId === device.deviceId}
-                    title={
-                      device.updateRequested && device.updateBlocked
-                        ? `A coding session is running — this machine updates itself once all sessions are closed.`
-                        : `Ask the daemon to self-update (it restarts when idle)`
-                    }
-                    onClick={() => void requestUpdate(device)}
-                  >
-                    {device.updateRequested && device.updateBlocked ? (
-                      // EXP-411: parked behind live sessions — say so instead
-                      // of spinning until the last one closes.
-                      <>
-                        <UpdateIcon />
-                        <span className="max-sm:sr-only">Queued</span>
-                      </>
-                    ) : device.updateRequested ||
-                      updatingId === device.deviceId ? (
-                      <>
-                        <LoaderCircle className="animate-spin" />
-                        <span className="max-sm:sr-only">Updating…</span>
-                      </>
-                    ) : (
-                      <>
-                        <UpdateIcon />
-                        <span className="max-sm:sr-only">Update</span>
-                      </>
-                    )}
-                  </Button>
-                )}
-                <span
-                  title={
-                    signInNeeded
-                      ? `No agent is signed in on this machine — sign in on the machine first (e.g. run \`${unauthed[0]}\` there).`
-                      : undefined
-                  }
-                >
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    disabled={runBusy || !online || signInNeeded}
-                    onClick={() => onStartCoding(device.deviceId)}
-                    aria-label="Start coding"
-                    // The wrapping span explains a sign-in block; its tooltip
-                    // must not be shadowed by this one.
-                    title={signInNeeded ? undefined : `Start coding`}
-                  >
-                    <StartCodingIcon />
-                  </Button>
-                </span>
-                {device.registered && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-8 text-muted-foreground"
-                        aria-label={`Machine menu for ${device.deviceLabel || device.deviceId}`}
-                      >
-                        <MoreIcon className="size-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      {/* EXP-481: rename, sharing, agent defaults and
-                          worktrees all live in the settings dialog. */}
-                      <DropdownMenuItem
-                        onSelect={() => setSettingsTargetId(device.deviceId)}
-                      >
-                        <EditIcon />
-                        Edit
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        variant="destructive"
-                        onSelect={() => setRemoveTarget(device)}
-                      >
-                        <RemoveIcon />
-                        Remove
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
-              </div>
-            </div>
-          )
-        })
-      )}
-      {/* EXP-432: teammates' server devices shared with this team —
-          read-only rows (owner name shown, no rename/remove/update), but
-          fully startable. */}
-      {teamShared.length > 0 && (
-        <div className="mt-4">
-          <SectionLabel label="Team machines" count={teamShared.length} />
-          {teamShared.map((device) => {
+        <div className="flex flex-col gap-2">
+          {mine.map((device) => {
             const online = deviceIsOnline(device)
+            // EXP-409: installed-but-signed-out agents grey the machine out
+            // (online but nothing runnable) or annotate it (a runnable
+            // sibling still covers coding).
             const unauthed = deviceUnauthedAgentIds(device)
             const runnable = deviceHasRunnableAgent(device)
             const signInNeeded = online && !runnable && unauthed.length > 0
+            const KindIcon = device.kind === `server` ? ServerIcon : DesktopIcon
+            const latest =
+              device.kind === `server`
+                ? latestVersions?.cli
+                : latestVersions?.desktop
+            const outdated = deviceUpdateAvailable(device.version, latest)
             return (
-              <div
+              <GlassRow
                 key={device.deviceId}
-                className={`flex items-center gap-3 border-b border-border/30 px-3 py-2 ${
-                  signInNeeded ? `opacity-60` : ``
-                }`}
+                className={signInNeeded ? `opacity-60` : undefined}
               >
-                <ServerIcon className="size-4 shrink-0 text-muted-foreground" />
+                <KindIcon className="size-4 shrink-0 text-foreground/70" />
+                {/* FEED-15: the native two-line row — name + version (+ Shared)
+                    on top, live/last-seen state beneath, controls trailing —
+                    so phones never wrap the launcher onto its own line. */}
                 <div className="min-w-0 flex-1">
-                  {/* EXP-525: no people names inline — a teammate's shared
-                      row keeps the attribution in its tooltip. */}
-                  <div
-                    className="min-w-0 truncate text-sm font-medium"
-                    title={
-                      device.owner ? `Shared by ${device.owner.name}` : undefined
-                    }
-                  >
-                    {device.deviceLabel || device.deviceId}
+                  <div className="flex min-w-0 items-baseline gap-1.5">
+                    <span className="min-w-0 truncate text-sm font-medium">
+                      {device.deviceLabel || device.deviceId}
+                    </span>
+                    {device.version && (
+                      <span
+                        className={`shrink-0 text-[10px] ${
+                          outdated
+                            ? `text-amber-500`
+                            : `text-muted-foreground/60`
+                        }`}
+                        title={
+                          outdated ? `Update available: ${latest}` : undefined
+                        }
+                      >
+                        v{device.version}
+                      </span>
+                    )}
+                    {device.sharedTeamId && (
+                      <span
+                        className="shrink-0 rounded-sm border border-border/60 px-1 text-[10px] text-muted-foreground"
+                        title={
+                          device.sharedTeamId === teamId
+                            ? `Shared with this team — teammates can start coding sessions on this machine.`
+                            : `Shared with another team.`
+                        }
+                      >
+                        Shared
+                      </span>
+                    )}
                   </div>
                   <DeviceStatusLine
                     online={online}
@@ -387,25 +254,157 @@ export function MyMachines({
                   />
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    disabled={runBusy || !online || signInNeeded}
-                    onClick={() => onStartCoding(device.deviceId)}
-                    aria-label="Start coding"
-                    title="Start coding"
+                  {/* EXP-420: only when a newer version really exists (or an
+                      update is already in flight — keep its progress visible). */}
+                  {(showDeviceUpdateButton(device, latest) ||
+                    updatingId === device.deviceId) && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={outdated ? `text-amber-500` : `text-muted-foreground`}
+                      disabled={device.updateRequested || updatingId === device.deviceId}
+                      title={
+                        device.updateRequested && device.updateBlocked
+                          ? `A coding session is running — this machine updates itself once all sessions are closed.`
+                          : `Ask the daemon to self-update (it restarts when idle)`
+                      }
+                      onClick={() => void requestUpdate(device)}
+                    >
+                      {device.updateRequested && device.updateBlocked ? (
+                        // EXP-411: parked behind live sessions — say so instead
+                        // of spinning until the last one closes.
+                        <>
+                          <UpdateIcon />
+                          <span className="max-sm:sr-only">Queued</span>
+                        </>
+                      ) : device.updateRequested ||
+                        updatingId === device.deviceId ? (
+                        <>
+                          <LoaderCircle className="animate-spin" />
+                          <span className="max-sm:sr-only">Updating…</span>
+                        </>
+                      ) : (
+                        <>
+                          <UpdateIcon />
+                          <span className="max-sm:sr-only">Update</span>
+                        </>
+                      )}
+                    </Button>
+                  )}
+                  <span
+                    title={
+                      signInNeeded
+                        ? `No agent is signed in on this machine — sign in on the machine first (e.g. run \`${unauthed[0]}\` there).`
+                        : undefined
+                    }
                   >
-                    <StartCodingIcon />
-                  </Button>
+                    <Button
+                      variant="glass"
+                      size="icon"
+                      disabled={runBusy || !online || signInNeeded}
+                      onClick={() => onStartCoding(device.deviceId)}
+                      aria-label="Start coding"
+                      // The wrapping span explains a sign-in block; its tooltip
+                      // must not be shadowed by this one.
+                      title={signInNeeded ? undefined : `Start coding`}
+                    >
+                      <StartCodingIcon />
+                    </Button>
+                  </span>
+                  {device.registered && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 text-foreground/50"
+                          aria-label={`Machine menu for ${device.deviceLabel || device.deviceId}`}
+                        >
+                          <MoreIcon className="size-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        {/* EXP-481: rename, sharing, agent defaults and
+                            worktrees all live in the settings dialog. */}
+                        <DropdownMenuItem
+                          onSelect={() => setSettingsTargetId(device.deviceId)}
+                        >
+                          <EditIcon />
+                          Edit
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          variant="destructive"
+                          onSelect={() => setRemoveTarget(device)}
+                        >
+                          <RemoveIcon />
+                          Remove
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
                 </div>
-              </div>
+              </GlassRow>
             )
           })}
         </div>
       )}
+      {/* EXP-432: teammates' server devices shared with this team —
+          read-only rows (owner name shown, no rename/remove/update), but
+          fully startable. */}
+      {teamShared.length > 0 && (
+        <div className="mt-6">
+          <GlassSectionHeader label="Team machines" />
+          <div className="flex flex-col gap-2">
+            {teamShared.map((device) => {
+              const online = deviceIsOnline(device)
+              const unauthed = deviceUnauthedAgentIds(device)
+              const runnable = deviceHasRunnableAgent(device)
+              const signInNeeded = online && !runnable && unauthed.length > 0
+              return (
+                <GlassRow
+                  key={device.deviceId}
+                  className={signInNeeded ? `opacity-60` : undefined}
+                >
+                  <ServerIcon className="size-4 shrink-0 text-foreground/70" />
+                  <div className="min-w-0 flex-1">
+                    {/* EXP-525: no people names inline — a teammate's shared
+                        row keeps the attribution in its tooltip. */}
+                    <div
+                      className="min-w-0 truncate text-sm font-medium"
+                      title={
+                        device.owner ? `Shared by ${device.owner.name}` : undefined
+                      }
+                    >
+                      {device.deviceLabel || device.deviceId}
+                    </div>
+                    <DeviceStatusLine
+                      online={online}
+                      signInNeeded={signInNeeded}
+                      unauthed={unauthed}
+                      lastSeenAt={device.lastSeenAt}
+                    />
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Button
+                      variant="glass"
+                      size="icon"
+                      disabled={runBusy || !online || signInNeeded}
+                      onClick={() => onStartCoding(device.deviceId)}
+                      aria-label="Start coding"
+                      title="Start coding"
+                    >
+                      <StartCodingIcon />
+                    </Button>
+                  </div>
+                </GlassRow>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {sentTo && (
-        <div className="flex items-center gap-1.5 px-3 py-2 text-xs text-muted-foreground">
+        <div className="flex items-center gap-1.5 px-1 py-2 text-xs text-muted-foreground">
           <LoaderCircle className="size-3 animate-spin" />
           Start sent to {sentTo}. Waiting for the machine…
         </div>

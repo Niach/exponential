@@ -1,7 +1,8 @@
 import { useState } from "react"
 import { createFileRoute, redirect } from "@tanstack/react-router"
 import { MyMachines } from "@/components/my-machines"
-import { SectionLabel, SessionRow } from "@/components/agent-session-row"
+import { SessionRow } from "@/components/agent-session-row"
+import { GlassSectionHeader } from "@/components/ui/glass-rows"
 import { useSteerConfig } from "@/components/agent-session"
 import { useAgentDock } from "@/components/agent-dock/agent-dock-provider"
 import { TeamActionsPanel } from "@/components/team-actions-panel"
@@ -91,19 +92,18 @@ function AgentsPage() {
           (isLoading ? (
             <div className="text-muted-foreground p-6 text-sm">Loading…</div>
           ) : running.length > 0 ? (
-            <div className="mb-4">
-              <SectionLabel label="Running" count={running.length} />
-              {running.map((row) => (
-                <SessionRow
-                  key={row.session.id}
-                  row={row}
-                  // EXP-312: live sessions are owner-only, and every row in
-                  // this list is already the caller's own.
-                  canWatch={steerEnabled}
-                  teamSlug={teamSlug}
-                  onOpen={() => dock?.openDock(row.session.id)}
-                />
-              ))}
+            <div className="mb-6">
+              <GlassSectionHeader label="Running" />
+              <div className="flex flex-col gap-2">
+                {running.map((row) => (
+                  <SessionRow
+                    key={row.session.id}
+                    row={row}
+                    teamSlug={teamSlug}
+                    onOpen={() => dock?.openDock(row.session.id)}
+                  />
+                ))}
+              </div>
             </div>
           ) : null)}
 

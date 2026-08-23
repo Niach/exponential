@@ -15,7 +15,6 @@ import {
 import { Github, LoaderCircle, Ellipsis, Pencil, Trash2 } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
 import { trpc } from "@/lib/trpc-client"
-import { SectionLabel } from "@/components/agent-session-row"
 import { useSteerConfig } from "@/components/agent-session"
 import {
   ActionEditorDialog,
@@ -45,6 +44,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
 import {
   Tabs,
   TabsContent,
@@ -146,7 +146,7 @@ function ActionCard({
 }) {
   const CardIcon = getActionIcon(action)
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
+    <div className="flex flex-col gap-2 rounded-lg border border-glass-stroke bg-glass-row p-3">
       <div className="flex min-w-0 items-center gap-2">
         <CardIcon className="size-4 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate text-sm font-medium">
@@ -177,7 +177,7 @@ function ActionCard({
       {canRun && (
         <div className="mt-auto pt-1">
           <Button
-            variant="outline"
+            variant="glass"
             size="icon"
             disabled={runBusy}
             onClick={onRun}
@@ -216,8 +216,8 @@ function ActionRow({
 }) {
   const RowIcon = getActionIcon(action)
   return (
-    <div className="flex items-center gap-3 border-b border-border/30 px-3 py-2">
-      <RowIcon className="size-4 shrink-0 text-muted-foreground" />
+    <GlassRow>
+      <RowIcon className="size-4 shrink-0 text-foreground/70" />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5 text-sm">
           <span className="truncate font-medium">{action.name}</span>
@@ -250,7 +250,7 @@ function ActionRow({
       </div>
       {canRun && (
         <Button
-          variant="outline"
+          variant="glass"
           size="icon"
           disabled={runBusy}
           onClick={onRun}
@@ -263,7 +263,7 @@ function ActionRow({
       {isOwner && !action.builtin && (
         <ActionMenu action={action} onEdit={onEdit} onDelete={onDelete} />
       )}
-    </div>
+    </GlassRow>
   )
 }
 
@@ -283,8 +283,8 @@ function NoCustomActionsNudge({
       onClick={onClick}
       className={
         mobile
-          ? `flex w-full items-center gap-2 border-b border-border/30 px-3 py-2 text-left text-sm text-muted-foreground hover:bg-muted/50`
-          : `flex flex-col items-start gap-1 rounded-lg border border-dashed border-border p-3 text-left text-sm text-muted-foreground hover:bg-muted/50`
+          ? `flex w-full flex-col items-start gap-1 px-1 py-3 text-left text-sm text-muted-foreground hover:text-foreground`
+          : `flex flex-col items-start gap-1 rounded-lg border border-dashed border-glass-stroke-strong p-3 text-left text-sm text-muted-foreground hover:bg-muted/50`
       }
     >
       <span className="flex items-center gap-2">
@@ -316,7 +316,7 @@ function SuggestionCard({
   const CardIcon =
     BOARD_ICON_COMPONENTS[suggestion.icon as BoardIcon] ?? ActionSuggestionIcon
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
+    <div className="flex flex-col gap-2 rounded-lg border border-glass-stroke bg-glass-row p-3">
       <div className="flex min-w-0 items-center gap-2">
         <CardIcon className="size-4 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate text-sm font-medium">
@@ -501,7 +501,7 @@ export function TeamActionsPanel({ team }: { team: Team }) {
         </TabsList>
 
         <TabsContent value="actions">
-          <SectionLabel
+          <GlassSectionHeader
             label="Actions"
             count={sortedActions?.length ?? 0}
             trailing={
@@ -520,11 +520,11 @@ export function TeamActionsPanel({ team }: { team: Team }) {
             }
           />
           {sortedActions === null ? (
-            <div className="px-3 py-3 text-sm text-muted-foreground">
+            <div className="px-1 py-3 text-sm text-muted-foreground">
               Loading…
             </div>
           ) : isMobile ? (
-            <>
+            <div className="flex flex-col gap-2">
               {sortedActions.map((action) => (
                 <ActionRow key={action.id} {...actionItemProps(action)} />
               ))}
@@ -536,7 +536,7 @@ export function TeamActionsPanel({ team }: { team: Team }) {
                     onClick={() => setCreateActionOpen(true)}
                   />
                 )}
-            </>
+            </div>
           ) : (
             <div className="grid gap-3 pt-1 sm:grid-cols-2 xl:grid-cols-3">
               {sortedActions.map((action) => (
