@@ -410,6 +410,10 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
                 // runnable agent could only fail every firing. Hand-synced
                 // with the CLI daemon's `ACTION_CAPS`.
                 "automations".to_string(),
+                // EXP-615: this build runs the hidden `builtin:chat` action
+                // (a pre-EXP-615 desktop would treat its id as a real action
+                // and fail the fetch), so remote Chat starts may target it.
+                "chat".to_string(),
             ]);
         }
         // EXP-403: record this machine in the per-user devices registry so the

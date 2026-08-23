@@ -6,7 +6,7 @@
 // defaults and worktree management all live in the Device settings dialog.
 // Teammates' shared servers render read-only under "Team machines".
 import { useMemo, useState } from "react"
-import { LoaderCircle, MonitorUp } from "lucide-react"
+import { LoaderCircle } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
 import { relativeTime } from "@/components/comment-rows/format"
 import { trpc } from "@/lib/trpc-client"
@@ -39,9 +39,11 @@ import {
 } from "@/components/ui/dropdown-menu"
 
 // This is a MULTI-CLIENT surface (iOS/Android/desktop render the same list)
-// — concepts, never raw lucide glyphs (CLAUDE.md icon rule). MonitorUp and
-// the LoaderCircle spinner mirror the agents page's existing raw usage.
+// — concepts, never raw lucide glyphs (CLAUDE.md icon rule); the LoaderCircle
+// spinner mirrors the agents page's existing raw usage.
 const DesktopIcon = conceptIcon(`ui-device`)
+// EXP-615: starting a run is a play icon button on every client.
+const StartCodingIcon = conceptIcon(`action-run`)
 const ServerIcon = conceptIcon(`ui-server`)
 const OfflineIcon = conceptIcon(`ui-device-offline`)
 const AddIcon = conceptIcon(`ui-add`)
@@ -300,12 +302,15 @@ export function MyMachines({
                 >
                   <Button
                     variant="outline"
-                    size="sm"
+                    size="icon"
                     disabled={runBusy || !online || signInNeeded}
                     onClick={() => onStartCoding(device.deviceId)}
+                    aria-label="Start coding"
+                    // The wrapping span explains a sign-in block; its tooltip
+                    // must not be shadowed by this one.
+                    title={signInNeeded ? undefined : `Start coding`}
                   >
-                    <MonitorUp />
-                    Start coding
+                    <StartCodingIcon />
                   </Button>
                 </span>
                 {device.registered && (
@@ -384,12 +389,13 @@ export function MyMachines({
                 <div className="flex shrink-0 items-center gap-1">
                   <Button
                     variant="outline"
-                    size="sm"
+                    size="icon"
                     disabled={runBusy || !online || signInNeeded}
                     onClick={() => onStartCoding(device.deviceId)}
+                    aria-label="Start coding"
+                    title="Start coding"
                   >
-                    <MonitorUp />
-                    Start coding
+                    <StartCodingIcon />
                   </Button>
                 </div>
               </div>

@@ -824,7 +824,7 @@ impl GettingStartedView {
                 .icon(Icon::new(registry::ACTION_CREATE))
                 .label("New action")
                 .on_click(move |_, window, cx| {
-                    crate::start_coding_dialog::open_for_create_action(window, cx, team.clone());
+                    crate::create_action_dialog::open(window, cx, team.clone());
                 })
                 .into_any_element(),
             EntryKey::Server => Button::new(("gs-cta-server", index))

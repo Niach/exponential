@@ -40,6 +40,7 @@ public enum DomainContract {
     public static let deviceOnlineWindowMs: Int = 90000
     public static let builtinCreateActionId: String = "builtin:create-action"
     public static let builtinFixConflictsId: String = "builtin:fix-conflicts"
+    public static let builtinChatId: String = "builtin:chat"
     public static let actionInputsMax: Int = 10
     public static let actionInputTextMax: Int = 4096
     public static let actionTriggerMaxFilterIds: Int = 20

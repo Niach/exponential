@@ -49,7 +49,10 @@ import { Switch } from "@/components/ui/switch"
 // itself".
 
 const AutomationIcon = conceptIcon(`action-automation`)
-const AutomationCreateIcon = conceptIcon(`action-create`)
+// EXP-615: `action-create` is the sparkle of the agent-authored "New action"
+// flow — a New-automation button is the automation concept (desktop's
+// New-automation button already draws it).
+const AutomationCreateIcon = conceptIcon(`action-automation`)
 
 const SESSION_STATUS_LABELS: Record<string, string> = {
   running: `Running`,

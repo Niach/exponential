@@ -27,7 +27,7 @@ use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     input::{Input, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
-    ActiveTheme as _, Icon, Sizable as _,
+    ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 
 use crate::controls::WebControl as _;
@@ -469,9 +469,37 @@ impl MachinesSection {
                 })
         });
 
+        // EXP-615: the web row's ▶ Start-coding button, icon-only. The
+        // dialog it opens launches on THIS machine (the desktop has no
+        // remote-start picker), so the gate is the local agent check — the
+        // same one every other Start-coding affordance uses.
+        let no_agent = crate::coding_flow::no_agent_reason(cx);
+        let start_coding = Button::new(("machine-start-coding", index))
+            .outline()
+            .cursor_pointer()
+            .web_sm()
+            // Round like the web/mobile play buttons (EXP-615).
+            .rounded(gpui::px(999.))
+            .icon(Icon::new(registry::ACTION_RUN))
+            .tooltip(no_agent.clone().unwrap_or_else(|| "Start coding".into()))
+            .disabled(no_agent.is_some())
+            .on_click(move |_: &gpui::ClickEvent, window: &mut Window, cx: &mut gpui::App| {
+                let nav = crate::navigation::nav_for_window(window, cx);
+                let Some(team_id) = crate::navigation::active_team_id(&nav, cx) else {
+                    return;
+                };
+                crate::start_coding_dialog::open_for_selection(
+                    window,
+                    cx,
+                    team_id,
+                    Vec::new(),
+                    None,
+                );
+            });
+
         // ONE line per machine, the web row's shape (EXP-480): icon · name ·
-        // version | spacer | status dot + text · ⋯ — `min_w_0` down the name
-        // side so only the NAME gives way.
+        // version | spacer | status dot + text · ▶ · ⋯ — `min_w_0` down the
+        // name side so only the NAME gives way.
         gpui_component::h_flex()
             .id(SharedString::from(format!("machine-{}", device.device_id)))
             .w_full()
@@ -571,6 +599,7 @@ impl MachinesSection {
                         }))
                     }),
             )
+            .child(div().flex_shrink_0().child(start_coding))
             .children(menu.map(|menu| div().flex_shrink_0().child(menu)))
             .into_any_element()
     }

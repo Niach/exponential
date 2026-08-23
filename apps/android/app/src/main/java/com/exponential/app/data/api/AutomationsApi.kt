@@ -55,16 +55,28 @@ private data class CreateAutomationInput(
     @SerialName("effort") val effort: String? = null,
 )
 
+// The enable toggle's patch: ONLY these two keys travel. The shared Json
+// encodes defaults, so a wider input class would send `"trigger": null` —
+// which the server's schema (optional, NOT nullable) refuses outright, and
+// `"agent": null`, which would silently clear the row's pins.
+@Serializable
+private data class SetAutomationEnabledInput(
+    @SerialName("id") val id: String,
+    @SerialName("enabled") val enabled: Boolean,
+)
+
+// The edit form's patch: every field is written, and agent/model/effort ride
+// as EXPLICIT nulls meaning "back to the device's launch defaults" (iOS
+// AutomationLaunchPatch parity).
 @Serializable
 private data class UpdateAutomationInput(
     @SerialName("id") val id: String,
-    @SerialName("actionId") val actionId: String? = null,
-    @SerialName("deviceId") val deviceId: String? = null,
-    @SerialName("trigger") val trigger: JsonObject? = null,
-    @SerialName("enabled") val enabled: Boolean? = null,
-    @SerialName("agent") val agent: String? = null,
-    @SerialName("model") val model: String? = null,
-    @SerialName("effort") val effort: String? = null,
+    @SerialName("actionId") val actionId: String,
+    @SerialName("deviceId") val deviceId: String,
+    @SerialName("trigger") val trigger: JsonObject,
+    @SerialName("agent") val agent: String?,
+    @SerialName("model") val model: String?,
+    @SerialName("effort") val effort: String?,
 )
 
 @Serializable
@@ -104,17 +116,33 @@ class AutomationsApi @Inject constructor(private val trpc: TrpcClient) {
     ).automation
 
     /**
-     * `automations.update` — a partial patch; every omitted field keeps its
-     * stored value. The Automations tab's enabled Switch sends just
-     * `{id, enabled}`.
+     * `automations.update` with just the paused flag — the Automations tab's
+     * enabled Switch. Everything else keeps its stored value.
+     */
+    suspend fun setEnabled(
+        accountId: String,
+        id: String,
+        enabled: Boolean,
+    ): AutomationDto = trpc.mutation(
+        accountId,
+        path = "automations.update",
+        input = SetAutomationEnabledInput(id = id, enabled = enabled),
+        inputSerializer = SetAutomationEnabledInput.serializer(),
+        outputSerializer = AutomationMutationResult.serializer(),
+    ).automation
+
+    /**
+     * `automations.update` from the edit form (EXP-615): the target action,
+     * the bound machine, the when-part and the launch pins. Null
+     * [agent]/[model]/[effort] travel as explicit nulls — "back to the
+     * device's own launch defaults".
      */
     suspend fun update(
         accountId: String,
         id: String,
-        actionId: String? = null,
-        deviceId: String? = null,
-        trigger: AutomationTrigger? = null,
-        enabled: Boolean? = null,
+        actionId: String,
+        deviceId: String,
+        trigger: AutomationTrigger,
         agent: String? = null,
         model: String? = null,
         effort: String? = null,
@@ -125,11 +153,10 @@ class AutomationsApi @Inject constructor(private val trpc: TrpcClient) {
             id = id,
             actionId = actionId,
             deviceId = deviceId,
-            trigger = trigger?.toWireJson(),
-            enabled = enabled,
-            agent = agent,
-            model = model,
-            effort = effort,
+            trigger = trigger.toWireJson(),
+            agent = agent?.takeIf { it.isNotEmpty() },
+            model = model?.takeIf { it.isNotEmpty() },
+            effort = effort?.takeIf { it.isNotEmpty() },
         ),
         inputSerializer = UpdateAutomationInput.serializer(),
         outputSerializer = AutomationMutationResult.serializer(),

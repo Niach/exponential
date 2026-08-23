@@ -280,6 +280,12 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// filter such desktops out instead of failing after submit (EXP-323).
     public var canFixConflicts: Bool { caps?.contains("fix-conflicts") == true }
 
+    /// EXP-615: whether this machine can run the hidden "Chat" builtin — a
+    /// free-prompt agent session on a repository's trunk clone. Cap-gated
+    /// exactly like fix-conflicts: the server refuses the id without it, so
+    /// the Chat tab filters such machines out instead of failing after submit.
+    public var canChat: Bool { caps?.contains("chat") == true }
+
     /// EXP-530: whether this machine runs action automations locally (watches
     /// its own sync and fires schedule/event triggers). Trigger device pickers
     /// offer only these — an offline-but-capable machine stays pickable (its

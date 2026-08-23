@@ -115,6 +115,9 @@ impl AutomationDialogView {
                     row.model.as_deref(),
                     row.effort.as_deref(),
                 );
+                // A row saved before EXP-615 may carry a NULL agent — the
+                // strip has no "Device default" pill anymore, so seed it.
+                automation.ensure_agent_seeded(cx);
             }
             // One capable machine = no pick to make.
             None => automation.seed_default_device(cx),

@@ -52,7 +52,15 @@ pub const DEVICE_CAPS: [&str; 3] = ["resume", "worktrees", "launch-defaults"];
 /// triggers bound to its device id and starts the runs itself, so the web
 /// device pickers may offer it as an automation host (hand-synced with the
 /// desktop's `steer_wiring` caps vec).
-pub const ACTION_CAPS: [&str; 4] = ["actions", "action-inputs", "fix-conflicts", "automations"];
+/// EXP-615 adds `chat`: this build runs the hidden `builtin:chat` action, so
+/// the remote Chat tab may target this machine.
+pub const ACTION_CAPS: [&str; 5] = [
+    "actions",
+    "action-inputs",
+    "fix-conflicts",
+    "automations",
+    "chat",
+];
 
 /// The caps to advertise for a doctor snapshot: the build caps, plus the
 /// action caps while anything is runnable.
@@ -2811,6 +2819,11 @@ mod tests {
         assert!(caps.contains(&"automations".to_string()));
         // Nothing runnable = nothing to run an automation with.
         assert!(!device_caps(&advert(&[])).contains(&"automations".to_string()));
+        // EXP-615: the same for chat — remote Chat starts gate on this cap,
+        // so an agent-less machine must never advertise it.
+        assert!(ACTION_CAPS.contains(&"chat"));
+        assert!(caps.contains(&"chat".to_string()));
+        assert!(!device_caps(&advert(&[])).contains(&"chat".to_string()));
     }
 
     #[test]

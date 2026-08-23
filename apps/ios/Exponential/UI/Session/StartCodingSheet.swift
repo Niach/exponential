@@ -15,22 +15,25 @@ import SwiftUI
 // combined PR.
 //
 // EXP-257: hosts that pass `teamId` + `onRunAction` get a top segmented
-// Issues | Actions control. Actions mode is a searchable single-select action
-// list (the "Fix merge conflicts" builtin pinned FIRST by its `builtin` flag;
-// "Create action" is not offered — EXP-431 gave it `createActionMode`, a
-// dedicated presentation of this sheet: "New action" title, no subject
-// switch, no picker, just the create builtin's input fields) over the
-// selected action's typed input fields (text / repo /
-// board / pr / icon) — the SAME agent/model/effort/toggle options apply, action
-// runs are no longer Claude-only. Device candidates in Actions mode need the
-// `actions` capability, plus `action-inputs` when the selected action is
-// builtin or declares inputs.
+// Issues | Actions | Chat control. Actions mode is a searchable single-select
+// action list (the "Fix merge conflicts" builtin pinned FIRST by its `builtin`
+// flag; "Create action" is not offered — EXP-615 moved creation into its own
+// `CreateActionSheet`) over the selected action's typed input fields (text /
+// repo / board / pr / icon) — the SAME agent/model/effort/toggle options
+// apply, action runs are no longer Claude-only. Device candidates in Actions
+// mode need the `actions` capability, plus `action-inputs` when the selected
+// action is builtin or declares inputs.
+//
+// EXP-615: Chat is the third subject — a free prompt on one repository,
+// riding the HIDDEN `builtin:chat` action (constructed locally, listed
+// nowhere) through the very same `onRunAction` rails. Its machines need the
+// `chat` capability.
 //
 // EXP-201: the desktop runs three coding agents (claude / codex / pi). The
-// agent switcher — a brand-icon pill tab strip (EXP-208), the iOS twin of the
-// desktop dialog's agent_tabs — shows only the SELECTED device's agents (an
-// old desktop reports none = claude-only, hiding it); model/effort lists, the
-// claude-only toggles, and the skip-permissions toggle all follow the agent.
+// agent switcher — the shared `LaunchOptionsSection`'s brand-icon segmented
+// capsule — shows only the SELECTED device's agents (an old desktop reports
+// none = claude-only, hiding it); model/effort lists, the claude-only
+// toggles, and the skip-permissions toggle all follow the agent.
 // EXP-409: an advertised agent is RUNNABLE (installed and signed in), so a
 // machine reporting an explicitly EMPTY list can run nothing and drops out of
 // the device pool exactly like an offline one.
@@ -117,11 +120,20 @@ struct StartCodingSheet: View {
         }
     }
 
-    /// The two launch subjects (EXP-257). Actions only exists when the host
-    /// wires `teamId` + `onRunAction`.
+    /// The three launch subjects (EXP-257/EXP-615). Actions and Chat only
+    /// exist when the host wires `teamId` + `onRunAction`.
     enum SubjectTab: Hashable {
         case issues
         case actions
+        case chat
+
+        var label: String {
+            switch self {
+            case .issues: "Issues"
+            case .actions: "Actions"
+            case .chat: "Chat"
+            }
+        }
     }
 
     let devices: [SteerDevice]
@@ -134,21 +146,6 @@ struct StartCodingSheet: View {
     /// whose actions/repositories/boards the sheet fetches.
     let teamId: String?
     let preselectedActionId: String?
-    /// EXP-431: present the sheet as the "New action" creation flow — no
-    /// subject switch, no action picker, just the (preselected) create
-    /// builtin's input fields. Callers pair it with the create builtin's id.
-    let createActionMode: Bool
-    /// EXP-530 "Use suggestion": initial input values (keyed like
-    /// `inputValues` — e.g. the create builtin's `description` + `icon`).
-    let prefilledInputs: [String: String]?
-    /// EXP-583 "Use suggestion" on an ACTION + AUTOMATION seed: the suggested
-    /// trigger. Non-nil is the ONLY thing that shows the Automation block —
-    /// the plain "New action" path never configures one.
-    let suggestedAutomation: AutomationTrigger?
-    /// Automation-capable machines (cap `automations`), OFFLINE INCLUDED —
-    /// the automation binds independently of whatever machine runs the
-    /// creator session, and a sleeping box still owns the binding.
-    let automationDevices: [SteerDevice]
     /// Non-nil pre-picks the selected action's `pr` input (EXP-323 — the
     /// conflict-recovery entry points hand over the issue their surface acts
     /// on; ANY issue linked to the PR resolves).
@@ -167,9 +164,6 @@ struct StartCodingSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.motion) private var motion
 
-    /// Sentinel for the blank "CLI default" choice (omit --effort; for
-    /// codex/pi also the omit-model default — claude is explicit-always).
-    static let cliDefault = "cli-default"
     /// A batch run is deliberately loose but not unbounded — one Claude session
     /// on one branch; past this the prompt is unwieldy and token-expensive.
     private static let maxBatchIssues = 30
@@ -195,36 +189,17 @@ struct StartCodingSheet: View {
     /// `""` = unset). Reset on action switch.
     @State private var inputValues: [String: String] = [:]
 
-    // EXP-583 suggestion automation (Schedule · On event), shown ONLY for an
-    // "Action + automation" seed. The resulting spec rides the description as
-    // a machine-readable block the creator agent copies verbatim into
-    // `exponential_automations_create`.
-    @State private var automationKind = "schedule"
-    @State private var schedInterval = "daily"
-    @State private var schedTime = Self.defaultScheduleTime
-    /// 1 = Monday … 7 = Sunday (the wire convention).
-    @State private var schedWeekday = 1
-    @State private var schedDayOfMonth = 1
-    @State private var eventType = "created"
-    @State private var filterBoardId = ""
-    @State private var filterLabelId = ""
-    @State private var filterPriority = ""
-    @State private var filterToStatusId = ""
-    @State private var teamLabels: [LabelEntity] = []
-    @State private var teamStatuses: [IssueStatusEntity] = []
-    /// The automation's OWN machine + launch options — independent of the one
-    /// running the creator session. "" = the machine's launch defaults.
-    @State private var automationDeviceId = ""
-    @State private var automationAgent = ""
-    @State private var automationModel = ""
-    @State private var automationEffort = ""
+    // EXP-615 Chat: a free prompt on ONE repository. The values ride the
+    // hidden `builtin:chat` action's `prompt` + `repo` inputs.
+    @State private var chatPrompt = ""
+    @State private var chatRepoId = ""
 
     // Seeded from the selected machine's advertised defaults in onAppear
     // (EXP-437). Placeholder values render for one frame before seed() resolves
     // them.
     @State private var agent = "claude"
     @State private var model = ""
-    @State private var effort = Self.cliDefault
+    @State private var effort = LaunchVocabulary.cliDefault
     @State private var ultracode = false
     @State private var planMode = false
     @State private var skipPermissions = false
@@ -247,10 +222,6 @@ struct StartCodingSheet: View {
         teamId: String? = nil,
         initialTab: SubjectTab = .issues,
         preselectedActionId: String? = nil,
-        createActionMode: Bool = false,
-        prefilledInputs: [String: String]? = nil,
-        suggestedAutomation: AutomationTrigger? = nil,
-        automationDevices: [SteerDevice] = [],
         preselectedPrIssueId: String? = nil,
         worktrees: [DeviceWorktreeEntity]? = nil,
         onStart: @escaping (SteerDevice, [String], SteerStartOptions) -> Void,
@@ -263,17 +234,12 @@ struct StartCodingSheet: View {
         self.preferredDeviceId = preferredDeviceId
         self.teamId = teamId
         self.preselectedActionId = preselectedActionId
-        self.createActionMode = createActionMode
-        self.prefilledInputs = prefilledInputs
-        self.suggestedAutomation = suggestedAutomation
-        self.automationDevices = automationDevices
         self.preselectedPrIssueId = preselectedPrIssueId
         self.onStart = onStart
         self.onRunAction = onRunAction
         _checked = State(initialValue: preselectedIds)
         _subjectTab = State(initialValue: initialTab)
         _selectedActionId = State(initialValue: preselectedActionId)
-        _inputValues = State(initialValue: prefilledInputs ?? [:])
     }
 
     /// Whether the host wired the Actions tab (EXP-257).
@@ -290,18 +256,14 @@ struct StartCodingSheet: View {
         devices.filter { $0.isOnline && $0.hasRunnableAgent }
     }
 
-    /// Picker caption for a machine. A teammate's shared server (EXP-432) is
-    /// attributed to its owner — two people's boxes can wear the same label,
-    /// and a run lands on somebody else's hardware, so the picker says whose.
-    private static func deviceCaption(_ device: SteerDevice) -> String {
-        let name = device.deviceLabel.isEmpty ? device.deviceId : device.deviceLabel
-        guard let owner = device.owner else { return name }
-        return "\(name) — \(owner.name)"
-    }
-
-    /// Mode-aware device pool: Actions mode only offers capable desktops.
+    /// Mode-aware device pool: Actions mode only offers capable desktops, and
+    /// Chat additionally needs the `chat` cap (EXP-615).
     private var candidateDevices: [SteerDevice] {
-        subjectTab == .actions ? actionDeviceCandidates : startableDevices
+        switch subjectTab {
+        case .issues: startableDevices
+        case .actions: actionDeviceCandidates
+        case .chat: chatDeviceCandidates
+        }
     }
 
     private var device: SteerDevice? {
@@ -317,124 +279,67 @@ struct StartCodingSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                // Create mode is single-purpose (EXP-431) — the subject
-                // switch would only lead out of the creation flow.
-                if actionsEnabled, !createActionMode {
+                if actionsEnabled {
                     Section {
                         GlassSegmentedControl(
-                            options: [SubjectTab.issues, .actions],
+                            options: [SubjectTab.issues, .actions, .chat],
                             selection: subjectTab,
-                            label: { $0 == .issues ? "Issues" : "Actions" },
+                            label: { $0.label },
                             onSelect: { subjectTab = $0 }
                         )
-                        .accessibilityLabel("Subject")
                     }
                     .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                    // Zero insets keep the capsule flush with the grouped
+                    // cards' margins (EXP-615).
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
                 }
 
-                if subjectTab == .issues {
+                switch subjectTab {
+                case .issues:
                     issuesSection
-                } else {
-                    if createActionMode {
-                        createActionIntroSection
-                    } else {
-                        actionsSection
-                    }
+                case .actions:
+                    actionsSection
                     if let action = selectedAction, !(action.inputs ?? []).isEmpty {
                         inputsSection(action)
                     }
-                    // EXP-583: only an "Action + automation" suggestion
-                    // configures a trigger here — plain creation never does,
-                    // and existing automations live on the Automations tab.
-                    if showsAutomation {
-                        automationSection
-                    }
+                case .chat:
+                    chatSection
                 }
 
-                if candidateDevices.isEmpty {
-                    // The "no capable desktop" hint (EXP-257) — distinguishes
-                    // offline from an outdated desktop app, and (EXP-409) from
-                    // one whose agents are all signed out.
-                    Section {
-                        Text(noDeviceNote)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .listRowBackground(glassFormRowFill)
-                } else if candidateDevices.count > 1 {
-                    Section {
-                        GlassPickerRow(
-                            "Desktop",
-                            selection: deviceBinding,
-                            options: candidateDevices.map(\.deviceId),
-                            label: { id in
-                                candidateDevices.first { $0.deviceId == id }
-                                    .map(Self.deviceCaption) ?? id
-                            }
+                // EXP-615: the shared device / agent / model / effort /
+                // toggles block — the same rows the create-action sheet and
+                // (in its automation variant) the automation editor render.
+                LaunchOptionsSection(
+                    variant: .launch,
+                    devices: candidateDevices,
+                    deviceId: deviceBinding,
+                    noDeviceNote: noDeviceNote,
+                    availableAgents: availableAgents,
+                    agent: agent,
+                    onAgentChange: selectAgent,
+                    model: $model,
+                    effort: $effort,
+                    ultracode: $ultracode,
+                    planMode: $planMode,
+                    skipPermissions: $skipPermissions,
+                    resumeRow: resumeCandidate.map { candidate in
+                        LaunchOptionsSection.ResumeRow(
+                            isOn: $resume,
+                            identifier: candidate.issueIdentifier,
+                            branch: candidate.branch,
+                            active: resumeActive
                         )
                     }
-                    .listRowBackground(glassFormRowFill)
-                }
-
-                // The agent strip rides the Model section's HEADER (EXP-211):
-                // a standalone clear Section pads its lone row to the 44pt list
-                // minimum, which read as a bigger gap than listSectionSpacing.
-                Section {
-                    GlassPickerRow(
-                        "Model",
-                        selection: $model,
-                        options: modelValues,
-                        label: { Self.modelLabel($0) }
-                    )
-                    GlassPickerRow(
-                        effortTitle,
-                        selection: $effort,
-                        options: [Self.cliDefault] + effortValues,
-                        label: { $0 == Self.cliDefault ? "CLI default" : Self.effortLabel($0) },
-                        enabled: !ultracode
-                    )
-                } header: {
-                    if availableAgents.count > 1 {
-                        agentTabStrip
-                            .textCase(nil)
-                    }
-                }
-                .listRowBackground(glassFormRowFill)
-
-                // One footer-less toggle section (EXP-208 — no helper notices,
-                // like the IDE). Ultracode is claude-only, plan mode is
-                // claude+pi (EXP-441), skip permissions doesn't exist for pi.
-                Section {
-                    if resumeCandidate != nil {
-                        Toggle("Resume previous session", isOn: $resume)
-                    }
-                    if agent == "claude" {
-                        Toggle("Ultracode", isOn: $ultracode)
-                    }
-                    // A resume never re-enters plan mode (the machine clamps
-                    // it too) — hide the toggle while one is active.
-                    if Self.supportsPlanMode(agent), !resumeActive {
-                        Toggle("Plan mode", isOn: $planMode)
-                    }
-                    if agent != "pi" {
-                        Toggle("Skip permissions", isOn: $skipPermissions)
-                    }
-                } footer: {
-                    if resumeActive, let candidate = resumeCandidate {
-                        Text("A worktree for \(candidate.issueIdentifier ?? "this issue") already exists (\(candidate.branch)).")
-                    }
-                }
-                .listRowBackground(glassFormRowFill)
+                )
             }
             // EXP-603: the sheet wears the app background instead of the
             // system grouped-list gray; rows carry the glass fill.
             .scrollContentBackground(.hidden)
             .background(AppBackground())
             // No navigation title (EXP-211) — the confirm button already says
-            // "Start coding"; the bar carries only Cancel + Start. Create mode
-            // (EXP-431) is the one host that needs to say what it is.
-            .navigationTitle(createActionMode ? "New action" : "")
+            // "Start coding"; the bar carries only Cancel + Start.
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .listSectionSpacing(12)
             // EXP-594: white control tint — system blue is retired (toggles,
@@ -446,13 +351,13 @@ struct StartCodingSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(confirmTitle) {
-                        if subjectTab == .actions {
-                            submitAction()
-                        } else {
-                            submit()
+                        switch subjectTab {
+                        case .issues: submit()
+                        case .actions: submitAction()
+                        case .chat: submitChat()
                         }
                     }
-                    .disabled(subjectTab == .actions ? !canRunAction : !canStart)
+                    .disabled(!canConfirm)
                 }
             }
         }
@@ -587,7 +492,7 @@ struct StartCodingSheet: View {
                     .foregroundStyle(DesignTokens.Semantic.red)
             }
             if overCap {
-                Text("A batch run is capped at \(Self.maxBatchIssues) issues.")
+                Text("At most \(Self.maxBatchIssues) issues per run. Split the batch.")
                     .foregroundStyle(DesignTokens.Semantic.red)
             } else if effectiveChecked.count > Self.costWarnThreshold {
                 Text("Large batches are token-expensive.")
@@ -668,35 +573,21 @@ struct StartCodingSheet: View {
 
     // MARK: - Actions mode (EXP-257)
 
-    /// The confirm button's label: the create builtin's run IS creation
-    /// (desktop footer parity, EXP-431); other actions just run.
+    /// The confirm button's label per subject (desktop/web footer parity).
     private var confirmTitle: String {
-        guard subjectTab == .actions else { return startTitle }
-        return selectedAction?.id == DomainContract.builtinCreateActionId ? "Create" : "Run action"
+        switch subjectTab {
+        case .issues: startTitle
+        case .actions: "Run action"
+        case .chat: "Start chat"
+        }
     }
 
-    /// EXP-431 create mode: no picker or intro copy — the create builtin's
-    /// input fields below ARE the form (Description leads with the locked
-    /// placeholder); only load/error states surface here.
-    @ViewBuilder
-    private var createActionIntroSection: some View {
-        if loadedActions == nil, actionsError == nil {
-            Section {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("Loading actions…")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .listRowBackground(glassFormRowFill)
-        } else if let actionsError {
-            Section {
-                Text(actionsError)
-                    .font(.caption)
-                    .foregroundStyle(DesignTokens.Semantic.red)
-            }
-            .listRowBackground(glassFormRowFill)
+    /// Whether the confirm button is live for the current subject.
+    private var canConfirm: Bool {
+        switch subjectTab {
+        case .issues: canStart
+        case .actions: canRunAction
+        case .chat: canStartChat
         }
     }
 
@@ -749,9 +640,9 @@ struct StartCodingSheet: View {
                 AppIcon(isSelected ? AppIcons.uiSelected : AppIcons.uiUnselected, size: AppIcon.Size.medium)
                     .foregroundStyle(isSelected ? Color.white : .secondary)
 
-                // The builtin "Create action" wears the create affordance;
-                // real actions keep the bolt (the Actions surface glyph).
-                AppIcon(action.isBuiltin ? AppIcons.actionCreate : AppIcons.actionDefault, size: AppIcon.Size.small)
+                // EXP-273: the action's own curated glyph (the builtins set
+                // one too), falling back to the generic action mark.
+                AppIcon(action.icon ?? AppIcons.actionDefault, size: AppIcon.Size.small)
                     .foregroundStyle(.secondary)
                     .frame(width: 16)
 
@@ -881,7 +772,7 @@ struct StartCodingSheet: View {
         default:
             // Unknown future input type — block the run instead of silently
             // degrading to text (the desktop mirrors this posture).
-            Text("\"\(def.label)\" needs a newer app version.")
+            Text("This action needs a newer app version.")
                 .font(.caption)
                 .foregroundStyle(DesignTokens.Semantic.red)
         }
@@ -927,13 +818,10 @@ struct StartCodingSheet: View {
     }
 
     /// Search-filtered rows, builtins pinned FIRST by the `builtin` flag (the
-    /// contract — never by sort order). The create builtin stays in the POOL
-    /// (`createActionMode` preselects it) but never renders as a picker row
-    /// (EXP-431).
+    /// contract — never by sort order). Neither hidden builtin is in the pool:
+    /// creation has its own sheet (EXP-615) and chat its own tab.
     private var actionRows: [ActionDto] {
-        let filtered = (loadedActions ?? [])
-            .filter { $0.id != DomainContract.builtinCreateActionId }
-            .filter { matchesActionSearch($0) }
+        let filtered = (loadedActions ?? []).filter { matchesActionSearch($0) }
         return filtered.filter(\.isBuiltin) + filtered.filter { !$0.isBuiltin }
     }
 
@@ -968,24 +856,40 @@ struct StartCodingSheet: View {
         }
     }
 
-    /// The "nothing to start on" hint (EXP-257) — distinguishes offline from
-    /// an outdated desktop app, calls out the fix-conflicts cap by name so the
-    /// fix is obvious (EXP-323), and names the signed-out agents when a
-    /// machine is online but can run nothing (EXP-409).
+    /// EXP-615: chat runs need the `chat` cap on top of a startable machine —
+    /// the server refuses the hidden builtin without it, so filter here rather
+    /// than fail after submit (the fix-conflicts posture).
+    private var chatDeviceCandidates: [SteerDevice] {
+        startableDevices.filter { device in
+            // A chat start IS an action start server-side, so it takes the
+            // action caps too (every build that advertises `chat` advertises
+            // them — this only keeps the pool in step with the gate).
+            device.canRunActions && device.canRunActionInputs && device.canChat
+        }
+    }
+
+    /// The "nothing to start on" hint — one wording per subject, byte-matching
+    /// the web launch dialog (EXP-615), with the signed-out-agents case
+    /// (EXP-409) taking precedence because it names an actionable fix.
     private var noDeviceNote: String {
-        if startableDevices.isEmpty {
-            let signedOut = signedOutAgentNames.joined(separator: ", ")
-            if !signedOut.isEmpty {
-                return "\(signedOut) not signed in on your machines. Sign in on the machine first."
+        let signedOut = signedOutAgentNames.joined(separator: ", ")
+        if startableDevices.isEmpty, !signedOut.isEmpty {
+            return "\(signedOut) not signed in on your machines. Sign in on the machine first."
+        }
+        switch subjectTab {
+        case .issues:
+            return "No desktop online. Open the Exponential desktop app to start coding."
+        case .chat:
+            return "No chat-capable device online. Update the Exponential desktop app."
+        case .actions:
+            if selectedActionNeedsFixConflictsCap {
+                return "No desktop can fix merge conflicts yet. Update the Exponential desktop app."
             }
-            return subjectTab == .actions
-                ? "No desktop online. Open the Exponential desktop app to run here."
-                : "No desktop online. Open the Exponential desktop app to start coding."
+            if selectedActionNeedsInputsCap {
+                return "No capable desktop online. This action needs a desktop app new enough to run action inputs."
+            }
+            return "No actions-capable desktop online. Open (or update) the Exponential desktop app."
         }
-        if selectedActionNeedsFixConflictsCap {
-            return "No desktop can fix merge conflicts yet. Update the Exponential desktop app."
-        }
-        return "No compatible desktop online. Update the Exponential desktop app to run this action."
     }
 
     /// The agents installed-but-signed-out across the caller's ONLINE machines
@@ -1021,8 +925,9 @@ struct StartCodingSheet: View {
     /// One-shot fetch of the Actions-tab data: the team's actions + boards
     /// from the synced GRDB store (EXP-268 — actions are the 15th shape, so
     /// no tRPC round trip; `body` isn't synced and nothing here needs it),
-    /// the repo registry over tRPC. The builtin "Create action" is PREPENDED
-    /// locally — synced rows can't carry the virtual entry.
+    /// the repo registry over tRPC (which the Chat tab picks from too). The
+    /// LISTED builtin "Fix merge conflicts" is PREPENDED locally — synced rows
+    /// can't carry a virtual entry. The two hidden builtins are never listed.
     @MainActor
     private func loadActionsData() async {
         guard actionsEnabled, let teamId else { return }
@@ -1033,12 +938,16 @@ struct StartCodingSheet: View {
             let dtos = rows
                 .sorted { ($0.sortOrder ?? 0, $0.name) < ($1.sortOrder ?? 0, $1.name) }
                 .map { ActionDto(entity: $0) }
-            loadedActions = ActionDto.builtinActions(teamId: teamId) + dtos
+            loadedActions = [ActionDto.builtinFixConflictsAction(teamId: teamId)] + dtos
             actionsError = nil
         } else {
             actionsError = "The local database is unavailable."
         }
         repos = (try? await deps.repositoriesApi.list(accountId: accountId, teamId: teamId)) ?? []
+        // EXP-615: one repository is no choice — pre-pick it for the Chat tab.
+        if chatRepoId.isEmpty, repos.count == 1 {
+            chatRepoId = repos[0].id
+        }
         if let pool = try? deps.db.pool(forAccountId: accountId) {
             let rows = (try? await pool.read { db in
                 try BoardEntity.filter(Column("team_id") == teamId).fetchAll(db)
@@ -1065,26 +974,6 @@ struct StartCodingSheet: View {
         if let action = selectedAction {
             seedRepoInputs(for: action)
         }
-        // EXP-583: the Automation block's filter option pools — labels +
-        // statuses for the event filters (its device pool is passed in).
-        if showsAutomation {
-            if let pool = try? deps.db.pool(forAccountId: accountId) {
-                let labelRows = (try? await pool.read { db in
-                    try LabelEntity.filter(Column("team_id") == teamId).fetchAll(db)
-                }) ?? []
-                teamLabels = labelRows.sorted { lhs, rhs in
-                    (lhs.sortOrder ?? 0, lhs.name) < (rhs.sortOrder ?? 0, rhs.name)
-                }
-                let statusRows = (try? await pool.read { db in
-                    try IssueStatusEntity.filter(Column("team_id") == teamId).fetchAll(db)
-                }) ?? []
-                teamStatuses = statusRows
-                    .filter { $0.category != "duplicate" }
-                    .sorted { lhs, rhs in
-                        (lhs.sortOrder ?? 0, lhs.name) < (rhs.sortOrder ?? 0, rhs.name)
-                    }
-            }
-        }
     }
 
     /// Pre-pick the target PR once both the action list and the options exist
@@ -1102,340 +991,53 @@ struct StartCodingSheet: View {
         inputValues[key] = option.issueId
     }
 
-    // MARK: - Automation (EXP-583, suggestion-prefilled create mode)
+    // MARK: - Chat (EXP-615)
 
-    private static var defaultScheduleTime: Date {
-        Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: Date()) ?? Date()
-    }
-
-    /// The Automation block exists ONLY for an "Action + automation" seed.
-    private var showsAutomation: Bool {
-        createActionMode && suggestedAutomation != nil
-    }
-
-    /// The machine that will RUN the automation, resolved off its own pool.
-    private var automationDevice: SteerDevice? {
-        if !automationDeviceId.isEmpty,
-           let match = automationDevices.first(where: { $0.deviceId == automationDeviceId }) {
-            return match
-        }
-        return automationDevices.first
-    }
-
-    private var automationAgents: [String] {
-        let supported = automationDevice?.agentIds ?? []
-        return DomainContract.codingAgentValues.filter { supported.contains($0) }
-    }
-
-    /// nil = the machine's own launch defaults (agent/model/effort omitted).
-    private var pinnedAutomationAgent: String? {
-        automationAgent.isEmpty ? nil : automationAgent
-    }
-
+    /// The Chat pane: a free prompt plus the repository the agent session runs
+    /// in. Both ride the HIDDEN `builtin:chat` action's `prompt` + `repo`
+    /// inputs, so the value rules (trim, the contract's text cap) are the
+    /// action-input ones and the server re-validates them.
     @ViewBuilder
-    private var automationSection: some View {
+    private var chatSection: some View {
         Section {
-            GlassSegmentedControl(
-                options: ["schedule", "event"],
-                selection: automationKind,
-                label: { $0 == "schedule" ? "Schedule" : "On event" },
-                onSelect: { automationKind = $0 }
-            )
-            .accessibilityLabel("Trigger")
-
-            if automationKind == "schedule" {
-                GlassPickerRow(
-                    "Every",
-                    selection: $schedInterval,
-                    options: ["daily", "weekly", "monthly"],
-                    label: { value in
-                        switch value {
-                        case "weekly": "Week"
-                        case "monthly": "Month"
-                        default: "Day"
-                        }
-                    }
-                )
-                if schedInterval == "weekly" {
-                    GlassPickerRow(
-                        "Weekday",
-                        selection: $schedWeekday,
-                        options: Array(1...7),
-                        label: { AutomationTriggerDisplay.weekdayNames[$0 - 1] }
-                    )
-                }
-                if schedInterval == "monthly" {
-                    GlassPickerRow(
-                        "Day of month",
-                        selection: $schedDayOfMonth,
-                        options: Array(1...28),
-                        label: { "\($0)" }
-                    )
-                }
-                DatePicker("Time", selection: $schedTime, displayedComponents: .hourAndMinute)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Prompt")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextField("What should the agent do?", text: $chatPrompt, axis: .vertical)
+                    .lineLimit(4...10)
             }
-
-            if automationKind == "event" {
-                GlassPickerRow(
-                    "Event",
-                    selection: $eventType,
-                    options: DomainContract.actionTriggerEventValues,
-                    label: { AutomationTriggerDisplay.eventLabel($0) }
-                )
-                GlassPickerRow(
-                    "Board",
-                    selection: $filterBoardId,
-                    options: [""] + boards.map(\.id),
-                    label: { id in
-                        guard !id.isEmpty else { return "Any" }
-                        return boards.first { $0.id == id }?.name ?? id
-                    }
-                )
-                if eventType == "label_added" {
-                    GlassPickerRow(
-                        "Label",
-                        selection: $filterLabelId,
-                        options: [""] + teamLabels.map(\.id),
-                        label: { id in
-                            guard !id.isEmpty else { return "Any" }
-                            return teamLabels.first { $0.id == id }?.name ?? id
-                        }
-                    )
-                }
-                if eventType == "created" || eventType == "priority_changed" {
-                    GlassPickerRow(
-                        "Priority",
-                        selection: $filterPriority,
-                        options: [""] + IssuePriority.displayOrder.map(\.rawValue),
-                        label: { value in
-                            guard !value.isEmpty else { return "Any" }
-                            return IssuePriority.displayOrder
-                                .first { $0.rawValue == value }?.label ?? value
-                        }
-                    )
-                }
-                if eventType == "status_changed" {
-                    GlassPickerRow(
-                        "To status",
-                        selection: $filterToStatusId,
-                        options: [""] + teamStatuses.map(\.id),
-                        label: { id in
-                            guard !id.isEmpty else { return "Any" }
-                            return teamStatuses.first { $0.id == id }?.name ?? id
-                        }
-                    )
-                }
-            }
-
-            if automationDevices.isEmpty {
-                Text("No machine of yours runs automations yet. The action still gets created.")
+        }
+        .listRowBackground(glassFormRowFill)
+        // The repository is its own card, not a row inside the prompt's
+        // (Android/web parity, EXP-615).
+        Section {
+            if repos.isEmpty {
+                Text("Connect a repository to this team to chat.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
                 GlassPickerRow(
-                    "Runs on",
-                    selection: automationDeviceBinding,
-                    options: automationDevices.map(\.deviceId),
+                    "Repository",
+                    selection: $chatRepoId,
+                    options: [""] + repos.map(\.id),
                     label: { id in
-                        automationDevices.first { $0.deviceId == id }
-                            .map(Self.automationDeviceCaption) ?? id
+                        guard !id.isEmpty else { return "Select a repository" }
+                        return repos.first { $0.id == id }?.fullName ?? id
                     }
                 )
-                GlassPickerRow(
-                    "Agent",
-                    selection: automationAgentBinding,
-                    options: [""] + automationAgents,
-                    label: { $0.isEmpty ? "Device default" : Self.agentLabel($0) }
-                )
-                if let pinned = pinnedAutomationAgent {
-                    GlassPickerRow(
-                        "Model",
-                        selection: $automationModel,
-                        options: [""] + Self.automationModelValues(for: pinned),
-                        label: { $0.isEmpty ? "Device default" : Self.modelLabel($0) }
-                    )
-                    GlassPickerRow(
-                        Self.automationEffortTitle(for: pinned),
-                        selection: $automationEffort,
-                        options: [""] + Self.effortValues(for: pinned),
-                        label: { $0.isEmpty ? "Device default" : Self.effortLabel($0) }
-                    )
-                }
             }
-        } header: {
-            Text("Automation")
-        } footer: {
-            Text("The agent sets this up after writing the action.")
         }
         .listRowBackground(glassFormRowFill)
     }
 
-    /// The automation's model list: the sheet's own "Device default" row
-    /// replaces the run pickers' "CLI default" sentinel, so drop that entry.
-    private static func automationModelValues(for agent: String) -> [String] {
-        modelValues(for: agent).filter { $0 != cliDefault }
-    }
-
-    private static func automationEffortTitle(for agent: String) -> String {
-        switch agent {
-        case "codex": "Reasoning"
-        case "pi": "Thinking"
-        default: "Effort"
-        }
-    }
-
-    private static func automationDeviceCaption(_ device: SteerDevice) -> String {
-        let name = device.deviceLabel.isEmpty ? device.deviceId : device.deviceLabel
-        let base = device.isOnline ? name : "\(name) (offline)"
-        guard let owner = device.owner else { return base }
-        return "\(base) — \(owner.name)"
-    }
-
-    /// Both writes clear DOWNSTREAM picks the way an explicit user switch
-    /// must (and the suggestion prefill deliberately must not): a machine
-    /// that doesn't advertise the pinned agent would be rejected, and
-    /// model/effort vocabularies are per-agent.
-    private var automationDeviceBinding: Binding<String> {
-        Binding(
-            get: { automationDevice?.deviceId ?? "" },
-            set: { value in
-                guard value != automationDevice?.deviceId else { return }
-                automationDeviceId = value
-                if !automationAgent.isEmpty, !automationAgents.contains(automationAgent) {
-                    automationAgent = ""
-                    automationModel = ""
-                    automationEffort = ""
-                }
-            }
-        )
-    }
-
-    private var automationAgentBinding: Binding<String> {
-        Binding(
-            get: { automationAgent },
-            set: { value in
-                guard value != automationAgent else { return }
-                automationAgent = value
-                automationModel = ""
-                automationEffort = ""
-            }
-        )
-    }
-
-    /// Seed the pickers from the suggestion's trigger (EXP-583). Contextual
-    /// filters are single-select on mobile, so a multi-id list seeds from its
-    /// first entry.
-    private func seedSuggestedAutomation() {
-        switch suggestedAutomation {
-        case let .schedule(s)?:
-            automationKind = "schedule"
-            schedInterval = s.interval
-            schedWeekday = s.weekday ?? 1
-            schedDayOfMonth = s.dayOfMonth ?? 1
-            schedTime = Calendar.current.date(
-                bySettingHour: s.minuteOfDay / 60,
-                minute: s.minuteOfDay % 60,
-                second: 0,
-                of: Date()
-            ) ?? Self.defaultScheduleTime
-        case let .event(e)?:
-            automationKind = "event"
-            eventType = e.event
-            filterBoardId = e.filters.boardIds.first ?? ""
-            filterLabelId = e.filters.labelIds.first ?? ""
-            filterPriority = e.filters.priorities.first ?? ""
-            filterToStatusId = e.filters.toStatusIds.first ?? ""
-        case nil:
-            break
-        }
-    }
-
-    /// The configured trigger in wire form — nil when the Automation block
-    /// isn't showing. Contextual filters travel only for the event they apply
-    /// to, so a stale pick from a previously chosen event never rides along.
-    private var configuredTrigger: AutomationTrigger? {
-        guard showsAutomation else { return nil }
-        if automationKind == "schedule" {
-            let comps = Calendar.current.dateComponents([.hour, .minute], from: schedTime)
-            let minuteOfDay = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
-            return .schedule(AutomationScheduleTrigger(
-                interval: schedInterval,
-                minuteOfDay: minuteOfDay,
-                weekday: schedInterval == "weekly" ? schedWeekday : nil,
-                dayOfMonth: schedInterval == "monthly" ? schedDayOfMonth : nil
-            ))
-        }
-        return .event(AutomationEventTrigger(
-            event: eventType,
-            filters: AutomationTriggerFilters(
-                boardIds: filterBoardId.isEmpty ? [] : [filterBoardId],
-                labelIds: eventType == "label_added" && !filterLabelId.isEmpty
-                    ? [filterLabelId] : [],
-                priorities: (eventType == "created" || eventType == "priority_changed")
-                    && !filterPriority.isEmpty ? [filterPriority] : [],
-                toStatusIds: eventType == "status_changed" && !filterToStatusId.isEmpty
-                    ? [filterToStatusId] : []
-            )
-        ))
-    }
-
-    /// The automation the creator agent should set up, or nil when the block
-    /// isn't showing or no machine can run one.
-    private var configuredAutomation: AutomationSpec? {
-        guard let trigger = configuredTrigger, let device = automationDevice else { return nil }
-        return AutomationSpec(
-            trigger: trigger,
-            deviceId: device.deviceId,
-            agent: pinnedAutomationAgent,
-            model: pinnedAutomationAgent == nil ? nil : automationModel,
-            effort: pinnedAutomationAgent == nil ? nil : automationEffort
-        )
-    }
-
-    // MARK: - Agent tab strip (EXP-208)
-
-    /// Horizontal centered pill tab strip with brand icons — the iOS twin of
-    /// the desktop dialog's `agent_tabs`. Selection goes through `selectAgent`
-    /// so a switch reseeds the options from the machine's per-agent defaults.
-    private var agentTabStrip: some View {
-        HStack(spacing: 8) {
-            ForEach(availableAgents, id: \.self) { value in
-                agentTab(value)
-            }
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private func agentTab(_ value: String) -> some View {
-        let selected = value == agent
-        return Button {
-            // Same no-op-on-reselect semantics as the old segmented Picker
-            // (`selectAgent` guards it too — a reselect keeps the edits).
-            guard value != agent else { return }
-            selectAgent(value)
-        } label: {
-            HStack(spacing: 6) {
-                Image("agent-\(value)")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 14, height: 14)
-                Text(Self.agentLabel(value))
-                    .font(.subheadline.weight(.medium))
-            }
-            .foregroundStyle(
-                selected
-                    ? DesignTokens.Palette.primaryForeground
-                    : .white.opacity(TextOpacity.secondary)
-            )
-            .padding(.horizontal, 14)
-            .padding(.vertical, 7)
-            .background(
-                selected ? DesignTokens.Palette.primary : Color.white.opacity(0.06),
-                in: Capsule()
-            )
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
+    /// Chat's run gate: a chat-capable machine, a non-blank prompt within the
+    /// contract's text cap, and the required repository.
+    private var canStartChat: Bool {
+        device != nil
+            && !chatPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && chatPrompt.count <= DomainContract.actionInputTextMax
+            && !chatRepoId.isEmpty
     }
 
     // MARK: - Bindings
@@ -1468,41 +1070,6 @@ struct StartCodingSheet: View {
         return ordered.isEmpty ? ["claude"] : ordered
     }
 
-    private var modelValues: [String] { Self.modelValues(for: agent) }
-
-    private var effortValues: [String] { Self.effortValues(for: agent) }
-
-    /// Claude's model is explicit-always; codex/pi offer a "CLI default" blank.
-    /// Parameterized because the seed validates an advertised value against the
-    /// agent it belongs to, which isn't always the selected one yet (EXP-437).
-    static func modelValues(for agent: String) -> [String] {
-        switch agent {
-        case "codex": [cliDefault] + DomainContract.codexModelValues
-        case "pi": [cliDefault] + DomainContract.piModelValues
-        default: DomainContract.codingModelValues
-        }
-    }
-
-    static func effortValues(for agent: String) -> [String] {
-        switch agent {
-        case "codex": DomainContract.codexEffortValues
-        case "pi": DomainContract.piThinkingValues
-        default: DomainContract.codingEffortValues
-        }
-    }
-
-    private var effortTitle: String {
-        switch agent {
-        case "codex": "Reasoning"
-        case "pi": "Thinking"
-        default: "Effort"
-        }
-    }
-
-    private static func defaultModel(for agent: String) -> String {
-        agent == "claude" ? (DomainContract.codingModelValues.first ?? "") : cliDefault
-    }
-
     /// Switch agent: model/effort/toggles reseed from the machine's defaults
     /// for the NEW agent (EXP-437 — they are per-agent), falling back to the
     /// agent's static defaults, then clamp to what it supports.
@@ -1512,17 +1079,11 @@ struct StartCodingSheet: View {
         applyAgentDefaults(for: value)
     }
 
-    /// Plan mode is claude (native) + pi (via the launcher-injected
-    /// extension, EXP-441); codex has no launch-into-plan mode.
-    static func supportsPlanMode(_ agent: String) -> Bool {
-        agent == "claude" || agent == "pi"
-    }
-
     private func clampToggles() {
         if agent != "claude" {
             ultracode = false
         }
-        if !Self.supportsPlanMode(agent) {
+        if !LaunchVocabulary.supportsPlanMode(agent) {
             planMode = false
         }
         if agent == "pi" {
@@ -1542,7 +1103,6 @@ struct StartCodingSheet: View {
         guard !seeded else { return }
         seeded = true
         applyDeviceDefaults()
-        seedSuggestedAutomation()
     }
 
     /// Reseed agent + every option from the resolved machine's advertised
@@ -1579,8 +1139,10 @@ struct StartCodingSheet: View {
     /// is the desktop's "CLI default", which for codex/pi IS the static default
     /// and for claude (explicit-always) means falling back to its first model.
     private static func seedModel(_ value: String?, for agent: String) -> String {
-        guard let value, !value.isEmpty, modelValues(for: agent).contains(value) else {
-            return defaultModel(for: agent)
+        guard let value, !value.isEmpty,
+              LaunchVocabulary.modelValues(for: agent).contains(value)
+        else {
+            return LaunchVocabulary.defaultModel(for: agent)
         }
         return value
     }
@@ -1588,7 +1150,9 @@ struct StartCodingSheet: View {
     /// An advertised effort/reasoning/thinking value; blank or unknown = the
     /// "CLI default" row (omit the flag).
     private static func seedEffort(_ value: String?, for agent: String) -> String {
-        guard let value, effortValues(for: agent).contains(value) else { return cliDefault }
+        guard let value, LaunchVocabulary.effortValues(for: agent).contains(value) else {
+            return LaunchVocabulary.cliDefault
+        }
         return value
     }
 
@@ -1624,19 +1188,21 @@ struct StartCodingSheet: View {
         resume && resumeCandidate != nil
     }
 
-    /// The chosen options in wire form — shared by both launch subjects.
+    /// The chosen options in wire form — shared by every launch subject.
     /// `resume` is set by `submit()` alone: single-issue starts only.
     private func buildOptions(resume: Bool? = nil) -> SteerStartOptions {
         let isClaude = agent == "claude"
         return SteerStartOptions(
             agent: agent,
-            model: model == Self.cliDefault ? "" : model,
-            effort: effort == Self.cliDefault ? "" : effort,
+            model: model == LaunchVocabulary.cliDefault ? "" : model,
+            effort: effort == LaunchVocabulary.cliDefault ? "" : effort,
             // The toggles only exist for the agents that support them — never
             // send a stale value the launcher would reject or misread.
             ultracode: isClaude ? ultracode : nil,
             // A resume never re-enters plan mode (mirrors the desktop clamp).
-            planMode: Self.supportsPlanMode(agent) ? (resume == true ? false : planMode) : nil,
+            planMode: LaunchVocabulary.supportsPlanMode(agent)
+                ? (resume == true ? false : planMode)
+                : nil,
             skipPermissions: agent == "pi" ? nil : skipPermissions,
             resume: resume
         )
@@ -1660,39 +1226,23 @@ struct StartCodingSheet: View {
         let options = buildOptions()
         // Values in wire form: text trimmed, blank optionals dropped (a
         // required blank can't get here — `canRunAction` gates it).
-        var values = ActionInputValues.wireValues(selectedActionInputs, values: inputValues)
-        // EXP-583: a configured automation rides the description as a
-        // machine-readable trailing block the creator agent copies verbatim
-        // into `exponential_automations_create` (byte-identical across the
-        // four clients — see AutomationNote.format).
-        if let spec = configuredAutomation {
-            values["description"] = (values["description"] ?? "") + AutomationNote.format(spec)
-        }
+        let values = ActionInputValues.wireValues(selectedActionInputs, values: inputValues)
         dismiss()
         onRunAction(device, action, options, values)
     }
 
-    static func agentLabel(_ value: String) -> String {
-        switch value {
-        case "claude": "Claude Code"
-        case "codex": "Codex"
-        case "pi": "pi"
-        default: value
-        }
-    }
-
-    static func modelLabel(_ value: String) -> String {
-        switch value {
-        case cliDefault: "CLI default"
-        case "gpt-5.6-sol": "GPT-5.6 Sol"
-        case "gpt-5.6-terra": "GPT-5.6 Terra"
-        case "gpt-5.6-luna": "GPT-5.6 Luna"
-        case "grok-4.5": "Grok 4.5"
-        default: value.prefix(1).uppercased() + value.dropFirst()
-        }
-    }
-
-    static func effortLabel(_ value: String) -> String {
-        value == "xhigh" ? "XHigh" : value.prefix(1).uppercased() + value.dropFirst()
+    /// EXP-615: a chat start is an ordinary action run of the HIDDEN
+    /// `builtin:chat` action, constructed locally (it is in no list, on any
+    /// client) and carrying its two inputs.
+    private func submitChat() {
+        guard let device, let teamId, let onRunAction, canStartChat else { return }
+        let action = ActionDto.builtinChatAction(teamId: teamId)
+        let options = buildOptions()
+        let values = ActionInputValues.wireValues(
+            action.inputs ?? [],
+            values: ["prompt": chatPrompt, "repo": chatRepoId]
+        )
+        dismiss()
+        onRunAction(device, action, options, values)
     }
 }

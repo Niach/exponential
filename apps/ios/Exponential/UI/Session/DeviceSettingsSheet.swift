@@ -34,9 +34,6 @@ struct DeviceSettingsSheet: View {
     @Environment(\.accountId) private var accountId
     @Environment(\.dismiss) private var dismiss
 
-    /// Sentinel for the blank "CLI default" choice (the StartCodingSheet
-    /// convention — omit the flag; for codex/pi also the omit-model default).
-    private static let cliDefault = "cli-default"
     /// Sentinel tag for "Not shared" in the team picker.
     private static let notShared = "not-shared"
     /// Typing/tapping settles before a save goes out — the issue-detail
@@ -202,26 +199,26 @@ struct DeviceSettingsSheet: View {
     /// The advertised per-agent defaults as a draft, contract-validated with
     /// static fallbacks (the StartCodingSheet seeding semantics).
     private static func draft(from advertised: AgentLaunchDefaults?, agent: String) -> AgentDraft {
-        let models = modelValues(for: agent)
+        let models = LaunchVocabulary.modelValues(for: agent)
         let model: String
         if let value = advertised?.model, !value.isEmpty, models.contains(value) {
             model = value
         } else if let value = advertised?.model, value.isEmpty, agent != "claude" {
-            model = cliDefault
+            model = LaunchVocabulary.cliDefault
         } else {
-            model = defaultModel(for: agent)
+            model = LaunchVocabulary.defaultModel(for: agent)
         }
         let effort: String
-        if let value = advertised?.effort, effortValues(for: agent).contains(value) {
+        if let value = advertised?.effort, LaunchVocabulary.effortValues(for: agent).contains(value) {
             effort = value
         } else {
-            effort = cliDefault
+            effort = LaunchVocabulary.cliDefault
         }
         return AgentDraft(
             model: model,
             effort: effort,
             ultracode: agent == "claude" && (advertised?.ultracode ?? false),
-            planMode: supportsPlanMode(agent) && (advertised?.planMode ?? false),
+            planMode: LaunchVocabulary.supportsPlanMode(agent) && (advertised?.planMode ?? false),
             skipPermissions: agent != "pi" && (advertised?.skipPermissions ?? false)
         )
     }
@@ -380,38 +377,38 @@ struct DeviceSettingsSheet: View {
                     "Default agent",
                     selection: defaultAgentBinding,
                     options: agents,
-                    label: { Self.agentLabel($0) }
+                    label: { LaunchVocabulary.agentLabel($0) }
                 )
                 // Which agent's options are on screen — a view choice, never
                 // an edit, so it deliberately bypasses the autosave.
                 GlassSegmentedControl(
                     options: agents,
                     selection: selectedAgent,
-                    label: { Self.agentLabel($0) },
+                    label: { LaunchVocabulary.agentLabel($0) },
                     onSelect: { selectedAgent = $0 }
                 )
-                .accessibilityLabel("Agent")
                 .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
             }
             if let draft = drafts[selectedAgent] {
                 GlassPickerRow(
                     "Model",
                     selection: draftBinding(\.model),
-                    options: Self.modelValues(for: selectedAgent),
-                    label: { Self.modelLabel($0) }
+                    options: LaunchVocabulary.modelValues(for: selectedAgent),
+                    label: { LaunchVocabulary.modelLabel($0) }
                 )
                 GlassPickerRow(
-                    Self.effortTitle(for: selectedAgent),
+                    LaunchVocabulary.effortTitle(for: selectedAgent),
                     selection: draftBinding(\.effort),
-                    options: [Self.cliDefault] + Self.effortValues(for: selectedAgent),
-                    label: { $0 == Self.cliDefault ? "CLI default" : Self.effortLabel($0) },
+                    options: [LaunchVocabulary.cliDefault] + LaunchVocabulary.effortValues(for: selectedAgent),
+                    label: { $0 == LaunchVocabulary.cliDefault ? "CLI default" : LaunchVocabulary.effortLabel($0) },
                     enabled: !(selectedAgent == "claude" && draft.ultracode)
                 )
                 if selectedAgent == "claude" {
                     Toggle("Ultracode", isOn: draftBinding(\.ultracode))
                 }
-                if Self.supportsPlanMode(selectedAgent) {
+                if LaunchVocabulary.supportsPlanMode(selectedAgent) {
                     Toggle("Plan mode", isOn: draftBinding(\.planMode))
                 }
                 if selectedAgent != "pi" {
@@ -478,10 +475,10 @@ struct DeviceSettingsSheet: View {
         var agents: [String: AgentLaunchDefaultsInput] = [:]
         for (agent, draft) in drafts {
             agents[agent] = AgentLaunchDefaultsInput(
-                model: draft.model == Self.cliDefault ? "" : draft.model,
-                effort: draft.effort == Self.cliDefault ? "" : draft.effort,
+                model: draft.model == LaunchVocabulary.cliDefault ? "" : draft.model,
+                effort: draft.effort == LaunchVocabulary.cliDefault ? "" : draft.effort,
                 ultracode: agent == "claude" ? draft.ultracode : nil,
-                planMode: Self.supportsPlanMode(agent) ? draft.planMode : nil,
+                planMode: LaunchVocabulary.supportsPlanMode(agent) ? draft.planMode : nil,
                 skipPermissions: agent == "pi" ? nil : draft.skipPermissions
             )
         }
@@ -697,63 +694,5 @@ struct DeviceSettingsSheet: View {
                 commandErrors[targetKey] = error.localizedDescription
             }
         }
-    }
-
-    // MARK: - Vocabulary (mirrors StartCodingSheet)
-
-    private static func modelValues(for agent: String) -> [String] {
-        switch agent {
-        case "codex": [cliDefault] + DomainContract.codexModelValues
-        case "pi": [cliDefault] + DomainContract.piModelValues
-        default: DomainContract.codingModelValues
-        }
-    }
-
-    private static func effortValues(for agent: String) -> [String] {
-        switch agent {
-        case "codex": DomainContract.codexEffortValues
-        case "pi": DomainContract.piThinkingValues
-        default: DomainContract.codingEffortValues
-        }
-    }
-
-    private static func defaultModel(for agent: String) -> String {
-        agent == "claude" ? (DomainContract.codingModelValues.first ?? "") : cliDefault
-    }
-
-    private static func effortTitle(for agent: String) -> String {
-        switch agent {
-        case "codex": "Reasoning"
-        case "pi": "Thinking"
-        default: "Effort"
-        }
-    }
-
-    private static func supportsPlanMode(_ agent: String) -> Bool {
-        agent == "claude" || agent == "pi"
-    }
-
-    private static func agentLabel(_ value: String) -> String {
-        switch value {
-        case "claude": "Claude Code"
-        case "codex": "Codex"
-        case "pi": "pi"
-        default: value
-        }
-    }
-
-    private static func modelLabel(_ value: String) -> String {
-        switch value {
-        case cliDefault: "CLI default"
-        case "gpt-5.6-sol": "GPT-5.6 Sol"
-        case "gpt-5.6-terra": "GPT-5.6 Terra"
-        case "gpt-5.6-luna": "GPT-5.6 Luna"
-        case "grok-4.5": "Grok 4.5"
-        default: value.prefix(1).uppercased() + value.dropFirst()
-        }
-    }
-
-    private static func effortLabel(_ value: String) -> String {
-        value == "xhigh" ? "XHigh" : value.prefix(1).uppercased() + value.dropFirst()
     }
 }

@@ -12,14 +12,7 @@ import {
   ACTION_SUGGESTIONS,
   type ActionSuggestion,
 } from "@/lib/action-suggestions"
-import {
-  Github,
-  LoaderCircle,
-  Ellipsis,
-  Pencil,
-  Play,
-  Trash2,
-} from "lucide-react"
+import { Github, LoaderCircle, Ellipsis, Pencil, Trash2 } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
 import { trpc } from "@/lib/trpc-client"
 import { SectionLabel } from "@/components/agent-session-row"
@@ -73,6 +66,8 @@ const ActionCreateIcon = conceptIcon(`action-create`)
 const ActionAutomationIcon = conceptIcon(`action-automation`)
 const ActionSuggestionIcon = conceptIcon(`action-suggestion`)
 const ActionRepositoryIcon = conceptIcon(`action-repository`)
+// EXP-615: running is a play icon button on every client — no text label.
+const ActionRunIcon = conceptIcon(`action-run`)
 
 type AgentsTab = `actions` | `automations` | `suggestions`
 
@@ -183,12 +178,13 @@ function ActionCard({
         <div className="mt-auto pt-1">
           <Button
             variant="outline"
-            size="sm"
+            size="icon"
             disabled={runBusy}
             onClick={onRun}
+            aria-label="Run"
+            title="Run"
           >
-            <Play />
-            Run
+            <ActionRunIcon />
           </Button>
         </div>
       )}
@@ -253,9 +249,15 @@ function ActionRow({
         )}
       </div>
       {canRun && (
-        <Button variant="outline" size="sm" disabled={runBusy} onClick={onRun}>
-          <Play />
-          Run
+        <Button
+          variant="outline"
+          size="icon"
+          disabled={runBusy}
+          onClick={onRun}
+          aria-label="Run"
+          title="Run"
+        >
+          <ActionRunIcon />
         </Button>
       )}
       {isOwner && !action.builtin && (

@@ -187,6 +187,14 @@ data class SteerDevice(
     val canFixConflicts: Boolean get() = caps?.contains("fix-conflicts") == true
 
     /**
+     * Whether this desktop can run the hidden "Chat" builtin (EXP-615) — a
+     * free-prompt session on a repository's trunk clone. Cap-gated like
+     * fix-conflicts: an older build would treat the id as a real action and
+     * fail its fetch, so the Chat tab filters such desktops out.
+     */
+    val canChat: Boolean get() = caps?.contains("chat") == true
+
+    /**
      * Whether this machine honors `resume` on a remote start (EXP-481).
      * Strictly cap-gated like actions — an old build would silently drop the
      * flag and start fresh, which reads as losing the session.

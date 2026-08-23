@@ -32,6 +32,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.SteerDevice
+import com.exponential.app.data.db.AutomationEntity
 import com.exponential.app.domain.AutomationTrigger
 import com.exponential.app.ui.components.GlassPillButton
 import com.exponential.app.ui.components.OptionGroup
@@ -41,14 +42,16 @@ import com.exponential.app.ui.issue.StartCodingSheetViewModel
 import com.exponential.app.ui.theme.TextEmphasis
 
 /**
- * The "New automation" form (EXP-583) — the mobile twin of the web dialog:
- * pick an action, a trigger (Schedule | On event with the shared filter
- * pickers), the machine it runs on, and optionally pin an agent/model/effort.
- * Owner-only; the caller renders it and the server re-checks everything.
+ * The "New automation" / "Edit automation" form (EXP-583, editing since
+ * EXP-615) — the mobile twin of the web dialog: pick an action, a trigger
+ * (Schedule | On event with the shared filter pickers), the machine it runs
+ * on, and optionally pin an agent/model/effort. Owner-only; the caller renders
+ * it and the server re-checks everything.
  *
- * Only AUTOMATABLE actions are offered: a real team action (never a builtin)
- * whose inputs are all optional, because an automated run has nobody to fill a
- * required one — the same rule the server enforces on create.
+ * Every custom action is offered (builtins have no team row to target), but an
+ * action with a REQUIRED input cannot be automated — an automated run has
+ * nobody to fill it in — so picking one blocks the submit and explains why,
+ * exactly like the web dialog's disabled rows.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,6 +62,8 @@ fun AutomationFormSheet(
     error: String?,
     onSubmit: (actionId: String, deviceId: String, trigger: AutomationTrigger, agent: String?, model: String?, effort: String?) -> Unit,
     onDismiss: () -> Unit,
+    /** The row being edited; null = create a new automation. */
+    editing: AutomationEntity? = null,
     dataViewModel: StartCodingSheetViewModel = hiltViewModel(),
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -66,14 +71,33 @@ fun AutomationFormSheet(
     val labelOptions by dataViewModel.labelOptions.collectAsStateWithLifecycle()
     val statusOptions by dataViewModel.statusOptions.collectAsStateWithLifecycle()
 
-    val targets = remember(actions) { actions.filter { it.automatable } }
-    var actionId by remember { mutableStateOf(targets.firstOrNull()?.id) }
-    var draft by remember { mutableStateOf(automationDraftFor(null)) }
+    // Custom actions only — builtins are server-shipped prompts with required
+    // inputs and no team row to target (web parity).
+    val targets = remember(actions) { actions.filter { !it.isBuiltin } }
+    var actionId by remember {
+        mutableStateOf(editing?.actionId ?: targets.firstOrNull { it.automatable }?.id)
+    }
+    var draft by remember {
+        mutableStateOf(
+            if (editing == null) {
+                automationDraftFor(null)
+            } else {
+                automationDraftFor(
+                    AutomationTrigger.parse(editing.trigger),
+                    deviceId = editing.deviceId,
+                ).copy(
+                    agent = editing.agent.orEmpty(),
+                    model = editing.model.orEmpty(),
+                    effort = editing.effort.orEmpty(),
+                )
+            },
+        )
+    }
 
     // Settle the pickers as the synced rows land, without stomping a manual
     // pick (both latches check for an existing value first).
     LaunchedEffect(targets) {
-        if (actionId == null) actionId = targets.firstOrNull()?.id
+        if (actionId == null) actionId = targets.firstOrNull { it.automatable }?.id
     }
     LaunchedEffect(devices) {
         if (draft.deviceId == null) {
@@ -83,7 +107,10 @@ fun AutomationFormSheet(
 
     val trigger = automationDraftToTrigger(draft)
     val deviceId = draft.deviceId
-    val canCreate = actionId != null && deviceId != null && trigger != null && !busy
+    val selectedAction = targets.firstOrNull { it.id == actionId }
+    val blockedByInputs = selectedAction != null && !selectedAction.automatable
+    val canSubmit = actionId != null && deviceId != null && trigger != null &&
+        !blockedByInputs && !busy
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -98,7 +125,10 @@ fun AutomationFormSheet(
             ) {
                 GlassPillButton(label = "Cancel", onClick = onDismiss)
                 Spacer(Modifier.weight(1f))
-                Text("New automation", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    if (editing == null) "New automation" else "Edit automation",
+                    style = MaterialTheme.typography.titleSmall,
+                )
                 Spacer(Modifier.weight(1f))
                 Button(
                     onClick = {
@@ -114,7 +144,7 @@ fun AutomationFormSheet(
                             draft.effort.takeIf { it.isNotEmpty() },
                         )
                     },
-                    enabled = canCreate,
+                    enabled = canSubmit,
                 ) {
                     if (busy) {
                         CircularProgressIndicator(
@@ -123,7 +153,8 @@ fun AutomationFormSheet(
                             color = MaterialTheme.colorScheme.onPrimary,
                         )
                     } else {
-                        Text("Create")
+                        // Web-parity wording (EXP-615).
+                        Text(if (editing == null) "Create automation" else "Save changes")
                     }
                 }
             }
@@ -134,12 +165,12 @@ fun AutomationFormSheet(
                     .weight(1f)
                     .verticalScroll(rememberScrollState()),
             ) {
-                SectionLabel("Action")
+                // No "Action" section header — the row below already says it
+                // (EXP-615 dedupe).
                 if (targets.isEmpty()) {
                     OptionGroup {
                         Text(
-                            "No action can be automated yet. Automations run actions whose " +
-                                "inputs are all optional.",
+                            "No custom actions yet. Create one first, then automate it.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
@@ -148,12 +179,21 @@ fun AutomationFormSheet(
                 } else {
                     OptionGroup {
                         PickerRow(
-                            label = "Runs",
-                            value = targets.firstOrNull { it.id == actionId }?.name ?: "Select",
+                            label = "Action",
+                            value = selectedAction?.name ?: "Select",
                             options = targets.map { it.id },
                             selected = actionId,
                             optionLabel = { id -> targets.firstOrNull { it.id == id }?.name ?: id },
                             onSelect = { actionId = it },
+                        )
+                    }
+                    if (blockedByInputs) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            REQUIRED_INPUTS_HINT,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                            modifier = Modifier.padding(horizontal = 32.dp),
                         )
                     }
                 }
@@ -169,7 +209,6 @@ fun AutomationFormSheet(
                 )
                 Spacer(Modifier.height(8.dp))
 
-                SectionLabel("Machine")
                 AutomationBindingFields(
                     draft = draft,
                     devices = devices,
@@ -190,3 +229,9 @@ fun AutomationFormSheet(
         }
     }
 }
+
+/** Same sentence the web dialog and the Automations tab show on a locked row —
+ * one reason, one wording, wherever a required input blocks automating. */
+internal const val REQUIRED_INPUTS_HINT =
+    "This action has required inputs, and an automated run has none to fill them with. " +
+        "Make the inputs optional to enable it."

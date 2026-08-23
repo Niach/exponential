@@ -25,9 +25,15 @@ pub const BUILTIN_CREATE_ACTION_ID: &str = domain::contract::BUILTIN_CREATE_ACTI
 /// pushes, and merges via the `exponential_pr_merge` MCP tool.
 pub const BUILTIN_FIX_CONFLICTS_ID: &str = domain::contract::BUILTIN_FIX_CONFLICTS_ID;
 
+/// The hidden "Chat" builtin's id (EXP-615) — a free-prompt agent session on
+/// a repository's trunk clone at its default branch. Unlike the other two it
+/// is NEVER appended to `actions.list` or any picker: the Start-coding
+/// dialog's Chat tab constructs [`builtin_chat_action`] directly.
+pub const BUILTIN_CHAT_ID: &str = domain::contract::BUILTIN_CHAT_ID;
+
 /// Whether `id` is a server-defined virtual builtin action id.
 pub fn is_builtin_action_id(id: &str) -> bool {
-    id == BUILTIN_CREATE_ACTION_ID || id == BUILTIN_FIX_CONFLICTS_ID
+    id == BUILTIN_CREATE_ACTION_ID || id == BUILTIN_FIX_CONFLICTS_ID || id == BUILTIN_CHAT_ID
 }
 
 /// The name each builtin renders under (web `builtinActionName`). `None` =
@@ -37,6 +43,7 @@ pub fn builtin_action_name(id: &str) -> Option<&'static str> {
     match id {
         BUILTIN_CREATE_ACTION_ID => Some(BUILTIN_CREATE_ACTION_NAME),
         BUILTIN_FIX_CONFLICTS_ID => Some(BUILTIN_FIX_CONFLICTS_NAME),
+        BUILTIN_CHAT_ID => Some(BUILTIN_CHAT_NAME),
         _ => None,
     }
 }
@@ -48,12 +55,14 @@ pub fn builtin_action_icon(id: &str) -> Option<&'static str> {
     match id {
         BUILTIN_CREATE_ACTION_ID => Some("sparkles"),
         BUILTIN_FIX_CONFLICTS_ID => Some("git-branch"),
+        BUILTIN_CHAT_ID => Some("message-circle"),
         _ => None,
     }
 }
 
 const BUILTIN_CREATE_ACTION_NAME: &str = "Create action";
 const BUILTIN_FIX_CONFLICTS_NAME: &str = "Fix merge conflicts";
+const BUILTIN_CHAT_NAME: &str = "Chat";
 
 /// One typed run-time input definition on an action (EXP-257 — filled in the
 /// unified launch dialog, resolved server-side for remote starts).
@@ -301,6 +310,16 @@ pub fn builtin_create_action(team_id: &str) -> Action {
                 required: true,
                 placeholder: Some("What should this action do?".to_string()),
             },
+            // EXP-615: the optional name the author typed — blank hands the
+            // naming back to the creator agent (web parity, order included:
+            // description → name → repo → icon).
+            ActionInput {
+                key: "name".to_string(),
+                label: "Name".to_string(),
+                input_type: "text".to_string(),
+                required: false,
+                placeholder: Some("Leave blank to let the agent name it".to_string()),
+            },
             ActionInput {
                 key: "repo".to_string(),
                 label: "Repository".to_string(),
@@ -351,6 +370,43 @@ pub fn builtin_fix_conflicts_action(team_id: &str) -> Action {
             placeholder: None,
         }],
         sort_order: 1e9 + 1.0,
+        created_at: None,
+        updated_at: None,
+    }
+}
+
+/// The client-constructed hidden "Chat" row (EXP-615): a free-prompt agent
+/// session on the picked repository's trunk clone at its default branch — no
+/// worktree, no branch, no PR contract. Deliberately appended to NO list; the
+/// Start-coding dialog's Chat tab builds it directly. Mirrors the web's
+/// `builtinChatAction`.
+pub fn builtin_chat_action(team_id: &str) -> Action {
+    Action {
+        id: BUILTIN_CHAT_ID.to_string(),
+        team_id: team_id.to_string(),
+        repository_id: None,
+        name: BUILTIN_CHAT_NAME.to_string(),
+        description: Some("Chat with your agent on a repository".to_string()),
+        icon: Some("message-circle".to_string()),
+        body: String::new(),
+        builtin: true,
+        inputs: vec![
+            ActionInput {
+                key: "prompt".to_string(),
+                label: "Prompt".to_string(),
+                input_type: "textarea".to_string(),
+                required: true,
+                placeholder: Some("What should the agent do?".to_string()),
+            },
+            ActionInput {
+                key: "repo".to_string(),
+                label: "Repository".to_string(),
+                input_type: "repo".to_string(),
+                required: true,
+                placeholder: None,
+            },
+        ],
+        sort_order: 1e9 + 2.0,
         created_at: None,
         updated_at: None,
     }
@@ -589,7 +645,45 @@ mod tests {
             builtin_action_icon(BUILTIN_FIX_CONFLICTS_ID),
             builtin_fix_conflicts_action("team-1").icon.as_deref()
         );
+        assert_eq!(
+            builtin_action_icon(BUILTIN_CHAT_ID),
+            builtin_chat_action("team-1").icon.as_deref()
+        );
         assert_eq!(builtin_action_icon("act-1"), None);
+    }
+
+    /// EXP-615: the hidden chat builtin — byte parity with the web factory
+    /// (`builtinChatAction`), including its two required inputs and the
+    /// sortOrder that keeps it behind the other two builtins wherever a naive
+    /// renderer ever sees it.
+    #[test]
+    fn builtin_chat_action_matches_the_web_factory() {
+        let builtin = builtin_chat_action("team-1");
+        assert_eq!(builtin.id, BUILTIN_CHAT_ID);
+        assert_eq!(builtin.id, "builtin:chat");
+        assert!(builtin.builtin);
+        assert!(builtin.body.is_empty());
+        assert_eq!(builtin.name, "Chat");
+        assert_eq!(
+            builtin.description.as_deref(),
+            Some("Chat with your agent on a repository")
+        );
+        assert_eq!(builtin.icon.as_deref(), Some("message-circle"));
+        assert_eq!(builtin.inputs.len(), 2);
+        assert_eq!(builtin.inputs[0].key, "prompt");
+        assert_eq!(builtin.inputs[0].input_type, "textarea");
+        assert!(builtin.inputs[0].required);
+        assert_eq!(
+            builtin.inputs[0].placeholder.as_deref(),
+            Some("What should the agent do?")
+        );
+        assert_eq!(builtin.inputs[1].key, "repo");
+        assert_eq!(builtin.inputs[1].input_type, "repo");
+        assert!(builtin.inputs[1].required);
+        assert_eq!(builtin.sort_order, 1e9 + 2.0);
+        // The name snapshot the session row carries.
+        assert_eq!(builtin_action_name(BUILTIN_CHAT_ID), Some("Chat"));
+        assert!(is_builtin_action_id(BUILTIN_CHAT_ID));
     }
 
     #[test]
@@ -599,12 +693,21 @@ mod tests {
         assert!(builtin.builtin);
         assert!(builtin.body.is_empty());
         assert_eq!(builtin.name, "Create action");
-        // EXP-273 appended the optional `icon` picker after description+repo.
-        assert_eq!(builtin.inputs.len(), 3);
+        // EXP-273 appended the optional `icon` picker after description+repo;
+        // EXP-615 slotted the optional `name` between description and repo.
+        assert_eq!(builtin.inputs.len(), 4);
+        assert_eq!(builtin.inputs[0].key, "description");
         assert!(builtin.inputs[0].required);
-        assert_eq!(builtin.inputs[1].input_type, "repo");
-        assert_eq!(builtin.inputs[2].input_type, "icon");
-        assert!(!builtin.inputs[2].required);
+        assert_eq!(builtin.inputs[1].key, "name");
+        assert_eq!(builtin.inputs[1].input_type, "text");
+        assert!(!builtin.inputs[1].required);
+        assert_eq!(
+            builtin.inputs[1].placeholder.as_deref(),
+            Some("Leave blank to let the agent name it")
+        );
+        assert_eq!(builtin.inputs[2].input_type, "repo");
+        assert_eq!(builtin.inputs[3].input_type, "icon");
+        assert!(!builtin.inputs[3].required);
         assert_eq!(builtin.icon.as_deref(), Some("sparkles"));
         // Pinned first by flag; the huge sortOrder only keeps naive
         // sortOrder-asc renderers from interleaving it.

@@ -47,7 +47,7 @@ import com.exponential.app.data.api.DeviceLaunchDefaults
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.db.DeviceWorktreeEntity
 import com.exponential.app.domain.DomainContract
-import com.exponential.app.ui.components.AgentTab
+import com.exponential.app.ui.components.AgentSegmentedTabs
 import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
 import com.exponential.app.ui.components.CLI_DEFAULT_MODEL
 import com.exponential.app.ui.components.DEFAULT_AGENT
@@ -299,21 +299,14 @@ fun DeviceSettingsSheet(
                 }
                 Spacer(Modifier.height(4.dp))
                 if (editableAgents.size > 1) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp),
-                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement
-                            .spacedBy(8.dp, Alignment.CenterHorizontally),
-                    ) {
-                        editableAgents.forEach { value ->
-                            AgentTab(
-                                value = value,
-                                selected = agentTab == value,
-                                onClick = { agentTab = value },
-                            )
-                        }
-                    }
+                    // EXP-615: the same one-capsule agent strip the launch
+                    // dialogs render.
+                    AgentSegmentedTabs(
+                        agents = editableAgents,
+                        selected = agentTab,
+                        onSelect = { agentTab = it },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
                     Spacer(Modifier.height(4.dp))
                 }
                 val draft = drafts[agentTab] ?: agentDraft(device, agentTab)

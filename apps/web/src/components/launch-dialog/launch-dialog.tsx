@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import { LoaderCircle, MonitorUp } from "lucide-react"
-import { contract } from "@exp/domain-contract"
 import type { CodingSession, Issue, SyncedDeviceWorktree } from "@/db/schema"
 import { isCodingSessionStale } from "@exp/db-schema/domain"
 import { useNow } from "@/hooks/use-now"
@@ -12,28 +11,21 @@ import {
   issueCollection,
 } from "@/lib/collections"
 import {
+  BUILTIN_CHAT_ID,
+  BUILTIN_CHAT_NAME,
   BUILTIN_FIX_CONFLICTS_ID,
   builtinFixConflictsAction,
 } from "@/lib/builtin-actions"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import { trpc } from "@/lib/trpc-client"
 import { missingRequiredInputs, buildInputsPayload } from "@/lib/action-inputs"
+import type { CodingLaunchPrefs } from "@/lib/coding-launch-prefs"
 import {
-  agentSeed,
-  agentSupportsPlanMode,
-  agentSupportsSkipPermissions,
-  agentSupportsUltracode,
-  DEFAULT_LAUNCH_AGENT,
-  type CodingLaunchPrefs,
-} from "@/lib/coding-launch-prefs"
-import {
-  deviceAgentIds,
-  deviceAgentLaunchDefaults,
+  deviceCanChat,
   deviceCanFixConflicts,
   deviceCanResume,
   deviceCanRunActionInputs,
   deviceCanRunActions,
-  deviceDefaultAgent,
   deviceHasRunnableAgent,
   deviceIsOnline,
   resumeWorktree,
@@ -58,12 +50,11 @@ import {
   MAX_ISSUES_PER_RUN,
 } from "@/components/launch-dialog/issues-pane"
 import { ActionsPane } from "@/components/launch-dialog/actions-pane"
-import {
-  CLI_DEFAULT_EFFORT,
-  LaunchOptionsPane,
-} from "@/components/launch-dialog/launch-options-pane"
+import { ChatPane } from "@/components/launch-dialog/chat-pane"
+import { LaunchOptionsPane } from "@/components/launch-dialog/launch-options-pane"
+import { useLaunchOptions } from "@/components/launch-dialog/use-launch-options"
 
-// The unified launch dialog (EXP-257) — Issues | Actions tabs over ONE
+// The unified launch dialog (EXP-257) — Issues | Actions | Chat tabs over ONE
 // shared options cluster, the web twin of the desktop IDE's launcher.
 // Issues tab (EXP-106): a searchable multi-issue picker — 1 checked issue
 // starts a plain single-issue session; 2+ start a BATCH session on one pushed
@@ -74,6 +65,9 @@ import {
 // lives in its own dedicated dialog since EXP-431) plus the action's typed
 // input fields; action runs take the FULL option set on any agent the device
 // advertised.
+// Chat tab (EXP-615): a free prompt on a repository's default branch, running
+// as the hidden "Chat" builtin over the same action rails — no issue, no
+// branch, no PR. Only devices advertising the `chat` cap can receive it.
 //
 // EXP-437: the options seed from the SELECTED DEVICE's advertised per-agent
 // launch defaults (that machine's Settings → Agents configuration) — on
@@ -85,7 +79,7 @@ import {
  * the prefs module persists. */
 export type StartCodingOptions = CodingLaunchPrefs
 
-export type LaunchTab = `issues` | `actions`
+export type LaunchTab = `issues` | `actions` | `chat`
 
 // Only issues in a state worth coding are offered (mirrors the desktop picker).
 // EXP-314: deliberately keyed on the dual-written ANCHOR enum, not on status
@@ -159,24 +153,16 @@ export function LaunchDialog({
   ) => void
 }) {
   const [tab, setTab] = useState<LaunchTab>(`issues`)
-  const [agent, setAgent] = useState<string>(contract.codingAgent.values[0])
-  const [model, setModel] = useState(contract.codingModel.values[0])
-  const [effortValue, setEffortValue] = useState(CLI_DEFAULT_EFFORT)
-  const [ultracode, setUltracode] = useState(false)
-  const [planMode, setPlanMode] = useState(false)
-  const [skipPermissions, setSkipPermissions] = useState(false)
-  const [deviceId, setDeviceId] = useState<string | null>(null)
   const [search, setSearch] = useState(``)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   // EXP-481: "Resume previous session" — default ON whenever it first becomes
   // eligible (reset on open); a manual toggle simply sticks, since nothing
   // ever re-sets it after open.
   const [resume, setResume] = useState(true)
-  // EXP-437: the deviceId whose launch defaults last seeded the options —
-  // the 15s devices re-poll must not stomp in-dialog edits, but an actual
-  // device change (explicit switch, or a re-settle after the picked machine
-  // dropped offline) reseeds.
-  const seededDeviceRef = useRef<string | null>(null)
+
+  // Chat tab state (EXP-615).
+  const [chatPrompt, setChatPrompt] = useState(``)
+  const [chatRepoId, setChatRepoId] = useState(``)
 
   // Actions tab state (EXP-257).
   const [actionSearch, setActionSearch] = useState(``)
@@ -194,11 +180,13 @@ export function LaunchDialog({
     let active = true
     trpc.repositories.list
       .query({ teamId })
-      .then(
-        (rows) =>
-          active &&
-          setRepos(rows.map((r) => ({ id: r.id, fullName: r.fullName })))
-      )
+      .then((rows) => {
+        if (!active) return
+        const options = rows.map((r) => ({ id: r.id, fullName: r.fullName }))
+        setRepos(options)
+        // Chat REQUIRES a repo — with exactly one there is nothing to pick.
+        if (options.length === 1) setChatRepoId(options[0]!.id)
+      })
       .catch(() => {})
     return () => {
       active = false
@@ -354,19 +342,9 @@ export function LaunchDialog({
     setSelectedActionId(initialActionId ?? null)
     setInputValues({})
     seededRepoActionId.current = null
-    setDeviceId(initialDeviceId ?? null)
+    setChatPrompt(``)
+    setChatRepoId(``)
     setResume(true)
-    // Static contract defaults until a device settles — the device-seed
-    // effect below overlays the selected machine's advertised defaults
-    // (EXP-437; its latch is reset here so a reopen reseeds).
-    seededDeviceRef.current = null
-    const seed = agentSeed(DEFAULT_LAUNCH_AGENT, null)
-    setAgent(DEFAULT_LAUNCH_AGENT)
-    setModel(seed.model)
-    setEffortValue(CLI_DEFAULT_EFFORT)
-    setSkipPermissions(seed.skipPermissions)
-    setUltracode(seed.ultracode)
-    setPlanMode(seed.planMode)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
@@ -388,10 +366,10 @@ export function LaunchDialog({
     }
   }, [open, selectedActionId, actions])
 
-  // Per-tab device candidates: Issues offers every online desktop; Actions
-  // only actions-capable ones, tightened to action-inputs-capable when the
-  // selected action is the builtin or declares inputs (the server enforces
-  // the same caps at start time).
+  // Per-tab device candidates: Issues offers every online desktop; Chat only
+  // chat-capable ones (EXP-615); Actions only actions-capable ones, tightened
+  // to action-inputs-capable when the selected action is the builtin or
+  // declares inputs (the server enforces the same caps at start time).
   const needsInputsCap = Boolean(
     selectedAction && (selectedAction.builtin || inputDefs.length > 0)
   )
@@ -406,31 +384,32 @@ export function LaunchDialog({
     const online = devices
       .filter(deviceIsOnline)
       .filter(deviceHasRunnableAgent)
-    return tab === `issues`
-      ? online
-      : online.filter(
-          (candidate) =>
-            deviceCanRunActions(candidate) &&
-            (!needsInputsCap || deviceCanRunActionInputs(candidate)) &&
-            (!needsFixConflictsCap || deviceCanFixConflicts(candidate))
-        )
+    if (tab === `issues`) return online
+    // Chat rides the builtin-action rails, so the server gates it on the
+    // action caps too — mirror the exact gate here (parity with iOS/Android).
+    if (tab === `chat`)
+      return online.filter(
+        (candidate) =>
+          deviceCanRunActions(candidate) &&
+          deviceCanRunActionInputs(candidate) &&
+          deviceCanChat(candidate)
+      )
+    return online.filter(
+      (candidate) =>
+        deviceCanRunActions(candidate) &&
+        (!needsInputsCap || deviceCanRunActionInputs(candidate)) &&
+        (!needsFixConflictsCap || deviceCanFixConflicts(candidate))
+    )
   }, [devices, tab, needsInputsCap, needsFixConflictsCap])
 
-  // Settle the device on open + whenever the candidate list changes (tab
-  // switch, action selection, a desktop connecting mid-dialog); a still-valid
-  // current choice is kept, else the first candidate wins.
-  useEffect(() => {
-    if (!open) return
-    setDeviceId((current) =>
-      current && candidateDevices.some((d) => d.deviceId === current)
-        ? current
-        : (candidateDevices[0]?.deviceId ?? null)
-    )
-  }, [open, candidateDevices])
-
-  const device =
-    candidateDevices.find((candidate) => candidate.deviceId === deviceId) ??
-    candidateDevices[0]
+  // The shared device-settle + device-seeded agent/model/effort cluster
+  // (EXP-437/EXP-201), identical to the create-action dialog's.
+  const launch = useLaunchOptions({
+    open,
+    devices: candidateDevices,
+    initialDeviceId,
+  })
+  const { agent, device } = launch
 
   const toggleIssue = (id: string) => {
     const next = new Set(selected)
@@ -446,55 +425,6 @@ export function LaunchDialog({
     // not leak into the new one's payload.
     setInputValues({})
   }
-
-  // Switching the agent tab re-seeds model/effort/toggles to the SELECTED
-  // DEVICE's defaults for that agent (EXP-437; static when it advertises
-  // none), capability-clamped — the same reseed the desktop dialog does.
-  const switchAgent = (next: string) => {
-    if (next === agent) return
-    setAgent(next)
-    const seed = agentSeed(next, deviceAgentLaunchDefaults(device, next))
-    setModel(seed.model)
-    setEffortValue(seed.effort === `` ? CLI_DEFAULT_EFFORT : seed.effort)
-    setSkipPermissions(seed.skipPermissions)
-    setUltracode(seed.ultracode)
-    setPlanMode(seed.planMode)
-  }
-
-  // EXP-437: seed the launch options from the selected device's advertised
-  // per-agent defaults — once a device settles after open, and again on
-  // every actual device change (the ref latch skips same-device re-polls).
-  useEffect(() => {
-    if (!open || !device) return
-    if (seededDeviceRef.current === device.deviceId) return
-    seededDeviceRef.current = device.deviceId
-    const available = deviceAgentIds(device)
-    const next =
-      deviceDefaultAgent(device) ??
-      (available.includes(agent)
-        ? agent
-        : (available[0] ?? DEFAULT_LAUNCH_AGENT))
-    const seed = agentSeed(next, deviceAgentLaunchDefaults(device, next))
-    setAgent(next)
-    setModel(seed.model)
-    setEffortValue(seed.effort === `` ? CLI_DEFAULT_EFFORT : seed.effort)
-    setSkipPermissions(seed.skipPermissions)
-    setUltracode(seed.ultracode)
-    setPlanMode(seed.planMode)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, device?.deviceId])
-
-  // EXP-201: only agents the chosen device advertised are offerable; a
-  // device change re-clamps a now-unavailable selection.
-  const availableAgents = deviceAgentIds(device)
-  const availableAgentsKey = availableAgents.join(`,`)
-  useEffect(() => {
-    if (!open) return
-    if (!availableAgents.includes(agent)) {
-      switchAgent(availableAgents[0] ?? `claude`)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, availableAgentsKey, agent])
 
   const count = selected.size
   const isBatch = count >= 2
@@ -532,23 +462,28 @@ export function LaunchDialog({
   const submitBlocked =
     tab === `issues`
       ? count === 0 || blocked
-      : !selectedAction || missingInputs.length > 0
+      : tab === `chat`
+        ? chatPrompt.trim().length === 0 || chatRepoId === ``
+        : !selectedAction || missingInputs.length > 0
 
   const submit = () => {
     if (!device || submitBlocked) return
-    const options: StartCodingOptions = {
-      agent,
-      model,
-      effort: effortValue === CLI_DEFAULT_EFFORT ? `` : effortValue,
-      ultracode: ultracode && agentSupportsUltracode(agent),
-      // A resumed session never re-enters plan mode (EXP-481, mirrors the
-      // desktop launcher's clamp).
-      planMode: planMode && agentSupportsPlanMode(agent) && !resumeActive,
-      skipPermissions: skipPermissions && agentSupportsSkipPermissions(agent),
-      ...(resumeActive ? { resume: true } : {}),
-    }
+    const options: StartCodingOptions = launch.buildOptions({
+      resume: resumeActive,
+    })
     if (tab === `issues`) {
       onStartIssues(device, options, [...selected])
+      return
+    }
+    if (tab === `chat`) {
+      // The hidden builtin has no DB row, so the identity is constructed here
+      // (the server re-derives it from the reserved id).
+      onRunAction(
+        device,
+        { id: BUILTIN_CHAT_ID, name: BUILTIN_CHAT_NAME, teamId },
+        options,
+        { prompt: chatPrompt, repo: chatRepoId }
+      )
       return
     }
     if (!selectedAction) return
@@ -575,11 +510,18 @@ export function LaunchDialog({
           scrolling as one region; from `sm` up the body splits into two
           columns — issue/action picker left, launch options right — where
           ONLY the picker list scrolls, so the dialog never shows nested
-          scrollbars. */}
-      <DialogContent className="gap-3 sm:max-h-[85dvh] sm:max-w-3xl">
+          scrollbars.
+          EXP-615: from `sm` up the panel takes a FIXED height (the Actions
+          tab's natural one) so switching Issues/Actions/Chat never resizes the
+          dialog under the pointer; mobile keeps the full-screen page. */}
+      <DialogContent className="gap-3 sm:h-[min(85dvh,34rem)] sm:max-h-[85dvh] sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>
-            {tab === `actions` ? `Run action` : `Start coding`}
+            {tab === `actions`
+              ? `Run action`
+              : tab === `chat`
+                ? `Chat`
+                : `Start coding`}
           </DialogTitle>
         </DialogHeader>
         <Tabs value={tab} onValueChange={(value) => setTab(value as LaunchTab)}>
@@ -589,6 +531,9 @@ export function LaunchDialog({
             </TabsTrigger>
             <TabsTrigger value="actions" className="flex-1">
               Actions
+            </TabsTrigger>
+            <TabsTrigger value="chat" className="flex-1">
+              Chat
             </TabsTrigger>
           </TabsList>
         </Tabs>
@@ -604,6 +549,15 @@ export function LaunchDialog({
               overCap={overCap}
               spansRepos={spansRepos}
               blocked={blocked}
+            />
+          ) : tab === `chat` ? (
+            <ChatPane
+              prompt={chatPrompt}
+              onPromptChange={setChatPrompt}
+              repoId={chatRepoId}
+              onRepoChange={setChatRepoId}
+              repos={repos}
+              teamId={teamId}
             />
           ) : (
             <ActionsPane
@@ -625,7 +579,7 @@ export function LaunchDialog({
           <LaunchOptionsPane
             devices={candidateDevices}
             device={device}
-            onDeviceChange={setDeviceId}
+            onDeviceChange={launch.setDeviceId}
             noDeviceNote={
               tab === `actions`
                 ? needsFixConflictsCap
@@ -633,22 +587,24 @@ export function LaunchDialog({
                   : needsInputsCap
                     ? `No capable desktop online. This action needs a desktop app new enough to run action inputs.`
                     : `No actions-capable desktop online. Open (or update) the Exponential desktop app.`
-                : `No desktop online. Open the Exponential desktop app to start coding.`
+                : tab === `chat`
+                  ? `No chat-capable device online. Update the Exponential desktop app.`
+                  : `No desktop online. Open the Exponential desktop app to start coding.`
             }
             agent={agent}
-            availableAgents={availableAgents}
-            onAgentChange={switchAgent}
-            model={model}
-            onModelChange={setModel}
-            effortValue={effortValue}
-            onEffortChange={setEffortValue}
-            ultracode={ultracode}
-            onUltracodeChange={setUltracode}
-            planMode={planMode}
-            onPlanModeChange={setPlanMode}
+            availableAgents={launch.availableAgents}
+            onAgentChange={launch.switchAgent}
+            model={launch.model}
+            onModelChange={launch.setModel}
+            effortValue={launch.effortValue}
+            onEffortChange={launch.setEffortValue}
+            ultracode={launch.ultracode}
+            onUltracodeChange={launch.setUltracode}
+            planMode={launch.planMode}
+            onPlanModeChange={launch.setPlanMode}
             planModeHidden={resumeActive}
-            skipPermissions={skipPermissions}
-            onSkipPermissionsChange={setSkipPermissions}
+            skipPermissions={launch.skipPermissions}
+            onSkipPermissionsChange={launch.setSkipPermissions}
             resumeRow={
               resumeCandidate
                 ? {
@@ -680,9 +636,11 @@ export function LaunchDialog({
             )}
             {tab === `actions`
               ? `Run action`
-              : isBatch
-                ? `Start batch (${count} issues)`
-                : `Start coding`}
+              : tab === `chat`
+                ? `Start chat`
+                : isBatch
+                  ? `Start batch (${count} issues)`
+                  : `Start coding`}
           </Button>
         </DialogFooter>
       </DialogContent>

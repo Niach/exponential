@@ -27,7 +27,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -51,63 +50,56 @@ import com.exponential.app.data.api.ActionInputDto
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.SteerStartOptions
 import com.exponential.app.data.api.TeamRepo
-import com.exponential.app.domain.AutomationTrigger
+import com.exponential.app.data.api.builtinChatAction
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
-import com.exponential.app.domain.formatAutomationBlock
 import com.exponential.app.domain.resumeWorktreeFor
-import com.exponential.app.ui.actions.AutomationBindingFields
-import com.exponential.app.ui.actions.AutomationTriggerFields
-import com.exponential.app.ui.actions.automationDraftFor
-import com.exponential.app.ui.actions.automationDraftToTrigger
-import com.exponential.app.ui.components.AgentTab
-import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
-import com.exponential.app.ui.components.CLI_DEFAULT_MODEL
 import com.exponential.app.ui.components.DEFAULT_AGENT
 import com.exponential.app.ui.components.GlassPillButton
+import com.exponential.app.ui.components.GlassSegmentedControl
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.IconPicker
+import com.exponential.app.ui.components.LaunchOptionsSection
+import com.exponential.app.ui.components.LaunchOptionsVariant
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PickerRow
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.SectionLabel
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.components.SwitchRow
-import com.exponential.app.ui.components.defaultModelFor
-import com.exponential.app.ui.components.effortLabel
-import com.exponential.app.ui.components.effortValuesFor
-import com.exponential.app.ui.components.modelLabel
-import com.exponential.app.ui.components.modelOptionsFor
-import com.exponential.app.ui.components.modelValuesFor
+import com.exponential.app.ui.components.agentSeed
+import com.exponential.app.ui.components.availableAgentsFor
+import com.exponential.app.ui.components.defaultAgentFor
 import com.exponential.app.ui.components.supportsPlanMode
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassButton
 
 // The unified remote Start-coding sheet (EXP-156) — the Android twin of the
 // desktop IDE's ONE Start-coding dialog, restyled to mirror the iOS sheet
 // (EXP-208, EXP-211): a full-height sheet inset below the status bar whose
 // body scrolls under an iOS-style top bar (Cancel left, Start right, no
 // title), the issue picker carded like an iOS Form section (search row +
-// hairline-divided rows), grouped picker rows for Desktop / Model / Effort, a
-// brand-icon agent pill strip (EXP-201: claude / codex / pi, shown only when
-// the chosen desktop offers more than one), the claude-only ultracode switch
+// hairline-divided rows), grouped picker rows for Device / Model / Effort, a
+// brand-icon agent capsule (EXP-201: claude / codex / pi, shown only when the
+// chosen desktop offers more than one), the claude-only ultracode switch
 // (it IS `--effort ultracode`, so it disables the Effort row) and plan-mode
 // switch, and a skip-permissions switch (claude + codex — pi is always
 // unguarded, so the row is simply absent). Exactly 1 checked issue launches a
 // plain single session; 2+ launch a BATCH session (one agent on one
 // `exp/batch-<id8>` branch spanning every issue, all from one repository).
-// EXP-257 adds a top-level Issues | Actions subject switch: the Actions tab is
-// a searchable single-select action list (the "Fix merge conflicts" builtin
-// pinned first by its flag; "Create action" is not offered — EXP-431 gave it
-// `createActionMode`, a dedicated presentation of this sheet: "New action"
-// title, no subject switch, no picker, just the create builtin's input
-// fields) plus typed input fields for the
-// selected action (text / repo / board / pr / icon), sharing the SAME desktop / agent /
-// model / effort / toggle sections; devices there are filtered to the
-// `actions` cap (+ `action-inputs` for builtin/inputs-carrying runs).
+// EXP-257 adds a top-level subject switch, since EXP-615 one segmented capsule
+// of Issues | Actions | Chat: the Actions tab is a searchable single-select
+// action list (the "Fix merge conflicts" builtin pinned first by its flag;
+// "Create action" is not offered — creation lives in its own
+// [com.exponential.app.ui.actions.CreateActionSheet]) plus typed input fields
+// for the selected action (text / repo / board / pr / icon), and the Chat tab
+// (EXP-615) is a free prompt on a repository, riding the hidden
+// [builtinChatAction] over the same action rails. All three share the SAME
+// device / agent / model / effort / toggle block (LaunchOptionsSection);
+// devices are filtered per tab (`actions` + `action-inputs` for action runs,
+// plus `chat` for the Chat tab).
 // EXP-437: the sheet keeps NO last-used state of its own — the picked machine
 // is the single seed source. Every option is pre-filled from the launch
 // defaults that machine advertises for the chosen agent (validated against the
@@ -135,8 +127,9 @@ data class StartIssueOption(
     val priority: String?,
 )
 
-/** The sheet's top-level subject switch (EXP-257): what a run launches on. */
-private enum class SubjectTab { Issues, Actions }
+/** The sheet's top-level subject switch (EXP-257, Chat since EXP-615): what a
+ * run launches on. */
+enum class SubjectTab { Issues, Actions, Chat }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -147,19 +140,9 @@ fun StartCodingSheet(
     preferredDeviceId: String? = null,
     // Non-null opens the sheet on the Actions tab with this action selected.
     preselectedActionId: String? = null,
-    // EXP-431: present the sheet as the "New action" creation flow — no
-    // subject switch, no action picker, just the (preselected) create
-    // builtin's input fields. Callers pair it with the create builtin's id.
-    createActionMode: Boolean = false,
-    // EXP-530: seed input values keyed by def key (the Suggestions tab's
-    // "Use suggestion" hands over description + icon; the iOS
-    // prefilledInputs pattern).
-    prefilledInputs: Map<String, String>? = null,
-    // EXP-583: the trigger an "Action + automation" suggestion proposes. ONLY
-    // then does the create flow show its Automation block (prefilled, editable,
-    // with its own machine + agent pins) and append the creator-agent note. The
-    // plain "New action" path passes null and shows no automation UI at all.
-    suggestionAutomation: AutomationTrigger? = null,
+    // EXP-615: which subject the sheet opens on. Null keeps the derivation
+    // from [preselectedActionId] (an action means the Actions tab).
+    initialTab: SubjectTab? = null,
     // Non-null pre-picks the selected action's `pr` input (EXP-323 — the
     // conflict-recovery entry points hand over the issue their surface acts
     // on; ANY issue linked to the PR resolves, see [optionForIssue]).
@@ -223,32 +206,31 @@ fun StartCodingSheet(
 
     // ── Actions-tab state (EXP-257) ──────────────────────────────────────────
     var subjectTab by remember {
-        mutableStateOf(if (preselectedActionId != null) SubjectTab.Actions else SubjectTab.Issues)
+        mutableStateOf(
+            initialTab
+                ?: if (preselectedActionId != null) SubjectTab.Actions else SubjectTab.Issues,
+        )
     }
     var selectedActionId by remember { mutableStateOf(preselectedActionId) }
     var actionQuery by remember { mutableStateOf("") }
-    var inputValues by remember { mutableStateOf<Map<String, String>>(prefilledInputs ?: emptyMap()) }
+    var inputValues by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
 
-    // ── Automation draft (EXP-583, suggestion-prefilled create flow only) ────
-    // Seeded from the suggestion's trigger; the machine and the agent pins are
-    // the AUTOMATION's, independent of the desktop running the creator run.
-    val automationEnabled = createActionMode && suggestionAutomation != null
-    var automation by remember { mutableStateOf(automationDraftFor(suggestionAutomation)) }
-    val automationDevices by dataViewModel.automationDevices.collectAsStateWithLifecycle()
-    val automationFilterLabels by dataViewModel.labelOptions.collectAsStateWithLifecycle()
-    val automationFilterStatuses by dataViewModel.statusOptions.collectAsStateWithLifecycle()
+    // ── Chat-tab state (EXP-615) ─────────────────────────────────────────────
+    // The chat builtin is HIDDEN: no list carries it, so the tab constructs
+    // the row itself and fills its two inputs from these fields.
+    val selectedTeamId by dataViewModel.teamId.collectAsStateWithLifecycle()
+    var chatPrompt by remember { mutableStateOf("") }
+    var chatRepoId by remember { mutableStateOf("") }
 
-    // Pre-pick the first automation-capable machine once the rows sync; a
-    // manual re-pick sticks (the draft already carries a deviceId then).
-    LaunchedEffect(automationEnabled, automationDevices) {
-        if (!automationEnabled || automation.deviceId != null) return@LaunchedEffect
-        automationDevices.firstOrNull()?.let { automation = automation.copy(deviceId = it.deviceId) }
+    // A team with exactly one repository never asks which one (web parity).
+    LaunchedEffect(teamRepos) {
+        if (chatRepoId.isEmpty() && teamRepos.size == 1) chatRepoId = teamRepos.first().id
     }
 
     // Builtin rows pin FIRST by the flag (never by sort order; stable sort
     // keeps the server order otherwise), then the search filter applies. The
-    // create builtin stays in the POOL (createActionMode preselects it) but
-    // never renders as a picker row (EXP-431).
+    // create builtin never renders as a picker row (it lives in its own
+    // create sheet), and neither does the hidden chat row.
     val orderedActions = remember(actionsState.actions) {
         actionsState.actions?.sortedByDescending { it.isBuiltin }
     }
@@ -315,17 +297,20 @@ fun StartCodingSheet(
     }
     // Per-tab device candidates: issues take any desktop; actions need the
     // `actions` cap (+ `action-inputs` when the selection demands it, +
-    // `fix-conflicts` for that builtin). A deviceId outside the current
+    // `fix-conflicts` for that builtin); chat rides the action rails with its
+    // own `chat` cap on top (EXP-615). A deviceId outside the current
     // candidates re-settles on the first one without clobbering the stored
-    // choice for the other tab.
-    val deviceCandidates = if (subjectTab == SubjectTab.Actions) {
-        startable.filter {
+    // choice for the other tabs.
+    val deviceCandidates = when (subjectTab) {
+        SubjectTab.Actions -> startable.filter {
             it.canRunActions &&
                 (!needsInputCap || it.canRunActionInputs) &&
                 (!needsFixConflictsCap || it.canFixConflicts)
         }
-    } else {
-        startable
+        SubjectTab.Chat -> startable.filter {
+            it.canRunActions && it.canRunActionInputs && it.canChat
+        }
+        SubjectTab.Issues -> startable
     }
     val device = deviceCandidates.firstOrNull { it.deviceId == deviceId }
         ?: deviceCandidates.firstOrNull()
@@ -443,6 +428,11 @@ fun StartCodingSheet(
         .all { !inputValues[it.key].isNullOrBlank() }
     val canRunAction = device != null && selectedAction != null &&
         !hasUnknownInputType && requiredInputsFilled
+    // Chat needs both of its required inputs and a team to hang the hidden
+    // builtin row on (every builtin start carries its teamId).
+    val chatAction = selectedTeamId?.let { builtinChatAction(it) }
+    val canChat = device != null && chatAction != null &&
+        chatPrompt.isNotBlank() && chatRepoId.isNotEmpty()
 
     // Full-height sheet (EXP-208), iOS-chrome parity (EXP-211): no drag handle
     // (the sheet is inset below the status bar instead of colliding with it),
@@ -468,24 +458,16 @@ fun StartCodingSheet(
                 // Glass capsule, like iOS 26's cancellationAction (EXP-577).
                 GlassPillButton(label = "Cancel", onClick = onDismiss)
                 Spacer(Modifier.weight(1f))
-                if (createActionMode) {
-                    // The sheet is deliberately title-less everywhere else
-                    // (EXP-211 chrome) — create mode is the one host that
-                    // needs to say what it is.
-                    Text("New action", style = MaterialTheme.typography.titleSmall)
-                    Spacer(Modifier.weight(1f))
-                }
                 Button(
                     onClick = {
                         val target = device ?: return@Button
                         val ids = checkedInOrder.map { it.id }
-                        val action =
-                            if (subjectTab == SubjectTab.Actions) selectedAction else null
-                        if (subjectTab == SubjectTab.Actions) {
-                            if (action == null) return@Button
-                        } else if (ids.isEmpty()) {
-                            return@Button
+                        val action = when (subjectTab) {
+                            SubjectTab.Actions -> selectedAction ?: return@Button
+                            SubjectTab.Chat -> chatAction ?: return@Button
+                            SubjectTab.Issues -> null
                         }
+                        if (action == null && ids.isEmpty()) return@Button
                         val options = SteerStartOptions(
                             model = model,
                             effort = effort,
@@ -506,34 +488,18 @@ fun StartCodingSheet(
                             resume = if (resumeOn && ids.size == 1 && action == null) true else null,
                         )
                         if (action != null) {
-                            // Only filled values ride, keyed by the def key
-                            // (repo/board values are the picked ids).
-                            var payload = selectedActionInputs.mapNotNull { def ->
-                                inputValues[def.key]?.trim()?.takeIf { it.isNotEmpty() }
-                                    ?.let { def.key to it }
-                            }.toMap()
-                            // EXP-583: the configured automation rides the
-                            // description as a machine-readable note the
-                            // creator agent copies verbatim into
-                            // exponential_automations_create. It is appended
-                            // even to an EMPTY description — the note is the
-                            // instruction, so dropping it when the author left
-                            // the field blank silently lost the automation.
-                            val automationDeviceId = automation.deviceId
-                            if (automationEnabled && automationDeviceId != null) {
-                                automationDraftToTrigger(automation)?.let { trigger ->
-                                    payload = payload + (
-                                        "description" to
-                                            payload["description"].orEmpty() +
-                                            formatAutomationBlock(
-                                                trigger,
-                                                deviceId = automationDeviceId,
-                                                agent = automation.agent,
-                                                model = automation.model,
-                                                effort = automation.effort,
-                                            )
-                                        )
-                                }
+                            val payload = if (subjectTab == SubjectTab.Chat) {
+                                mapOf(
+                                    "prompt" to chatPrompt.trim(),
+                                    "repo" to chatRepoId,
+                                )
+                            } else {
+                                // Only filled values ride, keyed by the def key
+                                // (repo/board values are the picked ids).
+                                selectedActionInputs.mapNotNull { def ->
+                                    inputValues[def.key]?.trim()?.takeIf { it.isNotEmpty() }
+                                        ?.let { def.key to it }
+                                }.toMap()
                             }
                             onRunAction(target, action, options, payload)
                         } else {
@@ -541,15 +507,16 @@ fun StartCodingSheet(
                         }
                         onDismiss()
                     },
-                    enabled = if (subjectTab == SubjectTab.Actions) canRunAction else canStart,
+                    enabled = when (subjectTab) {
+                        SubjectTab.Actions -> canRunAction
+                        SubjectTab.Chat -> canChat
+                        SubjectTab.Issues -> canStart
+                    },
                 ) {
                     Text(
                         when {
-                            // The create builtin's run IS creation (desktop
-                            // footer parity, EXP-431).
-                            subjectTab == SubjectTab.Actions &&
-                                selectedAction?.id == DomainContract.builtinCreateActionId -> "Create"
                             subjectTab == SubjectTab.Actions -> "Run action"
+                            subjectTab == SubjectTab.Chat -> "Start chat"
                             checkedCount >= 2 -> "Start coding ($checkedCount issues)"
                             else -> "Start coding"
                         },
@@ -557,28 +524,22 @@ fun StartCodingSheet(
                 }
             }
 
-            // ── Subject tabs (EXP-257): Issues | Actions ─────────────────────
-            // Create mode is single-purpose (EXP-431) — the subject switch
-            // would only lead out of the creation flow.
-            if (!createActionMode) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-                ) {
-                    SubjectTabPill(
-                        label = "Issues",
-                        selected = subjectTab == SubjectTab.Issues,
-                        onClick = { subjectTab = SubjectTab.Issues },
-                    )
-                    SubjectTabPill(
-                        label = "Actions",
-                        selected = subjectTab == SubjectTab.Actions,
-                        onClick = { subjectTab = SubjectTab.Actions },
-                    )
-                }
-            }
+            // ── Subject tabs (EXP-257): Issues | Actions | Chat ──────────────
+            // ONE segmented capsule (EXP-615, web/iOS parity) — the loose
+            // pills read as filters rather than as a subject switch.
+            GlassSegmentedControl(
+                options = listOf(SubjectTab.Issues, SubjectTab.Actions, SubjectTab.Chat),
+                selected = subjectTab,
+                label = {
+                    when (it) {
+                        SubjectTab.Issues -> "Issues"
+                        SubjectTab.Actions -> "Actions"
+                        SubjectTab.Chat -> "Chat"
+                    }
+                },
+                onSelect = { subjectTab = it },
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
 
             Column(
                 modifier = Modifier
@@ -587,7 +548,7 @@ fun StartCodingSheet(
                     .verticalScroll(rememberScrollState()),
             ) {
                 if (subjectTab == SubjectTab.Issues) {
-                    // ── Issues ───────────────────────────────────────────────────
+                    // ── Issues ───────────────────────────────────────────────
                     SectionLabel("Issues")
                     // ONE grouped card for search + rows (EXP-211 — iOS Form
                     // parity): the search field is the first row of the glass
@@ -639,7 +600,13 @@ fun StartCodingSheet(
                         GroupDivider()
                         if (pinnedRows.isEmpty() && otherRows.isEmpty()) {
                             Text(
-                                if (issues.isEmpty()) "No eligible issues" else "No matching issues",
+                                // One wording per state across the clients
+                                // (EXP-615, web launch-dialog reference).
+                                if (query.isBlank()) {
+                                    "No codeable issues in repo-backed boards."
+                                } else {
+                                    "No issues match \"$query\""
+                                },
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
@@ -697,28 +664,48 @@ fun StartCodingSheet(
                         )
                     }
                     Spacer(Modifier.height(4.dp))
-                } else if (createActionMode) {
-                    // ── EXP-431 create mode: no picker or intro copy — the
-                    // create builtin's input fields below ARE the form
-                    // (Description leads with the locked placeholder).
-                    if (orderedActions == null) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.padding(horizontal = 32.dp, vertical = 12.dp),
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(14.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            Text(
-                                "Loading actions…",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                            )
-                        }
+                } else if (subjectTab == SubjectTab.Chat) {
+                    // ── Chat (EXP-615) ───────────────────────────────────────
+                    // A free prompt on one repository's trunk clone — no issue,
+                    // no branch, no worktree. The two fields ARE the hidden
+                    // builtin's two inputs, labelled exactly as it declares
+                    // them.
+                    SectionLabel("Prompt")
+                    GlassTextField(
+                        value = chatPrompt,
+                        onValueChange = {
+                            chatPrompt = it.take(DomainContract.actionInputTextMax)
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                        placeholder = "What should the agent do?",
+                        minLines = 4,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OptionGroup {
+                        PickerRow(
+                            label = "Repository",
+                            value = teamRepos.firstOrNull { it.id == chatRepoId }?.fullName
+                                ?: "Select",
+                            options = teamRepos.map { it.id },
+                            selected = chatRepoId.takeIf { it.isNotEmpty() },
+                            optionLabel = { id ->
+                                teamRepos.firstOrNull { it.id == id }?.fullName ?: id
+                            },
+                            onSelect = { chatRepoId = it },
+                        )
                     }
+                    if (teamRepos.isEmpty()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "Connect a repository to this team to chat.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                            modifier = Modifier.padding(horizontal = 32.dp),
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
                 } else {
                     // ── Actions ──────────────────────────────────────────────
                     SectionLabel("Actions")
@@ -794,7 +781,11 @@ fun StartCodingSheet(
                                 )
                             }
                             actionRows.isEmpty() -> Text(
-                                if (orderedActions.isNullOrEmpty()) "No actions yet" else "No matching actions",
+                                if (actionQuery.isBlank()) {
+                                    "No actions yet."
+                                } else {
+                                    "No actions match \"$actionQuery\""
+                                },
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
@@ -829,8 +820,7 @@ fun StartCodingSheet(
                     }
                 }
 
-                // Typed input fields for the selected action (EXP-257) — in
-                // create mode (EXP-431) they are the whole form.
+                // Typed input fields for the selected action (EXP-257).
                 if (subjectTab == SubjectTab.Actions) {
                     // EXP-583: no "Inputs" heading — the fields speak for
                     // themselves and the create flow reads as one form.
@@ -860,182 +850,84 @@ fun StartCodingSheet(
                         }
                     }
                     Spacer(Modifier.height(4.dp))
+                }
 
-                    // ── Automation (EXP-583, suggestion flow only) ───────────
-                    if (automationEnabled) {
-                        Spacer(Modifier.height(8.dp))
-                        SectionLabel("Automation")
-                        AutomationTriggerFields(
-                            draft = automation,
-                            boards = boardOptions,
-                            labels = automationFilterLabels,
-                            statuses = automationFilterStatuses,
-                            onChange = { automation = it },
-                            allowNone = true,
-                        )
-                        if (automation.kind != "none") {
+                // ── Device / agent / model / effort / toggles ─────────────────
+                // ONE shared block for every tab (EXP-615) — the per-tab
+                // difference is only which machines qualify and what to say
+                // when none does (web launch-dialog wording).
+                LaunchOptionsSection(
+                    variant = LaunchOptionsVariant.Launch,
+                    devices = deviceCandidates,
+                    device = device,
+                    onDeviceChange = { id ->
+                        deviceId = id
+                        // The new desktop may not run the current agent —
+                        // fall back to its first available one.
+                        val candidate = deviceCandidates.firstOrNull { it.deviceId == id }
+                        val available = availableAgentsFor(candidate)
+                        if (agent !in available) {
+                            selectAgent(available.firstOrNull() ?: DEFAULT_AGENT)
+                        }
+                    },
+                    agent = agent,
+                    availableAgents = availableAgents,
+                    onAgentChange = ::selectAgent,
+                    model = model,
+                    onModelChange = { model = it },
+                    effort = effort,
+                    onEffortChange = { effort = it },
+                    noDeviceNote = when (subjectTab) {
+                        SubjectTab.Actions -> when {
+                            needsFixConflictsCap ->
+                                "No desktop can fix merge conflicts yet. " +
+                                    "Update the Exponential desktop app."
+                            needsInputCap ->
+                                "No capable desktop online. This action needs a desktop " +
+                                    "app new enough to run action inputs."
+                            else ->
+                                "No actions-capable desktop online. Open (or update) the " +
+                                    "Exponential desktop app."
+                        }
+                        SubjectTab.Chat ->
+                            "No chat-capable device online. Update the Exponential desktop app."
+                        SubjectTab.Issues ->
+                            "No desktop online. Open the Exponential desktop app to start coding."
+                    },
+                    ultracode = ultracode,
+                    onUltracodeChange = { ultracode = it },
+                    planMode = planMode,
+                    onPlanModeChange = { planMode = it },
+                    planModeHidden = resumeOn,
+                    skipPermissions = skipPermissions,
+                    onSkipPermissionsChange = { skipPermissions = it },
+                    // ── Resume (EXP-481) ─────────────────────────────────────
+                    // Offered only when a synced worktree row matches the
+                    // single checked issue + agent on a resume-capable
+                    // machine; the caption names the worktree so "why is this
+                    // offered" is answerable at a glance (desktop copy).
+                    resumeSlot = resumeCandidate?.let { worktree ->
+                        {
+                            OptionGroup {
+                                SwitchRow(
+                                    title = "Resume previous session",
+                                    checked = resume,
+                                    onCheckedChange = { resume = it },
+                                )
+                            }
+                            Text(
+                                "A worktree for ${checkedInOrder.firstOrNull()?.identifier} " +
+                                    "already exists (${worktree.branch}).",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(
+                                    alpha = TextEmphasis.Tertiary,
+                                ),
+                                modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
+                            )
                             Spacer(Modifier.height(4.dp))
-                            AutomationBindingFields(
-                                draft = automation,
-                                devices = automationDevices,
-                                onChange = { automation = it },
-                            )
                         }
-                        Spacer(Modifier.height(4.dp))
-                    }
-                }
-
-                // ── Desktop ──────────────────────────────────────────────────
-                if (subjectTab == SubjectTab.Actions && deviceCandidates.isEmpty()) {
-                    // No desktop can take this run — none advertises `actions`,
-                    // or the builtin/inputs/fix-conflicts run needs a newer
-                    // desktop app.
-                    OptionGroup {
-                        Text(
-                            if (needsFixConflictsCap) {
-                                "No desktop can fix merge conflicts yet. Update the Exponential desktop app."
-                            } else {
-                                "No actions-capable desktop online. Open or update the Exponential desktop app."
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                        )
-                    }
-                    Spacer(Modifier.height(4.dp))
-                } else if (deviceCandidates.size > 1) {
-                    OptionGroup {
-                        PickerRow(
-                            label = "Desktop",
-                            value = device?.let(::deviceLabel) ?: "",
-                            options = deviceCandidates.map { it.deviceId },
-                            selected = device?.deviceId,
-                            optionLabel = { id ->
-                                deviceCandidates.firstOrNull { it.deviceId == id }
-                                    ?.let(::deviceLabel) ?: id
-                            },
-                            onSelect = { id ->
-                                deviceId = id
-                                // The new desktop may not run the current agent
-                                // — fall back to its first available one.
-                                val candidate = deviceCandidates.firstOrNull { it.deviceId == id }
-                                val available = availableAgentsFor(candidate)
-                                if (agent !in available) {
-                                    selectAgent(available.firstOrNull() ?: DEFAULT_AGENT)
-                                }
-                            },
-                        )
-                    }
-                    Spacer(Modifier.height(4.dp))
-                }
-
-                // Agent pill strip — hidden when the chosen desktop offers just
-                // one; brand icons match the desktop IDE dialog's agent tabs.
-                if (availableAgents.size > 1) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-                    ) {
-                        availableAgents.forEach { value ->
-                            AgentTab(
-                                value = value,
-                                selected = agent == value,
-                                onClick = { selectAgent(value) },
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(4.dp))
-                }
-
-                // ── Model / Effort ───────────────────────────────────────────
-                OptionGroup {
-                    PickerRow(
-                        label = "Model",
-                        value = modelLabel(model),
-                        options = modelOptionsFor(agent),
-                        selected = model,
-                        optionLabel = ::modelLabel,
-                        onSelect = { model = it },
-                    )
-                    GroupDivider()
-                    PickerRow(
-                        label = when (agent) {
-                            "codex" -> "Reasoning"
-                            "pi" -> "Thinking"
-                            else -> "Effort"
-                        },
-                        value = effortLabel(effort),
-                        options = listOf(CLI_DEFAULT_EFFORT) + effortValuesFor(agent),
-                        selected = effort,
-                        optionLabel = ::effortLabel,
-                        // Ultracode IS `--effort ultracode` — it owns the row.
-                        enabled = !ultracode,
-                        onSelect = { effort = it },
-                    )
-                }
-                Spacer(Modifier.height(4.dp))
-
-                // ── Resume (EXP-481) ─────────────────────────────────────────
-                // Rendered only when a synced worktree row matches the single
-                // checked issue + agent on a resume-capable machine; the
-                // caption names the worktree so "why is this offered" is
-                // answerable at a glance (desktop dialog copy).
-                val resumeWorktree = resumeCandidate
-                if (resumeWorktree != null) {
-                    OptionGroup {
-                        SwitchRow(
-                            title = "Resume previous session",
-                            checked = resume,
-                            onCheckedChange = { resume = it },
-                        )
-                    }
-                    Text(
-                        "A worktree for ${checkedInOrder.firstOrNull()?.identifier} " +
-                            "already exists (${resumeWorktree.branch}).",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
-                    )
-                    Spacer(Modifier.height(4.dp))
-                }
-
-                // ── Toggles ──────────────────────────────────────────────────
-                // ONE group: claude gets Ultracode + Plan mode + Skip
-                // permissions, codex just Skip permissions, pi just Plan mode
-                // (EXP-441 — pi stays otherwise unguarded; EXP-208). pi's ONLY
-                // toggle is plan mode, which resume hides — skip the empty
-                // group shell then.
-                if (agent != "pi" || !resumeOn) OptionGroup {
-                    if (agent == DEFAULT_AGENT) {
-                        SwitchRow(
-                            title = "Ultracode",
-                            checked = ultracode,
-                            onCheckedChange = { ultracode = it },
-                        )
-                        GroupDivider()
-                    }
-                    // Hidden entirely while resuming — a resume never
-                    // re-enters plan mode (EXP-202, desktop parity).
-                    if (supportsPlanMode(agent) && !resumeOn) {
-                        SwitchRow(
-                            title = "Plan mode",
-                            checked = planMode,
-                            onCheckedChange = { planMode = it },
-                        )
-                        if (agent != "pi") {
-                            GroupDivider()
-                        }
-                    }
-                    if (agent != "pi") {
-                        SwitchRow(
-                            title = "Skip permissions",
-                            checked = skipPermissions,
-                            onCheckedChange = { skipPermissions = it },
-                        )
-                    }
-                }
+                    },
+                )
                 Spacer(Modifier.height(24.dp))
             }
         }
@@ -1099,27 +991,6 @@ private fun IssueCheckRow(
             modifier = Modifier.weight(1f),
         )
     }
-}
-
-// One subject tab in the top strip — the AgentTab pill styling without a
-// brand icon (EXP-257: the Issues | Actions subject switch).
-@Composable
-private fun SubjectTabPill(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    Text(
-        label,
-        style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.onSurface.copy(
-            alpha = if (selected) TextEmphasis.Primary else TextEmphasis.Secondary,
-        ),
-        modifier = Modifier
-            .glassButton(active = selected)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-    )
 }
 
 // One selectable action (single-select, IssueCheckRow's affordances): the
@@ -1322,73 +1193,4 @@ private fun ActionInputField(
             singleLine = true,
         )
     }
-}
-
-/**
- * How a machine reads in the Desktop picker. EXP-432: a teammate's shared
- * server carries its owner ("buildbox — Danny"), so two similarly named boxes
- * stay tellable apart and the run's host is never a surprise.
- */
-private fun deviceLabel(device: SteerDevice): String {
-    val base = device.deviceLabel.ifBlank { device.deviceId }
-    return device.owner?.let { "$base — ${it.name}" } ?: base
-}
-
-// The agents a desktop can launch, in contract order. No device settled yet
-// means the pre-EXP-201 default (claude); a device answers for itself, and
-// EXP-409 lets that answer be EMPTY — a machine whose agents are all signed
-// out runs nothing, so it never becomes a candidate in the first place.
-private fun availableAgentsFor(device: SteerDevice?): List<String> =
-    device?.runnableAgents ?: listOf(DEFAULT_AGENT)
-
-/** Every launch option for one agent, ready to drop into the sheet's state. */
-private data class AgentSeed(
-    val model: String,
-    val effort: String,
-    val ultracode: Boolean,
-    val planMode: Boolean,
-    val skipPermissions: Boolean,
-)
-
-/**
- * Which agent a machine starts on (EXP-437): the one it has configured as its
- * default, clamped to what it can actually run. A machine that advertises no
- * default (or an unrunnable one) falls back to claude, then to whatever it
- * runs first — the pre-EXP-437 behavior.
- */
-private fun defaultAgentFor(device: SteerDevice?): String {
-    val available = availableAgentsFor(device)
-    return device?.launchDefaults?.defaultAgent?.takeIf { it in available }
-        ?: DEFAULT_AGENT.takeIf { it in available }
-        ?: available.firstOrNull()
-        ?: DEFAULT_AGENT
-}
-
-/**
- * [agent]'s launch options as [device] has them configured (EXP-437), falling
- * back per field to the static contract defaults — an older desktop advertises
- * nothing, and the sheet must still open on something startable. Advertised
- * values are validated against this agent's vocabularies (an empty string is
- * the explicit "CLI default", which claude has no entry for) and the toggles
- * are capability-clamped, so a machine can never seed a combination the server
- * would reject.
- */
-private fun agentSeed(device: SteerDevice?, agent: String): AgentSeed {
-    val defaults = device?.launchDefaults?.agents?.get(agent)
-        ?: return AgentSeed(defaultModelFor(agent), CLI_DEFAULT_EFFORT, false, false, false)
-    val models = modelValuesFor(agent)
-    return AgentSeed(
-        model = defaults.model
-            ?.takeIf {
-                if (agent == DEFAULT_AGENT) it in models
-                else it == CLI_DEFAULT_MODEL || it in models
-            }
-            ?: defaultModelFor(agent),
-        effort = defaults.effort
-            ?.takeIf { it == CLI_DEFAULT_EFFORT || it in effortValuesFor(agent) }
-            ?: CLI_DEFAULT_EFFORT,
-        ultracode = defaults.ultracode && agent == DEFAULT_AGENT,
-        planMode = defaults.planMode && supportsPlanMode(agent),
-        skipPermissions = defaults.skipPermissions && agent != "pi",
-    )
 }

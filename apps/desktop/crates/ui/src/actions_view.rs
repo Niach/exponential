@@ -12,7 +12,7 @@
 //!
 //! EXP-431 carries over: the create builtin is not a card — creation lives
 //! behind the header's "New action" button
-//! ([`crate::start_coding_dialog::open_for_create_action`]), and only the
+//! ([`crate::create_action_dialog`]), and only the
 //! fix-conflicts builtin stays pinned first. The list is LIVE off the synced
 //! `actions` shape (body-less rows; the edit dialog fetches the body via
 //! `actions.get` on open). ▶ Run opens the unified Start-coding dialog's
@@ -32,7 +32,7 @@ use gpui_component::{
 };
 
 use crate::controls::WebControl as _;
-use crate::icons::{registry, ExpIcon};
+use crate::icons::registry;
 use crate::navigation::{active_team_id, nav_for_window, Navigation};
 use crate::native_dialog::{self, AlertSpec};
 use crate::queries;
@@ -398,11 +398,14 @@ impl ActionsView {
             .child(div().flex_1())
             .child(
                 gpui_component::h_flex().pt_1().child(
+                    // EXP-615: icon-only ▶ (web parity) — the label was the
+                    // only text on the card competing with its name.
                     Button::new(("action-run", index))
                         .outline().cursor_pointer()
                         .web_sm()
-                        .icon(Icon::from(ExpIcon::Play))
-                        .label("Run")
+                        // Round like the web/mobile play buttons (EXP-615).
+                        .rounded(gpui::px(999.))
+                        .icon(Icon::from(registry::ACTION_RUN))
                         .tooltip(
                             no_agent
                                 .clone()
@@ -816,7 +819,7 @@ impl ActionsView {
                             // The brief is a SEED, not a commitment — the
                             // creator dialog opens with it in the editable
                             // Description field.
-                            crate::start_coding_dialog::open_for_create_action_prefilled(
+                            crate::create_action_dialog::open_prefilled(
                                 window,
                                 cx,
                                 team_id.clone(),
@@ -850,7 +853,7 @@ impl ActionsView {
             .cursor_pointer()
             .hover(move |this| this.bg(hover))
             .on_click(move |_: &ClickEvent, window, cx| {
-                crate::start_coding_dialog::open_for_create_action(window, cx, team_id.clone());
+                crate::create_action_dialog::open(window, cx, team_id.clone());
             })
             .child(
                 gpui_component::v_flex()
@@ -925,11 +928,7 @@ impl Render for ActionsView {
                     .tooltip(no_agent.clone().unwrap_or_else(|| "New action".into()))
                     .disabled(no_agent.is_some())
                     .on_click(move |_, window, cx| {
-                        crate::start_coding_dialog::open_for_create_action(
-                            window,
-                            cx,
-                            new_team.clone(),
-                        );
+                        crate::create_action_dialog::open(window, cx, new_team.clone());
                     })
                     .into_any_element()
             });

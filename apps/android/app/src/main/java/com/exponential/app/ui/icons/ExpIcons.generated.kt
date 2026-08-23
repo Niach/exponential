@@ -6017,7 +6017,7 @@ public object ExpIcons {
     /** Concept `action-automation`. */
     public val actionAutomation: ImageVector get() = `zap`
     /** Concept `action-create`. */
-    public val actionCreate: ImageVector get() = `plus`
+    public val actionCreate: ImageVector get() = `sparkles`
     /** Concept `action-default`. */
     public val actionDefault: ImageVector get() = `zap`
     /** Concept `action-repository`. */

@@ -25,8 +25,19 @@ export const BUILTIN_FIX_CONFLICTS_ID = contract.builtinAction.fixConflictsId
 
 export const BUILTIN_FIX_CONFLICTS_NAME = `Fix merge conflicts`
 
+/** Reserved non-UUID id of the hidden "Chat" builtin (EXP-615). Unlike the
+ * other two it is NEVER appended to `actions.list` or any picker — clients
+ * reach it only through the start-coding dialog's Chat tab. */
+export const BUILTIN_CHAT_ID = contract.builtinAction.chatId
+
+export const BUILTIN_CHAT_NAME = `Chat`
+
 export function isBuiltinActionId(id: string): boolean {
-  return id === BUILTIN_CREATE_ACTION_ID || id === BUILTIN_FIX_CONFLICTS_ID
+  return (
+    id === BUILTIN_CREATE_ACTION_ID ||
+    id === BUILTIN_FIX_CONFLICTS_ID ||
+    id === BUILTIN_CHAT_ID
+  )
 }
 
 /** The display-name snapshot a builtin's `coding_sessions` rows carry —
@@ -34,7 +45,9 @@ export function isBuiltinActionId(id: string): boolean {
 export function builtinActionName(id: string): string {
   return id === BUILTIN_FIX_CONFLICTS_ID
     ? BUILTIN_FIX_CONFLICTS_NAME
-    : BUILTIN_CREATE_ACTION_NAME
+    : id === BUILTIN_CHAT_ID
+      ? BUILTIN_CHAT_NAME
+      : BUILTIN_CREATE_ACTION_NAME
 }
 
 const CREATE_ACTION_INPUTS: ActionInputDef[] = [
@@ -45,6 +58,13 @@ const CREATE_ACTION_INPUTS: ActionInputDef[] = [
     required: true,
     placeholder: `What should this action do?`,
   },
+  {
+    key: `name`,
+    label: `Name`,
+    type: `text`,
+    required: false,
+    placeholder: `Leave blank to let the agent name it`,
+  },
   { key: `repo`, label: `Repository`, type: `repo`, required: false },
   // EXP-273: the user picks the new action's glyph up front and the
   // action-creator prompt passes it to `exponential_actions_create`, so a
@@ -54,6 +74,17 @@ const CREATE_ACTION_INPUTS: ActionInputDef[] = [
 
 const FIX_CONFLICTS_INPUTS: ActionInputDef[] = [
   { key: `pr`, label: `Pull request`, type: `pr`, required: true },
+]
+
+const CHAT_INPUTS: ActionInputDef[] = [
+  {
+    key: `prompt`,
+    label: `Prompt`,
+    type: `textarea`,
+    required: true,
+    placeholder: `What should the agent do?`,
+  },
+  { key: `repo`, label: `Repository`, type: `repo`, required: true },
 ]
 
 export interface BuiltinAction {
@@ -107,6 +138,26 @@ export function builtinFixConflictsAction(teamId: string): BuiltinAction {
     body: ``,
     inputs: FIX_CONFLICTS_INPUTS,
     sortOrder: 1e9 + 1,
+    createdAt: new Date(0),
+    updatedAt: new Date(0),
+    builtin: true,
+  }
+}
+
+/** The hidden "Chat" builtin (EXP-615): a free-prompt agent session on a
+ * repository's trunk clone at the default branch. Deliberately appended to NO
+ * list — the start-coding dialog's Chat tab constructs it directly. */
+export function builtinChatAction(teamId: string): BuiltinAction {
+  return {
+    id: BUILTIN_CHAT_ID,
+    teamId,
+    repositoryId: null,
+    name: BUILTIN_CHAT_NAME,
+    description: `Chat with your agent on a repository`,
+    icon: `message-circle`,
+    body: ``,
+    inputs: CHAT_INPUTS,
+    sortOrder: 1e9 + 2,
     createdAt: new Date(0),
     updatedAt: new Date(0),
     builtin: true,

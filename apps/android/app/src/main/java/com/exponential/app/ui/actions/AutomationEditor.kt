@@ -1,14 +1,26 @@
 package com.exponential.app.ui.actions
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -22,30 +34,29 @@ import com.exponential.app.domain.triggerWeekdayName
 import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
 import com.exponential.app.ui.components.CLI_DEFAULT_MODEL
 import com.exponential.app.ui.components.GlassSegmentedControl
-import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.GroupDivider
+import com.exponential.app.ui.components.LaunchOptionsSection
+import com.exponential.app.ui.components.LaunchOptionsVariant
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PickerRow
-import com.exponential.app.ui.components.agentLabel
-import com.exponential.app.ui.components.effortLabel
-import com.exponential.app.ui.components.effortValuesFor
-import com.exponential.app.ui.components.modelLabel
-import com.exponential.app.ui.components.modelValuesFor
+import com.exponential.app.ui.components.availableAgentsFor
+import com.exponential.app.ui.components.defaultAgentFor
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.StartBoardOption
 import com.exponential.app.ui.issue.StartFilterOption
 import com.exponential.app.ui.theme.TextEmphasis
 
 // The shared automation editor (EXP-583). TWO hosts render these fields: the
-// Automations tab's "New automation" sheet (where a trigger is mandatory) and
-// the create-action sheet's Automation block, which only appears when the flow
-// came from an action+automation suggestion (the trigger arrives prefilled and
-// the note the creator agent follows is built from the same draft). Keeping
+// Automations tab's "New automation" / "Edit automation" sheet (where a
+// trigger is mandatory) and the create-action sheet's Automation detail, which
+// starts on "None" and, once set, becomes the note the creator agent copies
+// into `exponential_automations_create` — built from this same draft. Keeping
 // one draft + one set of rows is what stops the two from drifting.
 
 /** The default schedule time, matching the web draft (09:00). */
 private const val DEFAULT_MINUTE_OF_DAY = 540
 
-/** Kind sentinel for "no automation" — only the suggestion host offers it. */
+/** Kind sentinel for "no automation" — only the create-action host offers it. */
 internal const val AUTOMATION_KIND_NONE = "none"
 internal const val AUTOMATION_KIND_SCHEDULE = "schedule"
 internal const val AUTOMATION_KIND_EVENT = "event"
@@ -56,7 +67,9 @@ internal const val AUTOMATION_KIND_EVENT = "event"
  * converts at submit and incomplete reads as null. The filter picks are
  * SINGLE-select with an "Any" default — the mobile simplification of the web's
  * multi-selects; the wire lists carry one-or-none entries from here.
- * [agent]/[model]/[effort] are empty for "the machine's own launch defaults".
+ * [agent] is seeded from the bound machine's default (EXP-615 — empty only
+ * before one is bound); an empty [model]/[effort] is the "CLI default" that
+ * saves as NULL.
  */
 internal data class AutomationDraft(
     val kind: String = AUTOMATION_KIND_SCHEDULE,
@@ -224,26 +237,10 @@ internal fun AutomationTriggerFields(
                 )
             }
             GroupDivider()
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "Time",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f),
-                )
-                GlassTextField(
-                    value = draft.time,
-                    onValueChange = { onChange(draft.copy(time = it.take(5))) },
-                    modifier = Modifier.width(104.dp),
-                    placeholder = "09:00",
-                    singleLine = true,
-                )
-            }
+            AutomationTimeRow(
+                time = draft.time,
+                onChange = { onChange(draft.copy(time = it)) },
+            )
         }
     } else if (draft.kind == AUTOMATION_KIND_EVENT) {
         Spacer(Modifier.height(4.dp))
@@ -304,11 +301,12 @@ internal fun AutomationTriggerFields(
 }
 
 /**
- * The binding half: which machine runs the automation, and the optional agent
- * pin with its model/effort. The pins are per-AGENT vocabularies server-side
- * (validated against `agent ?? claude`), so Model and Effort park while the
- * agent stays at the machine's own default — a run then simply uses whatever
- * that machine is configured for.
+ * The binding half: which machine runs the automation, and the agent pin with
+ * its model/effort. EXP-615 retired the "Device default" agent option — the
+ * strip seeds to the bound machine's own default launch agent (the same
+ * [defaultAgentFor] the Start-coding sheet uses) and the row saves that
+ * concrete agent. Model/Effort speak the launch "CLI default" sentinel, which
+ * is what writes NULL.
  */
 @Composable
 internal fun AutomationBindingFields(
@@ -316,101 +314,115 @@ internal fun AutomationBindingFields(
     devices: List<SteerDevice>,
     onChange: (AutomationDraft) -> Unit,
 ) {
-    if (devices.isEmpty()) {
-        OptionGroup {
-            Text(
-                "No machine can run automations yet. Open or update the Exponential " +
-                    "desktop app on the machine that should run this.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-            )
-        }
-        return
-    }
     val device = devices.firstOrNull { it.deviceId == draft.deviceId }
-    val agents = device?.runnableAgents.orEmpty()
-    val agentPinned = draft.agent.isNotEmpty()
-    OptionGroup {
-        PickerRow(
-            label = "Runs on",
-            value = device?.let(::automationDeviceLabel) ?: "Select",
-            options = devices.map { it.deviceId },
-            selected = draft.deviceId,
-            optionLabel = { id ->
-                devices.firstOrNull { it.deviceId == id }?.let(::automationDeviceLabel) ?: id
-            },
-            onSelect = { id ->
-                // A machine that can't run the pinned agent drops the pin.
-                val next = devices.firstOrNull { it.deviceId == id }
-                val keepsAgent = draft.agent.isEmpty() ||
-                    next?.runnableAgents.orEmpty().contains(draft.agent)
-                onChange(
-                    if (keepsAgent) {
-                        draft.copy(deviceId = id)
-                    } else {
-                        draft.copy(
-                            deviceId = id,
-                            agent = "",
-                            model = CLI_DEFAULT_MODEL,
-                            effort = CLI_DEFAULT_EFFORT,
-                        )
-                    },
-                )
-            },
-        )
-        GroupDivider()
-        PickerRow(
-            label = "Agent",
-            value = if (agentPinned) agentLabel(draft.agent) else "Device default",
-            options = listOf("") + agents,
-            selected = draft.agent,
-            optionLabel = { if (it.isEmpty()) "Device default" else agentLabel(it) },
-            enabled = agents.isNotEmpty(),
-            onSelect = { next ->
-                // The model/effort vocabularies are per agent — a switch has
-                // to reset them, or a stale value hits a server refusal.
-                onChange(
-                    draft.copy(
-                        agent = next,
-                        model = CLI_DEFAULT_MODEL,
-                        effort = CLI_DEFAULT_EFFORT,
-                    ),
-                )
-            },
-        )
-        GroupDivider()
-        PickerRow(
-            label = "Model",
-            value = if (agentPinned) modelLabel(draft.model) else "Device default",
-            options = listOf(CLI_DEFAULT_MODEL) + modelValuesFor(draft.agent),
-            selected = draft.model,
-            optionLabel = { if (it.isEmpty()) "Device default" else modelLabel(it) },
-            enabled = agentPinned,
-            onSelect = { onChange(draft.copy(model = it)) },
-        )
-        GroupDivider()
-        PickerRow(
-            label = when (draft.agent) {
-                "codex" -> "Reasoning"
-                "pi" -> "Thinking"
-                else -> "Effort"
-            },
-            value = if (agentPinned) effortLabel(draft.effort) else "Device default",
-            options = listOf(CLI_DEFAULT_EFFORT) + effortValuesFor(draft.agent),
-            selected = draft.effort,
-            optionLabel = { if (it.isEmpty()) "Device default" else effortLabel(it) },
-            enabled = agentPinned,
-            onSelect = { onChange(draft.copy(effort = it)) },
+    // Seed (and re-seed) the agent off the bound machine: an unset pin — a row
+    // saved before EXP-615 carries a NULL agent — or one the newly picked
+    // machine cannot run falls back to that machine's default, clamped to what
+    // it advertises. A pin it CAN run is left alone, so a manual pick sticks.
+    LaunchedEffect(device?.deviceId, devices) {
+        val bound = device ?: return@LaunchedEffect
+        if (draft.agent.isNotEmpty() && draft.agent in availableAgentsFor(bound)) {
+            return@LaunchedEffect
+        }
+        onChange(
+            draft.copy(
+                agent = defaultAgentFor(bound),
+                model = CLI_DEFAULT_MODEL,
+                effort = CLI_DEFAULT_EFFORT,
+            ),
         )
     }
+    // EXP-615: the same block the launch dialogs render, in its Automation
+    // variant — identical agent capsule, no launch toggles.
+    LaunchOptionsSection(
+        variant = LaunchOptionsVariant.Automation,
+        devices = devices,
+        device = device,
+        // The re-seed above handles a pin the new machine cannot run.
+        onDeviceChange = { id -> onChange(draft.copy(deviceId = id)) },
+        agent = draft.agent,
+        availableAgents = device?.runnableAgents.orEmpty(),
+        onAgentChange = { next ->
+            // The model/effort vocabularies are per agent — a switch has to
+            // reset them, or a stale value hits a server refusal.
+            onChange(
+                draft.copy(
+                    agent = next,
+                    model = CLI_DEFAULT_MODEL,
+                    effort = CLI_DEFAULT_EFFORT,
+                ),
+            )
+        },
+        model = draft.model,
+        onModelChange = { onChange(draft.copy(model = it)) },
+        effort = draft.effort,
+        onEffortChange = { onChange(draft.copy(effort = it)) },
+        // One wording with the web dialog (EXP-615).
+        noDeviceNote = "No automation-capable device. Run the desktop app or the " +
+            "exponential daemon and it will appear here.",
+    )
 }
 
-/** How a machine reads in the automation pickers — the owner disambiguates a
- * teammate's shared server from a similarly named own box. */
-internal fun automationDeviceLabel(device: SteerDevice): String {
-    val base = device.deviceLabel.ifBlank { device.deviceId }
-    return device.owner?.let { "$base — ${it.name}" } ?: base
+/**
+ * The schedule's wall-clock row: a PickerRow-shaped row that opens the
+ * Material 3 time picker (EXP-615 — the free-text HH:MM field accepted
+ * nonsense and read nothing like the iOS `DatePicker(.hourAndMinute)`). The
+ * draft keeps its `"HH:MM"` string, so the wire format is unchanged.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AutomationTimeRow(time: String, onChange: (String) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { open = true }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "Time",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            time,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+        )
+        Icon(
+            ExpIcons.uiChevronRight,
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        )
+    }
+    if (open) {
+        val minuteOfDay = automationTimeToMinute(time)
+        val state = rememberTimePickerState(
+            initialHour = minuteOfDay / 60,
+            initialMinute = minuteOfDay % 60,
+            // The stored string is 24h — showing a 12h dial would disagree
+            // with the row's own value.
+            is24Hour = true,
+        )
+        AlertDialog(
+            onDismissRequest = { open = false },
+            text = { TimePicker(state = state) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        open = false
+                        onChange(automationMinuteToTime(state.hour * 60 + state.minute))
+                    },
+                ) { Text("Done") }
+            },
+            dismissButton = {
+                TextButton(onClick = { open = false }) { Text("Cancel") }
+            },
+        )
+    }
 }
 
 // One "Any"-defaulted single-select filter row: the empty value is the

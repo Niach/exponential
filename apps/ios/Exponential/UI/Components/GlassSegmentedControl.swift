@@ -10,6 +10,11 @@ struct GlassSegmentedControl<Option: Hashable>: View {
     let options: [Option]
     let selection: Option
     let label: (Option) -> String
+    /// EXP-615: optional 14pt leading mark per segment — the agent strip's
+    /// brand icons (`Image("agent-claude")`), which are asset images rather
+    /// than registry glyphs. nil renders a label-only segment exactly as
+    /// before.
+    let icon: (Option) -> Image?
     let badge: (Option) -> Int
     let onSelect: (Option) -> Void
 
@@ -20,9 +25,30 @@ struct GlassSegmentedControl<Option: Hashable>: View {
         badge: @escaping (Option) -> Int = { _ in 0 },
         onSelect: @escaping (Option) -> Void
     ) {
+        self.init(
+            options: options,
+            selection: selection,
+            label: label,
+            icon: { _ in nil },
+            badge: badge,
+            onSelect: onSelect
+        )
+    }
+
+    /// The icon-bearing variant (EXP-615): same geometry, a leading mark on
+    /// the segments that have one.
+    init(
+        options: [Option],
+        selection: Option,
+        label: @escaping (Option) -> String,
+        icon: @escaping (Option) -> Image?,
+        badge: @escaping (Option) -> Int = { _ in 0 },
+        onSelect: @escaping (Option) -> Void
+    ) {
         self.options = options
         self.selection = selection
         self.label = label
+        self.icon = icon
         self.badge = badge
         self.onSelect = onSelect
     }
@@ -46,9 +72,17 @@ struct GlassSegmentedControl<Option: Hashable>: View {
             onSelect(option)
         } label: {
             HStack(spacing: 6) {
+                if let mark = icon(option) {
+                    mark
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 14, height: 14)
+                }
                 Text(label(option))
                     .font(.subheadline.weight(active ? .semibold : .regular))
                     .foregroundStyle(.white.opacity(active ? 1 : TextOpacity.secondary))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                 let count = badge(option)
                 if count > 0 {
                     Text("\(count)")

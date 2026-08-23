@@ -27,16 +27,18 @@
 //! only the doctor-installed agents.
 //!
 //! EXP-257: the dialog is the ONE unified launch surface — a segmented
-//! **Issues | Actions** subject strip sits at the top. The Actions tab
+//! **Issues | Actions | Chat** subject strip sits at the top. The Actions tab
 //! replaces the issue checklist with an action search + single-select list
 //! (the fix-conflicts builtin pinned first; "Create action" is not offered —
-//! EXP-431 gave it its own CREATE-mode presentation of this dialog, see
-//! [`open_for_create_action`]: titled "New action", no subject strip, no
-//! picker, just the builtin's input fields) and the selected action's typed
-//! input fields (text / repo / board); the SHARED bottom half (agent tabs,
-//! model/effort, toggles, footer) applies to both. An action launch goes
-//! through the trust-gated [`crate::action_run::start_action_run`] instead
-//! of `coding::prepare` directly.
+//! authoring lives in [`crate::create_action_dialog`]) and the selected
+//! action's typed input fields (text / repo / board). EXP-615 adds the
+//! **Chat** tab: a free prompt on a picked repository's trunk clone, running
+//! as the hidden `builtin:chat` action over the same action rails — no issue,
+//! no branch, no PR. The SHARED right half is the ONE
+//! [`crate::launch_options::LaunchOptionsSection`] (agent pills, model/effort,
+//! toggles) every launch surface renders. An action launch goes through
+//! [`crate::action_run::start_action_run`] instead of `coding::prepare`
+//! directly.
 //!
 //! EXP-291: the dialog renders as a full-height column — only the BODY
 //! (subject strip + the two columns) scrolls; the Cancel / Start action bar
@@ -65,9 +67,7 @@ use gpui_component::{
     input::{Input, InputEvent, InputState, Textarea, TextareaState},
     menu::{DropdownMenu as _, PopupMenuItem},
     scroll::{Scrollbar, ScrollbarAxis},
-    select::Select,
-    tab::{Tab, TabBar, TabVariant},
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, Size,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use sync::Store;
 
@@ -79,11 +79,8 @@ use coding::{
 use domain::IssueStatus;
 
 use crate::action_run::{self, ActionRepo, ActionRepoRow, StartActionArgs};
-use crate::automation_editor::{AutomationEditorState, AutomationSpec};
 use crate::coding_flow::{self, CodingHub, SessionSubject};
-use crate::coding_selects::{
-    agent_icon, choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect,
-};
+use crate::launch_options::{self, LaunchOptionsSection};
 use crate::icons::registry;
 use crate::native_dialog::{self, DialogContent, DialogSpec};
 use crate::queries;
@@ -128,54 +125,6 @@ fn pr_pick_options(cx: &App, team_id: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-/// Append the machine-readable automation instruction to the creator run's
-/// `description` input (EXP-530/583), value AND display alike — the prompt
-/// renders the display, the value is what the agent is told it received.
-/// Compact JSON so the whole thing stays one readable line.
-///
-/// The wording is cross-client copy: the web create dialog appends the exact
-/// same block ([`trigger_note`] is locked by
-/// `trigger_note_matches_the_web_block`).
-fn append_trigger_note(inputs: &mut [ActionInputValue], spec: &AutomationSpec) {
-    let note = trigger_note(spec);
-    for input in inputs.iter_mut() {
-        if input.key != "description" {
-            continue;
-        }
-        input.value.push_str(&note);
-        if let Some(display) = input.display.as_mut() {
-            display.push_str(&note);
-        }
-    }
-}
-
-/// The appended block itself (see [`append_trigger_note`]). Byte-identical to
-/// web `formatAutomationBlock` (`lib/action-triggers.ts`), key order included:
-/// `deviceId`, `trigger`, then the launch pins only when they are set. The
-/// dialog never talks to the server — the creator agent copies this JSON into
-/// `exponential_automations_create` once the action exists.
-fn trigger_note(spec: &AutomationSpec) -> String {
-    let mut payload = serde_json::Map::new();
-    payload.insert("deviceId".to_string(), serde_json::json!(spec.device_id));
-    payload.insert("trigger".to_string(), spec.trigger.clone());
-    for (key, value) in [
-        ("agent", spec.agent.as_deref()),
-        ("model", spec.model.as_deref()),
-        ("effort", spec.effort.as_deref()),
-    ] {
-        if let Some(value) = value.filter(|value| !value.is_empty()) {
-            payload.insert(key.to_string(), serde_json::json!(value));
-        }
-    }
-    let json = serde_json::to_string(&serde_json::Value::Object(payload))
-        .unwrap_or_else(|_| "{}".to_string());
-    format!(
-        "\n\nAutomation — after creating the action, call \
-         exponential_automations_create with its id and exactly these fields: \
-         `{json}`. An automated run fills no inputs, so declare none as required."
-    )
-}
-
 /// Fired once after a successful ISSUE-subject launch (EXP-439) — the bulk
 /// bar passes a callback that clears its multiselect, so starting a batch
 /// session leaves batch selection behind.
@@ -204,7 +153,7 @@ pub fn open_for_issue(window: &mut Window, cx: &mut App, issue_id: String) {
         log::warn!("[ui] start-coding dialog: board not synced for {issue_id}");
         return;
     };
-    open(window, cx, team_id, vec![issue.id], None, None, false, None);
+    open(window, cx, team_id, vec![issue.id], None, None, None);
 }
 
 /// Open the dialog from the bulk bar with the selection pre-checked.
@@ -217,62 +166,13 @@ pub fn open_for_selection(
     issue_ids: Vec<String>,
     on_launched: Option<OnLaunched>,
 ) {
-    open(window, cx, team_id, issue_ids, None, None, false, on_launched);
+    open(window, cx, team_id, issue_ids, None, None, on_launched);
 }
 
 /// Open the dialog on the ACTIONS tab with `action_id` preselected (EXP-257
 /// — the actions panel rows land here).
 pub fn open_for_action(window: &mut Window, cx: &mut App, team_id: String, action_id: String) {
-    open(window, cx, team_id, Vec::new(), Some(action_id), None, false, None);
-}
-
-/// Open the dialog in CREATE mode (EXP-431 — the Actions tool header's "New
-/// action" button): the "Create action" builtin preselected, presented as a
-/// creation dialog — no subject tabs, no action picker, just the builtin's
-/// input fields (Description leading) over the shared options cluster.
-pub fn open_for_create_action(window: &mut Window, cx: &mut App, team_id: String) {
-    open_for_create_action_prefilled(window, cx, team_id, None, None, None);
-}
-
-/// Create mode with the builtin's Description (and optionally its Icon) seeded
-/// — the EXP-530 Suggestions tab's "Use suggestion", which hands the creator
-/// run a ready-written brief instead of an empty field. The user still edits
-/// it before starting; nothing is authored until the run does it.
-pub fn open_for_create_action_prefilled(
-    window: &mut Window,
-    cx: &mut App,
-    team_id: String,
-    description: Option<String>,
-    icon: Option<String>,
-    automation: Option<serde_json::Value>,
-) {
-    open_inner(
-        window,
-        cx,
-        team_id,
-        Vec::new(),
-        Some(api::actions::BUILTIN_CREATE_ACTION_ID.to_string()),
-        None,
-        true,
-        None,
-        Prefill {
-            description,
-            icon,
-            automation,
-        },
-    );
-}
-
-/// Seed values for CREATE mode's builtin input fields (EXP-530). Applied once,
-/// right after the preselect lands — a typed edit afterwards always wins.
-#[derive(Clone, Default)]
-struct Prefill {
-    description: Option<String>,
-    icon: Option<String>,
-    /// EXP-583: an "Action + automation" suggestion's trigger. `Some` is the
-    /// ONLY thing that puts the Automation block on the create dialog — the
-    /// plain "New action" path never shows it.
-    automation: Option<serde_json::Value>,
+    open(window, cx, team_id, Vec::new(), Some(action_id), None, None);
 }
 
 /// Open the dialog on the ACTIONS tab with the builtin "Fix merge conflicts"
@@ -292,7 +192,6 @@ pub fn open_for_fix_conflicts(
         Vec::new(),
         Some(api::actions::BUILTIN_FIX_CONFLICTS_ID.to_string()),
         Some(issue_id),
-        false,
         None,
     );
 }
@@ -305,34 +204,16 @@ fn open(
     preselected: Vec<String>,
     preselect_action: Option<String>,
     preselect_pr: Option<String>,
-    create_mode: bool,
     on_launched: Option<OnLaunched>,
 ) {
-    open_inner(
-        window,
-        cx,
-        team_id,
-        preselected,
-        preselect_action,
-        preselect_pr,
-        create_mode,
-        on_launched,
-        Prefill::default(),
-    );
-}
-
-#[allow(clippy::too_many_arguments)] // the one shared entry every open_* rides
-fn open_inner(
-    window: &mut Window,
-    cx: &mut App,
-    team_id: String,
-    preselected: Vec<String>,
-    preselect_action: Option<String>,
-    preselect_pr: Option<String>,
-    create_mode: bool,
-    on_launched: Option<OnLaunched>,
-    prefill: Prefill,
-) {
+    // The subject the caller seeded: an action preselect lands on Actions,
+    // everything else on the issue checklist (Chat is only ever reached by
+    // switching the strip — nothing pre-seeds it).
+    let tab = if preselect_action.is_some() {
+        SubjectTab::Actions
+    } else {
+        SubjectTab::Issues
+    };
     // EXP-268: widescreen two-column layout (web `sm:max-w-3xl` parity —
     // picker left, options right); the launched terminal tab lands back in
     // the OPENER window (EXP-284: the dialog is its own native window).
@@ -340,9 +221,8 @@ fn open_inner(
     // EXP-285: trimmed 640 → 560 and user-resizable — the two-column layout
     // tolerates it (both lists are max_h-capped).
     let height = (window.viewport_size().height * 0.85).min(px(520.));
-    let title = if create_mode { "New action" } else { "Start coding" };
     let spec =
-        DialogSpec::new(title, size(px(760.), height)).resizable(size(px(640.), px(480.)));
+        DialogSpec::new("Start coding", size(px(760.), height)).resizable(size(px(640.), px(480.)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
         let view = cx.new(|cx| {
             StartCodingDialogView::new(
@@ -350,9 +230,8 @@ fn open_inner(
                 preselected,
                 preselect_action,
                 preselect_pr,
-                create_mode,
                 on_launched,
-                prefill,
+                tab,
                 opener,
                 window,
                 cx,
@@ -372,6 +251,9 @@ fn open_inner(
 enum SubjectTab {
     Issues,
     Actions,
+    /// EXP-615: a free prompt on a repository's trunk clone, run as the
+    /// hidden `builtin:chat` action.
+    Chat,
 }
 
 /// Actions-tab list state (EXP-268: a LIVE read of the synced `actions`
@@ -409,19 +291,6 @@ enum RepoState {
     Error(String),
 }
 
-/// The `(ultracode, plan_mode, skip_permissions)` settings defaults for
-/// `agent`, capability-masked (EXP-201: ultracode is Claude-only, plan mode
-/// is claude+pi since EXP-441, skip does not exist for pi). EXP-206: ONE set
-/// of defaults — a single-issue run and a multi-issue batch run seed
-/// identically, and plan/skip are per-AGENT settings.
-fn agent_defaults(settings: &coding::Settings, agent: CodingAgent) -> (bool, bool, bool) {
-    (
-        settings.claude_ultracode && agent.supports_ultracode(),
-        settings.plan_mode_for(agent) && agent.supports_plan_mode(),
-        settings.skip_permissions_for(agent) && agent.supports_skip_permissions(),
-    )
-}
-
 pub struct StartCodingDialogView {
     team_id: String,
     /// The window that opened this dialog — the launched terminal tab spawns
@@ -430,10 +299,6 @@ pub struct StartCodingDialogView {
     /// EXP-257: which subject half is showing — Issues (the checklist) or
     /// Actions (the single-select action list + input fields).
     subject_tab: SubjectTab,
-    /// EXP-431: opened via [`open_for_create_action`] — presented as a "New
-    /// action" creation dialog: no subject tabs, no action picker/search,
-    /// just the create builtin's input fields over the options cluster.
-    create_mode: bool,
     /// The team's actions (builtin pinned first by flag) — refreshed live
     /// from the synced `actions` collection (EXP-268).
     actions: Vec<api::actions::Action>,
@@ -446,16 +311,11 @@ pub struct StartCodingDialogView {
     /// EXP-313) — applied right after the action preselect, which clears the
     /// pick maps.
     pending_pr_preselect: Option<String>,
-    /// EXP-530: the Suggestions tab's seed values, applied with the preselect.
-    pending_prefill: Prefill,
-    /// EXP-530/583: the suggestion-prefilled create flow's Automation block.
-    /// It cannot SAVE anything (the action does not exist yet) —
-    /// [`Self::launch`] appends the wire JSON to the creator run's
-    /// description so the agent sets it via `exponential_automations_create`.
-    automation: AutomationEditorState,
-    /// Whether that block is on screen at all: only an "Action + automation"
-    /// suggestion turns it on.
-    suggested_automation: bool,
+    /// EXP-615 — the Chat tab: the free prompt the agent receives verbatim…
+    chat_prompt: Entity<TextareaState>,
+    /// …and the repository whose trunk clone it runs in (auto-picked when the
+    /// team has exactly one; the run is refused without it).
+    chat_repo: Option<ActionRepoRow>,
     action_search: Entity<InputState>,
     action_list_scroll: ScrollHandle,
     action_inputs_scroll: ScrollHandle,
@@ -507,17 +367,9 @@ pub struct StartCodingDialogView {
     /// The body is the only scrolling region — the action bar below it is
     /// pinned to the dialog's bottom edge and never scrolls away.
     body_scroll: ScrollHandle,
-    /// The selected agent CLI (EXP-201) — the tab strip above the pickers;
-    /// seeded from `settings.default_agent`, overridable per launch.
-    agent: CodingAgent,
-    model: ChoiceSelect,
-    effort: ChoiceSelect,
-    /// Dynamic workflows (`--effort ultracode`) — Claude-only, any model.
-    ultracode: bool,
-    /// Native Claude plan mode (`--permission-mode plan`). Claude-only.
-    plan_mode: bool,
-    /// Full permission bypass (claude/codex; pi has no permission system).
-    skip_permissions: bool,
+    /// EXP-615: the ONE shared options cluster (agent pills, model/effort,
+    /// toggles) — the same component the create-action dialog renders.
+    launch: LaunchOptionsSection,
     launching: bool,
     error: Option<SharedString>,
     /// EXP-439: fired ONCE after a successful issue-subject launch — the bulk
@@ -533,15 +385,13 @@ impl StartCodingDialogView {
         preselected: Vec<String>,
         preselect_action: Option<String>,
         preselect_pr: Option<String>,
-        create_mode: bool,
         on_launched: Option<OnLaunched>,
-        prefill: Prefill,
+        tab: SubjectTab,
         opener: AnyWindowHandle,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
         let hub = CodingHub::global(cx);
-        let settings = hub.read(cx).settings.clone();
 
         // Snapshot the picker's candidate pool (EXP-119): the pre-seeded
         // issues' board(s) only, OPEN issues only — unrelated boards and
@@ -641,7 +491,7 @@ impl StartCodingDialogView {
             // tab strip re-filters to the installed agents (EXP-206), so a
             // selection whose tab just vanished hops to an installed one.
             cx.observe_in(&hub, window, |this: &mut Self, _, window, cx| {
-                this.reconcile_agent(window, cx);
+                this.launch.reconcile_agent(window, cx);
                 cx.notify();
             }),
             // EXP-202: the one-session-per-issue blocker tracks both the
@@ -661,37 +511,30 @@ impl StartCodingDialogView {
             }),
         ];
 
-        let agent = settings.default_agent;
-        let (ultracode, plan_mode, skip_permissions) = agent_defaults(&settings, agent);
-        // The section's filter pickers are team-scoped; `team_id` itself
-        // moves into the struct below.
-        // EXP-583: the Automation block only exists for a suggestion that
-        // brought a trigger. It is INDEPENDENT of this run: the creator run
-        // happens here, the automation it authors can target any machine.
-        let suggested_automation = create_mode.then(|| prefill.automation.clone()).flatten();
-        let mut automation = AutomationEditorState::new(team_id.clone(), window, cx);
-        if let Some(trigger) = suggested_automation.as_ref() {
-            automation.seed_trigger(Some(trigger), window, cx);
-            automation.seed_default_device(cx);
-        }
+        // EXP-615: the Chat tab's prompt editor (its placeholder comes from
+        // the hidden builtin's own input definition, so it can never drift
+        // from the other three clients).
+        let chat_placeholder = api::actions::builtin_chat_action(&team_id)
+            .inputs
+            .iter()
+            .find(|input| input.key == "prompt")
+            .and_then(|input| input.placeholder.clone())
+            .unwrap_or_default();
+        let chat_prompt = cx.new(|cx| {
+            TextareaState::new(window, cx).placeholder(SharedString::from(chat_placeholder))
+        });
 
         let mut this = Self {
             team_id,
             opener,
-            subject_tab: if preselect_action.is_some() {
-                SubjectTab::Actions
-            } else {
-                SubjectTab::Issues
-            },
-            create_mode,
+            subject_tab: tab,
             actions: Vec::new(),
             actions_load: ActionsLoad::Loading,
             selected_action_id: None,
             pending_action_preselect: preselect_action,
             pending_pr_preselect: preselect_pr,
-            pending_prefill: prefill,
-            automation,
-            suggested_automation: suggested_automation.is_some(),
+            chat_prompt,
+            chat_repo: None,
             action_search,
             action_list_scroll: ScrollHandle::new(),
             action_inputs_scroll: ScrollHandle::new(),
@@ -713,22 +556,7 @@ impl StartCodingDialogView {
             search,
             list_scroll: ScrollHandle::new(),
             body_scroll: ScrollHandle::new(),
-            agent,
-            model: choice_select(
-                model_choices_for(agent),
-                settings.model_for(agent),
-                window,
-                cx,
-            ),
-            effort: choice_select(
-                effort_choices_for(agent),
-                settings.effort_for(agent),
-                window,
-                cx,
-            ),
-            ultracode,
-            plan_mode,
-            skip_permissions,
+            launch: LaunchOptionsSection::new(window, cx),
             launching: false,
             error: None,
             on_launched,
@@ -746,7 +574,7 @@ impl StartCodingDialogView {
         // The doctor usually ran long before the dialog opens — if the
         // settings default agent isn't installed, preselect one that is
         // (EXP-206: the tab strip only shows installed agents).
-        this.reconcile_agent(window, cx);
+        this.launch.reconcile_agent(window, cx);
         this
     }
 
@@ -790,9 +618,6 @@ impl StartCodingDialogView {
                         self.action_pr_picks.insert(key, pick);
                     }
                 }
-                // EXP-530: the Suggestions seeds land last — after the pick
-                // maps are clear and the input states exist.
-                self.apply_prefill(window, cx);
             }
         }
     }
@@ -816,6 +641,13 @@ impl StartCodingDialogView {
                     // An action selected before the fetch landed couldn't
                     // seed its repo inputs yet (EXP-349) — retry now.
                     this.seed_action_repo_inputs();
+                    // EXP-615: chat REQUIRES a repo — with exactly one there
+                    // is nothing to pick (web parity).
+                    if this.chat_repo.is_none() {
+                        if let [only] = &this.team_repos[..] {
+                            this.chat_repo = Some(only.clone());
+                        }
+                    }
                     cx.notify();
                 }
                 Err(err) => log::warn!("[ui] repositories.list failed: {err}"),
@@ -930,31 +762,6 @@ impl StartCodingDialogView {
                 },
             ));
             self.action_textarea_inputs.insert(key, state);
-        }
-    }
-
-    /// Apply the [`Prefill`] seeds once the create builtin's fields exist
-    /// (EXP-530 — the Suggestions tab hands over a written brief). Runs after
-    /// [`Self::select_action`], which clears the pick maps.
-    fn apply_prefill(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        if let Some(description) = self.pending_prefill.description.take() {
-            // The builtin's brief field, by key (its `text` input).
-            if let Some(state) = self.action_text_inputs.get("description").cloned() {
-                state.update(cx, |state, cx| state.set_value(description, window, cx));
-            } else if let Some(state) = self.action_textarea_inputs.get("description").cloned() {
-                state.update(cx, |state, cx| state.set_value(description, window, cx));
-            }
-        }
-        if let Some(icon) = self.pending_prefill.icon.take() {
-            if let Some(key) = self.selected_action().and_then(|action| {
-                action
-                    .inputs
-                    .iter()
-                    .find(|input| input.input_type == "icon")
-                    .map(|input| input.key.clone())
-            }) {
-                self.action_icon_picks.insert(key, icon);
-            }
         }
     }
 
@@ -1203,7 +1010,7 @@ impl StartCodingDialogView {
         if !self
             .worktrees
             .get(issue_id)
-            .is_some_and(|state| state.offers(self.agent))
+            .is_some_and(|state| state.offers(self.launch.agent))
         {
             return None;
         }
@@ -1213,82 +1020,6 @@ impl StartCodingDialogView {
     /// Whether the launch will actually RESUME (checkbox on + a candidate).
     fn resume_active(&self) -> bool {
         self.resume && self.resume_candidate().is_some()
-    }
-
-    /// The agents the tab strip offers (EXP-206): the ones the doctor found
-    /// installed — including installed-but-signed-out ones (EXP-409), which
-    /// render greyed out so "sign in" never reads as "not installed". While
-    /// the report is pending — or when NOTHING is installed — every agent
-    /// stays visible, so the strip never goes empty and the footer blocker
-    /// can name the selected agent's failure.
-    fn pickable_agents(report: Option<&coding::DoctorReport>) -> Vec<CodingAgent> {
-        let Some(report) = report else {
-            return CodingAgent::ALL.to_vec();
-        };
-        let runnable = report.installed_agents();
-        let unauthed = report.unauthed_agents();
-        if runnable.is_empty() && unauthed.is_empty() {
-            return CodingAgent::ALL.to_vec();
-        }
-        // Keep the canonical ALL order regardless of auth state.
-        CodingAgent::ALL
-            .into_iter()
-            .filter(|agent| runnable.contains(agent) || unauthed.contains(agent))
-            .collect()
-    }
-
-    /// Keep the selection on a RUNNABLE agent: when the doctor report
-    /// (re)lands and the selected agent has no tab anymore — or turned out
-    /// signed out (EXP-409) while a runnable sibling exists — hop to the
-    /// first runnable agent (mirrors the remote pickers, which only offer
-    /// the device's advertised agents).
-    fn reconcile_agent(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let report = CodingHub::global(cx).read(cx).doctor.report.clone();
-        let runnable = report
-            .as_ref()
-            .map(|report| report.installed_agents())
-            .unwrap_or_default();
-        let preferred = if runnable.is_empty() {
-            Self::pickable_agents(report.as_ref())
-        } else {
-            runnable
-        };
-        if !preferred.contains(&self.agent) {
-            if let Some(&first) = preferred.first() {
-                self.set_agent(first, window, cx);
-            }
-        }
-    }
-
-    /// Switch the agent tab (EXP-201): rebuild the model/effort selects from
-    /// the agent's own choice lists + settings defaults and re-seed the
-    /// toggles for the current mode (capability-masked).
-    fn set_agent(
-        &mut self,
-        agent: CodingAgent,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        if self.agent == agent {
-            return;
-        }
-        self.agent = agent;
-        let settings = CodingHub::global(cx).read(cx).settings.clone();
-        self.model = choice_select(
-            model_choices_for(agent),
-            settings.model_for(agent),
-            window,
-            cx,
-        );
-        self.effort = choice_select(
-            effort_choices_for(agent),
-            settings.effort_for(agent),
-            window,
-            cx,
-        );
-        (self.ultracode, self.plan_mode, self.skip_permissions) =
-            agent_defaults(&settings, agent);
-        cx.notify();
     }
 
     fn toggle_checked(&mut self, issue_id: String, on: bool, cx: &mut gpui::Context<Self>) {
@@ -1311,7 +1042,7 @@ impl StartCodingDialogView {
             None => return Some("Checking local tools…".into()),
             // Per-agent gate (EXP-201): only git + the SELECTED agent block.
             Some(report) => {
-                if let Some(failed) = report.first_failure_for(self.agent) {
+                if let Some(failed) = report.first_failure_for(self.launch.agent) {
                     return Some(
                         failed
                             .error
@@ -1321,6 +1052,17 @@ impl StartCodingDialogView {
                     );
                 }
             }
+        }
+        // EXP-615: the Chat tab's gate is its builtin's two required inputs,
+        // named exactly like the Actions tab names an unfilled input.
+        if self.subject_tab == SubjectTab::Chat {
+            if self.chat_prompt.read(cx).value().trim().is_empty() {
+                return Some("Fill in Prompt.".into());
+            }
+            if self.chat_repo.is_none() {
+                return Some("Fill in Repository.".into());
+            }
+            return None;
         }
         // EXP-257: the Actions tab has its own, much shorter gate — the
         // issue checklist/session/repo blockers below don't apply to it.
@@ -1417,25 +1159,11 @@ impl StartCodingDialogView {
         None
     }
 
-    /// The dialog's agent/model/effort/mode choices as launch options.
+    /// The dialog's agent/model/effort/mode choices as launch options. A
+    /// RESUME never re-enters plan mode (EXP-202): the plan already happened
+    /// in the conversation being continued.
     fn options(&self, cx: &App) -> LaunchOptions {
-        LaunchOptions {
-            agent: self.agent,
-            model: selected(&self.model, cx),
-            // Ignored by the argv while ultracode is on (ultracode IS the
-            // effort level); blank = omit the flag.
-            effort: selected(&self.effort, cx),
-            // Capability-clamped so a stale toggle can never leak onto an
-            // agent that doesn't support it.
-            ultracode: self.ultracode && self.agent.supports_ultracode(),
-            // A RESUME never re-enters plan mode (EXP-202): the plan already
-            // happened in the conversation being continued.
-            plan_mode: self.plan_mode
-                && self.agent.supports_plan_mode()
-                && !self.resume_active(),
-            skip_permissions: self.skip_permissions
-                && self.agent.supports_skip_permissions(),
-        }
+        self.launch.options(self.resume_active(), cx)
     }
 
     /// Snapshot the checked set into a [`BatchLaunchRequest`] (2+ checked).
@@ -1483,6 +1211,55 @@ impl StartCodingDialogView {
         if self.launching || self.launch_blocker(cx).is_some() {
             return;
         }
+        // EXP-615: a CHAT launch is an action launch — the hidden builtin,
+        // its two inputs, and the same runner (which resolves the repo and
+        // spawns into the opener window).
+        if self.subject_tab == SubjectTab::Chat {
+            let Some(repo) = self.chat_repo.clone() else {
+                return;
+            };
+            let prompt = self.chat_prompt.read(cx).value().trim().to_string();
+            let action = api::actions::builtin_chat_action(&self.team_id);
+            let inputs: Vec<ActionInputValue> = action
+                .inputs
+                .iter()
+                .map(|input| {
+                    let (value, display) = if input.key == "prompt" {
+                        (prompt.clone(), prompt.clone())
+                    } else {
+                        (repo.id.clone(), repo.full_name.clone())
+                    };
+                    ActionInputValue {
+                        key: input.key.clone(),
+                        label: input.label.clone(),
+                        input_type: input.input_type.clone(),
+                        value,
+                        display: Some(display),
+                    }
+                })
+                .collect();
+            let options = self.options(cx);
+            let handle = self.opener;
+            native_dialog::close_dialog_window(window, cx);
+            action_run::start_action_run(
+                StartActionArgs {
+                    action_id: action.id,
+                    team_id: self.team_id.clone(),
+                    repo: ActionRepo::Resolve,
+                    options,
+                    origin: LaunchOrigin::Local,
+                    inputs,
+                    target: Some(handle),
+                    activate_app: false,
+                    reservation: None,
+                    trigger: None,
+                    automation_id: None,
+                    on_failed: None,
+                },
+                cx,
+            );
+            return;
+        }
         // EXP-257: an ACTION launch rides the trust-gated runner (which owns
         // fetch-fresh + trust dialog + prepare/spawn) — close the dialog and
         // hand off; the runner surfaces failures on the window itself.
@@ -1490,22 +1267,7 @@ impl StartCodingDialogView {
             let Some(action) = self.selected_action().cloned() else {
                 return;
             };
-            let mut inputs = self.collect_action_inputs(&action, cx);
-            // EXP-530: create mode can't SAVE a trigger — the action does not
-            // exist yet. Instead the wire JSON rides the brief the creator
-            // agent reads, with an explicit instruction to set it verbatim on
-            // `exponential_actions_create`. A half-filled section blocks the
-            // launch rather than starting a run that silently drops it.
-            if self.create_mode && self.suggested_automation {
-                match self.automation.to_spec(cx) {
-                    Err(message) => {
-                        self.error = Some(message);
-                        cx.notify();
-                        return;
-                    }
-                    Ok(spec) => append_trigger_note(&mut inputs, &spec),
-                }
-            }
+            let inputs = self.collect_action_inputs(&action, cx);
             let options = self.options(cx);
             // The runner's terminal tab targets the OPENER window — this
             // dialog window is about to be gone.
@@ -1693,47 +1455,6 @@ impl StartCodingDialogView {
             .into_any_element()
     }
 
-    /// A labeled field column with an optional muted hint under the control.
-    fn labeled_field(
-        label: &'static str,
-        field: gpui::AnyElement,
-        hint: Option<&'static str>,
-        cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
-        let muted = cx.theme().muted_foreground;
-        v_flex()
-            .flex_1()
-            .gap_1()
-            .child(div().text_xs().text_color(muted).child(label))
-            .child(field)
-            .when_some(hint, |this, hint| {
-                this.child(div().text_xs().text_color(muted.opacity(0.7)).child(hint))
-            })
-    }
-
-    /// The "Dynamic workflows (ultracode)" checkbox — uniform with the other
-    /// option rows (EXP-213 replaced the lone Switch).
-    fn ultracode_row(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        Checkbox::new("sc-ultracode")
-            .label("Dynamic workflows (ultracode)")
-            .checked(self.ultracode)
-            .on_click(cx.listener(|this, on: &bool, _, cx| {
-                this.ultracode = *on;
-                cx.notify();
-            }))
-    }
-
-    /// The shared "Plan mode" checkbox (hint-free — EXP-206).
-    fn plan_mode_row(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        Checkbox::new("sc-plan-mode")
-            .label("Plan mode")
-            .checked(self.plan_mode)
-            .on_click(cx.listener(|this, on: &bool, _, cx| {
-                this.plan_mode = *on;
-                cx.notify();
-            }))
-    }
-
     /// EXP-202: the "Resume previous session" notice + checkbox — rendered
     /// only while a single checked issue's worktree already exists on disk
     /// ([`Self::resume_candidate`]).
@@ -1741,7 +1462,7 @@ impl StartCodingDialogView {
         let muted = cx.theme().muted_foreground;
         let settings = CodingHub::global(cx).read(cx).settings.clone();
         let branch = coding::branch_name(&settings.branch_prefix, identifier);
-        let hint: SharedString = match self.agent {
+        let hint: SharedString = match self.launch.agent {
             // codex has no cwd-scoped --continue; the launcher recovers the
             // worktree's exact recorded session id instead.
             CodingAgent::Codex => "Resumes the worktree's recorded Codex session \
@@ -1783,68 +1504,6 @@ impl StartCodingDialogView {
             )
     }
 
-    /// The "Skip permissions" checkbox (EXP-201) — full bypass instead of the
-    /// agent's guarded auto mode. Hidden for pi (no permission system).
-    fn skip_permissions_row(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        Checkbox::new("sc-skip-permissions")
-            .label("Skip permissions")
-            .checked(self.skip_permissions)
-            .on_click(cx.listener(|this, on: &bool, _, cx| {
-                this.skip_permissions = *on;
-                cx.notify();
-            }))
-    }
-
-    /// The agent tab strip (EXP-201) — compact, above the pickers. Offers
-    /// only the installed agents (EXP-206; all of them while the doctor is
-    /// still probing or found none).
-    fn agent_tabs(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let report = CodingHub::global(cx).read(cx).doctor.report.clone();
-        let pickable = Self::pickable_agents(report.as_ref());
-        let unauthed: Vec<CodingAgent> = report
-            .as_ref()
-            .map(|report| report.unauthed_agents())
-            .unwrap_or_default();
-        let active_ix = pickable
-            .iter()
-            .position(|agent| *agent == self.agent)
-            .unwrap_or(0);
-        let click_agents = pickable.clone();
-        let muted = cx.theme().muted_foreground;
-        // Centered pill tabs with each agent's brand mark + name (EXP-206;
-        // icon and text ride one custom child — `Tab::icon` drops the label).
-        // A signed-out agent's tab is greyed out (EXP-409) but stays
-        // clickable: selecting it puts the sign-in fix in the footer blocker
-        // instead of dead UI.
-        h_flex().w_full().justify_center().child(
-            TabBar::new("sc-agent-tabs")
-                .with_variant(TabVariant::Pill)
-                .with_size(Size::Small)
-                .selected_index(active_ix)
-                .on_click(cx.listener(move |this, ix: &usize, window, cx| {
-                    if let Some(agent) = click_agents.get(*ix).copied() {
-                        this.set_agent(agent, window, cx);
-                    }
-                }))
-                .children(pickable.iter().map(|agent| {
-                    let signed_out = unauthed.contains(agent);
-                    Tab::new().child(
-                        h_flex()
-                            .gap_1p5()
-                            .items_center()
-                            .when(signed_out, |this| this.opacity(0.45))
-                            .child(Icon::from(agent_icon(*agent)).size_3p5())
-                            .child(SharedString::from(agent.label()))
-                            .when(signed_out, |this| {
-                                this.child(
-                                    div().text_xs().text_color(muted).child("not signed in"),
-                                )
-                            }),
-                    )
-                })),
-        )
-    }
-
     /// The top-level Issues | Actions subject strip (EXP-257). EXP-525: the
     /// web launch dialog's FULL-WIDTH segmented capsule (`ui/tabs.tsx`)
     /// instead of the small centered `TabBar`.
@@ -1871,6 +1530,56 @@ impl StartCodingDialogView {
                 SubjectTab::Actions,
                 self.subject_tab == SubjectTab::Actions,
             ))
+            // EXP-615: the third subject — a free prompt on a repository.
+            .child(segment(
+                "Chat",
+                SubjectTab::Chat,
+                self.subject_tab == SubjectTab::Chat,
+            ))
+    }
+
+    /// The Chat pane (EXP-615): the prompt editor + the repository picker.
+    /// Both fields come from the hidden builtin's own input definitions, so
+    /// their labels/placeholder cannot drift from the other three clients.
+    fn chat_pane(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        let muted = cx.theme().muted_foreground;
+        let repos = self.team_repos.clone();
+        let repo_field: gpui::AnyElement = if repos.is_empty() {
+            div()
+                .text_xs()
+                .text_color(muted)
+                .child("Connect a repository to this team to chat.")
+                .into_any_element()
+        } else {
+            action_run::repo_dropdown(
+                "sc-chat-repo".into(),
+                self.chat_repo.as_ref(),
+                repos,
+                false,
+                |this: &mut Self, repo, cx| {
+                    this.chat_repo = repo;
+                    cx.notify();
+                },
+                cx,
+            )
+            .into_any_element()
+        };
+        v_flex()
+            .w_full()
+            .gap_3()
+            .child(launch_options::labeled_field(
+                "Prompt",
+                Textarea::new(&self.chat_prompt).h(px(180.)).into_any_element(),
+                None,
+                cx,
+            ))
+            .child(launch_options::labeled_field(
+                "Repository",
+                repo_field,
+                None,
+                cx,
+            ))
+            .into_any_element()
     }
 
     /// One Actions-tab list row: icon + name + selection check.
@@ -2243,19 +1952,10 @@ impl StartCodingDialogView {
                     .web_sm()
                     .label(if self.launching {
                         "Starting…"
+                    } else if self.subject_tab == SubjectTab::Chat {
+                        "Start chat"
                     } else if self.subject_tab == SubjectTab::Actions {
-                        // EXP-257: the create builtin's run IS creation (the
-                        // EXP-431 create-mode dialog title already says "New
-                        // action"). The other builtin (fix-conflicts) runs
-                        // like any action.
-                        if self
-                            .selected_action()
-                            .is_some_and(|action| action.id == api::actions::BUILTIN_CREATE_ACTION_ID)
-                        {
-                            "Create"
-                        } else {
-                            "Run action"
-                        }
+                        "Run action"
                     } else if self.resume_active() {
                         "Resume coding"
                     } else {
@@ -2274,7 +1974,6 @@ impl Render for StartCodingDialogView {
         let danger = cx.theme().danger;
         let warning = cx.theme().warning;
         let checked_count = self.checked.len();
-        let ultracode = self.ultracode;
 
         // ---- searchable checklist: checked rows pinned first, then the
         //      unchecked search matches (capped — see MAX_UNCHECKED_ROWS) ----
@@ -2331,33 +2030,6 @@ impl Render for StartCodingDialogView {
             );
         }
 
-        // ---- model/effort selects (per-agent lists — EXP-201) ----
-        let agent = self.agent;
-        let effort_hint = (ultracode && agent.supports_ultracode())
-            .then_some("ultracode sets effort");
-        let main_row = h_flex()
-            .gap_3()
-            .w_full()
-            // Top-align (h_flex centers): the Effort column grows an
-            // "ultracode sets effort" hint line, which would otherwise sink
-            // the Model label below the shared baseline.
-            .items_start()
-            .child(Self::labeled_field(
-                "Model",
-                Select::new(&self.model).web_input_sm().into_any_element(),
-                None,
-                cx,
-            ))
-            .child(Self::labeled_field(
-                agent.effort_label(),
-                Select::new(&self.effort)
-                    .web_input_sm()
-                    .disabled(ultracode && agent.supports_ultracode())
-                    .into_any_element(),
-                effort_hint,
-                cx,
-            ));
-
         // ---- resume (EXP-202): single checked issue with an existing
         //      worktree offers "Resume previous session" ----
         let resume_active = self.resume_active();
@@ -2365,24 +2037,6 @@ impl Render for StartCodingDialogView {
             .resume_candidate()
             .map(|row| row.identifier.clone())
             .map(|identifier| self.resume_row(&identifier, cx).into_any_element());
-
-        // ---- toggles (capability-gated per agent — EXP-201; hint-free,
-        //      EXP-206) ----
-        let has_toggles = agent.supports_ultracode()
-            || (agent.supports_plan_mode() && !resume_active)
-            || agent.supports_skip_permissions();
-        let mut toggles = v_flex().gap_2();
-        if agent.supports_ultracode() {
-            toggles = toggles.child(self.ultracode_row(cx).into_any_element());
-        }
-        // A resume never re-enters plan mode — hide the row while the resume
-        // checkbox is on (options() clamps it off regardless).
-        if agent.supports_plan_mode() && !resume_active {
-            toggles = toggles.child(self.plan_mode_row(cx).into_any_element());
-        }
-        if agent.supports_skip_permissions() {
-            toggles = toggles.child(self.skip_permissions_row(cx).into_any_element());
-        }
 
         let blocker = self.launch_blocker(cx);
         // EXP-268: two-column widescreen layout (web `launch-dialog.tsx`
@@ -2409,25 +2063,16 @@ impl Render for StartCodingDialogView {
                         cx,
                     ));
             }
-            SubjectTab::Actions if self.create_mode => {
-                // EXP-431 create mode: no search, no picker, no intro copy —
-                // the create builtin's input fields below ARE the form
-                // (Description leads with the locked placeholder).
-                if matches!(self.actions_load, ActionsLoad::Loading) {
-                    left = left.child(
-                        div()
-                            .text_xs()
-                            .text_color(theme_muted)
-                            .child("Loading actions…"),
-                    );
-                }
+            SubjectTab::Chat => {
+                // EXP-615: the free prompt + its repository — no picker, no
+                // list; the pane IS the form.
+                left = left.child(self.chat_pane(cx));
             }
             SubjectTab::Actions => {
                 // The single-select action list (the fix-conflicts builtin
                 // pinned first) + the selected action's typed input fields
                 // (EXP-257). "Create action" is deliberately not offered here
-                // (EXP-431 — the Actions tool header's "New action" button
-                // opens its own create-mode dialog).
+                // — authoring lives in `crate::create_action_dialog`.
                 let query = self.action_search.read(cx).value().trim().to_lowercase();
                 let visible: Vec<usize> = self
                     .actions
@@ -2502,16 +2147,6 @@ impl Render for StartCodingDialogView {
                 }
             }
         }
-        // EXP-583: only an "Action + automation" suggestion brings the block
-        // — it sits under the builtin's fields and rides the brief on launch.
-        // The plain create path and the RUN presentation have none: an
-        // existing action's automations live on the Automations tab.
-        if self.create_mode && self.suggested_automation {
-            left = left.child(
-                self.automation
-                    .render("sc-automation", |this| &mut this.automation, cx),
-            );
-        }
         // Web parity: the selection-size notes ride the picker column.
         if self.subject_tab == SubjectTab::Issues {
             if checked_count > MAX_ISSUES_PER_RUN {
@@ -2530,29 +2165,19 @@ impl Render for StartCodingDialogView {
             }
         }
 
-        // Right column: the shared options cluster (agent tabs, model/effort,
-        // resume, toggles) — the web `LaunchOptionsPane` twin.
-        let mut right = v_flex()
-            .flex_1()
-            .min_w_0()
-            .gap_3()
-            .child(self.agent_tabs(cx))
-            .child(main_row);
-        if let Some(resume_row) = resume_row {
-            right = right.child(resume_row);
-        }
-        // pi has no option rows — an empty toggles child would still eat a
-        // gap_3 slot.
-        if has_toggles {
-            right = right.child(toggles);
-        }
+        // Right column: the ONE shared options cluster (agent pills,
+        // model/effort, toggles) — the web `LaunchOptionsPane` twin. A resume
+        // never re-enters plan mode, so its row is hidden while the resume
+        // checkbox is on (`options()` clamps it off regardless).
+        let right = v_flex().flex_1().min_w_0().child(self.launch.render(
+            "sc-launch",
+            |this: &mut Self| &mut this.launch,
+            resume_row,
+            resume_active,
+            cx,
+        ));
 
-        let mut body = v_flex().w_full().gap_3();
-        // EXP-431 create mode is single-purpose — the Issues/Actions subject
-        // switch would only lead out of the creation flow.
-        if !self.create_mode {
-            body = body.child(self.subject_tabs(cx));
-        }
+        let mut body = v_flex().w_full().gap_3().child(self.subject_tabs(cx));
         body = body.child(
             h_flex()
                 .w_full()
@@ -2607,54 +2232,5 @@ impl Render for StartCodingDialogView {
             )
             .child(self.footer(blocker, cx))
             .into_any_element()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The machine-readable block is cross-client copy — byte-locked against
-    /// web `formatAutomationBlock` (`lib/action-triggers.ts`) and the mobile
-    /// mirrors, including the compact `JSON.stringify` value form and its key
-    /// order (`deviceId`, `trigger`, then only the pins that are set).
-    #[test]
-    fn trigger_note_matches_the_web_block() {
-        let note = trigger_note(&AutomationSpec {
-            trigger: serde_json::json!({
-                "kind": "schedule",
-                "interval": "daily",
-                "minuteOfDay": 420,
-            }),
-            device_id: "d".to_string(),
-            agent: None,
-            model: None,
-            effort: None,
-        });
-        assert_eq!(
-            note,
-            "\n\nAutomation — after creating the action, call \
-             exponential_automations_create with its id and exactly these fields: \
-             `{\"deviceId\":\"d\",\"trigger\":\
-             {\"kind\":\"schedule\",\"interval\":\"daily\",\"minuteOfDay\":420}}`. \
-             An automated run fills no inputs, so declare none as required."
-        );
-
-        // The pins ride AFTER the trigger, in agent/model/effort order, and
-        // only when set — an empty pin is omitted, never sent as "".
-        let pinned = trigger_note(&AutomationSpec {
-            trigger: serde_json::json!({"kind": "event", "event": "created"}),
-            device_id: "d".to_string(),
-            agent: Some("codex".to_string()),
-            model: None,
-            effort: Some("high".to_string()),
-        });
-        assert!(
-            pinned.contains(
-                "`{\"deviceId\":\"d\",\"trigger\":{\"kind\":\"event\",\"event\":\"created\"},\
-                 \"agent\":\"codex\",\"effort\":\"high\"}`"
-            ),
-            "{pinned}"
-        );
     }
 }

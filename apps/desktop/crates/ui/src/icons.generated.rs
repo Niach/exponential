@@ -280,8 +280,8 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
 
 /// Registry concept `action-automation` -> Lucide `zap`.
 pub const ACTION_AUTOMATION: ExpIcon = ExpIcon::Zap;
-/// Registry concept `action-create` -> Lucide `plus`.
-pub const ACTION_CREATE: ExpIcon = ExpIcon::Plus;
+/// Registry concept `action-create` -> Lucide `sparkles`.
+pub const ACTION_CREATE: ExpIcon = ExpIcon::Sparkles;
 /// Registry concept `action-default` -> Lucide `zap`.
 pub const ACTION_DEFAULT: ExpIcon = ExpIcon::Zap;
 /// Registry concept `action-repository` -> Lucide `git-branch`.
