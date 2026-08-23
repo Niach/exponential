@@ -51,15 +51,35 @@ function GlassSectionHeader({
 function GlassRow({
   interactive = false,
   className,
+  onClick,
+  onKeyDown,
   ...props
 }: React.ComponentProps<`div`> & { interactive?: boolean }) {
+  const clickable = interactive && onClick != null
   return (
     <div
       data-slot="glass-row"
+      role={clickable ? `button` : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={
+        clickable
+          ? (e) => {
+              onKeyDown?.(e)
+              // Only the row itself — nested buttons/links run their own
+              // Enter/Space and the bubbled event must not double-fire.
+              if (e.defaultPrevented || e.target !== e.currentTarget) return
+              if (e.key === `Enter` || e.key === ` `) {
+                e.preventDefault()
+                e.currentTarget.click()
+              }
+            }
+          : onKeyDown
+      }
       className={cn(
         `flex items-center gap-3 rounded-md border border-glass-stroke bg-glass-row p-3`,
         interactive &&
-          `cursor-pointer transition-colors duration-fast hover:bg-glass-active/50`,
+          `cursor-pointer transition-colors duration-fast outline-none hover:bg-glass-active/50 focus-visible:ring-[3px] focus-visible:ring-ring/50`,
         className
       )}
       {...props}
@@ -92,7 +112,7 @@ type GlassPickerOption = {
 // (`bg-glass-row` / `hover:bg-glass-active/50`), so a plain `bg-transparent`
 // clears the fill and the hover is inherited rather than restated — the row
 // draws the group's own fill one level up.
-const GLASS_PICKER_ROW = `flex w-full items-center gap-3 rounded-none border-0 bg-transparent px-4 py-3 shadow-none focus-visible:border-0 focus-visible:ring-0 data-[size=default]:h-auto`
+const GLASS_PICKER_ROW = `flex w-full items-center gap-3 rounded-none border-0 bg-transparent px-4 py-3 shadow-none focus-visible:border-0 focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50 data-[size=default]:h-auto`
 
 function GlassPickerRow({
   label,
