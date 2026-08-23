@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import { Link } from "@tanstack/react-router"
 import {
@@ -33,6 +33,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { GlassRow } from "@/components/ui/glass-rows"
 import { useSteerConfig } from "@/components/agent-session"
 import { useAgentDock } from "@/components/agent-dock/agent-dock-provider"
 import { useRemoteStart } from "@/hooks/use-remote-start"
@@ -47,6 +48,19 @@ const ActionRunIcon = conceptIcon(`action-run`)
 // EXP-568: the floating mobile bar's 52px circles (issue-detail-mobile-bar.tsx
 // owns the bar itself; the coding circle's gating lives here).
 const FAB_CIRCLE_CLASS = `pointer-events-auto flex size-[52px] shrink-0 items-center justify-center rounded-full border border-glass-stroke-card bg-popover/85 shadow-lg shadow-black/40 backdrop-blur-xl`
+
+// EXP-616: the coding / PR rows are glass CARDS now, not full-bleed
+// `border-t` divider rows. Both exported pieces mount as independent siblings
+// of the issue-detail main column (issue-detail-view.tsx owns no wrapper), so
+// each one carries its own stack + gutter — the same `px-5 py-2` gutter
+// issue-files-section.tsx uses, so the cards line up down the column.
+function CodingRowStack({ children }: { children: ReactNode }) {
+  return <div className="flex flex-col gap-2 px-5 py-2">{children}</div>
+}
+
+// The PR row is a <Link>, so it can't reuse the <GlassRow> div — same recipe,
+// interactive arm included.
+const PR_ROW_CLASS = `flex min-w-0 items-center gap-2 rounded-md border border-glass-stroke bg-glass-row p-3 text-sm transition-colors duration-fast hover:bg-glass-active/50`
 
 // The coding affordances of the issue detail (EXP-106): a compact "coding now"
 // / remote-start control that FOCUSES the global dock (never mounts the live
@@ -458,29 +472,31 @@ function AgentRow({
     )
 
     return (
-      <div className="flex min-w-0 flex-wrap items-center gap-2 border-t border-border px-4 py-3">
-        {codingBadge}
-        {ownerLabel}
-        {ownLatest && steerEnabled ? (
-          <Button
-            variant="outline"
-            size="sm"
-            className="ml-auto shrink-0"
-            onClick={() => dock?.openDock(ownLatest.id)}
-          >
-            <MonitorPlay />
-            Watch
-          </Button>
-        ) : ownLatest && steerEnabled === false ? (
-          <span className="ml-auto text-xs text-muted-foreground">
-            Live steering is unavailable on this instance.
-          </span>
-        ) : null}
-        {/* EXP-568: the sidebar is gone, so its Merge button lives here. */}
-        {isMember && issue.prState === `open` && (
-          <IssueMergeButton issue={issue} />
-        )}
-      </div>
+      <CodingRowStack>
+        <GlassRow className="min-w-0 flex-wrap gap-2">
+          {codingBadge}
+          {ownerLabel}
+          {ownLatest && steerEnabled ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-auto shrink-0"
+              onClick={() => dock?.openDock(ownLatest.id)}
+            >
+              <MonitorPlay />
+              Watch
+            </Button>
+          ) : ownLatest && steerEnabled === false ? (
+            <span className="ml-auto text-xs text-muted-foreground">
+              Live steering is unavailable on this instance.
+            </span>
+          ) : null}
+          {/* EXP-568: the sidebar is gone, so its Merge button lives here. */}
+          {isMember && issue.prState === `open` && (
+            <IssueMergeButton issue={issue} />
+          )}
+        </GlassRow>
+      </CodingRowStack>
     )
   }
 
@@ -494,9 +510,11 @@ function AgentRow({
     // start can't render (steer off / repo-less board).
     if (isMember && variant === `row` && issue.prState === `open`) {
       return (
-        <div className="flex items-center gap-2 border-t border-border px-4 py-3">
-          <IssueMergeButton issue={issue} />
-        </div>
+        <CodingRowStack>
+          <GlassRow className="gap-2">
+            <IssueMergeButton issue={issue} />
+          </GlassRow>
+        </CodingRowStack>
       )
     }
     return null
@@ -534,12 +552,14 @@ function RemoteStartRow({
     // spending one of its three slots on an explanation.
     if (variant === `fab`) return null
     return (
-      <div className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-3 text-xs text-muted-foreground">
-        <UiDeviceOfflineIcon className="size-3.5 shrink-0" />
-        No desktop online. Open the Exponential desktop app to run this issue
-        there.
-        {issue.prState === `open` && <IssueMergeButton issue={issue} />}
-      </div>
+      <CodingRowStack>
+        <GlassRow className="flex-wrap gap-2 text-xs text-muted-foreground">
+          <UiDeviceOfflineIcon className="size-3.5 shrink-0" />
+          No desktop online. Open the Exponential desktop app to run this issue
+          there.
+          {issue.prState === `open` && <IssueMergeButton issue={issue} />}
+        </GlassRow>
+      </CodingRowStack>
     )
   }
 
@@ -589,25 +609,27 @@ function RemoteStartRow({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-3">
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => setDialogOpen(true)}
-        disabled={busy}
-      >
-        {remote.starting ? <LoaderCircle className="animate-spin" /> : <MonitorUp />}
-        Start coding
-      </Button>
-      {issue.prState === `open` && <IssueMergeButton issue={issue} />}
-      {dialog}
-      {remote.sentTo && (
-        <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-          <LoaderCircle className="size-3 animate-spin" />
-          Start sent to {remote.sentTo}. Waiting for the desktop…
-        </span>
-      )}
-    </div>
+    <CodingRowStack>
+      <GlassRow className="flex-wrap gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setDialogOpen(true)}
+          disabled={busy}
+        >
+          {remote.starting ? <LoaderCircle className="animate-spin" /> : <MonitorUp />}
+          Start coding
+        </Button>
+        {issue.prState === `open` && <IssueMergeButton issue={issue} />}
+        {dialog}
+        {remote.sentTo && (
+          <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+            <LoaderCircle className="size-3 animate-spin" />
+            Start sent to {remote.sentTo}. Waiting for the desktop…
+          </span>
+        )}
+      </GlassRow>
+    </CodingRowStack>
   )
 }
 
@@ -653,42 +675,44 @@ function PrRow({
     }
   }, [canProbe, issue.id])
 
-  const rowClass = `flex min-w-0 items-center gap-2 border-t border-border px-4 py-3 text-sm hover:bg-muted/50`
-
   if (hasPr) {
     return (
-      <Link
-        to="/t/$teamSlug/reviews/$issueIdentifier"
-        params={{ teamSlug, issueIdentifier: issue.identifier }}
-        className={rowClass}
-      >
-        <GitPullRequest className="size-4 shrink-0 text-muted-foreground" />
-        <PrStateBadge state={issue.prState} />
-        <span className="shrink-0 font-mono">PR #{issue.prNumber}</span>
-        {issue.branch && (
-          <span className="hidden truncate font-mono text-xs text-muted-foreground md:inline">
-            {issue.branch}
-          </span>
-        )}
-        <ChevronRight className="ml-auto size-4 shrink-0 text-muted-foreground" />
-      </Link>
+      <CodingRowStack>
+        <Link
+          to="/t/$teamSlug/reviews/$issueIdentifier"
+          params={{ teamSlug, issueIdentifier: issue.identifier }}
+          className={PR_ROW_CLASS}
+        >
+          <GitPullRequest className="size-4 shrink-0 text-muted-foreground" />
+          <PrStateBadge state={issue.prState} />
+          <span className="shrink-0 font-mono">PR #{issue.prNumber}</span>
+          {issue.branch && (
+            <span className="hidden truncate font-mono text-xs text-muted-foreground md:inline">
+              {issue.branch}
+            </span>
+          )}
+          <ChevronRight className="ml-auto size-4 shrink-0 text-muted-foreground" />
+        </Link>
+      </CodingRowStack>
     )
   }
 
   if (canProbe && branchFileCount != null && branchFileCount > 0) {
     return (
-      <Link
-        to="/t/$teamSlug/reviews/$issueIdentifier"
-        params={{ teamSlug, issueIdentifier: issue.identifier }}
-        className={rowClass}
-      >
-        <GitBranch className="size-4 shrink-0 text-muted-foreground" />
-        <span className="truncate">
-          Branch <span className="font-mono">exp/{issue.identifier}</span>
-          {` · no PR yet`}
-        </span>
-        <ChevronRight className="ml-auto size-4 shrink-0 text-muted-foreground" />
-      </Link>
+      <CodingRowStack>
+        <Link
+          to="/t/$teamSlug/reviews/$issueIdentifier"
+          params={{ teamSlug, issueIdentifier: issue.identifier }}
+          className={PR_ROW_CLASS}
+        >
+          <GitBranch className="size-4 shrink-0 text-muted-foreground" />
+          <span className="truncate">
+            Branch <span className="font-mono">exp/{issue.identifier}</span>
+            {` · no PR yet`}
+          </span>
+          <ChevronRight className="ml-auto size-4 shrink-0 text-muted-foreground" />
+        </Link>
+      </CodingRowStack>
     )
   }
 
