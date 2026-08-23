@@ -50,9 +50,9 @@ export function IssuesPane({
           value={search}
           onChange={(e) => onSearchChange(e.target.value)}
           placeholder="Search issues…"
-          // EXP-616: the glass field dress — the `dark:` prefix is required to
-          // beat the stock input's own `dark:bg-input/30`.
-          className="h-9 rounded-md border-glass-stroke bg-glass-row pl-8 shadow-none dark:bg-glass-row"
+          // The glass dress is the stock Input's own (EXP-616); only the
+          // leading room for the search glyph is local.
+          className="h-9 rounded-md pl-8"
         />
       </div>
       <div className="max-h-44 overflow-y-auto rounded-lg border-0 bg-glass-row sm:max-h-none sm:min-h-32 sm:flex-1">

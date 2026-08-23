@@ -47,7 +47,7 @@ export function ChatPane({
           value={prompt}
           onChange={(e) => onPromptChange(e.target.value)}
           placeholder={promptDef?.placeholder}
-          className="min-h-28 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0 dark:bg-transparent sm:h-full sm:min-h-0 sm:flex-1"
+          className="min-h-28 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0 sm:h-full sm:min-h-0 sm:flex-1"
           // Client parity with the server's per-value cap, so a long paste is
           // refused at the field instead of at submit.
           maxLength={MAX_ACTION_INPUT_TEXT}

@@ -47,9 +47,9 @@ import { cn } from "@/lib/utils"
 // rides this sentinel inside the dialog only.
 const NO_REPO = `none`
 
-// EXP-616: the glass dress for a free-text field — the `dark:` prefix is
-// required to beat the stock input/textarea's own `dark:bg-input/30`.
-const GLASS_FIELD = `border-glass-stroke bg-glass-row shadow-none dark:bg-glass-row`
+// EXP-616: Input/Textarea/SelectTrigger are glass on their own now; only the
+// Button-backed pickers below still need the field dress spelled out.
+const GLASS_TRIGGER = `border-glass-stroke bg-glass-row shadow-none dark:bg-glass-row`
 
 export function ActionInputFields({
   defs,
@@ -83,7 +83,6 @@ export function ActionInputFields({
                 value={values[def.key] ?? ``}
                 onChange={(e) => onChange(def.key, e.target.value)}
                 placeholder={def.placeholder}
-                className={GLASS_FIELD}
                 // Client parity with the server's per-value cap, so a long
                 // paste is refused at the field instead of at submit.
                 maxLength={MAX_ACTION_INPUT_TEXT}
@@ -102,7 +101,7 @@ export function ActionInputFields({
                 value={values[def.key] ?? ``}
                 onChange={(e) => onChange(def.key, e.target.value)}
                 placeholder={def.placeholder}
-                className={cn(`min-h-24`, GLASS_FIELD)}
+                className="min-h-24"
                 maxLength={MAX_ACTION_INPUT_TEXT}
               />
             </div>
@@ -247,7 +246,7 @@ function PrInputField({
       <MobilePopoverTrigger asChild>
         <Button
           variant="outline"
-          className={cn(`w-full justify-start font-normal`, GLASS_FIELD)}
+          className={cn(`w-full justify-start font-normal`, GLASS_TRIGGER)}
         >
           {selected ? (
             <span className="min-w-0 truncate">{selected.label}</span>
@@ -344,7 +343,7 @@ function BoardInputField({
       <MobilePopoverTrigger asChild>
         <Button
           variant="outline"
-          className={cn(`w-full justify-start font-normal`, GLASS_FIELD)}
+          className={cn(`w-full justify-start font-normal`, GLASS_TRIGGER)}
         >
           {selected ? (
             <>

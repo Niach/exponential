@@ -2439,8 +2439,9 @@ function MessageComposer({
           rows={1}
           className={cn(
             `max-h-32 min-h-9 flex-1 resize-none border-none shadow-none focus-visible:ring-0`,
-            // dark: variant included so it beats the base dark:bg-input/30.
-            `bg-transparent dark:bg-transparent`
+            // The composer sits on the session's own surface, so it drops the
+            // stock Textarea's glass fill (EXP-616).
+            `bg-transparent`
           )}
         />
         <Button

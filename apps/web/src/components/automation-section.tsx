@@ -54,11 +54,9 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { GlassGroup, GlassPickerRow } from "@/components/ui/glass-rows"
 import { cn } from "@/lib/utils"
 
-// EXP-616: the glass dress for the sentence-shaped inline fields — a sentence
-// stays a sentence, so these keep their compact widths and only take the row
-// fill/stroke. The `dark:` prefix is required to beat the stock control's own
-// `dark:bg-input/30`.
-const GLASS_FIELD = `border-glass-stroke bg-glass-row shadow-none dark:bg-glass-row dark:hover:bg-glass-active/50`
+// EXP-616: Input/SelectTrigger carry the glass dress themselves now; only the
+// Button-backed multi-pickers below still need it spelled out.
+const GLASS_TRIGGER = `border-glass-stroke bg-glass-row shadow-none dark:bg-glass-row dark:hover:bg-glass-active/50`
 
 // The reusable Automation editing PIECES (EXP-530, reshaped in EXP-583 when
 // automations became their own rows): the trigger panes + event filters, the
@@ -219,7 +217,7 @@ export function AutomationTriggerFields({
               set({ interval: value as ActionScheduleInterval })
             }
           >
-            <SelectTrigger size="sm" className={cn(`w-24`, GLASS_FIELD)}>
+            <SelectTrigger size="sm" className="w-24">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -237,7 +235,7 @@ export function AutomationTriggerFields({
               value={String(draft.weekday)}
               onValueChange={(value) => set({ weekday: Number(value) })}
             >
-              <SelectTrigger size="sm" className={cn(`w-32`, GLASS_FIELD)}>
+              <SelectTrigger size="sm" className="w-32">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -254,7 +252,7 @@ export function AutomationTriggerFields({
               value={String(draft.dayOfMonth)}
               onValueChange={(value) => set({ dayOfMonth: Number(value) })}
             >
-              <SelectTrigger size="sm" className={cn(`w-24`, GLASS_FIELD)}>
+              <SelectTrigger size="sm" className="w-24">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -271,7 +269,7 @@ export function AutomationTriggerFields({
             aria-label="Time of day"
             value={draft.time}
             onChange={(e) => set({ time: e.target.value })}
-            className={cn(`h-8 w-36`, GLASS_FIELD)}
+            className="h-8 w-36"
           />
         </div>
       )}
@@ -286,7 +284,7 @@ export function AutomationTriggerFields({
                 set({ event: value as ActionTriggerEvent })
               }
             >
-              <SelectTrigger size="sm" className={cn(`w-full max-w-56`, GLASS_FIELD)}>
+              <SelectTrigger size="sm" className="w-full max-w-56">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -598,7 +596,7 @@ function FilterMultiSelect({
           size="sm"
           className={cn(
             `h-8 font-normal`,
-            GLASS_FIELD,
+            GLASS_TRIGGER,
             selected.length === 0 && `text-muted-foreground`
           )}
         >

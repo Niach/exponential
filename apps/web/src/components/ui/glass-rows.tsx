@@ -88,9 +88,11 @@ type GlassPickerOption = {
 
 // The row shell shared by both arms. On the desktop arm these must BEAT the
 // stock SelectTrigger classes: `data-[size=default]:h-9` only loses to the
-// same data-variant, and `dark:bg-input/30` / `dark:hover:bg-input/50` only
-// lose to dark:-prefixed classes (dark is force-enabled app-wide).
-const GLASS_PICKER_ROW = `flex w-full items-center gap-3 rounded-none border-0 bg-transparent px-4 py-3 shadow-none focus-visible:border-0 focus-visible:ring-0 data-[size=default]:h-auto dark:bg-transparent dark:hover:bg-glass-active/50`
+// same data-variant. Since EXP-616 the trigger's fill/hover are unprefixed
+// (`bg-glass-row` / `hover:bg-glass-active/50`), so a plain `bg-transparent`
+// clears the fill and the hover is inherited rather than restated — the row
+// draws the group's own fill one level up.
+const GLASS_PICKER_ROW = `flex w-full items-center gap-3 rounded-none border-0 bg-transparent px-4 py-3 shadow-none focus-visible:border-0 focus-visible:ring-0 data-[size=default]:h-auto`
 
 function GlassPickerRow({
   label,

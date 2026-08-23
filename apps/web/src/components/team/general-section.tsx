@@ -56,7 +56,7 @@ export function TeamGeneralSection({ team }: { team: Team }) {
             id="team-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="border-0 bg-transparent px-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
+            className="border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
           />
         </div>
 
