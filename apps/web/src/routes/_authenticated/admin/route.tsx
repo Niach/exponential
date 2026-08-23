@@ -1,5 +1,8 @@
 import { createFileRoute, Link, Outlet, redirect } from "@tanstack/react-router"
+import type { LinkProps } from "@tanstack/react-router"
+import type React from "react"
 import { useEffect, useState } from "react"
+import type { LucideIcon } from "lucide-react"
 import {
   Activity,
   ArrowLeft,
@@ -44,11 +47,40 @@ function useIsCloud(): boolean {
   return isCloud
 }
 
+function AdminNavLink({
+  to,
+  exact,
+  icon: Icon,
+  children,
+}: {
+  to: LinkProps[`to`]
+  exact?: boolean
+  icon: LucideIcon
+  children: React.ReactNode
+}) {
+  return (
+    <Link
+      to={to}
+      activeOptions={exact ? { exact: true } : undefined}
+      className="inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-medium whitespace-nowrap transition-colors"
+      activeProps={{
+        className: `border-glass-stroke-active bg-glass-active text-foreground`,
+      }}
+      inactiveProps={{
+        className: `border-transparent text-muted-foreground hover:text-foreground`,
+      }}
+    >
+      <Icon className="h-4 w-4" />
+      {children}
+    </Link>
+  )
+}
+
 function AdminLayout() {
   const isCloud = useIsCloud()
   return (
     <div className="min-h-screen flex flex-col">
-      <header className="flex items-center gap-3 border-b px-4 h-12">
+      <header className="flex items-center gap-3 px-4 h-12">
         <Button asChild variant="ghost" size="sm" className="-ml-2 shrink-0">
           <Link to="/">
             <ArrowLeft className="h-4 w-4" />
@@ -60,58 +92,33 @@ function AdminLayout() {
           <Shield className="h-4 w-4" />
           <span className="hidden sm:inline">Admin</span>
         </div>
-        {/* The entries outgrow narrow viewports — scroll the nav instead of
-            clipping it (buttons stay nowrap, so without this they vanish
-            off-screen on mobile). */}
-        <nav className="ml-4 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
-          <Button asChild variant="ghost" size="sm">
-            <Link
-              to="/admin"
-              activeOptions={{ exact: true }}
-              activeProps={{ className: `bg-accent` }}
-            >
-              <LayoutDashboard className="h-4 w-4" />
-              Overview
-            </Link>
-          </Button>
-          <Button asChild variant="ghost" size="sm">
-            <Link
-              to="/admin/performance"
-              activeProps={{ className: `bg-accent` }}
-            >
-              <Activity className="h-4 w-4" />
-              Performance
-            </Link>
-          </Button>
+        {/* EXP-616: iOS capsule segmented control (TabsList/TabsTrigger
+            parity), hand-mirrored because these are route links, not stateful
+            tabs. The entries outgrow narrow viewports — scroll the strip
+            instead of clipping it (pills stay nowrap, so without this they
+            vanish off-screen on mobile); the scrollbar itself is hidden so the
+            capsule edge stays clean. */}
+        <nav className="ml-4 inline-flex min-w-0 items-center gap-1 overflow-x-auto rounded-full border border-glass-stroke-section bg-glass-section p-[3px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <AdminNavLink to="/admin" exact icon={LayoutDashboard}>
+            Overview
+          </AdminNavLink>
+          <AdminNavLink to="/admin/performance" icon={Activity}>
+            Performance
+          </AdminNavLink>
           {isCloud && (
-            <Button asChild variant="ghost" size="sm">
-              <Link
-                to="/admin/conversions"
-                activeProps={{ className: `bg-accent` }}
-              >
-                <TrendingUp className="h-4 w-4" />
-                Conversions
-              </Link>
-            </Button>
+            <AdminNavLink to="/admin/conversions" icon={TrendingUp}>
+              Conversions
+            </AdminNavLink>
           )}
-          <Button asChild variant="ghost" size="sm">
-            <Link to="/admin/users" activeProps={{ className: `bg-accent` }}>
-              <Users className="h-4 w-4" />
-              Users
-            </Link>
-          </Button>
-          <Button asChild variant="ghost" size="sm">
-            <Link to="/admin/teams" activeProps={{ className: `bg-accent` }}>
-              <Building2 className="h-4 w-4" />
-              Teams
-            </Link>
-          </Button>
-          <Button asChild variant="ghost" size="sm">
-            <Link to="/admin/email" activeProps={{ className: `bg-accent` }}>
-              <MailWarning className="h-4 w-4" />
-              Email
-            </Link>
-          </Button>
+          <AdminNavLink to="/admin/users" icon={Users}>
+            Users
+          </AdminNavLink>
+          <AdminNavLink to="/admin/teams" icon={Building2}>
+            Teams
+          </AdminNavLink>
+          <AdminNavLink to="/admin/email" icon={MailWarning}>
+            Email
+          </AdminNavLink>
         </nav>
       </header>
       <main className="flex-1">

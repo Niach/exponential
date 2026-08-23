@@ -1,5 +1,5 @@
 import { createFileRoute, Link, Outlet, redirect } from "@tanstack/react-router"
-import { Button } from "@/components/ui/button"
+import { Fragment } from "react"
 import { Separator } from "@/components/ui/separator"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import {
@@ -42,33 +42,38 @@ function SettingsLayout() {
             main nav slides out, the settings nav slides in — see
             TeamSidebar/SettingsSidebar), so this in-page nav is the mobile
             horizontally-scrollable row only (group labels hidden there). */}
-        <nav className="flex gap-4 overflow-x-auto md:hidden">
+        {/* EXP-616: iOS capsule segmented control look (TabsList/TabsTrigger
+            parity) — these are route links, not stateful tabs, so the styling
+            is mirrored by hand rather than forcing Radix Tabs semantics onto
+            them. Groups flatten into one strip (their labels were already
+            hidden here); the strip still scrolls horizontally, with the
+            scrollbar itself hidden so the capsule edge stays clean. */}
+        <nav className="inline-flex max-w-full items-center gap-1 self-start overflow-x-auto rounded-full border border-glass-stroke-section bg-glass-section p-[3px] [scrollbar-width:none] md:hidden [&::-webkit-scrollbar]:hidden">
           {SETTINGS_NAV.map((group) => {
             const items = group.items.filter((item) =>
               item.visible(permissions, navContext)
             )
             if (items.length === 0) return null
             return (
-              <div key={group.group} className="flex shrink-0 gap-1">
+              <Fragment key={group.group}>
                 {items.map((item) => (
-                  <Button
+                  <Link
                     key={item.label}
-                    asChild
-                    variant="ghost"
-                    size="sm"
-                    className="justify-start"
+                    to={item.to}
+                    params={{ teamSlug }}
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-medium whitespace-nowrap transition-colors"
+                    activeProps={{
+                      className: `border-glass-stroke-active bg-glass-active text-foreground`,
+                    }}
+                    inactiveProps={{
+                      className: `border-transparent text-muted-foreground hover:text-foreground`,
+                    }}
                   >
-                    <Link
-                      to={item.to}
-                      params={{ teamSlug }}
-                      activeProps={{ className: `bg-accent` }}
-                    >
-                      <item.icon className="h-4 w-4" />
-                      {item.label}
-                    </Link>
-                  </Button>
+                    <item.icon className="h-4 w-4" />
+                    {item.label}
+                  </Link>
                 ))}
-              </div>
+              </Fragment>
             )
           })}
         </nav>
