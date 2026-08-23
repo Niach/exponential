@@ -177,10 +177,12 @@ function ReviewsPage() {
     <div className="mx-auto flex h-full w-full max-w-3xl flex-col px-4 py-4">
       <div className={`flex-1 overflow-y-auto ${TAB_BAR_CLEARANCE}`}>
         {isLoading ? (
-          <div className="text-muted-foreground p-6 text-sm">Loading…</div>
+          <div className="text-muted-foreground px-1 py-6 text-sm">Loading…</div>
         ) : count === 0 ? (
           externalLoading ? (
-            <div className="text-muted-foreground p-6 text-sm">Loading…</div>
+            <div className="text-muted-foreground px-1 py-6 text-sm">
+              Loading…
+            </div>
           ) : (
             <EmptyState
               icon={GitPullRequest}
@@ -190,185 +192,192 @@ function ReviewsPage() {
           )
         ) : (
           <>
-          {groups.map((group) => (
-            <div key={group.board.id} className="mb-4">
-              <div
-                className="flex items-center gap-1.5 rounded-t-md border-b border-border/50 bg-zinc-500/10 px-3 py-1.5"
-              >
-                <BoardGlyph board={group.board} className="size-3.5" />
-                <span className="text-sm font-medium">
-                  {group.board.name}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {group.entries.length}
-                </span>
-              </div>
+            {groups.map((group) => (
+              <div key={group.board.id} className="mb-6">
+                {/* Plain-text section header (EXP-616) — GlassSectionHeader's
+                    recipe, inlined because the label area carries the board
+                    glyph as well as its name. */}
+                <div className="flex items-center gap-1.5 px-1 pt-1 pb-2">
+                  <BoardGlyph board={group.board} className="size-3.5" />
+                  <span className="text-sm font-medium text-foreground/70">
+                    {group.board.name}
+                  </span>
+                  <span className="text-xs text-foreground/50">
+                    {group.entries.length}
+                  </span>
+                </div>
 
-              {group.entries.map((entry) => {
-                const issue = entry.issue
-                const isBatch = entry.issues.length > 1
-                const merging = mergingIds.has(entry.key)
-                const mergeError = mergeErrors[entry.key]
-                // The recovery run rebases the PR's branch, so it needs one
-                // recorded — the same guard the desktop applies.
-                const canFixConflicts = Boolean(
-                  mergeError && issue.branch && steerEnabled
-                )
-                return (
-                  <div
-                    key={entry.key}
-                    className="group/row grid cursor-pointer grid-cols-[1.5rem_4.5rem_1fr_auto] items-center border-b border-border/30 px-3 py-1.5 hover:bg-muted/50"
-                    onClick={() => openReview(issue.identifier)}
-                    data-testid={`review-row-${issue.identifier}`}
-                  >
-                    <GitPullRequest className="h-4 w-4 text-emerald-500" />
-                    <span className="truncate font-mono text-xs text-muted-foreground">
-                      {isBatch && issue.prNumber
-                        ? `#${issue.prNumber}`
-                        : issue.identifier}
-                    </span>
-                    <div className="min-w-0 pr-2">
-                      <div className="truncate text-sm">
-                        {isBatch ? (
-                          <>
-                            {`${entry.issues.length} issues`}
-                            <span className="ml-2 font-mono text-xs text-muted-foreground">
-                              {entry.issues
-                                .map((linked) => linked.identifier)
-                                .join(`, `)}
+                <div className="flex flex-col gap-2">
+                  {group.entries.map((entry) => {
+                    const issue = entry.issue
+                    const isBatch = entry.issues.length > 1
+                    const merging = mergingIds.has(entry.key)
+                    const mergeError = mergeErrors[entry.key]
+                    // The recovery run rebases the PR's branch, so it needs one
+                    // recorded — the same guard the desktop applies.
+                    const canFixConflicts = Boolean(
+                      mergeError && issue.branch && steerEnabled
+                    )
+                    return (
+                      <div
+                        key={entry.key}
+                        className="group/row grid cursor-pointer grid-cols-[1.5rem_4.5rem_1fr_auto] items-center rounded-md border border-glass-stroke bg-glass-row p-3 transition-colors duration-fast hover:bg-glass-active/50"
+                        onClick={() => openReview(issue.identifier)}
+                        data-testid={`review-row-${issue.identifier}`}
+                      >
+                        <GitPullRequest className="h-4 w-4 text-emerald-500" />
+                        <span className="truncate font-mono text-xs text-muted-foreground">
+                          {isBatch && issue.prNumber
+                            ? `#${issue.prNumber}`
+                            : issue.identifier}
+                        </span>
+                        <div className="min-w-0 pr-2">
+                          <div className="truncate text-sm">
+                            {isBatch ? (
+                              <>
+                                {`${entry.issues.length} issues`}
+                                <span className="ml-2 font-mono text-xs text-muted-foreground">
+                                  {entry.issues
+                                    .map((linked) => linked.identifier)
+                                    .join(`, `)}
+                                </span>
+                              </>
+                            ) : (
+                              issue.title
+                            )}
+                          </div>
+                          {issue.branch && (
+                            <div className="truncate font-mono text-xs text-muted-foreground">
+                              {issue.branch}
+                            </div>
+                          )}
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={merging}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setMergeTarget(entry)
+                          }}
+                        >
+                          {merging ? (
+                            <>
+                              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                              Merging…
+                            </>
+                          ) : (
+                            <>
+                              <GitMerge className="h-3.5 w-3.5" />
+                              Merge
+                            </>
+                          )}
+                        </Button>
+                        {/* The refusal captions its own row (EXP-323) —
+                            spanning the grid so the full GitHub message stays
+                            readable — with the recovery run right beside it. */}
+                        {mergeError && (
+                          <div className="col-span-4 flex flex-wrap items-center gap-2 pt-2">
+                            <span className="text-destructive text-xs">
+                              {mergeError}
                             </span>
-                          </>
-                        ) : (
-                          issue.title
+                            {canFixConflicts && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setFixTarget(entry)
+                                }}
+                              >
+                                <GitBranch className="h-3.5 w-3.5" />
+                                Fix conflicts
+                              </Button>
+                            )}
+                          </div>
                         )}
                       </div>
-                      {issue.branch && (
-                        <div className="truncate font-mono text-xs text-muted-foreground">
-                          {issue.branch}
-                        </div>
-                      )}
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={merging}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setMergeTarget(entry)
-                      }}
-                    >
-                      {merging ? (
-                        <>
-                          <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-                          Merging…
-                        </>
-                      ) : (
-                        <>
-                          <GitMerge className="h-3.5 w-3.5" />
-                          Merge
-                        </>
-                      )}
-                    </Button>
-                    {/* The refusal captions its own row (EXP-323) — spanning
-                        the grid so the full GitHub message stays readable —
-                        with the conflict-recovery run right beside it. */}
-                    {mergeError && (
-                      <div className="col-span-4 flex flex-wrap items-center gap-2 pt-1.5">
-                        <span className="text-destructive text-xs">
-                          {mergeError}
-                        </span>
-                        {canFixConflicts && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setFixTarget(entry)
-                            }}
-                          >
-                            <GitBranch className="h-3.5 w-3.5" />
-                            Fix conflicts
-                          </Button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          ))}
-
-          {externalGroups.map((group) => (
-            <div key={group.repositoryId} className="mb-4">
-              <div
-                className="flex items-center gap-1.5 rounded-t-md border-b border-border/50 bg-zinc-500/10 px-3 py-1.5"
-              >
-                <GitPullRequest className="h-2.5 w-2.5 shrink-0 text-muted-foreground" />
-                <span className="text-sm font-medium">{group.fullName}</span>
-                <span className="text-xs text-muted-foreground">
-                  not linked to an issue · {group.pulls.length}
-                </span>
+                    )
+                  })}
+                </div>
               </div>
+            ))}
 
-              {group.pulls.map((pull) => {
-                const key = externalPullKey(group.repositoryId, pull.number)
-                const merging = mergingIds.has(key)
-                return (
-                  <div
-                    key={pull.number}
-                    className="group/row grid cursor-pointer grid-cols-[1.5rem_4.5rem_1fr_auto] items-center border-b border-border/30 px-3 py-1.5 hover:bg-muted/50"
-                    onClick={() =>
-                      window.open(pull.url, `_blank`, `noopener,noreferrer`)
-                    }
-                    data-testid={`review-pull-${group.fullName}-${pull.number}`}
-                  >
-                    <GitPullRequest className="h-4 w-4 text-emerald-500" />
-                    <span className="truncate font-mono text-xs text-muted-foreground">
-                      #{pull.number}
-                    </span>
-                    <div className="min-w-0 pr-2">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <span className="min-w-0 truncate text-sm">
-                          {pull.title}
+            {externalGroups.map((group) => (
+              <div key={group.repositoryId} className="mb-6">
+                <div className="flex items-center gap-1.5 px-1 pt-1 pb-2">
+                  <GitPullRequest className="h-2.5 w-2.5 shrink-0 text-foreground/50" />
+                  <span className="text-sm font-medium text-foreground/70">
+                    {group.fullName}
+                  </span>
+                  <span className="text-xs text-foreground/50">
+                    not linked to an issue · {group.pulls.length}
+                  </span>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                  {group.pulls.map((pull) => {
+                    const key = externalPullKey(group.repositoryId, pull.number)
+                    const merging = mergingIds.has(key)
+                    return (
+                      <div
+                        key={pull.number}
+                        className="group/row grid cursor-pointer grid-cols-[1.5rem_4.5rem_1fr_auto] items-center rounded-md border border-glass-stroke bg-glass-row p-3 transition-colors duration-fast hover:bg-glass-active/50"
+                        onClick={() =>
+                          window.open(pull.url, `_blank`, `noopener,noreferrer`)
+                        }
+                        data-testid={`review-pull-${group.fullName}-${pull.number}`}
+                      >
+                        <GitPullRequest className="h-4 w-4 text-emerald-500" />
+                        <span className="truncate font-mono text-xs text-muted-foreground">
+                          #{pull.number}
                         </span>
-                        {pull.draft && <Badge variant="secondary">Draft</Badge>}
-                      </div>
-                      {pull.branch && (
-                        <div className="truncate font-mono text-xs text-muted-foreground">
-                          {pull.branch}
+                        <div className="min-w-0 pr-2">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className="min-w-0 truncate text-sm">
+                              {pull.title}
+                            </span>
+                            {pull.draft && (
+                              <Badge variant="secondary">Draft</Badge>
+                            )}
+                          </div>
+                          {pull.branch && (
+                            <div className="truncate font-mono text-xs text-muted-foreground">
+                              {pull.branch}
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={merging || pull.draft}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setExternalMergeTarget({
-                          repositoryId: group.repositoryId,
-                          fullName: group.fullName,
-                          pull,
-                        })
-                      }}
-                    >
-                      {merging ? (
-                        <>
-                          <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-                          Merging…
-                        </>
-                      ) : (
-                        <>
-                          <GitMerge className="h-3.5 w-3.5" />
-                          Merge
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                )
-              })}
-            </div>
-          ))}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={merging || pull.draft}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setExternalMergeTarget({
+                              repositoryId: group.repositoryId,
+                              fullName: group.fullName,
+                              pull,
+                            })
+                          }}
+                        >
+                          {merging ? (
+                            <>
+                              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                              Merging…
+                            </>
+                          ) : (
+                            <>
+                              <GitMerge className="h-3.5 w-3.5" />
+                              Merge
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
           </>
         )}
       </div>
