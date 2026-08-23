@@ -2,9 +2,12 @@ import { createContext, useContext, useEffect, useState } from "react"
 
 // The global agent-coding dock (EXP-106): one expanded live viewer at a time,
 // IDE-style, mounted in the team layout. Issue detail and the Agents page
-// only ever FOCUS the dock — the live AgentSessionView (and its single relay
-// socket) lives here alone. The single expanded id guarantees at most one
-// viewer socket; consumers remount the panel via `key={expandedSessionId}`.
+// only ever FOCUS the dock — the live AgentSessionView lives here alone;
+// consumers remount the panel via `key={expandedSessionId}`. Since EXP-621
+// the relay sockets themselves live OUTSIDE the view in the per-session
+// stores of lib/steer-session-store.ts (the relay allows multiple viewers),
+// so collapsing or switching tabs detaches the view, not the connection —
+// the dock's reaper in agent-dock.tsx bounds how many stay alive.
 
 interface AgentDockValue {
   expandedSessionId: string | null

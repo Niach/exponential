@@ -12,6 +12,7 @@ import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.electric.SyncManager
 import com.exponential.app.data.push.PushTokenManager
+import com.exponential.app.data.steer.SteerConnectionStore
 import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.defaultTeamId
@@ -52,6 +53,7 @@ class AppViewModel @Inject constructor(
     private val teamSelection: TeamSelection,
     private val updateGate: UpdateGate,
     private val authApi: AuthApi,
+    private val steerConnectionStore: SteerConnectionStore,
 ) : ViewModel() {
 
     init {
@@ -64,7 +66,13 @@ class AppViewModel @Inject constructor(
             // skips the initial value so we only clear on an actual switch.
             auth.activeAccountId
                 .drop(1)
-                .collect { teamSelection.clearSelection() }
+                .collect {
+                    teamSelection.clearSelection()
+                    // The app-held steer sockets (EXP-621) carry the OLD
+                    // account's ticket and their feeds are its data — an
+                    // account switch has to end them, not hand them over.
+                    steerConnectionStore.closeAll()
+                }
         }
         // EXP-166/EXP-168: default-team bootstrap. selectedId starts null
         // (and re-nulls on account switch / team deletion) while Agents +
@@ -363,6 +371,7 @@ class AppViewModel @Inject constructor(
             // live) and BEFORE the token drops locally (REV2-15).
             revokeSession(active)
             syncManager.signOut()
+            steerConnectionStore.closeAll()
             auth.clearInstanceUrl()
         }
     }
@@ -373,6 +382,7 @@ class AppViewModel @Inject constructor(
             auth.activeAccountId.value?.let { pushTokenManager.unregisterToken(it) }
             revokeSession(active)
             syncManager.signOut()
+            steerConnectionStore.closeAll()
             auth.clearToken()
         }
     }
@@ -393,6 +403,7 @@ class AppViewModel @Inject constructor(
         val account = auth.accounts.value.firstOrNull { it.id == id }
         pushTokenManager.unregisterToken(id)
         revokeSession(account)
+        steerConnectionStore.closeAll()
         auth.removeAccount(id)
         databaseHolder.deleteFiles(id)
     }

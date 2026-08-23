@@ -96,6 +96,17 @@ struct AppNavigator: View {
                     .id(deps.auth.activeAccountId ?? "none")
             }
         }
+        // EXP-621: steer sessions are app-scoped now, so an account switch or a
+        // sign-out has to retire them explicitly — MainNavigator's
+        // `.id(activeAccountId)` only recreates the SCREENS, and a socket left
+        // dialing on the previous account's ticket (with its draft still in
+        // memory) belongs to nobody.
+        .onChange(of: deps.auth.activeAccountId) { _, _ in
+            deps.steerSessions.removeAll()
+        }
+        .onChange(of: deps.auth.authenticatedAccountIds) { _, _ in
+            deps.steerSessions.removeAll()
+        }
         // URL handling lives at the ROOT view (mounted from first render), so a
         // cold launch via exponential:// lands in the bus even before
         // MainNavigator exists; MainNavigator drains the bus when it appears.

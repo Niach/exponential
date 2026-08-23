@@ -16,6 +16,7 @@ import com.exponential.app.data.auth.legacyDbIdToWipe
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.electric.SyncManager
 import com.exponential.app.data.push.PushTokenManager
+import com.exponential.app.data.steer.SteerConnectionStore
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
 
@@ -31,6 +32,7 @@ class ExponentialApp : Application(), SingletonImageLoader.Factory {
     @Inject lateinit var databaseHolder: DatabaseHolder
     @Inject lateinit var secureStore: SecureStore
     @Inject lateinit var accountDeduplicator: AccountDeduplicator
+    @Inject lateinit var steerConnectionStore: SteerConnectionStore
 
     override fun onCreate() {
         super.onCreate()
@@ -68,10 +70,15 @@ class ExponentialApp : Application(), SingletonImageLoader.Factory {
             override fun onStart(owner: LifecycleOwner) {
                 syncManager.setForeground(true)
                 syncManager.kick("app-foreground")
+                // Same gate for the live steer sockets (EXP-621): they are
+                // app-held now, so backgrounding parks them after the same
+                // grace window and coming back revives them.
+                steerConnectionStore.setForeground(true)
             }
 
             override fun onStop(owner: LifecycleOwner) {
                 syncManager.setForeground(false)
+                steerConnectionStore.setForeground(false)
             }
         })
     }

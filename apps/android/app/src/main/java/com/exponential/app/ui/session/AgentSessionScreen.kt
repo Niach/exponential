@@ -80,7 +80,6 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.BottomBarPillFill
@@ -171,6 +170,9 @@ fun AgentSessionScreen(
     val pendingImages by viewModel.pendingImages.collectAsStateWithLifecycle()
     val steerSending by viewModel.steerSending.collectAsStateWithLifecycle()
     val steerImageError by viewModel.steerImageError.collectAsStateWithLifecycle()
+    // EXP-621: the draft lives with the connection, not in a `remember` — so a
+    // half-typed message survives a reconnect, a back-tap and a rotation.
+    val draft by viewModel.draft.collectAsStateWithLifecycle()
 
     // Steer image attach (EXP-511) — the system photo picker feeds the VM's
     // pending list; batch and action runs have no issue to upload to.
@@ -205,13 +207,12 @@ fun AgentSessionScreen(
         }
     }
 
+    // Dials only when nothing is connected yet: since EXP-621 a return visit
+    // re-attaches to the running connection and its feed is already there.
+    // Returning from the BACKGROUND is no longer this screen's job either —
+    // the store revives every parked connection on ProcessLifecycleOwner's
+    // ON_START, alongside the shape loops.
     LaunchedEffect(Unit) { viewModel.connectIfIdle() }
-    // Returning from the background (EXP-243): the socket rarely survives it —
-    // reconnect automatically instead of parking behind a manual button.
-    LifecycleResumeEffect(Unit) {
-        viewModel.reconnectNow()
-        onPauseOrDispose { }
-    }
     val sessionEnded = session?.status == DomainContract.codingSessionStatusEnded
     // A trailing question/plan means the session is blocked on a human — the
     // header flips to "Needs your input" so it never looks silently stuck.
@@ -541,12 +542,19 @@ fun AgentSessionScreen(
 
             // ── Steering input — fully seamless (EXP-312): no captions, no
             // operator state; live implies ownership, input just sends.
-            val inputVisible = phase == AgentPhase.Live && !sessionEnded
-            if (inputVisible) {
+            // EXP-621: the composer is present for the WHOLE life of the
+            // session, not only while the socket happens to be up — a
+            // mid-reconnect blip used to yank the keyboard and the typed text
+            // away. Only a finished session retires it; until the stream is
+            // live, sending is disabled rather than hidden.
+            if (!sessionEnded && phase !is AgentPhase.Ended) {
                 SteerComposer(
+                    value = draft,
+                    onValueChange = viewModel::setDraft,
                     pendingImages = pendingImages,
                     canAttach = session?.issueId != null,
                     sending = steerSending,
+                    live = phase == AgentPhase.Live,
                     planPending = planAwaitingApproval,
                     onPickImages = {
                         imagePicker.launch(
@@ -554,7 +562,7 @@ fun AgentSessionScreen(
                         )
                     },
                     onRemoveImage = viewModel::removePendingImage,
-                    onSend = viewModel::sendMessageWithImages,
+                    onSend = viewModel::sendDraft,
                 )
             }
             Spacer(Modifier.height(8.dp))
@@ -1806,21 +1814,29 @@ private fun middleTruncate(s: String, max: Int = 72): String {
  *
  * Chrome only: the image cap, the upload-on-send path and the frozen steer
  * message wire format are untouched.
+ *
+ * EXP-621: the text is NOT owned here — it belongs to the connection, so the
+ * composer is a pure function of a draft that outlives the screen. It also
+ * renders while the stream is down ([live] false), with sending disabled: a
+ * reconnect must never eat what the user was typing.
  */
 @Composable
 private fun SteerComposer(
+    value: String,
+    onValueChange: (String) -> Unit,
     pendingImages: List<PendingAttachment>,
     canAttach: Boolean,
     sending: Boolean,
+    /** The relay stream is up — only then can a message actually go out. */
+    live: Boolean,
     /** A plan-approval card is awaiting the human — the composer doubles as
      *  the "tell Claude what to change" path (EXP-529 batch). */
     planPending: Boolean,
     onPickImages: () -> Unit,
     onRemoveImage: (Int) -> Unit,
-    onSend: (String) -> Unit,
+    onSend: () -> Unit,
 ) {
-    var field by remember { mutableStateOf("") }
-    val canSend = (field.isNotBlank() || pendingImages.isNotEmpty()) && !sending
+    val canSend = (value.isNotBlank() || pendingImages.isNotEmpty()) && !sending && live
     val shape = RoundedCornerShape(24.dp)
     Column(
         modifier = Modifier
@@ -1836,12 +1852,18 @@ private fun SteerComposer(
             onRemove = onRemoveImage,
         )
         TextField(
-            value = field,
-            onValueChange = { field = it },
+            value = value,
+            onValueChange = onValueChange,
             modifier = Modifier.fillMaxWidth(),
             placeholder = {
                 Text(
-                    if (planPending) "Tell Claude what to change…" else "Message the agent…",
+                    when {
+                        planPending -> "Tell Claude what to change…"
+                        // Typing is always allowed; the message just waits for
+                        // the stream to come back (EXP-621).
+                        !live -> "Message the agent (reconnecting…)"
+                        else -> "Message the agent…"
+                    },
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                 )
             },
@@ -1871,12 +1893,10 @@ private fun SteerComposer(
             }
             Spacer(Modifier.weight(1f))
             IconButton(
-                onClick = {
-                    if (canSend) {
-                        onSend(field)
-                        field = ""
-                    }
-                },
+                // The draft is cleared by the send itself, and only once the
+                // message is out (EXP-621) — a failed image upload leaves the
+                // whole composition intact to retry.
+                onClick = { if (canSend) onSend() },
                 enabled = canSend,
             ) {
                 if (sending) {
