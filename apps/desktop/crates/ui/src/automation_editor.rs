@@ -337,9 +337,9 @@ impl AutomationEditorState {
         self.render_with_heading(prefix, access, true, cx)
     }
 
-    /// [`Self::render`] with the "Automation" section heading suppressed —
-    /// EXP-615's create-action dialog puts the section behind a back-button
-    /// header that already carries that title.
+    /// [`Self::render`] — `heading` toggles the "Trigger" section label
+    /// (web-parity wording; both the automation dialog and EXP-615's
+    /// create-action detail pane show it above the mode switch).
     pub(crate) fn render_with_heading<V: Render>(
         &self,
         prefix: &'static str,
@@ -350,7 +350,7 @@ impl AutomationEditorState {
         let muted = cx.theme().muted_foreground;
         let mut section = v_flex().gap_2();
         if heading {
-            section = section.child(div().text_sm().text_color(muted).child("Automation"));
+            section = section.child(div().text_sm().text_color(muted).child("Trigger"));
         }
         let mut section = section.child(self.render_mode_switch(prefix, access, cx));
         section = match self.mode {

@@ -620,8 +620,9 @@ impl Render for CreateActionDialogView {
                 .child(self.automation.render_with_heading(
                     "ca-automation",
                     |this: &mut Self| &mut this.automation,
-                    // The back-button header above already says "Automation".
-                    false,
+                    // The back-button header says "Automation"; the section
+                    // label below it says "Trigger", exactly like web.
+                    true,
                     cx,
                 )),
         };

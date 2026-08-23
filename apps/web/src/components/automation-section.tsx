@@ -263,7 +263,7 @@ export function AutomationTriggerFields({
             aria-label="Time of day"
             value={draft.time}
             onChange={(e) => set({ time: e.target.value })}
-            className="h-8 w-28"
+            className="h-8 w-32"
           />
         </div>
       )}

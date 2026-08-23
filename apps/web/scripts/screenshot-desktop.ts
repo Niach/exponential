@@ -51,7 +51,7 @@ const DEVICE_ID = `screenshot-demo-desktop`
 // >1 agent so the sheet renders its agent pill strip; the caps are the ones a
 // real desktop advertises (see crates/ui/src/steer_wiring.rs).
 const AGENTS = [`claude`, `codex`, `pi`]
-const CAPS = [`actions`, `action-inputs`, `fix-conflicts`]
+const CAPS = [`actions`, `action-inputs`, `fix-conflicts`, `chat`, `automations`]
 
 // Under the relay's 90s publisher-idle timeout (hub.ts PUBLISHER_IDLE_TIMEOUT_MS).
 const KEEPALIVE_MS = 30_000
