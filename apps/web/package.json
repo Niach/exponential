@@ -10,6 +10,7 @@
     "migrate": "drizzle-kit migrate",
     "migrate:generate": "drizzle-kit generate",
     "backfill:default-branches": "bun scripts/backfill-default-branches.ts",
+    "backfill:github-identities": "bun scripts/backfill-github-identities.ts",
     "backfill:widget-descriptions": "bun scripts/scrub-widget-descriptions.ts",
     "seed:screenshots": "bun scripts/seed-screenshots.ts",
     "screenshots:desktop": "bun scripts/screenshot-desktop.ts",

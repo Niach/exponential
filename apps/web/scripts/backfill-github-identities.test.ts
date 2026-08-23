@@ -54,14 +54,18 @@ vi.mock(`@/db/schema`, () => ({
   githubUserIdentities: { githubUserId: `github_user_id`, id: `id` },
 }))
 
-import { runGithubIdentityBackfill } from "@/lib/integrations/github-identity-backfill"
+import { runGithubIdentityBackfill } from "./backfill-github-identities"
 
 const candidate = (over: Record<string, unknown> = {}) => ({
   installation_id: 42,
   account_login: `Niach`,
   user_id: `u1`,
+  user_email: `danny@acme.test`,
+  linked_at: `2026-08-01T00:00:00Z`,
   ...over,
 })
+
+const run = () => runGithubIdentityBackfill({ dryRun: false })
 
 describe(`runGithubIdentityBackfill`, () => {
   beforeEach(() => {
@@ -76,12 +80,14 @@ describe(`runGithubIdentityBackfill`, () => {
       type: `User`,
     })
     githubAppConfigured.mockReturnValue(true)
+    vi.spyOn(console, `log`).mockImplementation(() => {})
+    vi.spyOn(console, `warn`).mockImplementation(() => {})
   })
 
   it(`maps a personal installation to its single claimant`, async () => {
     h.candidateRows.push(candidate())
 
-    const result = await runGithubIdentityBackfill()
+    const result = await run()
 
     expect(result).toEqual({ mapped: 1, skipped: 0 })
     expect(h.inserted).toEqual([
@@ -94,13 +100,13 @@ describe(`runGithubIdentityBackfill`, () => {
     // what makes that a non-event — a login lookup would have resolved
     // whoever holds `OldName` now.
     h.candidateRows.push(candidate({ account_login: `OldName` }))
-    const warn = vi.spyOn(console, `warn`).mockImplementation(() => {})
 
-    await runGithubIdentityBackfill()
+    await run()
 
-    expect(h.inserted[0]).toMatchObject({ githubUserId: 11409482 })
-    expect(warn).toHaveBeenCalled()
-    warn.mockRestore()
+    expect(h.inserted[0]).toMatchObject({
+      githubUserId: 11409482,
+      githubLogin: `Niach`,
+    })
   })
 
   it(`skips an installation GitHub no longer reports as a personal account`, async () => {
@@ -111,7 +117,7 @@ describe(`runGithubIdentityBackfill`, () => {
     })
     h.candidateRows.push(candidate())
 
-    expect(await runGithubIdentityBackfill()).toEqual({ mapped: 0, skipped: 1 })
+    expect(await run()).toEqual({ mapped: 0, skipped: 1 })
     expect(h.inserted).toHaveLength(0)
   })
 
@@ -119,33 +125,31 @@ describe(`runGithubIdentityBackfill`, () => {
     getInstallationAccount.mockResolvedValue(null)
     h.candidateRows.push(candidate())
 
-    expect(await runGithubIdentityBackfill()).toEqual({ mapped: 0, skipped: 1 })
+    expect(await run()).toEqual({ mapped: 0, skipped: 1 })
   })
 
   it(`never overwrites an identity the OAuth callback already recorded`, async () => {
     h.conflictOn.add(11409482)
     h.candidateRows.push(candidate())
 
-    expect(await runGithubIdentityBackfill()).toEqual({ mapped: 0, skipped: 1 })
+    expect(await run()).toEqual({ mapped: 0, skipped: 1 })
     expect(h.inserted).toHaveLength(0)
   })
 
-  it(`does nothing without a configured GitHub App`, async () => {
-    githubAppConfigured.mockReturnValue(false)
+  it(`--dry-run resolves and reports without writing`, async () => {
     h.candidateRows.push(candidate())
 
-    expect(await runGithubIdentityBackfill()).toEqual({ mapped: 0, skipped: 0 })
-    expect(getInstallationAccount).not.toHaveBeenCalled()
+    const result = await runGithubIdentityBackfill({ dryRun: true })
+
+    // It still calls GitHub — the point of the rehearsal is to show exactly
+    // which account each user would be mapped to.
+    expect(getInstallationAccount).toHaveBeenCalledWith(42)
+    expect(result).toEqual({ mapped: 0, skipped: 0 })
+    expect(h.inserted).toHaveLength(0)
   })
 
-  it(`swallows a query failure — a boot must never fail on this`, async () => {
+  it(`fails loudly on a query error — a one-off must not report success`, async () => {
     h.selectThrows = true
-    const spy = vi.spyOn(console, `error`).mockImplementation(() => {})
-
-    await expect(runGithubIdentityBackfill()).resolves.toEqual({
-      mapped: 0,
-      skipped: 0,
-    })
-    spy.mockRestore()
+    await expect(run()).rejects.toThrow(`db down`)
   })
 })

@@ -12,7 +12,14 @@ export default defineConfig({
   test: {
     environment: `jsdom`,
     globals: true,
-    include: [`src/**/*.test.ts`, `src/**/*.test.tsx`],
+    // `scripts/` is in here for the one-off backfills: they touch prod data
+    // once, from a laptop, with nobody watching the guards but the person
+    // running them, so their rules belong under CI like everything else.
+    include: [
+      `src/**/*.test.ts`,
+      `src/**/*.test.tsx`,
+      `scripts/**/*.test.ts`,
+    ],
     exclude: [`tests/e2e/**`],
   },
 })
