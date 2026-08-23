@@ -129,7 +129,7 @@ public extension ActionDto {
                     label: "Name",
                     type: "text",
                     required: false,
-                    placeholder: "Leave blank to let the agent name it"
+                    placeholder: "Name (optional)"
                 ),
                 ActionInputDto(key: "repo", label: "Repository", type: "repo", required: false),
                 // EXP-273: the author picks the new action's glyph up front.

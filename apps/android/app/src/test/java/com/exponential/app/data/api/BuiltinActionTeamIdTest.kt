@@ -74,7 +74,7 @@ class BuiltinActionTeamIdTest {
         assertEquals("Name", name.label)
         assertEquals("text", name.type)
         assertEquals(false, name.required)
-        assertEquals("Leave blank to let the agent name it", name.placeholder)
+        assertEquals("Name (optional)", name.placeholder)
     }
 
     @Test

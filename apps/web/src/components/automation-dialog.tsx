@@ -185,8 +185,8 @@ export function AutomationDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* EXP-616: a bottom sheet on mobile — the body is an ordinary
-          DialogBody, so the sheet follows its content and scrolls inside once
-          it hits the 92dvh cap. */}
+          DialogBody, so it takes the fixed 94dvh detent's free height and
+          scrolls inside it, content anchored to the top. */}
       <DialogContent mobileSheet className="sm:max-h-[85dvh] sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>

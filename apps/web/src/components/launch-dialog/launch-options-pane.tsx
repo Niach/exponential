@@ -32,10 +32,12 @@ import type { SteerDevice } from "@/lib/steer-devices"
 // unattended run never parks on plan mode.
 // EXP-616 dresses the cluster in the iOS grouped-glass vocabulary: the agent
 // capsule stays uncarded and flush, everything else is a grouped card of
-// label-leading picker/toggle ROWS (`components/ui/glass-rows`). Section order
-// mirrors the iOS `LaunchOptionsSection` exactly — device card, capsule,
-// model/effort card, toggles card — so the caller hands its device picker over
-// as `deviceRow` and this renders the card around it.
+// label-leading picker/toggle ROWS (`components/ui/glass-rows`). The "Agent"
+// label LEADS the column so it sits on the same baseline as the left half's
+// section label ("Issues"/the name field); the machine, the model and the
+// effort then share ONE card (device first), and the run-time toggles follow
+// as their own — so the caller hands its device picker over as `deviceRow` and
+// this renders it as that card's first row.
 
 export const AGENT_LABELS: Record<string, string> = {
   claude: `Claude Code`,
@@ -107,10 +109,10 @@ type AgentOptionsFieldsProps = {
   idPrefix: string
   /**
    * EXP-616: the caller's device picker row (a `GlassPickerRow`), rendered as
-   * its OWN card above the agent capsule — the iOS sheet's device section.
-   * Absent where there is nothing to pick: the device-settings defaults editor
-   * edits one machine's own defaults, and a one-machine launch has no choice
-   * to offer, so neither paints a device card.
+   * the FIRST row of the model/effort card. Absent where there is nothing to
+   * pick: the device-settings defaults editor edits one machine's own
+   * defaults, and a one-machine launch has no choice to offer, so neither
+   * paints a device row at all.
    */
   deviceRow?: React.ReactNode
   /** `` in the automation variant = device default. */
@@ -172,9 +174,6 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
   ]
   return (
     <>
-      {/* The machine gets its own card, ahead of the agent capsule — the iOS
-          sheet's section order (device → capsule → model/effort → toggles). */}
-      {deviceRow && <GlassGroup>{deviceRow}</GlassGroup>}
       {availableAgents.length > 1 && (
         <div className="space-y-2">
           <Label>Agent</Label>
@@ -193,8 +192,10 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
           </Tabs>
         </div>
       )}
-      {/* What the machine runs with — the iOS sheet's Model/Effort card. */}
+      {/* Where and what the agent runs with — ONE card: the machine leads,
+          model and effort follow. */}
       <GlassGroup>
+        {deviceRow}
         <GlassPickerRow
           label="Model"
           value={model === `` ? modelSentinel : model}

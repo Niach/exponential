@@ -157,7 +157,7 @@ struct CreateActionSheet: View {
         Section {
             HStack(spacing: 12) {
                 IconPicker(selection: $icon, allowsNone: true)
-                TextField("Leave blank to let the agent name it", text: $name)
+                TextField("Name (optional)", text: $name)
                     .accessibilityIdentifier("create-action-name")
             }
         } header: {

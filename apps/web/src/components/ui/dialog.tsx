@@ -47,12 +47,15 @@ function DialogOverlay({
 // Below `sm` a dialog is one of two things. The DEFAULT is the full-screen
 // page (EXP-255) every dialog has had since then. `mobileSheet` opts into the
 // iOS presentation instead (EXP-616): a large-detent bottom sheet — rounded
-// top edge, the page peeking behind it, sliding up from the bottom. Both arms
+// top edge, the page peeking behind it, sliding up from the bottom. The detent
+// is FIXED at 94dvh rather than content-sized: a sheet that shrank to its
+// content read as a cut-off page, and a definite height is also what lets the
+// panel's `flex-1 min-h-0` body scroll instead of clip. Both arms
 // carry their OWN mobile-only classes so nothing leaks between them; from `sm`
 // up the two are identical (the shared string below), which is why the sheet
 // arm re-states the `sm:` padding and zoom the page arm owns unprefixed.
 const MOBILE_PAGE = `inset-0 bg-background p-6 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95`
-const MOBILE_SHEET = `max-sm:inset-x-0 max-sm:bottom-0 max-sm:max-h-[92dvh] max-sm:rounded-t-3xl max-sm:border-t max-sm:border-glass-stroke-card max-sm:bg-card/85 max-sm:p-4 max-sm:pb-[max(1rem,env(safe-area-inset-bottom))] max-sm:backdrop-blur-2xl max-sm:data-[state=closed]:slide-out-to-bottom-1/2 max-sm:data-[state=open]:slide-in-from-bottom-1/2 sm:p-6 sm:data-[state=closed]:zoom-out-95 sm:data-[state=open]:zoom-in-95`
+const MOBILE_SHEET = `max-sm:inset-x-0 max-sm:bottom-0 max-sm:h-[94dvh] max-sm:rounded-t-3xl max-sm:border-t max-sm:border-glass-stroke-card max-sm:bg-card/85 max-sm:p-4 max-sm:pb-[max(1rem,env(safe-area-inset-bottom))] max-sm:backdrop-blur-2xl max-sm:data-[state=closed]:slide-out-to-bottom-1/2 max-sm:data-[state=open]:slide-in-from-bottom-1/2 sm:p-6 sm:data-[state=closed]:zoom-out-95 sm:data-[state=open]:zoom-in-95`
 
 function DialogContent({
   className,
@@ -83,8 +86,8 @@ function DialogContent({
           // inset-0, no rounding/border — the same flex column, just against
           // a definite 100dvh height, so the body scrolls and the action
           // buttons stay reachable at the bottom of the phone screen; opting
-          // into `mobileSheet` swaps that arm for a bottom sheet whose height
-          // follows its content up to 92dvh (see MOBILE_PAGE/MOBILE_SHEET
+          // into `mobileSheet` swaps that arm for a bottom sheet with a fixed
+          // 94dvh detent (see MOBILE_PAGE/MOBILE_SHEET
           // above). From `sm` up it is the centered panel, capped to the
           // viewport — the same for both arms. Callers
           // that reposition or re-cap the panel must sm:-prefix those classes

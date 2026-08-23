@@ -260,7 +260,7 @@ fun CreateActionSheet(
                                 name = it.take(DomainContract.actionInputTextMax)
                             },
                             modifier = Modifier.weight(1f),
-                            placeholder = "Leave blank to let the agent name it",
+                            placeholder = "Name (optional)",
                             singleLine = true,
                         )
                     }

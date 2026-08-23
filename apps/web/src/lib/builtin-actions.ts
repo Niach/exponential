@@ -63,7 +63,7 @@ const CREATE_ACTION_INPUTS: ActionInputDef[] = [
     label: `Name`,
     type: `text`,
     required: false,
-    placeholder: `Leave blank to let the agent name it`,
+    placeholder: `Name (optional)`,
   },
   { key: `repo`, label: `Repository`, type: `repo`, required: false },
   // EXP-273: the user picks the new action's glyph up front and the
