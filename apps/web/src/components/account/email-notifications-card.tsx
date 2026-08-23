@@ -5,13 +5,6 @@ import { authClient } from "@/lib/auth/client"
 import type { NotificationType } from "@/lib/domain"
 import type { DigestCadence } from "@/lib/notification-email-policy"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import {
   GlassGroup,
@@ -142,123 +135,126 @@ export function EmailNotificationsCard({
       .catch((err) => console.error(`[prefs] update failed:`, err))
   }
 
+  // EXP-616: no outer Card. A card wrapping the notice plus two glass groups
+  // read as three nested boxes; iOS-style the header is plain text
+  // (GlassSectionHeader's idiom, with a leading glyph and the master switch
+  // riding along) and the groups sit straight on the page background.
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-start gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-md border bg-muted">
-            <Mail className="h-5 w-5" />
-          </div>
-          <div className="flex-1">
-            <CardTitle>Email notifications</CardTitle>
-            <CardDescription>
-              Notifications still unread are bundled into one digest email.
-            </CardDescription>
-          </div>
-          <Switch
-            checked={emailEnabled}
-            onCheckedChange={handleEmailEnabled}
-            disabled={!transportConfigured}
-            aria-label="Email notifications"
-          />
+    <div className="space-y-3">
+      <div className="flex items-center gap-3 px-1 pt-1 pb-1">
+        <div className="flex h-10 w-10 items-center justify-center rounded-md border bg-muted">
+          <Mail className="h-5 w-5" />
         </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {!transportConfigured && (
-          <div className="rounded-md border bg-muted p-3 text-sm text-muted-foreground">
-            Email sending is not configured on this server. Set
-            <code className="mx-1 rounded bg-background px-1 py-0.5 text-xs">
-              AWS_SES_REGION
-            </code>
-            or
-            <code className="mx-1 rounded bg-background px-1 py-0.5 text-xs">
-              SMTP_HOST
-            </code>
-            to enable it.
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-foreground">
+            Email notifications
+          </p>
+          <p className="text-xs text-foreground/50">
+            Notifications still unread are bundled into one digest email.
+          </p>
+        </div>
+        <Switch
+          checked={emailEnabled}
+          onCheckedChange={handleEmailEnabled}
+          disabled={!transportConfigured}
+          aria-label="Email notifications"
+        />
+      </div>
+
+      {!transportConfigured && (
+        <div className="rounded-md border bg-muted p-3 text-sm text-muted-foreground">
+          Email sending is not configured on this server. Set
+          <code className="mx-1 rounded bg-background px-1 py-0.5 text-xs">
+            AWS_SES_REGION
+          </code>
+          or
+          <code className="mx-1 rounded bg-background px-1 py-0.5 text-xs">
+            SMTP_HOST
+          </code>
+          to enable it.
+        </div>
+      )}
+
+      {transportConfigured && !emailVerified && (
+        <div className="flex items-start gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+          <div className="flex-1 text-muted-foreground">
+            <p className="font-medium text-foreground">
+              Verify your email to receive digest emails
+            </p>
+            <p className="mt-0.5 text-xs">
+              Digests are never sent to an unverified address. In-app and push
+              notifications are unaffected.
+              {verifyState === `sent` &&
+                ` Verification email sent to ${emailPrefs.email}.`}
+              {verifyState === `error` &&
+                ` Couldn't send the verification email. Try again in a moment.`}
+            </p>
           </div>
-        )}
+          <Button
+            size="sm"
+            variant="outline"
+            className="shrink-0"
+            disabled={verifyState === `sending` || verifyState === `sent`}
+            onClick={() => void resendVerification()}
+          >
+            {verifyState === `sending`
+              ? `Sending…`
+              : verifyState === `sent`
+                ? `Sent`
+                : `Resend`}
+          </Button>
+        </div>
+      )}
 
-        {transportConfigured && !emailVerified && (
-          <div className="flex items-start gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-            <div className="flex-1 text-muted-foreground">
-              <p className="font-medium text-foreground">
-                Verify your email to receive digest emails
-              </p>
-              <p className="mt-0.5 text-xs">
-                Digests are never sent to an unverified address. In-app and
-                push notifications are unaffected.
-                {verifyState === `sent` &&
-                  ` Verification email sent to ${emailPrefs.email}.`}
-                {verifyState === `error` &&
-                  ` Couldn't send the verification email. Try again in a moment.`}
-              </p>
-            </div>
-            <Button
-              size="sm"
-              variant="outline"
-              className="shrink-0"
-              disabled={verifyState === `sending` || verifyState === `sent`}
-              onClick={() => void resendVerification()}
-            >
-              {verifyState === `sending`
-                ? `Sending…`
-                : verifyState === `sent`
-                  ? `Sent`
-                  : `Resend`}
-            </Button>
-          </div>
-        )}
+      <GlassGroup>
+        {TYPE_ROWS.map((row) => (
+          <GlassToggleRow
+            key={row.type}
+            id={`type-${row.type}`}
+            label={row.label}
+            description={row.hint}
+            checked={typePrefs[row.type] !== false}
+            onCheckedChange={(next) => handleTypeToggle(row.type, next)}
+            disabled={!transportConfigured}
+          />
+        ))}
+      </GlassGroup>
 
-        <GlassGroup>
-          {TYPE_ROWS.map((row) => (
-            <GlassToggleRow
-              key={row.type}
-              id={`type-${row.type}`}
-              label={row.label}
-              description={row.hint}
-              checked={typePrefs[row.type] !== false}
-              onCheckedChange={(next) => handleTypeToggle(row.type, next)}
-              disabled={!transportConfigured}
-            />
-          ))}
-        </GlassGroup>
+      <GlassGroup>
+        <div className="flex flex-col">
+          <GlassPickerRow
+            label="Delivery"
+            value={digest}
+            onValueChange={(next) => handleDigest(next as DigestCadence)}
+            options={[
+              { value: `off`, label: `Hourly digest` },
+              { value: `daily`, label: `Daily digest` },
+            ]}
+            disabled={!transportConfigured || !emailEnabled}
+          />
+          <p className="px-4 pb-3 text-xs text-foreground/50">
+            How often the digest goes out.
+          </p>
+        </div>
 
-        <GlassGroup>
+        {digest === `daily` && (
           <div className="flex flex-col">
             <GlassPickerRow
-              label="Delivery"
-              value={digest}
-              onValueChange={(next) => handleDigest(next as DigestCadence)}
-              options={[
-                { value: `off`, label: `Hourly digest` },
-                { value: `daily`, label: `Daily digest` },
-              ]}
+              label="Send time"
+              value={String(digestHour)}
+              onValueChange={(next) => handleDigestHour(Number(next))}
+              options={HOUR_OPTIONS.map((hour) => ({
+                value: String(hour),
+                label: `${hour}:00`,
+              }))}
               disabled={!transportConfigured || !emailEnabled}
             />
             <p className="px-4 pb-3 text-xs text-foreground/50">
-              How often the digest goes out.
+              Full hours only, in your timezone.
             </p>
           </div>
-
-          {digest === `daily` && (
-            <div className="flex flex-col">
-              <GlassPickerRow
-                label="Send time"
-                value={String(digestHour)}
-                onValueChange={(next) => handleDigestHour(Number(next))}
-                options={HOUR_OPTIONS.map((hour) => ({
-                  value: String(hour),
-                  label: `${hour}:00`,
-                }))}
-                disabled={!transportConfigured || !emailEnabled}
-              />
-              <p className="px-4 pb-3 text-xs text-foreground/50">
-                Full hours only, in your timezone.
-              </p>
-            </div>
-          )}
-        </GlassGroup>
-      </CardContent>
-    </Card>
+        )}
+      </GlassGroup>
+    </div>
   )
 }

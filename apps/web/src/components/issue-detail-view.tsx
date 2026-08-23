@@ -505,10 +505,11 @@ export function IssueDetailView({
 
   const dueDate = issue.dueDate ? parseLocalDate(issue.dueDate) : undefined
 
-  // Coding "coding now" / remote-start control (EXP-184): a main-column row on
-  // desktop, one circle in the floating bar on phones (EXP-568). The component
-  // owns the repo/membership/relay gating and focuses the global dock rather
-  // than mounting the live viewer inline.
+  // Coding "coding now" row (EXP-184): a main-column row on desktop, one
+  // circle in the floating bar on phones (EXP-568). The component owns the
+  // repo/membership/relay gating and focuses the global dock rather than
+  // mounting the live viewer inline. Since EXP-616 the IDLE start affordance
+  // moved out of this row and into the properties card below.
   const codingControl =
     currentUserId && !isMobile ? (
       <IssueCodingControl
@@ -530,6 +531,22 @@ export function IssueDetailView({
         currentUserId={currentUserId}
         users={users}
         variant="fab"
+      />
+    ) : null
+
+  // EXP-616: "Start coding" is a capsule at the trailing end of the properties
+  // card (desktop parity with the IDE) — it no longer gets a row of its own
+  // below the description. Desktop only: on phones the floating bar's circle
+  // still owns the start, and the properties card there is the same node.
+  const codingStartButton =
+    currentUserId && !isMobile ? (
+      <IssueCodingControl
+        issue={issue}
+        board={board}
+        teamId={teamId}
+        currentUserId={currentUserId}
+        users={users}
+        variant="start"
       />
     ) : null
 
@@ -602,8 +619,13 @@ export function IssueDetailView({
   // band welded to the header.
   const propsBand = (
     <div className="mx-auto w-full max-w-3xl px-4 pt-3">
-      <div className="rounded-xl border border-glass-stroke-card bg-popover/40">
-        {propsPanel}
+      <div className="flex items-center gap-1.5 rounded-xl border border-glass-stroke-card bg-popover/40">
+        <div className="min-w-0 flex-1">{propsPanel}</div>
+        {/* min-w-0, not shrink-0: the "waiting for the desktop" caption beside
+            the capsule truncates rather than squeezing the property pills. */}
+        {codingStartButton && (
+          <div className="min-w-0 pr-3">{codingStartButton}</div>
+        )}
       </div>
     </div>
   )

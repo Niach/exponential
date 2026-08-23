@@ -70,6 +70,9 @@ const PR_ROW_CLASS = `flex min-w-0 items-center gap-2 rounded-md border border-g
 // EXP-184 split them: IssueCodingControl renders as the full-width main-column
 // row (variant='row', both viewports since EXP-568) or as the phone bottom
 // bar's circle (variant='fab'); IssuePrRow always stays a main-column row.
+// EXP-616 added variant='start': the bare "Start coding" capsule the issue
+// detail hangs off its properties card, which the 'row' variant therefore no
+// longer draws.
 
 /** PR-state pill — open emerald / merged purple / closed rose / draft secondary. */
 export function PrStateBadge({ state }: { state: string | null | undefined }) {
@@ -200,7 +203,12 @@ export function SessionStatusBadge({
   )
 }
 
-export type CodingControlVariant = `row` | `fab`
+/** `row` = the main-column glass rows (running session / merge / "no desktop
+ * online"), `fab` = the phone bar's circle, `start` = the bare "Start coding"
+ * capsule the issue detail's properties card hosts (EXP-616, desktop parity
+ * with the IDE — it renders NOTHING in the states the `row` variant covers, so
+ * the two mounts never draw the same affordance twice). */
+export type CodingControlVariant = `row` | `fab` | `start`
 
 // Sidebar merge affordance (EXP-268): full-width Merge button + confirm
 // dialog for an issue whose linked PR is open. Mirrors the reviews pages'
@@ -412,6 +420,9 @@ function AgentRow({
   const latestDevice = useSessionDevice(latest)
 
   if (latest) {
+    // A live session replaces the start affordance — the properties card's
+    // capsule steps aside for the running row below.
+    if (variant === `start`) return null
     const owner = users.find((u) => u.id === latest.userId)
     const paused = sessionIsPaused(
       sessionDisplayState(latest, issue.prState),
@@ -507,7 +518,9 @@ function AgentRow({
   // an ungated steer.myDevices round-trip.
   if (!isMember || !steerEnabled || !board.repositoryId) {
     // An open PR still deserves its Merge button (EXP-268) even when remote
-    // start can't render (steer off / repo-less board).
+    // start can't render (steer off / repo-less board) — a main-column row,
+    // never the properties card's capsule.
+    if (variant === `start`) return null
     if (isMember && variant === `row` && issue.prState === `open`) {
       return (
         <CodingRowStack>
@@ -549,8 +562,9 @@ function RemoteStartRow({
   if (remote.devices === null) return null
   if (remote.devices.length === 0) {
     // Nothing to start on: the phone bar simply drops the circle rather than
-    // spending one of its three slots on an explanation.
-    if (variant === `fab`) return null
+    // spending one of its three slots on an explanation, and the properties
+    // card drops its capsule — the row below carries the explanation.
+    if (variant === `fab` || variant === `start`) return null
     return (
       <CodingRowStack>
         <GlassRow className="flex-wrap gap-2 text-xs text-muted-foreground">
@@ -608,26 +622,38 @@ function RemoteStartRow({
     )
   }
 
-  return (
-    <CodingRowStack>
-      <GlassRow className="flex-wrap gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setDialogOpen(true)}
-          disabled={busy}
-        >
-          {remote.starting ? <LoaderCircle className="animate-spin" /> : <MonitorUp />}
-          Start coding
-        </Button>
-        {issue.prState === `open` && <IssueMergeButton issue={issue} />}
-        {dialog}
+  // EXP-616: the start affordance is a capsule INSIDE the issue's properties
+  // card (desktop parity with the IDE) — no standalone row of its own.
+  if (variant === `start`) {
+    return (
+      <div className="flex min-w-0 items-center gap-2">
         {remote.sentTo && (
-          <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-            <LoaderCircle className="size-3 animate-spin" />
+          <span className="hidden min-w-0 items-center gap-1.5 truncate text-xs text-muted-foreground lg:inline-flex">
+            <LoaderCircle className="size-3 shrink-0 animate-spin" />
             Start sent to {remote.sentTo}. Waiting for the desktop…
           </span>
         )}
+        <Button
+          variant="glass"
+          size="xs"
+          onClick={() => setDialogOpen(true)}
+          disabled={busy}
+        >
+          {busy ? <LoaderCircle className="animate-spin" /> : <MonitorUp />}
+          Start coding
+        </Button>
+        {dialog}
+      </div>
+    )
+  }
+
+  // The main column keeps only what the capsule can't carry: an open PR's
+  // Merge button (EXP-268). With nothing to show it draws no empty card.
+  if (issue.prState !== `open`) return null
+  return (
+    <CodingRowStack>
+      <GlassRow className="flex-wrap gap-2">
+        <IssueMergeButton issue={issue} />
       </GlassRow>
     </CodingRowStack>
   )
