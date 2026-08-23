@@ -554,6 +554,40 @@ describe(`devices.setShared`, () => {
   })
 })
 
+// EXP-622: the caller's default machine — at most one true row per user.
+describe(`devices.setDefault`, () => {
+  it(`clears the caller's other defaults before flagging this row`, async () => {
+    h.state.selectQueue = [[{ id: `row-1` }]]
+    const result = await caller.setDefault({
+      deviceId: `dev-1`,
+      isDefault: true,
+    })
+    expect(result).toMatchObject({ ok: true })
+    expect(h.state.updates).toHaveLength(2)
+    expect(h.state.updates[0]?.set).toMatchObject({ isDefault: false })
+    expect(h.state.updates[1]?.set).toMatchObject({ isDefault: true })
+  })
+
+  it(`clearing touches only this row`, async () => {
+    h.state.selectQueue = [[{ id: `row-1` }]]
+    const result = await caller.setDefault({
+      deviceId: `dev-1`,
+      isDefault: false,
+    })
+    expect(result).toMatchObject({ ok: true })
+    expect(h.state.updates).toHaveLength(1)
+    expect(h.state.updates[0]?.set).toMatchObject({ isDefault: false })
+  })
+
+  it(`rejects a deviceId the caller does not own`, async () => {
+    h.state.selectQueue = [[]]
+    await expect(
+      caller.setDefault({ deviceId: `foreign-dev`, isDefault: true })
+    ).rejects.toMatchObject({ code: `NOT_FOUND` })
+    expect(h.state.updates).toHaveLength(0)
+  })
+})
+
 // EXP-445: withdrawing a share ends the teammate runs it was the consent for.
 describe(`devices.setShared — kill fan-out`, () => {
   const TEAM_A = `11111111-1111-4111-8111-111111111111`
@@ -734,6 +768,18 @@ describe(`devices.list({teamId})`, () => {
     })
     await caller.list({ teamId: TEAM })
     expect(h.state.updates).toHaveLength(0)
+  })
+
+  // EXP-622: the flag on a teammate's row is THEIR preference — old clients
+  // reading this list must never prefill someone else's default.
+  it(`carries isDefault on own rows and zeroes it on shared ones`, async () => {
+    h.state.selectQueue = [
+      [registryRow({ isDefault: true })],
+      [sharedJoinRow({ isDefault: true })],
+    ]
+    const { devices } = await caller.list({ teamId: TEAM })
+    expect(devices[0]).toMatchObject({ deviceId: `dev-1`, isDefault: true })
+    expect(devices[1]).toMatchObject({ deviceId: `dev-2`, isDefault: false })
   })
 
   it(`carries the caller's own sharedTeamId so the UI can badge it`, async () => {

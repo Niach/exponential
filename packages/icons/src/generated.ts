@@ -418,6 +418,7 @@ export const SEMANTIC_ICONS = {
   "ui-delete": `trash-2`,
   "ui-delete-account": `user-x`,
   "ui-device": `monitor`,
+  "ui-device-default": `star`,
   "ui-device-offline": `monitor-off`,
   "ui-download": `download`,
   "ui-due-date": `calendar-days`,

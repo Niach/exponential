@@ -29,6 +29,12 @@ private struct RenameDeviceInput: Encodable {
     let label: String
 }
 
+/// EXP-622: `devices.setDefault` — flag/unflag the caller's default machine.
+private struct SetDefaultInput: Encodable {
+    let deviceId: String
+    let isDefault: Bool
+}
+
 /// EXP-481: `devices.setShared` — the server input is `teamId: string | null`
 /// where the key must ALWAYS be present (null clears the share). Synthesized
 /// Encodable drops nil via encodeIfPresent, so this encodes by hand.
@@ -189,6 +195,17 @@ public final class DevicesApi: Sendable {
             accountId: accountId,
             path: "devices.rename",
             input: RenameDeviceInput(deviceId: deviceId, label: label)
+        )
+    }
+
+    /// EXP-622: make this machine the caller's default — the row every device
+    /// picker prefills. The server clears the flag on their other machines in
+    /// the same transaction, so the result arrives through the devices shape.
+    public func setDefault(accountId: String, deviceId: String, isDefault: Bool) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "devices.setDefault",
+            input: SetDefaultInput(deviceId: deviceId, isDefault: isDefault)
         )
     }
 

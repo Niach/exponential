@@ -554,6 +554,8 @@ pub const UI_DELETE: ExpIcon = ExpIcon::Trash2;
 pub const UI_DELETE_ACCOUNT: ExpIcon = ExpIcon::UserX;
 /// Registry concept `ui-device` -> Lucide `monitor`.
 pub const UI_DEVICE: ExpIcon = ExpIcon::Monitor;
+/// Registry concept `ui-device-default` -> Lucide `star`.
+pub const UI_DEVICE_DEFAULT: ExpIcon = ExpIcon::Star;
 /// Registry concept `ui-device-offline` -> Lucide `monitor-off`.
 pub const UI_DEVICE_OFFLINE: ExpIcon = ExpIcon::MonitorOff;
 /// Registry concept `ui-download` -> Lucide `download`.

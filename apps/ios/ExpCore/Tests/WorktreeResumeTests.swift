@@ -151,6 +151,23 @@ final class WorktreeResumeTests: XCTestCase {
         )
     }
 
+    // EXP-622: the flag is the ROW OWNER's preference — a teammate's shared
+    // server must never prefill the caller's picker.
+    func testComposeKeepsIsDefaultOnOwnRowsOnly() {
+        let rows = [
+            DeviceEntity(id: "r1", userId: "me", deviceId: "mine", label: "mine",
+                         kind: "server", isDefault: true),
+            DeviceEntity(id: "r2", userId: "mate", deviceId: "shared", label: "shared",
+                         kind: "server", sharedTeamId: "team-1", isDefault: true),
+        ]
+        let composed = DeviceQueries.compose(
+            rows: rows, users: [], teamId: "team-1", userId: "me"
+        )
+        XCTAssertEqual(composed.map(\.deviceId), ["mine", "shared"])
+        XCTAssertTrue(composed[0].isDefaultDevice)
+        XCTAssertFalse(composed[1].isDefaultDevice)
+    }
+
     func testComposeWithoutTeamScopesToOwnRows() {
         let rows = [
             entity(id: "r1", userId: "me", deviceId: "mine", lastSeenAt: nil),

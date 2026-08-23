@@ -8,6 +8,7 @@ import {
   type CodingLaunchPrefs,
 } from "@/lib/coding-launch-prefs"
 import {
+  defaultDeviceId,
   deviceAgentIds,
   deviceAgentLaunchDefaults,
   deviceDefaultAgent,
@@ -90,18 +91,23 @@ export function useLaunchOptions({
 
   // Settle the device on open + whenever the candidate list changes (tab
   // switch, action selection, a desktop connecting mid-dialog); a still-valid
-  // current choice is kept, else the first candidate wins.
+  // current choice is kept, else the caller's default machine (EXP-622), else
+  // the first candidate.
+  const fallbackDeviceId =
+    defaultDeviceId(devices) ?? devices[0]?.deviceId ?? null
   useEffect(() => {
     if (!open) return
     setDeviceId((current) =>
       current && devices.some((d) => d.deviceId === current)
         ? current
-        : (devices[0]?.deviceId ?? null)
+        : fallbackDeviceId
     )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, devices])
 
   const device =
-    devices.find((candidate) => candidate.deviceId === deviceId) ?? devices[0]
+    devices.find((candidate) => candidate.deviceId === deviceId) ??
+    devices.find((candidate) => candidate.deviceId === fallbackDeviceId)
 
   // Switching the agent tab re-seeds model/effort/toggles to the SELECTED
   // DEVICE's defaults for that agent (EXP-437; static when it advertises

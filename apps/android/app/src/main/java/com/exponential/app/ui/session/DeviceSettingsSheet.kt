@@ -69,7 +69,9 @@ import com.exponential.app.ui.theme.TextEmphasis
 // The device-settings sheet (EXP-481) — the mobile twin of the web dialog,
 // styled like the Start-coding sheet (EXP-208/EXP-211 chrome: full height,
 // status-bar inset, no drag handle). Replaces the Rename menu entry: name,
-// team sharing (server machines only — the toggle was web-only before), the
+// the EXP-622 default-machine toggle (which machine every device picker
+// prefills), team sharing (server machines only — the toggle was web-only
+// before), the
 // machine's per-agent launch defaults (SERVER-authoritative: editable while
 // the machine is OFFLINE, it converges on return), and the synced worktree
 // inventory with remove/prune commands (durable queue — an offline machine
@@ -103,6 +105,8 @@ fun DeviceSettingsSheet(
     val nameError by viewModel.nameError.collectAsStateWithLifecycle()
     val shareBusy by viewModel.shareBusy.collectAsStateWithLifecycle()
     val shareError by viewModel.shareError.collectAsStateWithLifecycle()
+    val defaultBusy by viewModel.defaultBusy.collectAsStateWithLifecycle()
+    val defaultError by viewModel.defaultError.collectAsStateWithLifecycle()
     val defaultsError by viewModel.defaultsError.collectAsStateWithLifecycle()
     val commandStates by viewModel.commandStates.collectAsStateWithLifecycle()
 
@@ -233,6 +237,28 @@ fun DeviceSettingsSheet(
                     }
                 }
                 ErrorCaption(nameError)
+                Spacer(Modifier.height(8.dp))
+
+                // ── Default machine (EXP-622) ───────────────────────────────
+                SectionLabel("Default device")
+                OptionGroup {
+                    SwitchRow(
+                        title = "Default device",
+                        checked = device.isDefault,
+                        onCheckedChange = { next ->
+                            viewModel.setDefault(device.deviceId, next)
+                        },
+                        enabled = !defaultBusy,
+                    )
+                }
+                Text(
+                    "Preselected whenever you start a coding session and more than one " +
+                        "of your machines can run it.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
+                )
+                ErrorCaption(defaultError)
                 Spacer(Modifier.height(8.dp))
 
                 // ── Sharing (server machines only, EXP-432/EXP-481) ─────────

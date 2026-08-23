@@ -552,6 +552,8 @@ public enum AppIcons {
     public static let uiDeleteAccount: String = "user-x"
     /// Concept `ui-device`.
     public static let uiDevice: String = "monitor"
+    /// Concept `ui-device-default`.
+    public static let uiDeviceDefault: String = "star"
     /// Concept `ui-device-offline`.
     public static let uiDeviceOffline: String = "monitor-off"
     /// Concept `ui-download`.

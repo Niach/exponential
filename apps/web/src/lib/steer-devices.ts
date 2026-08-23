@@ -51,6 +51,11 @@ export interface SteerDevice {
    * presence — the Start-coding dialog seeds its options from the selected
    * device. Absent = old desktop build (or offline row); seed statically. */
   launchDefaults?: DeviceLaunchDefaults
+  /** EXP-622: the caller's default machine — pickers prefill it over the
+   * first candidate. Set only on the caller's OWN rows: the flag lives on
+   * the device row and is its owner's preference, so a teammate's shared
+   * server never prefills off it. */
+  isDefault?: boolean
 }
 
 /** EXP-437: a device's launch-defaults advertisement — `agents` keyed by
@@ -78,6 +83,14 @@ export function deviceAgentLaunchDefaults(
   agent: string
 ): AgentLaunchDefaults | null {
   return device?.launchDefaults?.agents?.[agent] ?? null
+}
+
+/** EXP-622: the caller's default machine among `devices`, or `null` when
+ * none of them is flagged. Callers pass an already capability-filtered
+ * CANDIDATE list, so an offline or incapable default simply drops out and
+ * the caller falls back to its first candidate. */
+export function defaultDeviceId(devices: SteerDevice[]): string | null {
+  return devices.find((device) => device.isDefault === true)?.deviceId ?? null
 }
 
 /** EXP-432: whether the row is one of the caller's own machines (teammates'
@@ -195,6 +208,9 @@ export function steerDeviceFromRow(
     updateRequested,
     updateBlocked: updateRequested && row.activeSessions > 0,
     sharedTeamId: row.sharedTeamId,
+    // EXP-622: a default belongs to the row's OWNER — never surface a
+    // teammate's shared server as the caller's default.
+    isDefault: row.userId === opts.currentUserId && row.isDefault,
     ...(row.userId === opts.currentUserId
       ? {}
       : { owner: { id: row.userId, name: opts.ownerName ?? `` } }),

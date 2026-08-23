@@ -67,6 +67,16 @@ final class DeviceEntityDecodingTests: XCTestCase {
         XCTAssertEqual(defaults.defaultAgent, "claude")
     }
 
+    // EXP-622: is_default arrives as a real bool off the wire and as Postgres
+    // text on partial-update paths; an absent column defaults to false.
+    func testDecodesIsDefaultFromBoolTextAndAbsence() throws {
+        let base = #"{"id":"row-3","user_id":"u1","device_id":"dev-3","label":"box""#
+        XCTAssertTrue(try decodeDevice(base + #","is_default":true}"#).isDefault)
+        XCTAssertTrue(try decodeDevice(base + #","is_default":"t"}"#).isDefault)
+        XCTAssertFalse(try decodeDevice(base + #","is_default":"f"}"#).isDefault)
+        XCTAssertFalse(try decodeDevice(base + "}").isDefault)
+    }
+
     func testDecodesWorktreeWithPostgresTextBool() throws {
         let worktree = try decodeWorktree("""
         {"id":"wt-1","device_row_id":"row-1","repo_full_name":"acme/api",

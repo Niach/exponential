@@ -6290,6 +6290,8 @@ public object ExpIcons {
     public val uiDeleteAccount: ImageVector get() = `user-x`
     /** Concept `ui-device`. */
     public val uiDevice: ImageVector get() = `monitor`
+    /** Concept `ui-device-default`. */
+    public val uiDeviceDefault: ImageVector get() = `star`
     /** Concept `ui-device-offline`. */
     public val uiDeviceOffline: ImageVector get() = `monitor-off`
     /** Concept `ui-download`. */

@@ -101,7 +101,9 @@ fun AutomationFormSheet(
     }
     LaunchedEffect(devices) {
         if (draft.deviceId == null) {
-            devices.firstOrNull()?.let { draft = draft.copy(deviceId = it.deviceId) }
+            // EXP-622: the caller's default machine, else the first candidate.
+            (devices.firstOrNull { it.isDefault } ?: devices.firstOrNull())
+                ?.let { draft = draft.copy(deviceId = it.deviceId) }
         }
     }
 

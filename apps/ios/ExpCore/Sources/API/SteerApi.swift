@@ -152,6 +152,11 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// EXP-432: set ONLY on a teammate's shared row — the machine's owner.
     /// Absent on the caller's own rows, which is exactly what `isMine` reads.
     public let owner: DeviceOwner?
+    /// EXP-622: the caller's DEFAULT machine — pickers prefill it over their
+    /// first candidate. Set only on the caller's own rows: the flag lives on
+    /// the device row and belongs to its owner, so a teammate's shared server
+    /// never prefills off it.
+    public let isDefault: Bool?
     /// EXP-437: this machine's own per-agent coding defaults, so picking it in
     /// a remote Start-coding sheet pre-fills its settings. Absent on an older
     /// desktop (and on a machine with nothing runnable) — read it through
@@ -181,6 +186,7 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
         updateBlocked: Bool? = nil,
         sharedTeamId: String? = nil,
         owner: DeviceOwner? = nil,
+        isDefault: Bool? = nil,
         launchDefaults: DeviceLaunchDefaults? = nil,
         rowId: String? = nil
     ) {
@@ -200,6 +206,7 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
         self.updateBlocked = updateBlocked
         self.sharedTeamId = sharedTeamId
         self.owner = owner
+        self.isDefault = isDefault
         self.launchDefaults = launchDefaults
         self.rowId = rowId
     }
@@ -213,6 +220,9 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// Whether the machine is startable right now. Rows straight off the relay
     /// carry no `online` field and are online by construction.
     public var isOnline: Bool { online != false }
+
+    /// EXP-622: whether this is the caller's default machine.
+    public var isDefaultDevice: Bool { isDefault == true }
 
     /// The agents the machine can run right now, in the reported order. An
     /// ABSENT advertisement means claude-only (a pre-EXP-201 sender), but an

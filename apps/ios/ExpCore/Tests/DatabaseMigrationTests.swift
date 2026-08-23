@@ -36,7 +36,9 @@ import XCTest
 // v19_coding_session_device_id (EXP-549/550: the session's host-machine
 // deviceId ride-along) the eighteenth, and v20_automations (EXP-583:
 // automations became their own entity — the synced `automations` table, 19th
-// shape, + coding_sessions.automation_id) the nineteenth.
+// shape, + coding_sessions.automation_id) the nineteenth, and
+// v21_device_is_default (EXP-622: devices.is_default, the owner's default
+// machine every device picker prefills) the twentieth.
 // These tests pin the fresh-install schema and the
 // exact migration identifiers so a new incremental migration is a conscious
 // decision, not an accident.
@@ -82,7 +84,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v13_issue_statuses", "v14_drop_board_is_protected",
              "v15_attachment_nullable_uploader", "v16_devices_worktrees",
              "v17_coding_session_branch", "v18_action_automations",
-             "v19_coding_session_device_id", "v20_automations"]
+             "v19_coding_session_device_id", "v20_automations",
+             "v21_device_is_default"]
         )
     }
 
@@ -102,7 +105,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v13_issue_statuses", "v14_drop_board_is_protected",
              "v15_attachment_nullable_uploader", "v16_devices_worktrees",
              "v17_coding_session_branch", "v18_action_automations",
-             "v19_coding_session_device_id", "v20_automations"]
+             "v19_coding_session_device_id", "v20_automations",
+             "v21_device_is_default"]
         )
     }
 
@@ -150,7 +154,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v13_issue_statuses", "v14_drop_board_is_protected",
              "v15_attachment_nullable_uploader", "v16_devices_worktrees",
              "v17_coding_session_branch", "v18_action_automations",
-             "v19_coding_session_device_id", "v20_automations"]
+             "v19_coding_session_device_id", "v20_automations",
+             "v21_device_is_default"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -218,7 +223,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v13_issue_statuses", "v14_drop_board_is_protected",
              "v15_attachment_nullable_uploader", "v16_devices_worktrees",
              "v17_coding_session_branch", "v18_action_automations",
-             "v19_coding_session_device_id", "v20_automations"]
+             "v19_coding_session_device_id", "v20_automations",
+             "v21_device_is_default"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -793,7 +799,8 @@ final class DatabaseMigrationTests: XCTestCase {
             "id", "user_id", "device_id", "label", "kind", "platform",
             "version", "agents", "caps", "unauthed_agents", "launch_defaults",
             "launch_defaults_updated_at", "active_sessions", "last_seen_at",
-            "shared_team_id", "update_requested_at", "created_at", "updated_at",
+            "shared_team_id", "is_default", "update_requested_at", "created_at",
+            "updated_at",
         ]))
         let worktreeCols = try columnNames(pool, "device_worktrees")
         XCTAssertTrue(worktreeCols.isSuperset(of: [
@@ -804,6 +811,39 @@ final class DatabaseMigrationTests: XCTestCase {
             try db.columns(in: "device_worktrees").first { $0.name == "busy" }
         }
         XCTAssertTrue(busy?.type.uppercased().contains("BOOL") ?? false)
+    }
+
+    // v21 (EXP-622): a store created before `devices.is_default` gains it via
+    // the guarded ALTER, and the devices shape offset resets so the rows
+    // already stored re-snapshot with the column.
+    func testDeviceIsDefaultBackfillsAndResetsTheDevicesOffset() throws {
+        let pool = try makePool("device-default")
+        try pool.write { db in
+            try db.create(table: "devices") { t in
+                t.primaryKey("id", .text)
+                t.column("user_id", .text).notNull()
+                t.column("device_id", .text).notNull()
+                t.column("label", .text).notNull().defaults(to: "")
+            }
+            try db.create(table: "electric_offsets") { t in
+                t.primaryKey("shape", .text)
+                t.column("handle", .text).notNull().defaults(to: "h1")
+                t.column("offset", .text).notNull().defaults(to: "42")
+                t.column("needs_refetch", .boolean).notNull().defaults(to: false)
+                t.column("is_live", .boolean).notNull().defaults(to: true)
+            }
+            try db.execute(sql: "INSERT INTO \"electric_offsets\" (\"shape\") VALUES ('devices')")
+        }
+        try DatabaseManager.runMigrations(on: pool)
+        XCTAssertTrue(try columnNames(pool, "devices").contains("is_default"))
+        let reset = try pool.read { db in
+            try Bool.fetchOne(
+                db,
+                sql: "SELECT \"handle\" = '' AND \"offset\" = '-1' AND \"needs_refetch\" = 1 "
+                    + "FROM \"electric_offsets\" WHERE \"shape\" = 'devices'"
+            )
+        }
+        XCTAssertEqual(reset, true)
     }
 
     // The `-v5` canonical file name + the legacy-file purge list are the wipe

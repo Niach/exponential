@@ -114,6 +114,9 @@ pub(crate) struct DeviceOption {
     /// [`Self::agents`] — the strip seeds to it (EXP-615: no "Device
     /// default" pill, same tabs as the launch dialogs).
     pub(crate) default_agent: Option<String>,
+    /// EXP-622: this is the signed-in user's DEFAULT machine — the binding
+    /// seeds to it. False on a teammate's shared row (their preference).
+    pub(crate) is_default: bool,
 }
 
 pub(crate) struct AutomationEditorState {
@@ -178,13 +181,17 @@ impl AutomationEditorState {
         }
     }
 
-    /// Preselect the only automation-capable device when there is exactly
-    /// one — the common single-machine case, so "New automation" is one
-    /// click less. A second machine leaves the pick explicit.
+    /// Preselect the caller's DEFAULT machine (EXP-622) when it is one of the
+    /// automation-capable candidates, else the only candidate when there is
+    /// exactly one — the common single-machine case, so "New automation" is
+    /// one click less. Several machines and no default leaves the pick
+    /// explicit.
     pub(crate) fn seed_default_device(&mut self, cx: &App) {
         if self.device_id.is_none() {
             let devices = automation_devices(cx);
-            if let [only] = &devices[..] {
+            if let Some(default) = devices.iter().find(|device| device.is_default) {
+                self.device_id = Some(default.device_id.clone());
+            } else if let [only] = &devices[..] {
                 self.device_id = Some(only.device_id.clone());
             }
         }
@@ -975,6 +982,7 @@ pub(crate) fn automation_devices(cx: &App) -> Vec<DeviceOption> {
     };
     let collection = store.collections().devices.clone();
     let now_ms = chrono::Utc::now().timestamp_millis();
+    let me = crate::queries::active_account(cx).map(|account| account.id);
     let mut devices: Vec<DeviceOption> = collection
         .read(cx)
         .iter()
@@ -1003,6 +1011,10 @@ pub(crate) fn automation_devices(cx: &App) -> Vec<DeviceOption> {
                 online: crate::device_settings::row_is_online(row.last_seen_at.as_deref(), now_ms),
                 agents,
                 default_agent,
+                is_default: me
+                    .as_deref()
+                    .is_some_and(|me| row.user_id.as_deref() == Some(me))
+                    && row.is_default.unwrap_or(false),
                 device_id,
             })
         })

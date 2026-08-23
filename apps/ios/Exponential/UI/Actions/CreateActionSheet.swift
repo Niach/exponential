@@ -78,7 +78,8 @@ struct CreateActionSheet: View {
         if let deviceId, let match = devices.first(where: { $0.deviceId == deviceId }) {
             return match
         }
-        return devices.first
+        // EXP-622: the caller's default machine, when it is still a candidate.
+        return devices.first(where: \.isDefaultDevice) ?? devices.first
     }
 
     private var availableAgents: [String] {
@@ -293,7 +294,8 @@ struct CreateActionSheet: View {
            let match = automationDevices.first(where: { $0.deviceId == automationDeviceId }) {
             return match
         }
-        return automationDevices.first
+        // EXP-622: the caller's default machine, when it is still a candidate.
+        return automationDevices.first(where: \.isDefaultDevice) ?? automationDevices.first
     }
 
     /// Switching machines re-seeds the agent (EXP-615) rather than dropping the

@@ -117,6 +117,9 @@ fun DeviceEntity.toSteerDevice(
     } else {
         DeviceOwner(id = userId, name = ownerName ?: "")
     },
+    // EXP-622: a default belongs to the row's OWNER — never surface a
+    // teammate's shared server as the caller's default.
+    isDefault = isDefault && userId == currentUserId,
     rowId = id,
 )
 

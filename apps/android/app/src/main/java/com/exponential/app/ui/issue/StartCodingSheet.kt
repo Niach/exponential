@@ -187,7 +187,10 @@ fun StartCodingSheet(
     // default agent clamped to what it can run, then that agent's advertised
     // model/effort/toggles — static contract defaults when it advertises none.
     val initialDevice = remember {
-        startable.firstOrNull { it.deviceId == preferredDeviceId } ?: startable.firstOrNull()
+        startable.firstOrNull { it.deviceId == preferredDeviceId }
+            // EXP-622: the caller's default machine, when it is still startable.
+            ?: startable.firstOrNull { it.isDefault }
+            ?: startable.firstOrNull()
     }
     val initialAgent = remember { defaultAgentFor(initialDevice) }
     val initialSeed = remember { agentSeed(initialDevice, initialAgent) }
@@ -292,6 +295,7 @@ fun StartCodingSheet(
     var deviceId by remember {
         mutableStateOf(
             startable.firstOrNull { it.deviceId == preferredDeviceId }?.deviceId
+                ?: startable.firstOrNull { it.isDefault }?.deviceId
                 ?: startable.firstOrNull()?.deviceId,
         )
     }
@@ -313,6 +317,7 @@ fun StartCodingSheet(
         SubjectTab.Issues -> startable
     }
     val device = deviceCandidates.firstOrNull { it.deviceId == deviceId }
+        ?: deviceCandidates.firstOrNull { it.isDefault }
         ?: deviceCandidates.firstOrNull()
     val availableAgents = availableAgentsFor(device)
 

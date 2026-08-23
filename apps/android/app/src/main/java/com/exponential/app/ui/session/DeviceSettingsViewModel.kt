@@ -110,6 +110,10 @@ class DeviceSettingsViewModel @Inject constructor(
     val shareBusy: StateFlow<Boolean> = _shareBusy
     private val _shareError = MutableStateFlow<String?>(null)
     val shareError: StateFlow<String?> = _shareError
+    private val _defaultBusy = MutableStateFlow(false)
+    val defaultBusy: StateFlow<Boolean> = _defaultBusy
+    private val _defaultError = MutableStateFlow<String?>(null)
+    val defaultError: StateFlow<String?> = _defaultError
 
     private val _defaultsBusy = MutableStateFlow(false)
     val defaultsBusy: StateFlow<Boolean> = _defaultsBusy
@@ -221,6 +225,27 @@ class DeviceSettingsViewModel @Inject constructor(
                     _shareError.value = trpcErrorMessage(t, "The share could not be changed")
                 }
             _shareBusy.value = false
+        }
+    }
+
+    /**
+     * EXP-622: flag/unflag this machine as the caller's default — the row every
+     * device picker prefills. Written straight through (a single toggle, no
+     * debounce); the server clears the flag on the caller's other machines and
+     * the switch re-renders off the synced row.
+     */
+    fun setDefault(deviceId: String, isDefault: Boolean) {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            _defaultBusy.value = true
+            _defaultError.value = null
+            runCatching { devicesApi.setDefault(accountId, deviceId, isDefault) }
+                .onFailure { t ->
+                    if (t is CancellationException) throw t
+                    _defaultError.value =
+                        trpcErrorMessage(t, "The default machine could not be changed")
+                }
+            _defaultBusy.value = false
         }
     }
 

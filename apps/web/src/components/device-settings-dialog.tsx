@@ -1,6 +1,6 @@
 // Device settings (EXP-481) — the per-machine Edit view the ⋯ menu's Rename/
-// Share entries collapsed into. Name + sharing are registry writes (work
-// offline); agent defaults edit the SERVER-AUTHORITATIVE devices row (an
+// Share entries collapsed into. Name, the EXP-622 default-machine toggle and
+// sharing are registry writes (work offline); agent defaults edit the SERVER-AUTHORITATIVE devices row (an
 // offline machine converges on its next heartbeat), and the worktree list
 // manages the machine's reported inventory through the durable command queue
 // (worktree_remove / worktree_prune — queued commands run when an offline
@@ -50,6 +50,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
+import { Switch } from "@/components/ui/switch"
 import {
   AGENT_LABELS,
   AgentOptionsFields,
@@ -286,6 +287,15 @@ export function DeviceSettingsDialog({
     runSection(`sharing`, async () => {
       if (!deviceId) return
       await trpc.devices.setShared.mutate({ deviceId, teamId })
+    })
+
+  // EXP-622: a single toggle — written straight through, no debounce. The
+  // switch renders off the LIVE row, so the server clearing the previous
+  // default streams back on its own.
+  const setDefault = (isDefault: boolean) =>
+    runSection(`default`, async () => {
+      if (!deviceId) return
+      await trpc.devices.setDefault.mutate({ deviceId, isDefault })
     })
 
   // ── Autosave (EXP-490) ───────────────────────────────────────────────────
@@ -578,6 +588,28 @@ export function DeviceSettingsDialog({
             />
             {sectionErrors.name && (
               <p className="text-xs text-destructive">{sectionErrors.name}</p>
+            )}
+          </div>
+
+          {/* ── Default machine (EXP-622) ────────────────────────────── */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-4">
+              <Label htmlFor="device-settings-default">Default device</Label>
+              <Switch
+                id="device-settings-default"
+                checked={row?.isDefault ?? false}
+                onCheckedChange={(checked) => void setDefault(checked)}
+                disabled={busySection !== null}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Preselected whenever you start a coding session and more than one
+              of your machines can run it.
+            </p>
+            {sectionErrors.default && (
+              <p className="text-xs text-destructive">
+                {sectionErrors.default}
+              </p>
             )}
           </div>
 

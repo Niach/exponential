@@ -338,6 +338,8 @@ impl MachinesSection {
                     && row.active_sessions.unwrap_or(0) > 0,
                 launch_defaults: row.launch_defaults.clone(),
                 shared_team_id: row.shared_team_id.clone(),
+                // EXP-622: a teammate's flag is THEIR preference, never ours.
+                is_default: owned && row.is_default.unwrap_or(false),
                 owner,
             };
             if owned {
@@ -563,6 +565,15 @@ impl MachinesSection {
                             })
                             .child(label.clone()),
                     )
+                    // EXP-622: the machine every device picker prefills.
+                    .when(device.is_default, |this| {
+                        this.child(
+                            Icon::new(registry::UI_DEVICE_DEFAULT)
+                                .xsmall()
+                                .flex_shrink_0()
+                                .text_color(muted),
+                        )
+                    })
                     .when_some(device.version.clone(), |this, version| {
                         // Stateful: the outdated hint rides a tooltip, and
                         // `tooltip` lives on gpui's STATEFUL interactive trait.
