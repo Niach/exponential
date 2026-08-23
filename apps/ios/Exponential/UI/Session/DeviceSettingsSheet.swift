@@ -388,7 +388,8 @@ struct DeviceSettingsSheet: View {
                     onSelect: { selectedAgent = $0 }
                 )
                 .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
             }
             if let draft = drafts[selectedAgent] {
                 GlassPickerRow(

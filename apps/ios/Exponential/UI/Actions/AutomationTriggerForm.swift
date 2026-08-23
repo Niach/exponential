@@ -139,7 +139,11 @@ struct AutomationTriggerForm: View {
     @Binding var draft: AutomationDraft
     let options: AutomationFilterOptions
 
+    @ViewBuilder
     var body: some View {
+        // The capsule rides its own card-less section: sharing the rows'
+        // section painted the card behind it and clipped its bottom edge;
+        // zero insets keep it flush with the grouped cards' margins.
         Section {
             GlassSegmentedControl(
                 options: ["schedule", "event"],
@@ -148,18 +152,18 @@ struct AutomationTriggerForm: View {
                 onSelect: { draft.kind = $0 }
             )
             .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-
+            .listRowInsets(EdgeInsets())
+            .listRowSeparator(.hidden)
+        } header: {
+            Text("Trigger")
+        }
+        // No footer note about the machine's own clock (EXP-615) — the "Runs
+        // on" row already names the machine the schedule belongs to.
+        Section {
             if draft.kind == "schedule" {
                 scheduleRows
             } else {
                 eventRows
-            }
-        } header: {
-            Text("Trigger")
-        } footer: {
-            if draft.kind == "schedule" {
-                Text("Schedules fire on the machine's own clock.")
             }
         }
         .listRowBackground(glassFormRowFill)

@@ -5,9 +5,11 @@ import SwiftUI
 
 // EXP-583: the "+ New automation" / "Edit automation" form — the mobile twin
 // of the web's automation dialog. An automation binds ONE action to ONE
-// device with a schedule/event trigger and its own agent/model/effort
-// (unset = the device's launch defaults). Owner-only: the list hides the
-// entry points for everyone else, and the server refuses anyway.
+// device with a schedule/event trigger and its own agent/model/effort — the
+// agent seeds from the bound machine's own default (EXP-615: there is no
+// "Device default" pill any more), a blank model/effort stores NULL. Owner-
+// only: the list hides the entry points for everyone else, and the server
+// refuses anyway.
 //
 // The action pool is deliberately narrow: custom actions only (builtins never
 // automate) that declare NO required input — an automated run has nobody to
@@ -37,9 +39,9 @@ struct AutomationFormSheet: View {
     @State private var actionId = ""
     @State private var deviceId = ""
     @State private var draft = AutomationDraft()
-    @State private var agent = LaunchVocabulary.deviceDefault
-    @State private var model = LaunchVocabulary.deviceDefault
-    @State private var effort = LaunchVocabulary.deviceDefault
+    @State private var agent = ""
+    @State private var model = LaunchVocabulary.cliDefault
+    @State private var effort = LaunchVocabulary.cliDefault
     @State private var filterOptions = AutomationFilterOptions()
     @State private var seeded = false
 
@@ -62,12 +64,6 @@ struct AutomationFormSheet: View {
     /// The chosen machine's runnable agents, in contract order.
     private var availableAgents: [String] {
         LaunchVocabulary.agents(of: selectedDevice)
-    }
-
-    /// Model/effort are only meaningful against an agent — with none pinned
-    /// the device's own per-agent defaults apply.
-    private var pinnedAgent: String? {
-        agent == LaunchVocabulary.deviceDefault ? nil : agent
     }
 
     private var canSave: Bool {
@@ -115,6 +111,12 @@ struct AutomationFormSheet: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("automation-form-sheet")
         .onAppear { seed() }
+        .onChange(of: devices.count) {
+            // The machine pool can arrive after the sheet does — bind and seed
+            // the agent as soon as it lands.
+            if deviceId.isEmpty { deviceId = devices.first?.deviceId ?? "" }
+            seedAgentFromDevice()
+        }
         .task {
             filterOptions = await AutomationFilterOptions.load(
                 db: deps.db, accountId: accountId, teamId: teamId
@@ -145,39 +147,48 @@ struct AutomationFormSheet: View {
                     }
                 )
             }
-        } header: {
-            Text("Action")
         }
+        // No "Action" section header — the row below already says it
+        // (EXP-615 dedupe).
         .listRowBackground(glassFormRowFill)
     }
 
     // MARK: - Bindings
 
-    /// Both writes clear DOWNSTREAM picks the way an explicit user switch
-    /// must (and `seed()`'s prefill deliberately must not — hence a binding
-    /// rather than onChange): a machine that doesn't advertise the pinned
-    /// agent would be rejected server-side, and model/effort vocabularies are
-    /// per-agent, so a stale pick can never ride along.
+    /// Switching machines re-seeds the agent (EXP-615) rather than dropping
+    /// the pin — a binding always names a concrete agent now.
     private var deviceBinding: Binding<String> {
         Binding(
             get: { deviceId },
             set: { value in
                 guard value != deviceId else { return }
                 deviceId = value
-                if agent != LaunchVocabulary.deviceDefault, !availableAgents.contains(agent) {
-                    agent = LaunchVocabulary.deviceDefault
-                    model = LaunchVocabulary.deviceDefault
-                    effort = LaunchVocabulary.deviceDefault
-                }
+                seedAgentFromDevice()
             }
         )
+    }
+
+    /// Seed (and re-seed) the agent off the bound machine: an unset pin — a
+    /// row saved before EXP-615 carries a NULL agent — or one the newly picked
+    /// machine cannot run falls back to that machine's default launch agent,
+    /// clamped to what it advertises. A pin it CAN run is left alone, so a
+    /// manual pick sticks. Model/effort vocabularies are per-agent, so a
+    /// re-seed clears them to the "CLI default" blank.
+    private func seedAgentFromDevice() {
+        guard selectedDevice != nil else { return }
+        guard agent.isEmpty || !availableAgents.contains(agent) else { return }
+        agent = LaunchVocabulary.defaultAgent(of: selectedDevice)
+        model = LaunchVocabulary.cliDefault
+        effort = LaunchVocabulary.cliDefault
     }
 
     private func selectAgent(_ value: String) {
         guard value != agent else { return }
         agent = value
-        model = LaunchVocabulary.deviceDefault
-        effort = LaunchVocabulary.deviceDefault
+        // The model/effort vocabularies are per agent — a switch has to reset
+        // them, or a stale value hits a server refusal.
+        model = LaunchVocabulary.cliDefault
+        effort = LaunchVocabulary.cliDefault
     }
 
     // MARK: - Seed / submit
@@ -188,23 +199,25 @@ struct AutomationFormSheet: View {
         if let editing {
             actionId = editing.actionId
             deviceId = editing.deviceId
-            agent = editing.agent ?? LaunchVocabulary.deviceDefault
-            model = editing.model ?? LaunchVocabulary.deviceDefault
-            effort = editing.effort ?? LaunchVocabulary.deviceDefault
+            agent = editing.agent ?? ""
+            model = editing.model ?? LaunchVocabulary.cliDefault
+            effort = editing.effort ?? LaunchVocabulary.cliDefault
             draft = AutomationDraft(trigger: editing.parsedTrigger)
         }
         if actionId.isEmpty { actionId = eligibleActions.first?.id ?? "" }
         if deviceId.isEmpty { deviceId = devices.first?.deviceId ?? "" }
+        seedAgentFromDevice()
     }
 
     private func submit() {
         guard canSave else { return }
         // Snapshot before dismissing — the payload must not depend on what
-        // the teardown does to the sheet's state.
+        // the teardown does to the sheet's state. A blank model/effort is the
+        // "CLI default" that stores NULL.
         let launch = AutomationLaunchPatch(
-            agent: pinnedAgent,
-            model: pinnedAgent == nil || model == LaunchVocabulary.deviceDefault ? nil : model,
-            effort: pinnedAgent == nil || effort == LaunchVocabulary.deviceDefault ? nil : effort
+            agent: agent.isEmpty ? nil : agent,
+            model: model.isEmpty || model == LaunchVocabulary.cliDefault ? nil : model,
+            effort: effort.isEmpty || effort == LaunchVocabulary.cliDefault ? nil : effort
         )
         let payload = (actionId, deviceId, draft.trigger, launch)
         dismiss()

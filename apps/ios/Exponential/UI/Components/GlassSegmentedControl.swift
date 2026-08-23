@@ -16,7 +16,6 @@ struct GlassSegmentedControl<Option: Hashable>: View {
     /// before.
     let icon: (Option) -> Image?
     let badge: (Option) -> Int
-    var compact = false
     let onSelect: (Option) -> Void
 
     init(
@@ -37,16 +36,13 @@ struct GlassSegmentedControl<Option: Hashable>: View {
     }
 
     /// The icon-bearing variant (EXP-615): same geometry, a leading mark on
-    /// the segments that have one. `compact` steps the face down for the
-    /// 4-segment automation strip ("Device default" + three agents), which
-    /// otherwise wraps at phone widths.
+    /// the segments that have one.
     init(
         options: [Option],
         selection: Option,
         label: @escaping (Option) -> String,
         icon: @escaping (Option) -> Image?,
         badge: @escaping (Option) -> Int = { _ in 0 },
-        compact: Bool = false,
         onSelect: @escaping (Option) -> Void
     ) {
         self.options = options
@@ -54,7 +50,6 @@ struct GlassSegmentedControl<Option: Hashable>: View {
         self.label = label
         self.icon = icon
         self.badge = badge
-        self.compact = compact
         self.onSelect = onSelect
     }
 
@@ -84,7 +79,7 @@ struct GlassSegmentedControl<Option: Hashable>: View {
                         .frame(width: 14, height: 14)
                 }
                 Text(label(option))
-                    .font((compact ? Font.footnote : Font.subheadline).weight(active ? .semibold : .regular))
+                    .font(.subheadline.weight(active ? .semibold : .regular))
                     .foregroundStyle(.white.opacity(active ? 1 : TextOpacity.secondary))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)

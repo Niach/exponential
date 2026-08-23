@@ -13,10 +13,6 @@ enum LaunchVocabulary {
     /// codex/pi also the omit-model default — claude is explicit-always).
     static let cliDefault = "cli-default"
 
-    /// Sentinel for "use the device's launch defaults" in the automation
-    /// variant (agent/model/effort travel to the server as null).
-    static let deviceDefault = ""
-
     // MARK: - Option lists
 
     /// Claude's model is explicit-always; codex/pi offer a "CLI default"
@@ -39,8 +35,10 @@ enum LaunchVocabulary {
         }
     }
 
-    /// The automation variant's model list: its own "Device default" row
-    /// replaces the run pickers' "CLI default" sentinel, so drop that entry.
+    /// The automation variant's model list. A binding offers "CLI default" for
+    /// EVERY agent (a blank pin is what stores NULL on the row and lets the
+    /// machine decide), and the caller prepends it — so drop the copy
+    /// `modelValues` already inserts for codex/pi.
     static func automationModelValues(for agent: String) -> [String] {
         modelValues(for: agent).filter { $0 != cliDefault }
     }
@@ -59,6 +57,18 @@ enum LaunchVocabulary {
     static func agents(of device: SteerDevice?) -> [String] {
         let supported = device?.agentIds ?? []
         return DomainContract.codingAgentValues.filter { supported.contains($0) }
+    }
+
+    /// The agent a machine starts on (EXP-437): its configured default,
+    /// clamped to what it advertises, else the first agent it runs. EXP-615
+    /// retired the automation editors' "Device default" segment, so a binding
+    /// seeds its strip with this and stores a CONCRETE agent.
+    static func defaultAgent(of device: SteerDevice?) -> String {
+        let available = agents(of: device)
+        if let advertised = device?.defaultLaunchAgent, available.contains(advertised) {
+            return advertised
+        }
+        return available.first ?? ""
     }
 
     // MARK: - Labels

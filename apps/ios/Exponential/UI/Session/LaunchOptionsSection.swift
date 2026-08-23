@@ -13,10 +13,12 @@ import SwiftUI
 // `Variant.automation` configures a BINDING instead — its device row says
 // "Runs on" and lists every automation-capable machine plainly (offline
 // included: a sleeping box still owns the binding and fires the missed
-// schedule when it comes back), the agent capsule leads with a "Device
-// default" segment, Model/Effort carry the same sentinel and stay LOCKED
-// until an agent is pinned, and there are no toggles (an automated run takes
-// the machine's own).
+// schedule when it comes back), and there are no toggles (an automated run
+// takes the machine's own). Everything else is IDENTICAL: EXP-615 retired the
+// automation-only "Device default" agent segment, so both variants render the
+// same brand-marked capsule over the machine's runnable agents, and
+// Model/Effort speak the launch "CLI default" sentinel — blank is what stores
+// NULL on the row and lets the machine decide.
 struct LaunchOptionsSection: View {
     enum Variant {
         case launch
@@ -41,8 +43,8 @@ struct LaunchOptionsSection: View {
     let noDeviceNote: String
     /// The resolved machine's runnable agents, in contract order.
     let availableAgents: [String]
-    /// The pinned agent; `LaunchVocabulary.deviceDefault` in the automation
-    /// variant means "whatever the machine launches with".
+    /// The pinned agent — always a concrete one, seeded by the caller from the
+    /// resolved machine's own default (EXP-615).
     let agent: String
     let onAgentChange: (String) -> Void
     @Binding var model: String
@@ -75,6 +77,8 @@ struct LaunchOptionsSection: View {
         variant == .automation ? "Runs on" : "Device"
     }
 
+    /// No section header on either variant (EXP-615 dedupe) — the picker row
+    /// already says "Runs on" / "Device".
     @ViewBuilder
     private var deviceSection: some View {
         if devices.isEmpty {
@@ -82,10 +86,6 @@ struct LaunchOptionsSection: View {
                 Text(noDeviceNote)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            } header: {
-                if variant == .automation {
-                    Text("Runs on")
-                }
             }
             .listRowBackground(glassFormRowFill)
         } else if showsDevicePicker {
@@ -99,10 +99,6 @@ struct LaunchOptionsSection: View {
                             .map(LaunchVocabulary.deviceCaption) ?? id
                     }
                 )
-            } header: {
-                if variant == .automation {
-                    Text("Runs on")
-                }
             }
             .listRowBackground(glassFormRowFill)
         }
@@ -110,103 +106,66 @@ struct LaunchOptionsSection: View {
 
     // MARK: - Agent / model / effort
 
-    /// The agent capsule's segments: the automation variant leads with the
-    /// "Device default" sentinel.
-    private var agentOptions: [String] {
-        variant == .automation
-            ? [LaunchVocabulary.deviceDefault] + availableAgents
-            : availableAgents
-    }
-
-    private func agentSegmentLabel(_ value: String) -> String {
-        value == LaunchVocabulary.deviceDefault
-            ? "Device default"
-            : LaunchVocabulary.agentLabel(value)
-    }
-
-    /// The brand mark of a real agent; the "Device default" segment has none.
-    private func agentSegmentIcon(_ value: String) -> Image? {
-        value == LaunchVocabulary.deviceDefault ? nil : Image("agent-\(value)")
-    }
-
-    /// Model/effort are only meaningful against an agent: with none pinned the
-    /// machine's own per-agent defaults apply, so both rows read "Device
-    /// default" and stay locked.
-    private var pinnedAgent: String? {
-        variant == .launch ? agent : (agent.isEmpty ? nil : agent)
-    }
-
+    /// A binding offers "CLI default" for EVERY agent — a blank pin stores
+    /// NULL on the row — where a run only offers it where the CLI has one
+    /// (claude's model is explicit-always).
     private var modelOptions: [String] {
-        guard let pinnedAgent else { return [LaunchVocabulary.deviceDefault] }
-        return variant == .automation
-            ? [LaunchVocabulary.deviceDefault]
-                + LaunchVocabulary.automationModelValues(for: pinnedAgent)
-            : LaunchVocabulary.modelValues(for: pinnedAgent)
+        variant == .automation
+            ? [LaunchVocabulary.cliDefault]
+                + LaunchVocabulary.automationModelValues(for: agent)
+            : LaunchVocabulary.modelValues(for: agent)
     }
 
     private var effortOptions: [String] {
-        guard let pinnedAgent else { return [LaunchVocabulary.deviceDefault] }
-        return variant == .automation
-            ? [LaunchVocabulary.deviceDefault] + LaunchVocabulary.effortValues(for: pinnedAgent)
-            : [LaunchVocabulary.cliDefault] + LaunchVocabulary.effortValues(for: pinnedAgent)
-    }
-
-    private func modelRowLabel(_ value: String) -> String {
-        if variant == .automation, value == LaunchVocabulary.deviceDefault {
-            return "Device default"
-        }
-        return LaunchVocabulary.modelLabel(value)
+        [LaunchVocabulary.cliDefault] + LaunchVocabulary.effortValues(for: agent)
     }
 
     private func effortRowLabel(_ value: String) -> String {
-        if variant == .automation, value == LaunchVocabulary.deviceDefault {
-            return "Device default"
-        }
-        return value == LaunchVocabulary.cliDefault
+        value == LaunchVocabulary.cliDefault
             ? "CLI default"
             : LaunchVocabulary.effortLabel(value)
     }
 
     private var effortTitle: String {
-        LaunchVocabulary.effortTitle(for: pinnedAgent ?? "claude")
+        LaunchVocabulary.effortTitle(for: agent)
     }
 
-    /// Ultracode IS `--effort ultracode`, so it disables the Effort picker.
+    /// Ultracode IS `--effort ultracode`, so it disables the Effort picker; a
+    /// binding has no toggles, so its row is always live.
     private var effortEnabled: Bool {
-        guard variant == .launch else { return pinnedAgent != nil }
-        return ultracode?.wrappedValue != true
+        variant == .automation || ultracode?.wrappedValue != true
     }
 
+    @ViewBuilder
     private var optionsSection: some View {
-        Section {
-            // ONE segmented capsule with the brand mark per agent (web
-            // parity, EXP-615 — the loose pill strip that used to ride the
-            // Model header is gone). A lone option is not a choice.
-            if agentOptions.count > 1 {
-                // Four segments ("Device default" + three agents) don't fit
-                // brand icons plus full labels at phone widths — drop the
-                // icons and step the face down so labels stay on one line.
+        // ONE segmented capsule with the brand mark per agent (web parity,
+        // EXP-615 — the loose pill strip that used to ride the Model header
+        // is gone). A lone option is not a choice, on either variant. The
+        // capsule lives in its OWN card-less section: sharing the Model/Effort
+        // section painted that card behind it and clipped its bottom edge, and
+        // zero row insets keep it flush with the grouped cards' margins.
+        if availableAgents.count > 1 {
+            Section {
                 // No container accessibility label: it would merge the
                 // segment buttons into one VoiceOver element.
                 GlassSegmentedControl(
-                    options: agentOptions,
+                    options: availableAgents,
                     selection: agent,
-                    label: { agentSegmentLabel($0) },
-                    icon: agentOptions.count >= 4
-                        ? { _ in nil }
-                        : { agentSegmentIcon($0) },
-                    compact: agentOptions.count >= 4,
+                    label: { LaunchVocabulary.agentLabel($0) },
+                    icon: { Image("agent-\($0)") },
                     onSelect: { onAgentChange($0) }
                 )
                 .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
             }
+        }
+        Section {
             GlassPickerRow(
                 "Model",
                 selection: $model,
                 options: modelOptions,
-                label: { modelRowLabel($0) },
-                enabled: pinnedAgent != nil
+                label: { LaunchVocabulary.modelLabel($0) }
             )
             GlassPickerRow(
                 effortTitle,

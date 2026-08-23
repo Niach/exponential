@@ -52,9 +52,9 @@ struct CreateActionSheet: View {
     @State private var draft = AutomationDraft()
     @State private var filterOptions = AutomationFilterOptions()
     @State private var automationDeviceId = ""
-    @State private var automationAgent = LaunchVocabulary.deviceDefault
-    @State private var automationModel = LaunchVocabulary.deviceDefault
-    @State private var automationEffort = LaunchVocabulary.deviceDefault
+    @State private var automationAgent = ""
+    @State private var automationModel = LaunchVocabulary.cliDefault
+    @State private var automationEffort = LaunchVocabulary.cliDefault
 
     // The creator RUN's own options, seeded from the resolved machine's
     // advertised defaults (EXP-437) exactly like the Start-coding sheet.
@@ -265,6 +265,8 @@ struct CreateActionSheet: View {
         .navigationBarTitleDisplayMode(.inline)
         .listSectionSpacing(12)
         .tint(DesignTokens.Palette.primary)
+        // The machine pool can land after the sheet did — seed on the way in.
+        .onAppear { seedAutomationAgent() }
     }
 
     // MARK: - Devices
@@ -294,31 +296,39 @@ struct CreateActionSheet: View {
         return automationDevices.first
     }
 
-    /// Both automation writes clear DOWNSTREAM picks the way an explicit user
-    /// switch must: a machine that doesn't advertise the pinned agent would be
-    /// rejected, and model/effort vocabularies are per-agent.
+    /// Switching machines re-seeds the agent (EXP-615) rather than dropping the
+    /// pin — a binding always names a concrete agent now.
     private var automationDeviceBinding: Binding<String> {
         Binding(
             get: { automationDevice?.deviceId ?? "" },
             set: { value in
                 guard value != automationDevice?.deviceId else { return }
                 automationDeviceId = value
-                let agents = LaunchVocabulary.agents(of: automationDevice)
-                if automationAgent != LaunchVocabulary.deviceDefault,
-                   !agents.contains(automationAgent) {
-                    automationAgent = LaunchVocabulary.deviceDefault
-                    automationModel = LaunchVocabulary.deviceDefault
-                    automationEffort = LaunchVocabulary.deviceDefault
-                }
+                seedAutomationAgent()
             }
         )
+    }
+
+    /// Seed (and re-seed) the automation's agent off its bound machine: an
+    /// unset pin, or one the newly picked machine cannot run, falls back to
+    /// that machine's own default launch agent. A pin it CAN run is left
+    /// alone, so a manual pick sticks.
+    private func seedAutomationAgent() {
+        guard let bound = automationDevice else { return }
+        let agents = LaunchVocabulary.agents(of: bound)
+        guard automationAgent.isEmpty || !agents.contains(automationAgent) else { return }
+        automationAgent = LaunchVocabulary.defaultAgent(of: bound)
+        automationModel = LaunchVocabulary.cliDefault
+        automationEffort = LaunchVocabulary.cliDefault
     }
 
     private func selectAutomationAgent(_ value: String) {
         guard value != automationAgent else { return }
         automationAgent = value
-        automationModel = LaunchVocabulary.deviceDefault
-        automationEffort = LaunchVocabulary.deviceDefault
+        // The model/effort vocabularies are per agent — a switch has to reset
+        // them, or a stale value hits a server refusal.
+        automationModel = LaunchVocabulary.cliDefault
+        automationEffort = LaunchVocabulary.cliDefault
     }
 
     // MARK: - Launch options (EXP-437, the Start-coding sheet's rules)
@@ -345,6 +355,7 @@ struct CreateActionSheet: View {
             draft = AutomationDraft(trigger: prefillAutomation)
         }
         applyDeviceDefaults()
+        seedAutomationAgent()
     }
 
     private func applyDeviceDefaults() {
@@ -399,13 +410,16 @@ struct CreateActionSheet: View {
     /// off or no machine can run one.
     private var configuredAutomation: AutomationSpec? {
         guard hasAutomation, let bound = automationDevice else { return nil }
-        let pinned = automationAgent == LaunchVocabulary.deviceDefault ? nil : automationAgent
+        // A blank model/effort is the "CLI default" that stores NULL.
+        let pinned = automationAgent.isEmpty ? nil : automationAgent
+        let blankModel = automationModel.isEmpty || automationModel == LaunchVocabulary.cliDefault
+        let blankEffort = automationEffort.isEmpty || automationEffort == LaunchVocabulary.cliDefault
         return AutomationSpec(
             trigger: draft.trigger,
             deviceId: bound.deviceId,
             agent: pinned,
-            model: pinned == nil ? nil : automationModel,
-            effort: pinned == nil ? nil : automationEffort
+            model: pinned == nil || blankModel ? nil : automationModel,
+            effort: pinned == nil || blankEffort ? nil : automationEffort
         )
     }
 

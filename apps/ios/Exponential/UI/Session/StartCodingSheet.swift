@@ -289,7 +289,10 @@ struct StartCodingSheet: View {
                         )
                     }
                     .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                    // Zero insets keep the capsule flush with the grouped
+                    // cards' margins (EXP-615).
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
                 }
 
                 switch subjectTab {
@@ -994,6 +997,7 @@ struct StartCodingSheet: View {
     /// in. Both ride the HIDDEN `builtin:chat` action's `prompt` + `repo`
     /// inputs, so the value rules (trim, the contract's text cap) are the
     /// action-input ones and the server re-validates them.
+    @ViewBuilder
     private var chatSection: some View {
         Section {
             VStack(alignment: .leading, spacing: 4) {
@@ -1003,6 +1007,11 @@ struct StartCodingSheet: View {
                 TextField("What should the agent do?", text: $chatPrompt, axis: .vertical)
                     .lineLimit(4...10)
             }
+        }
+        .listRowBackground(glassFormRowFill)
+        // The repository is its own card, not a row inside the prompt's
+        // (Android/web parity, EXP-615).
+        Section {
             if repos.isEmpty {
                 Text("Connect a repository to this team to chat.")
                     .font(.caption)
