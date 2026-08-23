@@ -16,6 +16,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,6 +39,8 @@ import com.exponential.app.ui.components.LaunchOptionsSection
 import com.exponential.app.ui.components.LaunchOptionsVariant
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PickerRow
+import com.exponential.app.ui.components.availableAgentsFor
+import com.exponential.app.ui.components.defaultAgentFor
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.StartBoardOption
 import com.exponential.app.ui.issue.StartFilterOption
@@ -64,7 +67,9 @@ internal const val AUTOMATION_KIND_EVENT = "event"
  * converts at submit and incomplete reads as null. The filter picks are
  * SINGLE-select with an "Any" default — the mobile simplification of the web's
  * multi-selects; the wire lists carry one-or-none entries from here.
- * [agent]/[model]/[effort] are empty for "the machine's own launch defaults".
+ * [agent] is seeded from the bound machine's default (EXP-615 — empty only
+ * before one is bound); an empty [model]/[effort] is the "CLI default" that
+ * saves as NULL.
  */
 internal data class AutomationDraft(
     val kind: String = AUTOMATION_KIND_SCHEDULE,
@@ -296,11 +301,12 @@ internal fun AutomationTriggerFields(
 }
 
 /**
- * The binding half: which machine runs the automation, and the optional agent
- * pin with its model/effort. The pins are per-AGENT vocabularies server-side
- * (validated against `agent ?? claude`), so Model and Effort park while the
- * agent stays at the machine's own default — a run then simply uses whatever
- * that machine is configured for.
+ * The binding half: which machine runs the automation, and the agent pin with
+ * its model/effort. EXP-615 retired the "Device default" agent option — the
+ * strip seeds to the bound machine's own default launch agent (the same
+ * [defaultAgentFor] the Start-coding sheet uses) and the row saves that
+ * concrete agent. Model/Effort speak the launch "CLI default" sentinel, which
+ * is what writes NULL.
  */
 @Composable
 internal fun AutomationBindingFields(
@@ -309,31 +315,31 @@ internal fun AutomationBindingFields(
     onChange: (AutomationDraft) -> Unit,
 ) {
     val device = devices.firstOrNull { it.deviceId == draft.deviceId }
+    // Seed (and re-seed) the agent off the bound machine: an unset pin — a row
+    // saved before EXP-615 carries a NULL agent — or one the newly picked
+    // machine cannot run falls back to that machine's default, clamped to what
+    // it advertises. A pin it CAN run is left alone, so a manual pick sticks.
+    LaunchedEffect(device?.deviceId, devices) {
+        val bound = device ?: return@LaunchedEffect
+        if (draft.agent.isNotEmpty() && draft.agent in availableAgentsFor(bound)) {
+            return@LaunchedEffect
+        }
+        onChange(
+            draft.copy(
+                agent = defaultAgentFor(bound),
+                model = CLI_DEFAULT_MODEL,
+                effort = CLI_DEFAULT_EFFORT,
+            ),
+        )
+    }
     // EXP-615: the same block the launch dialogs render, in its Automation
-    // variant — leading "Device default" agent option, model/effort locked on
-    // that sentinel until an agent is pinned, no launch toggles.
+    // variant — identical agent capsule, no launch toggles.
     LaunchOptionsSection(
         variant = LaunchOptionsVariant.Automation,
         devices = devices,
         device = device,
-        onDeviceChange = { id ->
-            // A machine that can't run the pinned agent drops the pin.
-            val next = devices.firstOrNull { it.deviceId == id }
-            val keepsAgent = draft.agent.isEmpty() ||
-                next?.runnableAgents.orEmpty().contains(draft.agent)
-            onChange(
-                if (keepsAgent) {
-                    draft.copy(deviceId = id)
-                } else {
-                    draft.copy(
-                        deviceId = id,
-                        agent = "",
-                        model = CLI_DEFAULT_MODEL,
-                        effort = CLI_DEFAULT_EFFORT,
-                    )
-                },
-            )
-        },
+        // The re-seed above handles a pin the new machine cannot run.
+        onDeviceChange = { id -> onChange(draft.copy(deviceId = id)) },
         agent = draft.agent,
         availableAgents = device?.runnableAgents.orEmpty(),
         onAgentChange = { next ->

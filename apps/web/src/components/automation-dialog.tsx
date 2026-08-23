@@ -7,7 +7,11 @@ import { actionCollection, automationCollection } from "@/lib/collections"
 import { isBuiltinActionId } from "@/lib/builtin-actions"
 import { parseAutomationTrigger } from "@/lib/action-triggers"
 import { getActionIcon } from "@/lib/board-icons"
-import type { SteerDevice } from "@/lib/steer-devices"
+import {
+  deviceAgentIds,
+  deviceDefaultAgent,
+  type SteerDevice,
+} from "@/lib/steer-devices"
 import { trpc } from "@/lib/trpc-client"
 import {
   AutomationAgentFields,
@@ -117,6 +121,18 @@ export function AutomationDialog({
   const device = capableDevices.find(
     (candidate) => candidate.deviceId === deviceId
   )
+  // EXP-615: no "Device default" agent pill — the strip seeds to the bound
+  // device's default launch agent, exactly like the start-coding dialog.
+  useEffect(() => {
+    if (!open || !device) return
+    if (agent !== `` && deviceAgentIds(device).includes(agent)) return
+    const next = deviceDefaultAgent(device) ?? deviceAgentIds(device)[0] ?? ``
+    setAgent(next)
+    const clamped = clampAgentFields(next, model, effort)
+    setModel(clamped.model)
+    setEffort(clamped.effort)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, device])
   const selectedAction = actionOptions.find((action) => action.id === actionId)
   const blockedByInputs = selectedAction
     ? hasRequiredInputs(selectedAction)

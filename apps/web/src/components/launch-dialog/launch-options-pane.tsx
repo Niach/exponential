@@ -28,10 +28,10 @@ import type { SteerDevice } from "@/lib/steer-devices"
 // EXP-481 splits the agent strip + model/effort/toggles cluster into
 // `AgentOptionsFields` so the device-settings dialog's defaults editor
 // renders the identical controls without duplicating them.
-// EXP-615 adds the `automation` variant of that cluster: the same strip and
-// selects, but every choice may stay unpinned ("Device default" — the
-// automations row stores NULL and the bound machine launches with its own
-// configured defaults), so there are no run-time toggles.
+// EXP-615 adds the `automation` variant of that cluster: the exact same
+// strip and selects (the agent seeds to the bound device's default launch
+// agent; blank model/effort store NULL), minus the run-time toggles — an
+// unattended run never parks on plan mode.
 
 export const AGENT_LABELS: Record<string, string> = {
   claude: `Claude Code`,
@@ -56,11 +56,6 @@ const ResumeBranchIcon = conceptIcon(`ui-branch`)
 // model/effort rides this sentinel inside the dialog only.
 export const CLI_DEFAULT_EFFORT = `cli-default`
 export const CLI_DEFAULT_MODEL = `cli-default`
-
-// The automation variant's twin sentinel: blank agent/model/effort = "run with
-// whatever the bound device is configured to launch with" (the row stores
-// NULL).
-export const DEVICE_DEFAULT = `device-default`
 
 // Display labels derive from the contract values (same rule as the iOS and
 // Android sheets), so a new contract value can never render unlabeled; the
@@ -136,30 +131,19 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
   const automation = props.variant === `automation`
   const toggles = props.variant === `automation` ? null : props
   // A model or effort is only meaningful against a pinned agent (the server
-  // validates the pair), so both stay locked on "Device default" until one is.
+  // validates the pair). An automation's strip seeds to the bound device's
+  // default agent, so `` only happens while no device is bound yet.
   const pinned = !automation || agent !== ``
-  const modelSentinel = automation ? DEVICE_DEFAULT : CLI_DEFAULT_MODEL
-  const effortSentinel = automation ? DEVICE_DEFAULT : CLI_DEFAULT_EFFORT
-  const sentinelLabel = automation ? `Device default` : `CLI default`
+  const modelSentinel = CLI_DEFAULT_MODEL
+  const effortSentinel = CLI_DEFAULT_EFFORT
+  const sentinelLabel = `CLI default`
   return (
     <>
-      {(automation || availableAgents.length > 1) && (
+      {availableAgents.length > 1 && (
         <div className="space-y-2">
           <Label>Agent</Label>
-          <Tabs
-            value={agent === `` ? DEVICE_DEFAULT : agent}
-            onValueChange={(value) =>
-              onAgentChange(
-                automation && value === DEVICE_DEFAULT ? `` : value
-              )
-            }
-          >
+          <Tabs value={agent} onValueChange={onAgentChange}>
             <TabsList className="w-full">
-              {automation && (
-                <TabsTrigger value={DEVICE_DEFAULT} className="flex-1">
-                  Device default
-                </TabsTrigger>
-              )}
               {availableAgents.map((value) => {
                 const AgentIcon = AGENT_ICONS[value]
                 return (

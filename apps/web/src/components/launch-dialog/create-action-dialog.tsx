@@ -21,8 +21,10 @@ import {
   type AutomationDraft,
 } from "@/components/automation-section"
 import {
+  deviceAgentIds,
   deviceCanRunActionInputs,
   deviceCanRunActions,
+  deviceDefaultAgent,
   deviceHasRunnableAgent,
   deviceIsOnline,
   type SteerDevice,
@@ -188,6 +190,25 @@ export function CreateActionDialog({
   const automationDevice = automationCandidates.find(
     (candidate) => candidate.deviceId === automationDeviceId
   )
+  // EXP-615: no "Device default" agent pill — the strip seeds to the bound
+  // device's default launch agent, exactly like the start-coding dialog.
+  useEffect(() => {
+    if (!open || !automationDevice) return
+    if (
+      automationAgent !== `` &&
+      deviceAgentIds(automationDevice).includes(automationAgent)
+    )
+      return
+    const next =
+      deviceDefaultAgent(automationDevice) ??
+      deviceAgentIds(automationDevice)[0] ??
+      ``
+    setAutomationAgent(next)
+    const clamped = clampAgentFields(next, automationModel, automationEffort)
+    setAutomationModel(clamped.model)
+    setAutomationEffort(clamped.effort)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, automationDevice])
   const switchAutomationAgent = (next: string) => {
     setAutomationAgent(next)
     const clamped = clampAgentFields(next, automationModel, automationEffort)

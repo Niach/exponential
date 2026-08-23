@@ -165,7 +165,8 @@ fun AutomationFormSheet(
                     .weight(1f)
                     .verticalScroll(rememberScrollState()),
             ) {
-                SectionLabel("Action")
+                // No "Action" section header — the row below already says it
+                // (EXP-615 dedupe).
                 if (targets.isEmpty()) {
                     OptionGroup {
                         Text(

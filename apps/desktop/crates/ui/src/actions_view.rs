@@ -403,6 +403,8 @@ impl ActionsView {
                     Button::new(("action-run", index))
                         .outline().cursor_pointer()
                         .web_sm()
+                        // Round like the web/mobile play buttons (EXP-615).
+                        .rounded(gpui::px(999.))
                         .icon(Icon::from(registry::ACTION_RUN))
                         .tooltip(
                             no_agent

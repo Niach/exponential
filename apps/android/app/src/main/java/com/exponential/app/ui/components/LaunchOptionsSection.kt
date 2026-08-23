@@ -23,22 +23,16 @@ import com.exponential.app.ui.theme.TextEmphasis
 //  * [LaunchOptionsVariant.Launch] — a run starting NOW: the machine picker,
 //    the agent capsule, model/effort and the launch toggles.
 //  * [LaunchOptionsVariant.Automation] — a binding that runs LATER: the same
-//    rows minus the toggles, with a leading "Device default" agent option and
-//    model/effort locked on that sentinel until an agent is pinned (the pins
-//    are per-agent vocabularies server-side).
+//    rows minus the toggles. EXP-615 dropped its old "Device default" agent
+//    option: the strip seeds to the bound machine's own default launch agent,
+//    so both variants render the SAME three-segment capsule and model/effort
+//    fall back to the launch "CLI default" sentinel.
 
 enum class LaunchOptionsVariant { Launch, Automation }
 
-/** The empty agent/model/effort value: "whatever that machine is configured for". */
-internal const val DEVICE_DEFAULT = ""
-
-/** The sentinel's label — one wording across web, desktop, iOS and here. */
-internal const val DEVICE_DEFAULT_LABEL = "Device default"
-
 /**
  * The agent strip as ONE segmented capsule (brand icon + label per agent) —
- * web/iOS parity, replacing the loose pill row. [includeDeviceDefault]
- * prepends the automation variant's "Device default" option.
+ * web/iOS/desktop parity, replacing the loose pill row.
  */
 @Composable
 internal fun AgentSegmentedTabs(
@@ -46,34 +40,21 @@ internal fun AgentSegmentedTabs(
     selected: String,
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
-    includeDeviceDefault: Boolean = false,
 ) {
-    val options = if (includeDeviceDefault) listOf(DEVICE_DEFAULT) + agents else agents
-    if (options.isEmpty()) return
-    // Four segments ("Device default" + three agents) don't fit brand icons
-    // plus full labels at phone widths — drop the icons and step the face
-    // down so every label stays on one line.
-    val compact = options.size >= 4
+    if (agents.isEmpty()) return
     GlassSegmentedControl(
-        options = options,
+        options = agents,
         selected = selected,
-        label = { if (it.isEmpty()) DEVICE_DEFAULT_LABEL else agentLabel(it) },
+        label = ::agentLabel,
         onSelect = onSelect,
         modifier = modifier,
-        leadingIcon = if (compact) {
-            null
-        } else {
-            { value ->
-                if (value.isNotEmpty()) {
-                    Icon(
-                        painterResource(agentIconRes(value)),
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                    )
-                }
-            }
+        leadingIcon = { value ->
+            Icon(
+                painterResource(agentIconRes(value)),
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+            )
         },
-        textStyle = if (compact) MaterialTheme.typography.labelMedium else null,
     )
 }
 
@@ -118,7 +99,6 @@ internal fun LaunchOptionsSection(
     resumeSlot: (@Composable () -> Unit)? = null,
 ) {
     val automation = variant == LaunchOptionsVariant.Automation
-    val agentPinned = agent.isNotEmpty()
 
     // ── Device ───────────────────────────────────────────────────────────────
     if (devices.isEmpty()) {
@@ -154,37 +134,32 @@ internal fun LaunchOptionsSection(
     }
 
     // ── Agent ────────────────────────────────────────────────────────────────
-    // A launch hides the strip when the chosen machine offers just one agent;
-    // a binding always shows it, because "Device default" is a real choice.
-    if (automation || availableAgents.size > 1) {
+    // A lone option is not a choice — both variants hide the strip then.
+    if (availableAgents.size > 1) {
         AgentSegmentedTabs(
             agents = availableAgents,
             selected = agent,
             onSelect = onAgentChange,
-            includeDeviceDefault = automation,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
         )
         Spacer(Modifier.height(4.dp))
     }
 
     // ── Model / Effort ───────────────────────────────────────────────────────
+    // Both variants speak the launch "CLI default" sentinel (EXP-615); a
+    // binding offers it for EVERY agent, because a blank pin is what stores
+    // NULL on the row and lets the machine decide.
     OptionGroup {
         PickerRow(
             label = "Model",
-            value = when {
-                automation && !agentPinned -> DEVICE_DEFAULT_LABEL
-                else -> modelLabel(model)
-            },
+            value = modelLabel(model),
             options = if (automation) {
-                listOf(DEVICE_DEFAULT) + modelValuesFor(agent)
+                listOf(CLI_DEFAULT_MODEL) + modelValuesFor(agent)
             } else {
                 modelOptionsFor(agent)
             },
             selected = model,
-            optionLabel = {
-                if (automation && it.isEmpty()) DEVICE_DEFAULT_LABEL else modelLabel(it)
-            },
-            enabled = !automation || agentPinned,
+            optionLabel = ::modelLabel,
             onSelect = onModelChange,
         )
         GroupDivider()
@@ -194,17 +169,12 @@ internal fun LaunchOptionsSection(
                 "pi" -> "Thinking"
                 else -> "Effort"
             },
-            value = when {
-                automation && !agentPinned -> DEVICE_DEFAULT_LABEL
-                else -> effortLabel(effort)
-            },
+            value = effortLabel(effort),
             options = listOf(CLI_DEFAULT_EFFORT) + effortValuesFor(agent),
             selected = effort,
-            optionLabel = {
-                if (automation && it.isEmpty()) DEVICE_DEFAULT_LABEL else effortLabel(it)
-            },
+            optionLabel = ::effortLabel,
             // Ultracode IS `--effort ultracode` — it owns the row.
-            enabled = if (automation) agentPinned else !ultracode,
+            enabled = automation || !ultracode,
             onSelect = onEffortChange,
         )
     }

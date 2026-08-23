@@ -599,13 +599,16 @@ private fun AutomationRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(
-                    automationLaunchLabel(automation),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                val launchLabel = automationLaunchLabel(automation)
+                if (launchLabel.isNotEmpty()) {
+                    Text(
+                        launchLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
             if (trigger is AutomationTrigger.Schedule && automation.enabled) {
                 nextScheduleRun(trigger)?.let { nextMs ->
@@ -689,11 +692,11 @@ private fun AutomationRow(
     }
 }
 
-/** The row's agent pins: "Device defaults", or the pinned agent plus whatever
- * model/effort rides with it. */
+/** The row's agent pins: the pinned agent plus whatever model/effort rides
+ * with it; blank for a legacy NULL-agent row (web parity — no pin text). */
 private fun automationLaunchLabel(automation: AutomationEntity): String {
     val agent = automation.agent
-    if (agent.isNullOrEmpty()) return "Device defaults"
+    if (agent.isNullOrEmpty()) return ""
     val extras = listOfNotNull(
         automation.model?.takeIf { it.isNotEmpty() }?.let(::modelLabel),
         automation.effort?.takeIf { it.isNotEmpty() }?.let(::effortLabel),

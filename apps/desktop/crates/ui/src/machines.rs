@@ -478,6 +478,8 @@ impl MachinesSection {
             .outline()
             .cursor_pointer()
             .web_sm()
+            // Round like the web/mobile play buttons (EXP-615).
+            .rounded(gpui::px(999.))
             .icon(Icon::new(registry::ACTION_RUN))
             .tooltip(no_agent.clone().unwrap_or_else(|| "Start coding".into()))
             .disabled(no_agent.is_some())

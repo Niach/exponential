@@ -8,10 +8,10 @@
 //!   skip permissions). This is [`LaunchOptionsSection`], which OWNS that
 //!   state and hands out a [`LaunchOptions`] snapshot.
 //! - [`Variant::Automation`] — [`crate::automation_editor`]'s launch PINS:
-//!   the same pill strip led by a "Device default" pill (an automation may
-//!   pin nothing and follow the bound machine's own defaults), the same
-//!   choice lists behind Device-default sentinels, and NO toggles (an
-//!   unattended run never parks on plan mode).
+//!   the exact same strip (seeded to the bound device's default agent — no
+//!   "Device default" pill since EXP-615), the same choice lists behind the
+//!   launch "CLI default" sentinel, and NO toggles (an unattended run never
+//!   parks on plan mode).
 //!
 //! The three dialogs drifted into three different agent pickers before this
 //! module existed (a pill strip here, a dropdown there); everything visual
@@ -23,14 +23,11 @@
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, App, Context, IntoElement, ParentElement, Render, SharedString, Styled, Window,
+    div, App, Context, InteractiveElement as _, IntoElement, ParentElement, Render,
+    SharedString, StatefulInteractiveElement as _, Styled, Window,
 };
 use gpui_component::{
-    checkbox::Checkbox,
-    h_flex,
-    select::Select,
-    tab::{Tab, TabBar, TabVariant},
-    v_flex, ActiveTheme as _, Icon, Sizable as _, Size,
+    checkbox::Checkbox, h_flex, select::Select, v_flex, ActiveTheme as _, Icon,
 };
 
 use coding::{CodingAgent, LaunchOptions};
@@ -51,14 +48,14 @@ pub(crate) enum Variant {
     Automation,
 }
 
-/// The label the agent/model/effort pickers show while nothing is pinned —
-/// the run then follows the bound machine's own launch defaults.
-pub(crate) const DEVICE_DEFAULT_LABEL: &str = "Device default";
+/// The label the model/effort pickers show while nothing is pinned — the
+/// run then follows the agent CLI's own defaults, same wording as launch.
+pub(crate) const CLI_DEFAULT_LABEL: &str = "CLI default";
 
 /// One pill in the agent strip.
 pub(crate) struct AgentPill {
     pub(crate) label: SharedString,
-    /// The agent's brand mark; `None` for the "Device default" sentinel.
+    /// The agent's brand mark; `None` for an unknown newer-contract id.
     pub(crate) icon: Option<ExpIcon>,
     /// EXP-409: installed but signed out — greyed, still clickable (picking
     /// it puts the sign-in fix in the footer blocker instead of dead UI).
@@ -121,8 +118,7 @@ pub(crate) fn launch_pills(
         .collect()
 }
 
-/// The AUTOMATION strip's pills: the agent ids the BOUND device advertises
-/// ([`agent_tabs`] prepends the "Device default" sentinel itself).
+/// The AUTOMATION strip's pills: the agent ids the BOUND device advertises.
 pub(crate) fn agent_id_pills(agent_ids: &[String]) -> Vec<AgentPill> {
     agent_ids
         .iter()
@@ -150,56 +146,35 @@ pub(crate) fn agent_label(id: &str) -> String {
     }
 }
 
-/// The agent pill strip (EXP-201, shared since EXP-615): centered pill tabs
-/// with each agent's brand mark + name (icon and text ride one custom child —
-/// `Tab::icon` drops the label). `pills` carries the real agents only:
-/// [`Variant::Automation`] PREPENDS the "Device default" sentinel here, and
-/// both `active` and `on_select` speak that same index space — `None` is the
-/// sentinel (nothing pinned), `Some(ix)` indexes `pills`.
+/// The ONE agent strip (EXP-201, shared since EXP-615): the same web-capsule
+/// tabs on every surface — launch dialogs and automation editors alike.
+/// `active` is `None` only while an automation has no device bound yet
+/// (nothing highlighted).
 pub(crate) fn agent_tabs<V: Render>(
     id: &'static str,
-    variant: Variant,
     pills: Vec<AgentPill>,
     active: Option<usize>,
-    on_select: impl Fn(&mut V, Option<usize>, &mut Window, &mut Context<V>) + 'static,
+    on_select: impl Fn(&mut V, usize, &mut Window, &mut Context<V>) + 'static,
     cx: &mut Context<V>,
 ) -> impl IntoElement {
     let muted = cx.theme().muted_foreground;
-    let sentinel = matches!(variant, Variant::Automation);
-    let lead = usize::from(sentinel);
-    let mut all = Vec::with_capacity(pills.len() + lead);
-    if sentinel {
-        all.push(AgentPill {
-            label: SharedString::from(DEVICE_DEFAULT_LABEL),
-            icon: None,
-            dimmed: false,
-            note: None,
-        });
-    }
-    all.extend(pills);
-    let active_ix = active.map(|ix| ix + lead).unwrap_or(0);
-    h_flex().w_full().justify_center().child(
-        TabBar::new(id)
-            .with_variant(TabVariant::Pill)
-            .with_size(Size::Small)
-            .selected_index(active_ix)
-            .on_click(cx.listener(move |this, ix: &usize, window, cx| {
-                on_select(this, ix.checked_sub(lead), window, cx);
+    // The web TabsList capsule: full width, equal segments — the same
+    // primitive the subject tabs use, not a loose centered pill row.
+    let on_select = std::rc::Rc::new(on_select);
+    crate::controls::segmented(cx).children(pills.into_iter().enumerate().map(|(ix, pill)| {
+        let on_select = on_select.clone();
+        crate::controls::segmented_item(active == Some(ix), cx)
+            .id((id, ix))
+            .when(pill.dimmed, |this| this.opacity(0.45))
+            .children(pill.icon.map(|icon| Icon::from(icon).size_3p5()))
+            .child(pill.label)
+            .when_some(pill.note, |this, note| {
+                this.child(div().text_xs().text_color(muted).child(note))
+            })
+            .on_click(cx.listener(move |this, _: &gpui::ClickEvent, window, cx| {
+                on_select(this, ix, window, cx);
             }))
-            .children(all.into_iter().map(|pill| {
-                Tab::new().child(
-                    h_flex()
-                        .gap_1p5()
-                        .items_center()
-                        .when(pill.dimmed, |this| this.opacity(0.45))
-                        .children(pill.icon.map(|icon| Icon::from(icon).size_3p5()))
-                        .child(pill.label)
-                        .when_some(pill.note, |this, note| {
-                            this.child(div().text_xs().text_color(muted).child(note))
-                        }),
-                )
-            })),
-    )
+    }))
 }
 
 /// A labeled field column with an optional muted hint under the control.
@@ -242,19 +217,20 @@ pub(crate) fn choice_pin<V: Render, S: 'static>(
                 .find(|(_, choice)| *choice == value)
                 .map(|(label, _)| (*label).to_string())
         })
-        .unwrap_or_else(|| DEVICE_DEFAULT_LABEL.to_string());
+        .unwrap_or_else(|| CLI_DEFAULT_LABEL.to_string());
     let current = picked.map(str::to_string);
     let view = cx.entity().downgrade();
     Button::new(SharedString::from(format!("{prefix}-pin-{key}")))
         .outline()
         .cursor_pointer()
         .web_input_sm()
+        .w_full()
         .label(SharedString::from(label))
         .dropdown_menu(move |mut menu, _window, _cx| {
             let default_view = view.clone();
             let current = current.clone();
             menu = menu.item(
-                PopupMenuItem::new(DEVICE_DEFAULT_LABEL)
+                PopupMenuItem::new(CLI_DEFAULT_LABEL)
                     .checked(current.is_none())
                     .on_click(move |_, _, cx| {
                         if let Some(view) = default_view.upgrade() {
@@ -420,11 +396,10 @@ impl LaunchOptionsSection {
         let click_agents = pickable.clone();
         let strip = agent_tabs(
             prefix,
-            Variant::Launch,
             launch_pills(&pickable, &unauthed),
             Some(active_ix),
             move |view: &mut V, ix, window, cx| {
-                if let Some(agent) = ix.and_then(|ix| click_agents.get(ix).copied()) {
+                if let Some(agent) = click_agents.get(ix).copied() {
                     access(view).set_agent(agent, window, cx);
                     cx.notify();
                 }

@@ -45,8 +45,9 @@ fun <T> GlassSegmentedControl(
     modifier: Modifier = Modifier,
     badge: (T) -> Int = { 0 },
     leadingIcon: (@Composable (T) -> Unit)? = null,
-    // EXP-615: a 4-segment strip ("Device default" + three agents) needs the
-    // smaller face to keep every label on one line at phone widths.
+    // EXP-615: an optional smaller face, for a strip whose labels would
+    // otherwise wrap at phone widths. Segment labels never wrap regardless
+    // (one line, ellipsized).
     textStyle: TextStyle? = null,
 ) {
     val capsule = RoundedCornerShape(percent = 50)

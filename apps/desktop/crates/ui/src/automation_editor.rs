@@ -46,7 +46,7 @@ use crate::coding_selects::{effort_choices_for, model_choices_for};
 use crate::controls::WebControl as _;
 // EXP-615: the agent/model/effort pins render through the ONE shared launch
 // cluster (its Automation variant leads with the "Device default" pill).
-use crate::launch_options::{self, Variant};
+use crate::launch_options;
 
 /// Which pane the section shows. EXP-583 dropped the `None` mode: an
 /// automation row exists to fire, so the trigger is never absent — a manual
@@ -110,6 +110,10 @@ pub(crate) struct DeviceOption {
     /// The agent CLIs the machine advertises — the Agent picker offers
     /// exactly these (the server re-checks the pin against the same list).
     pub(crate) agents: Vec<String>,
+    /// The machine's configured default launch agent (EXP-437), clamped to
+    /// [`Self::agents`] — the strip seeds to it (EXP-615: no "Device
+    /// default" pill, same tabs as the launch dialogs).
+    pub(crate) default_agent: Option<String>,
 }
 
 pub(crate) struct AutomationEditorState {
@@ -178,13 +182,42 @@ impl AutomationEditorState {
     /// one — the common single-machine case, so "New automation" is one
     /// click less. A second machine leaves the pick explicit.
     pub(crate) fn seed_default_device(&mut self, cx: &App) {
-        if self.device_id.is_some() {
+        if self.device_id.is_none() {
+            let devices = automation_devices(cx);
+            if let [only] = &devices[..] {
+                self.device_id = Some(only.device_id.clone());
+            }
+        }
+        self.ensure_agent_seeded(cx);
+    }
+
+    /// EXP-615: the strip has no "Device default" pill — once a device is
+    /// bound, an unset (or no-longer-runnable) agent seeds to that machine's
+    /// default launch agent, exactly like the start-coding dialog.
+    pub(crate) fn ensure_agent_seeded(&mut self, cx: &App) {
+        let Some(device_id) = self.device_id.as_deref() else {
+            return;
+        };
+        let devices = automation_devices(cx);
+        let Some(device) = devices.iter().find(|d| d.device_id == device_id) else {
+            return;
+        };
+        if self
+            .agent
+            .as_ref()
+            .is_some_and(|agent| device.agents.contains(agent))
+        {
             return;
         }
-        let devices = automation_devices(cx);
-        if let [only] = &devices[..] {
-            self.device_id = Some(only.device_id.clone());
+        let next = device
+            .default_agent
+            .clone()
+            .or_else(|| device.agents.first().cloned());
+        if self.agent != next {
+            self.model = None;
+            self.effort = None;
         }
+        self.agent = next;
     }
 
     /// Seed the TRIGGER half from a row's (or a suggestion's) `trigger` JSON.
@@ -738,6 +771,8 @@ impl AutomationEditorState {
             .outline()
             .cursor_pointer()
             .web_input_sm()
+            // Full width, like the web select (EXP-615).
+            .w_full()
             .label(picked.clone().unwrap_or_else(|| "Select device…".into()))
             .dropdown_menu(move |mut menu, _window, _cx| {
                 for device in &menu_devices {
@@ -749,29 +784,19 @@ impl AutomationEditorState {
                     // catch-up rule) — so the picker carries no online
                     // decoration at all; the Automations LIST shows presence.
                     let label = device.label.clone();
-                    let agents = device.agents.clone();
                     menu = menu.item(
                         PopupMenuItem::new(SharedString::from(label))
                             .checked(bound.as_deref() == Some(device_id.as_str()))
                             .on_click(move |_, _, cx| {
                                 if let Some(view) = view.upgrade() {
                                     let device_id = device_id.clone();
-                                    let agents = agents.clone();
                                     view.update(cx, |view, cx| {
                                         let state = access(view);
                                         state.device_id = Some(device_id);
                                         // A pin the NEW machine cannot run
                                         // would be refused server-side —
-                                        // drop it back to its defaults.
-                                        if state
-                                            .agent
-                                            .as_ref()
-                                            .is_some_and(|agent| !agents.contains(agent))
-                                        {
-                                            state.agent = None;
-                                            state.model = None;
-                                            state.effort = None;
-                                        }
+                                        // re-seed to its default agent.
+                                        state.ensure_agent_seeded(cx);
                                         cx.notify();
                                     });
                                 }
@@ -783,7 +808,7 @@ impl AutomationEditorState {
         v_flex()
             .gap_1()
             .child(field_label(cx, "Runs on"))
-            .child(h_flex().gap_2().items_center().child(trigger))
+            .child(trigger)
     }
 
     /// Agent / Model / Effort — the optional pins, rendered by the SHARED
@@ -807,14 +832,13 @@ impl AutomationEditorState {
         let click_agents = agents.clone();
         let strip = launch_options::agent_tabs(
             prefix,
-            Variant::Automation,
             launch_options::agent_id_pills(&agents),
             active,
             move |view: &mut V, ix, _window, cx| {
-                let picked = ix.and_then(|ix| click_agents.get(ix).cloned());
+                let picked = click_agents.get(ix).cloned();
                 let state = access(view);
-                // A model/effort belongs to ONE agent — switching agents (or
-                // falling back to the device's default) clears both.
+                // A model/effort belongs to ONE agent — switching agents
+                // clears both back to the CLI defaults.
                 if state.agent != picked {
                     state.model = None;
                     state.effort = None;
@@ -825,24 +849,25 @@ impl AutomationEditorState {
             cx,
         );
 
-        let mut section = v_flex()
+        let section = v_flex()
             .w_full()
             .gap_1()
             .child(field_label(cx, "Agent"))
             .child(strip);
-        let Some(agent) = self
-            .agent
-            .as_deref()
-            .and_then(coding::CodingAgent::parse)
-        else {
-            return section;
+        // Model/Effort stay VISIBLE while nothing is pinned (web parity,
+        // EXP-615): disabled selects reading "Device default" — a model
+        // belongs to ONE agent, so they only unlock once an agent is picked.
+        let agent = self.agent.as_deref().and_then(coding::CodingAgent::parse);
+        let pin_column = |label: &'static str, control: gpui::AnyElement, cx: &mut Context<V>| {
+            v_flex()
+                .flex_1()
+                .gap_1()
+                .child(field_label(cx, label))
+                .child(control)
         };
-        section = section.child(
-            h_flex()
-                .w_full()
-                .gap_2()
-                .items_center()
-                .child(launch_options::choice_pin(
+        let (model_pin, effort_pin): (gpui::AnyElement, gpui::AnyElement) = match agent {
+            Some(agent) => (
+                launch_options::choice_pin(
                     prefix,
                     "model",
                     model_choices_for(agent),
@@ -850,8 +875,9 @@ impl AutomationEditorState {
                     |state: &mut Self| &mut state.model,
                     access,
                     cx,
-                ))
-                .child(launch_options::choice_pin(
+                )
+                .into_any_element(),
+                launch_options::choice_pin(
                     prefix,
                     "effort",
                     effort_choices_for(agent),
@@ -859,9 +885,32 @@ impl AutomationEditorState {
                     |state: &mut Self| &mut state.effort,
                     access,
                     cx,
-                )),
-        );
-        section
+                )
+                .into_any_element(),
+            ),
+            None => {
+                let placeholder = |key: &'static str| {
+                    use gpui_component::button::Button;
+                    use gpui_component::Disableable as _;
+                    Button::new(SharedString::from(format!("{prefix}-pin-{key}-off")))
+                        .outline()
+                        .web_input_sm()
+                        .w_full()
+                        .label(launch_options::CLI_DEFAULT_LABEL)
+                        .disabled(true)
+                        .into_any_element()
+                };
+                (placeholder("model"), placeholder("effort"))
+            }
+        };
+        section.child(
+            h_flex()
+                .w_full()
+                .gap_2()
+                .items_start()
+                .child(pin_column("Model", model_pin, cx))
+                .child(pin_column("Effort", effort_pin, cx)),
+        )
     }
 
     /// The agent ids the bound device advertises; a device that advertises
@@ -932,10 +981,28 @@ pub(crate) fn automation_devices(cx: &App) -> Vec<DeviceOption> {
         .filter(|row| row.cap_ids().iter().any(|cap| cap == "automations"))
         .filter_map(|row| {
             let device_id = row.device_id.clone().filter(|id| !id.is_empty())?;
+            let agents = row.agent_ids();
+            // `launch_defaults` syncs as JSON that may itself be a JSON
+            // string; the default agent only counts when runnable there.
+            let default_agent = row
+                .launch_defaults
+                .as_ref()
+                .and_then(|value| match value {
+                    Value::String(raw) => serde_json::from_str::<Value>(raw).ok(),
+                    other => Some(other.clone()),
+                })
+                .and_then(|value| {
+                    value
+                        .get("defaultAgent")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                })
+                .filter(|agent| agents.contains(agent));
             Some(DeviceOption {
                 label: row.label.clone().unwrap_or_else(|| device_id.clone()),
                 online: crate::device_settings::row_is_online(row.last_seen_at.as_deref(), now_ms),
-                agents: row.agent_ids(),
+                agents,
+                default_agent,
                 device_id,
             })
         })
