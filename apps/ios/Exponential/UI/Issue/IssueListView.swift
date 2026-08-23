@@ -213,6 +213,15 @@ struct IssueListView: View {
                         let statusIssues = vm.issues(forGroup: group)
                         if !statusIssues.isEmpty {
                             Section {
+                                // EXP-620: the header is an ordinary row, not a
+                                // `header:` view — plain List pins those, and the
+                                // pinning is what forced an opaque backing on it
+                                // (EXP-578/EXP-593). It sits outside the collapse
+                                // guard so a collapsed group keeps its header.
+                                statusHeader(group: group, count: statusIssues.count, vm: vm)
+                                    .listRowBackground(Color.clear)
+                                    .listRowSeparator(.hidden)
+                                    .listRowInsets(EdgeInsets())
                                 if !vm.collapsedStatuses.contains(group.id) {
                                     ForEach(statusIssues, id: \.id) { issue in
                                         issueRow(issue: issue, vm: vm)
@@ -254,16 +263,6 @@ struct IssueListView: View {
                                             }
                                     }
                                 }
-                            } header: {
-                                // EXP-578: zero insets — the header view owns its
-                                // whole cell (spacing + gutter are padded INSIDE
-                                // statusHeader), so the pinned header is one
-                                // uniform app-coloured band. With insets, plain
-                                // List painted the inset strip with its own system
-                                // backing, which read as a stray gap between the
-                                // nav bar and the pinned header while scrolling.
-                                statusHeader(group: group, count: statusIssues.count, vm: vm)
-                                    .listRowInsets(EdgeInsets())
                             }
                         }
                     }
@@ -282,13 +281,6 @@ struct IssueListView: View {
                 // the filter chips and the first section header (Android: 8dp bar
                 // padding + 3dp flow + the header's own 8dp = ~19dp total).
                 .contentMargins(.top, 0, for: .scrollContent)
-                // EXP-590: on iOS 26 the nav bar's default SOFT scroll-edge
-                // effect reserves ~20pt below the bar, and plain List parks
-                // its pinned section header under that strip — the strip then
-                // read as a lighter band between the bar and the opaque
-                // status header (EXP-578 removed the inset strip, not this).
-                // A hard edge pins the header flush with the material bar.
-                .hardTopScrollEdge()
                 // Kill List's implicit 44pt minimum row height: Android rows are
                 // content-hugging (~40dp) with 3dp gaps, and the floor made every
                 // iOS row visibly chunkier than its Android twin (EXP-24 redux).
@@ -450,25 +442,18 @@ struct IssueListView: View {
         }
         .buttonStyle(.plain)
         .textCase(nil)
-        // Former listRowInsets (top 6 / bottom 2 / 16pt gutter), now inside the
-        // header so the background below covers the entire pinned cell.
+        // The former listRowInsets (top 6 / bottom 2 / 16pt gutter), padded
+        // inside the view: the glyphs line up with the rows below.
         .padding(.top, 6)
         .padding(.bottom, 2)
         .padding(.horizontal, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        // EXP-593: a glassy full-width band — the group's status colour washed
-        // over real material, so rows blur through while they scroll under the
-        // pinned header (web/desktop parity: statusHeaderBg's 10% tint +
-        // backdrop blur + hairline bottom edge). Replaces the opaque Zinc._950
-        // slab, which read as a hard-edged black bar; the material still covers
-        // the whole pinned cell, so EXP-578's stray system backing stays hidden.
-        .background(group.color.opacity(0.1))
-        .background(.ultraThinMaterial)
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(Color.white.opacity(0.08))
-                .frame(height: 0.5)
-        }
+        // EXP-620: no background at all. The status-tinted band (EXP-593) and
+        // the opaque slab before it (EXP-578) both existed only because the
+        // header was PINNED — a floating header needs to hide the rows passing
+        // under it, and plain List backs it with its own system material. Now
+        // that it scrolls with its rows, it reads as plain text on
+        // AppBackground, like the My Issues headers. Desktop keeps the tint.
     }
 
     @ViewBuilder
@@ -1182,15 +1167,3 @@ private struct BulkLabelsSheet: View {
     }
 }
 
-private extension View {
-    /// iOS 26's soft scroll-edge effect pads pinned List headers away from
-    /// the nav bar (EXP-590); older systems have no such effect to tune.
-    @ViewBuilder
-    func hardTopScrollEdge() -> some View {
-        if #available(iOS 26, *) {
-            scrollEdgeEffectStyle(.hard, for: .top)
-        } else {
-            self
-        }
-    }
-}
