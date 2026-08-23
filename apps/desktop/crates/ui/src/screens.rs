@@ -1459,25 +1459,26 @@ mod tests {
 
     /// EXP-499/EXP-508 regression (the EXP-492 fit-content collapse, on the
     /// Actions page): an Actions-shaped center — full-width section band,
-    /// machine rows, a wrapping card grid, all with real text inside the
-    /// page's capped `mx_auto` column and scroll pane — must resolve its
-    /// column to exactly `min(1024, panel)` at EVERY panel width, the
-    /// machines section and its band must span that column, and the grid
-    /// must never run past the window's right edge. Two gates: a width sweep
-    /// under the production `h_resizable` split (settled frames stay
-    /// healthy), then the stray fit-content pass modeled directly — the one
-    /// place the un-pinned tree demonstrably breaks (clean `cx.draw` frames
-    /// alone never reproduce the live app's between-frame passes).
+    /// machine rows, the action row list (EXP-618 replaced the old wrapping
+    /// card grid), all with real text inside the page's capped `mx_auto`
+    /// column and scroll pane — must resolve its column to exactly
+    /// `min(1024, panel)` at EVERY panel width, the machines section and its
+    /// band must span that column, and the list must never run past the
+    /// window's right edge. Two gates: a width sweep under the production
+    /// `h_resizable` split (settled frames stay healthy), then the stray
+    /// fit-content pass modeled directly — the one place the un-pinned tree
+    /// demonstrably breaks (clean `cx.draw` frames alone never reproduce the
+    /// live app's between-frame passes).
     ///
-    /// The sweep runs to 3000px because the EXP-508 failure only starts at
+    /// The sweep runs to 3000px because the EXP-508 failure only started at
     /// ~1940px (the EXP-499 sweep stopped at 1700 and missed it): a `w_full`
     /// PERCENT child of the centered column resolves against the UNCLAMPED
-    /// ancestor available width, so once the panel out-widens the grid's
-    /// unwrapped line the wrap grid stops wrapping (and the machines section
-    /// shrink-wraps) — the EXP-436 block-hop leak. The probe mirrors the
-    /// fixed page: the column's direct children carry NO `w_full` and are
-    /// sized by flex-col stretch; percent widths below those stretch-sized
-    /// parents (the band, the machine rows) resolve fine and stay covered.
+    /// ancestor available width, so content resolved its max-content line
+    /// and the machines section shrink-wrapped — the EXP-436 block-hop leak.
+    /// The probe mirrors the fixed page: the column's direct children carry
+    /// NO `w_full` and are sized by flex-col stretch; percent widths below
+    /// those stretch-sized parents (the band, the machine and action rows)
+    /// resolve fine and stay covered.
     #[gpui::test]
     async fn actions_shaped_center_spans_the_panel_at_every_width(
         cx: &mut gpui::TestAppContext,
@@ -1501,23 +1502,43 @@ mod tests {
                 _cx: &mut gpui::Context<Self>,
             ) -> impl IntoElement {
                 // The Actions page's real shapes (actions_view.rs /
-                // machines.rs), with production-like text.
-                let card = |name: &'static str, blurb: &'static str| {
-                    v_flex()
-                        .flex_basis(px(260.))
-                        .flex_grow(1.)
-                        .min_w(px(240.))
-                        .max_w(px(420.))
-                        .gap_2()
-                        .p_3()
-                        .child(div().text_sm().child(SharedString::from(name)))
+                // machines.rs), with production-like text. The action rows
+                // mirror `render_action_row` (EXP-618): full-width, a
+                // truncating middle column, a nowrap trailing control.
+                let action_row = |name: &'static str, blurb: &'static str| {
+                    h_flex()
+                        .w_full()
+                        .min_w_0()
+                        .items_center()
+                        .gap_3()
+                        .px_3()
+                        .py_2()
+                        .child(
+                            v_flex()
+                                .flex_1()
+                                .min_w_0()
+                                .gap_0p5()
+                                .child(
+                                    div()
+                                        .min_w_0()
+                                        .text_sm()
+                                        .truncate()
+                                        .child(SharedString::from(name)),
+                                )
+                                .child(
+                                    div()
+                                        .w_full()
+                                        .min_w_0()
+                                        .text_xs()
+                                        .line_clamp(2)
+                                        .child(SharedString::from(blurb)),
+                                ),
+                        )
                         .child(
                             div()
-                                .w_full()
-                                .min_w_0()
                                 .text_xs()
-                                .line_clamp(2)
-                                .child(SharedString::from(blurb)),
+                                .whitespace_nowrap()
+                                .child(SharedString::from("Run")),
                         )
                 };
                 let machine_row = |label: &'static str| {
@@ -1548,38 +1569,35 @@ mod tests {
                     .child(div().text_sm().child(SharedString::from("My machines")))
                     .child(div().flex_1())
                     .child(div().text_xs().child(SharedString::from("Add server")));
-                let grid = h_flex()
+                let list = v_flex()
                     .min_w_0()
-                    .flex_wrap()
-                    .items_stretch()
-                    .gap_3()
-                    .debug_selector(|| "probe-grid".into())
-                    .child(card(
+                    .debug_selector(|| "probe-list".into())
+                    .child(action_row(
                         "Fix merge conflicts",
                         "Pick a conflicted pull request and let your agent rebase, \
                          resolve, and merge it",
                     ))
-                    .child(card(
+                    .child(action_row(
                         "Triage code review findings",
                         "Re-check the latest code review board against today's code, \
                          cancel stale findings, and file one grouped issue",
                     ))
-                    .child(card(
+                    .child(action_row(
                         "Release staging",
                         "Copy the prod DB over staging, refresh staging web + steer \
                          relay, and push the staging iOS/Android build",
                     ))
-                    .child(card(
+                    .child(action_row(
                         "Release prod",
                         "Review the unreleased commit wave, then ship production — \
                          prod web, relays, marketing, desktop",
                     ))
-                    .child(card(
+                    .child(action_row(
                         "Release all",
                         "Run the full release train in one go: the staging refresh \
                          first, then the prod train — one combined wave, one report",
                     ))
-                    .child(card(
+                    .child(action_row(
                         "Extended code review",
                         "Run a deep multi-pass code review over the whole codebase \
                          and file every confirmed finding as an issue",
@@ -1599,7 +1617,7 @@ mod tests {
                             .child(machine_row("mint · Danny Strähhuber  v0.14.8"))
                             .child(machine_row("macbook · Danny Strähhuber  v0.14.8")),
                     )
-                    .child(v_flex().min_w_0().gap_2().child(grid));
+                    .child(v_flex().min_w_0().gap_2().child(list));
                 let content = v_flex()
                     .size_full()
                     .min_h_0()
@@ -1695,12 +1713,12 @@ mod tests {
             if (actual - expected).abs() > 1.5 {
                 failures.push((width, actual, expected));
             }
-            // The literal EXP-499 symptom: the card grid running off the
-            // window's right edge.
-            let grid = cx
-                .debug_bounds("probe-grid")
-                .unwrap_or_else(|| panic!("grid bounds missing at width {width}"));
-            let right = f32::from(grid.origin.x) + f32::from(grid.size.width);
+            // The literal EXP-499 symptom: the actions content running off
+            // the window's right edge.
+            let list = cx
+                .debug_bounds("probe-list")
+                .unwrap_or_else(|| panic!("list bounds missing at width {width}"));
+            let right = f32::from(list.origin.x) + f32::from(list.size.width);
             if right > width + 1.5 {
                 failures.push((width, right, width));
             }
@@ -1730,9 +1748,9 @@ mod tests {
         // constraints (a flex parent that neither stretches nor sizes its
         // child), and the app can idle on that frame — the EXP-499
         // screenshot. Un-pinned, the percent chains collapse: the machines
-        // band shrink-wraps and the card grid resolves its unwrapped
-        // max-content line. The recorded-width pin must make even this pass
-        // resolve the page like the real panel slot.
+        // band shrink-wraps and the list resolves its max-content line. The
+        // recorded-width pin must make even this pass resolve the page like
+        // the real panel slot.
         let recorded = f32::from(
             cx.debug_bounds("probe-slot")
                 .expect("slot bounds after the sweep")
@@ -1758,14 +1776,14 @@ mod tests {
             "fit-content pass collapsed the column: {actual} != {expected} \
              (recorded panel {recorded})"
         );
-        let grid = cx
-            .debug_bounds("probe-grid")
-            .expect("grid bounds in the fit-content pass");
-        let grid_right = f32::from(grid.origin.x) + f32::from(grid.size.width);
+        let list = cx
+            .debug_bounds("probe-list")
+            .expect("list bounds in the fit-content pass");
+        let list_right = f32::from(list.origin.x) + f32::from(list.size.width);
         assert!(
-            grid_right <= recorded + 1.5,
-            "fit-content pass ran the card grid past the panel edge: \
-             {grid_right} > {recorded}"
+            list_right <= recorded + 1.5,
+            "fit-content pass ran the action list past the panel edge: \
+             {list_right} > {recorded}"
         );
         for selector in ["probe-machines", "probe-band"] {
             let bounds = cx

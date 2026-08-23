@@ -1,8 +1,9 @@
 //! The Actions center screen (EXP-467): the web `t/$teamSlug/agents` page
 //! 1:1 — "My machines" on top, then the team's reusable action prompts as a
-//! wrapping CARD grid. The old master/detail split (Actions tool window →
-//! full-page action detail) is gone: editing happens in
-//! [`crate::action_editor_dialog`] behind each card's owner ⋯ menu, exactly
+//! ROW list (EXP-618: the old wrapping card grid unified onto the mobile
+//! row shape every other client draws). The old master/detail split (Actions
+//! tool window → full-page action detail) is gone: editing happens in
+//! [`crate::action_editor_dialog`] behind each row's owner ⋯ menu, exactly
 //! like the web's edit dialog, and the rail's Actions entry navigates here.
 //! EXP-480: the page is a tab-less FULL-PAGE mode (no tool column, no tab
 //! chip — `CenterPanel` unmounts the sidebar split while it is up), and both
@@ -10,7 +11,7 @@
 //! "My machines" carries the "Add server" button, "Actions" the owner-only
 //! "New action".
 //!
-//! EXP-431 carries over: the create builtin is not a card — creation lives
+//! EXP-431 carries over: the create builtin is not a row — creation lives
 //! behind the header's "New action" button
 //! ([`crate::create_action_dialog`]), and only the
 //! fix-conflicts builtin stays pinned first. The list is LIVE off the synced
@@ -79,9 +80,10 @@ pub(crate) fn section_band(
         .into_any_element()
 }
 
-/// EXP-530: the page's three tabs. **Actions** is the card grid,
+/// EXP-530: the page's three tabs. **Actions** is the team's action rows,
 /// **Automations** the dense list of the team's `automations` rows (EXP-583),
-/// **Suggestions** the curated seed cards.
+/// **Suggestions** the curated seed rows — all three the same list shape
+/// since EXP-618.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ActionsTab {
     Actions,
@@ -98,7 +100,7 @@ pub struct ActionsView {
     /// `devices.list` poll and only polls while rendered — i.e. while this
     /// screen's tab is visible.
     machines: Entity<crate::machines::MachinesSection>,
-    /// `repositories.list` rows for the card repo badges, keyed by the team
+    /// `repositories.list` rows for the rows' repo glyphs, keyed by the team
     /// they belong to (a team switch refetches).
     repos: Option<(String, Vec<crate::action_run::ActionRepoRow>)>,
     /// The team the current fetch belongs to (set before the spawn so a
@@ -150,8 +152,9 @@ impl ActionsView {
         active_team_id(&self.nav, cx)
     }
 
-    /// Fetch the team's repos once per team — the card badges only need the
-    /// id → fullName join. A failed fetch degrades to badge-less cards.
+    /// Fetch the team's repos once per team — the rows' repo glyphs only
+    /// need the id → fullName join. A failed fetch degrades to glyph-less
+    /// rows.
     fn ensure_repos(&mut self, team_id: &str, cx: &mut gpui::Context<Self>) {
         if self.repos_key.as_deref() == Some(team_id) {
             return;
@@ -226,9 +229,10 @@ impl ActionsView {
 
     // -- render -------------------------------------------------------------
 
-    /// One action card — the web `ActionCard` shape: [glyph · name · ⋯],
-    /// repo badge, 2-line description, Run pinned to the bottom edge.
-    fn render_card(
+    /// One action row — the mobile/web `ActionRow` shape (EXP-618): glyph ·
+    /// [name + small repo glyph, 2-line description, automation count] ·
+    /// ▶ Run · owner ⋯ menu.
+    fn render_action_row(
         &self,
         index: usize,
         action: &api::actions::Action,
@@ -247,11 +251,90 @@ impl ActionsView {
             })
         });
 
-        let mut title_row = gpui_component::h_flex()
+        // FEED-15 (native parity): a small "runs in a repository" glyph next
+        // to the name instead of the old full-name badge.
+        let title_row = gpui_component::h_flex()
             .w_full()
             .min_w_0()
             .items_center()
-            .gap_2()
+            .gap_1p5()
+            .child(
+                div()
+                    .min_w_0()
+                    .text_sm()
+                    .font_weight(FontWeight::MEDIUM)
+                    .truncate()
+                    .text_color(theme.foreground)
+                    .child(SharedString::from(action.name.clone())),
+            )
+            .when(repo_name.is_some(), |this| {
+                this.child(
+                    div().flex_shrink_0().child(
+                        Icon::from(registry::ACTION_REPOSITORY)
+                            .xsmall()
+                            .text_color(muted),
+                    ),
+                )
+            });
+
+        let mut middle = gpui_component::v_flex()
+            .flex_1()
+            .min_w_0()
+            .gap_0p5()
+            .child(title_row);
+        if let Some(description) = action.description.clone() {
+            middle = middle.child(
+                div()
+                    .w_full()
+                    .min_w_0()
+                    .text_xs()
+                    .text_color(muted)
+                    .line_clamp(2)
+                    .child(SharedString::from(description)),
+            );
+        }
+        // EXP-583: the row no longer shows ONE trigger — automations are
+        // their own rows, and several can target the same action. It says
+        // how many, and the Automations tab shows which.
+        if automations > 0 {
+            middle = middle.child(
+                gpui_component::h_flex()
+                    .w_full()
+                    .min_w_0()
+                    .items_center()
+                    .gap_1p5()
+                    .child(
+                        Icon::from(registry::ACTION_AUTOMATION)
+                            .xsmall()
+                            .text_color(muted),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_xs()
+                            .truncate()
+                            .text_color(muted)
+                            .child(SharedString::from(if automations == 1 {
+                                "1 automation".to_string()
+                            } else {
+                                format!("{automations} automations")
+                            })),
+                    ),
+            );
+        }
+
+        // EXP-367: no agent CLI → Run disabled with the reason, never hidden.
+        let no_agent = crate::coding_flow::no_agent_reason(cx);
+        let mut row = gpui_component::h_flex()
+            .w_full()
+            .min_w_0()
+            .items_center()
+            .gap_3()
+            .px_3()
+            .py_2()
+            .border_b_1()
+            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
             .child(
                 div().flex_shrink_0().child(
                     crate::icons::action_icon(action.icon.as_deref())
@@ -259,24 +342,33 @@ impl ActionsView {
                         .text_color(muted),
                 ),
             )
+            .child(middle)
             .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_sm()
-                    .font_weight(FontWeight::MEDIUM)
-                    .truncate()
-                    .text_color(theme.foreground)
-                    .child(SharedString::from(action.name.clone())),
+                // EXP-615: icon-only round ▶ (web/mobile parity).
+                Button::new(("action-run", index))
+                    .outline().cursor_pointer()
+                    .web_sm()
+                    .rounded(gpui::px(999.))
+                    .icon(Icon::from(registry::ACTION_RUN))
+                    .tooltip(
+                        no_agent
+                            .clone()
+                            .unwrap_or_else(|| "Run on this device".into()),
+                    )
+                    .disabled(no_agent.is_some())
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        cx.stop_propagation();
+                        this.run(run_id.clone(), window, cx);
+                    })),
             );
         // Web parity: the ⋯ menu renders only for owners on non-builtin
-        // cards — builtins have no editable row and no delete.
+        // rows — builtins have no editable row and no delete.
         if is_owner && !action.builtin {
             let edit_id = action.id.clone();
             let delete_view = cx.entity().downgrade();
             let delete_id = action.id.clone();
             let delete_name = action.name.clone();
-            title_row = title_row.child(
+            row = row.child(
                 div().flex_shrink_0().child(
                     Button::new(("action-menu", index))
                         .ghost().cursor_pointer()
@@ -316,109 +408,7 @@ impl ActionsView {
                 ),
             );
         }
-
-        // EXP-367: no agent CLI → Run disabled with the reason, never hidden.
-        let no_agent = crate::coding_flow::no_agent_reason(cx);
-        gpui_component::v_flex()
-            // The wrap-grid cell: grow to share the line, capped so a lone
-            // last-row card can't span the whole page (CSS-grid-ish).
-            .flex_basis(px(260.))
-            .flex_grow(1.)
-            .min_w(px(240.))
-            .max_w(px(420.))
-            .gap_2()
-            .rounded(px(theme::tokens::radius::SM))
-            .border_1()
-            .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-            .p_3()
-            .child(title_row)
-            .when_some(repo_name, |this, repo_name| {
-                this.child(
-                    gpui_component::h_flex().child(
-                        gpui_component::h_flex()
-                            .gap_1()
-                            .px_1p5()
-                            .py_0p5()
-                            .rounded(px(theme::tokens::radius::SM))
-                            .border_1()
-                            .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-                            .child(Icon::from(registry::UI_GITHUB).xsmall().text_color(muted))
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .font_family(theme::terminal::FONT_FAMILY)
-                                    .text_color(muted)
-                                    .child(SharedString::from(repo_name)),
-                            ),
-                    ),
-                )
-            })
-            .when_some(action.description.clone(), |this, description| {
-                this.child(
-                    div()
-                        .w_full()
-                        .min_w_0()
-                        .text_xs()
-                        .text_color(muted)
-                        .line_clamp(2)
-                        .child(SharedString::from(description)),
-                )
-            })
-            // EXP-583: the card no longer shows ONE trigger — automations
-            // are their own rows, and several can target the same action.
-            // It says how many, and the Automations tab shows which.
-            .when(automations > 0, |this| {
-                this.child(
-                    gpui_component::h_flex()
-                        .w_full()
-                        .min_w_0()
-                        .items_center()
-                        .gap_1p5()
-                        .child(
-                            Icon::from(registry::ACTION_AUTOMATION)
-                                .xsmall()
-                                .text_color(muted),
-                        )
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .text_xs()
-                                .truncate()
-                                .text_color(muted)
-                                .child(SharedString::from(if automations == 1 {
-                                    "1 automation".to_string()
-                                } else {
-                                    format!("{automations} automations")
-                                })),
-                        ),
-                )
-            })
-            // Spacer pins Run to the bottom on stretched (same-line) cards.
-            .child(div().flex_1())
-            .child(
-                gpui_component::h_flex().pt_1().child(
-                    // EXP-615: icon-only ▶ (web parity) — the label was the
-                    // only text on the card competing with its name.
-                    Button::new(("action-run", index))
-                        .outline().cursor_pointer()
-                        .web_sm()
-                        // Round like the web/mobile play buttons (EXP-615).
-                        .rounded(gpui::px(999.))
-                        .icon(Icon::from(registry::ACTION_RUN))
-                        .tooltip(
-                            no_agent
-                                .clone()
-                                .unwrap_or_else(|| "Run on this device".into()),
-                        )
-                        .disabled(no_agent.is_some())
-                        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                            cx.stop_propagation();
-                            this.run(run_id.clone(), window, cx);
-                        })),
-                ),
-            )
-            .into_any_element()
+        row.into_any_element()
     }
 
     /// The page's tab capsule (EXP-530) — the web segmented `TabsList`,
@@ -718,8 +708,8 @@ impl ActionsView {
 
     // -- Suggestions tab (EXP-530) ------------------------------------------
 
-    /// One suggestion card — the same grid cell shape as an action card, with
-    /// "Use suggestion" opening the creator dialog prefilled.
+    /// One suggestion row — the same list shape as an action row (EXP-618),
+    /// with "Use suggestion" opening the creator dialog prefilled.
     fn render_suggestion(
         &self,
         suggestion: &crate::action_suggestions::Suggestion,
@@ -741,65 +731,70 @@ impl ActionsView {
             "Action"
         };
         let no_agent = crate::coding_flow::no_agent_reason(cx);
-        gpui_component::v_flex()
-            .flex_basis(px(260.))
-            .flex_grow(1.)
-            .min_w(px(240.))
-            .max_w(px(420.))
-            .gap_2()
-            .rounded(px(theme::tokens::radius::SM))
-            .border_1()
-            .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-            .p_3()
+        gpui_component::h_flex()
+            .w_full()
+            .min_w_0()
+            .items_center()
+            .gap_3()
+            .px_3()
+            .py_2()
+            .border_b_1()
+            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
             .child(
-                gpui_component::h_flex()
-                    .w_full()
+                div().flex_shrink_0().child(
+                    crate::icons::action_icon(Some(suggestion.icon))
+                        .xsmall()
+                        .text_color(muted),
+                ),
+            )
+            .child(
+                gpui_component::v_flex()
+                    .flex_1()
                     .min_w_0()
-                    .items_center()
-                    .gap_2()
+                    .gap_0p5()
                     .child(
-                        div().flex_shrink_0().child(
-                            crate::icons::action_icon(Some(suggestion.icon))
-                                .xsmall()
-                                .text_color(muted),
-                        ),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
+                        gpui_component::h_flex()
+                            .w_full()
                             .min_w_0()
-                            .text_sm()
-                            .font_weight(FontWeight::MEDIUM)
-                            .truncate()
-                            .text_color(theme.foreground)
-                            .child(SharedString::from(suggestion.title)),
+                            .items_center()
+                            .gap_1p5()
+                            .child(
+                                div()
+                                    .min_w_0()
+                                    .text_sm()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .truncate()
+                                    .text_color(theme.foreground)
+                                    .child(SharedString::from(suggestion.title)),
+                            )
+                            // What "Use suggestion" will set up, up front.
+                            .child(
+                                div()
+                                    .flex_shrink_0()
+                                    .px_1p5()
+                                    .py_0p5()
+                                    .rounded(px(theme::tokens::radius::SM))
+                                    .border_1()
+                                    .border_color(
+                                        theme::tokens::glass::STROKE_CARD.to_hsla(),
+                                    )
+                                    .text_xs()
+                                    .text_color(muted)
+                                    .child(chip),
+                            ),
                     )
-                    // What "Use suggestion" will set up, up front.
                     .child(
                         div()
-                            .flex_shrink_0()
-                            .px_1p5()
-                            .py_0p5()
-                            .rounded(px(theme::tokens::radius::SM))
-                            .border_1()
-                            .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+                            .w_full()
+                            .min_w_0()
                             .text_xs()
                             .text_color(muted)
-                            .child(chip),
+                            .line_clamp(3)
+                            .child(SharedString::from(suggestion.description)),
                     ),
             )
             .child(
-                div()
-                    .w_full()
-                    .min_w_0()
-                    .text_xs()
-                    .text_color(muted)
-                    .line_clamp(4)
-                    .child(SharedString::from(suggestion.description)),
-            )
-            .child(div().flex_1())
-            .child(
-                gpui_component::h_flex().pt_1().child(
+                div().flex_shrink_0().child(
                     // Keyed by the stable seed id, not the render index.
                     Button::new(SharedString::from(format!(
                         "action-suggestion-{}",
@@ -833,18 +828,16 @@ impl ActionsView {
             .into_any_element()
     }
 
-    /// The web `NoCustomActionsNudge`: a dashed tile that opens the creator
-    /// run, shown while every listed action is a builtin. A GRID CELL like
-    /// the web's (same sizing as the cards), not a full-width strip.
+    /// The web `NoCustomActionsNudge`: a dashed full-width strip below the
+    /// list that opens the creator run, shown while every listed action is a
+    /// builtin (EXP-618 — the old grid cell, stretched to the list shape).
     fn render_nudge(&self, team_id: String, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let muted = cx.theme().muted_foreground;
         let hover = cx.theme().list_hover;
         div()
             .id("actions-empty-nudge")
-            .flex_basis(px(260.))
-            .flex_grow(1.)
-            .min_w(px(240.))
-            .max_w(px(420.))
+            .w_full()
+            .min_w_0()
             .rounded(px(theme::tokens::radius::SM))
             .border_1()
             .border_dashed()
@@ -933,9 +926,9 @@ impl Render for ActionsView {
                     .into_any_element()
             });
         // EXP-574 (web parity): the tab capsule spans the page above the
-        // section; the band heads only the tab that has one on the web —
-        // Actions ("Actions" · count · "New action"), Automations
-        // ("Automations" · count). Suggestions renders its grid bare.
+        // section; every tab leads with its band — Actions ("Actions" ·
+        // count · "New action"), Automations ("Automations" · count),
+        // Suggestions ("Suggestions" · count) since EXP-618.
         let tabs = self.render_tabs(cx);
         // Owner-only "New automation" — the Automations band's twin of
         // "New action". No agent gate: authoring a binding starts nothing.
@@ -966,28 +959,33 @@ impl Render for ActionsView {
                 new_automation,
                 cx,
             )),
-            ActionsTab::Suggestions => None,
+            ActionsTab::Suggestions => Some(section_band(
+                "Suggestions",
+                crate::action_suggestions::ACTION_SUGGESTIONS.len(),
+                None,
+                cx,
+            )),
         };
 
-        // The nudge is a grid CELL (web parity) — appended after the cards.
+        // The nudge is a full-width strip (web parity) — appended after the
+        // list.
         let nudge = (!loading && is_owner && self.tab == ActionsTab::Actions && !has_custom)
             .then(|| team_id.clone())
             .flatten()
             .map(|team_id| self.render_nudge(team_id, cx));
 
-        // The cards render as soon as rows hydrate; readiness only appends
+        // The rows render as soon as they hydrate; readiness only appends
         // the loading note (the tool-window list's behavior — never blank a
         // list that already has data).
         // NO `w_full` on the column's children (EXP-508): a percent width
-        // here resolves against the UNCLAMPED ancestor available width — at
-        // panels wider than the grid's unwrapped line (~1650px) the wrap
-        // grid stops wrapping and runs off the window, and the machines
-        // section shrink-wraps (the EXP-436 leak; EXP-179 has the same
-        // drop-`w_full` fix). Auto width + the column's flex-col stretch
-        // resolve the capped column width at every panel width.
+        // here resolves against the UNCLAMPED ancestor available width, so
+        // the machines section shrink-wraps and content runs off the window
+        // (the EXP-436 leak; EXP-179 has the same drop-`w_full` fix). Auto
+        // width + the column's flex-col stretch resolve the capped column
+        // width at every panel width.
         let body = match self.tab {
             ActionsTab::Actions => {
-                let cards: Vec<gpui::AnyElement> = actions
+                let rows: Vec<gpui::AnyElement> = actions
                     .iter()
                     .enumerate()
                     .map(|(index, action)| {
@@ -995,36 +993,42 @@ impl Render for ActionsView {
                             .iter()
                             .filter(|automation| automation.action_id == action.id)
                             .count();
-                        self.render_card(index, action, count, is_owner, cx)
+                        self.render_action_row(index, action, count, is_owner, cx)
                     })
                     .collect();
-                gpui_component::h_flex()
-                    .min_w_0()
-                    .flex_wrap()
-                    .items_stretch()
-                    .gap_3()
-                    .children(cards)
-                    .children(nudge)
-                    .into_any_element()
+                let mut body = gpui_component::v_flex().min_w_0().gap_2();
+                if !rows.is_empty() {
+                    body = body.child(
+                        gpui_component::v_flex()
+                            .min_w_0()
+                            .rounded(px(theme::tokens::radius::SM))
+                            .border_1()
+                            .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+                            .children(rows),
+                    );
+                }
+                body.children(nudge).into_any_element()
             }
             ActionsTab::Automations => {
                 self.render_automations(&actions, &automations, team_id.as_deref(), is_owner, cx)
             }
             ActionsTab::Suggestions => {
-                let cards: Vec<gpui::AnyElement> = match team_id.clone() {
+                let rows: Vec<gpui::AnyElement> = match team_id.clone() {
                     Some(team_id) => crate::action_suggestions::ACTION_SUGGESTIONS
                         .iter()
                         .map(|suggestion| self.render_suggestion(suggestion, team_id.clone(), cx))
                         .collect(),
                     None => Vec::new(),
                 };
-                gpui_component::h_flex()
-                    .min_w_0()
-                    .flex_wrap()
-                    .items_stretch()
-                    .gap_3()
-                    .children(cards)
-                    .into_any_element()
+                let mut body = gpui_component::v_flex().min_w_0();
+                if !rows.is_empty() {
+                    body = body
+                        .rounded(px(theme::tokens::radius::SM))
+                        .border_1()
+                        .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+                        .children(rows);
+                }
+                body.into_any_element()
             }
         };
         let mut actions_section = gpui_component::v_flex()
