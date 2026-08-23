@@ -6,6 +6,7 @@ import {
   MyIssuesView,
 } from "@/components/my-issues-view"
 import { Button } from "@/components/ui/button"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { conceptIcon } from "@/lib/icons.generated"
 import { useSession } from "@/hooks/use-session"
 import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
@@ -16,9 +17,8 @@ import {
   issueFiltersFromSearch,
   parseIssueFilterSearch,
 } from "@/lib/filters"
-import { cn } from "@/lib/utils"
 
-// EXP-525: the tab pills carry the same registry glyphs the mobile My Work
+// EXP-525: the tab segments carry the same registry glyphs the mobile My Work
 // segments and the desktop rail use.
 const InboxTabIcon = conceptIcon(`nav-inbox`)
 const MyIssuesTabIcon = conceptIcon(`ui-assignee`)
@@ -51,18 +51,13 @@ export const Route = createFileRoute(`/t/$teamSlug/inbox/`)({
   component: InboxPage,
 })
 
-function UnreadCountPill({ active }: { active: boolean }) {
+// EXP-616: inside the capsule segment the count is a plain trailing number
+// (the GlassSectionHeader idiom), not a second pill nested in a pill.
+function UnreadTabCount() {
   const unread = useUnreadNotificationCount()
   if (unread === 0) return null
   return (
-    <span
-      className={cn(
-        `rounded-full px-1.5 py-px text-[10px] font-medium tabular-nums`,
-        active
-          ? `bg-primary text-primary-foreground`
-          : `bg-muted text-muted-foreground`
-      )}
-    >
+    <span className="text-xs text-foreground/50 tabular-nums">
       {unread > 99 ? `99+` : unread}
     </span>
   )
@@ -127,37 +122,25 @@ function InboxPage() {
           separate filter bar left the list flush against the tabs, so the row
           carries its own bottom padding. */}
       <div className="flex shrink-0 items-center justify-between px-4 pt-3 pb-2 md:px-6">
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setTab(`inbox`)}
-            className={cn(
-              `shrink-0 gap-1.5 rounded-full h-7 px-3 text-xs`,
-              tab === `inbox`
-                ? `bg-accent text-foreground font-medium`
-                : `text-muted-foreground hover:text-foreground`
-            )}
-          >
-            <InboxTabIcon className="size-3.5 shrink-0" />
-            Inbox
-            <UnreadCountPill active={tab === `inbox`} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setTab(`my-issues`)}
-            className={cn(
-              `shrink-0 gap-1.5 rounded-full h-7 px-3 text-xs`,
-              tab === `my-issues`
-                ? `bg-accent text-foreground font-medium`
-                : `text-muted-foreground hover:text-foreground`
-            )}
-          >
-            <MyIssuesTabIcon className="size-3.5 shrink-0" />
-            My Issues
-          </Button>
-        </div>
+        {/* EXP-616: the capsule segmented control, still URL-driven — the
+            controlled value is the parsed ?tab and every change navigates. */}
+        <Tabs
+          value={tab}
+          onValueChange={(next) => setTab(next as `inbox` | `my-issues`)}
+          className="w-fit shrink-0"
+        >
+          <TabsList>
+            <TabsTrigger value="inbox" className="px-3">
+              <InboxTabIcon />
+              Inbox
+              <UnreadTabCount />
+            </TabsTrigger>
+            <TabsTrigger value="my-issues" className="px-3">
+              <MyIssuesTabIcon />
+              My Issues
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
         {tab === `inbox` ? (
           <MarkAllReadButton />
         ) : (
