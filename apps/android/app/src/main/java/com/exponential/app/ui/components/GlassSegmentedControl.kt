@@ -19,7 +19,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
@@ -43,6 +45,9 @@ fun <T> GlassSegmentedControl(
     modifier: Modifier = Modifier,
     badge: (T) -> Int = { 0 },
     leadingIcon: (@Composable (T) -> Unit)? = null,
+    // EXP-615: a 4-segment strip ("Device default" + three agents) needs the
+    // smaller face to keep every label on one line at phone widths.
+    textStyle: TextStyle? = null,
 ) {
     val capsule = RoundedCornerShape(percent = 50)
     Row(
@@ -81,9 +86,11 @@ fun <T> GlassSegmentedControl(
                 }
                 Text(
                     label(option),
-                    style = MaterialTheme.typography.labelLarge,
+                    style = textStyle ?: MaterialTheme.typography.labelLarge,
                     fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
                     color = contentColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 val count = badge(option)
                 if (count > 0) {

@@ -50,21 +50,30 @@ internal fun AgentSegmentedTabs(
 ) {
     val options = if (includeDeviceDefault) listOf(DEVICE_DEFAULT) + agents else agents
     if (options.isEmpty()) return
+    // Four segments ("Device default" + three agents) don't fit brand icons
+    // plus full labels at phone widths — drop the icons and step the face
+    // down so every label stays on one line.
+    val compact = options.size >= 4
     GlassSegmentedControl(
         options = options,
         selected = selected,
         label = { if (it.isEmpty()) DEVICE_DEFAULT_LABEL else agentLabel(it) },
         onSelect = onSelect,
         modifier = modifier,
-        leadingIcon = { value ->
-            if (value.isNotEmpty()) {
-                Icon(
-                    painterResource(agentIconRes(value)),
-                    contentDescription = null,
-                    modifier = Modifier.size(14.dp),
-                )
+        leadingIcon = if (compact) {
+            null
+        } else {
+            { value ->
+                if (value.isNotEmpty()) {
+                    Icon(
+                        painterResource(agentIconRes(value)),
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                    )
+                }
             }
         },
+        textStyle = if (compact) MaterialTheme.typography.labelMedium else null,
     )
 }
 
