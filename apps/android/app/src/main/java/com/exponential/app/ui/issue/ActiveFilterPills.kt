@@ -43,11 +43,12 @@ fun ActiveFilterPills(
     onTogglePriority: (IssuePriority) -> Unit,
     onToggleLabel: (String) -> Unit,
     onClear: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     if (filters.isEmpty) return
     val labelsById = remember(labels) { labels.associateBy { it.id } }
     FlowRow(
-        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+        modifier = modifier.fillMaxWidth().padding(bottom = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {

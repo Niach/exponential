@@ -677,7 +677,11 @@ private fun IssueListContent(
     ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
+            // EXP-614: no horizontal contentPadding — the gutter rides the
+            // individual items instead, so the sticky status header's tinted
+            // band spans the full width (web/iOS parity) while the rows keep
+            // their 16dp inset.
+            contentPadding = PaddingValues(top = 4.dp, bottom = BottomBarInset),
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             // Removable pills for the active filters (the filter trigger
@@ -693,6 +697,7 @@ private fun IssueListContent(
                         onTogglePriority = viewModel::togglePriority,
                         onToggleLabel = viewModel::toggleLabel,
                         onClear = viewModel::clearFilters,
+                        modifier = Modifier.padding(horizontal = ListGutter),
                     )
                 }
             }
@@ -700,7 +705,10 @@ private fun IssueListContent(
             if (state.groups.isEmpty()) {
                 item(key = "empty") {
                     Box(
-                        modifier = Modifier.fillMaxWidth().padding(top = 64.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = ListGutter)
+                            .padding(top = 64.dp),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
@@ -798,7 +806,9 @@ private fun IssueListContent(
                                 // another group, and a filter change drops
                                 // rows out. Without this they teleport; with
                                 // it the row slides to where it landed.
-                                modifier = Modifier.animateItem(),
+                                modifier = Modifier
+                                    .animateItem()
+                                    .padding(horizontal = ListGutter),
                             )
                         }
                     }
@@ -868,7 +878,10 @@ private fun StatusHeader(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onToggle)
-            .padding(horizontal = 8.dp, vertical = 8.dp),
+            // The band itself is full-bleed (EXP-614), so the content carries
+            // the list gutter on top of the header's own 8dp inset — the
+            // glyphs stay lined up with the rows below.
+            .padding(horizontal = ListGutter + 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
@@ -1037,6 +1050,10 @@ internal fun IssueRow(
         )
     }
 }
+
+// Horizontal gutter every list item carries; the sticky status header band is
+// deliberately NOT inset by it (EXP-614).
+private val ListGutter = 16.dp
 
 /**
  * Floor for an issue row's content height (excludes the row's own vertical
