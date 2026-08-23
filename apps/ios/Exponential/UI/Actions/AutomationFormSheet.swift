@@ -114,7 +114,7 @@ struct AutomationFormSheet: View {
         .onChange(of: devices.count) {
             // The machine pool can arrive after the sheet does — bind and seed
             // the agent as soon as it lands.
-            if deviceId.isEmpty { deviceId = devices.first?.deviceId ?? "" }
+            if deviceId.isEmpty { deviceId = defaultDeviceId }
             seedAgentFromDevice()
         }
         .task {
@@ -205,8 +205,14 @@ struct AutomationFormSheet: View {
             draft = AutomationDraft(trigger: editing.parsedTrigger)
         }
         if actionId.isEmpty { actionId = eligibleActions.first?.id ?? "" }
-        if deviceId.isEmpty { deviceId = devices.first?.deviceId ?? "" }
+        if deviceId.isEmpty { deviceId = defaultDeviceId }
         seedAgentFromDevice()
+    }
+
+    /// EXP-622: seed the binding to the caller's default machine when it is
+    /// one of the automation-capable candidates, else the first of them.
+    private var defaultDeviceId: String {
+        (devices.first(where: \.isDefaultDevice) ?? devices.first)?.deviceId ?? ""
     }
 
     private func submit() {

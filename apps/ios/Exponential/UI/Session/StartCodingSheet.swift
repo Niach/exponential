@@ -273,6 +273,10 @@ struct StartCodingSheet: View {
         if let preferredDeviceId, let match = candidateDevices.first(where: { $0.deviceId == preferredDeviceId }) {
             return match
         }
+        // EXP-622: the caller's default machine, when it is still a candidate.
+        if let match = candidateDevices.first(where: \.isDefaultDevice) {
+            return match
+        }
         return candidateDevices.first
     }
 

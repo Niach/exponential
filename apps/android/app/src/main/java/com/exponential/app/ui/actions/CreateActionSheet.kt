@@ -115,7 +115,9 @@ fun CreateActionSheet(
     // manual re-pick sticks (the draft already carries a deviceId then).
     LaunchedEffect(automationDevices) {
         if (automation.deviceId != null) return@LaunchedEffect
-        automationDevices.firstOrNull()?.let { automation = automation.copy(deviceId = it.deviceId) }
+        // EXP-622: the caller's default machine, else the first candidate.
+        (automationDevices.firstOrNull { it.isDefault } ?: automationDevices.firstOrNull())
+            ?.let { automation = automation.copy(deviceId = it.deviceId) }
     }
 
     // ── The creator run's machine + options (EXP-437 seeding) ────────────────
@@ -126,7 +128,10 @@ fun CreateActionSheet(
             it.online && it.hasRunnableAgent && it.canRunActions && it.canRunActionInputs
         }
     }
-    val initialDevice = remember { candidates.firstOrNull() }
+    val initialDevice = remember {
+        // EXP-622: the caller's default machine, else the first candidate.
+        candidates.firstOrNull { it.isDefault } ?: candidates.firstOrNull()
+    }
     val initialAgent = remember { defaultAgentFor(initialDevice) }
     val initialSeed = remember { agentSeed(initialDevice, initialAgent) }
 
@@ -138,7 +143,9 @@ fun CreateActionSheet(
     var planMode by remember { mutableStateOf(initialSeed.planMode) }
     var skipPermissions by remember { mutableStateOf(initialSeed.skipPermissions) }
 
-    val device = candidates.firstOrNull { it.deviceId == deviceId } ?: candidates.firstOrNull()
+    val device = candidates.firstOrNull { it.deviceId == deviceId }
+        ?: candidates.firstOrNull { it.isDefault }
+        ?: candidates.firstOrNull()
     val availableAgents = availableAgentsFor(device)
 
     fun applyAgentSeed(next: String) {

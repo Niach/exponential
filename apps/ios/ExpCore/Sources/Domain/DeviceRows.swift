@@ -85,6 +85,9 @@ public extension SteerDevice {
             updateBlocked: entity.updateRequestedAt != nil && entity.activeSessions > 0,
             sharedTeamId: entity.sharedTeamId,
             owner: mine ? nil : DeviceOwner(id: entity.userId, name: ownerName ?? entity.userId),
+            // EXP-622: a default belongs to the row's OWNER — never surface a
+            // teammate's shared server as the caller's default.
+            isDefault: mine && entity.isDefault,
             launchDefaults: Self.decodeLaunchDefaults(entity.launchDefaults),
             rowId: entity.id
         )

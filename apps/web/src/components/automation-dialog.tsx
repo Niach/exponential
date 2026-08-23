@@ -8,6 +8,7 @@ import { isBuiltinActionId } from "@/lib/builtin-actions"
 import { parseAutomationTrigger } from "@/lib/action-triggers"
 import { getActionIcon } from "@/lib/board-icons"
 import {
+  defaultDeviceId,
   deviceAgentIds,
   deviceDefaultAgent,
   type SteerDevice,
@@ -102,7 +103,13 @@ export function AutomationDialog({
         automation ? parseAutomationTrigger(automation.trigger) : null
       )
     )
-    setDeviceId(automation?.deviceId ?? capableDevices[0]?.deviceId ?? null)
+    setDeviceId(
+      automation?.deviceId ??
+        // EXP-622: the caller's default machine, else the first capable one.
+        defaultDeviceId(capableDevices) ??
+        capableDevices[0]?.deviceId ??
+        null
+    )
     setAgent(automation?.agent ?? ``)
     setModel(automation?.model ?? ``)
     setEffort(automation?.effort ?? ``)

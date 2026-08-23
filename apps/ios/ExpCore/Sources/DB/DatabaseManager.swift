@@ -1039,6 +1039,27 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v21 (EXP-622 default device): `devices.is_default` — the owner's
+        // default machine, which every device picker prefills. Rides the
+        // existing devices shape, so the offset reset re-snapshots the rows
+        // already stored without it (the v19/v20 precedent).
+        migrator.registerMigration("v21_device_is_default") { db in
+            guard try db.tableExists("devices") else { return }
+            let existing = Set(try db.columns(in: "devices").map(\.name))
+            if !existing.contains("is_default") {
+                try db.alter(table: "devices") { t in
+                    t.add(column: "is_default", .boolean).notNull().defaults(to: false)
+                }
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'devices'
+                    """)
+            }
+        }
+
         return migrator
     }
 

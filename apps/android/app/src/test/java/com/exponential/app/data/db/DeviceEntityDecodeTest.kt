@@ -100,6 +100,27 @@ class DeviceEntityDecodeTest {
         assertEquals(3, entity.activeSessions)
     }
 
+    // EXP-622: Electric delivers booleans as Postgres text ("t"/"f") on some
+    // paths — is_default rides the PgBool serializer like busy/needs_input.
+    @Test
+    fun `is_default decodes from a Postgres text boolean and defaults to false`() {
+        fun row(extra: String) =
+            """{"id": "row-1", "user_id": "u", "device_id": "d"$extra}"""
+        assertTrue(
+            json.decodeFromString(
+                DeviceEntity.serializer(),
+                row(", \"is_default\": \"t\""),
+            ).isDefault,
+        )
+        assertTrue(
+            json.decodeFromString(
+                DeviceEntity.serializer(),
+                row(", \"isDefault\": true"),
+            ).isDefault,
+        )
+        assertFalse(json.decodeFromString(DeviceEntity.serializer(), row("")).isDefault)
+    }
+
     @Test
     fun `worktree row decodes with Postgres text booleans and absent optionals`() {
         val row = """

@@ -874,6 +874,12 @@ export const devices = pgTable(
     sharedTeamId: uuid(`shared_team_id`).references(() => teams.id, {
       onDelete: `set null`,
     }),
+    // EXP-622: the OWNER's default machine — the one every device picker
+    // prefills when several are candidates. At most one true row per user
+    // (`devices.setDefault` clears the others in the same transaction).
+    // Meaningless to a teammate reading a SHARED row: it is the owner's
+    // preference, so clients honour the flag only on their own rows.
+    isDefault: boolean(`is_default`).notNull().default(false),
     // EXP-481: agents installed but signed out — persisted mirror of the
     // EXP-409 live advertisement, refreshed on register, so offline rows can
     // still explain themselves.

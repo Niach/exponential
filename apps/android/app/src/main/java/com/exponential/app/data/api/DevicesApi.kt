@@ -46,6 +46,13 @@ private data class RenameDeviceInput(
     @SerialName("label") val label: String,
 )
 
+/** `devices.setDefault` (EXP-622) — flag/unflag the caller's default machine. */
+@Serializable
+private data class SetDefaultInput(
+    @SerialName("deviceId") val deviceId: String,
+    @SerialName("isDefault") val isDefault: Boolean,
+)
+
 /** `devices.createCommand`'s answer — the queued row's id, for [DevicesApi.getCommand] polling. */
 @Serializable
 data class CreatedCommand(@SerialName("id") val id: String)
@@ -109,6 +116,21 @@ class DevicesApi @Inject constructor(private val trpc: TrpcClient) {
             path = "devices.rename",
             input = RenameDeviceInput(deviceId = deviceId, label = label),
             inputSerializer = RenameDeviceInput.serializer(),
+        )
+    }
+
+    /**
+     * `devices.setDefault` (EXP-622) — make this machine the caller's default,
+     * the row every device picker prefills. The server clears the flag on the
+     * caller's other machines in the same transaction, so the result arrives
+     * through the devices shape rather than this response.
+     */
+    suspend fun setDefault(accountId: String, deviceId: String, isDefault: Boolean) {
+        trpc.mutationUnit(
+            accountId,
+            path = "devices.setDefault",
+            input = SetDefaultInput(deviceId = deviceId, isDefault = isDefault),
+            inputSerializer = SetDefaultInput.serializer(),
         )
     }
 

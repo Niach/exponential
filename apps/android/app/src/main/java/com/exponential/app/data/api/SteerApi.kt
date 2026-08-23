@@ -128,6 +128,13 @@ data class SteerDevice(
     /** Set only on a TEAMMATE's shared machine — never on the caller's own. */
     @SerialName("owner") val owner: DeviceOwner? = null,
     /**
+     * EXP-622: the caller's DEFAULT machine — pickers prefill it over their
+     * first candidate. Set only on the caller's own rows: the flag lives on
+     * the device row and belongs to its owner, so a teammate's shared server
+     * never prefills off it.
+     */
+    @SerialName("isDefault") val isDefault: Boolean = false,
+    /**
      * EXP-481: the synced `devices` ROW id — joins `device_worktrees` rows.
      * Null on rows decoded from `devices.list` / relay payloads (which never
      * carry it); only the DeviceEntity → SteerDevice mapping stamps it.

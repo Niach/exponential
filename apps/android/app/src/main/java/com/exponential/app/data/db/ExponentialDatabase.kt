@@ -179,9 +179,12 @@ import androidx.room.RoomDatabase
     //      actions.trigger is dead server-side; the local column stays and is
     //      never read again. Destructive fallback wipes + resyncs all 19
     //      shapes on first launch after the update.
+    // v40 (EXP-622): devices.is_default — the owner's default machine, the row
+    //      every device picker prefills. Additive on an existing shape;
+    //      destructive fallback wipes + resyncs.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so an additive shape column just wipes and re-syncs from Electric.
-    version = 39,
+    version = 40,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

@@ -196,6 +196,7 @@ describe(`deviceIsMine`, () => {
 // EXP-481: synced-row mapping — online-ness from last_seen_at freshness.
 import {
   composeDeviceList,
+  defaultDeviceId,
   deviceCanResume,
   deviceRowIsOnline,
   resumeWorktree,
@@ -223,6 +224,7 @@ function deviceRow(overrides: Partial<Device> = {}): Device {
     launchDefaultsUpdatedAt: null,
     lastSeenAt: NOW,
     sharedTeamId: null,
+    isDefault: false,
     createdAt: NOW,
     updatedAt: NOW,
     ...overrides,
@@ -289,6 +291,42 @@ describe(`steerDeviceFromRow`, () => {
       ownerName: `Tessa`,
     })
     expect(mapped.owner).toEqual({ id: `them`, name: `Tessa` })
+  })
+
+  // EXP-622: the flag is the ROW OWNER's preference. Reading a teammate's
+  // shared server must never prefill the caller's picker with it.
+  it(`carries isDefault on an own row and drops it on a teammate's`, () => {
+    expect(
+      steerDeviceFromRow(deviceRow({ isDefault: true }), {
+        now: NOW,
+        currentUserId: `me`,
+      }).isDefault
+    ).toBe(true)
+    expect(
+      steerDeviceFromRow(deviceRow({ userId: `them`, isDefault: true }), {
+        now: NOW,
+        currentUserId: `me`,
+        ownerName: `Tessa`,
+      }).isDefault
+    ).toBe(false)
+  })
+})
+
+describe(`defaultDeviceId`, () => {
+  const candidate = (
+    deviceId: string,
+    isDefault?: boolean
+  ): SteerDevice => ({ deviceId, deviceLabel: deviceId, isDefault })
+
+  it(`prefers the flagged candidate over the first one`, () => {
+    expect(
+      defaultDeviceId([candidate(`a`), candidate(`b`, true), candidate(`c`)])
+    ).toBe(`b`)
+  })
+
+  it(`is null when nothing in the candidate list is flagged`, () => {
+    expect(defaultDeviceId([candidate(`a`), candidate(`b`, false)])).toBe(null)
+    expect(defaultDeviceId([])).toBe(null)
   })
 })
 

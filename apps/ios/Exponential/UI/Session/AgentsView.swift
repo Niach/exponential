@@ -387,6 +387,13 @@ struct AgentsView: View {
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                             .lineLimit(1)
                     }
+                    // EXP-622: the machine every device picker prefills.
+                    if device.isDefaultDevice {
+                        Text("Default")
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(TextOpacity.quaternary))
+                            .lineLimit(1)
+                    }
                     // EXP-432: a teammate's machine is attributed to its owner;
                     // one of the caller's own that is shared just says so (the
                     // share toggle itself is web-only).

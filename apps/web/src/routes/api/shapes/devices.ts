@@ -15,7 +15,10 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // sharing owner is by definition a member of the sharing team, hence inside
 // the users shape. `launch_defaults(_updated_at)`, `agents`, `caps`,
 // `unauthed_agents` sync so pickers and the device-settings view work from
-// persisted data even while the machine is offline.
+// persisted data even while the machine is offline. EXP-622: `is_default`
+// rides along so every client's picker can prefill the owner's default
+// machine — it is the OWNER's preference, so clients honour it only on rows
+// whose `user_id` is theirs.
 const DEVICE_COLUMNS = [
   `id`,
   `user_id`,
@@ -32,6 +35,7 @@ const DEVICE_COLUMNS = [
   `active_sessions`,
   `last_seen_at`,
   `shared_team_id`,
+  `is_default`,
   `update_requested_at`,
   `created_at`,
   `updated_at`,

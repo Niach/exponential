@@ -3,10 +3,12 @@ import ExpCore
 import SwiftUI
 
 // The device settings sheet (EXP-481) — Edit on a machines row opens it, the
-// iOS twin of the web/IDE device-settings dialog. Four sections, no Save
+// iOS twin of the web/IDE device-settings dialog. Five sections, no Save
 // buttons (EXP-490):
 //   Name     — devices.rename (registry-authoritative, works offline),
 //              debounced while typing and flushed on blur/submit/close.
+//   Default  — devices.setDefault (EXP-622), the machine every device picker
+//              prefills; a single toggle, written straight through.
 //   Sharing  — devices.setShared, SERVER machines only (nil clears).
 //   Defaults — the machine's SERVER-AUTHORITATIVE launch defaults
 //              (devices.setLaunchDefaults), debounced per edit. Editable while
@@ -61,6 +63,7 @@ struct DeviceSettingsSheet: View {
     @State private var namePending = false
     @State private var sharedTeamTag = DeviceSettingsSheet.notShared
     @State private var savingShare = false
+    @State private var savingDefaultDevice = false
     @State private var defaultAgent = "claude"
     @State private var selectedAgent = "claude"
     @State private var drafts: [String: AgentDraft] = [:]
@@ -98,6 +101,7 @@ struct DeviceSettingsSheet: View {
         NavigationStack {
             Form {
                 nameSection(device)
+                defaultDeviceSection(device)
                 if device.isServer {
                     sharingSection(device)
                 }
@@ -309,6 +313,42 @@ struct DeviceSettingsSheet: View {
     }
 
     // MARK: - Sharing (server machines only)
+
+    // MARK: - Default machine (EXP-622)
+
+    /// A single toggle, written straight through: the server clears the flag
+    /// on the caller's other machines, and the switch re-renders off the live
+    /// row rather than local state.
+    private func defaultDeviceSection(_ device: SteerDevice) -> some View {
+        Section {
+            Toggle(
+                "Default device",
+                isOn: Binding(
+                    get: { device.isDefaultDevice },
+                    set: { saveDefaultDevice(isDefault: $0) }
+                )
+            )
+            .disabled(savingDefaultDevice)
+        } footer: {
+            Text("Preselected whenever you start a coding session and more than one of your machines can run it.")
+        }
+        .listRowBackground(glassFormRowFill)
+    }
+
+    private func saveDefaultDevice(isDefault: Bool) {
+        savingDefaultDevice = true
+        errorMessage = nil
+        Task {
+            do {
+                try await deps.devicesApi.setDefault(
+                    accountId: accountId, deviceId: deviceId, isDefault: isDefault
+                )
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            savingDefaultDevice = false
+        }
+    }
 
     private func sharingSection(_ device: SteerDevice) -> some View {
         Section {

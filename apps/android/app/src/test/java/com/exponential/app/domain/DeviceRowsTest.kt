@@ -81,6 +81,21 @@ class DeviceRowsTest {
         assertFalse(device.isMine)
     }
 
+    // EXP-622: the flag is the ROW OWNER's preference — reading a teammate's
+    // shared server must never prefill the caller's picker with it.
+    @Test
+    fun `isDefault survives on an own row and is dropped on a teammate's`() {
+        assertTrue(
+            entity { copy(isDefault = true) }
+                .toSteerDevice(nowMs, currentUserId = "me").isDefault,
+        )
+        assertFalse(
+            entity { copy(userId = "them", isDefault = true) }
+                .toSteerDevice(nowMs, currentUserId = "me", ownerName = "Danny").isDefault,
+        )
+        assertFalse(entity().toSteerDevice(nowMs, currentUserId = "me").isDefault)
+    }
+
     @Test
     fun `malformed jsonb degrades field-wise, never drops the row`() {
         val device = entity {

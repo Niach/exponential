@@ -163,6 +163,10 @@ export type DeviceListEntry = {
   // the machine — it applies once they close, and the rows say "Update
   // queued" instead of spinning forever.
   updateBlocked: boolean
+  // EXP-622: the caller's default machine — pickers prefill it when several
+  // are candidates. ALWAYS false on a teammate's shared row: the flag is
+  // that row owner's preference, never the caller's.
+  isDefault: boolean
 }
 
 export const devicesRouter = router({
@@ -856,6 +860,7 @@ export const devicesRouter = router({
         updateRequested: Boolean(row.updateRequestedAt),
         updateBlocked: Boolean(row.updateRequestedAt) && row.activeSessions > 0,
         sharedTeamId: row.sharedTeamId,
+        isDefault: row.isDefault,
       }
     })
 
@@ -884,6 +889,8 @@ export const devicesRouter = router({
         updateRequested: Boolean(row.updateRequestedAt),
         updateBlocked: Boolean(row.updateRequestedAt) && row.activeSessions > 0,
         sharedTeamId: row.sharedTeamId,
+        // The owner's own default, never the caller's — always false here.
+        isDefault: false,
         owner: { id: row.userId, name: ownerName },
       })
     }
@@ -1023,6 +1030,56 @@ export const devicesRouter = router({
               ne(codingSessions.status, `ended`)
             )
           )
+        return id
+      })
+      return { ok: true, txid }
+    }),
+
+  // EXP-622: mark one of the caller's OWN machines as their default — the
+  // row every device picker prefills once several machines are candidates
+  // (start coding, action runs, the automations "Runs on" binding). At most
+  // one true row per user: setting one clears the rest in the same
+  // transaction, so no client ever has to break a tie. A teammate's shared
+  // server can never be the caller's default (the flag lives on the row and
+  // belongs to its owner) — which is also why every client reads it only on
+  // rows whose `user_id` is theirs.
+  setDefault: authedProcedure
+    .input(z.object({ deviceId: deviceIdInput, isDefault: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const [row] = await ctx.db
+        .select({ id: devices.id })
+        .from(devices)
+        .where(
+          and(
+            eq(devices.userId, ctx.session.user.id),
+            eq(devices.deviceId, input.deviceId)
+          )
+        )
+        .limit(1)
+      if (!row) {
+        throw new TRPCError({ code: `NOT_FOUND`, message: `Device not found` })
+      }
+      const txid = await ctx.db.transaction(async (tx) => {
+        const id = await generateTxId(tx)
+        const now = new Date()
+        if (input.isDefault) {
+          // Already-false rows stay untouched — no needless Electric op
+          // (the setShared idiom).
+          await tx
+            .update(devices)
+            .set({ isDefault: false, updatedAt: now })
+            .where(
+              and(
+                eq(devices.userId, ctx.session.user.id),
+                ne(devices.id, row.id),
+                eq(devices.isDefault, true)
+              )
+            )
+        }
+        await tx
+          .update(devices)
+          .set({ isDefault: input.isDefault, updatedAt: now })
+          .where(eq(devices.id, row.id))
         return id
       })
       return { ok: true, txid }

@@ -473,6 +473,11 @@ data class DeviceEntity(
     // EXP-432: the ONE team this (server) machine is shared with; null = private.
     @ColumnInfo(name = "shared_team_id") @SerialName("shared_team_id") @JsonNames("sharedTeamId")
     val sharedTeamId: String? = null,
+    // EXP-622: the ROW OWNER's default machine — the one every device picker
+    // prefills. Honoured only when `user_id` is the signed-in user: a
+    // teammate's shared server carries THEIR preference, not ours.
+    @ColumnInfo(name = "is_default") @SerialName("is_default") @JsonNames("isDefault")
+    val isDefault: PgBool = false,
     // Web "Update" click pending on the daemon (cleared by its next register).
     @ColumnInfo(name = "update_requested_at") @SerialName("update_requested_at") @JsonNames("updateRequestedAt")
     val updateRequestedAt: String? = null,

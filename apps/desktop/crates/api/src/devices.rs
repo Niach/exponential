@@ -219,6 +219,10 @@ pub struct DeviceEntry {
     /// EXP-432: the team this device is shared with (`None` = private).
     #[serde(default)]
     pub shared_team_id: Option<String>,
+    /// EXP-622: the caller's default machine — always false on a teammate's
+    /// shared row (that flag is its owner's preference).
+    #[serde(default)]
+    pub is_default: bool,
     /// EXP-432: set only on teammates' shared rows — the device owner.
     #[serde(default)]
     pub owner: Option<DeviceOwner>,
@@ -300,6 +304,27 @@ pub fn set_shared(
         team_id: Option<&'a str>,
     }
     let _: OkResult = trpc.mutation("devices.setShared", &Input { device_id, team_id })?;
+    Ok(())
+}
+
+/// `devices.setDefault` (EXP-622) — mark one of the caller's OWN machines as
+/// their default, the row every device picker prefills. The server clears the
+/// flag on their other machines in the same transaction, so the result lands
+/// through the `devices` shape rather than this response.
+pub fn set_default(trpc: &TrpcClient, device_id: &str, is_default: bool) -> Result<(), ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        device_id: &'a str,
+        is_default: bool,
+    }
+    let _: OkResult = trpc.mutation(
+        "devices.setDefault",
+        &Input {
+            device_id,
+            is_default,
+        },
+    )?;
     Ok(())
 }
 

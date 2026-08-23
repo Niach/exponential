@@ -6,6 +6,7 @@
 //! | Section        | Write path                                            |
 //! |----------------|-------------------------------------------------------|
 //! | Name           | `devices.rename` (registry row — works offline)       |
+//! | Default        | `devices.setDefault` (EXP-622, own devices only)     |
 //! | Sharing        | `devices.setShared` (server-kind own devices only)    |
 //! | Agent defaults | OWN device → [`CodingHub::save_settings`] (which      |
 //! |                | pushes the server copy); REMOTE → `setLaunchDefaults` |
@@ -183,6 +184,7 @@ impl DeviceSettingsView {
                 active_sessions: None,
                 last_seen_at: None,
                 shared_team_id: None,
+                is_default: None,
                 update_requested_at: None,
                 created_at: None,
                 updated_at: None,
@@ -569,6 +571,19 @@ impl DeviceSettingsView {
         self.run_section(
             "sharing",
             move |trpc| api::devices::set_shared(trpc, &device_id, team_id.as_deref()),
+            cx,
+        );
+    }
+
+    /// EXP-622: flag/unflag this machine as the caller's default — the row
+    /// every device picker prefills. Written straight through (a single
+    /// toggle, no draft); the server clears the flag on the caller's other
+    /// machines and the switch re-renders off the row's Electric echo.
+    fn save_default(&mut self, is_default: bool, cx: &mut gpui::Context<Self>) {
+        let device_id = self.device_id.clone();
+        self.run_section(
+            "default",
+            move |trpc| api::devices::set_default(trpc, &device_id, is_default),
             cx,
         );
     }
@@ -1170,6 +1185,38 @@ impl Render for DeviceSettingsView {
             sharing_section = sharing_section.child(error);
         }
 
+        // EXP-622: the default-machine toggle — a straight-through write, so
+        // no Save button; the switch mirrors the live row.
+        let is_default = row.as_ref().and_then(|row| row.is_default).unwrap_or(false);
+        let default_busy = self.busy_section == Some("default");
+        let mut default_section = v_flex()
+            .gap_2()
+            .child(Self::section_title("Default device", cx))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(muted)
+                    .child("Preselected whenever you start a coding session and more than one of your machines can run it."),
+            )
+            .child(Self::toggle_row(
+                "device-default",
+                "Default device",
+                is_default,
+                move |this, checked, cx| this.save_default(*checked, cx),
+                cx,
+            ));
+        if default_busy {
+            default_section = default_section.child(
+                div()
+                    .text_xs()
+                    .text_color(muted)
+                    .child("Saving…"),
+            );
+        }
+        if let Some(error) = self.error_line("default", cx) {
+            default_section = default_section.child(error);
+        }
+
         let defaults_section = self.render_defaults_section(online, cx);
         let worktrees_section = self.render_worktrees_section(online, cx);
 
@@ -1177,7 +1224,8 @@ impl Render for DeviceSettingsView {
             .w_full()
             .gap_5()
             .child(div().text_sm().text_color(muted).child(SharedString::from(subtitle)))
-            .child(name_section);
+            .child(name_section)
+            .child(default_section);
         if server {
             body = body.child(sharing_section);
         }

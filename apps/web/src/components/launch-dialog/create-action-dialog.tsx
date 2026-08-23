@@ -21,6 +21,7 @@ import {
   type AutomationDraft,
 } from "@/components/automation-section"
 import {
+  defaultDeviceId,
   deviceAgentIds,
   deviceCanRunActionInputs,
   deviceCanRunActions,
@@ -178,7 +179,10 @@ export function CreateActionDialog({
     setAutomationDeviceId((current) =>
       current && automationCandidates.some((d) => d.deviceId === current)
         ? current
-        : (automationCandidates[0]?.deviceId ?? null)
+        : // EXP-622: the caller's default machine, else the first candidate.
+          (defaultDeviceId(automationCandidates) ??
+          automationCandidates[0]?.deviceId ??
+          null)
     )
   }, [open, hasAutomation, automationCandidates])
   const automationDevice = automationCandidates.find(

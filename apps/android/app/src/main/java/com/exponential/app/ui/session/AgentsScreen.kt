@@ -478,6 +478,16 @@ private fun MachineRow(
                         maxLines = 1,
                     )
                 }
+                // EXP-622: the machine every device picker prefills.
+                if (device.isDefault) {
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "Default",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        maxLines = 1,
+                    )
+                }
                 if (device.isMine && device.sharedTeamId != null) {
                     Spacer(Modifier.width(6.dp))
                     Text(

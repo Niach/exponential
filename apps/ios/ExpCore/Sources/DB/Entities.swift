@@ -1390,6 +1390,10 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Se
     public let activeSessions: Int
     public let lastSeenAt: String?
     public let sharedTeamId: String?
+    /// EXP-622: the ROW OWNER's default machine — the one every device picker
+    /// prefills. Honoured only when `userId` is the signed-in user: a
+    /// teammate's shared server carries THEIR preference, not ours.
+    public let isDefault: Bool
     public let updateRequestedAt: String?
     public let createdAt: String?
     public let updatedAt: String?
@@ -1410,6 +1414,7 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Se
         activeSessions: Int = 0,
         lastSeenAt: String? = nil,
         sharedTeamId: String? = nil,
+        isDefault: Bool = false,
         updateRequestedAt: String? = nil,
         createdAt: String? = nil,
         updatedAt: String? = nil
@@ -1429,6 +1434,7 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Se
         self.activeSessions = activeSessions
         self.lastSeenAt = lastSeenAt
         self.sharedTeamId = sharedTeamId
+        self.isDefault = isDefault
         self.updateRequestedAt = updateRequestedAt
         self.createdAt = createdAt
         self.updatedAt = updatedAt
@@ -1444,6 +1450,7 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Se
         case activeSessions = "active_sessions"
         case lastSeenAt = "last_seen_at"
         case sharedTeamId = "shared_team_id"
+        case isDefault = "is_default"
         case updateRequestedAt = "update_requested_at"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
@@ -1476,6 +1483,7 @@ extension DeviceEntity: Codable {
         activeSessions = (try? c.decodeWireInt(forKey: .activeSessions)) ?? 0
         lastSeenAt = try c.decodeIfPresent(String.self, forKey: .lastSeenAt)
         sharedTeamId = try c.decodeIfPresent(String.self, forKey: .sharedTeamId)
+        isDefault = c.decodeWireBool(forKey: .isDefault, default: false)
         updateRequestedAt = try c.decodeIfPresent(String.self, forKey: .updateRequestedAt)
         createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt)
         updatedAt = try c.decodeIfPresent(String.self, forKey: .updatedAt)

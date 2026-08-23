@@ -617,6 +617,11 @@ pub struct DeviceRow {
     pub last_seen_at: Option<String>,
     #[serde(default)]
     pub shared_team_id: Option<String>,
+    /// EXP-622: the ROW OWNER's default machine — the one every device picker
+    /// prefills. Honour it only when `user_id` is the signed-in user: a
+    /// teammate's shared server carries THEIR preference, not ours.
+    #[serde(default, deserialize_with = "tolerant_opt_bool")]
+    pub is_default: Option<bool>,
     #[serde(default)]
     pub update_requested_at: Option<String>,
     #[serde(default)]

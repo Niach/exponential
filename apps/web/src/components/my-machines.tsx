@@ -233,6 +233,14 @@ export function MyMachines({
                         v{device.version}
                       </span>
                     )}
+                    {device.isDefault && (
+                      <span
+                        className="shrink-0 rounded-sm border border-border/60 px-1 text-[10px] text-muted-foreground"
+                        title={`Your default machine — preselected when you start a coding session.`}
+                      >
+                        Default
+                      </span>
+                    )}
                     {device.sharedTeamId && (
                       <span
                         className="shrink-0 rounded-sm border border-border/60 px-1 text-[10px] text-muted-foreground"

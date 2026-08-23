@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-default-device`,
+    date: `2026-08-24`,
+    title: `Pick a default machine`,
+    summary: `Mark one of your machines as the default and every Start coding dialog preselects it instead of whichever one happens to sort first.`,
+    body: `- **One toggle**: open a machine's settings from Agents and flip "Default device". Only one of your machines can hold it, so turning it on somewhere else moves it.
+- **Prefilled everywhere**: starting a coding session, running an action and binding an automation all preselect your default whenever it can take the job. Anything else you pick still wins, and an offline default quietly steps aside for a machine that is online.
+- **Everywhere you work**: the toggle and the prefill are on web, the desktop app, iOS and Android, and the choice follows your account across all of them.
+- **Shared machines**: a teammate's shared server can still run your sessions, but only machines you own can be your default.`,
+  },
+  {
     id: `2026-08-live-sessions-stay-connected`,
     date: `2026-08-24`,
     title: `Live sessions stay connected`,
