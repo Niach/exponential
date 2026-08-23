@@ -147,7 +147,6 @@ struct AutomationTriggerForm: View {
                 label: { $0 == "schedule" ? "Schedule" : "On event" },
                 onSelect: { draft.kind = $0 }
             )
-            .accessibilityLabel("Trigger")
             .listRowBackground(Color.clear)
             .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
 

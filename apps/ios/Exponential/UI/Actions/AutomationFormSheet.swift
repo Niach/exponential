@@ -105,7 +105,8 @@ struct AutomationFormSheet: View {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { submit() }
+                    // Web-parity wording (EXP-615).
+                    Button(editing == nil ? "Create automation" : "Save changes") { submit() }
                         .disabled(!canSave)
                 }
             }

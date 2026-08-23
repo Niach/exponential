@@ -287,7 +287,6 @@ struct StartCodingSheet: View {
                             label: { $0.label },
                             onSelect: { subjectTab = $0 }
                         )
-                        .accessibilityLabel("Subject")
                     }
                     .listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))

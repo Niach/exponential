@@ -183,14 +183,21 @@ struct LaunchOptionsSection: View {
             // parity, EXP-615 — the loose pill strip that used to ride the
             // Model header is gone). A lone option is not a choice.
             if agentOptions.count > 1 {
+                // Four segments ("Device default" + three agents) don't fit
+                // brand icons plus full labels at phone widths — drop the
+                // icons and step the face down so labels stay on one line.
+                // No container accessibility label: it would merge the
+                // segment buttons into one VoiceOver element.
                 GlassSegmentedControl(
                     options: agentOptions,
                     selection: agent,
                     label: { agentSegmentLabel($0) },
-                    icon: { agentSegmentIcon($0) },
+                    icon: agentOptions.count >= 4
+                        ? { _ in nil }
+                        : { agentSegmentIcon($0) },
+                    compact: agentOptions.count >= 4,
                     onSelect: { onAgentChange($0) }
                 )
-                .accessibilityLabel("Agent")
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
             }

@@ -153,7 +153,8 @@ fun AutomationFormSheet(
                             color = MaterialTheme.colorScheme.onPrimary,
                         )
                     } else {
-                        Text(if (editing == null) "Create" else "Save")
+                        // Web-parity wording (EXP-615).
+                        Text(if (editing == null) "Create automation" else "Save changes")
                     }
                 }
             }

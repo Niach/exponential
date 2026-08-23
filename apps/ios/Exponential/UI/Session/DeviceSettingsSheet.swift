@@ -387,7 +387,6 @@ struct DeviceSettingsSheet: View {
                     label: { LaunchVocabulary.agentLabel($0) },
                     onSelect: { selectedAgent = $0 }
                 )
-                .accessibilityLabel("Agent")
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
             }
