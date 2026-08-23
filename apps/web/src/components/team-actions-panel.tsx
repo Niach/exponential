@@ -12,7 +12,7 @@ import {
   ACTION_SUGGESTIONS,
   type ActionSuggestion,
 } from "@/lib/action-suggestions"
-import { Github, LoaderCircle, Ellipsis, Pencil, Trash2 } from "lucide-react"
+import { LoaderCircle, Ellipsis, Pencil, Trash2 } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
 import { trpc } from "@/lib/trpc-client"
 import { useSteerConfig } from "@/components/agent-session"
@@ -24,7 +24,6 @@ import {
 import { LaunchDialog } from "@/components/launch-dialog/launch-dialog"
 import { CreateActionDialog } from "@/components/launch-dialog/create-action-dialog"
 import { AutomationsTab } from "@/components/automations-tab"
-import { useIsMobile } from "@/hooks/use-mobile"
 import { useRemoteStart } from "@/hooks/use-remote-start"
 import { useSession } from "@/hooks/use-session"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
@@ -108,20 +107,9 @@ function ActionMenu({
   )
 }
 
-function RepoBadge({ repoName }: { repoName: string }) {
-  return (
-    <Badge
-      variant="outline"
-      className="shrink-0 gap-1 font-mono text-[0.625rem]"
-    >
-      <Github className="h-3 w-3" />
-      {repoName}
-    </Badge>
-  )
-}
-
-// One action as a desktop-viewport card (EXP-257 command-center grid).
-function ActionCard({
+// One action as a row on every viewport (EXP-618 — native-app parity; the
+// EXP-257 desktop card grid unified onto this shape).
+function ActionRow({
   action,
   repoName,
   automationCount,
@@ -136,76 +124,6 @@ function ActionCard({
   repoName: string | undefined
   /** How many automations target this action (EXP-583) — the schedules and
    * event watchers themselves live on the Automations tab. */
-  automationCount: number
-  isOwner: boolean
-  canRun: boolean
-  runBusy: boolean
-  onRun: () => void
-  onEdit: () => void
-  onDelete: () => void
-}) {
-  const CardIcon = getActionIcon(action)
-  return (
-    <div className="flex flex-col gap-2 rounded-lg border border-glass-stroke bg-glass-row p-3">
-      <div className="flex min-w-0 items-center gap-2">
-        <CardIcon className="size-4 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">
-          {action.name}
-        </span>
-        {isOwner && !action.builtin && (
-          <ActionMenu action={action} onEdit={onEdit} onDelete={onDelete} />
-        )}
-      </div>
-      {repoName && (
-        <div className="flex">
-          <RepoBadge repoName={repoName} />
-        </div>
-      )}
-      {action.description && (
-        <p className="line-clamp-2 text-xs text-muted-foreground">
-          {action.description}
-        </p>
-      )}
-      {automationCount > 0 && (
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <ActionAutomationIcon className="size-3.5 shrink-0" />
-          <span className="truncate">
-            {`${automationCount} ${automationCount === 1 ? `automation` : `automations`}`}
-          </span>
-        </div>
-      )}
-      {canRun && (
-        <div className="mt-auto pt-1">
-          <Button
-            variant="glass"
-            size="icon"
-            disabled={runBusy}
-            onClick={onRun}
-            aria-label="Run"
-            title="Run"
-          >
-            <ActionRunIcon />
-          </Button>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// One action as a mobile-viewport row (native-app parity).
-function ActionRow({
-  action,
-  repoName,
-  automationCount,
-  isOwner,
-  canRun,
-  runBusy,
-  onRun,
-  onEdit,
-  onDelete,
-}: {
-  action: TeamAction
-  repoName: string | undefined
   automationCount: number
   isOwner: boolean
   canRun: boolean
@@ -270,22 +188,12 @@ function ActionRow({
 // Rendered after the builtin row(s) while the team has no custom actions yet
 // (EXP-431) — the create flow no longer poses as a list entry, so the empty-ish
 // list nudges toward the "New action" button's dialog instead.
-function NoCustomActionsNudge({
-  mobile = false,
-  onClick,
-}: {
-  mobile?: boolean
-  onClick: () => void
-}) {
+function NoCustomActionsNudge({ onClick }: { onClick: () => void }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={
-        mobile
-          ? `flex w-full flex-col items-start gap-1 px-1 py-3 text-left text-sm text-muted-foreground hover:text-foreground`
-          : `flex flex-col items-start gap-1 rounded-lg border border-dashed border-glass-stroke-strong p-3 text-left text-sm text-muted-foreground hover:bg-muted/50`
-      }
+      className="flex w-full flex-col items-start gap-1 rounded-md border border-dashed border-glass-stroke-strong p-3 text-left text-sm text-muted-foreground hover:bg-muted/50"
     >
       <span className="flex items-center gap-2">
         <ActionCreateIcon className="size-4 shrink-0" />
@@ -298,11 +206,11 @@ function NoCustomActionsNudge({
   )
 }
 
-// One suggestion seed as a card (EXP-530). "Use suggestion" opens the
-// create-action dialog with the description/icon prefilled — the same
-// owner+steer gate as the "New action" button, since it launches the same
-// builtin creator run.
-function SuggestionCard({
+// One suggestion seed as a row (EXP-530; rows since EXP-618 — native-app
+// parity). "Use suggestion" opens the create-action dialog with the
+// description/icon prefilled — the same owner+steer gate as the "New action"
+// button, since it launches the same builtin creator run.
+function SuggestionRow({
   suggestion,
   canUse,
   disabled,
@@ -313,36 +221,40 @@ function SuggestionCard({
   disabled: boolean
   onUse: () => void
 }) {
-  const CardIcon =
+  const RowIcon =
     BOARD_ICON_COMPONENTS[suggestion.icon as BoardIcon] ?? ActionSuggestionIcon
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-glass-stroke bg-glass-row p-3">
-      <div className="flex min-w-0 items-center gap-2">
-        <CardIcon className="size-4 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">
-          {suggestion.title}
-        </span>
-      </div>
-      <div className="flex">
-        {/* EXP-583: a seed either just authors an action, or authors it and
-            sets up the automation that runs it. */}
-        <Badge variant="outline" className="shrink-0 gap-1 text-[0.625rem]">
-          {suggestion.automation && (
-            <ActionAutomationIcon className="h-3 w-3" />
-          )}
-          {suggestion.automation ? `Action + automation` : `Action`}
-        </Badge>
-      </div>
-      <p className="text-xs text-muted-foreground">{suggestion.description}</p>
-      {canUse && (
-        <div className="mt-auto pt-1">
-          <Button variant="outline" size="sm" disabled={disabled} onClick={onUse}>
-            <ActionSuggestionIcon />
-            Use suggestion
-          </Button>
+    <GlassRow>
+      <RowIcon className="size-4 shrink-0 text-foreground/70" />
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-1.5 text-sm">
+          <span className="truncate font-medium">{suggestion.title}</span>
+          {/* EXP-583: a seed either just authors an action, or authors it and
+              sets up the automation that runs it. */}
+          <Badge variant="outline" className="shrink-0 gap-1 text-[0.625rem]">
+            {suggestion.automation && (
+              <ActionAutomationIcon className="h-3 w-3" />
+            )}
+            {suggestion.automation ? `Action + automation` : `Action`}
+          </Badge>
         </div>
+        <div className="line-clamp-3 text-xs text-muted-foreground">
+          {suggestion.description}
+        </div>
+      </div>
+      {canUse && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="shrink-0"
+          disabled={disabled}
+          onClick={onUse}
+        >
+          <ActionSuggestionIcon />
+          Use suggestion
+        </Button>
       )}
-    </div>
+    </GlassRow>
   )
 }
 
@@ -350,7 +262,6 @@ export function TeamActionsPanel({ team }: { team: Team }) {
   const { data: session } = useSession()
   const { isMember, isOwner } = useTeamPermissions(team)
   const steerConfig = useSteerConfig()
-  const isMobile = useIsMobile()
 
   const currentUserId = session?.user?.id
   const teamId = team.id
@@ -523,24 +434,10 @@ export function TeamActionsPanel({ team }: { team: Team }) {
             <div className="px-1 py-3 text-sm text-muted-foreground">
               Loading…
             </div>
-          ) : isMobile ? (
+          ) : (
             <div className="flex flex-col gap-2">
               {sortedActions.map((action) => (
                 <ActionRow key={action.id} {...actionItemProps(action)} />
-              ))}
-              {steerEnabled &&
-                isOwner &&
-                sortedActions.every((a) => a.builtin) && (
-                  <NoCustomActionsNudge
-                    mobile
-                    onClick={() => setCreateActionOpen(true)}
-                  />
-                )}
-            </div>
-          ) : (
-            <div className="grid gap-3 pt-1 sm:grid-cols-2 xl:grid-cols-3">
-              {sortedActions.map((action) => (
-                <ActionCard key={action.id} {...actionItemProps(action)} />
               ))}
               {steerEnabled &&
                 isOwner &&
@@ -564,9 +461,13 @@ export function TeamActionsPanel({ team }: { team: Team }) {
         </TabsContent>
 
         <TabsContent value="suggestions">
-          <div className="grid gap-3 pt-1 sm:grid-cols-2 xl:grid-cols-3">
+          <GlassSectionHeader
+            label="Suggestions"
+            count={ACTION_SUGGESTIONS.length}
+          />
+          <div className="flex flex-col gap-2">
             {ACTION_SUGGESTIONS.map((suggestion) => (
-              <SuggestionCard
+              <SuggestionRow
                 key={suggestion.id}
                 suggestion={suggestion}
                 canUse={steerEnabled && isOwner}
