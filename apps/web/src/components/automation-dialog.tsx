@@ -33,14 +33,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { GlassGroup, GlassPickerRow } from "@/components/ui/glass-rows"
 
 // The "New automation" / "Edit automation" form (EXP-583). Automations are
 // their own rows now, so this is a plain owner-only tRPC form: pick the
@@ -191,37 +184,42 @@ export function AutomationDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-h-[85dvh] sm:max-w-lg">
+      {/* EXP-616: a bottom sheet on mobile — the body is an ordinary
+          DialogBody, so it takes the fixed 94dvh detent's free height and
+          scrolls inside it, content anchored to the top. */}
+      <DialogContent mobileSheet className="sm:max-h-[85dvh] sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
             {editing ? `Edit automation` : `New automation`}
           </DialogTitle>
         </DialogHeader>
 
-        <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col gap-4">
-          <DialogBody className="space-y-4">
+        <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col gap-3">
+          <DialogBody className="space-y-3">
             <div className="space-y-2">
-              <Label htmlFor="automation-action">Action</Label>
-              <Select value={actionId} onValueChange={setActionId}>
-                <SelectTrigger id="automation-action" className="w-full">
-                  <SelectValue placeholder="Select an action" />
-                </SelectTrigger>
-                <SelectContent>
-                  {actionOptions.map((action) => {
+              {/* EXP-616: the grouped-form row — "Action" leads, the picked
+                  action trails. */}
+              <GlassGroup>
+                <GlassPickerRow
+                  label="Action"
+                  value={actionId}
+                  onValueChange={setActionId}
+                  placeholder="Select an action"
+                  options={actionOptions.map((action) => {
                     const ActionIcon = getActionIcon(action)
-                    return (
-                      <SelectItem
-                        key={action.id}
-                        value={action.id}
-                        disabled={hasRequiredInputs(action)}
-                      >
-                        <ActionIcon className="size-4 shrink-0" />
-                        {action.name}
-                      </SelectItem>
-                    )
+                    return {
+                      value: action.id,
+                      disabled: hasRequiredInputs(action),
+                      label: (
+                        <>
+                          <ActionIcon className="size-4 shrink-0" />
+                          {action.name}
+                        </>
+                      ),
+                    }
                   })}
-                </SelectContent>
-              </Select>
+                />
+              </GlassGroup>
               {actionOptions.length === 0 && (
                 <p className="text-xs text-muted-foreground">
                   No custom actions yet. Create one first, then automate it.

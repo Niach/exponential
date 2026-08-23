@@ -22,7 +22,6 @@ import {
   REQUIRED_INPUTS_HINT,
 } from "@/components/automation-dialog"
 import { AGENT_LABELS } from "@/components/launch-dialog/launch-options-pane"
-import { SectionLabel } from "@/components/agent-session-row"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -39,6 +38,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
 import { Switch } from "@/components/ui/switch"
 
 // The Automations tab (EXP-530; own rows since EXP-583): every synced
@@ -165,8 +165,8 @@ function AutomationRow({
   }
 
   return (
-    <div className="flex items-center gap-3 border-b border-border/30 px-3 py-2">
-      <RowIcon className="size-4 shrink-0 text-muted-foreground" />
+    <GlassRow>
+      <RowIcon className="size-4 shrink-0 text-foreground/70" />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5 text-sm">
           <span className="truncate font-medium">
@@ -216,7 +216,7 @@ function AutomationRow({
           onDelete={onDelete}
         />
       )}
-    </div>
+    </GlassRow>
   )
 }
 
@@ -324,76 +324,77 @@ export function AutomationsTab({
 
   if (actions === null) {
     return (
-      <div className="px-3 py-3 text-sm text-muted-foreground">Loading…</div>
+      <div className="px-1 py-3 text-sm text-muted-foreground">Loading…</div>
     )
   }
 
   return (
     <>
-      <div className="space-y-4">
+      <div className="space-y-6">
         <div>
-          <SectionLabel
+          <GlassSectionHeader
             label="Automations"
             count={automations.length}
             trailing={newButton}
           />
           {automations.length === 0 ? (
-            <div className="px-3 py-3 text-sm text-muted-foreground">
+            <div className="px-1 py-3 text-sm text-muted-foreground">
               No automations yet.
             </div>
           ) : (
-            automations.map((automation) => (
-              <AutomationRow
-                key={automation.id}
-                automation={automation}
-                action={actionById.get(automation.actionId)}
-                devices={devices}
-                isOwner={isOwner}
-                lastRun={lastRunByAutomation.get(automation.id)}
-                onEdit={() => {
-                  setEditing(automation)
-                  setDialogOpen(true)
-                }}
-                onDelete={() => setDeleteTarget(automation)}
-              />
-            ))
+            <div className="flex flex-col gap-2">
+              {automations.map((automation) => (
+                <AutomationRow
+                  key={automation.id}
+                  automation={automation}
+                  action={actionById.get(automation.actionId)}
+                  devices={devices}
+                  isOwner={isOwner}
+                  lastRun={lastRunByAutomation.get(automation.id)}
+                  onEdit={() => {
+                    setEditing(automation)
+                    setDialogOpen(true)
+                  }}
+                  onDelete={() => setDeleteTarget(automation)}
+                />
+              ))}
+            </div>
           )}
         </div>
 
         <div>
-          <SectionLabel
+          <GlassSectionHeader
             label="Recent automated runs"
             count={automatedRuns.length}
           />
           {automatedRuns.length === 0 ? (
-            <div className="px-3 py-3 text-sm text-muted-foreground">
+            <div className="px-1 py-3 text-sm text-muted-foreground">
               Nothing has fired yet.
             </div>
           ) : (
-            automatedRuns.slice(0, 10).map((session) => (
-              <div
-                key={session.id}
-                className="flex items-center gap-2 border-b border-border/30 px-3 py-2 text-sm"
-              >
-                <Badge
-                  variant="outline"
-                  className="shrink-0 gap-1 text-[0.625rem]"
-                >
-                  <AutomationIcon className="h-3 w-3" />
-                  Automated
-                </Badge>
-                <span className="min-w-0 flex-1 truncate">
-                  {session.actionName ??
-                    (session.actionId
-                      ? actionById.get(session.actionId)?.name
-                      : null) ??
-                    `Action`}
-                </span>
-                <span className="shrink-0 text-xs text-muted-foreground">
-                  {`${sessionStatusLabel(session.status)} · ${relativeTime(session.createdAt)}`}
-                </span>
-              </div>
-            ))
+            <div className="flex flex-col gap-2">
+              {automatedRuns.slice(0, 10).map((session) => (
+                <GlassRow key={session.id} className="gap-2 text-sm">
+                  <Badge
+                    variant="outline"
+                    className="shrink-0 gap-1 text-[0.625rem]"
+                  >
+                    <AutomationIcon className="h-3 w-3" />
+                    Automated
+                  </Badge>
+                  <span className="min-w-0 flex-1 truncate">
+                    {session.actionName ??
+                      (session.actionId
+                        ? actionById.get(session.actionId)?.name
+                        : null) ??
+                      `Action`}
+                  </span>
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    {`${sessionStatusLabel(session.status)} · ${relativeTime(session.createdAt)}`}
+                  </span>
+                </GlassRow>
+              ))}
+            </div>
           )}
         </div>
       </div>

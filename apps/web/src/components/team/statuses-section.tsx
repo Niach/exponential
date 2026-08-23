@@ -34,6 +34,7 @@ import { hexWithAlpha } from "@/lib/status-icons"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { GlassGroup } from "@/components/ui/glass-rows"
 import {
   Dialog,
   DialogBody,
@@ -199,7 +200,7 @@ function StatusRow({
   }
 
   return (
-    <div className="rounded-md border px-3 py-2">
+    <div className="rounded-md border border-glass-stroke bg-glass-row px-3 py-2">
       <div className="flex items-center gap-3">
         {isBuiltin ? (
           <StatusTile option={option} />
@@ -520,7 +521,7 @@ function CreateStatusForm({
   }
 
   return (
-    <div className="mt-2 space-y-3 rounded-md border p-3">
+    <div className="mt-2 space-y-3 rounded-md border border-glass-stroke bg-glass-row p-3">
       <Input
         value={name}
         onChange={(e) => {
@@ -646,67 +647,69 @@ function PrAutomationCard({
         <CardTitle className="text-base">PR automation</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {PR_AUTOMATION_ROWS.map(({ event, label, defaultKey }) => {
-          const statusId =
-            event === `pr_opened`
-              ? team.prOpenedStatusId
-              : team.prMergedStatusId
-          const automation =
-            event === `pr_opened`
-              ? team.prOpenedAutomation
-              : team.prMergedAutomation
-          const defaultId =
-            pickable.find((option) => option.builtinKey === defaultKey)?.id ??
-            `none`
-          const value =
-            automation === false
-              ? `none`
-              : statusId && pickable.some((option) => option.id === statusId)
-                ? statusId
-                : defaultId
+        <GlassGroup>
+          {PR_AUTOMATION_ROWS.map(({ event, label, defaultKey }) => {
+            const statusId =
+              event === `pr_opened`
+                ? team.prOpenedStatusId
+                : team.prMergedStatusId
+            const automation =
+              event === `pr_opened`
+                ? team.prOpenedAutomation
+                : team.prMergedAutomation
+            const defaultId =
+              pickable.find((option) => option.builtinKey === defaultKey)?.id ??
+              `none`
+            const value =
+              automation === false
+                ? `none`
+                : statusId && pickable.some((option) => option.id === statusId)
+                  ? statusId
+                  : defaultId
 
-          return (
-            <div
-              key={event}
-              className="flex items-center justify-between gap-3"
-            >
-              <span className="min-w-0 text-sm">{label}, move issues to</span>
-              <OptionDropdownMenu
-                value={value}
-                fallbackValue={defaultId}
-                options={menuOptions}
-                mobileTitle={label}
-                align="end"
-                onSelect={(picked) => void persist(event, picked, value)}
-                renderTrigger={(selected) => {
-                  const Icon = selected.icon
-                  return (
-                    // Fixed width so both rows' triggers line up (EXP-328) —
-                    // the label ellipsizes instead of stretching the button.
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-44 shrink-0 justify-start"
-                    >
-                      <Icon
-                        className={`h-4 w-4 ${selected.color}`}
-                        style={
-                          selected.colorHex
-                            ? { color: selected.colorHex }
-                            : undefined
-                        }
-                      />
-                      <span className="flex-1 truncate text-left">
-                        {selected.label}
-                      </span>
-                      <ChevronDown className="h-3 w-3 text-muted-foreground" />
-                    </Button>
-                  )
-                }}
-              />
-            </div>
-          )
-        })}
+            return (
+              <div
+                key={event}
+                className="flex items-center justify-between gap-3 px-4 py-3"
+              >
+                <span className="min-w-0 text-sm">{label}, move issues to</span>
+                <OptionDropdownMenu
+                  value={value}
+                  fallbackValue={defaultId}
+                  options={menuOptions}
+                  mobileTitle={label}
+                  align="end"
+                  onSelect={(picked) => void persist(event, picked, value)}
+                  renderTrigger={(selected) => {
+                    const Icon = selected.icon
+                    return (
+                      // Fixed width so both rows' triggers line up (EXP-328) —
+                      // the label ellipsizes instead of stretching the button.
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-44 shrink-0 justify-start"
+                      >
+                        <Icon
+                          className={`h-4 w-4 ${selected.color}`}
+                          style={
+                            selected.colorHex
+                              ? { color: selected.colorHex }
+                              : undefined
+                          }
+                        />
+                        <span className="flex-1 truncate text-left">
+                          {selected.label}
+                        </span>
+                        <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                      </Button>
+                    )
+                  }}
+                />
+              </div>
+            )
+          })}
+        </GlassGroup>
         {error && <p className="text-xs text-destructive">{error}</p>}
       </CardContent>
     </Card>

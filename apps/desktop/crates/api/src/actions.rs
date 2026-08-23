@@ -318,7 +318,7 @@ pub fn builtin_create_action(team_id: &str) -> Action {
                 label: "Name".to_string(),
                 input_type: "text".to_string(),
                 required: false,
-                placeholder: Some("Leave blank to let the agent name it".to_string()),
+                placeholder: Some("Name (optional)".to_string()),
             },
             ActionInput {
                 key: "repo".to_string(),
@@ -703,7 +703,7 @@ mod tests {
         assert!(!builtin.inputs[1].required);
         assert_eq!(
             builtin.inputs[1].placeholder.as_deref(),
-            Some("Leave blank to let the agent name it")
+            Some("Name (optional)")
         );
         assert_eq!(builtin.inputs[2].input_type, "repo");
         assert_eq!(builtin.inputs[3].input_type, "icon");

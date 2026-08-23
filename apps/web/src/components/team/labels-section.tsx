@@ -92,7 +92,7 @@ function LabelRow({
   }
 
   return (
-    <div className="rounded-md border px-3 py-2">
+    <div className="rounded-md border border-glass-stroke bg-glass-row px-3 py-2">
       <div className="flex items-center gap-3">
         <Popover>
           <PopoverTrigger asChild>
@@ -254,7 +254,7 @@ export function TeamLabelsSection({ teamId }: { teamId: string }) {
         </div>
 
         {creating ? (
-          <div className="mt-3 space-y-3 rounded-md border p-3">
+          <div className="mt-3 space-y-3 rounded-md border border-glass-stroke bg-glass-row p-3">
             <Input
               value={newName}
               onChange={(e) => {

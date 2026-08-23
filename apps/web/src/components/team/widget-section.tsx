@@ -187,7 +187,7 @@ export function TeamWidgetSection({ team }: { team: Team }) {
 
           <div className="space-y-2">
             {loading ? (
-              <div className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm text-muted-foreground">
+              <div className="flex items-center gap-2 rounded-md border border-glass-stroke bg-glass-row px-3 py-2 text-sm text-muted-foreground">
                 <LoaderCircle className="h-4 w-4 animate-spin" />
                 Loading widgets
               </div>
@@ -196,14 +196,14 @@ export function TeamWidgetSection({ team }: { team: Team }) {
                 {error}
               </div>
             ) : widgets.length === 0 ? (
-              <div className="rounded-md border px-3 py-2 text-sm text-muted-foreground">
+              <div className="rounded-md border border-glass-stroke bg-glass-row px-3 py-2 text-sm text-muted-foreground">
                 No widgets yet. Create one to get an embed snippet.
               </div>
             ) : (
               widgets.map((widget) => (
                 <div
                   key={widget.id}
-                  className="flex flex-col gap-3 overflow-hidden rounded-md border px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+                  className="flex flex-col gap-3 overflow-hidden rounded-md border border-glass-stroke bg-glass-row px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">

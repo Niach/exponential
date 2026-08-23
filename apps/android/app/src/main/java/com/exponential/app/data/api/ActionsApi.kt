@@ -89,7 +89,7 @@ fun builtinCreateAction(teamId: String): ActionDto = ActionDto(
             label = "Name",
             type = "text",
             required = false,
-            placeholder = "Leave blank to let the agent name it",
+            placeholder = "Name (optional)",
         ),
         ActionInputDto(
             key = "repo",

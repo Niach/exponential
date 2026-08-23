@@ -29,13 +29,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { BoardGlyph } from "@/components/board-glyph"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { GlassGroup, GlassPickerRow } from "@/components/ui/glass-rows"
+import { cn } from "@/lib/utils"
 
 // The selected action's typed input fields (EXP-257): text → plain Input,
 // repo → compact Select over the team's connected repos, board → a
@@ -51,6 +46,10 @@ import {
 // Radix Select forbids an empty-string item value; the unset optional repo
 // rides this sentinel inside the dialog only.
 const NO_REPO = `none`
+
+// EXP-616: Input/Textarea/SelectTrigger are glass on their own now; only the
+// Button-backed pickers below still need the field dress spelled out.
+const GLASS_TRIGGER = `border-glass-stroke bg-glass-row shadow-none dark:bg-glass-row`
 
 export function ActionInputFields({
   defs,
@@ -109,30 +108,27 @@ export function ActionInputFields({
           )
         }
         if (def.type === `repo`) {
+          // EXP-616: a pure single-select carries its label INSIDE the row
+          // (the iOS grouped-form shape); the free-text fields above keep
+          // their label above, where a long placeholder needs the width.
           return (
-            <div key={def.key} className="space-y-2">
-              <Label htmlFor={fieldId}>{label}</Label>
-              <Select
+            <GlassGroup key={def.key}>
+              <GlassPickerRow
+                label={label}
                 value={values[def.key] || (def.required ? `` : NO_REPO)}
                 onValueChange={(value) =>
                   onChange(def.key, value === NO_REPO ? `` : value)
                 }
-              >
-                <SelectTrigger id={fieldId} className="w-full">
-                  <SelectValue placeholder="Select a repository" />
-                </SelectTrigger>
-                <SelectContent>
-                  {!def.required && (
-                    <SelectItem value={NO_REPO}>None</SelectItem>
-                  )}
-                  {repos.map((repo) => (
-                    <SelectItem key={repo.id} value={repo.id}>
-                      {repo.fullName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+                placeholder="Select a repository"
+                options={[
+                  ...(def.required ? [] : [{ value: NO_REPO, label: `None` }]),
+                  ...repos.map((repo) => ({
+                    value: repo.id,
+                    label: repo.fullName,
+                  })),
+                ]}
+              />
+            </GlassGroup>
           )
         }
         if (def.type === `pr`) {
@@ -250,7 +246,7 @@ function PrInputField({
       <MobilePopoverTrigger asChild>
         <Button
           variant="outline"
-          className="w-full justify-start font-normal"
+          className={cn(`w-full justify-start font-normal`, GLASS_TRIGGER)}
         >
           {selected ? (
             <span className="min-w-0 truncate">{selected.label}</span>
@@ -347,7 +343,7 @@ function BoardInputField({
       <MobilePopoverTrigger asChild>
         <Button
           variant="outline"
-          className="w-full justify-start font-normal"
+          className={cn(`w-full justify-start font-normal`, GLASS_TRIGGER)}
         >
           {selected ? (
             <>

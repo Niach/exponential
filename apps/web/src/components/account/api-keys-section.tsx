@@ -162,7 +162,7 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
               here too.
             </p>
           ) : (
-            <div className="space-y-1">
+            <div className="flex flex-col gap-2">
               {keys.map((row) => {
                 const isDeviceKey = Boolean(
                   row.name?.startsWith(DEVICE_KEY_PREFIX)
@@ -170,7 +170,7 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
                 return (
                   <div
                     key={row.id}
-                    className="flex items-center gap-3 rounded-md border p-3"
+                    className="flex items-center gap-3 rounded-md border border-glass-stroke bg-glass-row p-3"
                   >
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium">

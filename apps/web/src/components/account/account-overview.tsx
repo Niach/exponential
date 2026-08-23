@@ -3,14 +3,7 @@ import { trpc } from "@/lib/trpc-client"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { getInitials } from "@/lib/utils"
 import { useSession } from "@/hooks/use-session"
-import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { GlassGroup, GlassPickerRow } from "@/components/ui/glass-rows"
 
 // `Intl.supportedValuesOf` is ES2023 — the app targets ES2022, so it is read
 // through a widened type and treated as optional at runtime too (older
@@ -82,26 +75,22 @@ export function AccountOverview({
 
       {/* EXP-369: the account's clock — the daily digest's send hour is read
           in it. Captured from the browser on first load; explicit here. */}
-      <div className="flex items-center gap-3">
-        <div className="flex-1">
-          <Label htmlFor="timezone">Timezone</Label>
-          <p className="text-xs text-muted-foreground">
+      <GlassGroup>
+        <div className="flex flex-col">
+          <GlassPickerRow
+            label="Timezone"
+            value={timezone}
+            onValueChange={handleTimezone}
+            options={timezoneOptions(timezone).map((zone) => ({
+              value: zone,
+              label: zone,
+            }))}
+          />
+          <p className="px-4 pb-3 text-xs text-foreground/50">
             Used to schedule your daily digest email.
           </p>
         </div>
-        <Select value={timezone} onValueChange={handleTimezone}>
-          <SelectTrigger id="timezone" className="w-60">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {timezoneOptions(timezone).map((zone) => (
-              <SelectItem key={zone} value={zone}>
-                {zone}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      </GlassGroup>
     </div>
   )
 }

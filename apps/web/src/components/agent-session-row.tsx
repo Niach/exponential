@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react"
 import { Link } from "@tanstack/react-router"
-import { GitMerge, LoaderCircle, MonitorPlay } from "lucide-react"
+import { GitMerge, LoaderCircle } from "lucide-react"
+import { conceptIcon } from "@/lib/icons.generated"
 import type { AgentSessionRow } from "@/hooks/use-agents-data"
 import {
   sessionDisplayState,
@@ -17,6 +18,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { GlassRow } from "@/components/ui/glass-rows"
+
+// EXP-616: the trailing bare glyph that opens the linked issue — the iOS
+// carded row's secondary destination, a cross-client concept never a raw
+// lucide import.
+const IssueDetailsIcon = conceptIcon(`ui-info`)
 
 // The live coding-session row shared by the team Agents page and the Actions
 // page (EXP-253) — extracted from routes/t/$teamSlug/agents/index.tsx so both
@@ -186,14 +193,10 @@ function SessionMergeButton({
 
 export function SessionRow({
   row,
-  canWatch,
   teamSlug,
   onOpen,
 }: {
   row: AgentSessionRow
-  /** Whether the Watch button shows at all (own session + relay on —
-   *  EXP-312: live sessions are owner-only). */
-  canWatch: boolean
   teamSlug: string
   onOpen: () => void
 }) {
@@ -211,12 +214,13 @@ export function SessionRow({
 
   // FEED-15: the native two-line row — dot | identifier + title, then the
   // parked-state label + "device · started …" byline | icon-only Merge and
-  // Watch — instead of the old four-column grid whose inline state label
-  // collided with the buttons on phones. Every row is the caller's own
-  // (EXP-312), so the byline names the machine, never the person.
+  // the bare issue-details glyph — instead of the old four-column grid whose
+  // inline state label collided with the buttons on phones. Every row is the
+  // caller's own (EXP-312), so the byline names the machine, never the person.
   return (
-    <div
-      className={`group/row flex cursor-pointer items-center gap-3 border-b border-border/30 px-3 py-2 hover:bg-muted/50 ${paused ? `opacity-60` : ``}`}
+    <GlassRow
+      interactive
+      className={paused ? `opacity-60` : undefined}
       onClick={onOpen}
       data-testid={`agent-session-${issue?.identifier ?? session.id}`}
       title={paused ? `${device.label ?? `The device`} is offline` : undefined}
@@ -226,27 +230,16 @@ export function SessionRow({
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5 text-sm">
+          {/* EXP-616: plain text — the trailing info glyph owns issue
+              navigation now (iOS parity). */}
           <span className="shrink-0 font-mono text-xs text-muted-foreground">
-            {isAction ? (
-              `Action`
-            ) : issue && board ? (
-              <Link
-                to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
-                params={{
-                  teamSlug,
-                  boardSlug: board.slug,
-                  issueIdentifier: issue.identifier,
-                }}
-                onClick={(e) => e.stopPropagation()}
-                className="hover:underline"
-              >
-                {issue.identifier}
-              </Link>
-            ) : isBatch ? (
-              `Batch`
-            ) : (
-              `—`
-            )}
+            {isAction
+              ? `Action`
+              : issue && board
+                ? issue.identifier
+                : isBatch
+                  ? `Batch`
+                  : `—`}
           </span>
           <span className="truncate font-medium">
             {isAction
@@ -281,22 +274,22 @@ export function SessionRow({
             issueId={prIssue.id}
           />
         )}
-        {canWatch && (
-          <Button
-            variant="outline"
-            size="icon"
-            className="size-8"
-            aria-label="Watch session"
-            title="Watch"
-            onClick={(e) => {
-              e.stopPropagation()
-              onOpen()
+        {issue && board && (
+          <Link
+            to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
+            params={{
+              teamSlug,
+              boardSlug: board.slug,
+              issueIdentifier: issue.identifier,
             }}
+            onClick={(e) => e.stopPropagation()}
+            aria-label="Issue details"
+            className="flex size-8 shrink-0 items-center justify-center rounded-full text-foreground/70 hover:text-foreground"
           >
-            <MonitorPlay />
-          </Button>
+            <IssueDetailsIcon className="size-4" />
+          </Link>
         )}
       </div>
-    </div>
+    </GlassRow>
   )
 }

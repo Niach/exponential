@@ -1,14 +1,12 @@
 import { MonitorOff } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+  GlassGroup,
+  GlassPickerRow,
+  GlassToggleRow,
+  type GlassPickerOption,
+} from "@/components/ui/glass-rows"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ClaudeIcon, CodexIcon, PiIcon } from "@/components/icons/brand-icons"
 import {
@@ -32,6 +30,14 @@ import type { SteerDevice } from "@/lib/steer-devices"
 // strip and selects (the agent seeds to the bound device's default launch
 // agent; blank model/effort store NULL), minus the run-time toggles — an
 // unattended run never parks on plan mode.
+// EXP-616 dresses the cluster in the iOS grouped-glass vocabulary: the agent
+// capsule stays uncarded and flush, everything else is a grouped card of
+// label-leading picker/toggle ROWS (`components/ui/glass-rows`). The "Agent"
+// label LEADS the column so it sits on the same baseline as the left half's
+// section label ("Issues"/the name field); the machine, the model and the
+// effort then share ONE card (device first), and the run-time toggles follow
+// as their own — so the caller hands its device picker over as `deviceRow` and
+// this renders it as that card's first row.
 
 export const AGENT_LABELS: Record<string, string> = {
   claude: `Claude Code`,
@@ -101,6 +107,14 @@ interface LaunchToggleProps {
 
 type AgentOptionsFieldsProps = {
   idPrefix: string
+  /**
+   * EXP-616: the caller's device picker row (a `GlassPickerRow`), rendered as
+   * the FIRST row of the model/effort card. Absent where there is nothing to
+   * pick: the device-settings defaults editor edits one machine's own
+   * defaults, and a one-machine launch has no choice to offer, so neither
+   * paints a device row at all.
+   */
+  deviceRow?: React.ReactNode
   /** `` in the automation variant = device default. */
   agent: string
   availableAgents: string[]
@@ -120,6 +134,7 @@ type AgentOptionsFieldsProps = {
 export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
   const {
     idPrefix,
+    deviceRow,
     agent,
     availableAgents,
     onAgentChange,
@@ -137,6 +152,26 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
   const modelSentinel = CLI_DEFAULT_MODEL
   const effortSentinel = CLI_DEFAULT_EFFORT
   const sentinelLabel = `CLI default`
+  const modelOptions: GlassPickerOption[] = [
+    ...(automation || agentAllowsBlankModel(agent)
+      ? [{ value: modelSentinel, label: sentinelLabel }]
+      : []),
+    ...(pinned
+      ? agentModelValues(agent).map((value) => ({
+          value,
+          label: modelLabel(value),
+        }))
+      : []),
+  ]
+  const effortOptions: GlassPickerOption[] = [
+    { value: effortSentinel, label: sentinelLabel },
+    ...(pinned
+      ? agentEffortValues(agent).map((value) => ({
+          value,
+          label: effortLabel(value),
+        }))
+      : []),
+  ]
   return (
     <>
       {availableAgents.length > 1 && (
@@ -157,68 +192,39 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
           </Tabs>
         </div>
       )}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-2">
-          <Label htmlFor={`${idPrefix}-model`}>Model</Label>
-          <Select
-            value={model === `` ? modelSentinel : model}
-            onValueChange={(value) =>
-              onModelChange(value === modelSentinel ? `` : value)
-            }
-            disabled={!pinned}
-          >
-            <SelectTrigger id={`${idPrefix}-model`} className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(automation || agentAllowsBlankModel(agent)) && (
-                <SelectItem value={modelSentinel}>{sentinelLabel}</SelectItem>
-              )}
-              {pinned &&
-                agentModelValues(agent).map((value) => (
-                  <SelectItem key={value} value={value}>
-                    {modelLabel(value)}
-                  </SelectItem>
-                ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor={`${idPrefix}-effort`}>
-            {agent === `pi`
+      {/* Where and what the agent runs with — ONE card: the machine leads,
+          model and effort follow. */}
+      <GlassGroup>
+        {deviceRow}
+        <GlassPickerRow
+          label="Model"
+          value={model === `` ? modelSentinel : model}
+          onValueChange={(value) =>
+            onModelChange(value === modelSentinel ? `` : value)
+          }
+          options={modelOptions}
+          disabled={!pinned}
+        />
+        <GlassPickerRow
+          label={
+            agent === `pi`
               ? `Thinking`
               : agent === `codex`
                 ? `Reasoning`
-                : `Effort`}
-          </Label>
-          <Select
-            value={effortValue === `` ? effortSentinel : effortValue}
-            onValueChange={(value) =>
-              onEffortChange(
-                automation && value === effortSentinel ? `` : value
-              )
-            }
-            disabled={
-              automation
-                ? !pinned
-                : toggles!.ultracode && agentSupportsUltracode(agent)
-            }
-          >
-            <SelectTrigger id={`${idPrefix}-effort`} className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={effortSentinel}>{sentinelLabel}</SelectItem>
-              {pinned &&
-                agentEffortValues(agent).map((value) => (
-                  <SelectItem key={value} value={value}>
-                    {effortLabel(value)}
-                  </SelectItem>
-                ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
+                : `Effort`
+          }
+          value={effortValue === `` ? effortSentinel : effortValue}
+          onValueChange={(value) =>
+            onEffortChange(automation && value === effortSentinel ? `` : value)
+          }
+          options={effortOptions}
+          disabled={
+            automation
+              ? !pinned
+              : toggles!.ultracode && agentSupportsUltracode(agent)
+          }
+        />
+      </GlassGroup>
       {toggles && (
         <LaunchToggles {...toggles} idPrefix={idPrefix} agent={agent} />
       )}
@@ -238,75 +244,55 @@ function LaunchToggles({
   onSkipPermissionsChange,
   resumeRow,
 }: LaunchToggleProps & { idPrefix: string; agent: string }) {
+  // EXP-616: the second grouped card — one switch row per capability,
+  // mirroring the iOS sheet's toggles section. The guard stays outside it so
+  // an agent with no applicable capability paints no empty card.
   return (
     <>
       {(resumeRow ||
         agentSupportsUltracode(agent) ||
         (agentSupportsPlanMode(agent) && !planModeHidden) ||
         agentSupportsSkipPermissions(agent)) && (
-        <div className="space-y-2">
+        <GlassGroup>
           {resumeRow && (
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id={`${idPrefix}-resume`}
-                  checked={resumeRow.checked}
-                  onCheckedChange={(value) =>
-                    resumeRow.onChange(value === true)
-                  }
-                />
-                <Label htmlFor={`${idPrefix}-resume`} className="font-normal">
-                  Resume previous session
-                </Label>
-              </div>
-              <p className="flex items-center gap-1 pl-6 text-xs text-muted-foreground">
-                <ResumeBranchIcon className="size-3 shrink-0" />A worktree for{` `}
-                {resumeRow.identifier} already exists ({resumeRow.branch}).
-              </p>
-            </div>
+            <GlassToggleRow
+              id={`${idPrefix}-resume`}
+              label="Resume previous session"
+              checked={resumeRow.checked}
+              onCheckedChange={resumeRow.onChange}
+              description={
+                <span className="flex items-center gap-1">
+                  <ResumeBranchIcon className="size-3 shrink-0" />
+                  {`A worktree for ${resumeRow.identifier} already exists (${resumeRow.branch}).`}
+                </span>
+              }
+            />
           )}
           {agentSupportsUltracode(agent) && (
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id={`${idPrefix}-ultracode`}
-                checked={ultracode}
-                onCheckedChange={(value) => onUltracodeChange(value === true)}
-              />
-              <Label htmlFor={`${idPrefix}-ultracode`} className="font-normal">
-                Dynamic workflows (ultracode)
-              </Label>
-            </div>
+            <GlassToggleRow
+              id={`${idPrefix}-ultracode`}
+              label="Dynamic workflows (ultracode)"
+              checked={ultracode}
+              onCheckedChange={onUltracodeChange}
+            />
           )}
           {agentSupportsPlanMode(agent) && !planModeHidden && (
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id={`${idPrefix}-plan-mode`}
-                checked={planMode}
-                onCheckedChange={(value) => onPlanModeChange(value === true)}
-              />
-              <Label htmlFor={`${idPrefix}-plan-mode`} className="font-normal">
-                Plan mode
-              </Label>
-            </div>
+            <GlassToggleRow
+              id={`${idPrefix}-plan-mode`}
+              label="Plan mode"
+              checked={planMode}
+              onCheckedChange={onPlanModeChange}
+            />
           )}
           {agentSupportsSkipPermissions(agent) && (
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id={`${idPrefix}-skip-permissions`}
-                checked={skipPermissions}
-                onCheckedChange={(value) =>
-                  onSkipPermissionsChange(value === true)
-                }
-              />
-              <Label
-                htmlFor={`${idPrefix}-skip-permissions`}
-                className="font-normal"
-              >
-                Skip permissions
-              </Label>
-            </div>
+            <GlassToggleRow
+              id={`${idPrefix}-skip-permissions`}
+              label="Skip permissions"
+              checked={skipPermissions}
+              onCheckedChange={onSkipPermissionsChange}
+            />
           )}
-        </div>
+        </GlassGroup>
       )}
     </>
   )
@@ -370,29 +356,27 @@ export function LaunchOptionsPane({
 
   return (
     <div className="flex shrink-0 flex-col gap-3 sm:min-h-0 sm:shrink sm:overflow-y-auto">
-      {devices.length > 1 && (
-        <div className="space-y-2">
-          {/* EXP-615: "Device", byte-identical on all four clients — a
-              machine here can equally be a headless CLI daemon. */}
-          <Label htmlFor="start-coding-device">Device</Label>
-          <Select value={device?.deviceId ?? ``} onValueChange={onDeviceChange}>
-            <SelectTrigger id="start-coding-device" className="w-full">
-              <SelectValue placeholder="Select a device" />
-            </SelectTrigger>
-            <SelectContent>
-              {devices.map((candidate) => (
-                <SelectItem key={candidate.deviceId} value={candidate.deviceId}>
-                  {candidate.deviceLabel || candidate.deviceId}
-                  {/* EXP-432: teammates' shared servers carry their owner. */}
-                  {candidate.owner ? ` — ${candidate.owner.name}` : ``}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      )}
       <AgentOptionsFields
         idPrefix="start-coding"
+        deviceRow={
+          devices.length > 1 ? (
+            /* EXP-615: "Device", byte-identical on all four clients — a
+               machine here can equally be a headless CLI daemon. */
+            <GlassPickerRow
+              label="Device"
+              value={device?.deviceId ?? ``}
+              onValueChange={onDeviceChange}
+              placeholder="Select a device"
+              options={devices.map((candidate) => ({
+                value: candidate.deviceId,
+                // EXP-432: teammates' shared servers carry their owner.
+                label: `${candidate.deviceLabel || candidate.deviceId}${
+                  candidate.owner ? ` — ${candidate.owner.name}` : ``
+                }`,
+              }))}
+            />
+          ) : null
+        }
         agent={agent}
         availableAgents={availableAgents}
         onAgentChange={onAgentChange}

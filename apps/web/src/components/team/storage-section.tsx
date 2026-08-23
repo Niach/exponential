@@ -219,7 +219,7 @@ export function TeamStorageSection({
           ) : (
             // IDE-parity flex rows (EXP-316) — the old fixed table overflowed
             // the settings column and clipped the status + delete controls.
-            <ul className="flex flex-col gap-1">
+            <ul className="flex flex-col gap-2">
               {rows.map((row) => {
                 const Icon = getAttachmentIcon(row.contentType)
                 const issue = issuesById.get(row.issueId)
@@ -233,7 +233,7 @@ export function TeamStorageSection({
                 return (
                   <li
                     key={row.id}
-                    className="flex min-w-0 items-center gap-2 rounded-md border px-2 py-1.5"
+                    className="flex min-w-0 items-center gap-2 rounded-md border border-glass-stroke bg-glass-row px-2 py-1.5"
                   >
                     <Icon className="size-4 shrink-0 text-muted-foreground" />
                     {row.isImage ? (

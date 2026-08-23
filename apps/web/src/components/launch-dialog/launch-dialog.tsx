@@ -505,16 +505,22 @@ export function LaunchDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* The header/tabs/footer stay anchored (the ui/dialog base is a flex
           column) while only the BODY takes the height budget — it is the
-          flex-1 min-h-0 row. On mobile the dialog is a full-screen page
-          (EXP-255 — the ui/dialog base) and the body stacks vertically,
+          flex-1 min-h-0 row. On mobile the dialog is a bottom sheet
+          (EXP-616 — `mobileSheet` on the ui/dialog base: a fixed 94dvh
+          detent) and the body stacks vertically,
           scrolling as one region; from `sm` up the body splits into two
           columns — issue/action picker left, launch options right — where
           ONLY the picker list scrolls, so the dialog never shows nested
           scrollbars.
           EXP-615: from `sm` up the panel takes a FIXED height (the Actions
           tab's natural one) so switching Issues/Actions/Chat never resizes the
-          dialog under the pointer; mobile keeps the full-screen page. */}
-      <DialogContent className="gap-3 sm:h-[min(85dvh,34rem)] sm:max-h-[85dvh] sm:max-w-3xl">
+          dialog under the pointer; the mobile sheet takes the base detent
+          (every pane is `shrink-0` with its own capped list there, so the body
+          scrolls as one region anchored to the top). */}
+      <DialogContent
+        mobileSheet
+        className="gap-3 sm:h-[min(85dvh,36rem)] sm:max-h-[85dvh] sm:max-w-3xl"
+      >
         <DialogHeader>
           <DialogTitle>
             {tab === `actions`

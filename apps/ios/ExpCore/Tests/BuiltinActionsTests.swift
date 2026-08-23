@@ -49,7 +49,7 @@ final class BuiltinActionsTests: XCTestCase {
         XCTAssertEqual(name.label, "Name")
         XCTAssertEqual(name.type, "text")
         XCTAssertFalse(name.isRequired)
-        XCTAssertEqual(name.placeholder, "Leave blank to let the agent name it")
+        XCTAssertEqual(name.placeholder, "Name (optional)")
     }
 
     func testChatCapabilityIsCapGated() {

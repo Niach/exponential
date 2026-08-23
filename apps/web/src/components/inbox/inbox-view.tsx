@@ -76,6 +76,10 @@ type Group = IssueGroup | SupportGroup
 const GROUP_CAP = 100
 const GROUP_CHUNK = 200
 
+// EXP-616 — the glass row shell (ui/glass-rows.tsx GlassRow), inlined because
+// these rows ARE the <Link> and align items-start for the two-line body.
+const NOTIFICATION_ROW = `flex items-start gap-3 rounded-md border border-glass-stroke bg-glass-row px-3 py-2 transition-colors duration-fast hover:bg-glass-active/50`
+
 // Single Linear-style activity stream: one row per issue group, showing the
 // latest notification's sentence (titles are already full human sentences —
 // no composition, no actor avatar). Reviewing open PRs moved to the
@@ -215,7 +219,9 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
 
   return (
     <div className="mx-auto flex h-full w-full max-w-3xl flex-col px-4 py-4">
-      <div className={`flex-1 space-y-2 overflow-y-auto ${TAB_BAR_CLEARANCE}`}>
+      <div
+        className={`flex flex-1 flex-col gap-2 overflow-y-auto ${TAB_BAR_CLEARANCE}`}
+      >
         {groups.length === 0 ? (
           <EmptyState
             icon={CircleCheck}
@@ -233,7 +239,7 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
                   params={{ teamSlug: g.teamSlug ?? teamSlug }}
                   onClick={() => void markGroupRead(g)}
                   className={cn(
-                    `flex items-start gap-3 rounded-md border px-3 py-2 transition-colors hover:bg-accent/50`,
+                    NOTIFICATION_ROW,
                     g.unread === 0 && `opacity-60`
                   )}
                 >
@@ -280,10 +286,7 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
                   issueIdentifier: g.issue.identifier,
                 }}
                 onClick={() => void markGroupRead(g)}
-                className={cn(
-                  `flex items-start gap-3 rounded-md border px-3 py-2 transition-colors hover:bg-accent/50`,
-                  g.unread === 0 && `opacity-60`
-                )}
+                className={cn(NOTIFICATION_ROW, g.unread === 0 && `opacity-60`)}
               >
                 <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
                   <Icon className="h-3.5 w-3.5 text-muted-foreground" />

@@ -63,10 +63,12 @@ export function ActionsPane({
           value={search}
           onChange={(e) => onSearchChange(e.target.value)}
           placeholder="Search actions…"
-          className="h-9 pl-8"
+          // The glass dress is the stock Input's own (EXP-616); only the
+          // leading room for the search glyph is local.
+          className="h-9 rounded-md pl-8"
         />
       </div>
-      <div className="max-h-44 overflow-y-auto rounded-md border border-border sm:max-h-none sm:min-h-32 sm:flex-1">
+      <div className="max-h-44 overflow-y-auto rounded-lg border-0 bg-glass-row sm:max-h-none sm:min-h-32 sm:flex-1">
         {actions === null ? (
           <div className="px-3 py-6 text-center text-xs text-muted-foreground">
             Loading…
@@ -92,8 +94,8 @@ export function ActionsPane({
                   }
                 }}
                 className={cn(
-                  `flex cursor-pointer items-center gap-2 border-b border-border/30 px-3 py-2 last:border-b-0`,
-                  selected ? `bg-muted` : `hover:bg-muted/50`
+                  `flex cursor-pointer items-center gap-2 border-b border-glass-stroke px-3 py-2 last:border-b-0`,
+                  selected ? `bg-glass-active` : `hover:bg-glass-active/50`
                 )}
               >
                 <RowIcon className="size-4 shrink-0 text-muted-foreground" />
