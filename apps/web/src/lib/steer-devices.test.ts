@@ -298,7 +298,7 @@ describe(`composeDeviceList`, () => {
     [`them`, { id: `them`, name: `Tessa` }],
   ])
 
-  it(`orders own rows by last seen desc, then this team's shared servers`, () => {
+  it(`orders own rows online-first, then this team's shared servers`, () => {
     const rows = [
       deviceRow({
         id: `r-old`,
@@ -316,6 +316,50 @@ describe(`composeDeviceList`, () => {
     const list = composeDeviceList(rows, users, NOW, `me`, `team-1`)
     expect(list.map((d) => d.deviceId)).toEqual([`d-new`, `d-old`, `d-shared`])
     expect(list[2]?.owner).toEqual({ id: `them`, name: `Tessa` })
+  })
+
+  it(`EXP-623: online rows sort by label so heartbeats can't reorder them`, () => {
+    const rows = [
+      deviceRow({
+        id: `r-z`,
+        deviceId: `d-z`,
+        label: `Zeta`,
+        // Freshest beat — would lead under last-seen ordering.
+        lastSeenAt: NOW,
+      }),
+      deviceRow({
+        id: `r-a`,
+        deviceId: `d-a`,
+        label: `alpha`,
+        lastSeenAt: new Date(NOW.getTime() - 80_000),
+      }),
+    ]
+    const list = composeDeviceList(rows, users, NOW, `me`)
+    expect(list.map((d) => d.deviceId)).toEqual([`d-a`, `d-z`])
+  })
+
+  it(`EXP-623: offline rows sort below online ones, most recently seen first`, () => {
+    const rows = [
+      deviceRow({
+        id: `r-off-old`,
+        deviceId: `d-off-old`,
+        label: `aaa`,
+        lastSeenAt: new Date(NOW.getTime() - 2 * 60 * 60_000),
+      }),
+      deviceRow({
+        id: `r-off-new`,
+        deviceId: `d-off-new`,
+        label: `zzz`,
+        lastSeenAt: new Date(NOW.getTime() - 10 * 60_000),
+      }),
+      deviceRow({ id: `r-on`, deviceId: `d-on`, label: `mid` }),
+    ]
+    const list = composeDeviceList(rows, users, NOW, `me`)
+    expect(list.map((d) => d.deviceId)).toEqual([
+      `d-on`,
+      `d-off-new`,
+      `d-off-old`,
+    ])
   })
 
   it(`drops other teams' shares, desktop shares, and everything shared without a teamId`, () => {

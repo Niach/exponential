@@ -20,6 +20,7 @@ import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssueStatusCategory
 import com.exponential.app.domain.IssueStatusResolver
+import com.exponential.app.domain.stableDeviceOrder
 import com.exponential.app.domain.toSteerDevice
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -160,7 +161,9 @@ class StartCodingSheetViewModel @Inject constructor(
         DeviceLiveness.ticker(),
         auth.userId,
     ) { rows, nowMs, userId ->
-        rows.map { it.toSteerDevice(nowMs, userId) }.filter { it.canRunAutomations }
+        rows.sortedWith(stableDeviceOrder(nowMs))
+            .map { it.toSteerDevice(nowMs, userId) }
+            .filter { it.canRunAutomations }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The team repo registry — options for `repo`-typed inputs (failure = empty). */

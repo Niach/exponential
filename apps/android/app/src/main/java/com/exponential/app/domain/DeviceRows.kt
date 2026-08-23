@@ -49,6 +49,24 @@ object DeviceLiveness {
     }
 }
 
+/**
+ * EXP-623: stable device-list order — online machines first, sorted by label
+ * so heartbeats can't reorder them; offline rows don't beat, so last-seen
+ * desc is stable there. Ties break on deviceId.
+ */
+fun stableDeviceOrder(nowMs: Long): Comparator<DeviceEntity> = Comparator { a, b ->
+    val aOnline = DeviceLiveness.isOnline(a.lastSeenAt, nowMs)
+    val bOnline = DeviceLiveness.isOnline(b.lastSeenAt, nowMs)
+    if (aOnline != bOnline) return@Comparator if (aOnline) -1 else 1
+    if (!aOnline) {
+        // ISO stamps order lexicographically — desc = most recent first.
+        val byLastSeen = (b.lastSeenAt ?: "").compareTo(a.lastSeenAt ?: "")
+        if (byLastSeen != 0) return@Comparator byLastSeen
+    }
+    val byLabel = a.label.lowercase().compareTo(b.label.lowercase())
+    if (byLabel != 0) byLabel else a.deviceId.compareTo(b.deviceId)
+}
+
 /** A stored jsonb string array (`agents`, `caps`, …) → its list; null/bad = null. */
 private fun parseStringList(raw: String?): List<String>? =
     raw?.let {
