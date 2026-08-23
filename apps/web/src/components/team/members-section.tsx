@@ -126,7 +126,7 @@ export function TeamMembersSection({
             return (
               <div
                 key={member.id}
-                className="flex items-center justify-between gap-2 rounded-md border px-3 py-2"
+                className="flex items-center justify-between gap-2 rounded-md border border-glass-stroke bg-glass-row px-3 py-2"
               >
                 <div className="flex min-w-0 items-center gap-3">
                   <Avatar className="h-8 w-8 shrink-0">
@@ -458,7 +458,7 @@ function InviteControls({ teamId }: { teamId: string }) {
             {invites.map((invite) => (
               <div
                 key={invite.id}
-                className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
+                className="flex items-center justify-between rounded-md border border-glass-stroke bg-glass-row px-3 py-2 text-sm"
               >
                 <div className="flex min-w-0 items-center gap-2">
                   <Badge variant="secondary">{invite.role}</Badge>

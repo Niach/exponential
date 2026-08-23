@@ -34,6 +34,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { GlassGroup } from "@/components/ui/glass-rows"
 import {
   Command,
   CommandEmpty,
@@ -306,11 +307,11 @@ export function TeamRepositoriesSection({
           )}
 
           {count === 0 ? (
-            <div className="rounded-md border px-3 py-2 text-sm text-muted-foreground">
+            <div className="rounded-md border border-glass-stroke bg-glass-row px-3 py-2 text-sm text-muted-foreground">
               No repositories connected yet.
             </div>
           ) : (
-            <div className="divide-y rounded-md border">
+            <GlassGroup>
               {repos!.map((repo) => (
                 <RepoRow
                   key={repo.id}
@@ -334,7 +335,7 @@ export function TeamRepositoriesSection({
                   }
                 />
               ))}
-            </div>
+            </GlassGroup>
           )}
         </CardContent>
       </Card>

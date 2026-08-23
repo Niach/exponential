@@ -12,16 +12,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { Label } from "@/components/ui/label"
-import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+  GlassGroup,
+  GlassPickerRow,
+  GlassToggleRow,
+} from "@/components/ui/glass-rows"
 
 export type EmailPrefs = Awaited<
   ReturnType<typeof trpc.notifications.emailPrefs.query>
@@ -213,73 +209,55 @@ export function EmailNotificationsCard({
           </div>
         )}
 
-        <div className="space-y-3">
+        <GlassGroup>
           {TYPE_ROWS.map((row) => (
-            <div key={row.type} className="flex items-center gap-3">
-              <div className="flex-1">
-                <Label htmlFor={`type-${row.type}`}>{row.label}</Label>
-                <p className="text-xs text-muted-foreground">{row.hint}</p>
-              </div>
-              <Switch
-                id={`type-${row.type}`}
-                checked={typePrefs[row.type] !== false}
-                onCheckedChange={(next) => handleTypeToggle(row.type, next)}
-                disabled={!transportConfigured}
-              />
-            </div>
+            <GlassToggleRow
+              key={row.type}
+              id={`type-${row.type}`}
+              label={row.label}
+              description={row.hint}
+              checked={typePrefs[row.type] !== false}
+              onCheckedChange={(next) => handleTypeToggle(row.type, next)}
+              disabled={!transportConfigured}
+            />
           ))}
-        </div>
+        </GlassGroup>
 
-        <Separator />
-
-        <div className="flex items-center gap-3">
-          <div className="flex-1">
-            <Label>Delivery</Label>
-            <p className="text-xs text-muted-foreground">
+        <GlassGroup>
+          <div className="flex flex-col">
+            <GlassPickerRow
+              label="Delivery"
+              value={digest}
+              onValueChange={(next) => handleDigest(next as DigestCadence)}
+              options={[
+                { value: `off`, label: `Hourly digest` },
+                { value: `daily`, label: `Daily digest` },
+              ]}
+              disabled={!transportConfigured || !emailEnabled}
+            />
+            <p className="px-4 pb-3 text-xs text-foreground/50">
               How often the digest goes out.
             </p>
           </div>
-          <Select
-            value={digest}
-            onValueChange={(next) => handleDigest(next as DigestCadence)}
-            disabled={!transportConfigured || !emailEnabled}
-          >
-            <SelectTrigger className="w-40">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="off">Hourly digest</SelectItem>
-              <SelectItem value="daily">Daily digest</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
 
-        {digest === `daily` && (
-          <div className="flex items-center gap-3">
-            <div className="flex-1">
-              <Label>Send time</Label>
-              <p className="text-xs text-muted-foreground">
+          {digest === `daily` && (
+            <div className="flex flex-col">
+              <GlassPickerRow
+                label="Send time"
+                value={String(digestHour)}
+                onValueChange={(next) => handleDigestHour(Number(next))}
+                options={HOUR_OPTIONS.map((hour) => ({
+                  value: String(hour),
+                  label: `${hour}:00`,
+                }))}
+                disabled={!transportConfigured || !emailEnabled}
+              />
+              <p className="px-4 pb-3 text-xs text-foreground/50">
                 Full hours only, in your timezone.
               </p>
             </div>
-            <Select
-              value={String(digestHour)}
-              onValueChange={(next) => handleDigestHour(Number(next))}
-              disabled={!transportConfigured || !emailEnabled}
-            >
-              <SelectTrigger className="w-40">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {HOUR_OPTIONS.map((hour) => (
-                  <SelectItem key={hour} value={String(hour)}>
-                    {`${hour}:00`}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
+          )}
+        </GlassGroup>
       </CardContent>
     </Card>
   )

@@ -48,12 +48,15 @@ export function TeamGeneralSection({ team }: { team: Team }) {
         <CardDescription>Team name</CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
-        <div className="space-y-2">
-          <Label htmlFor="team-name">Name</Label>
+        <div className="rounded-lg bg-glass-row p-3">
+          <Label htmlFor="team-name" className="text-xs text-foreground/50">
+            Name
+          </Label>
           <Input
             id="team-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
+            className="border-0 bg-transparent px-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
           />
         </div>
 

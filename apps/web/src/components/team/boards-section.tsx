@@ -12,6 +12,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { GlassGroup } from "@/components/ui/glass-rows"
 import {
   Dialog,
   DialogContent,
@@ -121,11 +122,11 @@ export function TeamBoardsSection({
         </CardHeader>
         <CardContent>
           {boards.length === 0 ? (
-            <div className="rounded-md border px-3 py-2 text-sm text-muted-foreground">
+            <div className="rounded-md border border-glass-stroke bg-glass-row px-3 py-2 text-sm text-muted-foreground">
               No boards in this team yet.
             </div>
           ) : (
-            <div className="divide-y rounded-md border">
+            <GlassGroup>
               {boards.map((board) => {
                 const repo = board.repositoryId
                   ? repoMap.get(board.repositoryId)
@@ -134,7 +135,7 @@ export function TeamBoardsSection({
                 return (
                   <div
                     key={board.id}
-                    className="flex cursor-pointer items-center gap-3 px-3 py-2.5 transition-colors hover:bg-accent/40"
+                    className="flex cursor-pointer items-center gap-3 px-3 py-2.5 transition-colors duration-fast hover:bg-glass-active/50"
                     onClick={() => setEditTargetId(board.id)}
                   >
                     <TypeIcon
@@ -207,7 +208,7 @@ export function TeamBoardsSection({
                   </div>
                 )
               })}
-            </div>
+            </GlassGroup>
           )}
         </CardContent>
       </Card>
@@ -383,7 +384,7 @@ function ArchivedBoardsCard({
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="divide-y rounded-md border">
+        <GlassGroup>
           {archived.map((board) => {
             const TypeIcon = getBoardIcon(board)
             return (
@@ -419,7 +420,7 @@ function ArchivedBoardsCard({
               </div>
             )
           })}
-        </div>
+        </GlassGroup>
       </CardContent>
     </Card>
   )
@@ -496,7 +497,7 @@ function PendingDeletionCard({
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="divide-y rounded-md border">
+        <GlassGroup>
           {trashed.map((board) => {
             const TypeIcon = getBoardIcon(board)
             return (
@@ -532,7 +533,7 @@ function PendingDeletionCard({
               </div>
             )
           })}
-        </div>
+        </GlassGroup>
       </CardContent>
     </Card>
   )
