@@ -3,6 +3,7 @@ import { db } from "@/db/connection"
 import { issues, boards } from "@/db/schema"
 import type { PullState } from "@/lib/integrations/github-pr"
 import { fetchPullState, resolveRepoToken } from "@/lib/integrations/github-pr"
+import { resolveAppUserForGithubActor } from "@/lib/integrations/github-identity"
 import {
   applyPrClosedState,
   applyPrMergeState,
@@ -38,7 +39,9 @@ export type PrPollAction = `merge` | `close` | `reopen` | `none`
 // `closed` locally would never have its merge observed either (REV2-74).
 export function decidePrPollAction(
   localPrState: string | null,
-  state: PullState
+  // Only the transition matters here — deliberately narrower than PullState so
+  // the decision can't quietly start depending on attribution fields.
+  state: Pick<PullState, `state` | `merged`>
 ): PrPollAction {
   if (state.merged) return localPrState === `merged` ? `none` : `merge`
   if (state.state === `closed`) return localPrState === `open` ? `close` : `none`
@@ -106,6 +109,13 @@ export async function runPrPollPass(now: Date = new Date()): Promise<void> {
               prUrl: row.prUrl,
               mergedAt: new Date(),
               actorUserId: null,
+              // EXP-617: self-hosted has no webhook, so `merged_by` off the
+              // poll response is its only chance to attribute the merge — and
+              // to keep the person who pressed Merge out of their own
+              // notification.
+              githubActorUserId: await resolveAppUserForGithubActor(
+                state.mergedBy
+              ),
             })
             break
           case `close`:

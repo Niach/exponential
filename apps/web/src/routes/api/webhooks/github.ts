@@ -19,6 +19,10 @@ import {
   takePrMergeClaim,
   takePrOpenClaim,
 } from "@/lib/integrations/pr-actor-claims"
+import {
+  resolveAppUserForGithubActor,
+  type GithubActorRef,
+} from "@/lib/integrations/github-identity"
 import { invalidateRepoCacheForInstallation } from "@/lib/trpc/integrations"
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -97,10 +101,7 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
     if (event === `installation`) {
       const payload = JSON.parse(rawBody) as {
         action?: string
-        installation?: {
-          id?: number
-          account?: { login?: string; type?: string }
-        }
+        installation?: { id?: number; account?: { login?: string; type?: string } }
       }
       const installation = payload.installation
       if (!installation?.id) {
@@ -262,8 +263,15 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         merged?: boolean
         merged_at?: string | null
         head?: { ref?: string }
+        // EXP-617: the GitHub identity behind the event. `user` is the PR
+        // author, `merged_by` whoever pressed Merge; both are the App bot for
+        // anything our own server did, which is exactly why they complement
+        // the actor claims instead of competing with them.
+        user?: GithubActorRef
+        merged_by?: GithubActorRef | null
       }
       repository?: { full_name?: string }
+      sender?: GithubActorRef
     }
 
     const pr = payload.pull_request
@@ -293,8 +301,17 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         repoFullName && pr.number
           ? takePrMergeClaim(repoFullName, pr.number)
           : null
+      // EXP-617: whoever actually pressed Merge on github.com, if they have
+      // ever connected that GitHub account here. `merged_by` names the button
+      // presser; `sender` is the fallback for a payload that omits it.
+      // Resolved ONCE per delivery, like the claim. Never `pull_request.user`
+      // — a PR author absolutely wants to hear that their PR landed.
+      const githubActorUserId = await resolveAppUserForGithubActor(
+        pr.merged_by ?? payload.sender
+      )
       for (const issueId of issueIds) {
         await applyPrMergeState({
+          githubActorUserId,
           issueId,
           prUrl: htmlUrl,
           // Backfill sources for a never-linked issue (branch-parse fallback
@@ -349,8 +366,16 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
       // fires attributed with a title byte-identical to the tool's own
       // fan-out; deliver()'s dedupe window collapses the racing pair.
       const claim = takePrOpenClaim(repoFullName, headRef)
+      // EXP-617: for a PR opened OUT OF BAND (an agent running `gh` under the
+      // developer's own credentials, or the compare view on github.com) this
+      // is the only signal that names a human — our own open_pr calls carry
+      // the App bot and resolve to nobody, leaving the claim in charge.
+      const githubActorUserId = await resolveAppUserForGithubActor(
+        pr.user ?? payload.sender
+      )
       for (const issueId of issueIds) {
         await applyPrOpenedState({
+          githubActorUserId,
           issueId,
           prUrl: htmlUrl,
           prNumber: pr.number,

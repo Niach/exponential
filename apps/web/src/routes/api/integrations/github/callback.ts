@@ -10,13 +10,14 @@ import {
 import { resolveSessionUserId } from "@/lib/auth/resolve-bearer"
 import {
   exchangeGithubOAuthCode,
-  getAuthenticatedGithubLogin,
+  getAuthenticatedGithubUser,
   getUserOrgMembershipState,
   githubAppInstallUrl,
   listUserInstallationRepos,
   listUserInstallations,
   partitionControlledInstallations,
 } from "@/lib/integrations/github-app"
+import { recordGithubIdentity } from "@/lib/integrations/github-identity"
 import { mobileConnectedResponse } from "@/lib/integrations/github-return-page"
 import {
   consumeGithubSetupState,
@@ -131,8 +132,23 @@ export async function handleCallback(request: Request): Promise<Response> {
     // EXP-363: keep only installations the OAuth user controls. A null login
     // means /user itself failed — nothing is verifiable, so fail closed as a
     // transient exchange error (retry-able), not as "not the owner".
-    const viewerLogin = await getAuthenticatedGithubLogin(userToken)
-    if (!viewerLogin) return errorRedirect(`exchange`)
+    const viewer = await getAuthenticatedGithubUser(userToken)
+    if (!viewer) return errorRedirect(`exchange`)
+    const viewerLogin = viewer.login
+
+    // EXP-617: the one moment we can prove which GitHub account this app user
+    // controls. Recorded so the PR webhooks (`sender`/`merged_by`) can name
+    // and, more importantly, EXCLUDE them from notifications about their own
+    // pushes and merges on github.com. Best-effort — recordGithubIdentity
+    // swallows its own errors, and this must never fail the connect flow.
+    if (viewer.id != null) {
+      await recordGithubIdentity({
+        userId: actingUserId,
+        githubUserId: viewer.id,
+        githubLogin: viewer.login,
+      })
+    }
+
     const { controlled, orgPermissionBlocked, undeterminedIds } =
       await partitionControlledInstallations(installations, {
         viewerLogin,

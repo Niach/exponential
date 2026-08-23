@@ -113,7 +113,77 @@ export function releasePrMergeClaim(
   claims.delete(mergeKey(repoFullName, prNumber))
 }
 
+// ---------------------------------------------------------------------------
+// Agent issue activity (EXP-617)
+//
+// The claims above are PER-PR-EVENT and only exist when the PR flowed through
+// our own server. They cannot cover the reported case: an agent working a
+// session on issue A files issue B mid-session, implements it, and its PR is
+// linked to B — no coding_sessions row names B, so the actor ladder falls all
+// the way through and the ANONYMOUS fan-out reaches the very human whose agent
+// did the work (they are B's auto-subscribed creator).
+//
+// This second, coarser record answers a different question: "did a human's
+// agent credential WRITE to this issue recently?" It is deliberately
+// EXCLUSION-ONLY — it never supplies a title, because "your agent touched this
+// issue" is not evidence of who opened the PR, only evidence that notifying
+// that person about it would be telling them what they already know.
+//
+// Three properties that differ from the PR claims on purpose:
+//   - keyed on the ISSUE, not on a repo/branch/PR number, so it survives every
+//     branch-naming and session-shape mismatch;
+//   - a SET of users per issue (two people's agents may both have touched it);
+//   - PEEKED, never consumed — one record has to cover the `opened` webhook,
+//     the tool's own fan-out, and any later merge.
+// Same single-process caveat as above: a miss degrades to today's behavior.
+
+// Short on purpose. This window IS the mitigation for the one wrong-suppression
+// risk the mechanism carries (a teammate whose agent touched the issue misses a
+// PR notification someone else caused) — do not stretch it to match CLAIM_TTL_MS.
+const AGENT_ACTIVITY_TTL_MS = 30 * 60 * 1000
+
+const agentIssueActivity = new Map<string, Map<string, number>>()
+
+export function noteAgentIssueActivity(issueId: string, userId: string): void {
+  const now = Date.now()
+  for (const [key, actors] of agentIssueActivity) {
+    for (const [actorId, expiresAt] of actors) {
+      if (expiresAt <= now) actors.delete(actorId)
+    }
+    if (actors.size === 0) agentIssueActivity.delete(key)
+  }
+  const existing = agentIssueActivity.get(issueId)
+  const actors = existing ?? new Map<string, number>()
+  if (!existing) {
+    // Refresh insertion order the same way put() does, so the cap below drops
+    // the oldest issue rather than an arbitrary one.
+    while (agentIssueActivity.size >= MAX_CLAIMS) {
+      const oldest = agentIssueActivity.keys().next().value
+      if (oldest === undefined) break
+      agentIssueActivity.delete(oldest)
+    }
+    agentIssueActivity.set(issueId, actors)
+  }
+  actors.set(userId, now + AGENT_ACTIVITY_TTL_MS)
+}
+
+// Live actors for an issue. Peek, NOT take (see the header above).
+export function peekAgentIssueActors(issueId: string): string[] {
+  const actors = agentIssueActivity.get(issueId)
+  if (!actors) return []
+  const now = Date.now()
+  for (const [actorId, expiresAt] of actors) {
+    if (expiresAt <= now) actors.delete(actorId)
+  }
+  if (actors.size === 0) {
+    agentIssueActivity.delete(issueId)
+    return []
+  }
+  return [...actors.keys()]
+}
+
 // Test hook.
 export function _clearPrActorClaims(): void {
   claims.clear()
+  agentIssueActivity.clear()
 }

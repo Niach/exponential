@@ -1114,6 +1114,49 @@ export const githubInstallationRepoGrants = pgTable(
   ]
 )
 
+// GitHub account ↔ app user (SERVER-ONLY, never synced). EXP-617: the ONLY
+// way to know that the human who opened or merged a pull request ON GITHUB is
+// someone with an account here — a webhook's `sender`/`merged_by` carries a
+// GitHub identity and nothing else, so without this the PR fan-out is
+// anonymous and cannot keep the author out of their own notification.
+//
+// Written in exactly one place: the connect OAuth callback, where the code
+// exchange proves control of the account. That means a user is only mapped
+// once they have connected GitHub here; until then behaviour is the pre-617
+// one. There is deliberately NO backfill from `github_installations
+// .account_login` — resolving a historical login through `GET /users/{login}`
+// returns whoever holds that login TODAY, i.e. the squatter after a rename,
+// and would silently suppress the wrong person's notifications.
+export const githubUserIdentities = pgTable(
+  `github_user_identities`,
+  {
+    id: uuidPk(),
+    userId: text(`user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    // GitHub's NUMERIC account id — the only rename-stable key (same reasoning
+    // as repositories.installation_id). Matching is done on THIS, never on the
+    // login, whenever the payload carries one.
+    githubUserId: bigint(`github_user_id`, { mode: `number` }).notNull(),
+    // Display/debug CACHE of the login at verification time. It goes stale the
+    // moment the user renames on GitHub and is never healed; do not "helpfully"
+    // add a login fallback to the resolver when an id is present.
+    githubLogin: text(`github_login`).notNull(),
+    verifiedAt: timestamp(`verified_at`, { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    ...timestamps,
+  },
+  (table) => [
+    // Unique on the GITHUB id, not on user_id: one GitHub account must resolve
+    // to at most one app user (that is what makes exclusion safe), but one
+    // human legitimately has work and personal accounts and both should
+    // suppress their own notifications.
+    unique(`uniq_github_user_identities_github_user_id`).on(table.githubUserId),
+    index(`idx_github_user_identities_user`).on(table.userId),
+  ]
+)
+
 export const notifications = pgTable(
   `notifications`,
   {

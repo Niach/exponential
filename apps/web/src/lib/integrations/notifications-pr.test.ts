@@ -13,6 +13,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 // branch is the launcher's `exp/batch-<id8>` convention) resolves through the
 // team's most recent batch-shaped session instead; non-batch branches never
 // take that lookup, keeping out-of-band PRs anonymous.
+//
+// EXP-617 splits naming from excluding: the title still takes ONE actor, but
+// recipients are filtered by a SET that also carries the agent-activity
+// record, the mapped GitHub actor, and every consulted session's host. The
+// cases at the bottom lock that a title can stay anonymous while the people
+// behind the PR are still kept out of it — the old code could only do both or
+// neither, which is what made the reported bug possible.
 
 const h = vi.hoisted(() => ({
   // Each db.select() call consumes the next result set, in call order.
@@ -56,6 +63,10 @@ vi.mock(`@/lib/email`, () => ({
 
 import { db } from "@/db/connection"
 import { fireAndForgetPrNotify } from "@/lib/integrations/notifications"
+import {
+  _clearPrActorClaims,
+  noteAgentIssueActivity,
+} from "@/lib/integrations/pr-actor-claims"
 
 const issueMeta = {
   id: `44444444-4444-4444-8444-444444444444`,
@@ -82,6 +93,7 @@ describe(`fireAndForgetPrNotify actor attribution (EXP-463)`, () => {
     h.sendToUsers.mockClear()
     mockedDb.select.mockClear()
     mockedDb.execute.mockClear()
+    _clearPrActorClaims()
   })
 
   it(`excludes an explicit actor and names them in the title`, async () => {
@@ -116,7 +128,7 @@ describe(`fireAndForgetPrNotify actor attribution (EXP-463)`, () => {
     h.selectQueue.push(
       // loadIssueMeta
       [issueMeta],
-      // sessionOwnerFallback: the issue's most recent coding session
+      // loadPrSessionCandidates: the issue's most recent coding session
       [{ userId: `u-owner` }],
       // subscriberRecipients: the owner is the auto-subscribed creator
       [{ userId: `u-owner` }, { userId: `u2` }],
@@ -148,7 +160,7 @@ describe(`fireAndForgetPrNotify actor attribution (EXP-463)`, () => {
     h.selectQueue.push(
       // loadIssueMeta
       [issueMeta],
-      // sessionOwnerFallback: no coding session for this issue
+      // loadPrSessionCandidates: no coding session for this issue
       [],
       // subscriberRecipients
       [{ userId: `u1` }, { userId: `u2` }],
@@ -182,11 +194,10 @@ describe(`fireAndForgetPrNotify actor attribution (EXP-463)`, () => {
     h.selectQueue.push(
       // loadIssueMeta: the issue is linked to a batch run's combined PR
       [{ ...issueMeta, branch: `exp/batch-1b81d4c7` }],
-      // sessionOwnerFallback: no issue-scoped session (batch rows are
-      // issue-less)…
-      [],
-      // …so the team-scoped batch lookup resolves the owner
-      [{ userId: `u-owner` }],
+      // loadPrSessionCandidates: no issue-scoped row (batch rows are
+      // issue-less), so the team-scoped batch arm of the same query is what
+      // resolves the owner
+      [{ userId: `u-owner`, hostUserId: null }],
       // subscriberRecipients: the owner is the auto-subscribed creator
       [{ userId: `u-owner` }, { userId: `u2` }],
       // actorName (resolved for the batch owner)
@@ -223,7 +234,7 @@ describe(`fireAndForgetPrNotify actor attribution (EXP-463)`, () => {
     h.selectQueue.push(
       // loadIssueMeta
       [issueMeta],
-      // latestSessionForIssue: requester-owned row hosted by the actor
+      // loadPrSessionCandidates: requester-owned row hosted by the actor
       [{ userId: `u-req`, hostUserId: `u-host` }],
       // subscriberRecipients: the requester is the auto-subscribed creator
       [{ userId: `u-req` }, { userId: `u2` }],
@@ -254,7 +265,7 @@ describe(`fireAndForgetPrNotify actor attribution (EXP-463)`, () => {
     h.selectQueue.push(
       // loadIssueMeta
       [issueMeta],
-      // latestSessionForIssue: nothing (sessionless CLI run / swept row)
+      // loadPrSessionCandidates: nothing (sessionless CLI run / swept row)
       [],
       // subscriberRecipients: the actor is the auto-subscribed creator
       [{ userId: `u-actor` }, { userId: `u2` }],
@@ -287,7 +298,7 @@ describe(`fireAndForgetPrNotify actor attribution (EXP-463)`, () => {
     h.selectQueue.push(
       // loadIssueMeta
       [issueMeta],
-      // latestSessionForIssue: a self-started row (hostUserId null)
+      // loadPrSessionCandidates: a self-started row (hostUserId null)
       [{ userId: `u-owner`, hostUserId: null }],
       // subscriberRecipients
       [{ userId: `u-actor` }, { userId: `u2` }],
@@ -340,7 +351,7 @@ describe(`fireAndForgetPrNotify actor attribution (EXP-463)`, () => {
 
     await vi.waitFor(() => expect(h.sendToUsers).toHaveBeenCalledTimes(1))
     // Exactly the four selects above plus pushRecipients' prefs lookup — no
-    // latestSessionForIssue call (a viaAgent run would add a fifth queue
+    // loadPrSessionCandidates call (a viaAgent run would add a fifth queue
     // select before actorName).
     expect(mockedDb.select).toHaveBeenCalledTimes(5)
     expect(h.sendToUsers).toHaveBeenCalledWith(
@@ -358,9 +369,8 @@ describe(`fireAndForgetPrNotify actor attribution (EXP-463)`, () => {
     h.selectQueue.push(
       // loadIssueMeta: batch PR branch
       [{ ...issueMeta, branch: `exp/batch-1b81d4c7` }],
-      // latestSessionForIssue: no issue-scoped row (batch rows are issue-less)…
-      [],
-      // …the team-scoped batch row is requester-owned, hosted by the actor
+      // loadPrSessionCandidates: the team-scoped batch row is requester-owned,
+      // hosted by the actor
       [{ userId: `u-req`, hostUserId: `u-host` }],
       // subscriberRecipients
       [{ userId: `u-req` }, { userId: `u2` }],
@@ -391,19 +401,14 @@ describe(`fireAndForgetPrNotify actor attribution (EXP-463)`, () => {
     h.selectQueue.push(
       // loadIssueMeta
       [{ ...issueMeta, branch: `exp/batch-1b81d4c7` }],
-      // sessionOwnerFallback: no issue-scoped session…
-      [],
-      // …and no batch-shaped session in the team either
+      // loadPrSessionCandidates: neither arm matches
       [],
       // subscriberRecipients
       [{ userId: `u1` }, { userId: `u2` }],
       // deliverableRecipients (no actorName lookup — actor stayed null)
       [{ id: `u1` }, { id: `u2` }]
     )
-    h.executeRows.push(
-      { id: `n6`, user_id: `u1` },
-      { id: `n7`, user_id: `u2` }
-    )
+    h.executeRows.push({ id: `n6`, user_id: `u1` }, { id: `n7`, user_id: `u2` })
 
     fireAndForgetPrNotify({
       issueId: issueMeta.id,
@@ -420,6 +425,203 @@ describe(`fireAndForgetPrNotify actor attribution (EXP-463)`, () => {
       expect.objectContaining({
         title: `The pull request for EXP-9 was merged`,
       })
+    )
+  })
+
+  // EXP-617: the reported bug. An agent working a session on issue A files
+  // issue B mid-session and implements it too — no coding_sessions row names
+  // B, so nothing can be attributed and the anonymous webhook leg used to push
+  // "A pull request was opened for EXP-B" at the person whose agent wrote it
+  // (they are B's auto-subscribed creator). The agent-activity record from
+  // exponential_issues_create keeps them out WITHOUT pretending to know who
+  // opened the PR.
+  it(`keeps an agent-activity actor out of an anonymous fan-out`, async () => {
+    noteAgentIssueActivity(issueMeta.id, `u-agent`)
+    h.selectQueue.push(
+      // loadIssueMeta
+      [issueMeta],
+      // loadPrSessionCandidates: nothing — the session belongs to another issue
+      [],
+      // subscriberRecipients: the agent's human is the auto-subscribed creator
+      [{ userId: `u-agent` }, { userId: `u2` }],
+      // deliverableRecipients — no actorName lookup, the title stays anonymous
+      [{ id: `u2` }]
+    )
+    h.executeRows.push({ id: `n14`, user_id: `u2` })
+
+    fireAndForgetPrNotify({
+      issueId: issueMeta.id,
+      type: `pr_opened`,
+      actorUserId: null,
+    })
+
+    await vi.waitFor(() => expect(h.sendToUsers).toHaveBeenCalledTimes(1))
+    expect(h.sendToUsers).toHaveBeenCalledWith(
+      [{ userId: `u2`, data: { notificationId: `n14` } }],
+      expect.objectContaining({
+        title: `A pull request was opened for EXP-9`,
+      })
+    )
+  })
+
+  it(`only excludes agent activity on the issue it was recorded against`, async () => {
+    noteAgentIssueActivity(`some-other-issue`, `u-agent`)
+    h.selectQueue.push(
+      // loadIssueMeta
+      [issueMeta],
+      // loadPrSessionCandidates
+      [],
+      // subscriberRecipients
+      [{ userId: `u-agent` }],
+      // deliverableRecipients
+      [{ id: `u-agent` }]
+    )
+    h.executeRows.push({ id: `n15`, user_id: `u-agent` })
+
+    fireAndForgetPrNotify({
+      issueId: issueMeta.id,
+      type: `pr_opened`,
+      actorUserId: null,
+    })
+
+    await vi.waitFor(() => expect(h.sendToUsers).toHaveBeenCalledTimes(1))
+    expect(h.sendToUsers).toHaveBeenCalledWith(
+      [{ userId: `u-agent`, data: { notificationId: `n15` } }],
+      expect.anything()
+    )
+  })
+
+  // The session's HOST used to escape exclusion unless it happened to win the
+  // host→requester swap: a shared CLI server's owner got pushed about a run
+  // executing on their own machine.
+  it(`excludes a consulted session's host as well as its owner`, async () => {
+    h.selectQueue.push(
+      // loadIssueMeta
+      [issueMeta],
+      // loadPrSessionCandidates: requester-owned, hosted elsewhere
+      [{ userId: `u-req`, hostUserId: `u-host` }],
+      // subscriberRecipients: both are subscribed
+      [{ userId: `u-req` }, { userId: `u-host` }, { userId: `u2` }],
+      // actorName (the session owner)
+      [{ name: `Riley`, email: `riley@acme.test` }],
+      // deliverableRecipients (deliver)
+      [{ id: `u2` }]
+    )
+    h.executeRows.push({ id: `n16`, user_id: `u2` })
+
+    fireAndForgetPrNotify({
+      issueId: issueMeta.id,
+      type: `pr_opened`,
+      actorUserId: null,
+    })
+
+    await vi.waitFor(() => expect(h.sendToUsers).toHaveBeenCalledTimes(1))
+    expect(h.sendToUsers).toHaveBeenCalledWith(
+      [{ userId: `u2`, data: { notificationId: `n16` } }],
+      expect.objectContaining({
+        title: `Riley opened a pull request for EXP-9`,
+      })
+    )
+  })
+
+  // The merge-side answer: `merged_by` on github.com resolves to an app user,
+  // who is named INSTEAD of the session owner (that used to be credited for a
+  // merge they had nothing to do with) and kept out of their own fan-out.
+  it(`names and excludes a mapped GitHub actor over the session fallback`, async () => {
+    h.selectQueue.push(
+      // loadIssueMeta
+      [issueMeta],
+      // deliverableRecipients: the membership gate on the GitHub actor
+      [{ id: `u-gh` }],
+      // subscriberRecipients — no session lookup: identity outranks it
+      [{ userId: `u-gh` }, { userId: `u-owner` }, { userId: `u2` }],
+      // actorName
+      [{ name: `Harper`, email: `harper@acme.test` }],
+      // deliverableRecipients (deliver)
+      [{ id: `u-owner` }, { id: `u2` }]
+    )
+    h.executeRows.push(
+      { id: `n17`, user_id: `u-owner` },
+      { id: `n18`, user_id: `u2` }
+    )
+
+    fireAndForgetPrNotify({
+      issueId: issueMeta.id,
+      type: `pr_merged`,
+      actorUserId: null,
+      githubActorUserId: `u-gh`,
+    })
+
+    await vi.waitFor(() => expect(h.sendToUsers).toHaveBeenCalledTimes(1))
+    // The session owner IS notified here — their teammate merged their work.
+    expect(h.sendToUsers).toHaveBeenCalledWith(
+      [
+        { userId: `u-owner`, data: { notificationId: `n17` } },
+        { userId: `u2`, data: { notificationId: `n18` } },
+      ],
+      expect.objectContaining({
+        title: `Harper merged the pull request for EXP-9`,
+      })
+    )
+  })
+
+  it(`excludes a mapped GitHub actor who is no longer a member without naming them`, async () => {
+    h.selectQueue.push(
+      // loadIssueMeta
+      [issueMeta],
+      // deliverableRecipients: the membership gate rejects them
+      [],
+      // loadPrSessionCandidates: nothing to fall back to either
+      [],
+      // subscriberRecipients: the outside contributor still subscribes
+      [{ userId: `u-gh` }, { userId: `u2` }],
+      // deliverableRecipients (deliver) — no actorName lookup
+      [{ id: `u2` }]
+    )
+    h.executeRows.push({ id: `n19`, user_id: `u2` })
+
+    fireAndForgetPrNotify({
+      issueId: issueMeta.id,
+      type: `pr_opened`,
+      actorUserId: null,
+      githubActorUserId: `u-gh`,
+    })
+
+    await vi.waitFor(() => expect(h.sendToUsers).toHaveBeenCalledTimes(1))
+    expect(h.sendToUsers).toHaveBeenCalledWith(
+      [{ userId: `u2`, data: { notificationId: `n19` } }],
+      expect.objectContaining({
+        title: `A pull request was opened for EXP-9`,
+      })
+    )
+  })
+
+  it(`respects the exclusion set on the assignee arm too`, async () => {
+    noteAgentIssueActivity(issueMeta.id, `u-assignee`)
+    h.selectQueue.push(
+      // loadIssueMeta: the agent's human is also the assignee
+      [{ ...issueMeta, assigneeId: `u-assignee` }],
+      // loadPrSessionCandidates
+      [],
+      // subscriberRecipients: nobody else subscribes
+      [{ userId: `u2` }],
+      // deliverableRecipients (deliver) — the assignee was never added
+      [{ id: `u2` }]
+    )
+    h.executeRows.push({ id: `n20`, user_id: `u2` })
+
+    fireAndForgetPrNotify({
+      issueId: issueMeta.id,
+      type: `pr_opened`,
+      actorUserId: null,
+    })
+
+    await vi.waitFor(() => expect(h.sendToUsers).toHaveBeenCalledTimes(1))
+    // The assignee-opt-out lookup never runs either — the set short-circuits
+    // the whole arm.
+    expect(h.sendToUsers).toHaveBeenCalledWith(
+      [{ userId: `u2`, data: { notificationId: `n20` } }],
+      expect.anything()
     )
   })
 })

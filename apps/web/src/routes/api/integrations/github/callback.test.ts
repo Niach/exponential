@@ -121,8 +121,11 @@ const defaultRepoListing = async (_token: string, installationId: number) => ({
   hasMore: false,
 })
 const listUserInstallationRepos = vi.fn(defaultRepoListing)
-const getAuthenticatedGithubLogin = vi.fn(
-  async (): Promise<string | null> => `octocat`
+const getAuthenticatedGithubUser = vi.fn(
+  async (): Promise<{ id: number | null; login: string } | null> => ({
+    id: 4242,
+    login: `octocat`,
+  })
 )
 const getUserOrgMembershipState = vi.fn(
   async (_token: string, _org: string): Promise<OrgMembershipState> =>
@@ -138,10 +141,28 @@ vi.mock(`@/lib/integrations/github-app`, async (importOriginal) => ({
   listUserInstallations: () => listUserInstallations(),
   listUserInstallationRepos: (token: string, id: number) =>
     listUserInstallationRepos(token, id),
-  getAuthenticatedGithubLogin: () => getAuthenticatedGithubLogin(),
+  getAuthenticatedGithubUser: () => getAuthenticatedGithubUser(),
   getUserOrgMembershipState: (_token: string, org: string) =>
     getUserOrgMembershipState(_token, org),
   githubAppInstallUrl: (state?: string) => githubAppInstallUrl(state),
+}))
+
+// EXP-617: the callback is the one place that can prove which GitHub account
+// an app user controls, so it records the mapping the PR webhooks resolve
+// against.
+const recordGithubIdentity = vi.fn(
+  async (_args: {
+    userId: string
+    githubUserId: number
+    githubLogin: string
+  }): Promise<void> => {}
+)
+vi.mock(`@/lib/integrations/github-identity`, () => ({
+  recordGithubIdentity: (args: {
+    userId: string
+    githubUserId: number
+    githubLogin: string
+  }) => recordGithubIdentity(args),
 }))
 
 // Imported AFTER the mocks are registered.
@@ -191,7 +212,8 @@ describe(`github OAuth callback — control-verified claiming (EXP-363)`, () => 
     for (const key of Object.keys(selectRows)) delete selectRows[key]
     resolveSessionUserId.mockResolvedValue(`user-1`)
     getTeamMember.mockResolvedValue({ role: `owner` })
-    getAuthenticatedGithubLogin.mockResolvedValue(`octocat`)
+    getAuthenticatedGithubUser.mockResolvedValue({ id: 4242, login: `octocat` })
+    recordGithubIdentity.mockClear()
     getUserOrgMembershipState.mockResolvedValue(`not-member`)
     listUserInstallations.mockResolvedValue([])
     listUserInstallationRepos.mockReset()
@@ -213,11 +235,41 @@ describe(`github OAuth callback — control-verified claiming (EXP-363)`, () => 
     expect(listUserInstallationRepos).toHaveBeenCalledTimes(1)
   })
 
+  // EXP-617: the code exchange is the proof of control, so the identity is
+  // recorded on every completed callback — including the ones that end in a
+  // refusal, because whose GitHub account this is does not depend on whether
+  // an installation got linked.
+  it(`records the GitHub identity of the connecting user`, async () => {
+    listUserInstallations.mockResolvedValue([userInst(11, `OctoCat`)])
+
+    await handleCallback(callbackRequest(oauthState()))
+
+    expect(recordGithubIdentity).toHaveBeenCalledWith({
+      userId: `user-1`,
+      githubUserId: 4242,
+      githubLogin: `octocat`,
+    })
+  })
+
+  it(`skips the identity write when GitHub returns no numeric id`, async () => {
+    getAuthenticatedGithubUser.mockResolvedValue({ id: null, login: `octocat` })
+    listUserInstallations.mockResolvedValue([userInst(11, `OctoCat`)])
+
+    const res = await handleCallback(callbackRequest(oauthState()))
+
+    // The claim still succeeds — the identity is a bonus, never a gate.
+    expect(res.headers.get(`location`)).toBe(`/`)
+    expect(recordGithubIdentity).not.toHaveBeenCalled()
+  })
+
   it(`refuses a collaborator-only enumeration: no link, no mirror, no grants — redirects to notowner with the install link`, async () => {
     // The exact EXP-363 leak: the OAuth user can reach one repo of a
     // stranger's installation, so GitHub enumerates it — but it is NOT theirs.
     listUserInstallations.mockResolvedValue([userInst(11, `Niach`)])
-    getAuthenticatedGithubLogin.mockResolvedValue(`LukeTechMech`)
+    getAuthenticatedGithubUser.mockResolvedValue({
+      id: 4242,
+      login: `LukeTechMech`,
+    })
 
     const res = await handleCallback(callbackRequest(oauthState()))
 
@@ -311,7 +363,7 @@ describe(`github OAuth callback — control-verified claiming (EXP-363)`, () => 
 
   it(`fails closed to the exchange error when GET /user is unreadable`, async () => {
     listUserInstallations.mockResolvedValue([userInst(11, `octocat`)])
-    getAuthenticatedGithubLogin.mockResolvedValue(null)
+    getAuthenticatedGithubUser.mockResolvedValue(null)
 
     const res = await handleCallback(callbackRequest(oauthState()))
 
@@ -351,7 +403,8 @@ describe(`github OAuth callback — stale-link self-heal (EXP-365)`, () => {
     for (const key of Object.keys(selectRows)) delete selectRows[key]
     resolveSessionUserId.mockResolvedValue(`user-1`)
     getTeamMember.mockResolvedValue({ role: `owner` })
-    getAuthenticatedGithubLogin.mockResolvedValue(`octocat`)
+    getAuthenticatedGithubUser.mockResolvedValue({ id: 4242, login: `octocat` })
+    recordGithubIdentity.mockClear()
     getUserOrgMembershipState.mockResolvedValue(`not-member`)
     listUserInstallations.mockResolvedValue([userInst(11, `octocat`)])
     listUserInstallationRepos.mockReset()
@@ -372,7 +425,10 @@ describe(`github OAuth callback — stale-link self-heal (EXP-365)`, () => {
     // installation the pre-fix flow linked; the victim's re-auth controls
     // nothing but still erases their own residue.
     listUserInstallations.mockResolvedValue([userInst(999, `Niach`)])
-    getAuthenticatedGithubLogin.mockResolvedValue(`LukeTechMech`)
+    getAuthenticatedGithubUser.mockResolvedValue({
+      id: 4242,
+      login: `LukeTechMech`,
+    })
     selectRows[`github_installation_links`] = [staleLink()]
 
     const res = await handleCallback(callbackRequest(oauthState()))
@@ -507,7 +563,8 @@ describe(`github OAuth callback — empty-capture retry (EXP-365)`, () => {
     for (const key of Object.keys(selectRows)) delete selectRows[key]
     resolveSessionUserId.mockResolvedValue(`user-1`)
     getTeamMember.mockResolvedValue({ role: `owner` })
-    getAuthenticatedGithubLogin.mockResolvedValue(`octocat`)
+    getAuthenticatedGithubUser.mockResolvedValue({ id: 4242, login: `octocat` })
+    recordGithubIdentity.mockClear()
     getUserOrgMembershipState.mockResolvedValue(`not-member`)
     listUserInstallations.mockResolvedValue([userInst(11, `octocat`)])
     listUserInstallationRepos.mockReset()
@@ -569,7 +626,8 @@ describe(`github OAuth callback — cookie-less mobile flows (EXP-365)`, () => {
     for (const key of Object.keys(selectRows)) delete selectRows[key]
     resolveSessionUserId.mockResolvedValue(null)
     getTeamMember.mockResolvedValue({ role: `owner` })
-    getAuthenticatedGithubLogin.mockResolvedValue(`octocat`)
+    getAuthenticatedGithubUser.mockResolvedValue({ id: 4242, login: `octocat` })
+    recordGithubIdentity.mockClear()
     getUserOrgMembershipState.mockResolvedValue(`not-member`)
     listUserInstallations.mockResolvedValue([userInst(11, `octocat`)])
     listUserInstallationRepos.mockReset()
@@ -630,7 +688,10 @@ describe(`github OAuth callback — cookie-less mobile flows (EXP-365)`, () => {
 
   it(`a collaborator-only enumeration (notowner) also continues to the install page`, async () => {
     listUserInstallations.mockResolvedValue([userInst(11, `Niach`)])
-    getAuthenticatedGithubLogin.mockResolvedValue(`LukeTechMech`)
+    getAuthenticatedGithubUser.mockResolvedValue({
+      id: 4242,
+      login: `LukeTechMech`,
+    })
 
     const res = await handleCallback(callbackRequest(mobileState()))
 

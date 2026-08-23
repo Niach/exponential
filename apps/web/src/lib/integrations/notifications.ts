@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   codingSessions,
@@ -22,6 +22,7 @@ import {
   shouldSendReporterResolution,
 } from "@/lib/notification-email-policy"
 import { getTypePrefsMap } from "@/lib/notification-prefs"
+import { peekAgentIssueActors } from "@/lib/integrations/pr-actor-claims"
 import { recordNotificationFanout } from "@/lib/metrics/registry"
 import type { NotificationType } from "@/lib/domain"
 
@@ -94,14 +95,15 @@ export async function deliverableRecipients(
   return userIds.filter((id) => allowed.has(id))
 }
 
-// The active (non-unsubscribed) subscribers of an issue, minus the actor.
+// The active (non-unsubscribed) subscribers of an issue, minus everyone in the
+// self-exclusion set (EXP-617: a SET, not one actor — see resolvePrActors).
 // Widget-reporter rows (null userId + email) are excluded here — they receive
 // the one-way resolution email, not in-app/push notifications. Rows can be
 // stale (a removed member's subscriptions); membership is enforced downstream
 // in deliver(), the single chokepoint for every fan-out path.
 async function subscriberRecipients(
   issueId: string,
-  actorUserId: string | null
+  excluded: ReadonlySet<string>
 ): Promise<string[]> {
   const rows = await db
     .select({ userId: issueSubscribers.userId })
@@ -114,9 +116,17 @@ async function subscriberRecipients(
       )
     )
   const ids = new Set(rows.map((r) => r.userId as string))
-  if (actorUserId) ids.delete(actorUserId)
+  for (const id of excluded) ids.delete(id)
   return [...ids]
 }
+
+// Convenience for the single-actor fan-outs (comment, status change, …), whose
+// exclusion really is just "the one person who did it".
+function selfSet(actorUserId: string | null): ReadonlySet<string> {
+  return actorUserId ? new Set([actorUserId]) : EMPTY_EXCLUSION
+}
+
+const EMPTY_EXCLUSION: ReadonlySet<string> = new Set<string>()
 
 // Fan out one logical event, push-first: the in-app notification row is
 // written ALWAYS, then push fires immediately off the deduped delivered set.
@@ -142,6 +152,18 @@ async function subscriberRecipients(
 // index-bounded by idx_notifications_user_created (user_id, created_at DESC).
 const NOTIFICATION_DEDUPE_WINDOW = `30 seconds`
 
+// EXP-617: the title is part of that probe, which makes the whole racing-pair
+// design lean on "both legs resolve the SAME actor so the titles match
+// byte-for-byte". That is brittle — any attribution asymmetry (one leg names
+// Ada, the other says nobody) sprays two rows for one event, and the anonymous
+// one is exactly the one that reaches the person who did the work. PR fan-outs
+// therefore dedupe on the EVENT instead: for pr_opened/pr_merged, (issue, type)
+// IS the logical identity — applyPrOpenedState/applyPrMergeState are already
+// idempotent per issue, so a second legitimate one inside the window cannot
+// exist. Every other type keeps the title/body terms, where two genuinely
+// different comments on one issue must not collapse into one.
+type DedupeScope = `title` | `event`
+
 // Per-type prefs gate PUSH too (EXP-369) — the toggles used to be email-only,
 // so a user who muted "Comments" still got every comment on their phone. The
 // inbox ROW is always written (the toggles suppress delivery, not the record),
@@ -165,6 +187,7 @@ async function deliver(args: {
   pushType: PushType
   title: string
   body: string | null
+  dedupeScope?: DedupeScope
 }): Promise<void> {
   const recipients = await deliverableRecipients(args.issue.teamId, [
     ...new Set(args.recipientIds),
@@ -172,6 +195,12 @@ async function deliver(args: {
   if (recipients.length === 0) return
 
   const now = new Date()
+
+  const contentMatch =
+    args.dedupeScope === `event`
+      ? sql``
+      : sql`and existing.title = ${args.title}
+        and existing.body is not distinct from ${args.body}::text`
 
   const inserted = await db.execute(sql`
     insert into notifications (user_id, issue_id, type, title, body, pushed_at)
@@ -189,8 +218,7 @@ async function deliver(args: {
       where existing.user_id = r.user_id
         and existing.issue_id = ${args.issue.id}::uuid
         and existing.type = ${args.type}::notification_type
-        and existing.title = ${args.title}
-        and existing.body is not distinct from ${args.body}::text
+        ${contentMatch}
         and existing.created_at > now() - interval '${sql.raw(NOTIFICATION_DEDUPE_WINDOW)}'
     )
     returning id, user_id
@@ -329,7 +357,10 @@ export function fireAndForgetCommentNotify(args: {
 
       const mentioned = new Set(mentionedUserIds)
       mentioned.delete(actorUserId)
-      const subscribers = await subscriberRecipients(issueId, actorUserId)
+      const subscribers = await subscriberRecipients(
+        issueId,
+        selfSet(actorUserId)
+      )
       const commentRecipients = subscribers.filter((id) => !mentioned.has(id))
 
       const name = await actorName(actorUserId)
@@ -434,7 +465,10 @@ export function fireAndForgetStatusChangeNotify(args: {
     try {
       const issue = await loadIssueMeta(issueId)
       if (!issue) return
-      const recipients = await subscriberRecipients(issueId, actorUserId)
+      const recipients = await subscriberRecipients(
+        issueId,
+        selfSet(actorUserId)
+      )
       if (recipients.length === 0) return
 
       const name = await actorName(actorUserId)
@@ -475,68 +509,150 @@ export function fireAndForgetStatusChangeNotify(args: {
 // deliberately loose: overlapping batch runs in one team attribute to the
 // most recent one's owner. Non-batch branches never take this path, so a
 // genuinely out-of-band PR with no session stays anonymous.
-async function latestSessionForIssue(
-  issue: IssueMeta
-): Promise<{ userId: string; hostUserId: string | null } | null> {
-  const [session] = await db
-    .select({
-      userId: codingSessions.userId,
-      hostUserId: codingSessions.hostUserId,
-    })
-    .from(codingSessions)
-    .where(eq(codingSessions.issueId, issue.id))
-    .orderBy(desc(codingSessions.startedAt))
-    .limit(1)
-  if (session) return session
+// One query since EXP-617 (it used to be two, and the viaAgent path ran the
+// first one a second time). Ordered issue-scoped first, then most recent: the
+// HEAD is the naming candidate, and EVERY row contributes its owner AND its
+// host to the self-exclusion set.
+const PR_SESSION_CANDIDATE_LIMIT = 4
 
-  if (!issue.branch?.startsWith(`exp/batch-`)) return null
-  const [batch] = await db
-    .select({
-      userId: codingSessions.userId,
-      hostUserId: codingSessions.hostUserId,
-    })
-    .from(codingSessions)
-    .where(
+interface PrSessionCandidate {
+  userId: string
+  hostUserId: string | null
+}
+
+async function loadPrSessionCandidates(
+  issue: IssueMeta
+): Promise<PrSessionCandidate[]> {
+  const arms = [eq(codingSessions.issueId, issue.id)]
+  if (issue.branch?.startsWith(`exp/batch-`)) {
+    arms.push(
       and(
         eq(codingSessions.teamId, issue.teamId),
         isNull(codingSessions.issueId),
         isNull(codingSessions.actionId)
-      )
+      )!
     )
-    .orderBy(desc(codingSessions.startedAt))
-    .limit(1)
-  return batch ?? null
+  }
+  return await db
+    .select({
+      userId: codingSessions.userId,
+      hostUserId: codingSessions.hostUserId,
+    })
+    .from(codingSessions)
+    .where(arms.length === 1 ? arms[0] : or(...arms))
+    // Issue-scoped rows outrank the team-wide batch arm, exactly as the two
+    // sequential queries did.
+    .orderBy(
+      sql`(${codingSessions.issueId} is not null) desc`,
+      desc(codingSessions.startedAt)
+    )
+    .limit(PR_SESSION_CANDIDATE_LIMIT)
 }
 
-async function sessionOwnerFallback(issue: IssueMeta): Promise<string | null> {
-  return (await latestSessionForIssue(issue))?.userId ?? null
+/**
+ * Who to NAME and who to KEEP QUIET for one PR event (EXP-617).
+ *
+ * These are two different questions and they used to share one variable, which
+ * is what made every attribution miss a self-notification: naming has to be
+ * exactly right or the copy lies, while excluding only has to be a SUPERSET of
+ * the people who plausibly caused this. Coupling them let the strict
+ * requirement dictate the loose one — a null actor made exclusion a complete
+ * no-op and the anonymous fan-out reached the very person whose agent had just
+ * done the work. The exclusion set can only ever REMOVE recipients, never
+ * misroute one, so it is safe to feed it evidence too weak for a title.
+ *
+ * Naming ladder, strongest per-event evidence first:
+ *   1. `actorUserId` — the in-app mutation's own leg, or the webhook's
+ *      consumed claim (pr-actor-claims.ts). `actorViaAgent` still swaps a
+ *      shared-server HOST to the session's requester (EXP-432).
+ *   2. `githubActorUserId` — `sender`/`merged_by` mapped through
+ *      github-identity.ts. Ranked ABOVE the session heuristic on purpose: it
+ *      is a fact about THIS pull request, which retires the old wart where a
+ *      teammate merging on github.com was credited to the session owner. Only
+ *      names a CURRENT member of the issue's team; an outside contributor is
+ *      still excluded, just not printed.
+ *   3. The coding-session owner — a correlation heuristic, unchanged.
+ *   4. Nobody: the anonymous title.
+ *
+ * Exclusion is the union of the named actor, the raw pre-swap actor, the
+ * mapped GitHub actor, every session candidate consulted, and
+ * `peekAgentIssueActors` (an agent that WROTE to this issue under someone's
+ * MCP credential in the last half hour — the rung that covers a second issue
+ * filed and implemented inside another issue's session). Note what is NOT in
+ * there: `issues.creator_id`. "I filed it, a teammate implemented it, here is
+ * the PR" is the most valuable notification this product sends.
+ *
+ * Session rows are consulted only when they can change the outcome — never for
+ * a plain human actor, so a host merging a requester's PR from the web still
+ * notifies the requester.
+ */
+export async function resolvePrActors(
+  issue: IssueMeta,
+  args: {
+    actorUserId?: string | null
+    actorViaAgent?: boolean
+    githubActorUserId?: string | null
+  }
+): Promise<{ actorUserId: string | null; excluded: Set<string> }> {
+  const excluded = new Set<string>()
+  if (args.actorUserId) excluded.add(args.actorUserId)
+  if (args.githubActorUserId) excluded.add(args.githubActorUserId)
+  for (const id of peekAgentIssueActors(issue.id)) excluded.add(id)
+
+  let actorUserId: string | null = args.actorUserId ?? null
+
+  if (actorUserId && args.actorViaAgent) {
+    const [head] = await loadPrSessionCandidates(issue)
+    if (head) {
+      excluded.add(head.userId)
+      if (head.hostUserId) excluded.add(head.hostUserId)
+      if (head.hostUserId != null && head.hostUserId === actorUserId) {
+        actorUserId = head.userId
+      }
+    }
+  }
+
+  if (!actorUserId && args.githubActorUserId) {
+    const [member] = await deliverableRecipients(issue.teamId, [
+      args.githubActorUserId,
+    ])
+    if (member) actorUserId = member
+  }
+
+  if (!actorUserId) {
+    const candidates = await loadPrSessionCandidates(issue)
+    for (const candidate of candidates) {
+      excluded.add(candidate.userId)
+      if (candidate.hostUserId) excluded.add(candidate.hostUserId)
+    }
+    actorUserId = candidates[0]?.userId ?? null
+  }
+
+  if (actorUserId) excluded.add(actorUserId)
+  return { actorUserId, excluded }
 }
 
 /**
  * PR lifecycle fan-out (pr_opened from the MCP open_pr tool + the webhook's
  * out-of-band linking; pr_merged from applyPrMergeState's idempotent guard).
- * Targets the assignee + active subscribers, minus the actor — the away/phone
- * flow's "PR opened" / "it's merged" on all three channels. actorUserId is
- * null for webhook/cron-driven events with no mapped app user AND no actor
- * claim (EXP-494, pr-actor-claims.ts); those fall back to the issue's
- * coding-session owner (sessionOwnerFallback above), and only a genuinely
- * out-of-band PR with no session stays anonymous.
+ * Targets the assignee + active subscribers, minus everyone who plausibly
+ * caused the event — the away/phone flow's "PR opened" / "it's merged" on all
+ * three channels. See resolvePrActors above for who gets named and who gets
+ * kept quiet; `githubActorUserId` is the webhook/poller's `sender`/`merged_by`
+ * already mapped to an app user by the caller.
  *
- * actorViaAgent marks an actor resolved from an agent's MCP credential
- * (EXP-494): on a shared CLI server (EXP-432) the daemon acts with its
- * OWNER's key while the session row is requester-owned, so the key owner is
- * only a proxy identity — when the issue's latest session names the actor as
- * its HOST, attribution swaps to the session's requester (userId), matching
- * what sessionOwnerFallback resolves on the webhook leg (exclusion + title
- * agree, dedupe collapses the pair). Deliberately NOT applied to human
- * (web/mobile) actions: a host merging a requester's PR from the web UI is a
- * genuine action by the host, and the requester must be notified about it.
+ * Deliberate residual gap (EXP-617): an out-of-band PR from a GitHub account
+ * nobody has ever connected to this instance stays anonymous, and if its
+ * author subscribes to the issue they still hear about their own PR. That is
+ * now bounded by "has never connected GitHub here" rather than by "no coding
+ * session happened to exist".
  */
 export function fireAndForgetPrNotify(args: {
   issueId: string
   type: `pr_opened` | `pr_merged`
   actorUserId?: string | null
   actorViaAgent?: boolean
+  githubActorUserId?: string | null
 }): void {
   const { issueId, type } = args
 
@@ -545,22 +661,10 @@ export function fireAndForgetPrNotify(args: {
       const issue = await loadIssueMeta(issueId)
       if (!issue) return
 
-      let actorUserId =
-        args.actorUserId ?? (await sessionOwnerFallback(issue))
-      if (args.actorUserId && args.actorViaAgent) {
-        const session = await latestSessionForIssue(issue)
-        if (
-          session?.hostUserId != null &&
-          session.hostUserId === args.actorUserId
-        ) {
-          actorUserId = session.userId
-        }
-      }
+      const { actorUserId, excluded } = await resolvePrActors(issue, args)
 
-      const recipients = new Set(
-        await subscriberRecipients(issueId, actorUserId)
-      )
-      if (issue.assigneeId && issue.assigneeId !== actorUserId) {
+      const recipients = new Set(await subscriberRecipients(issueId, excluded))
+      if (issue.assigneeId && !excluded.has(issue.assigneeId)) {
         // Respect an explicit unsubscribe: an assignee who muted the issue
         // must not be re-added over their opt-out.
         const [optedOut] = await db
@@ -597,6 +701,9 @@ export function fireAndForgetPrNotify(args: {
         pushType: type,
         title,
         body: issue.title,
+        // The racing legs may still disagree on the title (one names Ada, the
+        // other nobody) — dedupe on the event so a teammate never gets two.
+        dedupeScope: `event`,
       })
     } catch (err) {
       console.error(`[notify] pr ${type} failed:`, err)

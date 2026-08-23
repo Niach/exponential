@@ -658,24 +658,40 @@ export async function listUserInstallations(
   return all
 }
 
-// The GitHub login behind the transient user token (`GET /user` — always
+// The GitHub account behind the transient user token (`GET /user` — always
 // readable with a user-to-server token, no permission needed). Null on any
 // failure rather than throwing: the claim callback's catch-all renders a fake
 // "connected" landing on mobile, so verification helpers must fail as VALUES
 // the callback can turn into an explicit error redirect.
-export async function getAuthenticatedGithubLogin(
+//
+// EXP-617 also takes the NUMERIC id from the same response (it was always
+// there) — that is what github_user_identities keys on, because logins are
+// renameable and re-registerable. The id stays nullable so a response without
+// one still satisfies the EXP-363 ownership check; the identity row is simply
+// not written in that case.
+export async function getAuthenticatedGithubUser(
   userToken: string
-): Promise<string | null> {
+): Promise<{ id: number | null; login: string } | null> {
   try {
     const res = await fetch(`https://api.github.com/user`, {
       headers: githubApiHeaders(userToken),
     })
     if (!res.ok) return null
-    const data = (await res.json()) as { login?: string }
-    return data.login ?? null
+    const data = (await res.json()) as { id?: number; login?: string }
+    if (!data.login) return null
+    return {
+      id: typeof data.id === `number` ? data.id : null,
+      login: data.login,
+    }
   } catch {
     return null
   }
+}
+
+export async function getAuthenticatedGithubLogin(
+  userToken: string
+): Promise<string | null> {
+  return (await getAuthenticatedGithubUser(userToken))?.login ?? null
 }
 
 // The OAuth user's own membership in an org (`GET /user/memberships/orgs/{org}`

@@ -147,6 +147,9 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
 vi.mock(`@/lib/integrations/pr-actor-claims`, () => ({
   claimPrOpen: vi.fn(),
   releasePrOpenClaim: vi.fn(),
+  // EXP-617: the write tools record "this user's agent touched this issue" so
+  // a later PR fan-out can keep them out of it.
+  noteAgentIssueActivity: vi.fn(),
 }))
 vi.mock(`@/lib/integrations/activity`, () => ({ recordIssueEvent: vi.fn() }))
 vi.mock(`@/lib/integrations/notifications`, () => ({

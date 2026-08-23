@@ -142,7 +142,11 @@ describe(`runPrPollPass`, () => {
 
   it(`heals a closed PR that is open again on GitHub`, async () => {
     mockRows = [row({ prState: `closed` })]
-    vi.mocked(fetchPullState).mockResolvedValue({ state: `open`, merged: false })
+    vi.mocked(fetchPullState).mockResolvedValue({
+      state: `open`,
+      merged: false,
+      mergedBy: null,
+    })
     await runPrPollPass()
     expect(applyPrReopenedState).toHaveBeenCalledWith({
       issueId: `i1`,
@@ -157,6 +161,7 @@ describe(`runPrPollPass`, () => {
     vi.mocked(fetchPullState).mockResolvedValue({
       state: `closed`,
       merged: true,
+      mergedBy: null,
     })
     await runPrPollPass()
     expect(applyPrMergeState).toHaveBeenCalledWith(
@@ -170,6 +175,7 @@ describe(`runPrPollPass`, () => {
     vi.mocked(fetchPullState).mockResolvedValue({
       state: `closed`,
       merged: false,
+      mergedBy: null,
     })
     await runPrPollPass()
     expect(applyPrClosedState).toHaveBeenCalledWith({
@@ -180,7 +186,11 @@ describe(`runPrPollPass`, () => {
 
   it(`writes nothing for a PR still open on both sides`, async () => {
     mockRows = [row()]
-    vi.mocked(fetchPullState).mockResolvedValue({ state: `open`, merged: false })
+    vi.mocked(fetchPullState).mockResolvedValue({
+      state: `open`,
+      merged: false,
+      mergedBy: null,
+    })
     await runPrPollPass()
     expect(applyPrMergeState).not.toHaveBeenCalled()
     expect(applyPrClosedState).not.toHaveBeenCalled()
@@ -192,6 +202,7 @@ describe(`runPrPollPass`, () => {
     vi.mocked(fetchPullState).mockResolvedValue({
       state: `closed`,
       merged: true,
+      mergedBy: null,
     })
     await runPrPollPass()
     expect(fetchPullState).toHaveBeenCalledTimes(1)
@@ -205,7 +216,7 @@ describe(`runPrPollPass`, () => {
     ]
     vi.mocked(fetchPullState)
       .mockRejectedValueOnce(new Error(`boom`))
-      .mockResolvedValueOnce({ state: `closed`, merged: true })
+      .mockResolvedValueOnce({ state: `closed`, merged: true, mergedBy: null })
     const spy = vi.spyOn(console, `error`).mockImplementation(() => {})
     await runPrPollPass()
     expect(applyPrMergeState).toHaveBeenCalledTimes(1)
