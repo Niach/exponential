@@ -50,10 +50,12 @@ export function IssuesPane({
           value={search}
           onChange={(e) => onSearchChange(e.target.value)}
           placeholder="Search issues…"
-          className="h-9 pl-8"
+          // EXP-616: the glass field dress — the `dark:` prefix is required to
+          // beat the stock input's own `dark:bg-input/30`.
+          className="h-9 rounded-md border-glass-stroke bg-glass-row pl-8 shadow-none dark:bg-glass-row"
         />
       </div>
-      <div className="max-h-44 overflow-y-auto rounded-md border border-border sm:max-h-none sm:min-h-32 sm:flex-1">
+      <div className="max-h-44 overflow-y-auto rounded-lg border-0 bg-glass-row sm:max-h-none sm:min-h-32 sm:flex-1">
         {rows.length === 0 ? (
           <div className="px-3 py-6 text-center text-xs text-muted-foreground">
             {search.trim()
@@ -75,7 +77,7 @@ export function IssuesPane({
                     onToggle(issue.id)
                   }
                 }}
-                className="flex cursor-pointer items-center gap-2 border-b border-border/30 px-3 py-2 last:border-b-0 hover:bg-muted/50"
+                className="flex cursor-pointer items-center gap-2 border-b border-glass-stroke px-3 py-2 last:border-b-0 hover:bg-glass-active/50"
               >
                 <Checkbox
                   checked={checked}

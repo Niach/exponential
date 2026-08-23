@@ -45,13 +45,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { GlassGroup, GlassPickerRow } from "@/components/ui/glass-rows"
 import { Textarea } from "@/components/ui/textarea"
 
 // The dedicated "New action" dialog (EXP-431): the builtin "Create action"
@@ -69,6 +63,10 @@ import { Textarea } from "@/components/ui/textarea"
 // Radix Select forbids an empty-string item value; the unset optional repo
 // rides this sentinel inside the dialog only.
 const NO_REPO = `none`
+
+// EXP-616: the glass dress for a free-text field — the `dark:` prefix is
+// required to beat the stock input/textarea's own `dark:bg-input/30`.
+const GLASS_FIELD = `border-glass-stroke bg-glass-row shadow-none dark:bg-glass-row`
 
 const AutomationIcon = conceptIcon(`action-automation`)
 const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
@@ -277,7 +275,7 @@ export function CreateActionDialog({
       {/* Fixed panel height from `sm` up (EXP-615): the automation detail
           slides over the form inside ONE frame, so the dialog must not resize
           between the two. Mobile stays the full-screen page. */}
-      <DialogContent className="gap-3 sm:h-[min(85dvh,34rem)] sm:max-h-[85dvh] sm:max-w-2xl">
+      <DialogContent className="gap-3 sm:h-[min(85dvh,36rem)] sm:max-h-[85dvh] sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>New action</DialogTitle>
         </DialogHeader>
@@ -307,6 +305,7 @@ export function CreateActionDialog({
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder={nameDef?.placeholder}
+                    className={GLASS_FIELD}
                     maxLength={MAX_ACTION_INPUT_TEXT}
                   />
                 </div>
@@ -319,47 +318,45 @@ export function CreateActionDialog({
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder={descriptionDef?.placeholder}
-                  className="min-h-28"
+                  className={cn(`min-h-28`, GLASS_FIELD)}
                   // Client parity with the server's per-value cap, so a long
                   // paste is refused at the field instead of at submit.
                   maxLength={MAX_ACTION_INPUT_TEXT}
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="create-action-repo">Repository (optional)</Label>
-                <Select
+              {/* EXP-616: ONE grouped card — the repository picker row, and
+                  the automation row that slides into its detail view. */}
+              <GlassGroup>
+                <GlassPickerRow
+                  label="Repository (optional)"
                   value={repoId || NO_REPO}
                   onValueChange={(value) =>
                     setRepoId(value === NO_REPO ? `` : value)
                   }
+                  placeholder="Select a repository"
+                  options={[
+                    { value: NO_REPO, label: `None` },
+                    ...repos.map((repo) => ({
+                      value: repo.id,
+                      label: repo.fullName,
+                    })),
+                  ]}
+                />
+                <button
+                  type="button"
+                  onClick={openAutomation}
+                  className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors duration-fast hover:bg-glass-active/50"
                 >
-                  <SelectTrigger id="create-action-repo" className="w-full">
-                    <SelectValue placeholder="Select a repository" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NO_REPO}>None</SelectItem>
-                    {repos.map((repo) => (
-                      <SelectItem key={repo.id} value={repo.id}>
-                        {repo.fullName}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <button
-                type="button"
-                onClick={openAutomation}
-                className="flex w-full items-center gap-2 rounded-md border border-border px-3 py-2 text-left hover:bg-muted/50"
-              >
-                <AutomationIcon className="size-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm">Automation</span>
-                  <span className="block truncate text-xs text-muted-foreground">
-                    {automationSummary}
+                  <AutomationIcon className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm">Automation</span>
+                    <span className="block truncate text-xs text-foreground/50">
+                      {automationSummary}
+                    </span>
                   </span>
-                </span>
-                <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" />
-              </button>
+                  <ChevronRightIcon className="size-3.5 shrink-0 text-foreground/50" />
+                </button>
+              </GlassGroup>
               {triggerOverflow && (
                 <p className="text-xs text-destructive">
                   Description plus the automation block exceeds the
@@ -424,7 +421,6 @@ export function CreateActionDialog({
                 teamId={teamId}
               />
               <AutomationDevicePicker
-                id="create-action-automation-device"
                 deviceId={automationDeviceId}
                 devices={automationCandidates}
                 onChange={setAutomationDeviceId}

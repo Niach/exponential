@@ -514,7 +514,7 @@ export function LaunchDialog({
           EXP-615: from `sm` up the panel takes a FIXED height (the Actions
           tab's natural one) so switching Issues/Actions/Chat never resizes the
           dialog under the pointer; mobile keeps the full-screen page. */}
-      <DialogContent className="gap-3 sm:h-[min(85dvh,34rem)] sm:max-h-[85dvh] sm:max-w-3xl">
+      <DialogContent className="gap-3 sm:h-[min(85dvh,36rem)] sm:max-h-[85dvh] sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>
             {tab === `actions`

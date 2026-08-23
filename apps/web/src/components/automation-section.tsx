@@ -51,6 +51,14 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { GlassGroup, GlassPickerRow } from "@/components/ui/glass-rows"
+import { cn } from "@/lib/utils"
+
+// EXP-616: the glass dress for the sentence-shaped inline fields — a sentence
+// stays a sentence, so these keep their compact widths and only take the row
+// fill/stroke. The `dark:` prefix is required to beat the stock control's own
+// `dark:bg-input/30`.
+const GLASS_FIELD = `border-glass-stroke bg-glass-row shadow-none dark:bg-glass-row dark:hover:bg-glass-active/50`
 
 // The reusable Automation editing PIECES (EXP-530, reshaped in EXP-583 when
 // automations became their own rows): the trigger panes + event filters, the
@@ -211,7 +219,7 @@ export function AutomationTriggerFields({
               set({ interval: value as ActionScheduleInterval })
             }
           >
-            <SelectTrigger size="sm" className="w-24">
+            <SelectTrigger size="sm" className={cn(`w-24`, GLASS_FIELD)}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -229,7 +237,7 @@ export function AutomationTriggerFields({
               value={String(draft.weekday)}
               onValueChange={(value) => set({ weekday: Number(value) })}
             >
-              <SelectTrigger size="sm" className="w-32">
+              <SelectTrigger size="sm" className={cn(`w-32`, GLASS_FIELD)}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -246,7 +254,7 @@ export function AutomationTriggerFields({
               value={String(draft.dayOfMonth)}
               onValueChange={(value) => set({ dayOfMonth: Number(value) })}
             >
-              <SelectTrigger size="sm" className="w-24">
+              <SelectTrigger size="sm" className={cn(`w-24`, GLASS_FIELD)}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -263,7 +271,7 @@ export function AutomationTriggerFields({
             aria-label="Time of day"
             value={draft.time}
             onChange={(e) => set({ time: e.target.value })}
-            className="h-8 w-36"
+            className={cn(`h-8 w-36`, GLASS_FIELD)}
           />
         </div>
       )}
@@ -278,7 +286,7 @@ export function AutomationTriggerFields({
                 set({ event: value as ActionTriggerEvent })
               }
             >
-              <SelectTrigger size="sm" className="w-full max-w-56">
+              <SelectTrigger size="sm" className={cn(`w-full max-w-56`, GLASS_FIELD)}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -307,13 +315,11 @@ export function AutomationDevicePicker({
   deviceId,
   devices,
   onChange,
-  id = `automation-device`,
 }: {
   deviceId: string | null
   /** Automation-capable devices only (see `automationDevices`). */
   devices: SteerDevice[]
   onChange: (deviceId: string) => void
-  id?: string
 }) {
   if (devices.length === 0 && !deviceId) {
     return (
@@ -332,30 +338,37 @@ export function AutomationDevicePicker({
   const unknownDeviceId =
     deviceId && !devices.some((d) => d.deviceId === deviceId) ? deviceId : null
   return (
-    <div className="space-y-2">
-      <Label htmlFor={id}>Runs on</Label>
-      <Select value={deviceId ?? undefined} onValueChange={onChange}>
-        <SelectTrigger id={id} className="w-full">
-          <SelectValue placeholder="Select a device" />
-        </SelectTrigger>
-        <SelectContent>
-          {unknownDeviceId && (
-            <SelectItem value={unknownDeviceId}>
-              <span className="text-muted-foreground">{unknownDeviceId}</span>
-            </SelectItem>
-          )}
-          {/* EXP-615: no online dot here — every automation-capable machine is
-              equally bindable (a schedule catches up on reconnect), so the
-              live state belongs on the Automations tab's rows, not in the
-              picker. */}
-          {devices.map((device) => (
-            <SelectItem key={device.deviceId} value={device.deviceId}>
-              {device.deviceLabel || device.deviceId}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
+    // EXP-616: a grouped-form row — "Runs on" leads, the machine trails.
+    <GlassGroup>
+      <GlassPickerRow
+        label="Runs on"
+        value={deviceId ?? undefined}
+        onValueChange={onChange}
+        placeholder="Select a device"
+        options={[
+          ...(unknownDeviceId
+            ? [
+                {
+                  value: unknownDeviceId,
+                  label: (
+                    <span className="text-muted-foreground">
+                      {unknownDeviceId}
+                    </span>
+                  ),
+                },
+              ]
+            : []),
+          // EXP-615: no online dot here — every automation-capable machine is
+          // equally bindable (a schedule catches up on reconnect), so the
+          // live state belongs on the Automations tab's rows, not in the
+          // picker.
+          ...devices.map((device) => ({
+            value: device.deviceId,
+            label: device.deviceLabel || device.deviceId,
+          })),
+        ]}
+      />
+    </GlassGroup>
   )
 }
 
@@ -583,7 +596,11 @@ function FilterMultiSelect({
         <Button
           variant="outline"
           size="sm"
-          className={`h-8 font-normal ${selected.length === 0 ? `text-muted-foreground` : ``}`}
+          className={cn(
+            `h-8 font-normal`,
+            GLASS_FIELD,
+            selected.length === 0 && `text-muted-foreground`
+          )}
         >
           {summary}
         </Button>
