@@ -184,7 +184,10 @@ export function AutomationDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-h-[85dvh] sm:max-w-lg">
+      {/* EXP-616: a bottom sheet on mobile — the body is an ordinary
+          DialogBody, so the sheet follows its content and scrolls inside once
+          it hits the 92dvh cap. */}
+      <DialogContent mobileSheet className="sm:max-h-[85dvh] sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
             {editing ? `Edit automation` : `New automation`}

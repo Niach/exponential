@@ -64,10 +64,6 @@ import { Textarea } from "@/components/ui/textarea"
 // rides this sentinel inside the dialog only.
 const NO_REPO = `none`
 
-// EXP-616: the glass dress for a free-text field — the `dark:` prefix is
-// required to beat the stock input/textarea's own `dark:bg-input/30`.
-const GLASS_FIELD = `border-glass-stroke bg-glass-row shadow-none dark:bg-glass-row`
-
 const AutomationIcon = conceptIcon(`action-automation`)
 const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
 const BackIcon = conceptIcon(`ui-back`)
@@ -272,10 +268,15 @@ export function CreateActionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* Fixed panel height from `sm` up (EXP-615): the automation detail
-          slides over the form inside ONE frame, so the dialog must not resize
-          between the two. Mobile stays the full-screen page. */}
-      <DialogContent className="gap-3 sm:h-[min(85dvh,36rem)] sm:max-h-[85dvh] sm:max-w-2xl">
+      {/* Fixed panel height (EXP-615): the automation detail slides over the
+          form inside ONE frame, so the dialog must not resize between the two.
+          EXP-616: the height is unprefixed now because the mobile arm is a
+          bottom sheet — both halves are absolutely positioned, so a
+          content-sized sheet would collapse to header + footer. */}
+      <DialogContent
+        mobileSheet
+        className="h-[min(85dvh,36rem)] gap-3 sm:max-h-[85dvh] sm:max-w-2xl"
+      >
         <DialogHeader>
           <DialogTitle>New action</DialogTitle>
         </DialogHeader>
@@ -305,7 +306,6 @@ export function CreateActionDialog({
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder={nameDef?.placeholder}
-                    className={GLASS_FIELD}
                     maxLength={MAX_ACTION_INPUT_TEXT}
                   />
                 </div>
@@ -318,7 +318,7 @@ export function CreateActionDialog({
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder={descriptionDef?.placeholder}
-                  className={cn(`min-h-28`, GLASS_FIELD)}
+                  className="min-h-28"
                   // Client parity with the server's per-value cap, so a long
                   // paste is refused at the field instead of at submit.
                   maxLength={MAX_ACTION_INPUT_TEXT}
