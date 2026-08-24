@@ -5,7 +5,7 @@
      card-<feature>.png — 1600×900 share cards: headline + a real web-app
                           screenshot in a browser bezel on the brand gradient,
                           the landscape sibling of the store panels
-                          (frame-store-screenshots.tsx)
+                          (scripts/store/)
 
    The cards compose the RAW captures in apps/marketing/social-shots/ (not
    committed, EXP-348) produced by `bun run screenshots:social` in apps/web —

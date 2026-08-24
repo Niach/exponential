@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build && bun run scripts/prerender.tsx",
     "typecheck": "tsc --noEmit",
-    "screenshots:frame": "bun scripts/frame-store-screenshots.tsx",
+    "screenshots:store": "bun scripts/store/render-store-screenshots.tsx",
     "social:generate": "bun scripts/generate-social.tsx",
     "preview": "vite preview"
   },
@@ -22,6 +22,7 @@
     "remotion": "4.0.484"
   },
   "devDependencies": {
+    "@playwright/test": "^1.54.2",
     "@resvg/resvg-js": "^2.6.2",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",

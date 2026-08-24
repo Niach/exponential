@@ -5,7 +5,7 @@ import {
 } from "./components/DocsLayout"
 import { SiteFooter, SiteHeader } from "./components/SiteShell"
 import { IcArrow, IcChev } from "./components/icons"
-import { WebDemo } from "./webui/WebDemo"
+import { DocShot } from "./components/DocShot"
 import { DOCS_NAV } from "./lib/docs-nav"
 import { LINKS } from "./lib/links"
 
@@ -65,9 +65,7 @@ export function DocsPage() {
               free for everyone. It&apos;s open source under Apache-2.0.
             </p>
 
-            <div className="docs-embed">
-              <WebDemo view="board" interactive={false} />
-            </div>
+            <DocShot view="board" priority />
           </DocsSection>
 
           {/* ── 02 Quickstart ── */}

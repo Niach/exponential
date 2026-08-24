@@ -6,6 +6,7 @@ import {
 } from "./components/DocsLayout"
 import { SiteFooter, SiteHeader } from "./components/SiteShell"
 import { IcArrow } from "./components/icons"
+import { DocShot } from "./components/DocShot"
 import { IdeDemo } from "./ide/Ide"
 import { LINKS } from "./lib/links"
 
@@ -131,6 +132,12 @@ export function CodingDocsPage() {
             <p className="docs-embed-caption">
               Live demo: click Start coding on the issue to open the dialog.
             </p>
+
+            <DocShot
+              view="issue-detail"
+              platform="desktop"
+              caption="The desktop IDE on a live issue"
+            />
 
             <ul>
               <li>

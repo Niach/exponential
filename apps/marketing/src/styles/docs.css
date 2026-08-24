@@ -284,6 +284,48 @@
   margin: -12px 0 20px !important;
 }
 
+/* Real screenshots from the committed store (DocShot). The dark fill is
+   deliberate: a shot that has not been captured yet reads as an empty slab
+   rather than a broken-image glyph. */
+.docs-shot {
+  margin: 4px 0 20px;
+}
+
+.docs-shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--glass-stroke-card);
+  border-radius: var(--radius-section);
+  background: var(--bg-elev);
+}
+
+.docs-shot.docs-embed-phone {
+  flex-direction: column;
+  align-items: center;
+}
+
+.docs-shot .docs-embed-caption {
+  margin: 8px 0 0 !important;
+  text-align: center;
+}
+
+/* Two phone shots side by side (iOS + Android). */
+.docs-shot-row {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  margin: 4px 0 20px;
+}
+
+.docs-shot-row > .docs-shot {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 280px;
+  margin: 0;
+  padding: 0;
+}
+
 /* Hub "Browse the docs" card grid (generated from DOCS_NAV) */
 .docs-cards {
   display: grid;
