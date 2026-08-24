@@ -45,15 +45,29 @@ export async function run(options: RunOptions): Promise<RunResult> {
   if (options.timeoutMs) {
     timer = setTimeout(() => {
       timedOut = true
+      // SIGTERM first; a process that ignores it (or is already wedged) gets
+      // SIGKILL. Neither reaches GRANDCHILDREN (fastlane→xcodebuild, `bun
+      // run`→script), which inherit the pipe write-ends — so the drains below
+      // are additionally raced against exit + a grace period, or a surviving
+      // grandchild would hold the pipes open and wedge run() forever.
       child.kill()
+      setTimeout(() => child.kill(`SIGKILL`), 5_000)
     }, options.timeoutMs)
   }
 
-  const [stdout, stderr] = await Promise.all([
+  const drains = Promise.all([
     drain(child.stdout, options.stream ? process.stdout : undefined, options.label),
     drain(child.stderr, options.stream ? process.stderr : undefined, options.label),
   ])
   const code = await child.exited
+  const settled = await Promise.race([
+    drains,
+    // The child is gone; give inherited pipe holders a moment to flush, then
+    // return with whatever arrived rather than waiting on a pipe that may
+    // never reach EOF.
+    sleep(10_000).then(() => undefined),
+  ])
+  const [stdout, stderr] = settled ?? [``, ``]
   if (timer) clearTimeout(timer)
 
   return {

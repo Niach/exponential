@@ -38,6 +38,7 @@
     "@exp/emoji": "workspace:*",
     "@exp/icons": "workspace:*",
     "@exp/steer-ticket": "workspace:*",
+    "@exp/view-catalog": "workspace:*",
     "@exp/widget": "workspace:*",
     "@mcp-b/global": "^4.0.0",
     "@mcp-b/react-webmcp": "^4.0.0",

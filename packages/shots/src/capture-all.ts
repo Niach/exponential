@@ -26,7 +26,7 @@
  * Everything long-lived is tracked and killed in a `finally`, so a Ctrl-C leaves
  * no orphan relay stub or desktop window behind.
  */
-import { existsSync, readFileSync, readdirSync } from "node:fs"
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
 import { join } from "node:path"
 import {
   DEFAULT_PLATFORMS,
@@ -39,7 +39,7 @@ import { fetchDemoIds, type DemoIds } from "./ids.ts"
 import { importNative, NATIVE_PLATFORMS } from "./import-native.ts"
 import { hasCommand, killChild, run, sleep, track, type Child } from "./lib/proc.ts"
 import { rawDir, repoRoot } from "./paths.ts"
-import { indexStore, writeShot } from "./store.ts"
+import { indexStore, storeShotPath, writeShot } from "./store.ts"
 
 /** Through the Caddy h2 proxy — what the browser and the natives talk to. */
 const PROXY_URL = `https://localhost:3000`
@@ -407,6 +407,16 @@ async function startRelayStub(options: Options): Promise<Child | undefined> {
     }
   })()
   void watch
+  // Drain stderr too — the stub writes heartbeat errors there, and an unread
+  // pipe would deadlock it mid-run the moment the buffer fills, silently
+  // turning every later steering shot into a "no desktop online" state.
+  const errDecoder = new TextDecoder()
+  const watchErr = (async () => {
+    for await (const chunk of child.stderr as ReadableStream<Uint8Array>) {
+      process.stderr.write(errDecoder.decode(chunk, { stream: true }).replace(/^/gm, `[relay!] `))
+    }
+  })()
+  void watchErr
 
   const deadline = Date.now() + RELAY_TIMEOUT_MS
   while (!online && Date.now() < deadline) {
@@ -501,7 +511,9 @@ async function writeStore(
 
 function existingBytes(viewId: string, platform: Platform): number {
   try {
-    return readFileSync(join(repoRoot(), `shots`, viewId, `${platform}.webp`)).byteLength
+    // Through storeShotPath so the SHOTS_DIR override the writer honors also
+    // governs the before/after byte deltas in the summary.
+    return statSync(storeShotPath(viewId, platform)).size
   } catch {
     return 0
   }

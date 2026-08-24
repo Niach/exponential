@@ -12,6 +12,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@exp/view-catalog": "workspace:*",
     "@remotion/cli": "4.0.484",
     "@remotion/google-fonts": "4.0.484",
     "@remotion/player": "4.0.484",

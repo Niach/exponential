@@ -103,21 +103,48 @@ export async function screenRecordingAllowed(): Promise<
   { ok: true } | { ok: false; message: string }
 > {
   if (process.platform !== `darwin`) {
-    return { ok: false, message: `desktop captures need macOS (screencapture + CGWindowList)` }
+    return { ok: false, message: `desktop captures need macOS (screencapture + System Events)` }
   }
+  const grantMessage = [
+    `macOS Screen Recording is not granted to this terminal.`,
+    `  Grant it in System Settings → Privacy & Security → Screen & System Audio Recording,`,
+    `  tick the app running this command (Terminal / iTerm / your editor), then RESTART that app —`,
+    `  the permission is only picked up on a fresh launch.`,
+  ].join(`\n`)
+
+  // The authoritative check is the TCC API itself: a permission-DENIED
+  // \`screencapture\` still exits 0 and writes a wallpaper-only image, so a
+  // capture probe passes exactly the case this preflight exists to catch.
+  // Neither JXA nor a shipped helper can reach CGPreflightScreenCaptureAccess,
+  // but the system python3 can dlopen CoreGraphics directly.
+  const tcc = await run({
+    cmd: [
+      `python3`,
+      `-c`,
+      `import ctypes; cg = ctypes.CDLL('/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics'); print('granted' if cg.CGPreflightScreenCaptureAccess() else 'denied')`,
+    ],
+    timeoutMs: 15_000,
+  })
+  if (tcc.code === 0) {
+    const verdict = tcc.stdout.trim()
+    if (verdict === `granted`) return { ok: true }
+    if (verdict === `denied`) return { ok: false, message: grantMessage }
+  }
+
+  // No python3 (or the dlopen failed): fall back to the capture probe, which
+  // at least catches a hard failure — but it CANNOT distinguish "denied but
+  // photographing wallpaper", so say so.
   const probe = join(mkdtempSync(join(tmpdir(), `exp-shots-probe-`)), `probe.png`)
   try {
     const result = await run({ cmd: [`screencapture`, `-x`, `-R0,0,1,1`, probe], timeoutMs: 15_000 })
-    if (result.code === 0 && existsSync(probe)) return { ok: true }
-    return {
-      ok: false,
-      message: [
-        `screencapture failed (exit ${result.code}). macOS Screen Recording is not granted to this terminal.`,
-        `  Grant it in System Settings → Privacy & Security → Screen & System Audio Recording,`,
-        `  tick the app running this command (Terminal / iTerm / your editor), then RESTART that app —`,
-        `  the permission is only picked up on a fresh launch.`,
-      ].join(`\n`),
+    if (result.code === 0 && existsSync(probe)) {
+      console.warn(
+        `[desktop] warning: could not query the Screen Recording permission directly ` +
+          `(python3 unavailable) — if every shot comes out as wallpaper, see the grant steps in shots/README.md`
+      )
+      return { ok: true }
     }
+    return { ok: false, message: `screencapture failed (exit ${result.code}). ${grantMessage}` }
   } finally {
     rmSync(dirname(probe), { recursive: true, force: true })
   }
@@ -273,8 +300,10 @@ async function captureOne(options: CaptureOneOptions): Promise<string> {
           HOSTNAME: DEVICE_HOSTNAME,
           ...options.driveVars,
         } as Record<string, string>,
-        stdout: `pipe`,
-        stderr: `pipe`,
+        // Never `pipe` without a reader: a chatty gpui build (wgpu warnings,
+        // env_logger) fills the ~64KB kernel buffer and blocks before painting.
+        stdout: `ignore`,
+        stderr: `ignore`,
         stdin: `ignore`,
       })
     )

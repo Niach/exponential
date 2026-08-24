@@ -32,6 +32,11 @@ jobs:
           # import time without a URL — give it an unreachable dummy.
           DATABASE_URL: postgresql://ci:ci@127.0.0.1:59999/ci
         run: bun run test
+      # EXP-566: the view-catalog drift gates (catalog ↔ native shot names ↔
+      # recipe registry ↔ route coverage) and the store writer's tests — vitest
+      # doesn't run bun-test packages, so they need their own step.
+      - name: Screenshot store tests
+        run: bun run test:shots
       - name: Widget unit tests
         run: bun run test:widget
       - name: Steer relay + ticket tests
@@ -78,9 +83,12 @@ jobs:
         run: bun run build:marketing
       - name: Build styleguide
         # EXP-566: same rationale — the styleguide deploys straight from Coolify,
-        # so its only pre-deploy gate is here. Also validates the shots store
-        # against the view catalog.
+        # so its only pre-deploy gate is here.
         run: bun run build:styleguide
+      - name: Shots store vs catalog drift
+        # Fails on any declared-but-uncaptured pair or stray file in shots/
+        # (manual-lane desktop views are exempt until captured by hand).
+        run: bun run shots:check
 
   migrations:
     # EXP-112: drizzle-kit can generate SQL that fails on every real DB

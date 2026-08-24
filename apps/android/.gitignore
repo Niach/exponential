@@ -26,6 +26,9 @@ fastlane/test_output
 fastlane/metadata/android/en-US/images/phoneScreenshots/
 fastlane/metadata/android/en-US/images/phoneScreenshots-raw/
 fastlane/screenshots-raw/
+# EXP-566: the feature graphic is composed by `bun run screenshots:store` from
+# the raw captures — generated output, out of git like the screenshots (EXP-348).
+fastlane/metadata/android/en-US/images/featureGraphic.png
 # Styleguide reference captures (EXP-566) — `fastlane styleguide_screenshots`.
 fastlane/styleguide-screenshots/
 fastlane/metadata/android/screenshots.html

@@ -26,6 +26,7 @@ const RAIL_HEIGHT = 520
 const STATE_TEXT: Record<Shot[`state`], string> = {
   ok: `captured`,
   missing: `declared, not captured yet`,
+  manual: `awaiting a manual capture (--manual <view-id>)`,
   [`n/a`]: `not declared for this platform`,
 }
 
@@ -45,7 +46,7 @@ function formatBytes(bytes: number | undefined): string | undefined {
 
 function dotClass(state: Shot[`state`]): string {
   if (state === `ok`) return `ok`
-  return state === `missing` ? `missing` : `na`
+  return state === `missing` || state === `manual` ? `missing` : `na`
 }
 
 function placeholderWidth(platform: Platform): number {

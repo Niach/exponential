@@ -25,7 +25,7 @@ import {
 } from "@exp/view-catalog"
 import type { Group, Platform, View } from "@exp/view-catalog"
 
-export type ShotState = `ok` | `missing` | `n/a`
+export type ShotState = `ok` | `missing` | `manual` | `n/a`
 
 export interface Shot {
   platform: Platform
@@ -132,7 +132,10 @@ function findUndeclared(dir: string): string[] {
   }
   for (const entry of entries) {
     if (!entry.isDirectory()) {
-      if (entry.name !== `index.json` && entry.name !== `.gitkeep`) out.push(entry.name)
+      // index.json is the store's own manifest and README.md its runbook —
+      // the only two non-image files that legitimately live in shots/.
+      if (entry.name !== `index.json` && entry.name !== `.gitkeep` && entry.name !== `README.md`)
+        out.push(entry.name)
       continue
     }
     let children: Dirent[]
@@ -168,7 +171,17 @@ function buildShots(view: View, dir: string, index: ShotIndex | undefined): Shot
     }
     const file = path.join(dir, `${view.id}`, `${platform}.webp`)
     if (!existsSync(file)) {
-      return { platform, url, state: `missing`, w: frame.w, h: frame.h, note }
+      // A desktop drive of kind `manual` cannot be captured by the pipeline —
+      // it awaits a human with `--manual <view-id>`. Distinct from `missing`
+      // so the drift check stays green while a manual shot is outstanding.
+      const capture = captureFor(view, platform)
+      const manual =
+        platform === `desktop` &&
+        typeof capture === `object` &&
+        capture !== null &&
+        `drive` in capture &&
+        (capture as { drive: { kind: string } }).drive.kind === `manual`
+      return { platform, url, state: manual ? `manual` : `missing`, w: frame.w, h: frame.h, note }
     }
     const meta = indexed?.[platform]
     return {
@@ -209,7 +222,7 @@ export function readGallery(dir = storeDir()): GalleryData {
   for (const entry of views) {
     for (const shot of entry.shots) {
       if (shot.state === `ok`) counts.ok += 1
-      else if (shot.state === `missing`) counts.missing += 1
+      else if (shot.state === `missing` || shot.state === `manual`) counts.missing += 1
       else counts.na += 1
     }
   }
