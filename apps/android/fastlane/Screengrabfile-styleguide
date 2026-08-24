@@ -1,8 +1,8 @@
 # screengrab configuration for the STYLEGUIDE capture suite (EXP-566).
 #
 # Same machinery as fastlane/Screengrabfile, pointed at
-# StyleguideScreenshotsTest instead of the store flow: 11 shots
-# (sg_sign-in … sg_settings-personal) of the plain app surfaces, used as the
+# StyleguideScreenshotsTest instead of the store flow: 19 shots
+# (sg_instance-picker … sg_settings-account) of the plain app surfaces, used as the
 # cross-platform design reference rather than as Play listing assets. The shot
 # names are a byte-exact contract shared with the other clients — never rename
 # one without changing it everywhere.

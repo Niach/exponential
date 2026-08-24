@@ -21,6 +21,21 @@ export interface DemoIds {
   issues: Record<string, string>
   supportThreadId?: string
   actionId?: string
+  deviceId?: string
+  automationId?: string
+}
+
+/**
+ * Placeholders that name ONE well-known seeded row rather than an issue.
+ * Anything not in here is looked up as an issue identifier (`$APP-5`).
+ */
+const NAMED: Record<string, (ids: DemoIds) => string | undefined> = {
+  thread: (ids) => ids.supportThreadId,
+  action: (ids) => ids.actionId,
+  device: (ids) => ids.deviceId,
+  automation: (ids) => ids.automationId,
+  board: (ids) => ids.boardId,
+  team: (ids) => ids.teamId,
 }
 
 /**
@@ -42,6 +57,8 @@ export function parseDemoIds(stdout: string): DemoIds {
     issues: parsed.issues ?? {},
     supportThreadId: parsed.supportThreadId,
     actionId: parsed.actionId,
+    deviceId: parsed.deviceId,
+    automationId: parsed.automationId,
   }
 }
 
@@ -63,8 +80,9 @@ export async function fetchDemoIds(): Promise<DemoIds> {
 /**
  * Substitute `$NAME` placeholders in a `DesktopDrive.value`.
  *
- * `$thread` is the seeded support thread; anything else is looked up as an issue
- * IDENTIFIER (`$APP-5`). Returns `undefined` when a placeholder has no id — the
+ * A handful of names (`$thread`, `$action`, `$device`, `$automation`, `$board`,
+ * `$team`) point at one well-known seeded row; anything else is looked up as an
+ * issue IDENTIFIER (`$APP-5`). Returns `undefined` when a placeholder has no id — the
  * caller skips that view with a note, which is the honest outcome: a desktop
  * launched with an unresolvable `EXP_DEV_SCREEN` silently falls back to the
  * default screen and would photograph the wrong view under the right filename.
@@ -73,7 +91,8 @@ export function resolveDriveValue(value: string, ids: DemoIds): string | undefin
   if (!value.includes(`$`)) return value
   let missing: string | undefined
   const resolved = value.replace(/\$([A-Za-z][A-Za-z0-9_-]*)/g, (_match, name: string) => {
-    const id = name === `thread` ? ids.supportThreadId : ids.issues[name]
+    const named = NAMED[name]
+    const id = named ? named(ids) : ids.issues[name]
     if (!id) {
       missing = name
       return ``
@@ -86,8 +105,9 @@ export function resolveDriveValue(value: string, ids: DemoIds): string | undefin
 /** Human-readable reason a placeholder could not be resolved. */
 export function missingPlaceholder(value: string, ids: DemoIds): string {
   const names = [...value.matchAll(/\$([A-Za-z][A-Za-z0-9_-]*)/g)].map((match) => match[1]!)
-  const unresolved = names.filter((name) =>
-    name === `thread` ? !ids.supportThreadId : !ids.issues[name]
-  )
+  const unresolved = names.filter((name) => {
+    const named = NAMED[name]
+    return named ? !named(ids) : !ids.issues[name]
+  })
   return unresolved.map((name) => `$${name}`).join(`, `)
 }

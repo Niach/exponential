@@ -73,6 +73,18 @@ const PINNED_RECIPES = [
   `openCreateIssue`,
   `openSearch`,
   `openStartCoding`,
+  `openStartCodingActions`,
+  `openStartCodingChat`,
+  `openOnboardingCreateTeam`,
+  `openOnboardingJoin`,
+  `openBoardBulkEdit`,
+  `openBoardSwitcher`,
+  `openMachineSettings`,
+  `openAddServer`,
+  `openActionCreate`,
+  `openAutomationsTab`,
+  `openSuggestionsTab`,
+  `openWidgetEditor`,
   `openAgentDock`,
   `expandFirstDiffFile`,
   `openFirstThread`,
@@ -92,17 +104,11 @@ const groupIds = [
   `actions`,
   `support`,
   `settings`,
+  `ide`,
   `getting-started`,
 ] as const
 
-const platformEnum = z.enum([
-  `web`,
-  `web-mobile`,
-  `desktop`,
-  `ios`,
-  `android`,
-  `ipad`,
-])
+const platformEnum = z.enum([`web`, `web-mobile`, `desktop`, `ios`, `android`])
 
 const anchorSchema = z
   .strictObject({
@@ -117,6 +123,7 @@ const anchorSchema = z
 const webCaptureSchema = z.strictObject({
   route: z.string().startsWith(`/`),
   anchor: anchorSchema,
+  auth: z.enum([`demo`, `anonymous`, `newcomer`]).optional(),
   recipe: z.string().min(1).optional(),
   settleMs: z.number().int().nonnegative().optional(),
   fullPage: z.boolean().optional(),
@@ -130,12 +137,15 @@ const nativeCaptureSchema = z.strictObject({
 const desktopCaptureSchema = z.strictObject({
   drive: z.union([
     z.strictObject({
-      kind: z.enum([`screen`, `tool`, `settings`]),
+      kind: z.enum([`screen`, `tool`, `settings`, `dialog`]),
       value: z.string().min(1),
     }),
-    z.strictObject({ kind: z.literal(`manual`) }),
+    z.strictObject({ kind: z.enum([`login`, `manual`]) }),
   ]),
   anchorDelayMs: z.number().int().nonnegative().optional(),
+  // Layered on top of the drive's own vars. DEV-ONLY by construction: anything
+  // outside the EXP_DEV_ family would change how a real install behaves.
+  env: z.record(z.string().startsWith(`EXP_DEV_`), z.string().min(1)).optional(),
 })
 
 const viewSchema = z.strictObject({
@@ -147,7 +157,6 @@ const viewSchema = z.strictObject({
   web: webCaptureSchema.optional(),
   webMobile: z.union([z.literal(`inherit`), webCaptureSchema]).optional(),
   ios: nativeCaptureSchema.optional(),
-  ipad: nativeCaptureSchema.optional(),
   android: nativeCaptureSchema.optional(),
   desktop: desktopCaptureSchema.optional(),
   diffTolerance: z.number().gt(0).lt(1).optional(),
@@ -258,17 +267,8 @@ describe(`catalog shape`, () => {
     expect(broken).toEqual([])
   })
 
-  test(`ipad mirrors an iOS entry`, () => {
-    // iPad rides the same UI-test suite as iPhone, just on another simulator.
-    // An iPad shot with no iOS sibling means the suite never runs it.
-    const orphans = VIEWS.filter((view) => view.ipad && !view.ios).map(
-      (view) => view.id
-    )
-    expect(orphans).toEqual([])
-  })
-
   test(`store-lane shot names are unique per platform`, () => {
-    for (const key of [`ios`, `android`, `ipad`] as const) {
+    for (const key of [`ios`, `android`] as const) {
       const names = VIEWS.map((view) => view[key]?.shot).filter(
         (name): name is string => Boolean(name)
       )
@@ -294,7 +294,7 @@ function kotlinShots(source: string): string[] {
 }
 
 function manifestShots(
-  keys: readonly (`ios` | `ipad` | `android`)[],
+  keys: readonly (`ios` | `android`)[],
   lane: `store` | `styleguide`
 ): string[] {
   const names = new Set<string>()
@@ -333,12 +333,11 @@ function checkSuite(
 
 describe(`native suites match the manifest`, () => {
   test(`iOS store lane`, () => {
-    // iPhone and iPad share one suite, so their store names are one set.
     checkSuite(
       `StoreScreenshots.swift`,
       IOS_STORE,
       swiftShots,
-      manifestShots([`ios`, `ipad`], `store`)
+      manifestShots([`ios`], `store`)
     )
   })
 
@@ -347,7 +346,7 @@ describe(`native suites match the manifest`, () => {
       `StyleguideScreenshots.swift`,
       IOS_STYLEGUIDE,
       swiftShots,
-      manifestShots([`ios`, `ipad`], `styleguide`)
+      manifestShots([`ios`], `styleguide`)
     )
   })
 
@@ -392,7 +391,7 @@ describe(`native suites match the manifest`, () => {
 
   test(`styleguide shot names are sg_-prefixed`, () => {
     for (const view of VIEWS) {
-      for (const key of [`ios`, `ipad`, `android`] as const) {
+      for (const key of [`ios`, `android`] as const) {
         const capture = view[key]
         if (capture?.lane === `styleguide`) {
           expect(capture.shot).toMatch(/^sg_[a-z0-9-]+$/)
@@ -585,7 +584,6 @@ describe(`store geometry`, () => {
     desktop: { w: 1440, h: 900 },
     ios: { w: 1320, h: 2868 },
     android: { w: 1080, h: 2400 },
-    ipad: { w: 2064, h: 2752 },
   }
 
   test(`every platform has a frame`, () => {
@@ -612,7 +610,7 @@ describe(`store geometry`, () => {
   })
 
   test(`phones and tablets are portrait, browsers and the IDE landscape`, () => {
-    for (const platform of [`ios`, `android`, `ipad`, `web-mobile`] as const) {
+    for (const platform of [`ios`, `android`, `web-mobile`] as const) {
       expect(PLATFORM_FRAME[platform].h).toBeGreaterThan(
         PLATFORM_FRAME[platform].w
       )
@@ -670,10 +668,8 @@ describe(`api`, () => {
     expect(captureFor(own!, `web-mobile`)).toBe(own!.webMobile as WebCapture)
   })
 
-  test(`DEFAULT_PLATFORMS is every platform but iPad`, () => {
-    expect([...DEFAULT_PLATFORMS]).toEqual(
-      PLATFORMS.filter((platform) => platform !== `ipad`)
-    )
+  test(`DEFAULT_PLATFORMS is every platform`, () => {
+    expect([...DEFAULT_PLATFORMS]).toEqual([...PLATFORMS])
   })
 
   test(`the default tolerance is a sane fraction`, () => {

@@ -35,6 +35,15 @@ enum SignInStage {
     case loginReady
 }
 
+/// Where a COLD launch landed, before anything has been tapped.
+enum LaunchStage {
+    /// InstanceView is up (the cloud buttons + the self-hosted link, or the
+    /// bare URL field when the cloud account already exists).
+    case instancePicker
+    /// A keychain account survived the relaunch — the main UI is already up.
+    case alreadySignedIn
+}
+
 extension XCTestCase {
 
     // MARK: - Launch
@@ -67,6 +76,22 @@ extension XCTestCase {
 
     // MARK: - Sign in
 
+    /// Waits out the cold launch WITHOUT touching anything and reports what is
+    /// on screen. Split out of `presentLoginScreen` (EXP-566) so the styleguide
+    /// suite can photograph the untouched instance picker before the sign-in
+    /// flow starts driving it.
+    @MainActor
+    func awaitLaunchStage(_ app: XCUIApplication, timeout: TimeInterval = 30) -> LaunchStage {
+        let urlField = app.textFields["instance-url-field"]
+        let selfHostLink = app.buttons["instance-self-host-link"]
+        let issuesTab = app.buttons["tab-issues"]
+        let deadline = Date().addingTimeInterval(timeout)
+        while !selfHostLink.exists && !urlField.exists && !issuesTab.exists && Date() < deadline {
+            usleep(500_000)
+        }
+        return issuesTab.exists ? .alreadySignedIn : .instancePicker
+    }
+
     /// InstanceView: replace the prefilled "https://" with the target URL and
     /// continue, leaving LoginView on screen (or reporting that the app booted
     /// straight into the main UI).
@@ -81,12 +106,7 @@ extension XCTestCase {
 
         let urlField = app.textFields["instance-url-field"]
         let selfHostLink = app.buttons["instance-self-host-link"]
-        let issuesTab = app.buttons["tab-issues"]
-        let deadline = Date().addingTimeInterval(30)
-        while !selfHostLink.exists && !urlField.exists && !issuesTab.exists && Date() < deadline {
-            usleep(500_000)
-        }
-        if issuesTab.exists {
+        if awaitLaunchStage(app) == .alreadySignedIn {
             dismissSavePasswordSheet(timeout: 2)
             return .alreadySignedIn
         }

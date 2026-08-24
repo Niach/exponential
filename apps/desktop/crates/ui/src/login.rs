@@ -76,6 +76,17 @@ enum InstanceChoice {
     SelfHosted,
 }
 
+/// DEV-ONLY `EXP_DEV_LOGIN` values: `cloud` | `self-hosted` (anything else =
+/// the prefill-derived default). The self-hosted card — the "Server URL"
+/// input — is otherwise only reachable by clicking the toggle link.
+fn parse_dev_login(spec: &str) -> Option<InstanceChoice> {
+    match spec {
+        "cloud" => Some(InstanceChoice::Cloud),
+        "self-hosted" => Some(InstanceChoice::SelfHosted),
+        _ => None,
+    }
+}
+
 pub struct LoginView {
     choice: InstanceChoice,
     server: Entity<InputState>,
@@ -113,11 +124,23 @@ impl LoginView {
             .map(|account| (account.instance_url, account.email))
             .unwrap_or_else(|| (String::new(), String::new()));
         let cloud = cloud_instance();
-        let choice = if server_prefill.is_empty() || server_prefill == cloud {
-            InstanceChoice::Cloud
-        } else {
-            InstanceChoice::SelfHosted
-        };
+        // DEV-ONLY (§11.4 headless verification, same family as
+        // EXP_DEV_SCREEN/EXP_DEV_TOOL): pin which instance card the login
+        // opens on so a capture run can photograph the self-hosted state
+        // without synthetic input. Unset/unknown = the prefill-derived
+        // default below. Never document for users.
+        let choice = std::env::var("EXP_DEV_LOGIN")
+            .ok()
+            .as_deref()
+            .map(str::trim)
+            .and_then(parse_dev_login)
+            .unwrap_or_else(|| {
+                if server_prefill.is_empty() || server_prefill == cloud {
+                    InstanceChoice::Cloud
+                } else {
+                    InstanceChoice::SelfHosted
+                }
+            });
 
         let server = cx.new(|cx| {
             InputState::new(window, cx)

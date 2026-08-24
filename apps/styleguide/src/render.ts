@@ -17,7 +17,6 @@ const PLATFORM_LABEL: Record<Platform, string> = {
   desktop: `Desktop`,
   ios: `iOS`,
   android: `Android`,
-  ipad: `iPad`,
 }
 
 /** How tall a fitted shot renders; placeholders match it so the rail stays level. */
@@ -82,8 +81,33 @@ function renderFigure(entry: ViewEntry, shot: Shot): string {
   ].join(``)
 }
 
+/**
+ * Platforms the view does not claim get NO card. A mobile-only surface used to
+ * sit next to three full-height "not declared for this platform" boxes, which
+ * made every such view read as three quarters broken. The reasons still matter,
+ * so they collapse into one line under the rail instead of dominating it.
+ */
+function renderNotApplicable(shots: Shot[]): string {
+  const na = shots.filter((shot) => shot.state === `n/a`)
+  if (na.length === 0) return ``
+  const labels = na.map((shot) => PLATFORM_LABEL[shot.platform]).join(`, `)
+  const reasons = na
+    .filter((shot) => shot.note !== undefined)
+    .map(
+      (shot) =>
+        `<li><b>${escapeHtml(PLATFORM_LABEL[shot.platform])}</b> ${escapeHtml(shot.note!)}</li>`
+    )
+    .join(``)
+  const summaryText = `Not on ${escapeHtml(labels)}`
+  if (reasons.length === 0) return `<p class="na-note">${summaryText}</p>`
+  return `<details class="na-note"><summary>${summaryText}</summary><ul>${reasons}</ul></details>`
+}
+
 function renderView(entry: ViewEntry, groupLabel: string): string {
-  const rail = entry.shots.map((shot) => renderFigure(entry, shot)).join(``)
+  const rail = entry.shots
+    .filter((shot) => shot.state !== `n/a`)
+    .map((shot) => renderFigure(entry, shot))
+    .join(``)
   return [
     `<section class="view" data-view="${escapeHtml(entry.view.id)}" id="view-${escapeHtml(entry.view.id)}">`,
     `<p class="meta-note">${escapeHtml(groupLabel)}</p>`,
@@ -91,6 +115,7 @@ function renderView(entry: ViewEntry, groupLabel: string): string {
     `<div><code class="view-id">${escapeHtml(entry.view.id)}</code></div>`,
     `<p class="blurb">${escapeHtml(entry.view.blurb)}</p>`,
     `<div class="rail">${rail}</div>`,
+    renderNotApplicable(entry.shots),
     `</section>`,
   ].join(``)
 }

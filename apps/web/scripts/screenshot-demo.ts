@@ -17,6 +17,52 @@ export const TEAM_SLUG = `acme`
 export const DEMO_DEVICE_LABEL = `Alex's MacBook Pro`
 
 /**
+ * The steer deviceId that machine announces (`devices.device_id`, and the
+ * `online` frame's). Shared because the seeded automations bind their runner to
+ * it — an automation names the MACHINE, not a row uuid, so the seed and the
+ * stand-in desktop have to agree or every automation row renders "Unknown
+ * machine".
+ */
+export const DEMO_DEVICE_ID = `screenshot-demo-desktop`
+
+/**
+ * The team-shared build server's steer device id. Pinned for the same reason as
+ * the desktop's: `screenshots:prune-devices` deletes every device row that is
+ * NOT one of these, so the capture lane's throwaway registrations cannot pile
+ * up in the demo team.
+ */
+export const DEMO_SERVER_DEVICE_ID = `screenshot-demo-server`
+
+/**
+ * Marketing versions the two machines report. The seeded team server sits one
+ * minor behind the desktop on purpose: a fleet where every machine is on the
+ * same build never shows the version pill doing anything.
+ */
+export const DEMO_DEVICE_VERSION = `0.14.22`
+export const DEMO_SERVER_VERSION = `0.13.11`
+
+/**
+ * A SECOND identity that owns nothing (EXP-566): verified, but with a null
+ * `onboardingCompletedAt` and no membership anywhere. It exists so the two
+ * pre-team views can be photographed at all — signed in as the demo user, both
+ * of them redirect straight to a board.
+ *
+ *   /onboarding      the create-or-join wizard every signup lands in
+ *   /invite/<token>  the landing page a teammate opens from an invite link
+ *
+ * Accepting the invite would consume it AND complete onboarding, so the
+ * capturer must never press the button: it photographs the offer and moves on.
+ * The seed re-mints both the user and the invite on every run, which is what
+ * keeps the token below valid despite being a constant.
+ */
+export const NEWCOMER_EMAIL = `newcomer@exponential.at`
+export const NEWCOMER_PASSWORD = `screenshots-newcomer`
+export const NEWCOMER_NAME = `Jordan Reyes`
+
+/** The unconsumed invite the `invite-accept` view is captured on. */
+export const DEMO_INVITE_TOKEN = `screenshots-demo-invite`
+
+/**
  * The LAST event of the scripted steering transcript: the unanswered question
  * the steering screenshot is composed around.
  *

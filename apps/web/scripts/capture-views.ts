@@ -25,9 +25,22 @@ import { chromium, type BrowserContext, type Page } from "@playwright/test"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { statSync } from "node:fs"
-import { captureFor, viewsFor, type Platform, type WebCapture } from "@exp/view-catalog"
+import {
+  captureFor,
+  viewsFor,
+  type Platform,
+  type WebCapture,
+  type WebIdentity,
+} from "@exp/view-catalog"
 import { launchContext, login, settle, shot, waitForAnchor } from "./lib/capture-web"
 import { RECIPES, recipeContext, type RecipeCtx } from "./lib/view-recipes"
+import {
+  DEMO_EMAIL,
+  DEMO_INVITE_TOKEN,
+  DEMO_PASSWORD,
+  NEWCOMER_EMAIL,
+  NEWCOMER_PASSWORD,
+} from "./screenshot-demo"
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, `../../..`)
@@ -48,12 +61,33 @@ const FORM_FACTORS: Record<
 }
 
 /**
- * Routes that must NOT carry a session. `/auth/*` redirects a signed-in user
- * straight to their team, so the sign-in and sign-up shots would photograph a
- * board; `/onboarding` is gated the same way by `onboardingCompletedAt`.
+ * Who a view is photographed as, when the manifest does not say.
+ *
+ * `/auth/*` redirects a signed-in user straight to their team, so the sign-in
+ * and sign-up shots have to be anonymous. Everything else is the demo user —
+ * including `/onboarding` and `/invite/$token`, which are NOT anonymous views:
+ * both need a real session that simply has no team yet, so the manifest marks
+ * them `auth: "newcomer"` explicitly.
  */
-function needsAuth(route: string): boolean {
-  return !(route.startsWith(`/auth`) || route.startsWith(`/onboarding`))
+function identityFor(capture: WebCapture): WebIdentity {
+  if (capture.auth) return capture.auth
+  return capture.route.startsWith(`/auth`) ? `anonymous` : `demo`
+}
+
+const CREDENTIALS: Record<Exclude<WebIdentity, `anonymous`>, Credentials> = {
+  demo: { email: DEMO_EMAIL, password: DEMO_PASSWORD, landing: `**/t/**` },
+  // Signing in with no team lands on the wizard, never on a team route.
+  newcomer: {
+    email: NEWCOMER_EMAIL,
+    password: NEWCOMER_PASSWORD,
+    landing: `**/onboarding**`,
+  },
+}
+
+interface Credentials {
+  email: string
+  password: string
+  landing: string
 }
 
 /** Placeholder substitution against the seeded demo instance. */
@@ -61,6 +95,7 @@ function resolveRoute(route: string, ctx: RecipeCtx): string {
   return route
     .replaceAll(`$teamSlug`, ctx.demo.teamSlug)
     .replaceAll(`$boardSlug`, ctx.demo.boardSlug)
+    .replaceAll(`$inviteToken`, DEMO_INVITE_TOKEN)
 }
 
 interface Args {
@@ -186,30 +221,38 @@ async function main() {
       console.log(`\n=== ${formFactor} (${wanted.length} views) ===`)
       const geometry = FORM_FACTORS[formFactor]
 
-      // ONE signed-in context per form factor; the anonymous views each get a
-      // throwaway one so no session cookie can leak into a /auth shot.
-      let authed: BrowserContext | null = null
-      let authedPage: Page | null = null
+      // One signed-in context per IDENTITY per form factor; the anonymous views
+      // each get a throwaway one so no session cookie can leak into a /auth shot.
+      const sessions = new Map<
+        Exclude<WebIdentity, `anonymous`>,
+        { context: BrowserContext; page: Page }
+      >()
 
       try {
         for (const view of wanted) {
           const capture = captureFor(view, formFactor) as WebCapture
           const outPath = resolve(args.out, formFactor, `${view.id}.png`)
-          const anonymous = !needsAuth(capture.route)
+          const identity = identityFor(capture)
 
           let page: Page
           let throwaway: BrowserContext | null = null
-          if (anonymous) {
+          if (identity === `anonymous`) {
             throwaway = await launchContext(browser, geometry)
             page = await throwaway.newPage()
           } else {
-            if (!authed) {
-              authed = await launchContext(browser, geometry)
-              authedPage = await authed.newPage()
-              console.log(`  signing in as ${ctx.demo.email}`)
-              await login(authedPage, args.baseUrl)
+            // One long-lived context per identity: signing in is the slowest
+            // step in the lane, and the two never share cookies.
+            let session = sessions.get(identity)
+            if (!session) {
+              const credentials = CREDENTIALS[identity]
+              const context = await launchContext(browser, geometry)
+              const signedIn = await context.newPage()
+              console.log(`  signing in as ${credentials.email}`)
+              await login(signedIn, args.baseUrl, credentials, credentials.landing)
+              session = { context, page: signedIn }
+              sessions.set(identity, session)
             }
-            page = authedPage!
+            page = session.page
           }
 
           try {
@@ -229,7 +272,7 @@ async function main() {
           }
         }
       } finally {
-        if (authed) await authed.close()
+        for (const session of sessions.values()) await session.context.close()
       }
     }
   } finally {

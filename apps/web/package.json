@@ -14,6 +14,7 @@
     "backfill:widget-descriptions": "bun scripts/scrub-widget-descriptions.ts",
     "seed:screenshots": "bun scripts/seed-screenshots.ts",
     "screenshots:ids": "bun scripts/screenshot-ids.ts",
+    "screenshots:prune-devices": "bun scripts/screenshot-prune-devices.ts",
     "screenshots:desktop": "bun scripts/screenshot-desktop.ts",
     "screenshots:social": "bun scripts/capture-social-shots.ts",
     "capture:views": "bun scripts/capture-views.ts",

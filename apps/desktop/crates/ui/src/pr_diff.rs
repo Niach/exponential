@@ -55,12 +55,17 @@ impl PrDiffView {
         if self.issue_id.as_deref() == Some(issue_id.as_str()) {
             return;
         }
-        self.issue_id = Some(issue_id.clone());
+        // The screens panel drives this from its CONSTRUCTOR, which runs
+        // while the session is still validating on a background thread — so a
+        // cold start into a PR deep link finds no client yet. Latching an
+        // error here would be terminal (same-id calls no-op, and the panel
+        // only re-drives on a screen CHANGE); stay Loading and leave
+        // `issue_id` unrecorded so the Synced re-drive actually re-attempts.
         let Some(client) = queries::trpc_client(cx) else {
-            self.diff
-                .update(cx, |diff, cx| diff.set_error("Not signed in.", cx));
+            self.diff.update(cx, |diff, cx| diff.set_loading(cx));
             return;
         };
+        self.issue_id = Some(issue_id.clone());
         self.diff
             .update(cx, |diff, cx| diff.fetch(Arc::new(client), issue_id, cx));
     }

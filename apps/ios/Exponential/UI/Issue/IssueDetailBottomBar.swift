@@ -154,6 +154,11 @@ struct IssueDetailBottomBar: View {
                     AppIcon(AppIcons.uiProperties, size: AppIcon.Size.medium, weight: .medium)
                         .foregroundStyle(.white)
                 }
+                // The sheet it opens carries the SAME "Properties" title, so
+                // the styleguide capture addresses the trigger by identifier
+                // (EXP-566; Android's twin uses the "Issue properties"
+                // contentDescription).
+                .accessibilityIdentifier("issue-properties-button")
             }
 
             Button {

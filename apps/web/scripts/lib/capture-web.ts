@@ -59,12 +59,22 @@ export async function launchContext(
 }
 
 /** Sign the demo user in and wait until a team route has taken over. */
-export async function login(page: Page, baseUrl: string): Promise<void> {
+export async function login(
+  page: Page,
+  baseUrl: string,
+  credentials?: { email: string; password: string },
+  /**
+   * Where a successful sign-in lands. The demo user has a team, so it is
+   * `/t/...`; the team-less newcomer (EXP-566) is bounced to `/onboarding`
+   * instead, and waiting for a team URL would time out on the happy path.
+   */
+  landing: string = `**/t/**`
+): Promise<void> {
   await page.goto(`${baseUrl}/auth/login`)
-  await page.fill(`#email`, DEMO_EMAIL)
-  await page.fill(`#password`, DEMO_PASSWORD)
+  await page.fill(`#email`, credentials?.email ?? DEMO_EMAIL)
+  await page.fill(`#password`, credentials?.password ?? DEMO_PASSWORD)
   await page.getByRole(`button`, { name: `Sign in`, exact: true }).click()
-  await page.waitForURL(`**/t/**`, { timeout: 30_000 })
+  await page.waitForURL(landing, { timeout: 30_000 })
 }
 
 /**

@@ -28,7 +28,7 @@ import { captureFor, viewsFor, type NativeCapture, type Platform } from "@exp/vi
 import { rawShotPath, repoRoot } from "./paths.ts"
 
 /** The platforms this importer handles. */
-export const NATIVE_PLATFORMS: readonly Platform[] = [`ios`, `ipad`, `android`]
+export const NATIVE_PLATFORMS: readonly Platform[] = [`ios`, `android`]
 
 /**
  * The tEXt chunk the store compositor stamps into finished marketing slides
@@ -64,15 +64,6 @@ function sourceDirs(platform: Platform, lane: NativeCapture[`lane`]): SourceDir[
           devicePrefix: /^iPhone/,
         },
         { dir: ios(`screenshots`), legacy: true, devicePrefix: /^iPhone/ },
-      ]
-    case `ipad`:
-      return [
-        {
-          dir: lane === `store` ? ios(`screenshots-raw`) : ios(`screenshots-styleguide`),
-          legacy: false,
-          devicePrefix: /^iPad/,
-        },
-        { dir: ios(`screenshots`), legacy: true, devicePrefix: /^iPad/ },
       ]
     case `android`:
       return [

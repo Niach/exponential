@@ -41,6 +41,9 @@ class ScreenshotFlow(private val composeRule: ComposeTestRule) {
         /** APP-5 — the seeded showcase issue (description + the only comment thread). */
         const val SHOWCASE_ISSUE_TITLE = "Reduce cold start below 800 ms"
 
+        /** InstanceScreen's demoted self-hosting entry (EXP-14). */
+        const val SELF_HOST_LINK = "Use a self-hosted instance"
+
         const val NAV_TIMEOUT = 30_000L
         const val SYNC_TIMEOUT = 60_000L
 
@@ -71,12 +74,22 @@ class ScreenshotFlow(private val composeRule: ComposeTestRule) {
     }
 
     /**
+     * Waits out the cold launch until the instance picker is on screen,
+     * touching NOTHING. Split out of [chooseInstance] (EXP-566) so the
+     * styleguide suite can photograph the untouched picker before the sign-in
+     * flow starts driving it.
+     */
+    fun awaitInstancePicker() {
+        waitFor(hasText(SELF_HOST_LINK), NAV_TIMEOUT)
+    }
+
+    /**
      * Instance picker: cloud is the primary path (EXP-14), so reveal the
      * self-hosted URL field, then point the app at the seeded backend.
      */
     fun chooseInstance(instanceUrl: String) {
-        waitFor(hasText("Use a self-hosted instance"), NAV_TIMEOUT)
-        composeRule.onNode(hasText("Use a self-hosted instance")).performClick()
+        awaitInstancePicker()
+        composeRule.onNode(hasText(SELF_HOST_LINK)).performClick()
         waitFor(hasTestTag("instance-url-field"), NAV_TIMEOUT)
         composeRule.onNode(hasTestTag("instance-url-field")).apply {
             performTextClearance()
@@ -127,6 +140,14 @@ class ScreenshotFlow(private val composeRule: ComposeTestRule) {
             composeRule.onAllNodes(matcher).fetchSemanticsNodes().isNotEmpty()
         }
     }
+
+    /**
+     * Like [waitFor], but REPORTS the timeout instead of failing the run — for
+     * the handful of gates whose content is optional (a seed that predates the
+     * shot, an empty state that is itself worth photographing).
+     */
+    fun waitForOptional(matcher: SemanticsMatcher, timeoutMillis: Long): Boolean =
+        runCatching { waitFor(matcher, timeoutMillis) }.isSuccess
 
     /** Poll until no node matches [matcher] anymore. */
     fun waitForGone(matcher: SemanticsMatcher, timeoutMillis: Long) {

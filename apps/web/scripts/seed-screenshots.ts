@@ -31,8 +31,11 @@ import { eq, inArray, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   actions,
+  attachments,
+  automations,
   codingSessions,
   comments,
+  devices,
   issueEvents,
   issueLabels,
   issues,
@@ -44,16 +47,30 @@ import {
   repositories,
   supportMessages,
   supportThreads,
+  teamInvites,
   users,
   teamMembers,
   teams,
+  widgetConfigs,
 } from "@/db/schema"
 import { auth } from "@/lib/auth"
 import {
+  buildAttachmentStorageKey,
+  buildAttachmentUrl,
+} from "@/lib/storage/issue-attachments"
+import { generateWidgetKey } from "@/lib/widget/key"
+import {
+  DEMO_DEVICE_ID,
+  DEMO_SERVER_DEVICE_ID,
   DEMO_DEVICE_LABEL,
   DEMO_EMAIL,
+  DEMO_INVITE_TOKEN,
   DEMO_NAME,
   DEMO_PASSWORD,
+  DEMO_SERVER_VERSION,
+  NEWCOMER_EMAIL,
+  NEWCOMER_NAME,
+  NEWCOMER_PASSWORD,
   TEAM_SLUG,
 } from "./screenshot-demo"
 
@@ -89,6 +106,26 @@ const hoursAgo = (h: number) => new Date(now - h * 3_600_000)
 const inDays = (d: number) =>
   new Date(now + d * 86_400_000).toISOString().slice(0, 10)
 
+/**
+ * Attachment ids for the STORAGE settings view, minted up front so the seeded
+ * markdown can embed them — exactly what the upload path does
+ * (lib/storage/issue-attachment-upload.ts mints the id first, then derives the
+ * storage key and the canonical `/api/attachments/{id}` URL from it).
+ *
+ * Only the storage manager photographs these rows (it renders a type icon and
+ * the byte total, never the blob), so no object is uploaded. That is also why
+ * the embedded ones live on quiet backlog issues rather than the showcase
+ * issue: nothing that gets captured renders one of these images.
+ */
+const ATTACHMENT_IDS = {
+  cacheHitRate: crypto.randomUUID(),
+  cacheSketch: crypto.randomUUID(),
+  voiceoverLabels: crypto.randomUUID(),
+  contrastSweep: crypto.randomUUID(),
+  auditPdf: crypto.randomUUID(),
+  sysdiagnose: crypto.randomUUID(),
+}
+
 async function ensureDemoUser(): Promise<string> {
   await auth.api.signUpEmail({
     body: { name: DEMO_NAME, email: DEMO_EMAIL, password: DEMO_PASSWORD },
@@ -104,6 +141,43 @@ async function ensureDemoUser(): Promise<string> {
     .update(users)
     .set({ emailVerified: true, onboardingCompletedAt: daysAgo(30) })
     .where(eq(users.id, row.id))
+  return row.id
+}
+
+/**
+ * The team-less second identity (EXP-566). Verified so the app lets it in, but
+ * `onboardingCompletedAt` stays NULL and it joins nothing — that is precisely
+ * what makes `/onboarding` and `/invite/$token` render instead of redirecting.
+ *
+ * `signUpEmail` gives every new user a personal team on some instances; this
+ * strips whatever it created so the account really does own nothing.
+ */
+async function ensureNewcomerUser(): Promise<string> {
+  await auth.api.signUpEmail({
+    body: {
+      name: NEWCOMER_NAME,
+      email: NEWCOMER_EMAIL,
+      password: NEWCOMER_PASSWORD,
+    },
+  })
+  const [row] = await db
+    .select()
+    .from(users)
+    .where(eq(users.email, NEWCOMER_EMAIL))
+    .limit(1)
+  if (!row) throw new Error(`newcomer user missing after signUpEmail`)
+  await db
+    .update(users)
+    .set({ emailVerified: true, onboardingCompletedAt: null })
+    .where(eq(users.id, row.id))
+  const owned = await db
+    .select({ teamId: teamMembers.teamId })
+    .from(teamMembers)
+    .where(eq(teamMembers.userId, row.id))
+  for (const { teamId } of owned) {
+    await db.delete(boards).where(eq(boards.teamId, teamId))
+    await db.delete(teams).where(eq(teams.id, teamId))
+  }
   return row.id
 }
 
@@ -147,7 +221,7 @@ async function teardown() {
   // Recreate the demo users each run (fresh ids ⇒ fresh user-scoped shapes —
   // see the header). Drop teams where a demo user is the sole member
   // first (their auto-created personal teams would otherwise pile up).
-  const emails = [DEMO_EMAIL, ...TEAMMATES.map((m) => m.email)]
+  const emails = [DEMO_EMAIL, NEWCOMER_EMAIL, ...TEAMMATES.map((m) => m.email)]
   const demoUsers = await db
     .select({ id: users.id })
     .from(users)
@@ -171,6 +245,7 @@ async function teardown() {
 async function main() {
   await teardown()
   const demoId = await ensureDemoUser()
+  await ensureNewcomerUser()
   const mates = await ensureTeammates()
   const mira = mates[`demo-mira`]
   const jonas = mates[`demo-jonas`]
@@ -188,6 +263,43 @@ async function main() {
     { teamId: ws.id, userId: mira, role: `member` },
     { teamId: ws.id, userId: jonas, role: `member` },
     { teamId: ws.id, userId: sofia, role: `member` },
+  ])
+
+  // An unconsumed invite for the `invite-accept` view. Deterministic token, but
+  // never a stale one: teardown drops the team, and this row with it.
+  await db.insert(teamInvites).values({
+    teamId: ws.id,
+    invitedById: demoId,
+    role: `member`,
+    token: DEMO_INVITE_TOKEN,
+    email: NEWCOMER_EMAIL,
+    expiresAt: new Date(now + 7 * 86_400_000),
+  })
+
+  // Two MORE unconsumed invites for the `settings-members` view — its pending
+  // list renders nothing at all when empty. One was mailed to an address, one
+  // is a bare shareable link (the two shapes the row styles differently).
+  // Deliberately NOT DEMO_INVITE_TOKEN: that one stays the invite the
+  // `invite-accept` view is captured on, and accepting any of these would
+  // consume it.
+  await db.insert(teamInvites).values([
+    {
+      teamId: ws.id,
+      invitedById: demoId,
+      role: `member`,
+      token: `screenshots-demo-invite-priya`,
+      email: `priya@northwind.dev`,
+      createdAt: daysAgo(2),
+      expiresAt: new Date(now + 5 * 86_400_000),
+    },
+    {
+      teamId: ws.id,
+      invitedById: mira,
+      role: `member`,
+      token: `screenshots-demo-invite-link`,
+      createdAt: hoursAgo(20),
+      expiresAt: new Date(now + 6 * 86_400_000),
+    },
   ])
 
   const [repo] = await db
@@ -230,6 +342,37 @@ async function main() {
       color: `#22c55e`,
       icon: `megaphone`,
       sortOrder: 20,
+    },
+  ])
+
+  // One archived + one trashed board for the `settings-boards` view: both of
+  // its cards ("Archived boards", "Pending deletion") hide when empty, so
+  // without these the page renders neither. Both keep their (team_id, slug)
+  // reservation and vanish from every normal board list server-side
+  // (boardVisible() + the shapes' static IS NULL suffixes) — issue-less on
+  // purpose, so the fan-out triggers (propagate_board_archived_at /
+  // propagate_board_deleted_at) have no child rows to mirror onto. deletedAt
+  // is hours old, well inside the 48h window the purge sweep waits out.
+  await db.insert(boards).values([
+    {
+      teamId: ws.id,
+      name: `Design System`,
+      slug: `design-system`,
+      prefix: `DS`,
+      color: `#a855f7`,
+      icon: `palette`,
+      sortOrder: 30,
+      archivedAt: daysAgo(9),
+    },
+    {
+      teamId: ws.id,
+      name: `Growth Experiments`,
+      slug: `growth-experiments`,
+      prefix: `GRW`,
+      color: `#14b8a6`,
+      icon: `flask-conical`,
+      sortOrder: 40,
+      deletedAt: hoursAgo(6),
     },
   ])
 
@@ -374,8 +517,12 @@ async function main() {
       labels: [`Feature`],
       createdDaysAgo: 9,
     },
+    // The two backlog issues below carry the embedded attachments (EXP-566).
+    // Deliberately backlog rows: an embedded image whose blob was never
+    // uploaded renders broken, and no capture recipe opens these.
     {
       title: `Migrate image cache to on-disk LRU`,
+      description: `The in-memory cache evicts on every backgrounding, so scrolling the board twice re-downloads every avatar.\n\n![Cache hit rate over a week](/api/attachments/${ATTACHMENT_IDS.cacheHitRate})`,
       status: `backlog`,
       priority: `low`,
       creatorId: jonas,
@@ -399,6 +546,7 @@ async function main() {
     },
     {
       title: `Audit accessibility labels for VoiceOver`,
+      description: `Sweep every screen with VoiceOver on and give the icon-only controls real labels.\n\n![Contrast sweep, before and after](/api/attachments/${ATTACHMENT_IDS.contrastSweep})`,
       status: `backlog`,
       priority: `medium`,
       creatorId: sofia,
@@ -503,6 +651,27 @@ async function main() {
     }
   }
 
+  // A closed-as-duplicate issue so the duplicate banner ("Duplicate of APP-6")
+  // has something to render. Inserted after the loop because it points at an
+  // issue the loop created; enum + FK move in lockstep, which is the whole
+  // contract (`populate_issue_status_id` derives status_id from the anchor).
+  const [duplicate] = await db
+    .insert(issues)
+    .values({
+      boardId: board.id,
+      teamId: board.teamId,
+      title: `App opens the board instead of the issue from a push`,
+      description: `Same as the deep-link bug — tapping a comment notification lands on the board when the app was killed.`,
+      status: `duplicate`,
+      duplicateOfId: inserted[5].id,
+      priority: `medium`,
+      creatorId: sofia,
+      sortOrder: seedIssues.length * 10,
+      createdAt: hoursAgo(30),
+    })
+    .returning()
+  inserted.push(duplicate)
+
   // Showcase issue APP-5: comments + activity + subscribers for the
   // issue-detail and comments screenshots.
   const showcase = inserted[4]
@@ -586,6 +755,136 @@ async function main() {
     },
   ])
 
+  // Attachments for the `settings-storage` view, which otherwise reads
+  // "0 attachments · 0 B". Rows only, no blobs: the storage manager renders a
+  // type icon, the byte total and a referenced/unreferenced badge — never a
+  // thumbnail. "Referenced" means the id appears in some issue description or
+  // comment body of the team, OR the row is comment-linked (EXP-554,
+  // collectTeamReferencedAttachmentIds); exactly one image below is neither, so
+  // "Sweep unreferenced images" has a non-zero count to offer.
+  const cacheIssue = inserted[9]
+  const auditIssue = inserted[12]
+
+  // The comment the comment-linked attachment hangs off — EXP-554 attachments
+  // ride comment_id instead of markdown, and the storage view counts them
+  // referenced through that link alone.
+  const [auditComment] = await db
+    .insert(comments)
+    .values({
+      issueId: auditIssue.id,
+      teamId: ws.id,
+      boardId: auditIssue.boardId,
+      authorId: sofia,
+      body: `First pass with VoiceOver on: every icon-only control in the board header is unlabeled. Audit run attached.`,
+      createdAt: daysAgo(4),
+    })
+    .returning()
+
+  const seedAttachments: Array<{
+    id: string
+    issueId: string
+    commentId?: string
+    uploaderId: string
+    filename: string
+    contentType: string
+    sizeBytes: number
+    width?: number
+    height?: number
+    createdDaysAgo: number
+  }> = [
+    {
+      id: ATTACHMENT_IDS.cacheHitRate,
+      issueId: cacheIssue.id,
+      uploaderId: jonas,
+      filename: `cache-hit-rate.png`,
+      contentType: `image/png`,
+      sizeBytes: 412_907,
+      width: 1600,
+      height: 900,
+      createdDaysAgo: 14,
+    },
+    {
+      id: ATTACHMENT_IDS.contrastSweep,
+      issueId: auditIssue.id,
+      uploaderId: sofia,
+      filename: `contrast-sweep-before-after.png`,
+      contentType: `image/png`,
+      sizeBytes: 268_441,
+      width: 2560,
+      height: 1440,
+      createdDaysAgo: 9,
+    },
+    {
+      id: ATTACHMENT_IDS.voiceoverLabels,
+      issueId: auditIssue.id,
+      commentId: auditComment.id,
+      uploaderId: sofia,
+      filename: `voiceover-missing-labels.png`,
+      contentType: `image/png`,
+      sizeBytes: 184_320,
+      width: 1290,
+      height: 2796,
+      createdDaysAgo: 4,
+    },
+    // The deliberate orphan: an image no body embeds and no comment links.
+    // Older than the sweep's 24h grace window, so pressing the button really
+    // reclaims it instead of reporting everything as "too recent".
+    {
+      id: ATTACHMENT_IDS.cacheSketch,
+      issueId: cacheIssue.id,
+      uploaderId: mira,
+      filename: `image-cache-sketch-v2.png`,
+      contentType: `image/png`,
+      sizeBytes: 96_244,
+      width: 1170,
+      height: 2532,
+      createdDaysAgo: 3,
+    },
+    // Non-image rows are never sweep candidates — they live in the issue's
+    // Files list, which is not a markdown reference.
+    {
+      id: ATTACHMENT_IDS.auditPdf,
+      issueId: auditIssue.id,
+      uploaderId: sofia,
+      filename: `accessibility-audit-q3.pdf`,
+      contentType: `application/pdf`,
+      sizeBytes: 1_248_576,
+      createdDaysAgo: 10,
+    },
+    {
+      id: ATTACHMENT_IDS.sysdiagnose,
+      issueId: inserted[1].id,
+      uploaderId: jonas,
+      filename: `sysdiagnose-heic-upload.zip`,
+      contentType: `application/zip`,
+      sizeBytes: 3_874_112,
+      createdDaysAgo: 6,
+    },
+  ]
+  await db.insert(attachments).values(
+    seedAttachments.map((spec) => ({
+      id: spec.id,
+      teamId: ws.id,
+      issueId: spec.issueId,
+      boardId: board.id,
+      commentId: spec.commentId,
+      uploaderId: spec.uploaderId,
+      filename: spec.filename,
+      contentType: spec.contentType,
+      sizeBytes: spec.sizeBytes,
+      // Derived exactly like the upload path does, from the id minted above.
+      storageKey: buildAttachmentStorageKey(
+        spec.issueId,
+        spec.id,
+        spec.filename
+      ),
+      url: buildAttachmentUrl(spec.id),
+      width: spec.width,
+      height: spec.height,
+      createdAt: daysAgo(spec.createdDaysAgo),
+    }))
+  )
+
   // Inbox for the demo user — mixed unread/read, matching the wording the
   // real notifier produces (lib/integrations/notifications.ts).
   await db.insert(notifications).values([
@@ -667,34 +966,141 @@ async function main() {
   // Team actions (EXP-253) so the Actions screenshot lists real saved actions
   // above the two client-side builtins. Bodies are short but plausible — the
   // list shows name + description; the body is only fetched on run/edit.
-  await db.insert(actions).values([
+  const actionRows = await db
+    .insert(actions)
+    .values([
+      {
+        teamId: ws.id,
+        repositoryId: repo.id,
+        name: `Update dependencies`,
+        description: `Bump every package to the latest compatible release and open a PR.`,
+        icon: `package`,
+        body: `Update all dependencies to their latest compatible versions. Run the full test suite, fix any breakage the bumps cause, and open a PR summarizing notable upgrades.`,
+        sortOrder: 0,
+      },
+      {
+        teamId: ws.id,
+        repositoryId: repo.id,
+        name: `Nightly test triage`,
+        description: `Investigate failing or flaky tests and file issues for real bugs.`,
+        icon: `flask-conical`,
+        body: `Run the test suite three times. For every failure, decide flaky vs real: quarantine and file an issue for flaky tests, fix trivial breakage directly, and file detailed issues for anything deeper.`,
+        sortOrder: 10,
+      },
+      {
+        teamId: ws.id,
+        name: `Draft release notes`,
+        description: `Summarize merged PRs since the last release into user-facing notes.`,
+        icon: `sparkles`,
+        body: `Collect the PRs merged since the last release tag and draft concise, user-facing release notes grouped by feature, fix, and performance. Post the draft as a comment for review.`,
+        sortOrder: 20,
+      },
+    ])
+    .returning()
+  const action = Object.fromEntries(actionRows.map((a) => [a.name, a]))
+
+  // Automations (EXP-583) for the `automations` view — without rows it
+  // photographs a blank "New automation" dialog over "No automations yet."
+  // They are their own entity, never a field on the action: a when-part
+  // (`trigger` jsonb — schedule or issue event, typed in
+  // @exp/db-schema domain.ts) plus the runner binding, which is the MACHINE's
+  // steer deviceId, not a row uuid. minuteOfDay is device-local wall clock by
+  // design (no tz field). One disabled row so the toggle has an off state to
+  // render.
+  const automationRows = await db
+    .insert(automations)
+    .values([
+      {
+        teamId: ws.id,
+        actionId: action[`Nightly test triage`].id,
+        deviceId: DEMO_DEVICE_ID,
+        trigger: { kind: `schedule`, interval: `daily`, minuteOfDay: 180 },
+        agent: `claude`,
+        sortOrder: 0,
+        createdAt: daysAgo(21),
+      },
+      {
+        teamId: ws.id,
+        actionId: action[`Update dependencies`].id,
+        deviceId: DEMO_DEVICE_ID,
+        trigger: {
+          kind: `schedule`,
+          interval: `weekly`,
+          weekday: 1,
+          minuteOfDay: 540,
+        },
+        agent: `codex`,
+        sortOrder: 10,
+        createdAt: daysAgo(18),
+      },
+      {
+        teamId: ws.id,
+        actionId: action[`Draft release notes`].id,
+        deviceId: DEMO_DEVICE_ID,
+        enabled: false,
+        trigger: { kind: `event`, event: `pr_merged` },
+        sortOrder: 20,
+        createdAt: daysAgo(6),
+      },
+    ])
+    .returning()
+
+  // Two finished automated runs so the tab's "Recent automated runs" section —
+  // and each row's "last run" line — say something other than "Nothing has
+  // fired yet." Action-scoped sessions carry the action id plus a display-name
+  // snapshot (actions are server-only, clients can't join), `started_reason`
+  // for the "Automated" badge and `automation_id` for the per-row last-run
+  // lookup. Ended, so they never join the live agents list.
+  await db.insert(codingSessions).values([
     {
       teamId: ws.id,
-      repositoryId: repo.id,
-      name: `Update dependencies`,
-      description: `Bump every package to the latest compatible release and open a PR.`,
-      icon: `package`,
-      body: `Update all dependencies to their latest compatible versions. Run the full test suite, fix any breakage the bumps cause, and open a PR summarizing notable upgrades.`,
-      sortOrder: 0,
+      userId: demoId,
+      actionId: action[`Nightly test triage`].id,
+      actionName: `Nightly test triage`,
+      automationId: automationRows[0].id,
+      startedReason: `schedule`,
+      deviceId: DEMO_DEVICE_ID,
+      deviceLabel: DEMO_DEVICE_LABEL,
+      status: `ended`,
+      startedAt: hoursAgo(9),
+      endedAt: hoursAgo(8),
     },
     {
       teamId: ws.id,
-      repositoryId: repo.id,
-      name: `Nightly test triage`,
-      description: `Investigate failing or flaky tests and file issues for real bugs.`,
-      icon: `flask-conical`,
-      body: `Run the test suite three times. For every failure, decide flaky vs real: quarantine and file an issue for flaky tests, fix trivial breakage directly, and file detailed issues for anything deeper.`,
-      sortOrder: 10,
-    },
-    {
-      teamId: ws.id,
-      name: `Draft release notes`,
-      description: `Summarize merged PRs since the last release into user-facing notes.`,
-      icon: `sparkles`,
-      body: `Collect the PRs merged since the last release tag and draft concise, user-facing release notes grouped by feature, fix, and performance. Post the draft as a comment for review.`,
-      sortOrder: 20,
+      userId: demoId,
+      actionId: action[`Update dependencies`].id,
+      actionName: `Update dependencies`,
+      automationId: automationRows[1].id,
+      startedReason: `schedule`,
+      deviceId: DEMO_DEVICE_ID,
+      deviceLabel: DEMO_DEVICE_LABEL,
+      status: `ended`,
+      startedAt: hoursAgo(33),
+      endedAt: hoursAgo(32),
     },
   ])
+
+  // A teammate's headless `exponential` server shared with the team (EXP-432),
+  // so the Agents page renders its "Team machines" section and a Shared badge
+  // at all — every other seeded machine is the demo user's own. OFFLINE on
+  // purpose: `last_seen_at` freshness is what "online" means (contract
+  // `device.onlineWindowSeconds`, 90s), and a fake heartbeat here would be
+  // contradicted by the relay the moment a capture looks. The demo user's own
+  // desktop row is registered by screenshots:desktop, which owns its version
+  // and default-machine flags.
+  await db.insert(devices).values({
+    userId: jonas,
+    deviceId: DEMO_SERVER_DEVICE_ID,
+    label: `Acme build server`,
+    kind: `server`,
+    platform: `linux`,
+    version: DEMO_SERVER_VERSION,
+    agents: [`claude`, `codex`],
+    caps: [`actions`, `action-inputs`, `fix-conflicts`, `chat`, `automations`],
+    sharedTeamId: ws.id,
+    lastSeenAt: hoursAgo(5),
+    createdAt: daysAgo(45),
+  })
 
   // Helpdesk tickets for the support-inbox screenshot (server-only tRPC —
   // no Electric shape involved). A trailing inbound message marks the
@@ -821,17 +1227,86 @@ async function main() {
     )
   }
 
+  // Embeddable widget configs for the `settings-widget` view ("No widgets
+  // yet." without them). One full config — both modes, a domain allowlist, two
+  // of the seeded labels for the reporter to tag with, a theme — and one
+  // support-only config, which is the case that legitimately has no board
+  // (support files a standalone ticket, feedback needs somewhere to file an
+  // issue). Keys are minted the way the router mints them.
+  await db.insert(widgetConfigs).values([
+    {
+      teamId: ws.id,
+      boardId: board.id,
+      name: `Acme website`,
+      publicKey: generateWidgetKey(),
+      allowedDomains: [`acme.dev`, `*.acme.dev`],
+      createdByUserId: demoId,
+      createdAt: daysAgo(24),
+      formConfig: {
+        buttonLabel: `Feedback`,
+        accentColor: `#6366f1`,
+        position: `bottom-right`,
+        collectEmail: true,
+        collectName: true,
+        modes: [`feedback`, `support`],
+        labelIds: [label[`Bug`], label[`Feature`]],
+        theme: `auto`,
+      },
+    },
+    {
+      teamId: ws.id,
+      name: `Help center`,
+      publicKey: generateWidgetKey(),
+      allowedDomains: [`help.acme.dev`],
+      createdByUserId: demoId,
+      createdAt: daysAgo(8),
+      formConfig: {
+        buttonLabel: `Contact support`,
+        accentColor: `#22c55e`,
+        collectEmail: true,
+        emailRequired: true,
+        modes: [`support`],
+        theme: `dark`,
+      },
+    },
+  ])
+
+  // Personal API keys for the `settings-api-keys` view ("No API keys yet."
+  // without them). Minted through Better Auth exactly like
+  // `users.mintPersonalApiKey` does, so the rows are genuine `expu_`
+  // credentials (only their hash is stored) rather than hand-written rows —
+  // the page lists name, prefix and last use.
+  for (const name of [DEMO_DEVICE_LABEL, `Claude Code (MCP)`]) {
+    await auth.api.createApiKey({
+      body: {
+        name,
+        userId: demoId,
+        expiresIn: null,
+        rateLimitEnabled: false,
+        metadata: { kind: `personal` },
+      },
+    })
+  }
+
   console.log(`
 Seeded screenshot demo data:
   team        ${ws.name} (/${ws.slug})
-  board       ${board.name} (APP), ${inserted.length} issues (1 on custom status "In QA")
+  board       ${board.name} (APP), ${inserted.length} issues (1 on custom status "In QA", 1 duplicate)
+  boards      3 live + 1 archived + 1 trashed (48h pending deletion)
   login       ${DEMO_EMAIL} / ${DEMO_PASSWORD}
+  newcomer    ${NEWCOMER_EMAIL} / ${NEWCOMER_PASSWORD} (no team — onboarding + invite views)
+  invite      /invite/${DEMO_INVITE_TOKEN} (+ 2 more pending invites)
   showcase    ${showcase.identifier ?? `APP-5`} (markdown + ${4} comments incl. @mention + #issue ref)
   inbox       5 notifications (3 unread)
   agents      3 coding sessions (2 running + 1 in review)
+  machines    1 shared team server (offline; the desktop registers itself)
   reviews     4 open pull requests
   review shot APP-14 → ${REVIEW_PR_URL} (real diff, fetched from GitHub)
-  actions     3 saved team actions
+  actions     ${actionRows.length} saved team actions
+  automations ${automationRows.length} (2 scheduled + 1 event, 1 disabled) + 2 automated runs
+  storage     ${seedAttachments.length} attachments (1 unreferenced image to sweep)
+  widgets     2 widget configs (feedback+support, support-only)
+  api keys    2 personal keys
   support     ${seedThreads.length} helpdesk threads
 
 Next: bun run screenshots:desktop (needs STEER_RELAY_URL + STEER_RELAY_SECRET)

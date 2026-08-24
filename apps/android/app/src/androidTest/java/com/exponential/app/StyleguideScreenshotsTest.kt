@@ -28,10 +28,23 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *
  * Where [StoreScreenshotsTest] spends a capped budget on the eight shots that
  * sell the product, this one photographs the app's ORDINARY surfaces as the
- * cross-platform design reference: sign-in, board filters, comments, create
- * issue, search, my issues, agents, reviews, a support thread and both
- * settings screens. The 11 shot names are a byte-exact contract shared with
- * the other clients — never rename one here alone.
+ * cross-platform design reference: the instance picker, sign-in, the board
+ * switcher and filters, comments, the properties sheet, create issue, search,
+ * my issues, agents, the four Actions surfaces, reviews, a support thread and
+ * the three settings screens. The `sg_*` names are a byte-exact contract
+ * shared with the other clients — never rename one here alone, and never add
+ * one without its paired shot in iOS StyleguideScreenshots.swift:
+ *
+ *   sg_instance-picker · sg_sign-in · sg_board-switcher · sg_board-filters ·
+ *   sg_issue-comments · sg_issue-properties · sg_issue-create · sg_search ·
+ *   sg_my-issues · sg_agents · sg_action-create · sg_automations-list ·
+ *   sg_automations · sg_action-suggestions · sg_reviews · sg_support-thread ·
+ *   sg_settings-root · sg_settings-team · sg_settings-account
+ *
+ * EXP-566 retired `sg_settings-personal`: it photographed this settings ROOT
+ * while iOS photographed the server detail, so the pair compared two different
+ * screens. It is now sg_settings-root plus sg_settings-account, and this suite
+ * navigates into ServerDetailScreen for the latter.
  *
  * Prereqs are the store suite's MINUS live steering: no shot needs a relay or
  * an online desktop, only the seeded local backend
@@ -39,10 +52,12 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  * http://10.0.2.2:5173, override via the `instanceUrl` instrumentation
  * argument / SCREENGRAB_INSTANCE_URL).
  *
- * Every shot gates on genuinely seeded content rather than on a screen
- * merely existing, so a stale/missing seed fails the run instead of quietly
- * shipping an empty state. The sign-in / polling / settle machinery lives in
- * [ScreenshotFlow]; its KDoc carries the synchronization notes.
+ * Every shot gates on genuinely seeded content rather than on a screen merely
+ * existing, so a stale/missing seed fails the run instead of quietly shipping
+ * an empty state. The two exceptions are called out where they happen
+ * (sg_agents, and the automations pair, whose rows are newer than this suite).
+ * The sign-in / polling / settle machinery lives in [ScreenshotFlow]; its
+ * KDoc carries the synchronization notes.
  */
 @RunWith(AndroidJUnit4::class)
 class StyleguideScreenshotsTest {
@@ -82,6 +97,11 @@ class StyleguideScreenshotsTest {
         private const val TEAM_NAME = "Acme"
         private const val TEAM_BOARD_NAME = "Mobile App"
 
+        // One of the three seeded team actions, listed on the Actions segment.
+        private const val SEEDED_ACTION_NAME = "Nightly test triage"
+
+        private const val DEMO_EMAIL = ScreenshotFlow.DEMO_EMAIL
+
         private const val NAV_TIMEOUT = ScreenshotFlow.NAV_TIMEOUT
         private const val SYNC_TIMEOUT = ScreenshotFlow.SYNC_TIMEOUT
     }
@@ -106,6 +126,14 @@ class StyleguideScreenshotsTest {
 
     @Test
     fun captureStyleguideScreenshots() {
+        // --- Instance picker: the Screengrabfile reinstalls the app, so the
+        // cold launch always lands on the untouched chooser (cloud buttons +
+        // the demoted self-hosted link). Photograph it BEFORE the flow reveals
+        // the URL field.
+        flow.awaitInstancePicker()
+        flow.settle()
+        Screengrab.screenshot("sg_instance-picker")
+
         // --- Sign-in: point the app at the seeded backend, then photograph the
         // login screen BEFORE submitting. The password fields only render once
         // /api/auth-config resolved, so waiting on them is also the proof the
@@ -122,6 +150,19 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasText(SHOWCASE_ISSUE_TITLE), SYNC_TIMEOUT)
         flow.waitForGone(hasText("Syncing", substring = true), SYNC_TIMEOUT)
         flow.settle()
+
+        // --- Board switcher: the board-name control in the pinned nav row
+        // opens the server → team → board sheet. The trigger's "Switch board"
+        // is a contentDescription and the sheet's is a Text, so hasText matches
+        // the sheet unambiguously; gate additionally on the team block header.
+        composeRule.onNode(hasContentDescription("Switch board")).performClick()
+        flow.waitFor(hasText("Switch board"), NAV_TIMEOUT)
+        flow.waitFor(hasText(TEAM_NAME), SYNC_TIMEOUT)
+        flow.settle()
+        Screengrab.screenshot("sg_board-switcher")
+        Espresso.pressBack()
+        flow.waitForGone(hasText("Switch board"), NAV_TIMEOUT)
+        flow.settle(longer = true)
 
         // --- Board filters: the badge button in the pinned nav row opens the
         // filter sheet. The trigger's "Filters" is a contentDescription and the
@@ -154,6 +195,20 @@ class StyleguideScreenshotsTest {
             .performScrollTo()
         flow.settle()
         Screengrab.screenshot("sg_issue-comments")
+
+        // --- Issue properties: still on APP-5. The bottom bar's leading circle
+        // opens the combined sheet (moderators only — the demo user owns the
+        // team); its rows are the real content, the GlassSheet title alone
+        // renders before they do.
+        composeRule.onNode(hasContentDescription("Issue properties")).performClick()
+        flow.waitFor(hasText("Properties"), NAV_TIMEOUT)
+        flow.waitFor(hasText("Priority"), NAV_TIMEOUT)
+        flow.settle()
+        Screengrab.screenshot("sg_issue-properties")
+        Espresso.pressBack()
+        flow.waitForGone(hasText("Priority"), NAV_TIMEOUT)
+        flow.settle(longer = true)
+
         composeRule.onNode(hasContentDescription("Back")).performClick()
         flow.waitFor(hasContentDescription("Filters"), NAV_TIMEOUT)
         flow.settle()
@@ -198,6 +253,64 @@ class StyleguideScreenshotsTest {
         flow.settle()
         Screengrab.screenshot("sg_agents")
 
+        // --- The Actions surface: four shots off one push. Actions has no tab
+        // of its own (the bar is full at six), so the entry rides the Agents
+        // header — the iOS twin rides the Agents toolbar. The segment is
+        // rememberSaveable and the route is popped afterwards, so it always
+        // opens on the Actions segment (iOS persists it in AppStorage and has
+        // to re-select it).
+        composeRule.onNode(hasTestTag("open-actions")).performClick()
+        flow.waitFor(hasText(SEEDED_ACTION_NAME, substring = true), SYNC_TIMEOUT)
+
+        // --- Create action: "New action" rides the "Actions · count" section
+        // header (EXP-574). The sheet is only photographed, never submitted —
+        // creating would start a real builtin run on somebody's machine.
+        composeRule.onNode(hasTestTag("new-action")).performClick()
+        flow.waitFor(hasTestTag("create-action-sheet"), NAV_TIMEOUT)
+        flow.waitFor(hasText("What should this action do?", substring = true), NAV_TIMEOUT)
+        flow.settle()
+        Screengrab.screenshot("sg_action-create")
+        composeRule.onAllNodes(hasText("Cancel")).onFirst().performClick()
+        flow.waitForGone(hasTestTag("create-action-sheet"), NAV_TIMEOUT)
+        flow.settle(longer = true)
+
+        // --- Automations list: gated on the segment's OWN content rather than
+        // on a seeded automation name — the `automations` rows are newer than
+        // this suite, so an older seed shows the empty state, which is still a
+        // legitimate capture of this surface (unlike a half-synced list).
+        composeRule.onAllNodes(hasText("Automations")).onFirst().performClick()
+        if (!flow.waitForOptional(hasTestTag("automation-row"), SYNC_TIMEOUT)) {
+            android.util.Log.w(
+                "EXP-566",
+                "sg_automations-list: no automation rows — reseed with `bun run seed:screenshots`",
+            )
+            flow.waitFor(hasText("No automations yet.", substring = true), NAV_TIMEOUT)
+        }
+        flow.settle()
+        Screengrab.screenshot("sg_automations-list")
+
+        // --- Automation editor: the owner-only "New automation" entry, present
+        // in both the populated header and the empty state. (iOS additionally
+        // hides it when the backend has no STEER_RELAY_URL and falls back to
+        // editing a seeded row; here it is owner-gated only.)
+        composeRule.onAllNodes(hasTestTag("new-automation")).onFirst().performClick()
+        flow.waitFor(hasTestTag("automation-form-sheet"), NAV_TIMEOUT)
+        flow.settle()
+        Screengrab.screenshot("sg_automations")
+        composeRule.onAllNodes(hasText("Cancel")).onFirst().performClick()
+        flow.waitForGone(hasTestTag("automation-form-sheet"), NAV_TIMEOUT)
+        flow.settle(longer = true)
+
+        // --- Suggestions: shipped constants (ACTION_SUGGESTIONS), not seeded
+        // rows — this one can be gated hard on a card.
+        composeRule.onAllNodes(hasText("Suggestions")).onFirst().performClick()
+        flow.waitFor(hasTestTag("suggestion-row"), NAV_TIMEOUT)
+        flow.settle()
+        Screengrab.screenshot("sg_action-suggestions")
+        composeRule.onNode(hasContentDescription("Back")).performClick()
+        flow.waitFor(hasTestTag("open-actions"), NAV_TIMEOUT)
+        flow.settle()
+
         // --- Reviews: the cross-board open-PR queue; the seed leaves four open
         // PRs, of which APP-15 is the stable anchor.
         composeRule.onNode(hasContentDescription("Reviews")).performClick()
@@ -226,17 +339,20 @@ class StyleguideScreenshotsTest {
         composeRule.onNode(hasContentDescription("Back")).performClick()
         flow.settle()
 
-        // --- Settings: the gear lives on the board root, not on a profile
-        // menu, and team settings hang off the Teams section of the personal
-        // settings screen.
+        // --- Settings root: the gear lives on the board root, not on a profile
+        // menu. SectionHeader UPPERCASES its title, so every header match here
+        // must pass ignoreCase.
         composeRule.onNode(hasContentDescription("Issues")).performClick()
         flow.waitFor(hasContentDescription("Settings"), NAV_TIMEOUT)
         composeRule.onNode(hasContentDescription("Settings")).performClick()
+        flow.waitFor(hasText("Servers", ignoreCase = true), NAV_TIMEOUT)
         flow.waitFor(hasText("Teams", ignoreCase = true), NAV_TIMEOUT)
         flow.waitFor(hasText(TEAM_NAME), SYNC_TIMEOUT)
+        flow.settle()
+        Screengrab.screenshot("sg_settings-root")
 
-        // Team settings first (it is one tap deeper), then back out for the
-        // personal screen.
+        // --- Team settings: one tap deeper (the Teams section), then back out
+        // for the account screen.
         composeRule.onAllNodes(hasText(TEAM_NAME)).onFirst().performClick()
         flow.waitFor(hasText("Boards", ignoreCase = true), NAV_TIMEOUT)
         flow.waitFor(hasText("Repositories", ignoreCase = true), NAV_TIMEOUT)
@@ -246,9 +362,15 @@ class StyleguideScreenshotsTest {
 
         composeRule.onNode(hasContentDescription("Back")).performClick()
         flow.waitFor(hasText("Servers", ignoreCase = true), NAV_TIMEOUT)
-        flow.waitFor(hasText("Teams", ignoreCase = true), NAV_TIMEOUT)
-        flow.waitFor(hasText(TEAM_NAME), NAV_TIMEOUT)
+
+        // --- Account settings: there is no separate profile screen (EXP-311) —
+        // the signed-in identity, sign out and delete account live on the
+        // server row's detail. The row is titled by the SERVER with the email
+        // below, so the email addresses it; "Sign out" only exists there.
+        composeRule.onAllNodes(hasText(DEMO_EMAIL, substring = true)).onFirst().performClick()
+        flow.waitFor(hasText("Sign out"), NAV_TIMEOUT)
+        flow.waitFor(hasText("Delete account", substring = true), NAV_TIMEOUT)
         flow.settle()
-        Screengrab.screenshot("sg_settings-personal")
+        Screengrab.screenshot("sg_settings-account")
     }
 }

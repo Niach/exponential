@@ -409,6 +409,11 @@ impl ScreensPanel {
             window,
             |this, _, window, cx| {
                 this.sync_tabs(window, cx);
+                // The session phase rides this entity: a screen pointed
+                // during construction (before the phase reached Synced) never
+                // got a tRPC client, so re-drive it here rather than waiting
+                // for a navigation that may never come.
+                this.redrive_active_screen(cx);
                 cx.notify();
             },
         ));
@@ -450,18 +455,37 @@ impl ScreensPanel {
     /// settings screen marks them stale; each pane refetches on its next
     /// render.
     fn sync_active_screen(&mut self, cx: &mut gpui::Context<Self>) {
+        self.sync_active_screen_inner(false, cx);
+    }
+
+    /// Re-drive the CURRENT screen even though it hasn't changed. This panel
+    /// is built from the shell's constructor, which runs while the session is
+    /// still validating — a tRPC-backed view pointed at that moment has no
+    /// client, leaves itself unpointed, and would never be asked again
+    /// (`sync_active_screen` early-returns on an unchanged screen). The
+    /// session observer calls this on every phase flip so the pending screen
+    /// finally loads once the phase reaches Synced.
+    fn redrive_active_screen(&mut self, cx: &mut gpui::Context<Self>) {
+        self.sync_active_screen_inner(true, cx);
+    }
+
+    fn sync_active_screen_inner(&mut self, force: bool, cx: &mut gpui::Context<Self>) {
         let screen = resolved_screen(&self.nav, cx);
-        if screen == self.active_screen {
+        let changed = screen != self.active_screen;
+        if !changed && !force {
             return;
         }
-        let entered_settings = matches!(screen, Some(Screen::Settings));
-        self.active_screen = screen;
-        if entered_settings {
-            self.settings
-                .update(cx, |settings, cx| settings.mark_personal_stale(cx));
+        if changed {
+            let entered_settings = matches!(screen, Some(Screen::Settings));
+            self.active_screen = screen;
+            if entered_settings {
+                self.settings
+                    .update(cx, |settings, cx| settings.mark_personal_stale(cx));
+            }
         }
         // EXP-525: PrDiff is a transient (tab-less) center view — re-point
-        // the shared diff view here instead of in `sync_tabs`.
+        // the shared diff view here instead of in `sync_tabs`. Same-id
+        // re-points are no-ops, so a forced pass costs nothing once loaded.
         if let Some(Screen::PrDiff { issue_id }) = &self.active_screen {
             let issue_id = issue_id.clone();
             self.pr_diff
@@ -1268,32 +1292,288 @@ impl Focusable for ScreensPanel {
     }
 }
 
+// ---------------------------------------------------------------------------
+// DEV-ONLY one-shot dialog hook (§11.4 headless verification)
+// ---------------------------------------------------------------------------
+
+/// DEV-ONLY `EXP_DEV_DIALOG` values: `create-issue` | `search` |
+/// `start-coding` (the active board's first synced issue) |
+/// `start-coding-actions` (the builtin "Fix merge conflicts" run) |
+/// `start-coding-chat` | `create-action` | `action-editor:<uuid>` |
+/// `automation-new` | `automation-edit:<uuid>` | `create-board` |
+/// `create-team` | `join-team` | `add-server` | `device-settings:<uuid>` |
+/// `duplicate-picker:<issue-uuid>` (anything else = no dialog, logged once).
+/// Each opens EXACTLY ONCE, 1500ms after the state it needs has resolved, so
+/// a capture run lands on the overlay without synthetic input. Never document
+/// for users.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum DevDialog {
+    CreateIssue,
+    Search,
+    StartCoding,
+    StartCodingActions,
+    StartCodingChat,
+    CreateAction,
+    ActionEditor(String),
+    AutomationNew,
+    AutomationEdit(String),
+    CreateBoard,
+    CreateTeam,
+    JoinTeam,
+    AddServer,
+    DeviceSettings(String),
+    DuplicatePicker(String),
+}
+
+/// The accepted [`DevDialog`] spellings, for the parse-failure log — a typo
+/// in a capture recipe must name its alternatives, not fail silently.
+const DEV_DIALOG_SPECS: &str = "create-issue | search | start-coding | \
+    start-coding-actions | start-coding-chat | create-action | \
+    action-editor:<uuid> | automation-new | automation-edit:<uuid> | \
+    create-board | create-team | join-team | add-server | \
+    device-settings:<uuid> | duplicate-picker:<issue-uuid>";
+
+fn parse_dev_dialog(spec: &str) -> Option<DevDialog> {
+    match spec {
+        "create-issue" => Some(DevDialog::CreateIssue),
+        "search" => Some(DevDialog::Search),
+        "start-coding" => Some(DevDialog::StartCoding),
+        "start-coding-actions" => Some(DevDialog::StartCodingActions),
+        "start-coding-chat" => Some(DevDialog::StartCodingChat),
+        "create-action" => Some(DevDialog::CreateAction),
+        "automation-new" => Some(DevDialog::AutomationNew),
+        "create-board" => Some(DevDialog::CreateBoard),
+        "create-team" => Some(DevDialog::CreateTeam),
+        "join-team" => Some(DevDialog::JoinTeam),
+        "add-server" => Some(DevDialog::AddServer),
+        _ => {
+            if let Some(id) = spec.strip_prefix("action-editor:") {
+                return Some(DevDialog::ActionEditor(id.to_string()));
+            }
+            if let Some(id) = spec.strip_prefix("automation-edit:") {
+                return Some(DevDialog::AutomationEdit(id.to_string()));
+            }
+            if let Some(id) = spec.strip_prefix("device-settings:") {
+                return Some(DevDialog::DeviceSettings(id.to_string()));
+            }
+            spec.strip_prefix("duplicate-picker:")
+                .map(|id| DevDialog::DuplicatePicker(id.to_string()))
+        }
+    }
+}
+
+/// A [`DevDialog`] whose precondition has RESOLVED — the ids its opener takes
+/// are snapshotted here so the delayed spawn never re-reads the store.
+enum DevDialogTarget {
+    CreateIssue { board_id: String },
+    Search,
+    StartCodingIssue { issue_id: String },
+    StartCodingAction { team_id: String, action_id: String },
+    StartCodingChat { team_id: String },
+    CreateAction { team_id: String },
+    ActionEditor { action_id: String },
+    AutomationNew { team_id: String },
+    AutomationEdit { automation_id: String },
+    CreateBoard { team_id: String },
+    CreateTeam,
+    JoinTeam,
+    AddServer,
+    DeviceSettings { device_id: String },
+    DuplicatePicker { issue_id: String },
+}
+
+fn open_dev_dialog(target: DevDialogTarget, window: &mut Window, cx: &mut App) {
+    match target {
+        DevDialogTarget::CreateIssue { board_id } => {
+            crate::create_issue_dialog::open(window, cx, board_id)
+        }
+        DevDialogTarget::Search => crate::search_sheet::open_search(window, cx),
+        DevDialogTarget::StartCodingIssue { issue_id } => {
+            crate::start_coding_dialog::open_for_issue(window, cx, issue_id)
+        }
+        DevDialogTarget::StartCodingAction { team_id, action_id } => {
+            crate::start_coding_dialog::open_for_action(window, cx, team_id, action_id)
+        }
+        DevDialogTarget::StartCodingChat { team_id } => {
+            crate::start_coding_dialog::open_for_chat(window, cx, team_id)
+        }
+        DevDialogTarget::CreateAction { team_id } => {
+            crate::create_action_dialog::open(window, cx, team_id)
+        }
+        DevDialogTarget::ActionEditor { action_id } => {
+            crate::action_editor_dialog::open(window, cx, action_id)
+        }
+        DevDialogTarget::AutomationNew { team_id } => {
+            crate::automation_dialog::open_new(window, cx, team_id)
+        }
+        DevDialogTarget::AutomationEdit { automation_id } => {
+            crate::automation_dialog::open_edit(window, cx, automation_id)
+        }
+        DevDialogTarget::CreateBoard { team_id } => {
+            crate::create_board_dialog::open(window, cx, team_id)
+        }
+        DevDialogTarget::CreateTeam => crate::create_team_dialog::open(window, cx),
+        DevDialogTarget::JoinTeam => crate::join_team::open(window, cx, None),
+        DevDialogTarget::AddServer => crate::machines::open_add_server_dialog(window, cx),
+        DevDialogTarget::DeviceSettings { device_id } => {
+            crate::device_settings::open(window, cx, device_id)
+        }
+        DevDialogTarget::DuplicatePicker { issue_id } => {
+            crate::issue_detail::open_duplicate_picker(issue_id, window, cx)
+        }
+    }
+}
+
+/// The DEV-ONLY spec this run asked for: `EXP_DEV_DIALOG`, or the legacy
+/// `EXP_DEV_CREATE_DIALOG=1` kept working as an alias for `create-issue`.
+fn dev_dialog_spec() -> Option<String> {
+    if let Ok(spec) = std::env::var("EXP_DEV_DIALOG") {
+        let spec = spec.trim();
+        if !spec.is_empty() {
+            return Some(spec.to_string());
+        }
+    }
+    (std::env::var("EXP_DEV_CREATE_DIALOG").as_deref() == Ok("1"))
+        .then(|| "create-issue".to_string())
+}
+
+impl ScreensPanel {
+    /// Resolve `dialog`'s precondition against the CURRENT state. `None` =
+    /// not ready yet (an unsynced row, no scope, still signing in) — the
+    /// caller retries on the next render instead of opening the wrong thing.
+    fn resolve_dev_dialog(&self, dialog: &DevDialog, cx: &App) -> Option<DevDialogTarget> {
+        let store = Store::global(cx);
+        let signed_in = matches!(store.session(cx), sync::SessionPhase::Synced { .. });
+        Some(match dialog {
+            DevDialog::CreateIssue => DevDialogTarget::CreateIssue {
+                board_id: active_board_id(&self.nav, cx)?,
+            },
+            DevDialog::Search => {
+                // `open_search` self-guards on both — gate here too so the
+                // one-shot latch is never spent on a silent no-op.
+                if !signed_in {
+                    return None;
+                }
+                active_team_id(&self.nav, cx)?;
+                DevDialogTarget::Search
+            }
+            DevDialog::StartCoding => DevDialogTarget::StartCodingIssue {
+                issue_id: store
+                    .collections()
+                    .issues_in_board(&active_board_id(&self.nav, cx)?, cx)
+                    .first()?
+                    .id
+                    .clone(),
+            },
+            DevDialog::StartCodingActions => DevDialogTarget::StartCodingAction {
+                team_id: active_team_id(&self.nav, cx)?,
+                action_id: api::actions::BUILTIN_FIX_CONFLICTS_ID.to_string(),
+            },
+            DevDialog::StartCodingChat => DevDialogTarget::StartCodingChat {
+                team_id: active_team_id(&self.nav, cx)?,
+            },
+            DevDialog::CreateAction => DevDialogTarget::CreateAction {
+                team_id: active_team_id(&self.nav, cx)?,
+            },
+            DevDialog::ActionEditor(action_id) => {
+                store.collections().actions.read(cx).get(action_id)?;
+                DevDialogTarget::ActionEditor {
+                    action_id: action_id.clone(),
+                }
+            }
+            DevDialog::AutomationNew => DevDialogTarget::AutomationNew {
+                team_id: active_team_id(&self.nav, cx)?,
+            },
+            DevDialog::AutomationEdit(automation_id) => {
+                store.collections().automations.read(cx).get(automation_id)?;
+                DevDialogTarget::AutomationEdit {
+                    automation_id: automation_id.clone(),
+                }
+            }
+            DevDialog::CreateBoard => DevDialogTarget::CreateBoard {
+                team_id: active_team_id(&self.nav, cx)?,
+            },
+            DevDialog::CreateTeam => {
+                if !signed_in {
+                    return None;
+                }
+                DevDialogTarget::CreateTeam
+            }
+            DevDialog::JoinTeam => {
+                if !signed_in {
+                    return None;
+                }
+                DevDialogTarget::JoinTeam
+            }
+            DevDialog::AddServer => {
+                // The snippet names the account's instance — without one it
+                // would photograph the hardcoded cloud fallback.
+                crate::queries::active_account(cx)?;
+                DevDialogTarget::AddServer
+            }
+            DevDialog::DeviceSettings(device_id) => {
+                store.collections().devices.read(cx).get(device_id)?;
+                DevDialogTarget::DeviceSettings {
+                    device_id: device_id.clone(),
+                }
+            }
+            DevDialog::DuplicatePicker(issue_id) => {
+                store.collections().issues.read(cx).get(issue_id)?;
+                DevDialogTarget::DuplicatePicker {
+                    issue_id: issue_id.clone(),
+                }
+            }
+        })
+    }
+
+    /// DEV-ONLY (§11.4 headless verification, EXP_DEV_* family): open the
+    /// [`DevDialog`] this run asked for, exactly once, from the render path.
+    /// Unset in normal runs.
+    fn fire_dev_dialog(&self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static FIRED: AtomicBool = AtomicBool::new(false);
+        if FIRED.load(Ordering::SeqCst) {
+            return;
+        }
+        let Some(spec) = dev_dialog_spec() else {
+            return;
+        };
+        let Some(dialog) = parse_dev_dialog(&spec) else {
+            // A typo would otherwise photograph the bare screen with no hint
+            // that no dialog was ever going to open. Once per run — this is
+            // the render path. (A spec that parses but whose precondition is
+            // still resolving stays SILENT: that one is expected per frame.)
+            static WARNED: AtomicBool = AtomicBool::new(false);
+            if !WARNED.swap(true, Ordering::SeqCst) {
+                eprintln!(
+                    "[exp-desktop] dev: EXP_DEV_DIALOG={spec} unrecognized — \
+                     expected {DEV_DIALOG_SPECS}"
+                );
+            }
+            return;
+        };
+        let Some(target) = self.resolve_dev_dialog(&dialog, cx) else {
+            return;
+        };
+        if FIRED.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        cx.spawn_in(window, async move |_this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(1500))
+                .await;
+            let opened = cx.update(|window, cx| open_dev_dialog(target, window, cx));
+            eprintln!("[exp-desktop] dev: EXP_DEV_DIALOG={spec} fired ({opened:?})");
+        })
+        .detach();
+    }
+}
+
 impl Render for ScreensPanel {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let screen = resolved_screen(&self.nav, cx);
 
-        // DEV-ONLY (§11.4 headless verification, EXP_DEV_* family): once a
-        // board scope resolves, `EXP_DEV_CREATE_DIALOG=1` opens the
-        // create-issue dialog exactly once so gate screenshots can capture it
-        // without synthetic input. Unset in normal runs.
-        if std::env::var("EXP_DEV_CREATE_DIALOG").as_deref() == Ok("1") {
-            if let Some(board_id) = crate::navigation::active_board_id(&self.nav, cx) {
-                use std::sync::atomic::{AtomicBool, Ordering};
-                static FIRED: AtomicBool = AtomicBool::new(false);
-                if !FIRED.swap(true, Ordering::SeqCst) {
-                    cx.spawn_in(window, async move |_this, cx| {
-                        cx.background_executor()
-                            .timer(std::time::Duration::from_millis(1500))
-                            .await;
-                        let opened = cx.update(|window, cx| {
-                            crate::create_issue_dialog::open(window, cx, board_id);
-                        });
-                        eprintln!("[exp-desktop] dev: EXP_DEV_CREATE_DIALOG fired ({opened:?})");
-                    })
-                    .detach();
-                }
-            }
-        }
+        self.fire_dev_dialog(window, cx);
 
         let content = match &screen {
             Some(Screen::IssueDetail { .. }) => self.issue_detail.clone().into_any_element(),

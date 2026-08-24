@@ -277,6 +277,12 @@ export function CodingDocsPage() {
               <strong>send steer messages</strong> from your phone. The agent
               picks them up mid-run.
             </p>
+
+            <DocShot
+              view="terminal"
+              platform="desktop"
+              caption="The embedded terminal, docked under the workspace"
+            />
           </DocsSection>
 
           {/* ── 07 Review & merge ── */}
@@ -302,6 +308,12 @@ export function CodingDocsPage() {
               pull request. Review and merge it there and the issue completes
               just the same.
             </p>
+
+            <DocShot
+              view="review-diff"
+              platform="desktop"
+              caption="The Reviews queue with a PR's diff open beside it"
+            />
           </DocsSection>
 
           {/* ── 08 The git IDE ── */}
@@ -315,9 +327,11 @@ export function CodingDocsPage() {
               to the side.
             </p>
 
-            <div className="docs-embed">
-              <IdeDemo view="source-control" interactive={false} />
-            </div>
+            <DocShot
+              view="source-control"
+              platform="desktop"
+              caption="Source control: the trunk's history, its graph and the working tree"
+            />
 
             <p>
               The editor is <strong>read-only</strong> by design: changes

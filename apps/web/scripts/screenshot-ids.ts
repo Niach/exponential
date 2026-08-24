@@ -12,12 +12,17 @@
  *
  * Emits, on stdout, exactly:
  *   { teamId, boardId, issues: { "APP-3": …, "APP-5": …, "APP-14": … },
- *     supportThreadId, actionId }
+ *     supportThreadId, actionId, deviceId?, automationId? }
+ *
+ * `deviceId` and `automationId` are OPTIONAL: the device row is written by the
+ * relay stub (`screenshots:desktop`) rather than the seed, and automations only
+ * exist once the seed has been re-run since EXP-566. A view whose drive needs
+ * one is skipped with a note rather than photographed against the wrong screen.
  */
 import { and, asc, eq, inArray } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { actions, boards, issues, supportThreads, teams } from "@/db/schema"
-import { TEAM_SLUG } from "./screenshot-demo"
+import { actions, automations, boards, devices, issues, supportThreads, teams } from "@/db/schema"
+import { DEMO_DEVICE_ID, TEAM_SLUG } from "./screenshot-demo"
 
 /** The identifiers the catalog's desktop/native drives name by hand. */
 const WANTED_IDENTIFIERS = [`APP-3`, `APP-5`, `APP-14`] as const
@@ -87,6 +92,26 @@ async function main() {
     throw new Error(`team "${TEAM_SLUG}" has no saved actions. ${RESEED}`)
   }
 
+  // The demo user's OWN machine, as announced by `screenshots:desktop` — pinned
+  // by its steer device id, never "the oldest row". The seed also plants a
+  // teammate's shared server, which is deliberately older, and an unfiltered
+  // pick would hand the desktop lane a device that is not in the demo user's
+  // synced shape at all (Device settings is own-devices-only, so the dialog
+  // would silently never open). Absent until the stub has run once, hence no
+  // throw.
+  const [device] = await db
+    .select({ id: devices.id })
+    .from(devices)
+    .where(eq(devices.deviceId, DEMO_DEVICE_ID))
+    .limit(1)
+
+  const [automation] = await db
+    .select({ id: automations.id })
+    .from(automations)
+    .where(eq(automations.teamId, team.id))
+    .orderBy(asc(automations.sortOrder))
+    .limit(1)
+
   console.log(
     JSON.stringify(
       {
@@ -95,6 +120,8 @@ async function main() {
         issues: byIdentifier,
         supportThreadId: thread.id,
         actionId: action.id,
+        deviceId: device?.id,
+        automationId: automation?.id,
       },
       null,
       2

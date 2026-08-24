@@ -34,14 +34,15 @@
 
 import catalogJson from "../views.json"
 
-/** Every surface the store holds an image for. */
-export type Platform =
-  | `web`
-  | `web-mobile`
-  | `desktop`
-  | `ios`
-  | `android`
-  | `ipad`
+/**
+ * Every surface the store holds an image for.
+ *
+ * iPad is deliberately absent: the tablet layout is the iPhone one widened, so
+ * a second native lane doubled the runtime to document nothing new. The App
+ * Store still needs its 13" slot, and the ASO compositor keeps capturing it
+ * straight from the fastlane store lane — that path never touches this catalog.
+ */
+export type Platform = `web` | `web-mobile` | `desktop` | `ios` | `android`
 
 /** Group ids, kept in sync with `views.json`'s `groups`. */
 export type GroupId =
@@ -53,6 +54,7 @@ export type GroupId =
   | `actions`
   | `support`
   | `settings`
+  | `ide`
   | `getting-started`
 
 /** A section of the catalog. Purely presentational grouping. */
@@ -74,11 +76,29 @@ export interface Anchor {
   timeoutMs?: number
 }
 
+/**
+ * Who the browser is signed in as.
+ *
+ *   - `demo`      the seeded owner of the demo team. The default, and what
+ *                 every in-app view wants.
+ *   - `anonymous` no session at all — `/auth/*` bounces a signed-in user
+ *                 straight to their team.
+ *   - `newcomer`  the seeded second identity that owns nothing: verified, no
+ *                 membership, `onboardingCompletedAt` NULL. The only way to
+ *                 photograph `/onboarding` and `/invite/$token`, which the
+ *                 demo user is redirected away from.
+ *
+ * Omitted, it is derived from the route (`/auth/*` → anonymous, else demo).
+ */
+export type WebIdentity = `demo` | `anonymous` | `newcomer`
+
 /** How a browser reaches the view. */
 export interface WebCapture {
   /** Router path with literal `$param` placeholders; may carry a query string. */
   route: string
   anchor: Anchor
+  /** Overrides the route-derived identity — see `WebIdentity`. */
+  auth?: WebIdentity
   /** Name from the web recipe registry (`apps/web/scripts/lib/view-recipes.ts`). */
   recipe?: string
   /** Extra quiet time after the anchor lands — avatars and icon fonts trail it. */
@@ -100,19 +120,33 @@ export interface NativeCapture {
  * How the desktop IDE is driven to the view.
  *
  *   - `screen`  → `EXP_DEV_SCREEN` (`navigation::parse_dev_screen`): `settings`,
- *                 `actions`, `getting-started`, or `issue:<uuid>`.
+ *                 `actions`, `getting-started`, `issue:<uuid>`, `pr:<uuid>`.
  *   - `tool`    → a sidebar tool window (`sidebar::ToolWindow`): `board`,
- *                 `inbox`, `my-issues`, `reviews`, `support`.
+ *                 `inbox`, `my-issues`, `reviews`, `support`, `files`,
+ *                 `source-control`.
  *   - `settings`→ a `settings::SettingsSection` slug.
+ *   - `dialog`  → `EXP_DEV_DIALOG` (`screens::parse_dev_dialog`): every desktop
+ *                 dialog is its own OS window, opened once from the render path
+ *                 after the state it needs resolves.
+ *   - `login`   → launch with NO injected session on a throwaway data dir: the
+ *                 only way to reach the pre-login surfaces.
  *   - `manual`  → no automated path; the note says why.
  */
 export type DesktopDrive =
-  | { kind: `screen` | `tool` | `settings`; value: string }
+  | { kind: `screen` | `tool` | `settings` | `dialog`; value: string }
+  | { kind: `login` }
   | { kind: `manual` }
 
 export interface DesktopCapture {
   drive: DesktopDrive
   anchorDelayMs?: number
+  /**
+   * Extra `EXP_DEV_*` vars layered on top of the drive's own, for the cases
+   * where a view is a drive PLUS a flag — the filter popover over the board,
+   * a dialog over a particular rail tool, a terminal already docked open.
+   * Only `EXP_DEV_*` names belong here; nothing else is dev-only.
+   */
+  env?: Record<string, string>
 }
 
 /**
@@ -131,7 +165,6 @@ export interface View {
   /** `inherit` = the same capture as `web`, shot at the phone viewport. */
   webMobile?: `inherit` | WebCapture
   ios?: NativeCapture
-  ipad?: NativeCapture
   android?: NativeCapture
   desktop?: DesktopCapture
   /** Per-view override of `STORE_DEFAULT_TOLERANCE`. */
@@ -159,16 +192,10 @@ export const PLATFORMS: readonly Platform[] = [
   `desktop`,
   `ios`,
   `android`,
-  `ipad`,
 ]
 
-/**
- * The platforms a normal run captures. iPad is opt-in: it mirrors the iOS shot
- * list on a second simulator and roughly doubles the native lane's runtime.
- */
-export const DEFAULT_PLATFORMS: readonly Platform[] = PLATFORMS.filter(
-  (platform) => platform !== `ipad`
-)
+/** The platforms a normal run captures — every one of them. */
+export const DEFAULT_PLATFORMS: readonly Platform[] = PLATFORMS
 
 export const GROUPS: readonly Group[] = catalog.groups
 export const VIEWS: readonly View[] = catalog.views
@@ -190,7 +217,6 @@ export const STORE_DEFAULT_TOLERANCE = 0.005
  *   desktop     1440×900  @2x  → 2880×1800 → 1800×1125
  *   ios         iPhone 17 Pro Max 1320×2868 → 828×1800
  *   android     1080×2400                   → 810×1800
- *   ipad        2064×2752                   → 1350×1800
  */
 export const PLATFORM_FRAME: Record<Platform, { w: number; h: number }> = {
   web: { w: 1800, h: 1200 },
@@ -198,7 +224,6 @@ export const PLATFORM_FRAME: Record<Platform, { w: number; h: number }> = {
   desktop: { w: 1800, h: 1125 },
   ios: { w: 828, h: 1800 },
   android: { w: 810, h: 1800 },
-  ipad: { w: 1350, h: 1800 },
 }
 
 const BY_ID = new Map(catalog.views.map((view) => [view.id, view]))
@@ -242,8 +267,6 @@ export function captureFor(
       return view.desktop
     case `ios`:
       return view.ios
-    case `ipad`:
-      return view.ipad
     case `android`:
       return view.android
   }

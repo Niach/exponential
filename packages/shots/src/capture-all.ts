@@ -66,6 +66,15 @@ interface Options {
   dryRun: boolean
   prune: boolean
   up: boolean
+  /**
+   * Skip every capture lane and only re-encode what `.shots-raw/` already
+   * holds. Unlike `--dry-run` this DOES write the store — it is the second half
+   * of a run whose first half already happened (a lane re-run by hand, a
+   * tolerance change, a catalog rename).
+   */
+  writeOnly: boolean
+  /** `<repos_root>` for the desktop lane's repo-backed views. */
+  reposRoot?: string
 }
 
 function parseArgs(argv: string[]): Options {
@@ -94,6 +103,8 @@ function parseArgs(argv: string[]): Options {
     dryRun: argv.includes(`--dry-run`),
     prune: argv.includes(`--prune`),
     up: argv.includes(`--up`),
+    writeOnly: argv.includes(`--write-only`),
+    reposRoot: flag(`repos-root`) ?? process.env.SHOTS_REPOS_ROOT,
   }
 }
 
@@ -235,7 +246,7 @@ async function preflight(options: Options): Promise<Check[]> {
     if (binaryDetail) checks.push({ label: `desktop app binary`, ok: true, detail: binaryDetail })
   }
 
-  if (options.platforms.some((platform) => platform === `ios` || platform === `ipad`)) {
+  if (options.platforms.includes(`ios`)) {
     const ok = await hasCommand(`xcrun`)
     checks.push({
       label: `xcrun simctl`,
@@ -564,7 +575,8 @@ function printTable(tallies: Map<Platform, PlatformTally>): number {
 
 async function main(): Promise<number> {
   const options = parseArgs(process.argv.slice(2))
-  const relayNeeded = needsRelay(options) && !options.skipRelay && !options.dryRun
+  const relayNeeded =
+    needsRelay(options) && !options.skipRelay && !options.dryRun && !options.writeOnly
 
   console.log(
     `shots: platforms ${options.platforms.join(`, `)}` +
@@ -583,8 +595,12 @@ async function main(): Promise<number> {
     })
   }
 
+  // A write-only pass drives nothing, so it needs none of what preflight
+  // guards: no stack, no simulators, no screen-recording grant. Only sharp,
+  // which the encode would fail on loudly anyway.
   console.log(`\n── preflight ─────────────────────────────────────────`)
-  const checks = await preflight(options)
+  const checks = options.writeOnly ? [] : await preflight(options)
+  if (options.writeOnly) console.log(`  skipped — --write-only re-encodes .shots-raw/ only`)
   for (const check of checks) {
     console.log(`  ${check.ok ? `ok  ` : `FAIL`}  ${check.label}${check.detail ? `\n          ${check.detail.replace(/\n/g, `\n          `)}` : ``}`)
   }
@@ -606,7 +622,7 @@ async function main(): Promise<number> {
   let ids: DemoIds | undefined
 
   try {
-    if (!options.dryRun) {
+    if (!options.dryRun && !options.writeOnly) {
       if (!options.skipSeed) {
         console.log(`\n── seed:screenshots ──────────────────────────────────`)
         const seed = await run({
@@ -634,7 +650,11 @@ async function main(): Promise<number> {
       if (options.platforms.includes(`desktop`)) {
         console.log(`\n── desktop ───────────────────────────────────────────`)
         try {
-          const result = await captureDesktop({ ids, viewIds: options.viewIds })
+          const result = await captureDesktop({
+            ids,
+            viewIds: options.viewIds,
+            reposRoot: options.reposRoot,
+          })
           outcomes.push({
             platform: `desktop`,
             ok: result.failures === 0,
@@ -649,12 +669,10 @@ async function main(): Promise<number> {
         }
       }
 
-      for (const platform of [`ios`, `ipad`, `android`] as const) {
+      for (const platform of [`ios`, `android`] as const) {
         if (!options.platforms.includes(platform)) continue
-        // iPad rides the iOS lanes' second simulator — never its own run.
-        if (platform === `ipad` && options.platforms.includes(`ios`)) continue
         try {
-          await captureFastlane(platform === `ipad` ? `ios` : platform, outcomes)
+          await captureFastlane(platform, outcomes)
         } catch (error) {
           outcomes.push({
             platform,

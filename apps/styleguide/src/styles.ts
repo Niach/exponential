@@ -194,6 +194,12 @@ body.actual figure.shot img { max-height: none; max-width: none; }
 .placeholder .state { font-size: 12px; color: var(--fg); opacity: 0.75; }
 .placeholder .why { font-size: 12px; max-width: 34ch; margin: 0 auto; }
 
+/* Platforms the view does not claim: one collapsed line, never a card. */
+.na-note { margin: 10px 0 0; font-size: 12px; color: var(--muted-fg); }
+.na-note summary { cursor: pointer; }
+.na-note ul { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+.na-note b { color: var(--fg); font-weight: 500; }
+
 /* Lightbox */
 dialog.lightbox {
   padding: 0;

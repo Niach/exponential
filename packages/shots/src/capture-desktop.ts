@@ -32,7 +32,7 @@
  * developer's own loop, so a missing binary is a preflight failure with the
  * exact command to fix it.
  */
-import { mkdtempSync, readFileSync, rmSync, existsSync, mkdirSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync, mkdirSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { viewsFor, type DesktopCapture, type DesktopDrive } from "@exp/view-catalog"
@@ -76,6 +76,14 @@ export interface CaptureDesktopOptions {
   processName?: string
   baseUrl?: string
   dryRun?: boolean
+  /**
+   * Directory to use as the app's repos-&-worktrees root, in the app's own
+   * `<repos_root>/<owner>/<name>` layout. The repo-backed views (files,
+   * source-control, terminal, the desktop launcher) read the clone straight off
+   * disk, so pointing this at a prepared checkout is the whole difference
+   * between a file tree and "This repository is not cloned yet."
+   */
+  reposRoot?: string
 }
 
 export interface DesktopShotResult {
@@ -180,6 +188,30 @@ export async function mintSessionToken(baseUrl: string): Promise<string> {
   throw new Error(`sign-in returned neither a token nor a session cookie`)
 }
 
+/**
+ * Is `token` still a live session?
+ *
+ * The lane mints once and then launches the app dozens of times, so a reseed
+ * midway through rotates the demo user out from under it — `dev_inject_session`
+ * then fails its validation, the shell renders the login pane, and every
+ * remaining view is photographed as a sign-in card under the right filename.
+ * That failure is invisible in the output (the window appears, it is not flat,
+ * the capture "succeeds"), which is exactly why it is checked explicitly.
+ */
+export async function sessionValid(baseUrl: string, token: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${baseUrl}/api/auth/get-session`, {
+      headers: { authorization: `Bearer ${token}`, origin: baseUrl },
+      tls: { rejectUnauthorized: false },
+    })
+    if (!response.ok) return false
+    const body = (await response.json()) as { user?: { id?: string } } | null
+    return Boolean(body?.user?.id)
+  } catch {
+    return false
+  }
+}
+
 /** Translate a catalog drive into the app's dev env vars. */
 export function driveEnv(
   drive: DesktopDrive,
@@ -188,6 +220,9 @@ export function driveEnv(
   if (drive.kind === `manual`) {
     return { skip: `no automated path — capture it with \`--manual <view-id>\`` }
   }
+  // Nothing to set: the ABSENCE of EXP_DEV_SERVER/EXP_DEV_TOKEN is what leaves
+  // the app signed out, and `captureOne` gets there via `signedOut`.
+  if (drive.kind === `login`) return { env: {} }
   const value = resolveDriveValue(drive.value, ids)
   if (value === undefined) {
     return { skip: `unresolved placeholder ${missingPlaceholder(drive.value, ids)} — reseed?` }
@@ -197,6 +232,12 @@ export function driveEnv(
       return { env: { EXP_DEV_TOOL: value } }
     case `settings`:
       return { env: { EXP_DEV_SCREEN: `settings`, EXP_DEV_SETTINGS: value } }
+    case `dialog`:
+      // Every desktop dialog is a real OS window centred over the opener
+      // (EXP-284), so it lands inside the main window's rect and the existing
+      // window capture picks it up unchanged. The catalog pairs the spec with
+      // whatever rail/screen belongs behind it via `desktop.env`.
+      return { env: { EXP_DEV_DIALOG: value } }
     case `screen`: {
       const env: Record<string, string> = { EXP_DEV_SCREEN: value }
       // Pair the rail with the centre view, the way the app opens them itself:
@@ -205,6 +246,31 @@ export function driveEnv(
       if (value.startsWith(`support:`)) env.EXP_DEV_TOOL = `support`
       return { env }
     }
+  }
+}
+
+/**
+ * Delete the `devices` rows this lane just registered.
+ *
+ * Every launch announces itself, and a fresh data dir means a fresh device id,
+ * so one run adds one machine to the demo team PERMANENTLY. Two runs later the
+ * Agents screen, the Add-server dialog and the launcher's device picker all
+ * photograph a fleet of identical ghosts. Best-effort: a failure here costs the
+ * next run a stray row, never this run's shots.
+ */
+async function pruneStrayDevices(): Promise<void> {
+  try {
+    const result = await run({
+      cmd: [`bun`, `run`, `screenshots:prune-devices`],
+      cwd: join(repoRoot(), `apps/web`),
+      timeoutMs: 60_000,
+    })
+    const line = result.stdout.trim().split(`\n`).at(-1)
+    if (line) console.log(`[desktop] ${line}`)
+  } catch (error) {
+    console.warn(
+      `[desktop] could not prune stray device rows: ${error instanceof Error ? error.message : String(error)}`
+    )
   }
 }
 
@@ -227,18 +293,52 @@ export async function captureDesktop(
       shots.push(
         `skip` in drive
           ? { viewId: view.id, state: `skipped`, reason: drive.skip }
-          : { viewId: view.id, state: `skipped`, reason: `dry run: ${describe(drive.env)}` }
+          : {
+              viewId: view.id,
+              state: `skipped`,
+              reason: `dry run: ${describe({ ...drive.env, ...((view.desktop as DesktopCapture).env ?? {}) })}`,
+            }
       )
     }
     return { shots, failures: 0 }
   }
 
-  const token = await mintSessionToken(baseUrl)
-  // One data dir per RUN: a stable device identity across the lane's launches.
-  const dataDir = mkdtempSync(join(tmpdir(), `exp-shots-desktop-`))
+  // Before AND after: a crashed run leaves its registration behind, and the
+  // fleet in every machines-band shot has to be the seed's plus exactly ONE
+  // machine — the one this lane is running on.
+  await pruneStrayDevices()
 
-  for (const view of views) {
+  // One data dir per RUN: a stable device identity across the lane's launches.
+  const dataDir = makeDataDir(options.reposRoot)
+  // Signed-out views get their OWN dirs — see `signedOut`. Tracked so an abort
+  // cannot leave them behind.
+  const scratchDirs: string[] = []
+
+  let token = await mintSessionToken(baseUrl)
+  if (!(await sessionValid(baseUrl, token))) {
+    throw new Error(
+      `the freshly minted session for ${DEMO_EMAIL} does not validate at ${baseUrl} — the instance is not the one that was seeded`
+    )
+  }
+
+  try {
+   for (const view of views) {
+    // Re-check before every launch: a reseed between two views would otherwise
+    // photograph the login pane for the rest of the lane (see sessionValid).
+    if (!(await sessionValid(baseUrl, token))) {
+      console.warn(`[desktop] session went stale (reseed?) — re-minting`)
+      token = await mintSessionToken(baseUrl)
+      if (!(await sessionValid(baseUrl, token))) {
+        throw new Error(
+          `session for ${DEMO_EMAIL} will not validate at ${baseUrl}; every remaining view would photograph the sign-in pane`
+        )
+      }
+    }
     const drive = driveEnv((view.desktop as DesktopCapture).drive, options.ids)
+    // A signed-out launch must not reuse the lane's data dir: the app persists
+    // its injected account there, so it would come up SIGNED IN and photograph
+    // the shell under a login filename.
+    const signedOut = (view.desktop as DesktopCapture).drive.kind === `login`
     if (`skip` in drive) {
       shots.push({ viewId: view.id, state: `skipped`, reason: drive.skip })
       console.log(`[desktop] ${view.id}: skipped — ${drive.skip}`)
@@ -252,9 +352,12 @@ export async function captureDesktop(
         baseUrl,
         token,
         teamId: options.ids.teamId,
-        dataDir,
-        driveVars: drive.env,
+        dataDir: signedOut ? scratchDirs[scratchDirs.push(makeDataDir(options.reposRoot)) - 1]! : dataDir,
+        // The view's own `env` layers on top: a drive says WHERE the app opens,
+        // these say what else is already open when it gets there.
+        driveVars: { ...drive.env, ...((view.desktop as DesktopCapture).env ?? {}) },
         anchorDelayMs: (view.desktop as DesktopCapture).anchorDelayMs ?? DEFAULT_ANCHOR_DELAY_MS,
+        signedOut,
       })
       shots.push({ viewId: view.id, state: `captured`, file })
     } catch (error) {
@@ -262,10 +365,33 @@ export async function captureDesktop(
       shots.push({ viewId: view.id, state: `failed`, reason })
       console.error(`[desktop] ${view.id}: FAILED — ${reason}`)
     }
+   }
+  } finally {
+    // A mint failure or a stale session throws straight past the loop; without
+    // this the run leaves an `exp-shots-desktop-*` dir (with a persisted
+    // account in it) behind in tmp every time.
+    for (const dir of [dataDir, ...scratchDirs]) {
+      rmSync(dir, { recursive: true, force: true })
+    }
+    await pruneStrayDevices()
   }
-
-  rmSync(dataDir, { recursive: true, force: true })
   return { shots, failures: shots.filter((shot) => shot.state === `failed`).length }
+}
+
+/**
+ * A throwaway app data dir. `reposRoot` is written as a one-key settings.json:
+ * the app merges it over its defaults on load (camelCase, every field
+ * optional), so this moves the repos root without touching anything else.
+ */
+function makeDataDir(reposRoot?: string): string {
+  const dir = mkdtempSync(join(tmpdir(), `exp-shots-desktop-`))
+  if (reposRoot) {
+    writeFileSync(
+      join(dir, `settings.json`),
+      `${JSON.stringify({ reposRoot }, null, 2)}\n`
+    )
+  }
+  return dir
 }
 
 interface CaptureOneOptions {
@@ -278,6 +404,13 @@ interface CaptureOneOptions {
   dataDir: string
   driveVars: Record<string, string>
   anchorDelayMs: number
+  /**
+   * Launch with NO injected session, on a throwaway data dir — the only way to
+   * reach the pre-login surfaces, because the shell renders the login pane for
+   * any session phase that is not `Synced` and `dev_inject_session` skips
+   * everything when `EXP_DEV_SERVER`/`EXP_DEV_TOKEN` are absent.
+   */
+  signedOut?: boolean
 }
 
 async function captureOne(options: CaptureOneOptions): Promise<string> {
@@ -291,9 +424,13 @@ async function captureOne(options: CaptureOneOptions): Promise<string> {
         env: {
           ...process.env,
           EXP_INSTANCE_URL: options.baseUrl,
-          EXP_DEV_SERVER: options.baseUrl,
-          EXP_DEV_TOKEN: options.token,
-          EXP_DEV_TEAM: options.teamId,
+          ...(options.signedOut
+            ? {}
+            : {
+                EXP_DEV_SERVER: options.baseUrl,
+                EXP_DEV_TOKEN: options.token,
+                EXP_DEV_TEAM: options.teamId,
+              }),
           EXP_DATA_DIR: options.dataDir,
           EXP_SKIP_ONBOARDING: `1`,
           EXP_WINDOW_SIZE: WINDOW_SIZE,
@@ -495,6 +632,7 @@ if (import.meta.main) {
       binary: flag(`app-binary`),
       processName: flag(`process-name`),
       baseUrl: flag(`base-url`),
+      reposRoot: flag(`repos-root`) ?? process.env.SHOTS_REPOS_ROOT,
       dryRun: argv.includes(`--dry-run`),
     })
     if (result.failures > 0) process.exit(1)

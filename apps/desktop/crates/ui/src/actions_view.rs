@@ -91,6 +91,18 @@ enum ActionsTab {
     Suggestions,
 }
 
+/// DEV-ONLY `EXP_DEV_ACTIONS_TAB` values: `actions` | `automations` |
+/// `suggestions` (anything else = the ordinary default). Composes with
+/// `EXP_DEV_SCREEN=actions`, which is how a capture run opens this screen.
+fn parse_dev_actions_tab(spec: &str) -> Option<ActionsTab> {
+    match spec {
+        "actions" => Some(ActionsTab::Actions),
+        "automations" => Some(ActionsTab::Automations),
+        "suggestions" => Some(ActionsTab::Suggestions),
+        _ => None,
+    }
+}
+
 pub struct ActionsView {
     nav: Entity<Navigation>,
     tab: ActionsTab,
@@ -136,9 +148,20 @@ impl ActionsView {
             subscriptions.push(cx.observe(&devices, |_, _, cx| cx.notify()));
             subscriptions.push(cx.observe(&sessions, |_, _, cx| cx.notify()));
         }
+        // DEV-ONLY (§11.4 headless verification, same family as
+        // EXP_DEV_SCREEN/EXP_DEV_TOOL): pre-select the page's tab so a
+        // capture run lands on Automations/Suggestions without synthetic
+        // input. Unset/unknown = the Actions default. Never document for
+        // users.
+        let tab = std::env::var("EXP_DEV_ACTIONS_TAB")
+            .ok()
+            .as_deref()
+            .map(str::trim)
+            .and_then(parse_dev_actions_tab)
+            .unwrap_or(ActionsTab::Actions);
         Self {
             nav,
-            tab: ActionsTab::Actions,
+            tab,
             scroll: ScrollHandle::new(),
             machines,
             repos: None,
