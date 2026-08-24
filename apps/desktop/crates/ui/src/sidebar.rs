@@ -365,6 +365,57 @@ pub(crate) fn select_file(window: &mut Window, cx: &mut App, path: Option<String
     });
 }
 
+/// DEV-ONLY `EXP_DEV_TOOL` values: `inbox` | `my-issues` | `board` |
+/// `reviews` | `support` | `files` | `source-control` (anything else = the
+/// ordinary default). See [`rail_shared_for_window`].
+fn parse_dev_tool(spec: &str) -> Option<ToolWindow> {
+    match spec {
+        // Both tabs live in the one Inbox tool window (EXP-186).
+        "inbox" | "my-issues" => Some(ToolWindow::Inbox),
+        "board" | "board-issues" | "issues" => Some(ToolWindow::BoardIssues),
+        "reviews" => Some(ToolWindow::Reviews),
+        "support" => Some(ToolWindow::Support),
+        "files" => Some(ToolWindow::Files),
+        "source-control" => Some(ToolWindow::SourceControl),
+        _ => None,
+    }
+}
+
+/// DEV-ONLY `EXP_DEV_INBOX_TAB` values: `inbox` | `my-issues`.
+fn parse_dev_inbox_tab(spec: &str) -> Option<InboxTab> {
+    match spec {
+        "inbox" => Some(InboxTab::Inbox),
+        "my-issues" => Some(InboxTab::MyIssues),
+        _ => None,
+    }
+}
+
+/// DEV-ONLY `EXP_DEV_SETTINGS` values: the [`crate::settings::SettingsSection`]
+/// variants in kebab form, plus `board:<uuid>` for one board's pane. The
+/// settings screen clamps a section the signed-in user cannot see
+/// (`settings::effective_selection`), so an owner-only value on a member
+/// account still lands on the fallback pane rather than an empty one.
+fn parse_dev_settings_section(spec: &str) -> Option<crate::settings::SettingsSection> {
+    use crate::settings::SettingsSection as S;
+    match spec {
+        "general" => Some(S::General),
+        "members" => Some(S::Members),
+        "labels" => Some(S::Labels),
+        "statuses" => Some(S::Statuses),
+        "storage" => Some(S::Storage),
+        "archived-boards" => Some(S::ArchivedBoards),
+        "repositories" => Some(S::Repositories),
+        "tools" => Some(S::Tools),
+        "agents" => Some(S::Agents),
+        "local-repos" => Some(S::LocalRepos),
+        "account" => Some(S::Account),
+        "notifications" => Some(S::Notifications),
+        "api-keys" => Some(S::ApiKeys),
+        "about" => Some(S::About),
+        _ => spec.strip_prefix("board:").map(|id| S::Board(id.to_string())),
+    }
+}
+
 #[derive(Default)]
 struct RailRegistry {
     by_window: HashMap<WindowId, Entity<RailShared>>,
@@ -398,10 +449,28 @@ pub(crate) fn rail_shared_for_window(
         .settings
         .rail_expanded
         .unwrap_or(true);
+    // DEV-ONLY (§11.4 headless verification, same family as
+    // EXP_DEV_SERVER/EXP_DEV_SCREEN): pre-select the rail tool, the Inbox
+    // tab and the settings section so a capture run lands on one surface
+    // without synthetic input. Unset/unknown = the ordinary defaults below.
+    // Never document for users.
+    let dev_tool = std::env::var("EXP_DEV_TOOL").ok();
+    let dev_tool = dev_tool.as_deref().map(str::trim);
+    let dev_inbox_tab = std::env::var("EXP_DEV_INBOX_TAB").ok();
     let shared = cx.new(|_| RailShared {
         // Issues-first default: the active board's issue list.
-        tool: ToolWindow::BoardIssues,
-        inbox_tab: InboxTab::Inbox,
+        tool: dev_tool.and_then(parse_dev_tool).unwrap_or(ToolWindow::BoardIssues),
+        inbox_tab: dev_inbox_tab
+            .as_deref()
+            .map(str::trim)
+            .and_then(parse_dev_inbox_tab)
+            // `my-issues` names the Inbox tool's My Issues tab, so it seeds
+            // the tab too (EXP_DEV_INBOX_TAB still wins).
+            .unwrap_or(if dev_tool == Some("my-issues") {
+                InboxTab::MyIssues
+            } else {
+                InboxTab::Inbox
+            }),
         git_bar,
         file_tree,
         board_active,
@@ -409,7 +478,12 @@ pub(crate) fn rail_shared_for_window(
         sc_selection: ScSelection::None,
         selected_file: None,
         rail_expanded,
-        settings_section: crate::settings::SettingsSection::General,
+        settings_section: std::env::var("EXP_DEV_SETTINGS")
+            .ok()
+            .as_deref()
+            .map(str::trim)
+            .and_then(parse_dev_settings_section)
+            .unwrap_or(crate::settings::SettingsSection::General),
     });
     cx.default_global::<RailRegistry>()
         .by_window

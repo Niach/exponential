@@ -45,7 +45,15 @@ Build + upload the STAGING flavor (.aab) to the at.exponential.staging Play INTE
 [bundle exec] fastlane android screenshots
 ```
 
-Capture Play Store screenshots on a booted emulator via screengrab. Needs the seeded local backend running (see fastlane/Screengrabfile); override the instance URL with SCREENGRAB_INSTANCE_URL. Follow up with `bun run screenshots:frame` (repo root) before sync_store — EXP-580.
+Capture Play Store screenshots on a booted emulator via screengrab. Needs the seeded local backend running (see fastlane/Screengrabfile); override the instance URL with SCREENGRAB_INSTANCE_URL. Raw captures land in fastlane/screenshots-raw/ — follow up with `bun run screenshots:store` (repo root) before sync_store, which composites the Play set (EXP-580).
+
+### android styleguide_screenshots
+
+```sh
+[bundle exec] fastlane android styleguide_screenshots
+```
+
+Capture the STYLEGUIDE reference screenshots (EXP-566) on a booted emulator: 11 sg_* shots of the plain app surfaces, into fastlane/styleguide-screenshots/. Same seeded local backend as `screenshots` (no steer relay needed); override the instance URL with SCREENGRAB_INSTANCE_URL. Config lives in fastlane/Screengrabfile-styleguide.
 
 ### android production
 

@@ -12,10 +12,11 @@
 # matching STEER_RELAY_SECRET for the web server, and leave `bun run
 # screenshots:desktop` (apps/web) running for the whole capture.
 #
-# Afterwards run `bun run screenshots:frame` from the repo root BEFORE
-# `sync_store`: it rewrites 01_board / 04_steering / 06_actions in place as
-# headline + bezel marketing panels at the same pixel size (EXP-580) and keeps
-# the raw captures in fastlane/screenshots-raw/.
+# Captures land RAW in fastlane/screenshots-raw/. Afterwards run
+# `bun run screenshots:store` from the repo root BEFORE `sync_store`: the
+# compositor renders the finished store slides (headline + bezel panels,
+# EXP-580) from those raw captures into fastlane/screenshots/, which is what
+# deliver uploads.
 
 # xcodebuild only forwards TEST_RUNNER_-prefixed env vars into the UI-test
 # runner process (prefix stripped) — a bare SNAPSHOT_INSTANCE_URL on the
@@ -48,8 +49,14 @@ localize_simulator(true)
 workspace("Exponential.xcworkspace")
 scheme("Exponential")
 
-# Relative to apps/ios (fastlane's working dir) → apps/ios/fastlane/screenshots.
-output_directory("fastlane/screenshots")
+# The scheme's test action holds BOTH capture suites; the store lane must run
+# only its own, or every run would also drive the 11 styleguide shots.
+only_testing(["ExponentialUITests/StoreScreenshots"])
+
+# Relative to apps/ios (fastlane's working dir) → apps/ios/fastlane/screenshots-raw.
+# RAW captures only: `bun run screenshots:store` composites them into
+# fastlane/screenshots/, which is the directory deliver uploads.
+output_directory("fastlane/screenshots-raw")
 clear_previous_screenshots(true)
 
 # Clean 9:41 status bar in every shot.

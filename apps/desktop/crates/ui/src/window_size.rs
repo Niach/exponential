@@ -304,10 +304,30 @@ impl WindowSizeTracker {
     }
 }
 
+/// DEV-ONLY (§11.4 headless verification, same family as
+/// `EXP_DEV_SERVER`/`EXP_DEV_SCREEN`): `EXP_WINDOW_SIZE=1440x900` pins the
+/// launch size, so automated window screenshots are diffable pixel-for-pixel
+/// instead of inheriting whatever this install last resized to. Wins over
+/// BOTH the persisted size and [`DEFAULT_SIZE`], and suppresses persistence
+/// (a capture run must not rewrite the developer's remembered size).
+/// Unparseable values fall through silently. Never document for users.
+fn dev_forced_size() -> Option<Size<Pixels>> {
+    let spec = std::env::var("EXP_WINDOW_SIZE").ok()?;
+    let (w, h) = spec.trim().split_once(['x', 'X'])?;
+    let (w, h) = (w.trim().parse::<f32>().ok()?, h.trim().parse::<f32>().ok()?);
+    if !w.is_finite() || !h.is_finite() || w <= 0. || h <= 0. {
+        return None;
+    }
+    Some(size(px(w).max(MIN_SIZE.width), px(h).max(MIN_SIZE.height)))
+}
+
 /// The persisted last-used size, clamped to [`MIN_SIZE`]; `None` on first
 /// launch or an unreadable/garbled file (callers fall back to
 /// [`DEFAULT_SIZE`]).
 pub fn load_last_size() -> Option<Size<Pixels>> {
+    if let Some(forced) = dev_forced_size() {
+        return Some(forced);
+    }
     let json = std::fs::read_to_string(size_file()?).ok()?;
     let saved: SavedSize = serde_json::from_str(&json).ok()?;
     if !saved.width.is_finite() || !saved.height.is_finite() {
@@ -322,6 +342,10 @@ pub fn load_last_size() -> Option<Size<Pixels>> {
 /// Persist `last` as the next launch's window size (best-effort at call
 /// sites — a failed write only costs the remembered size).
 pub fn save_last_size(last: Size<Pixels>) -> Result<()> {
+    if dev_forced_size().is_some() {
+        // A pinned capture run is not a user resize (see `dev_forced_size`).
+        return Ok(());
+    }
     let path = size_file().ok_or_else(|| anyhow!("no data dir"))?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;

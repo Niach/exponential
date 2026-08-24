@@ -1,0 +1,56 @@
+# screengrab configuration for the STYLEGUIDE capture suite (EXP-566).
+#
+# Same machinery as fastlane/Screengrabfile, pointed at
+# StyleguideScreenshotsTest instead of the store flow: 11 shots
+# (sg_sign-in … sg_settings-personal) of the plain app surfaces, used as the
+# cross-platform design reference rather than as Play listing assets. The shot
+# names are a byte-exact contract shared with the other clients — never rename
+# one without changing it everywhere.
+#
+# fastlane's screengrab action ALWAYS auto-loads `fastlane/Screengrabfile`
+# (Screengrab.screengrabfile_name is hardcoded, and there is no config-path
+# option or env var), so this file is NOT picked up by name. The
+# `styleguide_screenshots` lane evaluates it through fastlane_core's own
+# ConfigurationFile and passes the result to screengrab as explicit action
+# arguments, which take precedence over the auto-loaded store config.
+#
+# Prereqs are the store suite's minus live steering — no shot needs a relay or
+# a running desktop:
+#   1. A running, seeded local backend reachable from the emulator:
+#        bun run backend:up && bun dev
+#        bun run seed:screenshots                                    (from apps/web)
+#   2. An English-locale phone emulator booted (only one device attached).
+#   3. Both APKs built: bundle exec fastlane styleguide_screenshots does this
+#      for you.
+#
+# Output lands in fastlane/styleguide-screenshots/en-US/images/phoneScreenshots/
+# (sg_*.png). Nothing uploads these to Play — they are raw reference captures.
+
+# The production flavor's applicationId (debug build keeps the same id).
+app_package_name("at.exponential")
+tests_package_name("at.exponential.test")
+
+# Only run the styleguide flow, not the store flow or any other test.
+use_tests_in_classes(["com.exponential.app.StyleguideScreenshotsTest"])
+
+locales(["en-US"])
+
+# Wipe the old screenshots for the captured locales before writing new ones.
+clear_previous_screenshots(true)
+
+# Stable filenames (sg_sign-in.png, …) so the reference set stays diffable.
+use_timestamp_suffix(false)
+
+# Reinstall to clear app data between runs — the test drives the full
+# first-launch flow (instance picker → login) and needs a signed-out app.
+reinstall_app(true)
+
+# productionDebug variant, built via `fastlane styleguide_screenshots` (paths
+# are relative to apps/android, where fastlane runs).
+app_apk_path("app/build/outputs/apk/production/debug/app-production-debug.apk")
+tests_apk_path("app/build/outputs/apk/androidTest/production/debug/app-production-debug-androidTest.apk")
+
+# screengrab nests <locale>/images/phoneScreenshots under this root.
+output_directory("fastlane/styleguide-screenshots")
+
+test_instrumentation_runner("androidx.test.runner.AndroidJUnitRunner")
