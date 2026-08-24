@@ -76,6 +76,11 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Build marketing site
         run: bun run build:marketing
+      - name: Build styleguide
+        # EXP-566: same rationale — the styleguide deploys straight from Coolify,
+        # so its only pre-deploy gate is here. Also validates the shots store
+        # against the view catalog.
+        run: bun run build:styleguide
 
   migrations:
     # EXP-112: drizzle-kit can generate SQL that fails on every real DB

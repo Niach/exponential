@@ -18,6 +18,9 @@ COPY packages/emoji/package.json packages/emoji/package.json
 COPY packages/icons/package.json packages/icons/package.json
 COPY packages/licenses/package.json packages/licenses/package.json
 COPY packages/widget/package.json packages/widget/package.json
+COPY apps/styleguide/package.json apps/styleguide/package.json
+COPY packages/view-catalog/package.json packages/view-catalog/package.json
+COPY packages/shots/package.json packages/shots/package.json
 
 # REV-2: scoped to @exp/steer-relay on purpose, same reason as the root
 # Dockerfile's EXP-380 filter. This image is published PUBLICLY as

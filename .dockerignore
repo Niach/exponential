@@ -36,3 +36,7 @@ apps/desktop/target
 # into .output/public.
 packages/licenses/inventory
 packages/licenses/texts
+
+# EXP-566 — the committed screenshot store + raw captures; no image needs them
+shots
+.shots-raw

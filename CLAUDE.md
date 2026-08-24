@@ -16,6 +16,7 @@ apps/
 ├── marketing/  # Vite + React — owns the Remotion ClosedLoop hero movie (src/movie/)
 ├── ios/        # SwiftUI (Tuist + GRDB; ExpCore/ExpUI)
 ├── android/    # Kotlin / Jetpack Compose
+├── styleguide/ # Static shot-gallery site (reads shots/ + @exp/view-catalog)
 └── desktop/    # Rust IDE (gpui + gpui-component + alacritty_terminal; embedded coding sessions)
                 # + crates/cli: the headless `exponential` CLI/daemon (EXP-403) — gpui-free via the
                 # default-on `gpui` cargo feature on terminal/coding; own cli-v* release train
@@ -28,8 +29,11 @@ packages/
 ├── emoji/             # emoji dataset generator → ONE json into all four clients
 ├── steer-ticket/      # HS256 steer-ticket sign/verify (web mints, relay verifies)
 ├── widget/            # Feedback widget (Preact + snapDOM) → apps/web/public/widget/v1/
+├── view-catalog/      # views.json — every product view × platform, drift-gated
+├── shots/             # capture pipeline (sharp diff-skip writer) → the shots/ store
 └── tsconfig/
 docs/                  # third-party-licences.md + licences/ (runbooks live outside the repo)
+shots/                 # COMMITTED webp screenshot store, <view>/<platform>.webp (EXP-566)
 docker-compose.yaml    # DEV backend stack (not the self-host one)
 selfhost/              # Pull-an-image self-host compose; INSTALL.md = agent-followable runbook
 Dockerfile{,.push-relay,.steer-relay}   # build context = repo root
@@ -53,7 +57,7 @@ The app is **noindex** everywhere: `__root.tsx` meta + ungated `X-Robots-Tag: no
 
 ## Shared Contracts
 
-**Icons (EXP-273/317):** ONE icon set — Lucide — byte-identical on all four clients, generated from `packages/icons/icons.json` into COMMITTED per-platform outputs. Change an icon by editing `icons.json` + `bun run --filter @exp/icons generate`; never hand-edit generated files or add per-platform glyph maps. `pickable` (the 60 board/action picker names, byte-equal to contract `boardIcon.values`) is **APPEND-ONLY** — reordering orphans stored rows. Multi-client surfaces name a CONCEPT (`conceptIcon(\`nav-search\`)` / `registry::NAV_SEARCH` / `AppIcons.navSearch` / `ExpIcons.navSearch`), never a raw glyph; iOS renders via the `AppIcon` view, NOT `Image(systemName:)`; `apps/web/src/lib/icons.test.ts` gates drift and the concept rules (settings navs resolve the same concept on web+desktop, desktop never uses gpui-component `IconName` outside `title_bar.rs`, web never imports deprecated lucide aliases). Desktop assets separately hold hand-maintained BRAND marks (`claude`/`codex`/`pi`/`logo*`/`apple`/`google`) the generator must never own.
+**Icons (EXP-273/317):** ONE icon set — Lucide — byte-identical on all four clients, generated from `packages/icons/icons.json` into COMMITTED per-platform outputs. Change an icon by editing `icons.json` + `bun run --filter @exp/icons generate`; never hand-edit generated files or add per-platform glyph maps. `pickable` (the 60 board/action picker names, byte-equal to contract `boardIcon.values`) is **APPEND-ONLY** — reordering orphans stored rows. Multi-client surfaces name a CONCEPT (`conceptIcon(\`nav-search\`)` / `registry::NAV_SEARCH` / `AppIcons.navSearch` / `ExpIcons.navSearch`), never a raw glyph; iOS renders via the `AppIcon` view, NOT `Image(systemName:)`; `apps/web/src/lib/icons.test.ts` gates drift and the concept rules. Desktop assets separately hold hand-maintained BRAND marks (`claude`/`codex`/`pi`/`logo*`/`apple`/`google`) the generator must never own.
 
 **Enums:** canonical values live in `packages/domain-contract/contract.json` (support-thread `status`/`direction`/`visibility` are documented varchars in `domain.ts` only). Changing `db-schema/src/domain.ts` means updating `contract.json` + `bun run --filter @exp/domain-contract generate`.
 
@@ -80,16 +84,16 @@ bun run dev:widget                 # watch-build (pairs with bun dev; /widget/v1
 bun run typecheck / test / test:e2e   # web app
 bun run migrate / migrate:generate / psql
 bun run backend:up / backend:down / backend:clear   # clear wipes volumes
-bun run storage:init               # one-time Garage bootstrap; prints S3 keys
+bun run storage:init               # one-time Garage bootstrap
 bun run format
 bun run android:build / android:install
 bun run dev:desktop                # gpui IDE against local backend
 bun run build:desktop / appimage:desktop / macapp:desktop / test:desktop
-bun run clean:desktop              # on zed/gpui rev bumps (cargo never GCs stranded artifacts)
+bun run clean:desktop              # on zed/gpui rev bumps
 bun run --filter @exp/{domain-contract,design-tokens,icons} generate
-cd apps/web && bun run seed:screenshots        # demo data for store screenshots
-cd apps/web && bun run screenshots:desktop     # + a relay desktop, so steering shots aren't "unavailable"
-bun run screenshots:frame                      # post-capture headline+bezel panels on 01/04/06 (EXP-580)
+cd apps/web && bun run seed:screenshots        # demo data (shots + store captures reuse it)
+bun run shots                                  # all-platform view captures → shots/ store (--platform filters)
+bun run screenshots:store                      # ASO slide compositor → store upload dirs (--proposals = candidate sets)
 ```
 
 Workspace scripts: `bun --filter @exp/web <script>` or `cd apps/web && bun run <script>`; plain `cargo` from `apps/desktop/` works. The generated Rust files (`contract.generated.rs`, `tokens.generated.rs`) are committed; regenerate only when `contract.json`/`tokens.json` change. Do NOT run `bun run lint` — its --fix corrupts `typeof import()` sites (EXP-13).
@@ -98,7 +102,7 @@ Workspace scripts: `bun --filter @exp/web <script>` or `cd apps/web && bun run <
 
 Everything runs on Coolify (`coolify.home.straehhuber.com`, Hetzner). **Coolify is home-LAN-only — no auto-redeploy webhooks**; after a green Actions run, deploy from a LAN machine with `coolify deploy uuid <uuid>`. `build-web.yml` publishes `ghcr.io/niach/exponential-web` on master pushes + `v*` tags, multi-arch; the SAME image is the cloud app, staging, and the self-host distribution (`selfhost/` + `INSTALL.md`), so the ghcr package must stay PUBLIC and self-hosters pin semver tags. Its runtime `bun install` is `--filter '@exp/web'` on purpose (EXP-380: unfiltered redistributed marketing's source-available Remotion); non-OSS components and their notices rules live in `docs/third-party-licences.md`, gated by `apps/web/src/lib/third-party-licences.test.ts`. Native releases are tag-triggered: `android-v*` (APK + Play bundle, `make_latest: false`), `desktop-v*` (`build-desktop.yml`: codegen-drift guard, production + staging × macOS/Linux/Windows; `make_latest: true`, self-update in `crates/updater`), `cli-v*` (`build-cli.yml`: bare `exponential-<target>` binaries, `make_latest: false`; installed via `apps/marketing/public/install.sh`, one script for cloud AND self-host via `EXP_INSTANCE`), `ios-v*` (`build-ios.yml`: ASC upload from a release-macOS runner — beta-macOS-built ipas are rejected (ITMS-90111); cloud signing via `ASC_*` secrets, review submission stays manual).
 
-**The operations runbook lives OUTSIDE the repo** (deliberately — infra uuids/domains stay out of git; the operator keeps it in local agent memory alongside the iOS/Android release and SES runbooks). It covers app/DB/Electric uuids, buckets, staging, the relays' required `TRUST_PROXY=true`, per-platform release steps and signing, and the release-time checklist (changelog entry, GitHub App webhook/permission settings, deep-link assets, cloud auth env, health checks, DNS). Consult it before touching anything deploy-shaped; never re-inline it.
+**The operations runbook lives OUTSIDE the repo** (deliberately — infra uuids/domains stay out of git; the operator keeps it in local agent memory). It covers app/DB/Electric uuids, buckets, staging, the relays' required `TRUST_PROXY=true`, per-platform release steps and signing, and the release-time checklist (changelog, GitHub App settings, deep-link assets, cloud auth env, health checks, DNS). Consult it before touching anything deploy-shaped; never re-inline it.
 
 Every user-facing release PREPENDS a `ChangelogEntry` to `apps/web/src/lib/changelog.ts` (`changelog.test.ts` enforces conventions; head id drives the "What's new" card).
 
@@ -132,7 +136,7 @@ Values in `contract.json` (see Shared Contracts). `issue_status` — `pr_open` f
 
 ### Electric shape proxies
 
-One proxy per synced table in `routes/api/shapes/`, built with `createShapeRouteHandler`; all member-only. **Every proxy pins a server-side `columns` allowlist clients cannot widen, and a new server-only column on a synced table goes BEHIND it** — an unknown column reaching a native client bricks its sync loop. `users` is pinned to exactly `id,name,email,image,created_at,updated_at`; `teams` pins its contract list (`comp_tier` never); `issue-subscribers` drops reporter `email` (PII); `actions` drops `body`; the board-scoped shapes drop their scoping columns. A shape may FILTER on a column its allowlist excludes — Electric evaluates `where` server-side. Non-negotiable hardening: responses always carry `cache-control: private, no-store` + `vary: authorization, x-api-key, cookie`; failing token credentials get an explicit 401, never the anonymous where clause (cookie-only still falls back anonymously); `buildWhereClause` SORTS id lists because the where clause is part of Electric's shape identity, and membership id lists stay OUT of board-scoped where clauses (`buildTeamScopedChildWhere`). A FIFO semaphore in `electric-proxy.ts` bounds ALL snapshot-class forwarding — any request without `live=true`, initial and continuation chunks alike (REV-27); live long-polls are never gated. Wire format, control messages and the long-poll timeout floors: `packages/electric-protocol/README.md`.
+One proxy per synced table in `routes/api/shapes/`, built with `createShapeRouteHandler`; all member-only. **Every proxy pins a server-side `columns` allowlist clients cannot widen, and a new server-only column on a synced table goes BEHIND it** — an unknown column reaching a native client bricks its sync loop. `users` is pinned to exactly `id,name,email,image,created_at,updated_at`; `teams` pins its contract list (`comp_tier` never); `issue-subscribers` drops reporter `email` (PII); `actions` drops `body`; the board-scoped shapes drop their scoping columns. A shape may FILTER on a column its allowlist excludes — Electric evaluates `where` server-side. Non-negotiable hardening: responses always carry `cache-control: private, no-store` + `vary: authorization, x-api-key, cookie`; failing token credentials get an explicit 401, never the anonymous where clause (cookie-only still falls back anonymously); `buildWhereClause` SORTS id lists because the where clause is part of Electric's shape identity, and membership id lists stay OUT of board-scoped where clauses (`buildTeamScopedChildWhere`). A FIFO semaphore in `electric-proxy.ts` bounds ALL snapshot-class forwarding — any request without `live=true` (REV-27); live long-polls are never gated. Wire format, control messages and the long-poll timeout floors: `packages/electric-protocol/README.md`.
 
 ### Board trash (48h soft delete) + archive (EXP-500)
 
@@ -154,7 +158,7 @@ Per-TEAM rows in six fixed categories (backlog/unstarted/started/completed/cance
 **`.env.example` at the repo root is the CANONICAL reference** (required core, optional subsystems, cloud-only) and `selfhost/.env.example` is its self-host subset — read them instead of a list here; each relay has its own `apps/*/.env.example`. What is not obvious from those files:
 
 - `CLOUD_INSTANCE` is the opt-IN cloud marker (EXP-364): `'true'` turns on billing, plan limits, the in-app widget and conversion tracking; unset = self-hosted, every FEATURE limit unlocked.
-- `AUTH_PASSWORD_ENABLED`/`AUTH_SIGNUP_ENABLED`: password login defaults true, public signup is on in dev and OFF in production builds — but `selfhost/docker-compose.yaml` re-defaults it to `true`. Auth security posture is BUILD-derived (`lib/production-build.ts` `isProductionBuild`, REV-5) — never key it on runtime `NODE_ENV`, which the shipped image only sets belt-and-braces.
+- `AUTH_PASSWORD_ENABLED`/`AUTH_SIGNUP_ENABLED`: password login defaults true, public signup is on in dev and OFF in production builds — but `selfhost/docker-compose.yaml` re-defaults it to `true`. Auth security posture is BUILD-derived (`lib/production-build.ts` `isProductionBuild`, REV-5) — never key it on runtime `NODE_ENV`.
 - Mail: SES (`AWS_SES_REGION` + creds) OR `SMTP_*` for ALL mail — SES wins if both; unset region = email silently off.
 - OIDC: `OIDC_PROVIDERS` (JSON array) is the primary mechanism; the single-provider `AUTH_OIDC_ENABLED`/`OIDC_*` vars are legacy and only read when it is unset.
 - GitHub App installations are claimed PER TEAM (`github_installation_links`); `GITHUB_APP_CLIENT_SECRET` unset ⇒ install-page round-trip fallback; `GITHUB_POLLING=true` = outbound merge cron for NAT'd self-hosts (decoupled from `CLOUD_INSTANCE`).
@@ -182,7 +186,7 @@ Multi-issue coding = **batch runs, desktop-only, any agent**. The ONE Start-codi
 
 `actions` rows (per team, markdown `body` ≤64KB, optional `repository_id` SET NULL, optional curated `icon`, up to 10 typed inputs) — tRPC CRUD (member list/get, owner writes) + 4 MCP tools + the body-less shape. **Automations (EXP-583) are their OWN rows + shape** (`automations`: `action_id` target, `device_id` runner, nullable `agent`/`model`/`effort`, when-part `trigger` jsonb schedule|event, `enabled`) — never a field on actions; LOCAL-ONLY (no server scheduler: the bound device selects its enabled rows off Electric and self-starts via `codingSessions.start` with `startedReason`+`automationId`); owner-only `automations` router + MCP `exponential_automations_create`; an enabled automation needs every action input optional; withdrawing a device share disables its automations; all four clients have an Automations tab (list/toggle/create form) and suggestion seeds may carry an `automation` (mirrored ×4). Runs are `coding_sessions` rows (`action_id` + `action_name` snapshot) executed LOCALLY by the desktop as interactive agent sessions (any agent, per-agent model/effort) on the repo's trunk clone, a PR branch's worktree (fix-conflicts), or a scratch dir — never server-side secrets (runs use the user's own device auth); NO per-device trust prompt. Remote start rides the steer rails: devices advertise `caps: ["actions"]`, `steer.startSession({actionId, deviceId, agent?, model?, effort?})` gates on it. All four clients have an Actions surface (web `t/$teamSlug/agents` + desktop rail: list/run; mobile: view + run; EDITING is web/desktop-only, and since EXP-257 new actions are authored by the builtin creator run, not a manual form).
 
-TWO virtual builtins are NOT DB rows: each client CONSTRUCTS them locally, so their name/description strings must stay **byte-identical** across `lib/builtin-actions.ts` (web), `api::actions::builtin_*` (desktop) and `ActionsApi` (iOS, Android); `actions.list` still appends both for older builds. They are pinned FIRST by the `builtin` flag, every builtin start carries `teamId`, and `get/update/delete` reject the reserved ids. **"Create action"** (`builtin:create-action`) is the describe-it-and-the-agent-writes-it creator, scratch cwd. **"Fix merge conflicts"** (`builtin:fix-conflicts`) takes a required `pr` input — the representative ISSUE id of an issue-linked open PR, deduped by prUrl for batch PRs — and runs in that PR branch's WORKTREE: rebase onto origin/<default>, resolve, force-push, merge via `exponential_pr_merge`; desktop Reviews offers it on a failed merge, and remote start also gates on the `fix-conflicts` cap. Both get normal per-agent MCP wiring and prompts from shipped constants (`body` empty). The 3 default actions ship as TEMPLATES, never seeded rows.
+TWO virtual builtins are NOT DB rows: each client CONSTRUCTS them locally, so their name/description strings must stay **byte-identical** across `lib/builtin-actions.ts` (web), `api::actions::builtin_*` (desktop) and `ActionsApi` (iOS, Android); `actions.list` still appends both for older builds. They are pinned FIRST by the `builtin` flag, every builtin start carries `teamId`, and `get/update/delete` reject the reserved ids. **"Create action"** (`builtin:create-action`) is the describe-it-and-the-agent-writes-it creator, scratch cwd. **"Fix merge conflicts"** (`builtin:fix-conflicts`) takes a required `pr` input — the representative ISSUE id of an issue-linked open PR, deduped by prUrl for batch PRs — and runs in that PR branch's WORKTREE: rebase onto origin/<default>, resolve, force-push, merge via `exponential_pr_merge`; desktop Reviews offers it on a failed merge, and remote start also gates on the `fix-conflicts` cap. Both get normal per-agent MCP wiring and prompts from shipped constants (`body` empty). Suggestion seeds (`action-suggestions.ts`, mirrored ×4) prefill the creator run; nothing is seeded as rows.
 
 ### Desktop IDE & mobile
 
@@ -212,4 +216,4 @@ Server: server-only `widget_configs` (public `expw_` key + domain allowlist) + `
 
 ## Agent context budget (EXP-353)
 
-Keep this file under 40k chars and the MCP tool defs under ~24k serialized chars — coding agents degrade on oversized context files (Claude Code warns at 40k/25k). Gated by `apps/web/src/lib/mcp/context-budget.test.ts`. **Compress instead of appending**: prefer a rule over its rationale, a test or file citation over a restated list, and one canonical statement over three.
+Keep this file under 40k chars and the MCP tool defs under ~24k serialized chars — coding agents degrade on oversized context files. Gated by `apps/web/src/lib/mcp/context-budget.test.ts`. **Compress instead of appending**: prefer a rule over its rationale, a test or file citation over a restated list, and one canonical statement over three.

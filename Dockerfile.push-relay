@@ -18,6 +18,9 @@ COPY packages/licenses/package.json packages/licenses/package.json
 COPY packages/steer-ticket/package.json packages/steer-ticket/package.json
 COPY apps/steer-relay/package.json apps/steer-relay/package.json
 COPY packages/widget/package.json packages/widget/package.json
+COPY apps/styleguide/package.json apps/styleguide/package.json
+COPY packages/view-catalog/package.json packages/view-catalog/package.json
+COPY packages/shots/package.json packages/shots/package.json
 
 # REV-2: scoped to @exp/push-relay on purpose, same reason as the root
 # Dockerfile's EXP-380 filter. Unfiltered, the runtime stage's wholesale

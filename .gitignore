@@ -29,3 +29,7 @@ apps/marketing/movie-ref/
 
 # Built widget artifacts (emitted by packages/widget into the web public dir)
 apps/web/public/widget/
+
+# Raw capture output for the screenshot store (EXP-566) — only the optimized
+# shots/**.webp are committed; regenerate with `bun run shots`.
+/.shots-raw/
