@@ -1,0 +1,20 @@
+{
+  "name": "@exp/styleguide",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun src/serve.ts",
+    "build": "bun src/build.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@exp/view-catalog": "workspace:*",
+    "@exp/design-tokens": "workspace:*"
+  },
+  "devDependencies": {
+    "@exp/tsconfig": "workspace:*",
+    "@types/bun": "latest",
+    "typescript": "^5.7.2"
+  }
+}

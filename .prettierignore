@@ -15,6 +15,13 @@ apps/marketing/public/NOTICES.txt
 apps/ios/Exponential/Resources/NOTICES.txt
 apps/android/app/src/main/assets/NOTICES.txt
 
+# EXP-566 — the screenshot store index is generated deterministically by
+# packages/shots (JSON.stringify(…, null, 2)); a prettier reflow would make
+# every regeneration rewrite it. views.json is hand-maintained but validated
+# and diffed by machines (the view-catalog drift gates) — keep its bytes stable.
+shots/index.json
+packages/view-catalog/views.json
+
 # EXP-551 — the generated emoji dataset (packages/emoji), one record per line,
 # byte-compared by apps/web/src/lib/codegen-drift.test.ts.
 apps/web/src/lib/emoji.generated.json

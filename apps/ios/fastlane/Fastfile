@@ -8,6 +8,21 @@
 
 default_platform(:ios)
 
+# snapshot hardcodes its config-file name to "Snapfile" (Snapshot.snapfile_name,
+# consumed by Snapshot::DetectValues) — there is no configuration_path option.
+# Make the name overridable so `styleguide_screenshots` can load
+# fastlane/Snapfile-styleguide instead. FastlaneCore resolves it against
+# ./fastlane/, so a bare basename is all that is needed. Unset = "Snapfile",
+# i.e. every other lane is untouched.
+require "snapshot"
+module Snapshot
+  class << self
+    def snapfile_name
+      ENV["SNAPFILE_NAME"] || "Snapfile"
+    end
+  end
+end
+
 WORKSPACE = "Exponential.xcworkspace".freeze
 SCHEME = "Exponential".freeze # production target (bundle id at.exponential)
 IPA_PATH = "build/Exponential.ipa".freeze
@@ -69,14 +84,43 @@ platform :ios do
 
   desc "Regenerate the Tuist project and capture App Store screenshots (snapshot)."
   desc "Needs the seeded local backend (apps/web/scripts/seed-screenshots.ts) at"
-  desc "http://localhost:5173 — override with SNAPSHOT_INSTANCE_URL. Follow up with"
-  desc "`bun run screenshots:frame` (repo root) before sync_store — EXP-580."
+  desc "http://localhost:5173 — override with SNAPSHOT_INSTANCE_URL. Captures land RAW"
+  desc "in fastlane/screenshots-raw/; follow up with `bun run screenshots:store` (repo"
+  desc "root) to composite them into fastlane/screenshots/ before sync_store — EXP-580."
   lane :screenshots do
     sh("cd .. && tuist generate --no-open")
     # The sign-in flow types into text fields — make sure the simulators show
     # the software keyboard instead of assuming a connected hardware keyboard.
     sh("defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false || true")
     snapshot
+  end
+
+  desc "Regenerate the Tuist project and capture the STYLEGUIDE screenshots (EXP-566):"
+  desc "the 11 cross-platform `sg_*` surface shots from"
+  desc "ExponentialUITests/StyleguideScreenshots.swift, iPhone only, into"
+  desc "fastlane/screenshots-styleguide/. Same seeded backend as `screenshots`, but no"
+  desc "steer relay and no `screenshots:desktop` needed. Never uploaded to ASC."
+  lane :styleguide_screenshots do
+    sh("cd .. && tuist generate --no-open")
+    # The sign-in flow types into text fields — make sure the simulators show
+    # the software keyboard instead of assuming a connected hardware keyboard.
+    sh("defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false || true")
+    # Load fastlane/Snapfile-styleguide instead of fastlane/Snapfile (see the
+    # Snapshot.snapfile_name override at the top of this file).
+    ENV["SNAPFILE_NAME"] = "Snapfile-styleguide"
+    begin
+      # The three settings that differ from the store lane are ALSO passed
+      # explicitly: values given to the action win over the config file, so the
+      # run stays correct even if the Snapfile selection above ever regresses
+      # and the store Snapfile gets loaded instead.
+      snapshot(
+        devices: ["iPhone 17 Pro Max"],
+        output_directory: "fastlane/screenshots-styleguide",
+        only_testing: ["ExponentialUITests/StyleguideScreenshots"],
+      )
+    ensure
+      ENV.delete("SNAPFILE_NAME")
+    end
   end
 
   desc "Build + upload to TestFlight (pilot). Internal-only by default (fast: skips the"

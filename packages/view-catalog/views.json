@@ -1,0 +1,1803 @@
+{
+  "groups": [
+    {
+      "id": "auth",
+      "label": "Sign in & onboarding",
+      "blurb": "Everything before a team is in view: the merged sign-in/sign-up page, the native instance picker, first-run onboarding and invite acceptance.",
+      "order": 1
+    },
+    {
+      "id": "issues",
+      "label": "Issues",
+      "blurb": "The board and the issue itself: list, filters, full detail, comments, creation and cross-board search.",
+      "order": 2
+    },
+    {
+      "id": "my-work",
+      "label": "My work",
+      "blurb": "The personal surface: the notification inbox and the assigned-to-me list that shares its route as a tab.",
+      "order": 3
+    },
+    {
+      "id": "coding",
+      "label": "Coding",
+      "blurb": "The Actions surface plus the start-coding launcher and the live steering dock.",
+      "order": 4
+    },
+    {
+      "id": "reviews",
+      "label": "Reviews",
+      "blurb": "The cross-board open-PR queue and the read-only diff view behind it.",
+      "order": 5
+    },
+    {
+      "id": "actions",
+      "label": "Action authoring",
+      "blurb": "Editing actions and their automations. Web and desktop only: mobile views and runs actions but never edits them.",
+      "order": 6
+    },
+    {
+      "id": "support",
+      "label": "Support",
+      "blurb": "The helpdesk thread list and one open conversation.",
+      "order": 7
+    },
+    {
+      "id": "settings",
+      "label": "Settings",
+      "blurb": "One section per real settings route, plus the two condensed native settings screens.",
+      "order": 8
+    },
+    {
+      "id": "ide",
+      "label": "Desktop IDE",
+      "blurb": "The parts of the desktop app that have no counterpart anywhere else: the file tree, source control and the embedded terminal an agent actually runs in.",
+      "order": 9
+    },
+    {
+      "id": "getting-started",
+      "label": "Getting started",
+      "blurb": "The setup checklist: a sidebar sheet on web, a rail screen on desktop.",
+      "order": 10
+    }
+  ],
+  "excludedRoutes": [
+    {
+      "route": "/",
+      "reason": "Bare root is a resolver, not a view: it forwards to the last-visited team, the oldest membership, or onboarding."
+    },
+    {
+      "route": "/about",
+      "reason": "Static third-party licence notices (EXP-262). Legal text, no product surface worth a shot."
+    },
+    {
+      "route": "/auth/register",
+      "reason": "Unconditional redirect to /auth/login since EXP-188. The create-account state is captured as the sign-up view via the openRegister recipe."
+    },
+    {
+      "route": "/auth/forgot-password",
+      "reason": "Transactional password-recovery form; no product surface, and capturing it needs a live mail sink."
+    },
+    {
+      "route": "/auth/reset-password",
+      "reason": "Reachable only through a signed token in a recovery email."
+    },
+    {
+      "route": "/auth/consent",
+      "reason": "MCP OAuth scope picker; only reachable mid-authorize from a registered OAuth client."
+    },
+    {
+      "route": "/auth/device",
+      "reason": "RFC 8628 device-code entry for the CLI daemon; needs a pending device code to render anything."
+    },
+    {
+      "route": "/support/$token",
+      "reason": "Anonymous reporter magic-link page; needs a deterministic HMAC token minted per thread."
+    },
+    {
+      "route": "/account/notifications",
+      "reason": "Legacy redirect into /t/$teamSlug/settings/notifications, kept alive for email verification links."
+    },
+    {
+      "route": "/t/$teamSlug",
+      "reason": "Team index is a redirect to the last-visited (or first) board; it only paints when the team has zero boards."
+    },
+    {
+      "route": "/t/$teamSlug/settings",
+      "reason": "Bare settings forwards to the first section the viewer may see."
+    },
+    {
+      "route": "/t/$teamSlug/settings/billing",
+      "reason": "Cloud-only (CLOUD_INSTANCE=true). Unreachable on the local instance the capturers drive, and the nav item is hidden there."
+    },
+    {
+      "route": "/admin",
+      "reason": "Global admin console. Operator surface, not a product view; gated by INITIAL_ADMIN_EMAILS."
+    },
+    {
+      "route": "/admin/conversions",
+      "reason": "Global admin console (cloud-only conversion funnel)."
+    },
+    {
+      "route": "/admin/email",
+      "reason": "Global admin console (email delivery log)."
+    },
+    {
+      "route": "/admin/performance",
+      "reason": "Global admin console (server performance)."
+    },
+    {
+      "route": "/admin/teams",
+      "reason": "Global admin console (team list)."
+    },
+    {
+      "route": "/admin/teams/$teamId",
+      "reason": "Global admin console (team detail)."
+    },
+    {
+      "route": "/admin/users",
+      "reason": "Global admin console (user list)."
+    },
+    {
+      "route": "/admin/users/$userId",
+      "reason": "Global admin console (user detail)."
+    },
+    {
+      "route": "/integrations/github/claim",
+      "reason": "GitHub App install round-trip landing page; only reachable as a redirect target from github.com."
+    },
+    {
+      "route": "/integrations/github/installed",
+      "reason": "GitHub App install round-trip landing page; only reachable as a redirect target from github.com."
+    }
+  ],
+  "views": [
+    {
+      "id": "sign-in",
+      "group": "auth",
+      "title": "Sign in",
+      "blurb": "The merged auth page in its sign-in state: email/password plus whatever OIDC providers the instance advertises.",
+      "order": 1,
+      "web": {
+        "route": "/auth/login",
+        "anchor": {
+          "text": "Sign in",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_sign-in",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_sign-in",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "login"
+        },
+        "anchorDelayMs": 3000
+      },
+      "notes": {}
+    },
+    {
+      "id": "sign-up",
+      "group": "auth",
+      "title": "Create an account",
+      "blurb": "The same auth page toggled into its create-account state (EXP-188 merged signup into /auth/login; /auth/register is only a redirect).",
+      "order": 2,
+      "web": {
+        "route": "/auth/login",
+        "anchor": {
+          "text": "Create an account",
+          "timeoutMs": 20000
+        },
+        "recipe": "openRegister",
+        "settleMs": 600
+      },
+      "webMobile": "inherit",
+      "notes": {
+        "ios": "Native sign-up is the same form as sign-in with the toggle flipped; not worth a second styleguide shot.",
+        "android": "Native sign-up is the same form as sign-in with the toggle flipped; not worth a second styleguide shot.",
+        "desktop": "No native create-account state: the Register link opens the instance’s /auth/register in the system browser (login.rs `open_register`), because registration is a web flow."
+      }
+    },
+    {
+      "id": "instance-picker",
+      "group": "auth",
+      "title": "Instance picker",
+      "blurb": "The pre-login server chooser: cloud or a self-hosted URL. Native only, because the web app IS its instance.",
+      "order": 3,
+      "notes": {
+        "web": "Has no web equivalent by construction: the browser already resolved the instance by hostname.",
+        "web-mobile": "See web.",
+        "desktop": "Not a separate screen: an inline Cloud/self-hosted toggle on the login card that reveals a Server URL field. Captured in its self-hosted state."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "login"
+        },
+        "anchorDelayMs": 3000,
+        "env": {
+          "EXP_DEV_LOGIN": "self-hosted"
+        }
+      },
+      "ios": {
+        "shot": "sg_instance-picker",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_instance-picker",
+        "lane": "styleguide"
+      }
+    },
+    {
+      "id": "onboarding",
+      "group": "auth",
+      "title": "First-run onboarding",
+      "blurb": "Create-or-join: the choice card every signup lands on before it has a team.",
+      "order": 4,
+      "notes": {
+        "ios": "Mobile ships the full wizard; a styleguide shot needs the suite to sign in as the team-less newcomer, which the store lane’s flow cannot do mid-run.",
+        "android": "Mobile ships the full wizard; a styleguide shot needs the suite to sign in as the team-less newcomer, which the store lane’s flow cannot do mid-run.",
+        "desktop": "The desktop wizard has a fourth, desktop-only Tools step; reaching it needs a fresh data dir signed in as the newcomer. Manual."
+      },
+      "web": {
+        "route": "/onboarding",
+        "anchor": {
+          "text": "Welcome to Exponential",
+          "timeoutMs": 30000
+        },
+        "auth": "newcomer",
+        "settleMs": 600
+      },
+      "webMobile": "inherit"
+    },
+    {
+      "id": "onboarding-create-team",
+      "group": "auth",
+      "title": "Onboarding · Create a team",
+      "blurb": "The wizard’s create branch: name the team you will own.",
+      "order": 5,
+      "web": {
+        "route": "/onboarding",
+        "anchor": {
+          "text": "Name your team",
+          "timeoutMs": 30000
+        },
+        "auth": "newcomer",
+        "recipe": "openOnboardingCreateTeam",
+        "settleMs": 600
+      },
+      "webMobile": "inherit",
+      "notes": {
+        "ios": "Mobile has the same branch (TeamSetupView / OnboardingScreen step 2) but the suite cannot sign in as the team-less newcomer mid-run.",
+        "android": "Mobile has the same branch but the suite cannot sign in as the team-less newcomer mid-run.",
+        "desktop": "Same branch behind the desktop wizard’s TeamPage::Create; needs a fresh data dir signed in as the newcomer. Manual."
+      }
+    },
+    {
+      "id": "onboarding-join",
+      "group": "auth",
+      "title": "Onboarding · Join a team",
+      "blurb": "The wizard’s other branch: paste the invite link a teammate sent you.",
+      "order": 6,
+      "web": {
+        "route": "/onboarding",
+        "anchor": {
+          "text": "Ask a teammate for an invite link",
+          "timeoutMs": 30000
+        },
+        "auth": "newcomer",
+        "recipe": "openOnboardingJoin",
+        "settleMs": 600
+      },
+      "webMobile": "inherit",
+      "notes": {
+        "ios": "Same newcomer-only precondition as onboarding-create-team.",
+        "android": "Same newcomer-only precondition as onboarding-create-team.",
+        "desktop": "Same: TeamPage::Join behind a fresh data dir. Manual."
+      }
+    },
+    {
+      "id": "invite-accept",
+      "group": "auth",
+      "title": "Accept an invite",
+      "blurb": "The landing page a teammate opens from an invite link, with the team they were invited to and the accept button.",
+      "order": 7,
+      "notes": {
+        "ios": "Reachable only through an `exponential://` deep link carrying a live token; the suite has no way to mint one mid-run.",
+        "android": "Reachable only through a deep link carrying a live token; the suite has no way to mint one mid-run.",
+        "desktop": "Same: needs a live token handed to the app as a deep link."
+      },
+      "web": {
+        "route": "/invite/$inviteToken",
+        "anchor": {
+          "text": "Team Invite",
+          "timeoutMs": 30000
+        },
+        "auth": "newcomer",
+        "settleMs": 600
+      },
+      "webMobile": "inherit"
+    },
+    {
+      "id": "board",
+      "group": "issues",
+      "title": "Board",
+      "blurb": "The issue list grouped by status: the app's home screen and the shot everything else is judged against.",
+      "order": 1,
+      "web": {
+        "route": "/t/$teamSlug/boards/$boardSlug",
+        "anchor": {
+          "text": "Ship onboarding flow v2",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1200
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "01_board",
+        "lane": "store"
+      },
+      "android": {
+        "shot": "1_board",
+        "lane": "store"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "tool",
+          "value": "board"
+        },
+        "anchorDelayMs": 1200
+      }
+    },
+    {
+      "id": "board-filters",
+      "group": "issues",
+      "title": "Board filters",
+      "blurb": "The filter popover open over the board: status, assignee, priority and label facets, all URL-backed.",
+      "order": 2,
+      "web": {
+        "route": "/t/$teamSlug/boards/$boardSlug",
+        "anchor": {
+          "text": "Priority",
+          "timeoutMs": 20000
+        },
+        "recipe": "openFilterPopover",
+        "settleMs": 400
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_board-filters",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_board-filters",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "tool",
+          "value": "board"
+        },
+        "anchorDelayMs": 1200,
+        "env": {
+          "EXP_DEV_FILTER": "1"
+        }
+      }
+    },
+    {
+      "id": "issue-detail",
+      "group": "issues",
+      "title": "Issue detail",
+      "blurb": "One issue in full: markdown description, properties rail, activity, and the live \"Coding now\" row when a session is running.",
+      "order": 3,
+      "web": {
+        "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-5",
+        "anchor": {
+          "text": "Coding now",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1200
+      },
+      "webMobile": {
+        "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-5",
+        "anchor": {
+          "text": "Startup profiling shows",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1200
+      },
+      "ios": {
+        "shot": "02_issue-detail",
+        "lane": "store"
+      },
+      "android": {
+        "shot": "2_issue-detail",
+        "lane": "store"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "issue:$APP-5"
+        },
+        "anchorDelayMs": 1200
+      }
+    },
+    {
+      "id": "issue-comments",
+      "group": "issues",
+      "title": "Issue comments",
+      "blurb": "The same issue scrolled to its activity feed: threaded comments, mentions and the composer.",
+      "order": 4,
+      "web": {
+        "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-5",
+        "anchor": {
+          "text": "Coding now",
+          "timeoutMs": 30000
+        },
+        "recipe": "scrollToComments",
+        "settleMs": 800
+      },
+      "webMobile": {
+        "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-5",
+        "anchor": {
+          "text": "Profiled on a mid-range device",
+          "timeoutMs": 30000
+        },
+        "recipe": "scrollToComments",
+        "settleMs": 800
+      },
+      "ios": {
+        "shot": "sg_issue-comments",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_issue-comments",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "issue:$APP-5"
+        }
+      },
+      "notes": {
+        "desktop": "Same screen as issue-detail; the scroll to the activity feed is manual."
+      }
+    },
+    {
+      "id": "issue-create",
+      "group": "issues",
+      "title": "New issue",
+      "blurb": "The create-issue dialog with its title/description editor and the inline property pickers.",
+      "order": 5,
+      "web": {
+        "route": "/t/$teamSlug/boards/$boardSlug",
+        "anchor": {
+          "text": "New issue",
+          "timeoutMs": 20000
+        },
+        "recipe": "openCreateIssue",
+        "settleMs": 500
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_issue-create",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_issue-create",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "dialog",
+          "value": "create-issue"
+        },
+        "anchorDelayMs": 1800,
+        "env": {
+          "EXP_DEV_TOOL": "board"
+        }
+      }
+    },
+    {
+      "id": "search",
+      "group": "issues",
+      "title": "Search",
+      "blurb": "Cross-board issue search with live results as you type.",
+      "order": 6,
+      "web": {
+        "route": "/t/$teamSlug/boards/$boardSlug",
+        "anchor": {
+          "text": "Search issues",
+          "timeoutMs": 20000
+        },
+        "recipe": "openSearch",
+        "settleMs": 600
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_search",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_search",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "dialog",
+          "value": "search"
+        },
+        "anchorDelayMs": 1800,
+        "env": {
+          "EXP_DEV_TOOL": "board"
+        }
+      }
+    },
+    {
+      "id": "board-empty",
+      "group": "issues",
+      "title": "Empty board",
+      "blurb": "A board with nothing on it yet: the empty state, and the only place the getting-started cards render inline.",
+      "order": 7,
+      "web": {
+        "route": "/t/$teamSlug/boards/launch-marketing",
+        "anchor": {
+          "text": "No issues yet",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1000
+      },
+      "webMobile": "inherit",
+      "notes": {
+        "ios": "Mobile renders the same empty state; not worth a second native shot of an empty list.",
+        "android": "Mobile renders the same empty state; not worth a second native shot of an empty list.",
+        "desktop": "The rail always opens the last-visited board; pointing it at the empty one needs a board id the drive vocabulary does not carry yet."
+      }
+    },
+    {
+      "id": "board-bulk-edit",
+      "group": "issues",
+      "title": "Bulk edit",
+      "blurb": "Several issues selected at once: the action bar that re-statuses, re-assigns, re-labels or deletes the lot.",
+      "order": 8,
+      "web": {
+        "route": "/t/$teamSlug/boards/$boardSlug",
+        "anchor": {
+          "text": "selected",
+          "timeoutMs": 30000
+        },
+        "recipe": "openBoardBulkEdit",
+        "settleMs": 600
+      },
+      "notes": {
+        "web-mobile": "The phone layout has no row checkboxes: bulk edit starts from a long press, which the mobile suites capture natively.",
+        "ios": "Long-press selection is a native gesture the styleguide lane does not drive yet.",
+        "android": "Long-press selection is a native gesture the styleguide lane does not drive yet.",
+        "desktop": "Same bar as web, but selecting rows needs a click sequence no dev hook performs."
+      }
+    },
+    {
+      "id": "board-switcher",
+      "group": "issues",
+      "title": "Board switcher",
+      "blurb": "The phone’s way between boards: a bottom sheet listing every board in the team.",
+      "order": 9,
+      "webMobile": {
+        "route": "/t/$teamSlug/boards/$boardSlug",
+        "anchor": {
+          "text": "Boards",
+          "timeoutMs": 30000
+        },
+        "recipe": "openBoardSwitcher",
+        "settleMs": 600
+      },
+      "ios": {
+        "shot": "sg_board-switcher",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_board-switcher",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "Desktop viewports list every board in the sidebar, so there is no switcher to open.",
+        "desktop": "The rail lists the boards permanently; same reason as web."
+      }
+    },
+    {
+      "id": "issue-properties",
+      "group": "issues",
+      "title": "Issue properties (mobile)",
+      "blurb": "The phone’s properties sheet: status, priority, assignee, labels, due date and board, all from one pull-up.",
+      "order": 10,
+      "ios": {
+        "shot": "sg_issue-properties",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_issue-properties",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "Wide layouts show the properties inline in the issue’s right-hand rail — see issue-detail.",
+        "web-mobile": "The phone web layout has its own bar, but the sheet is the native surface worth comparing.",
+        "desktop": "Desktop shows the same properties inline in the issue header and rail."
+      }
+    },
+    {
+      "id": "inbox",
+      "group": "my-work",
+      "title": "Inbox",
+      "blurb": "The notification stream: assignments, mentions, comments and PR events, grouped and unread-first.",
+      "order": 1,
+      "web": {
+        "route": "/t/$teamSlug/inbox",
+        "anchor": {
+          "text": "Mira Chen assigned you APP-6",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1200
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "07_inbox",
+        "lane": "store"
+      },
+      "android": {
+        "shot": "7_inbox",
+        "lane": "store"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "tool",
+          "value": "inbox"
+        },
+        "anchorDelayMs": 1000
+      }
+    },
+    {
+      "id": "my-issues",
+      "group": "my-work",
+      "title": "My issues",
+      "blurb": "Everything assigned to me across every board in the team. A tab on the inbox route, not a route of its own.",
+      "order": 2,
+      "web": {
+        "route": "/t/$teamSlug/inbox?tab=my-issues",
+        "anchor": {
+          "text": "My issues",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1000
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_my-issues",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_my-issues",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "tool",
+          "value": "my-issues"
+        },
+        "anchorDelayMs": 1000
+      },
+      "notes": {
+        "desktop": "The Inbox tool window's My Issues tab (ToolWindow::Inbox + InboxTab::MyIssues), one rail entry with the board tool."
+      }
+    },
+    {
+      "id": "agents",
+      "group": "coding",
+      "title": "Actions",
+      "blurb": "The team's action catalog plus the machines that can run it: the Agents page, one card per action.",
+      "order": 1,
+      "web": {
+        "route": "/t/$teamSlug/agents",
+        "anchor": {
+          "text": "Update dependencies",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1200
+      },
+      "webMobile": {
+        "route": "/t/$teamSlug/agents",
+        "anchor": {
+          "text": "Alex's MacBook Pro",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1200
+      },
+      "ios": {
+        "shot": "sg_agents",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_agents",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "actions"
+        },
+        "anchorDelayMs": 1200
+      }
+    },
+    {
+      "id": "actions-mobile",
+      "group": "coding",
+      "title": "Actions (mobile)",
+      "blurb": "The phone-shaped Actions surface: the pushed detail view mobile reaches from Agents, with the run affordance per card.",
+      "order": 2,
+      "webMobile": {
+        "route": "/t/$teamSlug/agents/actions",
+        "anchor": {
+          "text": "Update dependencies",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1000
+      },
+      "ios": {
+        "shot": "06_actions",
+        "lane": "store"
+      },
+      "android": {
+        "shot": "6_actions",
+        "lane": "store"
+      },
+      "notes": {
+        "web": "Desktop viewports render the same panel inline on the Agents page: capture `agents` instead. /t/$teamSlug/agents/actions exists purely as the mobile detail route (EXP-574).",
+        "desktop": "See `agents`: the desktop Actions screen is the web Agents page 1:1."
+      }
+    },
+    {
+      "id": "start-coding",
+      "group": "coding",
+      "title": "Start coding",
+      "blurb": "The launcher: pick the machine, the agent and the options, then hand the issue to a coding session.",
+      "order": 3,
+      "web": {
+        "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-3",
+        "anchor": {
+          "text": "Start coding",
+          "timeoutMs": 30000
+        },
+        "recipe": "openStartCoding",
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "03_start-coding",
+        "lane": "store"
+      },
+      "android": {
+        "shot": "3_start-coding",
+        "lane": "store"
+      },
+      "notes": {
+        "desktop": "The desktop dialog is the REAL launcher, not a remote-start picker: it probes the issue’s repository and gates the Start button on the doctor (git plus the selected agent). Capture it on a machine with the repo cloned and a signed-in agent CLI, or the shot carries a red \"claude not found on PATH\" footer."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "dialog",
+          "value": "start-coding"
+        },
+        "anchorDelayMs": 2500,
+        "env": {
+          "EXP_DEV_TOOL": "board"
+        }
+      }
+    },
+    {
+      "id": "start-coding-actions",
+      "group": "coding",
+      "title": "Start coding · Actions",
+      "blurb": "The launcher's Actions tab: pick a saved action, fill its typed inputs, pick the machine that runs it.",
+      "order": 4,
+      "web": {
+        "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-3",
+        "anchor": {
+          "text": "Run action",
+          "timeoutMs": 30000
+        },
+        "recipe": "openStartCodingActions",
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "notes": {
+        "ios": "Mobile runs actions from the Actions surface, not from a launcher dialog: see actions-mobile.",
+        "android": "Mobile runs actions from the Actions surface, not from a launcher dialog: see actions-mobile."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "dialog",
+          "value": "start-coding-actions"
+        },
+        "anchorDelayMs": 2500,
+        "env": {
+          "EXP_DEV_SCREEN": "actions"
+        }
+      }
+    },
+    {
+      "id": "start-coding-chat",
+      "group": "coding",
+      "title": "Start coding · Chat",
+      "blurb": "The launcher's Chat tab (EXP-615): a free prompt on a repository's default branch, no issue attached.",
+      "order": 5,
+      "web": {
+        "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-3",
+        "anchor": {
+          "text": "Repository",
+          "timeoutMs": 30000
+        },
+        "recipe": "openStartCodingChat",
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "notes": {
+        "ios": "Chat is a launcher tab; mobile has no launcher dialog.",
+        "android": "Chat is a launcher tab; mobile has no launcher dialog."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "dialog",
+          "value": "start-coding-chat"
+        },
+        "anchorDelayMs": 2500,
+        "env": {
+          "EXP_DEV_SCREEN": "actions"
+        }
+      }
+    },
+    {
+      "id": "steering",
+      "group": "coding",
+      "title": "Steering a session",
+      "blurb": "The agent dock mid-run: scrubbed activity feed, the agent's open question, and the reply box that answers it.",
+      "order": 6,
+      "web": {
+        "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-5",
+        "anchor": {
+          "text": "Lazy-load the markdown editor too",
+          "timeoutMs": 30000
+        },
+        "recipe": "openAgentDock",
+        "settleMs": 1200
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "04_steering",
+        "lane": "store"
+      },
+      "android": {
+        "shot": "4_steering",
+        "lane": "store"
+      },
+      "notes": {
+        "web": "Needs `bun run screenshots:desktop` running: the feed is relay-fed, and an unreachable relay photographs a Reconnecting state instead. The anchor is the tail fragment of DEMO_FEED_QUESTION in apps/web/scripts/screenshot-demo.ts.",
+        "desktop": "The owning desktop app IS the session host; there is no dock to open on it. Capturing the host-side terminal view needs a live run. Manual."
+      }
+    },
+    {
+      "id": "machine-settings",
+      "group": "coding",
+      "title": "Machine settings",
+      "blurb": "One device up close: its name, whether it is your default, what it shares with the team, its per-agent defaults and its worktrees.",
+      "order": 7,
+      "web": {
+        "route": "/t/$teamSlug/agents",
+        "anchor": {
+          "text": "Device settings",
+          "timeoutMs": 30000
+        },
+        "recipe": "openMachineSettings",
+        "settleMs": 800
+      },
+      "desktop": {
+        "drive": {
+          "kind": "dialog",
+          "value": "device-settings:$device"
+        },
+        "anchorDelayMs": 1800,
+        "env": {
+          "EXP_DEV_SCREEN": "actions"
+        }
+      },
+      "notes": {
+        "web-mobile": "The sheet exists on the phone layout too, but it is a wide three-column dialog there; the desktop and web shots are the ones worth comparing.",
+        "ios": "Needs a live registered machine; the styleguide lane runs against a simulator with none.",
+        "android": "Needs a live registered machine; the styleguide lane runs against an emulator with none."
+      }
+    },
+    {
+      "id": "add-server",
+      "group": "coding",
+      "title": "Add a server",
+      "blurb": "The headless route: the one-liner that installs the CLI daemon and registers a machine by device code.",
+      "order": 8,
+      "web": {
+        "route": "/t/$teamSlug/agents",
+        "anchor": {
+          "text": "Add a server",
+          "timeoutMs": 30000
+        },
+        "recipe": "openAddServer",
+        "settleMs": 600
+      },
+      "notes": {
+        "web-mobile": "Copying a shell one-liner is a desk task; the phone layout hides the control.",
+        "ios": "See web-mobile.",
+        "android": "See web-mobile."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "dialog",
+          "value": "add-server"
+        },
+        "anchorDelayMs": 1800,
+        "env": {
+          "EXP_DEV_SCREEN": "actions"
+        }
+      }
+    },
+    {
+      "id": "reviews",
+      "group": "reviews",
+      "title": "Reviews",
+      "blurb": "Every open PR across the team, issue-linked ones grouped by board, each with a one-click squash merge.",
+      "order": 1,
+      "web": {
+        "route": "/t/$teamSlug/reviews",
+        "anchor": {
+          "text": "Batch-edit labels from the board",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1200
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_reviews",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_reviews",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "tool",
+          "value": "reviews"
+        },
+        "anchorDelayMs": 1200
+      }
+    },
+    {
+      "id": "review-diff",
+      "group": "reviews",
+      "title": "Review diff",
+      "blurb": "A PR's real diff, side by side, with the first file expanded. APP-14 fetches a genuine patch from GitHub.",
+      "order": 2,
+      "web": {
+        "route": "/t/$teamSlug/reviews/APP-14",
+        "anchor": {
+          "text": "@Composable",
+          "timeoutMs": 60000
+        },
+        "recipe": "expandFirstDiffFile",
+        "settleMs": 1200
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "05_review",
+        "lane": "store"
+      },
+      "android": {
+        "shot": "5_review",
+        "lane": "store"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "pr:$APP-14"
+        },
+        "anchorDelayMs": 2000
+      },
+      "notes": {
+        "web": "The diff is fetched live from GitHub, so this view is the slowest in the catalog and the most network-flaky. Keep the generous anchor timeout.",
+        "desktop": "Deep-linking straight into a PR diff used to race the session bootstrap and latch \"Not signed in\"; the fetch now stays pending and retries when the session lands."
+      }
+    },
+    {
+      "id": "action-editor",
+      "group": "actions",
+      "title": "Action editor",
+      "blurb": "One action's definition: name, icon, the markdown body the agent runs, its repo and its typed inputs.",
+      "order": 1,
+      "web": {
+        "route": "/t/$teamSlug/agents",
+        "anchor": {
+          "text": "Edit action",
+          "timeoutMs": 20000
+        },
+        "recipe": "openActionEditor",
+        "settleMs": 600
+      },
+      "notes": {
+        "web-mobile": "Editing is web/desktop only (EXP-257); mobile views and runs actions but never edits them.",
+        "ios": "Editing is web/desktop only.",
+        "android": "Editing is web/desktop only."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "dialog",
+          "value": "action-editor:$action"
+        },
+        "anchorDelayMs": 1800,
+        "env": {
+          "EXP_DEV_SCREEN": "actions"
+        }
+      }
+    },
+    {
+      "id": "automations",
+      "group": "actions",
+      "title": "Automation editor",
+      "blurb": "Binding an action to a device and a trigger: the schedule-or-event when-part behind the Automations tab.",
+      "order": 2,
+      "web": {
+        "route": "/t/$teamSlug/agents",
+        "anchor": {
+          "text": "New automation",
+          "timeoutMs": 20000
+        },
+        "recipe": "openAutomationEditor",
+        "settleMs": 600
+      },
+      "notes": {
+        "web-mobile": "The phone layout reaches the editor through the Actions detail route rather than the Agents page; the paired native shots cover it."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "dialog",
+          "value": "automation-new"
+        },
+        "anchorDelayMs": 1800,
+        "env": {
+          "EXP_DEV_SCREEN": "actions"
+        }
+      },
+      "ios": {
+        "shot": "sg_automations",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_automations",
+        "lane": "styleguide"
+      }
+    },
+    {
+      "id": "action-create",
+      "group": "actions",
+      "title": "New action",
+      "blurb": "Authoring an action by describing it: the creator run writes the definition instead of a form (EXP-257).",
+      "order": 3,
+      "web": {
+        "route": "/t/$teamSlug/agents",
+        "anchor": {
+          "text": "New action",
+          "timeoutMs": 30000
+        },
+        "recipe": "openActionCreate",
+        "settleMs": 800
+      },
+      "ios": {
+        "shot": "sg_action-create",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_action-create",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "dialog",
+          "value": "create-action"
+        },
+        "anchorDelayMs": 1800,
+        "env": {
+          "EXP_DEV_SCREEN": "actions"
+        }
+      },
+      "notes": {
+        "web-mobile": "The phone reaches the creator from the Actions detail route; the paired native shots cover it."
+      }
+    },
+    {
+      "id": "automations-list",
+      "group": "actions",
+      "title": "Automations",
+      "blurb": "The Automations tab itself: every action bound to a device and a trigger, plus what has fired recently.",
+      "order": 4,
+      "web": {
+        "route": "/t/$teamSlug/agents",
+        "anchor": {
+          "text": "Recent automated runs",
+          "timeoutMs": 30000
+        },
+        "recipe": "openAutomationsTab",
+        "settleMs": 800
+      },
+      "webMobile": {
+        "route": "/t/$teamSlug/agents/actions",
+        "anchor": {
+          "text": "Recent automated runs",
+          "timeoutMs": 30000
+        },
+        "recipe": "openAutomationsTab",
+        "settleMs": 800
+      },
+      "ios": {
+        "shot": "sg_automations-list",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_automations-list",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "actions"
+        },
+        "anchorDelayMs": 1500,
+        "env": {
+          "EXP_DEV_ACTIONS_TAB": "automations"
+        }
+      },
+      "notes": {
+        "web-mobile": "The phone layout drops the tab strip from /agents — Actions, Automations and Suggestions live on the pushed /agents/actions route instead (EXP-574)."
+      }
+    },
+    {
+      "id": "action-suggestions",
+      "group": "actions",
+      "title": "Suggestions",
+      "blurb": "The starter catalog: curated action seeds that prefill the creator run, some carrying an automation with them.",
+      "order": 5,
+      "web": {
+        "route": "/t/$teamSlug/agents",
+        "anchor": {
+          "text": "Use suggestion",
+          "timeoutMs": 30000
+        },
+        "recipe": "openSuggestionsTab",
+        "settleMs": 800
+      },
+      "webMobile": {
+        "route": "/t/$teamSlug/agents/actions",
+        "anchor": {
+          "text": "Use suggestion",
+          "timeoutMs": 30000
+        },
+        "recipe": "openSuggestionsTab",
+        "settleMs": 800
+      },
+      "ios": {
+        "shot": "sg_action-suggestions",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_action-suggestions",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "actions"
+        },
+        "anchorDelayMs": 1500,
+        "env": {
+          "EXP_DEV_ACTIONS_TAB": "suggestions"
+        }
+      },
+      "notes": {
+        "web-mobile": "The phone layout drops the tab strip from /agents — Actions, Automations and Suggestions live on the pushed /agents/actions route instead (EXP-574)."
+      }
+    },
+    {
+      "id": "support-inbox",
+      "group": "support",
+      "title": "Support inbox",
+      "blurb": "The helpdesk queue: every reporter thread with its snippet, open conversation in the right pane.",
+      "order": 1,
+      "web": {
+        "route": "/t/$teamSlug/support",
+        "anchor": {
+          "text": "Emma Fischer",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1200
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "08_support",
+        "lane": "store"
+      },
+      "android": {
+        "shot": "8_support",
+        "lane": "store"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "tool",
+          "value": "support"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "Requires teams.helpdesk_enabled on the demo team; the rail/nav entry hides entirely when it is off."
+      }
+    },
+    {
+      "id": "support-thread",
+      "group": "support",
+      "title": "Support thread",
+      "blurb": "One conversation end to end: the reporter's messages, the team's replies, and the escalate-to-issue action.",
+      "order": 2,
+      "web": {
+        "route": "/t/$teamSlug/support",
+        "anchor": {
+          "text": "thank you for the quick turnaround",
+          "timeoutMs": 30000
+        },
+        "recipe": "openFirstThread",
+        "settleMs": 1000
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_support-thread",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_support-thread",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "support:$thread"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "desktop": "Support data is server-only tRPC, so the thread id placeholder has to be resolved by the capturer at run time."
+      }
+    },
+    {
+      "id": "settings-general",
+      "group": "settings",
+      "title": "Settings · General",
+      "blurb": "Team name, slug and identity. Owner-only.",
+      "order": 1,
+      "web": {
+        "route": "/t/$teamSlug/settings/general",
+        "anchor": {
+          "text": "General",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "general"
+        }
+      },
+      "notes": {
+        "ios": "Folded into the one native Team settings screen: see settings-team.",
+        "android": "Folded into the one native Team settings screen: see settings-team."
+      }
+    },
+    {
+      "id": "settings-members",
+      "group": "settings",
+      "title": "Settings · Members",
+      "blurb": "Who is on the team, their roles, and the pending invites. The one settings section every member can see.",
+      "order": 2,
+      "web": {
+        "route": "/t/$teamSlug/settings/members",
+        "anchor": {
+          "text": "Members",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "members"
+        }
+      },
+      "notes": {
+        "ios": "Folded into the one native Team settings screen: see settings-team.",
+        "android": "Folded into the one native Team settings screen: see settings-team."
+      }
+    },
+    {
+      "id": "settings-labels",
+      "group": "settings",
+      "title": "Settings · Labels",
+      "blurb": "The team's label palette, member-managed.",
+      "order": 3,
+      "web": {
+        "route": "/t/$teamSlug/settings/labels",
+        "anchor": {
+          "text": "Labels",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "labels"
+        }
+      },
+      "notes": {
+        "ios": "Folded into the one native Team settings screen: see settings-team.",
+        "android": "Folded into the one native Team settings screen: see settings-team."
+      }
+    },
+    {
+      "id": "settings-statuses",
+      "group": "settings",
+      "title": "Settings · Statuses",
+      "blurb": "Custom issue statuses in their six categories, plus the PR-open and PR-merge automation targets.",
+      "order": 4,
+      "web": {
+        "route": "/t/$teamSlug/settings/statuses",
+        "anchor": {
+          "text": "Statuses",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "statuses"
+        }
+      },
+      "notes": {
+        "ios": "Folded into the one native Team settings screen: see settings-team.",
+        "android": "Folded into the one native Team settings screen: see settings-team."
+      }
+    },
+    {
+      "id": "settings-storage",
+      "group": "settings",
+      "title": "Settings · Storage",
+      "blurb": "The team file manager: every attachment, per-file delete, and the unreferenced-image sweep. Owner-only.",
+      "order": 5,
+      "web": {
+        "route": "/t/$teamSlug/settings/storage",
+        "anchor": {
+          "text": "Storage",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "storage"
+        }
+      },
+      "notes": {
+        "ios": "Folded into the one native Team settings screen: see settings-team.",
+        "android": "Folded into the one native Team settings screen: see settings-team."
+      }
+    },
+    {
+      "id": "settings-boards",
+      "group": "settings",
+      "title": "Settings · Boards",
+      "blurb": "Every board with its prefix and repo, plus the archived and pending-deletion cards. Owner-only.",
+      "order": 6,
+      "web": {
+        "route": "/t/$teamSlug/settings/boards",
+        "anchor": {
+          "text": "Boards",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "webMobile": "inherit",
+      "notes": {
+        "desktop": "Desktop flattened this into one nav entry per board (SettingsSection::Board(id)) plus a separate ArchivedBoards pane, so there is no single equivalent section to drive to.",
+        "ios": "Folded into the one native Team settings screen: see settings-team.",
+        "android": "Folded into the one native Team settings screen: see settings-team."
+      }
+    },
+    {
+      "id": "settings-repositories",
+      "group": "settings",
+      "title": "Settings · Repositories",
+      "blurb": "The team's GitHub repo registry and the App connection behind it. Member-visible.",
+      "order": 7,
+      "web": {
+        "route": "/t/$teamSlug/settings/repositories",
+        "anchor": {
+          "text": "Repositories",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "repositories"
+        }
+      },
+      "notes": {
+        "ios": "Folded into the one native Team settings screen: see settings-team.",
+        "android": "Folded into the one native Team settings screen: see settings-team."
+      }
+    },
+    {
+      "id": "settings-widget",
+      "group": "settings",
+      "title": "Settings · Feedback widget",
+      "blurb": "The embeddable widget: key, domain allowlist, modes, theme, and the live whole-panel preview. Owner-only.",
+      "order": 8,
+      "web": {
+        "route": "/t/$teamSlug/settings/widget",
+        "anchor": {
+          "text": "Feedback widget",
+          "timeoutMs": 20000
+        },
+        "settleMs": 1000
+      },
+      "webMobile": "inherit",
+      "notes": {
+        "desktop": "No desktop section: widget configuration is web-only (SettingsSection has no Widget variant).",
+        "ios": "No native section: widget configuration is web-only.",
+        "android": "No native section: widget configuration is web-only."
+      }
+    },
+    {
+      "id": "settings-account",
+      "group": "settings",
+      "title": "Settings · Account",
+      "blurb": "Personal identity and timezone. Never gated.",
+      "order": 9,
+      "web": {
+        "route": "/t/$teamSlug/settings/account",
+        "anchor": {
+          "text": "Account",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "account"
+        }
+      },
+      "ios": {
+        "shot": "sg_settings-account",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_settings-account",
+        "lane": "styleguide"
+      }
+    },
+    {
+      "id": "settings-notifications",
+      "group": "settings",
+      "title": "Settings · Notifications",
+      "blurb": "Email and push preferences, including the digest hour. Never gated.",
+      "order": 10,
+      "web": {
+        "route": "/t/$teamSlug/settings/notifications",
+        "anchor": {
+          "text": "Notifications",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "notifications"
+        }
+      },
+      "notes": {
+        "ios": "Folded into the native settings root: see settings-root.",
+        "android": "Folded into the native settings root: see settings-root."
+      }
+    },
+    {
+      "id": "settings-api-keys",
+      "group": "settings",
+      "title": "Settings · API keys",
+      "blurb": "Personal expu_ keys: list, mint, revoke. The credential the MCP wiring rides on.",
+      "order": 11,
+      "web": {
+        "route": "/t/$teamSlug/settings/api-keys",
+        "anchor": {
+          "text": "API keys",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "api-keys"
+        }
+      },
+      "notes": {
+        "ios": "Folded into the native settings root: see settings-root.",
+        "android": "Folded into the native settings root: see settings-root."
+      }
+    },
+    {
+      "id": "settings-team",
+      "group": "settings",
+      "title": "Settings · Team (mobile)",
+      "blurb": "The condensed native team settings screen: one list covering general, members, labels, statuses, boards and repositories.",
+      "order": 12,
+      "ios": {
+        "shot": "sg_settings-team",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_settings-team",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "Web splits this into separate section routes: settings-general, settings-members, settings-labels, settings-statuses, settings-boards, settings-repositories.",
+        "web-mobile": "See web.",
+        "desktop": "Desktop follows the web split, one nav item per section."
+      }
+    },
+    {
+      "id": "settings-root",
+      "group": "settings",
+      "title": "Settings · Root (mobile)",
+      "blurb": "The native settings root: the signed-in servers, the teams under them, and the way into everything else.",
+      "order": 13,
+      "ios": {
+        "shot": "sg_settings-root",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_settings-root",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "Web has no settings root: the sidebar links straight into a section, and bare /settings redirects to the first one the viewer may see.",
+        "web-mobile": "See web.",
+        "desktop": "Desktop follows the web split, one nav item per section."
+      }
+    },
+    {
+      "id": "settings-widget-editor",
+      "group": "settings",
+      "title": "Settings · Widget editor",
+      "blurb": "One widget’s configuration over three tabs, ending on the Appearance tab where the whole embeddable panel previews live.",
+      "order": 14,
+      "web": {
+        "route": "/t/$teamSlug/settings/widget",
+        "anchor": {
+          "text": "Appearance",
+          "timeoutMs": 30000
+        },
+        "recipe": "openWidgetEditor",
+        "settleMs": 1000
+      },
+      "notes": {
+        "web-mobile": "Widget configuration is web-only, and the editor is a wide three-column dialog.",
+        "ios": "Widget configuration is web-only.",
+        "android": "Widget configuration is web-only.",
+        "desktop": "Widget configuration is web-only (SettingsSection has no Widget variant)."
+      }
+    },
+    {
+      "id": "settings-agents",
+      "group": "settings",
+      "title": "Settings · Agents",
+      "blurb": "Per-agent CLI path, model and effort, over the doctor’s live probe of git and the three agents.",
+      "order": 15,
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "agents"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "Agent binaries are a property of the MACHINE, not the team: only the client that spawns them configures them.",
+        "web-mobile": "See web.",
+        "ios": "See web.",
+        "android": "See web."
+      }
+    },
+    {
+      "id": "settings-tools",
+      "group": "settings",
+      "title": "Settings · Tools",
+      "blurb": "Where the IDE keeps its clones: repos root, branch prefix and the shell it launches terminals with.",
+      "order": 16,
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "tools"
+        },
+        "anchorDelayMs": 1200
+      },
+      "notes": {
+        "web": "Machine-local paths; nothing to configure from a browser.",
+        "web-mobile": "See web.",
+        "ios": "See web.",
+        "android": "See web."
+      }
+    },
+    {
+      "id": "settings-worktrees",
+      "group": "settings",
+      "title": "Settings · Worktrees",
+      "blurb": "Every worktree the machine is holding, with the prune that reclaims the finished ones.",
+      "order": 17,
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "local-repos"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "Worktrees live on the device; the web app only queues remove/prune commands to it.",
+        "web-mobile": "See web.",
+        "ios": "See web.",
+        "android": "See web."
+      }
+    },
+    {
+      "id": "settings-boards-archived",
+      "group": "settings",
+      "title": "Settings · Archived boards",
+      "blurb": "Boards put away rather than deleted, and the way back.",
+      "order": 18,
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "archived-boards"
+        },
+        "anchorDelayMs": 1200
+      },
+      "notes": {
+        "web": "Web folds this into settings-boards as a card below the live list, alongside the pending-deletion one.",
+        "web-mobile": "See web.",
+        "ios": "Folded into the one native Team settings screen: see settings-team.",
+        "android": "Folded into the one native Team settings screen: see settings-team."
+      }
+    },
+    {
+      "id": "files",
+      "group": "ide",
+      "title": "Files",
+      "blurb": "The repository’s file tree beside a read-only viewer: the IDE half of the desktop app.",
+      "order": 1,
+      "desktop": {
+        "drive": {
+          "kind": "tool",
+          "value": "files"
+        },
+        "anchorDelayMs": 2000
+      },
+      "notes": {
+        "web": "No client but the desktop app holds a clone, so no other client has a file tree.",
+        "web-mobile": "See web.",
+        "ios": "See web.",
+        "android": "See web."
+      }
+    },
+    {
+      "id": "source-control",
+      "group": "ide",
+      "title": "Source control",
+      "blurb": "The working tree: commit graph, diff, the trunk-sync status and the confirmed commit-and-push.",
+      "order": 2,
+      "desktop": {
+        "drive": {
+          "kind": "tool",
+          "value": "source-control"
+        },
+        "anchorDelayMs": 2500
+      },
+      "notes": {
+        "web": "Desktop-only: it operates on the machine’s clone.",
+        "web-mobile": "See web.",
+        "ios": "See web.",
+        "android": "See web."
+      }
+    },
+    {
+      "id": "terminal",
+      "group": "ide",
+      "title": "Terminal",
+      "blurb": "The embedded terminal an agent session actually runs in, docked under the workspace.",
+      "order": 3,
+      "desktop": {
+        "drive": {
+          "kind": "tool",
+          "value": "board"
+        },
+        "anchorDelayMs": 2500,
+        "env": {
+          "EXP_DEV_OPEN_SHELL": "1"
+        }
+      },
+      "notes": {
+        "web": "Coding sessions run on the desktop app and the CLI daemon only; every other client watches a scrubbed activity feed instead — see steering.",
+        "web-mobile": "See web.",
+        "ios": "See web.",
+        "android": "See web."
+      }
+    },
+    {
+      "id": "getting-started",
+      "group": "getting-started",
+      "title": "Getting started",
+      "blurb": "The setup checklist: connect a repo, install the desktop app or CLI, wire MCP, drop in the widget.",
+      "order": 1,
+      "web": {
+        "route": "/t/$teamSlug/boards/$boardSlug",
+        "anchor": {
+          "text": "Getting started",
+          "timeoutMs": 20000
+        },
+        "recipe": "openGettingStarted",
+        "settleMs": 800
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "getting-started"
+        },
+        "anchorDelayMs": 1000
+      },
+      "notes": {
+        "web": "Not a route: it is a sidebar-footer sheet (EXP-88), and the button hides once every checklist entry is done (EXP-548). The seed must leave at least one entry incomplete or the recipe has nothing to click. The same cards also render inline under an EMPTY board's empty state.",
+        "web-mobile": "The phone layout replaces the sidebar with the tab bar, and the footer entry with it — there is no mobile entry point for the sheet.",
+        "ios": "Mobile has no checklist surface yet.",
+        "android": "Mobile has no checklist surface yet."
+      }
+    }
+  ]
+}

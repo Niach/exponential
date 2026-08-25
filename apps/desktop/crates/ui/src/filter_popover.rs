@@ -173,9 +173,16 @@ impl RenderOnce for IssueFilterPopover {
 
         // Web popover: w-[14rem] p-0, align="start" (the default TopLeft
         // anchor). Content carries the shadcn Command p-1 inset.
+        // DEV-ONLY (§11.4 headless verification, EXP_DEV_* family):
+        // `EXP_DEV_FILTER=1` renders the popover already open so a capture run
+        // lands on the filter menu without synthetic input. Unset in normal
+        // runs. Never document for users.
+        let dev_open = std::env::var("EXP_DEV_FILTER").as_deref() == Ok("1");
+
         Popover::new("issue-filter-popover")
             .w(px(224.))
             .p_1()
+            .default_open(dev_open)
             .trigger(trigger)
             .on_open_change({
                 let on_view_change = self.on_view_change.clone();

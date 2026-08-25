@@ -23,18 +23,21 @@
 #   3. An English-locale phone emulator booted (only one device attached).
 #   4. Both APKs built: bundle exec fastlane screenshots does this for you.
 #
-# Output lands in fastlane/metadata/android/en-US/images/phoneScreenshots/
-# (1_board.png … 8_support.png), replacing the previous set — the exact files
-# `supply` uploads to the Play listing. Then run `bun run screenshots:frame`
-# from the repo root BEFORE `sync_store`: it rewrites 1_board / 4_steering /
-# 6_actions in place as headline + bezel marketing panels (EXP-580) and keeps
-# the raw captures in phoneScreenshots-raw/.
+# Output lands in fastlane/screenshots-raw/en-US/images/phoneScreenshots/
+# (1_board.png … 8_support.png) — RAW device captures, not the Play upload set.
+# Then run `bun run screenshots:store` from the repo root BEFORE `sync_store`:
+# it composites the raw captures into the headline + bezel marketing panels
+# (EXP-580) and writes the finished set to
+# fastlane/metadata/android/en-US/images/phoneScreenshots/, which is what
+# `supply` uploads to the Play listing.
 
 # The production flavor's applicationId (debug build keeps the same id).
 app_package_name("at.exponential")
 tests_package_name("at.exponential.test")
 
-# Only run the screenshot flow, not any other instrumentation tests.
+# Only run the STORE screenshot flow, not any other instrumentation test — in
+# particular not StyleguideScreenshotsTest, which has its own config file
+# (Screengrabfile-styleguide) and its own lane.
 use_tests_in_classes(["com.exponential.app.StoreScreenshotsTest"])
 
 locales(["en-US"])
@@ -54,7 +57,8 @@ reinstall_app(true)
 app_apk_path("app/build/outputs/apk/production/debug/app-production-debug.apk")
 tests_apk_path("app/build/outputs/apk/androidTest/production/debug/app-production-debug-androidTest.apk")
 
-# screengrab's default output root; screenshots nest under <locale>/images/….
-output_directory("fastlane/metadata/android")
+# RAW capture root; screengrab nests <locale>/images/phoneScreenshots under it.
+# The Play upload set is produced from these by `bun run screenshots:store`.
+output_directory("fastlane/screenshots-raw")
 
 test_instrumentation_runner("androidx.test.runner.AndroidJUnitRunner")

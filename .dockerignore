@@ -36,3 +36,8 @@ apps/desktop/target
 # into .output/public.
 packages/licenses/inventory
 packages/licenses/texts
+
+# EXP-566 — raw captures never belong in a build context. The committed shots/
+# store stays IN the context: a containerized marketing/styleguide build reads
+# it, and 5.6MB of webp is negligible.
+.shots-raw

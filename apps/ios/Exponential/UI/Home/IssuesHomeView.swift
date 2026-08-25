@@ -295,5 +295,9 @@ struct SettingsToolbarLink: View {
                 .frame(width: 32, height: 32)
                 .contentShape(Circle())
         }
+        // Icon-only: without an explicit label VoiceOver reads the raw asset
+        // name, and the screenshot suites had no stable way to find it.
+        .accessibilityLabel("Settings")
+        .accessibilityIdentifier("nav-settings-link")
     }
 }

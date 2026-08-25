@@ -221,7 +221,9 @@ impl Navigation {
 }
 
 /// DEV-ONLY `EXP_DEV_SCREEN` values: `settings` | `account` | `actions`
-/// | `issue:<uuid>` (anything else = no pre-route).
+/// | `getting-started` | `issue:<uuid>` | `pr:<issue-uuid>` (the PR-diff
+/// screen, keyed by the ISSUE whose linked PR it shows) | `support:<uuid>`
+/// (anything else = no pre-route).
 fn parse_dev_screen(spec: &str) -> Option<Screen> {
     match spec {
         "settings" => Some(Screen::Settings),
@@ -229,9 +231,22 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
         "account" => Some(Screen::Settings),
         "actions" => Some(Screen::Actions),
         "getting-started" => Some(Screen::GettingStarted),
-        _ => spec.strip_prefix("issue:").map(|id| Screen::IssueDetail {
-            issue_id: id.to_string(),
-        }),
+        _ => {
+            if let Some(id) = spec.strip_prefix("issue:") {
+                return Some(Screen::IssueDetail {
+                    issue_id: id.to_string(),
+                });
+            }
+            if let Some(id) = spec.strip_prefix("pr:") {
+                return Some(Screen::PrDiff {
+                    issue_id: id.to_string(),
+                });
+            }
+            spec.strip_prefix("support:")
+                .map(|id| Screen::SupportThread {
+                    thread_id: id.to_string(),
+                })
+        }
     }
 }
 

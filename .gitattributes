@@ -1,0 +1,2 @@
+# EXP-566 — the committed screenshot store. webp is binary; keep diffs/logs clean.
+shots/**/*.webp binary

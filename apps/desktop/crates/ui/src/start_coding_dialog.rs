@@ -153,7 +153,16 @@ pub fn open_for_issue(window: &mut Window, cx: &mut App, issue_id: String) {
         log::warn!("[ui] start-coding dialog: board not synced for {issue_id}");
         return;
     };
-    open(window, cx, team_id, vec![issue.id], None, None, None);
+    open(
+        window,
+        cx,
+        team_id,
+        vec![issue.id],
+        None,
+        None,
+        None,
+        SubjectTab::Issues,
+    );
 }
 
 /// Open the dialog from the bulk bar with the selection pre-checked.
@@ -166,13 +175,46 @@ pub fn open_for_selection(
     issue_ids: Vec<String>,
     on_launched: Option<OnLaunched>,
 ) {
-    open(window, cx, team_id, issue_ids, None, None, on_launched);
+    open(
+        window,
+        cx,
+        team_id,
+        issue_ids,
+        None,
+        None,
+        on_launched,
+        SubjectTab::Issues,
+    );
 }
 
 /// Open the dialog on the ACTIONS tab with `action_id` preselected (EXP-257
 /// — the actions panel rows land here).
 pub fn open_for_action(window: &mut Window, cx: &mut App, team_id: String, action_id: String) {
-    open(window, cx, team_id, Vec::new(), Some(action_id), None, None);
+    open(
+        window,
+        cx,
+        team_id,
+        Vec::new(),
+        Some(action_id),
+        None,
+        None,
+        SubjectTab::Actions,
+    );
+}
+
+/// Open the launcher straight on the Chat tab (EXP-615): a free prompt on a
+/// repository's default branch, no issue and no saved action attached.
+pub fn open_for_chat(window: &mut Window, cx: &mut App, team_id: String) {
+    open(
+        window,
+        cx,
+        team_id,
+        Vec::new(),
+        None,
+        None,
+        None,
+        SubjectTab::Chat,
+    );
 }
 
 /// Open the dialog on the ACTIONS tab with the builtin "Fix merge conflicts"
@@ -193,6 +235,7 @@ pub fn open_for_fix_conflicts(
         Some(api::actions::BUILTIN_FIX_CONFLICTS_ID.to_string()),
         Some(issue_id),
         None,
+        SubjectTab::Actions,
     );
 }
 
@@ -205,15 +248,10 @@ fn open(
     preselect_action: Option<String>,
     preselect_pr: Option<String>,
     on_launched: Option<OnLaunched>,
+    // The subject the caller seeded — each `open_*` entry names its own tab
+    // (an action preselect only ever makes sense on Actions).
+    tab: SubjectTab,
 ) {
-    // The subject the caller seeded: an action preselect lands on Actions,
-    // everything else on the issue checklist (Chat is only ever reached by
-    // switching the strip — nothing pre-seeds it).
-    let tab = if preselect_action.is_some() {
-        SubjectTab::Actions
-    } else {
-        SubjectTab::Issues
-    };
     // EXP-268: widescreen two-column layout (web `sm:max-w-3xl` parity —
     // picker left, options right); the launched terminal tab lands back in
     // the OPENER window (EXP-284: the dialog is its own native window).

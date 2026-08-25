@@ -6,7 +6,7 @@ import {
   type DocsSection as DocsSectionType,
 } from "./components/DocsLayout"
 import { SiteFooter, SiteHeader } from "./components/SiteShell"
-import { WebDemo } from "./webui/WebDemo"
+import { DocShot } from "./components/DocShot"
 
 const SECTIONS: DocsSectionType[] = [
   { id: `board`, num: `01`, label: `The board` },
@@ -57,9 +57,7 @@ export function IssuesDocsPage() {
               Click through for the full detail view.
             </p>
 
-            <div className="docs-embed">
-              <WebDemo view="board" />
-            </div>
+            <DocShot view="board" priority />
 
             <p>
               The filter bar keeps the board focused: <strong>All</strong> /
@@ -180,9 +178,7 @@ export function IssuesDocsPage() {
               and the conversation below.
             </p>
 
-            <div className="docs-embed">
-              <WebDemo view="issue" />
-            </div>
+            <DocShot view="issue-detail" />
 
             <p>
               The <strong>activity timeline</strong> interleaves comments with
@@ -202,9 +198,7 @@ export function IssuesDocsPage() {
               and status changes.
             </p>
 
-            <div className="docs-embed">
-              <WebDemo view="inbox" />
-            </div>
+            <DocShot view="inbox" />
 
             <p>
               On iOS and Android the same events arrive as{` `}

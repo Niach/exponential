@@ -147,7 +147,7 @@ export const PAGES: PageSeo[] = [
   {
     path: `/docs/`,
     htmlFile: `docs/index.html`,
-    sources: [`src/DocsPage.tsx`],
+    sources: [`src/DocsPage.tsx`, `../../shots/board`],
     title: `Docs · Exponential`,
     description: `Everything about Exponential: quickstart plus guides for issues and boards, coding agents, actions, the CLI and daemon, feedback and the helpdesk, the embeddable widget, MCP, the apps, and self-hosting.`,
     ogImage: `/og/og-docs.png`,
@@ -172,7 +172,12 @@ export const PAGES: PageSeo[] = [
   {
     path: `/docs/issues/`,
     htmlFile: `docs/issues/index.html`,
-    sources: [`src/IssuesDocsPage.tsx`],
+    sources: [
+      `src/IssuesDocsPage.tsx`,
+      `../../shots/board`,
+      `../../shots/issue-detail`,
+      `../../shots/inbox`,
+    ],
     title: `Issues & boards · Exponential docs`,
     description: `The board, built-in and custom statuses, markdown issues with @mentions and #issue refs, notifications with the daily email digest, and how branches and PRs link back.`,
     ogImage: `/og/og-docs.png`,
@@ -185,7 +190,7 @@ export const PAGES: PageSeo[] = [
   {
     path: `/docs/coding/`,
     htmlFile: `docs/coding/index.html`,
-    sources: [`src/CodingDocsPage.tsx`],
+    sources: [`src/CodingDocsPage.tsx`, `../../shots/issue-detail`],
     title: `Coding agents · Exponential docs`,
     description: `Hand issues to Claude Code, Codex or pi from the desktop IDE or the CLI: setup, the start-coding dialog, single and batch runs, steering live sessions, reviewing and merging.`,
     ogImage: `/og/og-docs.png`,
@@ -224,7 +229,7 @@ export const PAGES: PageSeo[] = [
   {
     path: `/docs/feedback/`,
     htmlFile: `docs/feedback/index.html`,
-    sources: [`src/FeedbackDocsPage.tsx`],
+    sources: [`src/FeedbackDocsPage.tsx`, `../../shots/support-inbox`],
     title: `Feedback & helpdesk · Exponential docs`,
     description: `Collect feedback with the embeddable widget and run the team helpdesk: email conversations with reporters, answered from a shared support inbox and escalated to issues in one click.`,
     ogImage: `/og/og-docs.png`,
@@ -263,7 +268,7 @@ export const PAGES: PageSeo[] = [
   {
     path: `/docs/apps/`,
     htmlFile: `docs/apps/index.html`,
-    sources: [`src/AppsDocsPage.tsx`],
+    sources: [`src/AppsDocsPage.tsx`, `../../shots/board`],
     title: `Mobile & desktop apps · Exponential docs`,
     description: `The native apps: self-updating desktop for macOS, Windows and Linux, iOS and Android companions with push notifications and live agent steering.`,
     ogImage: `/og/og-docs.png`,

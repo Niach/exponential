@@ -24,10 +24,11 @@ import XCTest
 ///
 /// The instance URL defaults to http://localhost:5173 and can be overridden
 /// with the SNAPSHOT_INSTANCE_URL environment variable.
+///
+/// The launch/sign-in/tap helpers live in ScreenshotFlow.swift, shared with
+/// StyleguideScreenshots.
 final class StoreScreenshots: XCTestCase {
 
-    private static let demoEmail = "demo@exponential.at"
-    private static let demoPassword = "screenshots-demo"
     private static let showcaseTitle = "Reduce cold start below 800 ms"
     private static let showcaseIdentifier = "APP-5"
     /// APP-3: repo-backed, member-assigned, and deliberately WITHOUT a coding
@@ -46,25 +47,7 @@ final class StoreScreenshots: XCTestCase {
     func testCaptureAppStoreScreenshots() throws {
         continueAfterFailure = false
 
-        let app = XCUIApplication()
-        // -uiTesting suppresses the push-permission request (AppDependencies)
-        // so no system alert ever sits on top of a capture.
-        app.launchArguments += ["-uiTesting"]
-
-        // Belt and braces: if any system alert appears anyway, dismiss it.
-        addUIInterruptionMonitor(withDescription: "System dialog") { alert in
-            for label in ["Allow", "OK", "Don't Allow", "Not Now", "Später", "Nicht jetzt", "Cancel"] {
-                let button = alert.buttons[label]
-                if button.exists {
-                    button.tap()
-                    return true
-                }
-            }
-            return false
-        }
-
-        setupSnapshot(app)
-        app.launch()
+        let app = launchScreenshotApp()
 
         signIn(app)
 
@@ -262,144 +245,5 @@ final class StoreScreenshots: XCTestCase {
         dismissSavePasswordSheet(timeout: 2)
         settle(2)
         snapshot("01_board")
-    }
-
-    // MARK: - Sign in
-
-    @MainActor
-    private func signIn(_ app: XCUIApplication) {
-        let instanceUrl = ProcessInfo.processInfo.environment["SNAPSHOT_INSTANCE_URL"]
-            ?? "http://localhost:5173"
-
-        // InstanceView: replace the prefilled "https://" with the target URL.
-        // On a retry after a partially-successful run the keychain account
-        // survives the relaunch and the app boots straight into the main UI —
-        // detect that and skip the sign-in flow entirely.
-        let urlField = app.textFields["instance-url-field"]
-        let selfHostLink = app.buttons["instance-self-host-link"]
-        let issuesTab = app.buttons["tab-issues"]
-        let deadline = Date().addingTimeInterval(30)
-        while !selfHostLink.exists && !urlField.exists && !issuesTab.exists && Date() < deadline {
-            usleep(500_000)
-        }
-        if issuesTab.exists {
-            dismissSavePasswordSheet(timeout: 2)
-            return
-        }
-        // Cloud is the primary path now (EXP-14) — reveal the self-hosted URL
-        // field before pointing the app at the local backend.
-        if selfHostLink.exists && !urlField.exists {
-            selfHostLink.tap()
-        }
-        XCTAssertTrue(urlField.waitForExistence(timeout: 5), "Neither InstanceView nor the main UI appeared")
-        focus(urlField)
-        clearText(of: urlField)
-        urlField.typeText(instanceUrl)
-
-        let continueButton = app.buttons["instance-continue-button"]
-        XCTAssertTrue(continueButton.waitForExistence(timeout: 10))
-        continueButton.tap()
-
-        // LoginView appears once /api/auth-config resolves.
-        let emailField = app.textFields["login-email-field"]
-        XCTAssertTrue(emailField.waitForExistence(timeout: 30), "Login email field never appeared — is the backend running at \(instanceUrl)?")
-        focus(emailField)
-        emailField.typeText(Self.demoEmail)
-
-        // Plain textField (not secureTextField): under -uiTesting the app
-        // renders the password field unsecured so the system save-password
-        // sheet can never appear (see LoginView.glassTextField).
-        let passwordField = app.textFields["login-password-field"]
-        XCTAssertTrue(passwordField.waitForExistence(timeout: 10))
-        focus(passwordField)
-        passwordField.typeText(Self.demoPassword)
-
-        let signInButton = app.buttons["login-submit-button"]
-        XCTAssertTrue(signInButton.waitForExistence(timeout: 10))
-        signInButton.tap()
-
-        // iOS offers to save the password into the keychain right after a
-        // SecureField submit — a springboard sheet that photobombs the first
-        // capture (and blocks every later tap). Give it time to animate in.
-        dismissSavePasswordSheet(timeout: 8)
-    }
-
-    /// Dismisses the springboard "Save Password?" sheet if it shows up within
-    /// `timeout`, in whatever language the simulator speaks.
-    @MainActor
-    private func dismissSavePasswordSheet(timeout: TimeInterval) {
-        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            for label in ["Not Now", "Später", "Nicht jetzt"] {
-                let dismiss = springboard.buttons[label]
-                if dismiss.exists && dismiss.isHittable {
-                    dismiss.tap()
-                    return
-                }
-            }
-            usleep(500_000)
-        }
-    }
-
-    /// Taps the field until it actually owns keyboard focus — a plain tap
-    /// right after boot sometimes loses the race and typeText() then fails
-    /// with "Neither element nor any descendant has keyboard focus".
-    @MainActor
-    private func focus(_ element: XCUIElement) {
-        for _ in 0..<5 {
-            element.tap()
-            let focused = (element.value(forKey: "hasKeyboardFocus") as? Bool) ?? false
-            if focused { return }
-            usleep(500_000)
-        }
-    }
-
-    // MARK: - Helpers
-
-    /// Deletes the element's current text. The field must already be focused;
-    /// tapping the (wide, short-text) field puts the caret at the end, so a
-    /// stream of delete keystrokes clears it.
-    @MainActor
-    private func clearText(of element: XCUIElement) {
-        guard let current = element.value as? String, !current.isEmpty else { return }
-        let deletes = String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count + 2)
-        element.typeText(deletes)
-    }
-
-    /// Opens an issue from the board by its title, scrolling the list until the
-    /// row is on screen.
-    ///
-    /// Taps the row's TITLE text, never the `issue-row-*` button element: since
-    /// the glass chip rework the row element's accessibility activation point
-    /// lands on the leading priority control, so an element tap opens the
-    /// priority picker sheet instead of navigating (EXP-348).
-    @MainActor
-    private func openIssue(_ app: XCUIApplication, title: String) {
-        let row = app.staticTexts[title]
-        var scrollAttempts = 0
-        while !row.isHittable && scrollAttempts < 12 {
-            app.swipeUp()
-            scrollAttempts += 1
-        }
-        XCTAssertTrue(row.isHittable, "Issue \"\(title)\" never became tappable on the board")
-        row.tap()
-    }
-
-    /// Pops the top view controller off the navigation stack (leading nav-bar
-    /// back button).
-    @MainActor
-    private func goBack(_ app: XCUIApplication) {
-        let backButton = app.navigationBars.buttons.firstMatch
-        if backButton.waitForExistence(timeout: 10) {
-            backButton.tap()
-        }
-    }
-
-    /// Give in-flight animations (and Electric row inserts) a moment to settle
-    /// before capturing.
-    @MainActor
-    private func settle(_ seconds: UInt32) {
-        sleep(seconds)
     }
 }

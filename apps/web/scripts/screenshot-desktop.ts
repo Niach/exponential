@@ -42,12 +42,13 @@ import {
   type SteerTicketSeed,
 } from "@/lib/steer"
 import {
+  DEMO_DEVICE_ID,
   DEMO_DEVICE_LABEL,
+  DEMO_DEVICE_VERSION,
   DEMO_EMAIL,
   DEMO_FEED_QUESTION,
 } from "./screenshot-demo"
 
-const DEVICE_ID = `screenshot-demo-desktop`
 // >1 agent so the sheet renders its agent pill strip; the caps are the ones a
 // real desktop advertises (see crates/ui/src/steer_wiring.rs).
 const AGENTS = [`claude`, `codex`, `pi`]
@@ -327,7 +328,7 @@ async function main() {
     onOpen: (send) =>
       send({
         t: `online`,
-        deviceId: DEVICE_ID,
+        deviceId: DEMO_DEVICE_ID,
         deviceLabel: DEMO_DEVICE_LABEL,
         agents: AGENTS,
         caps: CAPS,
@@ -375,10 +376,15 @@ Leave this running for the whole fastlane capture. Ctrl-C to stop.
       .insert(devices)
       .values({
         userId,
-        deviceId: DEVICE_ID,
+        deviceId: DEMO_DEVICE_ID,
         label: DEMO_DEVICE_LABEL,
         kind: `desktop`,
         platform: `macos`,
+        // A real desktop reports its marketing version on every register, and
+        // marks itself the owner's default machine once they pick it — without
+        // both, the machine row renders bare (no version pill, no default star).
+        version: DEMO_DEVICE_VERSION,
+        isDefault: true,
         agents: AGENTS,
         caps: CAPS,
         lastSeenAt: new Date(),
@@ -386,7 +392,14 @@ Leave this running for the whole fastlane capture. Ctrl-C to stop.
       })
       .onConflictDoUpdate({
         target: [devices.userId, devices.deviceId],
-        set: { lastSeenAt: new Date(), label: DEMO_DEVICE_LABEL, agents: AGENTS, caps: CAPS },
+        set: {
+          lastSeenAt: new Date(),
+          label: DEMO_DEVICE_LABEL,
+          version: DEMO_DEVICE_VERSION,
+          isDefault: true,
+          agents: AGENTS,
+          caps: CAPS,
+        },
       })
       .catch((err) => console.error(`[device heartbeat]`, err))
   await touchDevice()

@@ -5,7 +5,7 @@ import {
   type DocsSection as DocsSectionType,
 } from "./components/DocsLayout"
 import { SiteFooter, SiteHeader } from "./components/SiteShell"
-import { WebDemo } from "./webui/WebDemo"
+import { DocShot } from "./components/DocShot"
 
 const SECTIONS: DocsSectionType[] = [
   { id: `collect`, num: `01`, label: `Collect feedback` },
@@ -73,9 +73,7 @@ export function FeedbackDocsPage() {
               issues. Every member sees the inbox and can answer.
             </p>
 
-            <div className="docs-embed">
-              <WebDemo view="support" />
-            </div>
+            <DocShot view="support-inbox" />
 
             <p>How a thread runs:</p>
             <ul>

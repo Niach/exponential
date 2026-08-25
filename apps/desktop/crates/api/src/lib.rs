@@ -143,7 +143,17 @@ impl TokenProvider for StaticToken {
 /// `accounts.json` was surfacing saved staging instance URLs in production
 /// builds). Production keeps the historical path, so existing installs keep
 /// their data.
+///
+/// DEV-ONLY override (§11.4 headless verification, same family as
+/// `EXP_DEV_SERVER`/`EXP_DEV_SCREEN`): `EXP_DATA_DIR` moves the whole dir to
+/// a throwaway path. Screenshot/capture runs bootstrap a session with
+/// `EXP_DEV_SERVER`+`EXP_DEV_TOKEN`, which PERSISTS that account into
+/// `accounts.json` — pointed at the real install's dir that silently rewrites
+/// the developer's signed-in state. Never document for users.
 pub fn default_data_dir() -> PathBuf {
+    if let Some(dir) = std::env::var_os("EXP_DATA_DIR").filter(|dir| !dir.is_empty()) {
+        return PathBuf::from(dir);
+    }
     let base = dirs::data_dir()
         .or_else(dirs::home_dir)
         .unwrap_or_else(|| PathBuf::from("."));

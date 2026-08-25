@@ -6,7 +6,7 @@ import {
 } from "./components/DocsLayout"
 import { SiteFooter, SiteHeader } from "./components/SiteShell"
 import { IcArrow } from "./components/icons"
-import { MobileDemo } from "./mobile/MobileDemo"
+import { DocShot } from "./components/DocShot"
 import { LINKS } from "./lib/links"
 
 const SECTIONS: DocsSectionType[] = [
@@ -119,8 +119,9 @@ export function AppsDocsPage() {
               opening a laptop.
             </p>
 
-            <div className="docs-embed docs-embed-phone">
-              <MobileDemo />
+            <div className="docs-shot-row">
+              <DocShot view="board" platform="ios" caption="iOS" />
+              <DocShot view="board" platform="android" caption="Android" />
             </div>
           </DocsSection>
 

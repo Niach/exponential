@@ -174,6 +174,14 @@ impl SupportThreadView {
             self.ensure_poll(cx);
             return;
         }
+        // Same boot-order race as the PR diff: the screens panel points its
+        // views from its CONSTRUCTOR, before the session finishes validating,
+        // so `fetch` would find no client and drop the only load this thread
+        // ever gets. Stay UNPOINTED instead — the Synced re-drive re-enters
+        // here with a live client.
+        if queries::trpc_client(cx).is_none() {
+            return;
+        }
         self.thread_id = Some(thread_id);
         self.detail = None;
         self.submission = None;

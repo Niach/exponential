@@ -21,9 +21,16 @@ fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
 # Store screenshots are NOT version-controlled (EXP-348, matching iOS) — regenerate
-# with `fastlane screenshots` and push via `fastlane sync_store`.
+# with `fastlane screenshots` (raw captures) + `bun run screenshots:store`
+# (composited panels) and push via `fastlane sync_store`.
 fastlane/metadata/android/en-US/images/phoneScreenshots/
 fastlane/metadata/android/en-US/images/phoneScreenshots-raw/
+fastlane/screenshots-raw/
+# EXP-566: the feature graphic is composed by `bun run screenshots:store` from
+# the raw captures — generated output, out of git like the screenshots (EXP-348).
+fastlane/metadata/android/en-US/images/featureGraphic.png
+# Styleguide reference captures (EXP-566) — `fastlane styleguide_screenshots`.
+fastlane/styleguide-screenshots/
 fastlane/metadata/android/screenshots.html
 # Play service-account JSON — path comes from SUPPLY_JSON_KEY; never commit a key
 fastlane/*.json

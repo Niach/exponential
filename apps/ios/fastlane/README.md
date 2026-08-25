@@ -33,9 +33,27 @@ Regenerate the Tuist project and capture App Store screenshots (snapshot).
 
 Needs the seeded local backend (apps/web/scripts/seed-screenshots.ts) at
 
-http://localhost:5173 — override with SNAPSHOT_INSTANCE_URL. Follow up with
+http://localhost:5173 — override with SNAPSHOT_INSTANCE_URL. Captures land RAW
 
-`bun run screenshots:frame` (repo root) before sync_store — EXP-580.
+in fastlane/screenshots-raw/; follow up with `bun run screenshots:store` (repo
+
+root) to composite them into fastlane/screenshots/ before sync_store — EXP-580.
+
+### ios styleguide_screenshots
+
+```sh
+[bundle exec] fastlane ios styleguide_screenshots
+```
+
+Regenerate the Tuist project and capture the STYLEGUIDE screenshots (EXP-566):
+
+the 11 cross-platform `sg_*` surface shots from
+
+ExponentialUITests/StyleguideScreenshots.swift, iPhone only, into
+
+fastlane/screenshots-styleguide/. Same seeded backend as `screenshots`, but no
+
+steer relay and no `screenshots:desktop` needed. Never uploaded to ASC.
 
 ### ios beta
 
