@@ -163,6 +163,10 @@ import { createPullRequest } from "@/lib/integrations/github-pr"
 import { resolveRepoInstallationTokenInfo } from "@/lib/integrations/github-app"
 import { isInstallationLinkedToTeam } from "@/lib/trpc/integrations"
 import { registerExponentialTools } from "@/lib/mcp/tools"
+import {
+  builtinCreateAction,
+  builtinFixConflictsAction,
+} from "@/lib/builtin-actions"
 import { FULL_ACCESS } from "@/lib/mcp/scope"
 import type { McpUser } from "@/lib/mcp/server"
 
@@ -328,7 +332,13 @@ const descriptors: Array<Descriptor> = [
     pick: () => caller.actions.list,
     args: { teamId: WS },
     resolved: { actions: [{ id: UUID, name: `Code review` }] },
-    expected: [{ id: UUID, name: `Code review` }],
+    // EXP-539: actions.list carries DB rows only; the MCP tool appends the
+    // virtual builtins itself so agents still see them.
+    expected: [
+      { id: UUID, name: `Code review` },
+      JSON.parse(JSON.stringify(builtinCreateAction(WS))),
+      JSON.parse(JSON.stringify(builtinFixConflictsAction(WS))),
+    ],
     calledWith: { teamId: WS },
   },
   {

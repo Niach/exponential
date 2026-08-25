@@ -42,6 +42,10 @@ import {
 } from "@/lib/domain"
 import { teamColumns } from "@/lib/team-columns"
 import {
+  builtinCreateAction,
+  builtinFixConflictsAction,
+} from "@/lib/builtin-actions"
+import {
   assertTeamMember,
   getAttachmentTeamContext,
   getIssueTeamContext,
@@ -1745,7 +1749,14 @@ export function registerExponentialTools(
         // run_configs precedent confined list the same way).
         if (!access.full) assertTeamFullyGranted(access, teamId)
         const result = await caller(user, request).actions.list({ teamId })
-        return ok(result.actions)
+        // EXP-539: actions.list stopped appending the virtual builtins
+        // (native clients construct them locally); agents still need them
+        // listed, so this tool appends both.
+        return ok([
+          ...result.actions,
+          builtinCreateAction(teamId),
+          builtinFixConflictsAction(teamId),
+        ])
       } catch (e) {
         return err(e)
       }

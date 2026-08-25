@@ -12,8 +12,6 @@ import {
   BUILTIN_CREATE_ACTION_NAME,
   BUILTIN_FIX_CONFLICTS_ID,
   BUILTIN_FIX_CONFLICTS_NAME,
-  builtinCreateAction,
-  builtinFixConflictsAction,
   isBuiltinActionId,
 } from "@/lib/builtin-actions"
 
@@ -209,15 +207,12 @@ export const actionsRouter = router({
         .from(actions)
         .where(eq(actions.teamId, input.teamId))
         .orderBy(asc(actions.sortOrder), asc(actions.name))
-      // EXP-257/EXP-259: the virtual builtins ride every list — clients pin
-      // them first by the `builtin` flag (explicit false on real rows so the
-      // union stays uniformly narrowable).
+      // EXP-539: DB rows only — every client constructs the virtual builtins
+      // locally and pins them first by the `builtin` flag (explicit false on
+      // real rows so the union stays uniformly narrowable). The MCP list
+      // tool appends them itself for agents.
       return {
-        actions: [
-          ...rows.map((row) => ({ ...row, builtin: false as const })),
-          builtinCreateAction(input.teamId),
-          builtinFixConflictsAction(input.teamId),
-        ],
+        actions: rows.map((row) => ({ ...row, builtin: false as const })),
       }
     }),
 
