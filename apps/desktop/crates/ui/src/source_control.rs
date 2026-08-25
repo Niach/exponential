@@ -744,8 +744,30 @@ impl SourceControlView {
     fn render_body(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let theme = cx.theme();
 
-        // Scope not yet resolvable (teams/boards still syncing).
-        if matches!(self.scope_load, Load::Loading) && self.scope.is_none() {
+        // No board to resolve against. `scope_board` is `None` both before the
+        // boards shape has synced and for a team that genuinely has none, so
+        // say that rather than making a claim about the repository — the same
+        // placeholder `file_tree` shows in this state.
+        if self.scope_board.is_none() {
+            return div()
+                .size_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .p_4()
+                .text_xs()
+                .text_color(theme.muted_foreground)
+                .child("Open a board to see its source control.")
+                .into_any_element();
+        }
+
+        // Scope not yet resolvable (teams/boards still syncing). `Idle` counts
+        // as in-flight: `ensure_scope` returns BEFORE it can start a load while
+        // the board is still unresolved, so gating only on `Loading` fell
+        // through to the definitive "no repository linked" notice during sync.
+        // That is a lie with a screenshot of its own — the store's
+        // `source-control` shot was exactly this state (EXP-566).
+        if matches!(self.scope_load, Load::Idle | Load::Loading) && self.scope.is_none() {
             return div()
                 .size_full()
                 .flex()

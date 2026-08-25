@@ -35,7 +35,12 @@ import {
   type Platform,
 } from "@exp/view-catalog"
 import { lastStoreCommit, scopeSince, type AffectedScope } from "./affected.ts"
-import { captureDesktop, resolveBinary, screenRecordingAllowed } from "./capture-desktop.ts"
+import {
+  captureDesktop,
+  mintSessionToken,
+  resolveBinary,
+  screenRecordingAllowed,
+} from "./capture-desktop.ts"
 import { fetchDemoIds, type DemoIds } from "./ids.ts"
 import { importNative, NATIVE_PLATFORMS } from "./import-native.ts"
 import { hasCommand, killChild, run, sleep, track, type Child } from "./lib/proc.ts"
@@ -524,6 +529,78 @@ function readEnvFile(): Record<string, string> {
   return out
 }
 
+/**
+ * Can a sync client actually consume this instance's shape proxy?
+ *
+ * Every lane photographs an app whose content arrives over Electric, but NOTHING
+ * downstream can tell "synced and genuinely empty" from "never synced": the
+ * desktop app renders skeletons and definitive empty states either way, the
+ * window is not flat, and `captureOne`'s variance gate is happy. A run against a
+ * server whose shape responses a client cannot advance therefore produces a full
+ * set of confidently-wrong screenshots and exits 0 — which is exactly what
+ * happened, twice, and cost a whole store refresh.
+ *
+ * The failure mode that caused it is invisible from the body alone, and its
+ * cause is two layers below anything this repo owns: on **node 26** a `fetch`
+ * over a UNIX SOCKET returns the right status and the right body with ZERO
+ * response headers (the same server over TCP is fine — it is an undici
+ * regression). Nitro's dev worker is reached over exactly such a socket, so
+ * `bun dev` serves every TanStack Start route with all of its headers gone: no
+ * `content-type`, no `set-cookie`, and no `electric-handle`/`electric-offset`.
+ * Those two ARE the shape cursor, so every shape re-requests `offset=-1`
+ * forever, no collection ever reaches `up-to-date`, and the desktop app
+ * photographs skeletons and "0 members in this team" while looking perfectly
+ * alive. `.tool-versions` pins node 24.11.1 for this reason; nothing enforces
+ * it, so a machine with a newer node on PATH breaks dev serving silently.
+ *
+ * So this asserts on the CONTRACT rather than on the data: the three headers
+ * without which no client can sync, and the encoding sanity that a body claiming
+ * to be plain must not actually be gzip. Cheap, one request, and it fires before
+ * a single window is opened.
+ */
+async function assertShapesSyncable(baseUrl: string): Promise<void> {
+  const fix =
+    `The shape proxy is serving responses a sync client cannot advance.\n` +
+    `  This is what \`bun dev\` does on machines where dev-mode serving drops route headers.\n` +
+    `  Serve the built app instead (shots/README.md → Prerequisites):\n` +
+    `    cd apps/web && bun run build && PORT=5173 bun --env-file=.env .output/server/index.mjs`
+
+  let token: string
+  try {
+    token = await mintSessionToken(baseUrl)
+  } catch (error) {
+    throw new Error(
+      `could not sign in at ${baseUrl} to check the shape proxy: ${error instanceof Error ? error.message : String(error)}`
+    )
+  }
+
+  const response = await fetch(`${baseUrl}/api/shapes/boards?offset=-1`, {
+    headers: { authorization: `Bearer ${token}`, origin: baseUrl },
+    // Bun-only: the instance may sit behind Caddy's self-signed dev certificate.
+    tls: { rejectUnauthorized: false },
+  })
+  if (!response.ok) {
+    throw new Error(`the boards shape answered ${response.status} ${response.statusText}. ${fix}`)
+  }
+
+  // `electric-handle` + `electric-offset` ARE the resumption cursor; without them
+  // a client re-requests offset=-1 forever and no shape ever reaches up-to-date.
+  const missing = [`content-type`, `electric-handle`, `electric-offset`].filter(
+    (header) => !response.headers.get(header)
+  )
+  if (missing.length > 0) {
+    throw new Error(`the boards shape response is missing ${missing.join(`, `)}. ${fix}`)
+  }
+
+  // A gzip body that does not say so decodes to garbage in any client that takes
+  // the header at its word — the desktop's ureq does.
+  const body = new Uint8Array(await response.arrayBuffer())
+  const gzipped = body[0] === 0x1f && body[1] === 0x8b
+  if (gzipped && !response.headers.get(`content-encoding`)) {
+    throw new Error(`the boards shape returned a gzip body with no content-encoding. ${fix}`)
+  }
+}
+
 /* --------------------------------------------------------------------- store */
 
 interface PlatformTally {
@@ -738,12 +815,24 @@ async function main(): Promise<number> {
         }
       }
 
+      // Before anything is driven: a server whose shape responses cannot be
+      // advanced yields a complete set of confidently-empty screenshots that
+      // every downstream check accepts. Fail here instead, in one request.
+      console.log(`\n── shape proxy ───────────────────────────────────────`)
+      await assertShapesSyncable(DEV_URL)
+      console.log(`  ok    ${DEV_URL}/api/shapes — control headers present, body decodable`)
+
+      // The relay stub comes BEFORE the id lookup on purpose: the demo user's own
+      // `devices` row is written by the stub as it announces itself, not by the
+      // seed, and `screenshots:ids` can only report a row that already exists. Ask
+      // first and `$device` is unresolvable on every freshly-seeded run — which
+      // silently skipped `machine-settings` (the Device settings dialog) forever.
+      if (relayNeeded) relay = await startRelayStub(options)
+
       ids = await fetchDemoIds()
       console.log(
-        `\nids: team ${ids.teamId} · ${Object.keys(ids.issues).length} issues${ids.supportThreadId ? ` · support thread ${ids.supportThreadId}` : ` · NO support thread (support views will skip)`}`
+        `\nids: team ${ids.teamId} · ${Object.keys(ids.issues).length} issues${ids.supportThreadId ? ` · support thread ${ids.supportThreadId}` : ` · NO support thread (support views will skip)`}${ids.deviceId ? `` : ` · NO device row (machine-settings will skip)`}`
       )
-
-      if (relayNeeded) relay = await startRelayStub(options)
 
       await captureWeb(options.platforms, options, scope, outcomes)
 

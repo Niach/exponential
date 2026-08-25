@@ -8,6 +8,7 @@ import {
   recordSnapshotQueueWait,
   registerElectricProxyGauges,
 } from "@/lib/metrics/registry"
+import { isProductionBuild } from "@/lib/production-build"
 
 /**
  * REV-29: the ONLY inbound query params the proxy forwards to Electric —
@@ -226,8 +227,31 @@ export async function proxyElectricRequest(
  */
 const GZIP_MIN_BYTES = 1024
 
-/** Does this client's `Accept-Encoding` allow a gzip response? */
+/**
+ * Running under `vite dev` — as opposed to a built output OR vitest, both of
+ * which want the real code path. `isProductionBuild` (`import.meta.env.PROD`)
+ * is false for the dev server and vitest alike, so the VITEST env var is what
+ * separates them.
+ */
+const isDevServer = !isProductionBuild && !process.env.VITEST
+
+/**
+ * Does this client's `Accept-Encoding` allow a gzip response?
+ *
+ * Never under the DEV SERVER, whatever the client asked for. Dev routes every
+ * response through nitro's dev-worker HTTP hop, whose `fetch` transparently
+ * DECODES a gzip body while forwarding `content-encoding: gzip` untouched — so
+ * the client is handed plain JSON that its headers swear is compressed, and
+ * anything that believes the header (Bun's `fetch`, the desktop's ureq) dies on
+ * a decompression error instead of syncing. Compression is a production
+ * transfer optimisation and nothing in dev is served over a network worth
+ * optimising, so the honest thing is to skip it rather than lie about it.
+ * Scoped to the dev SERVER, not merely "unbuilt": vitest is unbuilt too and its
+ * coverage of this function is worth keeping honest, so it must still see the
+ * real compression path.
+ */
 function acceptsGzip(acceptEncoding: string | null | undefined): boolean {
+  if (isDevServer) return false
   if (!acceptEncoding) return false
   return acceptEncoding
     .split(`,`)
