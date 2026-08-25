@@ -107,8 +107,9 @@ public extension SteerDevice {
 // MARK: - DeviceQueries
 
 /// One-shot reads over the synced device rows — the sync-fed replacement for
-/// `DevicesApi.onlineStartTargets` (same output shape, no network). Own rows
-/// always; teammates' shared server rows only when scoped to their team.
+/// the old `devices.list` start-target poll (same output shape, no network).
+/// Own rows always; teammates' shared server rows only when scoped to their
+/// team.
 public enum DeviceQueries {
     public static func devices(
         db: DatabaseManager,

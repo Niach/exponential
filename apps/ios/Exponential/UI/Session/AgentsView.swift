@@ -28,7 +28,7 @@ struct AgentsView: View {
     @Environment(TeamState.self) private var teamState
     @State private var viewModel: AgentsViewModel?
     @State private var steerEnabled = false
-    /// EXP-420: `devices.list`'s advertised latest versions — gates the
+    /// EXP-420: the instance's advertised latest versions — gates the
     /// server rows' Update action on an actually-newer CLI build. The one
     /// remaining tRPC read here (instance config, not a shape column):
     /// fetched once per account instead of polled.
@@ -254,10 +254,8 @@ struct AgentsView: View {
     /// once per account.
     private func refreshLatestVersions() async {
         guard steerEnabled else { return }
-        let result = try? await deps.devicesApi.list(
-            accountId: accountId, teamId: teamState.activeTeam?.id
-        )
-        latestVersions = result?.latestVersions ?? latestVersions
+        let result = try? await deps.devicesApi.latestVersions(accountId: accountId)
+        latestVersions = result ?? latestVersions
     }
 
     private var emptyState: some View {

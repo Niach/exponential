@@ -45,7 +45,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.SteerDevice
@@ -137,12 +136,6 @@ fun ActionsScreen(
     // The owner-only automation form: true = creating, non-null row = editing.
     var automationForm by remember { mutableStateOf(false) }
     var automationEditTarget by remember { mutableStateOf<AutomationEntity?>(null) }
-
-    // Re-poll device presence each time the screen comes to the foreground.
-    LifecycleResumeEffect(Unit) {
-        viewModel.refreshDevices()
-        onPauseOrDispose { }
-    }
 
     // The desktop picked the start up — jump into the live viewer ONCE.
     LaunchedEffect(startedSessionId) {

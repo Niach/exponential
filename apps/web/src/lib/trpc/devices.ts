@@ -726,6 +726,23 @@ export const devicesRouter = router({
       return { commands }
     }),
 
+  // EXP-485: the informational CLIENT_LATEST_VERSION_* hint on its own, so a
+  // client wanting the "update available" nudge no longer pays for the whole
+  // registry (the devices shape delivers the rows). Same {desktop, cli}
+  // shape as `list`'s envelope field, so every client reuses its decoder.
+  latestVersions: authedProcedure.query(
+    (): { desktop: string | null; cli: string | null } => {
+      const payload = versionPayload() as Record<
+        string,
+        { latest: string | null }
+      >
+      return {
+        desktop: payload.desktop?.latest ?? null,
+        cli: payload.cli?.latest ?? null,
+      }
+    }
+  ),
+
   // Optional `teamId` (EXP-432): additionally return teammates' server
   // devices shared with that team. Old clients call with no input and get
   // exactly the pre-EXP-432 own-devices behavior.

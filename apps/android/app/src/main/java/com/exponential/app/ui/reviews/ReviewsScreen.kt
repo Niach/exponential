@@ -43,7 +43,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.domain.DomainContract
@@ -85,10 +84,6 @@ fun ReviewsScreen(
             viewModel.consumeStartedSession()
             onOpenSteer(it)
         }
-    }
-    LifecycleResumeEffect(Unit) {
-        viewModel.refreshDevices()
-        onPauseOrDispose {}
     }
 
     Scaffold(containerColor = Color.Transparent) { padding ->

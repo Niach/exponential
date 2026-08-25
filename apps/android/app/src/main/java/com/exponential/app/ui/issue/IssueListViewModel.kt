@@ -7,7 +7,6 @@ import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.AttachmentsApi
 import com.exponential.app.data.api.CreateIssueInput
 import com.exponential.app.data.api.CreateLabelInput
-import com.exponential.app.data.api.DevicesApi
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.LabelsApi
@@ -49,6 +48,8 @@ import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.markdownImageUrls
 import com.exponential.app.ui.markdown.removeMarkdownImagesByUrl
 import com.exponential.app.ui.markdown.replaceMarkdownImageUrls
+import com.exponential.app.ui.steer.onlineStartTargets
+import com.exponential.app.ui.steer.steerDeviceFlow
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -119,7 +120,6 @@ class IssueListViewModel @Inject constructor(
     private val issueImagesApi: IssueImagesApi,
     private val attachmentsApi: AttachmentsApi,
     private val steerApi: SteerApi,
-    private val devicesApi: DevicesApi,
     private val stats: SyncStats,
     private val syncManager: SyncManager,
     @dagger.hilt.android.qualifiers.ApplicationContext
@@ -406,9 +406,14 @@ class IssueListViewModel @Inject constructor(
     val steerEnabled: StateFlow<Boolean?> = _steerEnabled
 
     // The online machines a start can go to: the caller's own plus (EXP-432)
-    // the board team's shared servers. null = not loaded yet.
-    private val _devices = MutableStateFlow<List<SteerDevice>?>(null)
-    val devices: StateFlow<List<SteerDevice>?> = _devices
+    // the board team's shared servers, off the synced devices shape (EXP-485)
+    // — ONLINE only, because the selection bar reads an empty list as "no
+    // desktop online". null until ensureSteerLoaded resolves the relay.
+    val devices: StateFlow<List<SteerDevice>?> = combine(
+        steerDeviceFlow(dbFlow, _board.map { it?.teamId }.distinctUntilChanged(), auth.userId),
+        _steerEnabled,
+    ) { devices, enabled -> onlineStartTargets(devices, enabled) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val _startState = MutableStateFlow<SteerStartState>(SteerStartState.Idle)
     val startState: StateFlow<SteerStartState> = _startState
@@ -427,9 +432,10 @@ class IssueListViewModel @Inject constructor(
     private var steerLoadedForAccount: String? = null
 
     /**
-     * Resolve relay availability + device presence when selection mode starts
-     * on a repo-backed board, so the bar's Start coding is ready by the time
-     * it's tapped. Once per account (an account switch re-resolves).
+     * Resolve relay availability when selection mode starts on a repo-backed
+     * board, so the bar's Start coding is ready by the time it's tapped (the
+     * machines themselves ride [devices] off sync). Once per account (an
+     * account switch re-resolves).
      */
     fun ensureSteerLoaded() {
         viewModelScope.launch {
@@ -437,20 +443,8 @@ class IssueListViewModel @Inject constructor(
             if (steerLoadedForAccount == accountId) return@launch
             steerLoadedForAccount = accountId
             _steerEnabled.value = null
-            _devices.value = null
-            val enabled = runCatching { steerApi.config(accountId).enabled }
+            _steerEnabled.value = runCatching { steerApi.config(accountId).enabled }
                 .getOrDefault(false)
-            _steerEnabled.value = enabled
-            _devices.value = if (enabled) {
-                // EXP-432: team-scoped, so the board team's shared servers are
-                // candidates too — filtered to ONLINE machines, because the
-                // selection bar reads an empty list as "no desktop online".
-                runCatching {
-                    devicesApi.list(accountId, _board.value?.teamId).devices.filter { it.online }
-                }.getOrDefault(emptyList())
-            } else {
-                emptyList()
-            }
         }
     }
 

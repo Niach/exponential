@@ -3,29 +3,23 @@
 //! section under the Actions tool window's list, so all four clients surface
 //! the same device registry.
 //!
-//! Since EXP-481 the rows come from the SYNCED `devices` shape when it is
-//! ready (online-ness = `last_seen_at` freshness against the contract
-//! window — no relay presence involved); the tRPC `devices.list` poll
-//! survives only as the Waiting-state fallback and the
-//! `latestVersions` (update-nudge) source, on a slow cadence.
+//! The rows come from the SYNCED `devices` shape and nothing else (EXP-485):
+//! online-ness is `last_seen_at` freshness against the contract window — no
+//! relay presence involved — and every mutation lands back through sync, so
+//! there is no poll and no fallback list to keep in step.
 //!
-//! Visibility is inferred from rendering: this view is only in the element
-//! tree while the Actions tool window is open, so a poll tick that finds the
-//! last render older than [`VISIBLE_GRACE`] retires the loop (the sidebar's
-//! Support poll self-terminates on its fetch key the same way). Every fetch
-//! notifies — including failures — so a visible section always re-renders
-//! inside the grace window.
-
-use std::time::{Duration, Instant};
+//! The one tRPC call left is `devices.latestVersions`, the informational
+//! `CLIENT_LATEST_VERSION_*` pair behind the amber update nudge. That is
+//! instance config, not device state: it is fetched ONCE per section
+//! lifetime (the first render) rather than polled.
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, App, AppContext as _, ClipboardItem, Entity, InteractiveElement as _, IntoElement,
-    ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled, Window,
+    div, px, App, ClipboardItem, InteractiveElement as _, IntoElement, ParentElement, Render,
+    SharedString, StatefulInteractiveElement as _, Styled, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
-    input::{Input, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
     ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
@@ -35,100 +29,53 @@ use crate::icons::registry;
 use crate::native_dialog::{self, AlertSpec};
 use crate::queries;
 
-/// EXP-481: the rows stream over sync now — this poll only feeds
-/// `latestVersions` (and the Waiting-state fallback rows), so it runs slow.
-const POLL_INTERVAL: Duration = Duration::from_secs(60);
-/// A poll tick with no render this recent means the tool window was closed.
-/// Two intervals plus slack — a single slow fetch must not retire the loop.
-const VISIBLE_GRACE: Duration = Duration::from_secs(130);
-
 pub(crate) struct MachinesSection {
-    /// `None` until the first answer lands (renders the loading note).
-    devices: Option<Vec<api::devices::DeviceEntry>>,
     latest: api::devices::LatestVersions,
-    fetch_seq: u64,
-    polling: bool,
-    last_render: Instant,
+    /// The one-shot guard for [`Self::ensure_latest_loaded`].
+    latest_requested: bool,
     /// Device with an in-flight `requestUpdate` — holds "Updating…" until the
-    /// refetch carries the server's own `updateRequested` flag.
+    /// synced row carries the server's own `update_requested_at`.
     updating: Option<String>,
-    rename_input: Entity<InputState>,
     _subscriptions: Vec<gpui::Subscription>,
 }
 
 impl MachinesSection {
-    pub(crate) fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
-        let rename_input = cx.new(|cx| InputState::new(window, cx).placeholder("Machine name"));
-        // EXP-481: the rows stream over the devices shape — re-render on
-        // every delta (the poll only feeds latestVersions + the fallback).
+    pub(crate) fn new(_window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        // The rows stream over the devices shape — re-render on every delta.
         let devices_collection = sync::Store::global(cx).collections().devices.clone();
         let subscriptions = vec![cx.observe(&devices_collection, |_, _, cx| cx.notify())];
         Self {
-            devices: None,
             latest: api::devices::LatestVersions::default(),
-            fetch_seq: 0,
-            polling: false,
-            last_render: Instant::now(),
+            latest_requested: false,
             updating: None,
-            rename_input,
             _subscriptions: subscriptions,
         }
     }
 
     // -- data ----------------------------------------------------------------
 
-    /// Start the fetch + poll pair once; a later render only refreshes
-    /// `last_render`, which is what keeps the loop alive.
-    fn ensure_polling(&mut self, cx: &mut gpui::Context<Self>) {
-        if self.polling {
+    /// Fetch `devices.latestVersions` once per section lifetime. The values
+    /// are instance config (they change on a deploy, not on a heartbeat), so
+    /// a failure simply means no update nudge until the section is rebuilt —
+    /// far better than a render-driven retry storm.
+    fn ensure_latest_loaded(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.latest_requested {
             return;
         }
-        self.polling = true;
-        self.fetch(cx);
-        cx.spawn(async move |this, cx| {
-            loop {
-                cx.background_executor().timer(POLL_INTERVAL).await;
-                let keep_going = this.update(cx, |this, cx| {
-                    if this.last_render.elapsed() > VISIBLE_GRACE {
-                        // Off screen — the next render restarts everything.
-                        this.polling = false;
-                        return false;
-                    }
-                    this.fetch(cx);
-                    true
-                });
-                if !matches!(keep_going, Ok(true)) {
-                    break;
-                }
-            }
-        })
-        .detach();
-    }
-
-    /// One seq-guarded `devices.list`. A failure keeps the rendered rows (the
-    /// next tick retries) but still notifies, so the poll's liveness check
-    /// sees a fresh render.
-    fn fetch(&mut self, cx: &mut gpui::Context<Self>) {
         let Some(trpc) = queries::trpc_client(cx) else {
+            // No client yet — try again on a later render.
             return;
         };
-        self.fetch_seq += 1;
-        let seq = self.fetch_seq;
+        self.latest_requested = true;
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { api::devices::list(&trpc) })
+                .spawn(async move { api::devices::latest_versions(&trpc) })
                 .await;
             let _ = this.update(cx, |this, cx| {
-                if this.fetch_seq != seq {
-                    return;
-                }
                 match result {
-                    Ok(list) => {
-                        this.devices = Some(list.devices);
-                        this.latest = list.latest_versions;
-                    }
-                    Err(err) => log::warn!("[ui] devices.list failed: {err}"),
+                    Ok(latest) => this.latest = latest,
+                    Err(err) => log::warn!("[ui] devices.latestVersions failed: {err}"),
                 }
                 cx.notify();
             });
@@ -136,8 +83,9 @@ impl MachinesSection {
         .detach();
     }
 
-    /// Run a `devices.*` mutation on the background executor and refetch — no
-    /// mutation has an echo, so the list is only as fresh as the next read.
+    /// Run a `devices.*` mutation on the background executor. There is no
+    /// refetch: every one of these writes a row the `devices` shape streams
+    /// back as a delta.
     fn mutate(
         &mut self,
         what: &'static str,
@@ -157,19 +105,10 @@ impl MachinesSection {
                     log::warn!("[ui] {what} failed: {err}");
                 }
                 this.updating = None;
-                this.fetch(cx);
                 cx.notify();
             });
         })
         .detach();
-    }
-
-    fn rename(&mut self, device_id: String, label: String, cx: &mut gpui::Context<Self>) {
-        self.mutate(
-            "devices.rename",
-            move |trpc| api::devices::rename(trpc, &device_id, &label),
-            cx,
-        );
     }
 
     fn remove(&mut self, device_id: String, cx: &mut gpui::Context<Self>) {
@@ -196,16 +135,10 @@ impl MachinesSection {
     // -- dialogs -------------------------------------------------------------
 
     /// EXP-481: Edit… — the Device settings dialog, keyed by the SYNCED
-    /// devices row. While the shape is still Waiting (cold start, old
-    /// server) the row id can't resolve; fall back to the plain rename
-    /// dialog so Edit never dead-ends.
-    fn open_settings(
-        &mut self,
-        device_id: String,
-        label: String,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
+    /// devices row (rename and sharing live inside it). Every rendered row
+    /// IS a synced row since EXP-485, so a miss means the row was removed
+    /// out from under the open menu: do nothing.
+    fn open_settings(&mut self, device_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let row_id = sync::Store::global(cx)
             .collections()
             .devices
@@ -213,54 +146,10 @@ impl MachinesSection {
             .iter()
             .find(|row| row.device_id.as_deref() == Some(device_id.as_str()))
             .map(|row| row.id.clone());
-        match row_id {
-            Some(row_id) => crate::device_settings::open(window, cx, row_id),
-            None => self.prompt_rename(device_id, label, window, cx),
-        }
-    }
-
-    /// Rename behind the shared alert window, the typed-input pattern from
-    /// the team Danger Zone (the input is a long-lived child so its state
-    /// survives the dialog window).
-    fn prompt_rename(
-        &mut self,
-        device_id: String,
-        label: String,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        self.rename_input.update(cx, |state, cx| {
-            state.set_value(label.clone(), window, cx);
-        });
-        let section = cx.entity().downgrade();
-        let content_input = self.rename_input.clone();
-        let ok_input = self.rename_input.clone();
-        let spec = AlertSpec::new(
-            "Rename machine",
-            "The name is yours only — it never overwrites what the machine \
-             advertises to the relay.",
-            "Rename",
-        )
-        // Two description lines + the input — the 220 default clips them.
-        .height(gpui::px(240.))
-        .content(move |_, _| {
-            div()
-                .mt_2()
-                .child(Input::new(&content_input).small())
-                .into_any_element()
-        })
-        .on_ok(move |_, cx| {
-            let typed = ok_input.read(cx).value().trim().to_string();
-            if typed.is_empty() {
-                // Empty keeps the dialog open (there is no unnamed machine).
-                return false;
-            }
-            if let Some(section) = section.upgrade() {
-                section.update(cx, |this, cx| this.rename(device_id.clone(), typed, cx));
-            }
-            true
-        });
-        native_dialog::open_alert(window, cx, spec);
+        let Some(row_id) = row_id else {
+            return;
+        };
+        crate::device_settings::open(window, cx, row_id);
     }
 
     /// Remove behind a confirm — destructive native actions confirm first.
@@ -294,7 +183,7 @@ impl MachinesSection {
     /// EXP-623 stable order (online-by-label first, so heartbeats can't
     /// reorder the list; offline rows don't beat, so last-seen desc is
     /// stable there). `None` while the shape is Waiting (cold start / old
-    /// server) — the caller falls back to the tRPC list rows.
+    /// server) — the section renders its loading note.
     fn synced_entries(&self, cx: &App) -> Option<Vec<api::devices::DeviceEntry>> {
         let collections = sync::Store::global(cx).collections();
         let devices = collections.devices.read(cx);
@@ -431,7 +320,6 @@ impl MachinesSection {
                 .dropdown_menu(move |menu, _window, _cx| {
                     let edit_section = section.clone();
                     let edit_id = device_id.clone();
-                    let edit_label = menu_label.clone();
                     let remove_section = section.clone();
                     let remove_id = device_id.clone();
                     let remove_label = menu_label.clone();
@@ -448,9 +336,8 @@ impl MachinesSection {
                                     return;
                                 };
                                 let id = edit_id.clone();
-                                let label = edit_label.to_string();
                                 section.update(cx, |this, cx| {
-                                    this.open_settings(id, label, window, cx);
+                                    this.open_settings(id, window, cx);
                                 });
                             }),
                     )
@@ -774,14 +661,11 @@ mod tests {
 
 impl Render for MachinesSection {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        // Rendering IS the visibility signal (module doc).
-        self.last_render = Instant::now();
-        self.ensure_polling(cx);
+        self.ensure_latest_loaded(cx);
 
         let muted = cx.theme().muted_foreground;
-        // EXP-481: synced rows when the shape is ready; the tRPC list rows
-        // only while Waiting (cold start / old server).
-        let devices = self.synced_entries(cx).or_else(|| self.devices.clone());
+        // EXP-485: the synced shape is the only source of rows.
+        let devices = self.synced_entries(cx);
         let rows: Vec<gpui::AnyElement> = devices
             .iter()
             .flatten()

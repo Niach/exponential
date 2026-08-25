@@ -106,13 +106,13 @@ public struct DeviceLaunchDefaults: Decodable, Equatable, Sendable {
     }
 }
 
-/// One machine: a registry row from `devices.list` (EXP-403 — desktops and
-/// headless `exponential` daemon servers, online or not) or a bare
-/// relay-presence row from `steer.myDevices`. ONE shape for both, mirroring
-/// apps/web/src/lib/steer-devices.ts: the registry fields are optional and an
-/// absent `online` reads as online, because a presence row is alive by
-/// construction. Usually the caller's own — but a team-scoped `devices.list`
-/// also returns teammates' shared servers (EXP-432), told apart by `owner`.
+/// One machine: a registry row (EXP-403 — desktops and headless
+/// `exponential` daemon servers, online or not, synced through the devices
+/// shape) or a bare relay-presence row from `steer.myDevices`. ONE shape for
+/// both, mirroring apps/web/src/lib/steer-devices.ts: the registry fields are
+/// optional and an absent `online` reads as online, because a presence row is
+/// alive by construction. Usually the caller's own — but teammates' shared
+/// servers (EXP-432) ride along too, told apart by `owner`.
 public struct SteerDevice: Decodable, Sendable, Identifiable {
     public let deviceId: String
     public let deviceLabel: String
@@ -129,7 +129,7 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// Absent (old desktop/relay) = none — action starts are strictly gated
     /// on this, unlike the lenient agents fallback.
     public let caps: [String]?
-    /// EXP-403 registry fields (`devices.list` only).
+    /// EXP-403 registry fields (registry rows only).
     /// `desktop` | `server`; absent on relay-only rows (always a desktop).
     public let kind: String?
     public let platform: String?
@@ -328,9 +328,9 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     }
 }
 
-/// `devices.list`'s advertised latest client versions per channel
-/// (`CLIENT_LATEST_VERSION_DESKTOP` / `_CLI`; null = the server doesn't
-/// know). EXP-420: gates the server rows' Update affordance.
+/// `devices.latestVersions`' result: the instance's latest client versions
+/// per channel (`CLIENT_LATEST_VERSION_DESKTOP` / `_CLI`; null = the server
+/// doesn't know). EXP-420: gates the server rows' Update affordance.
 public struct LatestVersions: Decodable, Sendable {
     public let desktop: String?
     public let cli: String?
@@ -341,16 +341,13 @@ public struct LatestVersions: Decodable, Sendable {
     }
 }
 
-/// Server envelope for both device lists: `steer.myDevices` returns exactly
-/// `{ devices }`, `devices.list` (EXP-403) adds `latestVersions` — absent on
-/// the relay path; unknown keys decode away.
+/// `steer.myDevices`' envelope — exactly `{ devices }`; unknown keys decode
+/// away.
 public struct SteerDevicesResult: Decodable, Sendable {
     public let devices: [SteerDevice]
-    public let latestVersions: LatestVersions?
 
-    public init(devices: [SteerDevice], latestVersions: LatestVersions? = nil) {
+    public init(devices: [SteerDevice]) {
         self.devices = devices
-        self.latestVersions = latestVersions
     }
 }
 
@@ -493,9 +490,9 @@ public final class SteerApi: Sendable {
 
     /// The caller's online desktops (`steer.myDevices` query) — own relay
     /// presence only. Since EXP-432 the start surfaces use
-    /// `DevicesApi.onlineStartTargets` instead, so teammates' shared servers
-    /// count as start targets; this stays as the presence-only primitive.
-    /// Relay-off ⇒ empty list.
+    /// `DeviceQueries.onlineStartTargets` (the synced devices rows) instead,
+    /// so teammates' shared servers count as start targets; this stays as the
+    /// presence-only primitive. Relay-off ⇒ empty list.
     public func myDevices(accountId: String) async throws -> [SteerDevice] {
         let result: SteerDevicesResult = try await trpc.query(accountId: accountId, path: "steer.myDevices")
         return result.devices

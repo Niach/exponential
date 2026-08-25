@@ -335,6 +335,13 @@ describe(`devices.heartbeat`, () => {
   })
 })
 
+describe(`devices.latestVersions`, () => {
+  it(`returns the desktop/cli latest hints`, async () => {
+    const result = await caller.latestVersions()
+    expect(result).toEqual({ desktop: `0.9.0`, cli: `0.9.0` })
+  })
+})
+
 describe(`devices.list`, () => {
   it(`marks a registered row online when the relay reports it connected`, async () => {
     h.state.selectRows = [registryRow()]

@@ -5,7 +5,6 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.AutomationsApi
-import com.exponential.app.data.api.DevicesApi
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.SteerStartOptions
@@ -28,6 +27,8 @@ import com.exponential.app.domain.stableDeviceOrder
 import com.exponential.app.domain.toSteerDevice
 import com.exponential.app.ui.issue.StartIssueOption
 import com.exponential.app.ui.steer.ActionRunState
+import com.exponential.app.ui.steer.onlineStartTargets
+import com.exponential.app.ui.steer.steerDeviceFlow
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -68,7 +69,6 @@ class ActionsViewModel @Inject constructor(
     private val auth: AuthRepository,
     holder: DatabaseHolder,
     private val steerApi: SteerApi,
-    private val devicesApi: DevicesApi,
     private val automationsApi: AutomationsApi,
     private val selection: TeamSelection,
     private val json: Json,
@@ -81,9 +81,13 @@ class ActionsViewModel @Inject constructor(
 
     // The online machines a run can go to: the caller's own plus (EXP-432) the
     // selected team's shared servers, filtered to ONLINE so the flow keeps the
-    // presence-only semantics the screen gates on. null = not loaded yet.
-    private val _devices = MutableStateFlow<List<SteerDevice>?>(null)
-    val devices: StateFlow<List<SteerDevice>?> = _devices
+    // presence-only semantics the screen gates on. Off the synced devices
+    // shape since EXP-485. null = not resolved yet.
+    val devices: StateFlow<List<SteerDevice>?> = combine(
+        steerDeviceFlow(dbFlow, selection.selectedId, auth.userId),
+        _steerEnabled,
+    ) { devices, enabled -> onlineStartTargets(devices, enabled) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val _runState = MutableStateFlow<ActionRunState>(ActionRunState.Idle)
     val runState: StateFlow<ActionRunState> = _runState
@@ -373,19 +377,15 @@ class ActionsViewModel @Inject constructor(
     private var configuredAccountId: String? = null
 
     init {
-        // Steer availability + device presence, re-fetched on account switch
-        // (the AgentsViewModel pattern) and, since EXP-432, on team switch —
-        // the shared machines the list carries belong to the SELECTED team.
+        // Steer availability, resolved once per account (the AgentsViewModel
+        // pattern): it is env-derived and static per instance, and the machines
+        // themselves now come from sync rather than a per-team fetch.
         viewModelScope.launch {
-            combine(auth.activeAccountId, selection.selectedId) { accountId, teamId ->
-                accountId to teamId
-            }.collectLatest { (accountId, teamId) ->
-                _devices.value = null
+            auth.activeAccountId.collectLatest { accountId ->
                 _runState.value = ActionRunState.Idle
                 if (accountId == null) {
                     configuredAccountId = null
                     _steerEnabled.value = false
-                    _devices.value = emptyList()
                     return@collectLatest
                 }
                 if (configuredAccountId != accountId) {
@@ -394,31 +394,9 @@ class ActionsViewModel @Inject constructor(
                         .getOrDefault(false)
                     configuredAccountId = accountId
                 }
-                _devices.value = if (_steerEnabled.value == true) {
-                    fetchDevices(accountId, teamId) ?: emptyList()
-                } else {
-                    emptyList()
-                }
             }
         }
     }
-
-    /** Re-poll device presence (on screen resume) — no-op until steer resolves on. */
-    fun refreshDevices() {
-        if (_steerEnabled.value != true) return
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            // A failed re-poll keeps the list the screen is already showing.
-            fetchDevices(accountId, selection.selectedId.value)?.let { _devices.value = it }
-        }
-    }
-
-    // The team-scoped registry (EXP-432) narrowed to what can take a run right
-    // now: own machines plus teammates' shared servers, ONLINE only — the
-    // screen treats an empty list as "no desktop online". null = lookup failed.
-    private suspend fun fetchDevices(accountId: String, teamId: String?): List<SteerDevice>? =
-        runCatching { devicesApi.list(accountId, teamId).devices.filter { it.online } }
-            .getOrNull()
 
     fun consumeStartedSession() {
         _startedSessionId.value = null

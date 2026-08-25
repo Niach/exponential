@@ -117,9 +117,6 @@ final class IssueDetailViewModel {
     private let labelsApi: LabelsApi
     private let subscriptionsApi: SubscriptionsApi
     private let steerApi: SteerApi
-    /// EXP-432: the start circle's device source — `devices.list` team-scoped,
-    /// not `steer.myDevices`, so a teammate's shared server counts too.
-    private let devicesApi: DevicesApi
     /// Widget/agent submission metadata (EXP-496) — tRPC-only.
     private let widgetsApi: WidgetsApi
     private let auth: AuthRepository
@@ -148,7 +145,6 @@ final class IssueDetailViewModel {
         labelsApi: LabelsApi,
         subscriptionsApi: SubscriptionsApi,
         steerApi: SteerApi,
-        devicesApi: DevicesApi,
         widgetsApi: WidgetsApi,
         auth: AuthRepository
     ) {
@@ -161,7 +157,6 @@ final class IssueDetailViewModel {
         self.labelsApi = labelsApi
         self.subscriptionsApi = subscriptionsApi
         self.steerApi = steerApi
-        self.devicesApi = devicesApi
         self.widgetsApi = widgetsApi
         self.auth = auth
         let instanceUrl = auth.accounts.first(where: { $0.id == accountId })?.instanceUrl ?? auth.instanceUrl
@@ -542,7 +537,7 @@ final class IssueDetailViewModel {
         steerConfig = await SteerConfigCache.load(accountId: accountId, api: steerApi)
         guard steerConfig?.enabled == true, permissions.isMember, runningSessions.isEmpty else { return }
         // Scoped to the issue's team (EXP-432): teammates' shared servers are
-        // start targets too. `devices.list` also returns OFFLINE machines,
+        // start targets too. The synced rows carry OFFLINE machines as well,
         // which the circle must never offer — `onlineStartTargets` drops them.
         steerDevices = await DeviceQueries.onlineStartTargets(
             db: db, accountId: accountId,

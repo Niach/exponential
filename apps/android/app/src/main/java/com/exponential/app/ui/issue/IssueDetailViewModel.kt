@@ -7,7 +7,6 @@ import androidx.room.withTransaction
 import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.AttachmentsApi
 import com.exponential.app.data.api.CreateLabelInput
-import com.exponential.app.data.api.DevicesApi
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.LabelsApi
@@ -49,6 +48,8 @@ import com.exponential.app.ui.markdown.AttachmentDims
 import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.extractDescriptionMarkdown
 import com.exponential.app.ui.markdown.stripDraftImages
+import com.exponential.app.ui.steer.onlineStartTargets
+import com.exponential.app.ui.steer.steerDeviceFlow
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
 import java.util.UUID
@@ -106,7 +107,6 @@ class IssueDetailViewModel @Inject constructor(
     private val attachmentsApi: AttachmentsApi,
     private val notificationsApi: NotificationsApi,
     private val steerApi: SteerApi,
-    private val devicesApi: DevicesApi,
     private val widgetsApi: WidgetsApi,
     private val stats: SyncStats,
     private val syncManager: SyncManager,
@@ -354,9 +354,14 @@ class IssueDetailViewModel @Inject constructor(
     val widgetSubmission: StateFlow<WidgetSubmissionResult?> = _widgetSubmission
 
     // The online machines a start can go to: the caller's own plus (EXP-432)
-    // the board team's shared servers. null = not loaded yet.
-    private val _steerDevices = MutableStateFlow<List<SteerDevice>?>(null)
-    val steerDevices: StateFlow<List<SteerDevice>?> = _steerDevices
+    // the board team's shared servers, off the synced devices shape (EXP-485).
+    // ONLINE only — the screen reads an empty list as "no desktop online",
+    // which the registry's offline rows would break. null = not resolved yet.
+    val steerDevices: StateFlow<List<SteerDevice>?> = combine(
+        steerDeviceFlow(dbFlow, _board.map { it?.teamId }.distinctUntilChanged(), auth.userId),
+        _steerEnabled,
+    ) { devices, enabled -> onlineStartTargets(devices, enabled) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val _startState = MutableStateFlow<SteerStartState>(SteerStartState.Idle)
     val startState: StateFlow<SteerStartState> = _startState
@@ -828,7 +833,7 @@ class IssueDetailViewModel @Inject constructor(
         }
         // Steer availability, re-fetched on account switch. It is env-derived
         // and static per instance, so it stays keyed to the account alone —
-        // the device list below is what follows the team (EXP-432).
+        // steerDevices is what follows the team (EXP-432).
         viewModelScope.launch {
             auth.activeAccountId.collectLatest { accountId ->
                 _steerEnabled.value = null
@@ -839,32 +844,6 @@ class IssueDetailViewModel @Inject constructor(
                     runCatching { steerApi.config(accountId).enabled }.getOrDefault(false)
                 }
             }
-        }
-        // Device presence, re-fetched whenever the account, the board's team
-        // (EXP-432 — the list carries the team's shared servers too) or steer
-        // availability resolves. Filtered to ONLINE machines: the screen reads
-        // an empty list as "no desktop online", which the registry's offline
-        // rows would break.
-        viewModelScope.launch {
-            combine(
-                auth.activeAccountId,
-                _board.map { it?.teamId }.distinctUntilChanged(),
-                _steerEnabled,
-            ) { accountId, teamId, enabled -> Triple(accountId, teamId, enabled) }
-                .collectLatest { (accountId, teamId, enabled) ->
-                    if (enabled == null) {
-                        // Still resolving — back to the loading state.
-                        _steerDevices.value = null
-                        return@collectLatest
-                    }
-                    _steerDevices.value = if (accountId == null || !enabled) {
-                        emptyList()
-                    } else {
-                        runCatching {
-                            devicesApi.list(accountId, teamId).devices.filter { it.online }
-                        }.getOrDefault(emptyList())
-                    }
-                }
         }
     }
 

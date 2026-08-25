@@ -2,7 +2,6 @@ package com.exponential.app.ui.steer
 
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.ActionDto
-import com.exponential.app.data.api.DevicesApi
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.SteerStartOptions
@@ -48,7 +47,6 @@ sealed interface ActionRunState {
 class SteerLaunchDelegate @Inject constructor(
     private val auth: AuthRepository,
     private val steerApi: SteerApi,
-    private val devicesApi: DevicesApi,
     holder: DatabaseHolder,
     selection: TeamSelection,
 ) {
@@ -60,14 +58,16 @@ class SteerLaunchDelegate @Inject constructor(
     /** Steer availability on this instance. null = not resolved yet. */
     val enabled: StateFlow<Boolean?> = _enabled
 
-    private val _devices = MutableStateFlow<List<SteerDevice>?>(null)
+    private val noDevices = MutableStateFlow<List<SteerDevice>?>(null)
+    private var _devices: StateFlow<List<SteerDevice>?>? = null
     /**
      * The online machines this surface can start on: the caller's own plus
      * (EXP-432) the selected team's shared servers, filtered to ONLINE so the
      * flow keeps the presence-only semantics its callers gate on. null = not
-     * loaded yet.
+     * resolved yet. Empty until [attach].
      */
-    val devices: StateFlow<List<SteerDevice>?> = _devices
+    val devices: StateFlow<List<SteerDevice>?>
+        get() = _devices ?: noDevices
 
     private val _runState = MutableStateFlow<ActionRunState>(ActionRunState.Idle)
     val runState: StateFlow<ActionRunState> = _runState
@@ -134,22 +134,25 @@ class SteerLaunchDelegate @Inject constructor(
             }
         }.stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-        // Steer availability + device presence, re-fetched on account switch.
-        // EXP-432: the fetch is team-scoped, so it re-runs on a team switch too
-        // — steer.config is static per instance, so only the first pass of an
-        // account resolves it (re-running would blank `enabled` and flicker the
-        // hosting screen's start affordances).
+        // The team-scoped registry (EXP-432) narrowed to what can take a start
+        // right now — off the synced shape since EXP-485, so a team switch
+        // re-scopes it without a round trip.
+        _devices = combine(
+            steerDeviceFlow(dbFlow, teamIdFlow, auth.userId),
+            _enabled,
+        ) { devices, enabled -> onlineStartTargets(devices, enabled) }
+            .stateIn(scope, SharingStarted.WhileSubscribed(5_000), null)
+
+        // Steer availability, resolved once per account: it is env-derived and
+        // static per INSTANCE, so re-running it would blank `enabled` and
+        // flicker the hosting screen's start affordances.
         scope.launch {
             var configuredAccountId: String? = null
-            combine(auth.activeAccountId, teamIdFlow) { accountId, teamId ->
-                accountId to teamId
-            }.collectLatest { (accountId, teamId) ->
-                _devices.value = null
+            auth.activeAccountId.collectLatest { accountId ->
                 _runState.value = ActionRunState.Idle
                 if (accountId == null) {
                     configuredAccountId = null
                     _enabled.value = false
-                    _devices.value = emptyList()
                     return@collectLatest
                 }
                 if (configuredAccountId != accountId) {
@@ -158,33 +161,9 @@ class SteerLaunchDelegate @Inject constructor(
                         .getOrDefault(false)
                     configuredAccountId = accountId
                 }
-                _devices.value = if (_enabled.value == true) {
-                    fetchDevices(accountId, teamId) ?: emptyList()
-                } else {
-                    emptyList()
-                }
             }
         }
     }
-
-    /** Re-poll device presence (on screen resume) — no-op until steer resolves on. */
-    fun refreshDevices() {
-        if (_enabled.value != true) return
-        val scope = scope ?: return
-        scope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            // A failed re-poll keeps the list the screen is already showing.
-            fetchDevices(accountId, teamIdFlow.value)?.let { _devices.value = it }
-        }
-    }
-
-    // The team-scoped registry (EXP-432) narrowed to what can take a start
-    // right now: own machines plus teammates' shared servers, ONLINE only —
-    // the callers treat an empty list as "no machine online". null = the
-    // lookup failed.
-    private suspend fun fetchDevices(accountId: String, teamId: String?): List<SteerDevice>? =
-        runCatching { devicesApi.list(accountId, teamId).devices.filter { it.online } }
-            .getOrNull()
 
     fun consumeStartedSession() {
         _startedSessionId.value = null

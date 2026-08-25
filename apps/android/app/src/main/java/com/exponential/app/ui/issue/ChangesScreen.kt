@@ -195,7 +195,6 @@ class ChangesViewModel @Inject constructor(
     val runState: StateFlow<ActionRunState> get() = steerLaunch.runState
     val startedSessionId: StateFlow<String?> get() = steerLaunch.startedSessionId
 
-    fun refreshDevices() = steerLaunch.refreshDevices()
     fun consumeStartedSession() = steerLaunch.consumeStartedSession()
     fun runAction(
         device: SteerDevice,

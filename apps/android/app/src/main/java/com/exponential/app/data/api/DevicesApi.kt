@@ -17,8 +17,8 @@ import kotlinx.serialization.json.put
 // carries the curation mutations (rename/remove/update/share), the
 // server-authoritative launch-defaults edit, and the owner→device worktree
 // command queue (remove/prune — durable rows the machine picks up on its
-// heartbeat, online or not). `list` survives ONLY as the latestVersions
-// source; the rows themselves come from sync.
+// heartbeat, online or not). The rows themselves come from sync; EXP-485
+// retired `devices.list` here for the informational `latestVersions` query.
 
 /**
  * Informational `CLIENT_LATEST_VERSION_*` values (null when unset
@@ -29,12 +29,6 @@ import kotlinx.serialization.json.put
 data class DeviceLatestVersions(
     @SerialName("desktop") val desktop: String? = null,
     @SerialName("cli") val cli: String? = null,
-)
-
-@Serializable
-data class DeviceListResult(
-    @SerialName("devices") val devices: List<SteerDevice> = emptyList(),
-    @SerialName("latestVersions") val latestVersions: DeviceLatestVersions = DeviceLatestVersions(),
 )
 
 @Serializable
@@ -92,21 +86,18 @@ private data class SetLaunchDefaultsInput(
 class DevicesApi @Inject constructor(private val trpc: TrpcClient) {
 
     /**
-     * `devices.list` — the caller's machines, online and offline. With
-     * [teamId] the response ALSO carries teammates' server machines shared
-     * with that team (EXP-432), appended after the caller's own rows and
-     * marked by their [SteerDevice.owner]. Omitting it keeps the pre-EXP-432
-     * own-machines-only behavior (the input is optional server-side).
+     * `devices.latestVersions` (EXP-485) — the instance's informational
+     * `CLIENT_LATEST_VERSION_*` values, the only thing the machine list still
+     * needs from tRPC. Input-less: an empty object is dropped from the URL
+     * entirely (TrpcClient's omitInputIfEmpty).
      */
-    suspend fun list(accountId: String, teamId: String? = null): DeviceListResult =
+    suspend fun latestVersions(accountId: String): DeviceLatestVersions =
         trpc.query(
             accountId,
-            path = "devices.list",
-            // An empty object is dropped from the URL entirely (TrpcClient's
-            // omitInputIfEmpty), which is exactly what the no-team call means.
-            input = buildJsonObject { if (teamId != null) put("teamId", teamId) },
+            path = "devices.latestVersions",
+            input = buildJsonObject { },
             inputSerializer = JsonObject.serializer(),
-            outputSerializer = DeviceListResult.serializer(),
+            outputSerializer = DeviceLatestVersions.serializer(),
         )
 
     /** `devices.rename` — the registry label wins over what the relay holds. */

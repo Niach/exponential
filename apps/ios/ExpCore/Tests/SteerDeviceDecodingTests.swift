@@ -2,10 +2,10 @@ import Foundation
 import XCTest
 @testable import ExpCore
 
-// EXP-403: `devices.list` (the durable registry merged with relay presence)
-// and `steer.myDevices` (presence only) decode into ONE `SteerDevice`,
-// mirroring apps/web/src/lib/steer-devices.ts. The registry fields are all
-// optional, so a presence row — which carries none of them — must still read
+// EXP-403: registry rows (the durable per-machine state, synced through the
+// devices shape) and `steer.myDevices` (presence only) decode into ONE
+// `SteerDevice`, mirroring apps/web/src/lib/steer-devices.ts. The registry
+// fields are all optional, so a presence row — which carries none — must read
 // as ONLINE: treating an absent `online` as offline would hide every start
 // affordance the moment an older server answers. EXP-432 adds the two sharing
 // fields on the same terms — both optional, both absent from an older server,
@@ -20,8 +20,7 @@ final class SteerDeviceDecodingTests: XCTestCase {
         {"devices":[{"deviceId":"d1","deviceLabel":"build-box","kind":"server",
         "platform":"linux","agents":["claude"],"caps":["actions"],"online":false,
         "lastSeenAt":"2026-08-03T10:00:00.000Z","registered":true,"version":"0.8.52",
-        "updateRequested":true,"updateBlocked":true}],
-        "latestVersions":{"desktop":"1.2.3","cli":"0.8.53"}}
+        "updateRequested":true,"updateBlocked":true}]}
         """)
         let device = try XCTUnwrap(result.devices.first)
         XCTAssertEqual(device.deviceId, "d1")
@@ -34,10 +33,19 @@ final class SteerDeviceDecodingTests: XCTestCase {
         XCTAssertTrue(device.updateBlocked == true)
         XCTAssertEqual(device.lastSeenAt, "2026-08-03T10:00:00.000Z")
         XCTAssertTrue(device.canRunActions)
-        // EXP-420: the envelope's latestVersions decodes and gates Update.
-        XCTAssertEqual(result.latestVersions?.cli, "0.8.53")
-        XCTAssertEqual(result.latestVersions?.desktop, "1.2.3")
-        XCTAssertTrue(device.updateAvailable(latest: result.latestVersions?.cli))
+    }
+
+    /// EXP-420: `devices.latestVersions` is its own two-field result now — the
+    /// machines themselves arrive over the devices shape, so nothing carries
+    /// the hint as an envelope field any more. Either channel may be null:
+    /// the instance simply doesn't advertise one.
+    func testDecodesLatestVersionsResult() throws {
+        let versions = try JSONDecoder().decode(
+            LatestVersions.self,
+            from: Data(#"{"desktop":"1.2.3","cli":null}"#.utf8)
+        )
+        XCTAssertEqual(versions.desktop, "1.2.3")
+        XCTAssertNil(versions.cli)
     }
 
     /// EXP-420: the Update affordance may only claim a newer version exists
@@ -49,7 +57,6 @@ final class SteerDeviceDecodingTests: XCTestCase {
         "online":true,"registered":true,"version":"0.9.9"}]}
         """)
         let device = try XCTUnwrap(result.devices.first)
-        XCTAssertNil(result.latestVersions)  // steer.myDevices has no envelope field
         XCTAssertTrue(device.updateAvailable(latest: "0.10.0"))
         XCTAssertFalse(device.updateAvailable(latest: "0.9.9"))
         XCTAssertFalse(device.updateAvailable(latest: "0.9.8"))
@@ -119,8 +126,8 @@ final class SteerDeviceDecodingTests: XCTestCase {
     }
 
     func testDecodesExplicitNullRegistryFields() throws {
-        // The entry `devices.list` appends for a relay-connected device that
-        // never registered: present keys, JSON nulls.
+        // A relay-connected device that never registered: present keys, JSON
+        // nulls.
         let result = try decode("""
         {"devices":[{"deviceId":"d3","deviceLabel":"old-desktop","kind":"desktop",
         "platform":null,"agents":["claude"],"caps":[],"online":true,"lastSeenAt":null,
@@ -136,8 +143,8 @@ final class SteerDeviceDecodingTests: XCTestCase {
         XCTAssertTrue(device.isMine)
     }
 
-    /// EXP-432: a team-scoped `devices.list` APPENDS teammates' shared servers
-    /// after the caller's own rows. `owner` is the whole tell — own rows never
+    /// EXP-432: teammates' shared servers ride along after the caller's own
+    /// rows. `owner` is the whole tell — own rows never
     /// carry it — while `sharedTeamId` rides own rows too, so it must never be
     /// read as "somebody else's machine".
     func testDecodesTeamSharedDevice() throws {

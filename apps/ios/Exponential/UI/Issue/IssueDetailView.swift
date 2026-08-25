@@ -413,7 +413,6 @@ struct IssueDetailView: View {
                     labelsApi: deps.labelsApi,
                     subscriptionsApi: deps.subscriptionsApi,
                     steerApi: deps.steerApi,
-                    devicesApi: deps.devicesApi,
                     widgetsApi: deps.widgetsApi,
                     auth: deps.auth
                 )
