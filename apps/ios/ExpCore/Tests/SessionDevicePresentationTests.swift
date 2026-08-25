@@ -167,7 +167,6 @@ final class SessionDevicePresentationTests: XCTestCase {
         // The PR is out — the machine's presence stopped mattering.
         XCTAssertFalse(offline.isPaused(.review))
         XCTAssertFalse(offline.isPaused(.done))
-        XCTAssertFalse(offline.isPaused(.merged))
     }
 
     func testOnlineNeverPauses() {

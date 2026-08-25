@@ -123,7 +123,7 @@ final class AgentSessionModel {
     /// the session is PAUSED, not ended (it resumes when the machine comes
     /// back), so the viewer shows that instead of an endless "waiting for the
     /// live stream". Mirrors `SessionDevicePresentation.isPaused`: an
-    /// in_review/merged/ended row is past caring where its machine is.
+    /// in_review/ended row is past caring where its machine is.
     var hostDeviceOffline: Bool {
         guard hostDevice.offline, let session, !sessionEnded else { return false }
         return session.status == DomainContract.codingSessionStatusRunning

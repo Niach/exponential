@@ -642,8 +642,7 @@ export async function applyPrMergeState(opts: {
 }
 
 // The EXP-498 in-tx merge sweep: end every live session on the issue whose
-// PR just merged. `merged` is matched too — a legacy value (pre-498 park)
-// that must not survive a merge either. updatedAt stamped explicitly (no
+// PR just merged. updatedAt stamped explicitly (no
 // $onUpdate on this table). Batch (issue-less) session rows can't be matched
 // by issue_id — the desktop self-closes those when its branch's issues sync
 // a merged PR. Returns the ended row ids for the caller's POST-commit relay
@@ -658,7 +657,7 @@ export async function endLiveIssueSessionsInTx(
     .where(
       and(
         eq(codingSessions.issueId, issueId),
-        inArray(codingSessions.status, [`running`, `in_review`, `merged`])
+        inArray(codingSessions.status, [`running`, `in_review`])
       )
     )
     .returning({ id: codingSessions.id })
@@ -678,9 +677,8 @@ async function relayKillSessions(sessionIds: string[]): Promise<void> {
 // Idempotent belt-and-braces sweep (EXP-498): end every live session on the
 // given issues whose PR already merged. The claim winner inside
 // applyPrMergeState normally ends them in-tx; this catches the paths that
-// lose the claim (issues.mergePr racing the webhook) and legacy rows still
-// parked in the pre-498 `merged` status. Safe to call repeatedly — matched
-// statuses exclude `ended`.
+// lose the claim (issues.mergePr racing the webhook). Safe to call
+// repeatedly — matched statuses exclude `ended`.
 export async function endMergedPrSessions(issueIds: string[]): Promise<void> {
   if (issueIds.length === 0) return
   const endedSessionIds = await db.transaction(async (tx) => {
@@ -692,7 +690,7 @@ export async function endMergedPrSessions(issueIds: string[]): Promise<void> {
       .where(
         and(
           inArray(codingSessions.issueId, issueIds),
-          inArray(codingSessions.status, [`running`, `in_review`, `merged`])
+          inArray(codingSessions.status, [`running`, `in_review`])
         )
       )
       .returning({ id: codingSessions.id })

@@ -67,13 +67,13 @@ public struct SessionDevicePresentation: Equatable {
     }
 
     /// Whether the run reads "Paused" rather than live: the host is offline
-    /// AND the run is still coding. A finished run (review/done/merged) keeps
-    /// its own state — its machine's presence stopped mattering.
+    /// AND the run is still coding. A finished run (review/done) keeps its own
+    /// state — its machine's presence stopped mattering.
     public func isPaused(_ state: CodingSessionDisplayState) -> Bool {
         guard offline else { return false }
         switch state {
         case .running, .needsInput: return true
-        case .review, .done, .merged: return false
+        case .review, .done: return false
         }
     }
 

@@ -17,9 +17,9 @@ import { codingSessions } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
 import { getSteerRelayConfig, relayPostKill } from "@/lib/steer"
 
-/** Statuses that still have a live agent behind them (EXP-358 keeps
- * in_review/merged steerable). */
-const LIVE_STATUSES = [`running`, `in_review`, `merged`] as const
+/** Statuses that still have a live agent behind them (in_review stays
+ * steerable while the PR awaits review). */
+const LIVE_STATUSES = [`running`, `in_review`] as const
 
 /**
  * End every live session hosted by `hostUserId` for a REQUESTER other than

@@ -481,8 +481,8 @@ team settings → Repositories.";
 }
 
 /// Take a fix-conflicts run's branch over from the local sessions still
-/// holding its worktree. Sessions outlive their PR (EXP-358 keeps them alive
-/// through in_review/merged, so the session that opened the PR commonly
+/// holding its worktree. Sessions outlive their PR's OPENING (EXP-194 keeps
+/// them alive through `in_review`, so the session that opened the PR commonly
 /// survives a failed merge) and the fix run supersedes them: close their tabs
 /// now — `close_tab` kills and joins the PTY, and the `TabClosed` watcher
 /// fires the idempotent `codingSessions.end` — so the rebase never runs under

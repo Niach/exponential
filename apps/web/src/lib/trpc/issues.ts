@@ -1246,8 +1246,7 @@ export const issuesRouter = router({
       if (row.prState === `merged`) {
         // Already merged (e.g. the webhook beat us) — idempotent no-op for
         // the PR itself, but merge always closes (EXP-498): sweep any live
-        // sessions the earlier writer missed (or legacy rows a pre-498
-        // webhook parked in `merged`).
+        // sessions the earlier writer missed.
         const linked = await ctx.db
           .select({ id: issues.id })
           .from(issues)

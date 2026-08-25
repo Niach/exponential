@@ -390,8 +390,8 @@ describe(`codingSessions.heartbeat — in_review liveness`, () => {
     expect(Object.keys(updates[0]!.values)).toEqual([`updatedAt`])
   })
 
-  it(`advances updated_at for a legacy merged row without touching status`, async () => {
-    selectResults.push([{ userId: `actor`, status: `merged` }])
+  it(`advances updated_at for an in_review row without touching status`, async () => {
+    selectResults.push([{ userId: `actor`, status: `in_review` }])
 
     const result = await caller.heartbeat({ id: SESSION_ID })
 
@@ -739,13 +739,12 @@ describe(`codingSessions.setNeedsInput — attention flag (EXP-214)`, () => {
     const shape = whereShape(updateWheres[0]).flat()
     expect(shape).toContain(`running`)
     expect(shape).not.toContain(`in_review`)
-    expect(shape).not.toContain(`merged`)
   })
 
   it(`clears needs_input on every live status (EXP-531)`, async () => {
-    // Legacy `merged` rows included — false still lands anywhere live, so a
-    // stale flag can always be retired.
-    selectResults.push([{ userId: `actor`, status: `merged` }])
+    // false still lands anywhere live, so a stale flag can always be
+    // retired.
+    selectResults.push([{ userId: `actor`, status: `in_review` }])
 
     const result = await caller.setNeedsInput({
       id: SESSION_ID,
@@ -758,7 +757,6 @@ describe(`codingSessions.setNeedsInput — attention flag (EXP-214)`, () => {
     const shape = whereShape(updateWheres[0]).flat()
     expect(shape).toContain(`running`)
     expect(shape).toContain(`in_review`)
-    expect(shape).toContain(`merged`)
   })
 
   it(`reports a swept row without writing`, async () => {

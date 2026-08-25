@@ -182,7 +182,7 @@ export async function guardAndCleanupTeamsForUserDeletion(
       and(
         eq(codingSessions.userId, userId),
         isNotNull(codingSessions.hostUserId),
-        inArray(codingSessions.status, [`running`, `in_review`, `merged`])
+        inArray(codingSessions.status, [`running`, `in_review`])
       )
     )
     .returning({ id: codingSessions.id })
@@ -199,7 +199,7 @@ export async function guardAndCleanupTeamsForUserDeletion(
       and(
         eq(codingSessions.hostUserId, userId),
         ne(codingSessions.userId, userId),
-        inArray(codingSessions.status, [`running`, `in_review`, `merged`])
+        inArray(codingSessions.status, [`running`, `in_review`])
       )
     )
     .returning({ id: codingSessions.id })

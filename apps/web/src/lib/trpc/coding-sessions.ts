@@ -161,8 +161,8 @@ export const codingSessionsRouter = router({
   // EXP-403: the CLI daemon's REV2-24 one-session-per-issue probe — the
   // desktop reads its synced coding_sessions collection for this; the
   // headless daemon has no sync and asks the server instead. "Live" mirrors
-  // the client predicate: status still alive (EXP-358 keeps in_review/merged
-  // sessions steerable) AND updated_at within the staleness window.
+  // the client predicate: status still alive (in_review sessions stay
+  // steerable) AND updated_at within the staleness window.
   // Member-scoped via the issue's team.
   liveForIssue: authedProcedure
     .input(z.object({ issueId: z.string().uuid() }))
@@ -179,7 +179,7 @@ export const codingSessionsRouter = router({
         .where(
           and(
             eq(codingSessions.issueId, input.issueId),
-            inArray(codingSessions.status, [`running`, `in_review`, `merged`]),
+            inArray(codingSessions.status, [`running`, `in_review`]),
             gte(
               codingSessions.updatedAt,
               new Date(Date.now() - CODING_SESSION_STALE_MS)
@@ -579,7 +579,7 @@ export const codingSessionsRouter = router({
       // Status-conditioned so a heartbeat racing a kill/end can never
       // resurrect the row's freshness after it ended. The SET touches only
       // updatedAt — never status — so a ping cannot downgrade an
-      // `in_review`/`merged` row back to `running`. EXP-549: a ping carrying
+      // `in_review` row back to `running`. EXP-549: a ping carrying
       // the deviceId also refreshes the device stamp (id + the registry
       // label), so rows started by older builds pick up their identity and a
       // rename converges within one beat even for clients that only render
@@ -593,7 +593,7 @@ export const codingSessionsRouter = router({
         .where(
           and(
             eq(codingSessions.id, input.id),
-            inArray(codingSessions.status, [`running`, `in_review`, `merged`])
+            inArray(codingSessions.status, [`running`, `in_review`])
           )
         )
         .returning({ id: codingSessions.id })
@@ -639,7 +639,7 @@ export const codingSessionsRouter = router({
       }
 
       // Status-conditioned like heartbeat: an ended row stays final and
-      // never re-surfaces as "needs input", and a reviewed/merged row only
+      // never re-surfaces as "needs input", and a reviewed row only
       // ever accepts the CLEAR (EXP-531).
       const updated = await ctx.db
         .update(codingSessions)
@@ -649,9 +649,7 @@ export const codingSessionsRouter = router({
             eq(codingSessions.id, input.id),
             inArray(
               codingSessions.status,
-              input.needsInput
-                ? [`running`]
-                : [`running`, `in_review`, `merged`]
+              input.needsInput ? [`running`] : [`running`, `in_review`]
             )
           )
         )

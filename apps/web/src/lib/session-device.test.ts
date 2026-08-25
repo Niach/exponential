@@ -107,9 +107,8 @@ describe(`sessionIsPaused`, () => {
     expect(sessionIsPaused(`running`, offline)).toBe(true)
     expect(sessionIsPaused(`needs_input`, offline)).toBe(true)
   })
-  it(`never overrides review/merged/done`, () => {
+  it(`never overrides review/done`, () => {
     expect(sessionIsPaused(`review`, offline)).toBe(false)
-    expect(sessionIsPaused(`merged`, offline)).toBe(false)
     expect(sessionIsPaused(`done`, offline)).toBe(false)
   })
   it(`unknown or online devices never pause`, () => {

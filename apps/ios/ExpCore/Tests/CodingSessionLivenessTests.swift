@@ -61,22 +61,6 @@ final class CodingSessionLivenessTests: XCTestCase {
         )
     }
 
-    // EXP-358: a PR merge parks the session on `merged` instead of ending it —
-    // the row stays live (and steerable) until someone closes it.
-    func testMergedWithinStaleWindowIsLive() {
-        XCTAssertTrue(
-            CodingSessionLiveness.isLive(session(status: "merged", updatedAt: "2026-07-17T11:30:00Z"), now: now)
-        )
-    }
-
-    func testMergedPastWindowIsNotLive() {
-        // Same staleness guard — a crashed desktop can't pin a phantom
-        // "merged" row either.
-        XCTAssertFalse(
-            CodingSessionLiveness.isLive(session(status: "merged", updatedAt: "2026-07-17T09:00:00Z"), now: now)
-        )
-    }
-
     func testUnparseableTimestampFailsOpen() {
         // A garbled liveness signal must never hide a session the server
         // still considers alive — the sweep is the backstop.

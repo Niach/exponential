@@ -121,7 +121,6 @@ class SessionDevicePresentationTest {
         assertTrue(offline.isPaused(CodingSessionDisplayState.NeedsInput))
         assertFalse(offline.isPaused(CodingSessionDisplayState.Review))
         assertFalse(offline.isPaused(CodingSessionDisplayState.Done))
-        assertFalse(offline.isPaused(CodingSessionDisplayState.Merged))
 
         val online = resolveSessionDevice(
             session(deviceId = "dev-1", deviceLabel = "macbook"),

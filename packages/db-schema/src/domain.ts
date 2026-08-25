@@ -299,13 +299,13 @@ export const prStateValues = [`open`, `closed`, `merged`, `draft`] as const
 // and →ended on PR merge (EXP-498: merge ALWAYS ends the session, on every
 // merge path); →ended also comes from the explicit kills (steer.killSession,
 // codingSessions.end). The →ended flip is the desktop's remote-kill switch.
-// `merged` is a LEGACY value (EXP-358, reversed by EXP-498) never written
-// anew — kept in the enum for rows parked there by pre-498 servers and for
-// old clients that still render it.
+// The legacy `merged` park state (EXP-358, reversed by EXP-498) was retired
+// by EXP-540: migration 0085 moved the last rows to `ended`, and only the PG
+// type keeps the orphan label (see schema.ts). Clients infer "done" from
+// `in_review` + prState `merged` for old servers.
 export const codingSessionStatusValues = [
   `running`,
   `in_review`,
-  `merged`,
   `ended`,
 ] as const
 

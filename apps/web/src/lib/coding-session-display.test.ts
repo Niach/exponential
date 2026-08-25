@@ -5,13 +5,7 @@ import { sessionDisplayState } from "./coding-session-display"
 // CodingSessionDisplayTest.kt assert the same cases; move all of them in
 // lockstep.
 describe(`sessionDisplayState`, () => {
-  it(`merged status wins over needsInput`, () => {
-    expect(
-      sessionDisplayState({ status: `merged`, needsInput: true }, `open`)
-    ).toBe(`merged`)
-  })
-
-  it(`legacy in_review with a merged PR stays done`, () => {
+  it(`in_review with a merged PR is done (old-server tolerance)`, () => {
     expect(
       sessionDisplayState({ status: `in_review`, needsInput: false }, `merged`)
     ).toBe(`done`)

@@ -97,7 +97,6 @@ describe(`endForeignHostedSessions`, () => {
       `col:status`,
       `running`,
       `in_review`,
-      `merged`,
     ])
     expect(h.relayPostKill).toHaveBeenCalledTimes(2)
     expect(h.relayPostKill).toHaveBeenCalledWith(expect.anything(), `sess-1`)

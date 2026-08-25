@@ -470,7 +470,6 @@ describe(`guardAndCleanupTeamsForUserDeletion — coding sessions (EXP-445)`, ()
       `col:status`,
       `running`,
       `in_review`,
-      `merged`,
     ])
     expect(result.endedSessionIds).toContain(`sess-requested`)
   })
@@ -499,7 +498,6 @@ describe(`guardAndCleanupTeamsForUserDeletion — coding sessions (EXP-445)`, ()
       `col:status`,
       `running`,
       `in_review`,
-      `merged`,
     ])
     expect(result.endedSessionIds).toEqual([`sess-hosted`])
   })

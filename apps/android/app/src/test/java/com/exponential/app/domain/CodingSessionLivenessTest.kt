@@ -57,20 +57,6 @@ class CodingSessionLivenessTest {
     }
 
     @Test
-    fun mergedWithinStaleWindowIsLive() {
-        // EXP-358: a PR merge parks the session on `merged` instead of killing
-        // it — the terminal stays alive and steerable until it's closed.
-        assertTrue(CodingSessionLiveness.isLive(session("merged", "2026-07-17T11:30:00Z"), nowMs))
-        assertTrue(DomainContract.codingSessionStatusMerged in CodingSessionLiveness.liveStatuses)
-    }
-
-    @Test
-    fun mergedPastWindowIsNotLive() {
-        // A stale merged heartbeat drops out just like a stale in_review one.
-        assertFalse(CodingSessionLiveness.isLive(session("merged", "2026-07-17T09:00:00Z"), nowMs))
-    }
-
-    @Test
     fun endedIsNeverLiveEvenWhenFresh() {
         // `ended` is the desktop kill-switch — never live, regardless of a
         // fresh heartbeat.

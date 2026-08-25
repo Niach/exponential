@@ -790,14 +790,12 @@ struct AgentsView: View {
     }
 
     /// Static-dot/label tint per parked display state (EXP-194/EXP-214):
-    /// review green, done/merged blue (the issue-status palette), needs-input
-    /// amber.
+    /// review green, done blue (the issue-status palette), needs-input amber.
     private func stateColor(_ state: CodingSessionDisplayState) -> Color {
         switch state {
         case .needsInput: DesignTokens.Semantic.yellow
         case .review: DesignTokens.Semantic.green
         case .done: DesignTokens.Semantic.blue
-        case .merged: DesignTokens.Semantic.blue
         case .running: DesignTokens.Semantic.green
         }
     }
@@ -807,7 +805,6 @@ struct AgentsView: View {
         case .needsInput: "Needs input"
         case .review: "Ready for review"
         case .done: "Done"
-        case .merged: "Merged"
         case .running: nil
         }
     }

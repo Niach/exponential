@@ -87,12 +87,10 @@ final class AgentsViewModel {
         let sessionObservation = ValueObservation.tracking { db in
             try CodingSessionEntity
                 // Every live status — an in_review session is still watchable
-                // (EXP-194) and a merged one outlives its PR (EXP-358);
-                // `rebuild()`'s liveness filter drops stale rows.
+                // (EXP-194); `rebuild()`'s liveness filter drops stale rows.
                 .filter([
                     DomainContract.codingSessionStatusRunning,
                     DomainContract.codingSessionStatusInReview,
-                    DomainContract.codingSessionStatusMerged,
                 ].contains(Column("status")))
                 .fetchAll(db)
         }

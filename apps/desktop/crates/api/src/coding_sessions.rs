@@ -54,7 +54,7 @@ pub struct CodingSession {
     /// needs it to recognize a hosted row's →ended flip as its own kill.
     #[serde(default)]
     pub host_user_id: Option<String>,
-    /// `running` | `in_review` | `merged` | `ended` (contract enum
+    /// `running` | `in_review` | `ended` (contract enum
     /// `coding_session_status`).
     #[serde(default)]
     pub status: Option<String>,

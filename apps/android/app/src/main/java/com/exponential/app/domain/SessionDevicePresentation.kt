@@ -27,7 +27,7 @@ data class SessionDevicePresentation(
     /**
      * Whether the session should read "paused" instead of live. Only a session
      * that would otherwise render as still-working can pause — a row already
-     * in review / done / merged is parked on its own outcome, and an offline
+     * in review / done is parked on its own outcome, and an offline
      * machine says nothing about it.
      */
     fun isPaused(state: CodingSessionDisplayState): Boolean =

@@ -46,9 +46,8 @@ export function useReviewsOpenPrCount(
 }
 
 // Live count of the signed-in user's OWN live coding sessions in the team —
-// running, in_review AND merged (EXP-194: an agent awaiting review is exactly
-// what the dot should pull attention to; EXP-358: a session surviving its
-// merge is still live). Own-only to match the owner-only Agents list: a
+// running AND in_review (EXP-194: an agent awaiting review is exactly
+// what the dot should pull attention to). Own-only to match the owner-only Agents list: a
 // teammate's session must not light a badge over a list that shows nothing.
 // Staleness guard (EXP-153): heartbeat-dead rows don't count. `needsInput`
 // (EXP-214) is true while any live session sits on a plan-approval /
@@ -69,7 +68,7 @@ export function useAgentsRunningCount(
               and(
                 eq(sessions.teamId, teamId),
                 eq(sessions.userId, currentUserId),
-                inArray(sessions.status, [`running`, `in_review`, `merged`])
+                inArray(sessions.status, [`running`, `in_review`])
               )
             )
         : undefined,

@@ -4,10 +4,9 @@ import com.exponential.app.data.db.CodingSessionEntity
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-// EXP-358: the `merged` status is the FIRST thing the display state checks —
-// a merged-but-alive session reads as "Merged" no matter what the linked issue
-// says. The legacy in_review + prState=merged split stays for rows written
-// before the flip (and older servers).
+// EXP-540: there is no `merged` session status — merging ends the session
+// (EXP-498). The in_review + prState=merged split is the old-server tolerance:
+// a lagging server can still park a row on in_review with a merged PR.
 class CodingSessionDisplayTest {
 
     private fun session(status: String, needsInput: Boolean = false) = CodingSessionEntity(
@@ -23,27 +22,9 @@ class CodingSessionDisplayTest {
     )
 
     @Test
-    fun mergedStatusRendersMerged() {
-        assertEquals(
-            CodingSessionDisplayState.Merged,
-            codingSessionDisplayState(session("merged"), "merged"),
-        )
-    }
-
-    @Test
-    fun mergedStatusWinsOverNeedsInput() {
-        // The merge outcome is the headline; a stale attention flag must not
-        // repaint the row amber.
-        assertEquals(
-            CodingSessionDisplayState.Merged,
-            codingSessionDisplayState(session("merged", needsInput = true), "open"),
-        )
-    }
-
-    @Test
-    fun legacyInReviewWithMergedPrStaysDone() {
-        // Pre-EXP-358 rows (and older servers) never get the `merged` status —
-        // they keep splitting on the issue's PR outcome.
+    fun inReviewWithMergedPrStaysDone() {
+        // Old-server tolerance: a row parked on in_review whose PR is already
+        // merged reads as Done, not "ready for review".
         assertEquals(
             CodingSessionDisplayState.Done,
             codingSessionDisplayState(session("in_review"), "merged"),

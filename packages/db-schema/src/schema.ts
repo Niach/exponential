@@ -25,7 +25,6 @@ import {
   actionInputsSchema,
   type AutomationTrigger,
   codingSessionStatusSchema,
-  codingSessionStatusValues,
   commentBodySchema,
   issueDescriptionSchema,
   issueEventTypeSchema,
@@ -80,10 +79,16 @@ export const teamMemberRoleEnum = pgEnum(`team_member_role`, teamRoleValues)
 
 export const prStateEnum = pgEnum(`pr_state`, prStateValues)
 
-export const codingSessionStatusEnum = pgEnum(
-  `coding_session_status`,
-  codingSessionStatusValues
-)
+// The PG type keeps the orphan `merged` label (EXP-540 migrated every row to
+// `ended`): dropping an enum VALUE needs a full type recreate, and no writer
+// or reader can produce it any more. Deliberately NOT derived from
+// codingSessionStatusValues — that list is the app vocabulary.
+export const codingSessionStatusEnum = pgEnum(`coding_session_status`, [
+  `running`,
+  `in_review`,
+  `merged`,
+  `ended`,
+])
 
 export const issueEventTypeEnum = pgEnum(
   `issue_event_type`,

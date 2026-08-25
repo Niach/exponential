@@ -57,7 +57,6 @@ const AutomationCreateIcon = conceptIcon(`action-automation`)
 const SESSION_STATUS_LABELS: Record<string, string> = {
   running: `Running`,
   in_review: `In review`,
-  merged: `Merged`,
   ended: `Ended`,
 }
 

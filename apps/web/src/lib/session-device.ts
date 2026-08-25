@@ -58,8 +58,8 @@ export function resolveSessionDevice(
 
 /** A running/needs-input session on an offline machine reads as PAUSED —
  * the agent is parked, not gone, and resumes when the device returns. Parked
- * review/merged/done states stay what they are (the PR outcome is the
- * story there, not the machine). */
+ * review/done states stay what they are (the PR outcome is the story there,
+ * not the machine). */
 export function sessionIsPaused(
   state: SessionDisplayState,
   device: SessionDevice

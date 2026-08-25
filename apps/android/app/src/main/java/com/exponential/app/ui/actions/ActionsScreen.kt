@@ -775,7 +775,6 @@ private fun AutomatedRunRow(session: CodingSessionEntity) {
 private fun sessionStatusLabel(status: String): String = when (status) {
     DomainContract.codingSessionStatusRunning -> "Running"
     DomainContract.codingSessionStatusInReview -> "In review"
-    DomainContract.codingSessionStatusMerged -> "Merged"
     DomainContract.codingSessionStatusEnded -> "Ended"
     else -> status.replace('_', ' ').replaceFirstChar { it.uppercaseChar() }
 }

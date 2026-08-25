@@ -141,11 +141,6 @@ const SESSION_STATE_BADGE: Record<
     badge: `border-emerald-500/40 text-emerald-400`,
     dot: `bg-emerald-500`,
   },
-  merged: {
-    label: `Merged`,
-    badge: `border-sky-500/40 text-sky-400`,
-    dot: `bg-sky-500`,
-  },
   done: {
     label: `Done`,
     badge: `border-sky-500/40 text-sky-400`,
@@ -388,7 +383,7 @@ function AgentRow({
         .where(({ s }) =>
           and(
             eq(s.issueId, issue.id),
-            inArray(s.status, [`running`, `in_review`, `merged`])
+            inArray(s.status, [`running`, `in_review`])
           )
         ),
     [issue.id]
