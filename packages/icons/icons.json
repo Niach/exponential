@@ -187,6 +187,7 @@
     "action-run": "play",
     "action-create": "sparkles",
     "action-repository": "git-branch",
+    "action-chat": "message-circle",
 
     "ui-add": "plus",
     "ui-check": "check",

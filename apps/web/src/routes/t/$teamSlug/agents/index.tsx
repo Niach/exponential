@@ -1,5 +1,9 @@
-import { useState } from "react"
-import { createFileRoute, redirect } from "@tanstack/react-router"
+import { useEffect, useState } from "react"
+import {
+  createFileRoute,
+  redirect,
+  useNavigate,
+} from "@tanstack/react-router"
 import { MyMachines } from "@/components/my-machines"
 import { SessionRow } from "@/components/agent-session-row"
 import { GlassSectionHeader } from "@/components/ui/glass-rows"
@@ -24,7 +28,16 @@ import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 // Actions surface behind the topbar's own "Actions" entry as a separate page
 // (`/t/$teamSlug/agents/actions`). The LaunchDialog here serves the device
 // rows' "Start coding"; the panel owns its own for action runs.
+//
+// EXP-631: `?chat=1` is the mobile FAB's one-shot open — the tab bar owns the
+// button, this route owns the launcher, so the request rides the URL (the
+// board route's `?new=1` compose pattern).
+type AgentsSearch = { chat?: 1 }
+
 export const Route = createFileRoute(`/t/$teamSlug/agents/`)({
+  validateSearch: (search: Record<string, unknown>): AgentsSearch => ({
+    chat: search.chat === 1 || search.chat === `1` ? 1 : undefined,
+  }),
   beforeLoad: async ({ context, location }) => {
     if (!context.session) {
       throw redirect({
@@ -38,6 +51,8 @@ export const Route = createFileRoute(`/t/$teamSlug/agents/`)({
 
 function AgentsPage() {
   const { teamSlug } = Route.useParams()
+  const search = Route.useSearch()
+  const navigate = useNavigate()
   const { data: session } = useSession()
   const team = useTeamBySlug(teamSlug)
   const { isMember } = useTeamPermissions(team)
@@ -65,6 +80,27 @@ function AgentsPage() {
   // The device rows' "Start coding" dialog, opened on the Issues tab
   // pre-targeted at the picked machine.
   const [launchDeviceId, setLaunchDeviceId] = useState<string | null>(null)
+  // The mobile FAB's Chat launcher — the SAME dialog, opened on its Chat tab
+  // with no device preference.
+  const [chatOpen, setChatOpen] = useState(false)
+
+  // Consume `?chat=1` once, then drop the key so a back/refresh doesn't
+  // re-open the dialog.
+  useEffect(() => {
+    if (search.chat !== 1) return
+    setChatOpen(true)
+    void navigate({
+      to: `/t/$teamSlug/agents`,
+      params: { teamSlug },
+      search: {},
+      replace: true,
+    })
+  }, [search.chat, navigate, teamSlug])
+
+  const closeLaunch = () => {
+    setLaunchDeviceId(null)
+    setChatOpen(false)
+  }
 
   if (!team) {
     return <div className="text-muted-foreground text-sm p-6">Loading…</div>
@@ -113,25 +149,28 @@ function AgentsPage() {
       </div>
 
       <LaunchDialog
-        open={launchDeviceId !== null}
+        open={launchDeviceId !== null || chatOpen}
         onOpenChange={(next) => {
-          if (!next) setLaunchDeviceId(null)
+          if (!next) {
+            setLaunchDeviceId(null)
+            setChatOpen(false)
+          }
         }}
         devices={remote.devices ?? []}
         starting={remote.starting}
         teamId={team.id}
-        initialTab="issues"
+        initialTab={chatOpen ? `chat` : `issues`}
         initialDeviceId={launchDeviceId ?? undefined}
         onStartIssues={(device, options, issueIds) => {
           remote
             .startIssues(device, options, issueIds)
-            .then(() => setLaunchDeviceId(null))
+            .then(() => closeLaunch())
             .catch(() => {})
         }}
         onRunAction={(device, action, options, inputs) => {
           remote
             .runAction(device, action, options, inputs)
-            .then(() => setLaunchDeviceId(null))
+            .then(() => closeLaunch())
             .catch(() => {})
         }}
       />

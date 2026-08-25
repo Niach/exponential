@@ -62,6 +62,7 @@ import com.exponential.app.ui.issue.ReviewGreen
 import com.exponential.app.ui.issue.StartCodingSheet
 import com.exponential.app.ui.issue.StaticDot
 import com.exponential.app.ui.issue.SteerStartState
+import com.exponential.app.ui.issue.SubjectTab
 import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -84,6 +85,10 @@ fun AgentsScreen(
     onOpenSteer: (codingSessionId: String) -> Unit,
     onOpenIssue: (issueId: String) -> Unit,
     onOpenActions: () -> Unit,
+    // EXP-631: the bottom bar's Chat FAB bumps this counter (the bar lives in
+    // AppNavHost, the launcher lives here) — every change opens the Start
+    // coding sheet on its Chat tab.
+    chatRequest: Int = 0,
     viewModel: AgentsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -97,6 +102,18 @@ fun AgentsScreen(
 
     // The device the launcher sheet was opened from (non-null = sheet open).
     var sheetDevice by remember { mutableStateOf<SteerDevice?>(null) }
+
+    // The tab bar's Chat launcher (EXP-631) — the same sheet, opened on its
+    // Chat tab with no machine preference. Skips the initial composition so a
+    // return to the tab doesn't re-open it.
+    var chatSheetOpen by remember { mutableStateOf(false) }
+    var seenChatRequest by remember { mutableStateOf(chatRequest) }
+    LaunchedEffect(chatRequest) {
+        if (chatRequest != seenChatRequest) {
+            seenChatRequest = chatRequest
+            chatSheetOpen = true
+        }
+    }
 
     // The machine row whose settings sheet (EXP-481) / Remove dialog is open.
     var settingsTargetId by remember { mutableStateOf<String?>(null) }
@@ -283,6 +300,18 @@ fun AgentsScreen(
             onStart = viewModel::startCoding,
             onRunAction = viewModel::runAction,
             onDismiss = { sheetDevice = null },
+        )
+    }
+
+    if (chatSheetOpen) {
+        StartCodingSheet(
+            devices = devices ?: emptyList(),
+            issues = startCandidates,
+            preselectedIds = emptySet(),
+            initialTab = SubjectTab.Chat,
+            onStart = viewModel::startCoding,
+            onRunAction = viewModel::runAction,
+            onDismiss = { chatSheetOpen = false },
         )
     }
 
