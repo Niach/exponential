@@ -647,7 +647,8 @@ async function main(): Promise<number> {
   const unknown = platforms.filter((platform) => !PLATFORMS.includes(platform))
   if (unknown.length > 0) throw new Error(`unknown platform(s): ${unknown.join(`, `)}`)
 
-  const ref = flag(`since`) ?? (await lastStoreCommit())
+  const sinceFlag = flag(`since`)
+  const ref = sinceFlag && sinceFlag !== `auto` ? sinceFlag : await lastStoreCommit()
   if (!ref) {
     throw new Error(`no --since given and nothing has ever been committed under shots/`)
   }
