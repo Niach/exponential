@@ -35,6 +35,7 @@
     "screenshots:social": "bun run --filter @exp/web screenshots:social",
     "shots": "bun run --filter @exp/shots capture",
     "shots:index": "bun run --filter @exp/shots index",
+    "shots:affected": "bun run --filter @exp/shots affected",
     "shots:check": "bun --filter @exp/styleguide build -- --check",
     "test:shots": "bun --filter @exp/view-catalog test && bun --filter @exp/shots test",
     "dev:styleguide": "bun --filter @exp/styleguide dev",

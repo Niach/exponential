@@ -10,6 +10,7 @@
   },
   "scripts": {
     "capture": "bun src/capture-all.ts",
+    "affected": "bun src/affected.ts",
     "index": "bun src/index-store.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit"

@@ -34,6 +34,7 @@ import {
   viewsFor,
   type Platform,
 } from "@exp/view-catalog"
+import { lastStoreCommit, scopeSince, type AffectedScope } from "./affected.ts"
 import { captureDesktop, resolveBinary, screenRecordingAllowed } from "./capture-desktop.ts"
 import { fetchDemoIds, type DemoIds } from "./ids.ts"
 import { importNative, NATIVE_PLATFORMS } from "./import-native.ts"
@@ -75,6 +76,13 @@ interface Options {
   writeOnly: boolean
   /** `<repos_root>` for the desktop lane's repo-backed views. */
   reposRoot?: string
+  /**
+   * Narrow the run to the views a diff can actually have moved: everything
+   * changed between this git ref and the working tree, mapped to views by
+   * `affected.ts`. `auto` = the last commit that touched `shots/`, which is what
+   * the unattended refresh automation runs after every merge.
+   */
+  since?: string
 }
 
 function parseArgs(argv: string[]): Options {
@@ -87,6 +95,11 @@ function parseArgs(argv: string[]): Options {
       ?.split(`,`)
       .map((value) => value.trim())
       .filter(Boolean)
+
+  const sinceIndex = argv.indexOf(`--since`)
+  const sinceValue = sinceIndex === -1 ? undefined : argv[sinceIndex + 1]
+  const since =
+    sinceIndex === -1 ? undefined : !sinceValue || sinceValue.startsWith(`--`) ? `auto` : sinceValue
 
   const requested = list(`platform`)
   const platforms = (requested ?? [...DEFAULT_PLATFORMS]) as Platform[]
@@ -105,6 +118,7 @@ function parseArgs(argv: string[]): Options {
     up: argv.includes(`--up`),
     writeOnly: argv.includes(`--write-only`),
     reposRoot: flag(`repos-root`) ?? process.env.SHOTS_REPOS_ROOT,
+    since,
   }
 }
 
@@ -117,22 +131,64 @@ interface Check {
 }
 
 /**
+ * What each lane will actually photograph: the catalog's views for the platform,
+ * narrowed by `--views` and by `--since`. Every consumer reads THIS rather than
+ * the flags, so a lane whose set came out empty is skipped whole.
+ */
+type Scope = Map<Platform, Set<string>>
+
+async function resolveScope(
+  options: Options
+): Promise<{ scope: Scope; affected?: AffectedScope; since?: string }> {
+  let affected: AffectedScope | undefined
+  let since: string | undefined
+  if (options.since) {
+    since = options.since === `auto` ? await lastStoreCommit() : options.since
+    if (!since) {
+      throw new Error(
+        `--since auto needs a baseline, but nothing has ever been committed under shots/`
+      )
+    }
+    affected = await scopeSince(since, options.platforms)
+  }
+
+  const scope: Scope = new Map()
+  for (const platform of options.platforms) {
+    let ids = viewsFor(platform).map((view) => view.id)
+    if (options.viewIds) ids = ids.filter((id) => options.viewIds!.includes(id))
+    const narrowed = affected?.byPlatform.get(platform)
+    if (narrowed) ids = ids.filter((id) => narrowed.includes(id))
+    scope.set(platform, new Set(ids))
+  }
+  return { scope, affected, since }
+}
+
+/** Did anything narrow this run? Only then does a lane get an explicit view list. */
+function isScoped(options: Options): boolean {
+  return Boolean(options.viewIds || options.since)
+}
+
+/** The views one lane still has to capture, in catalog order. */
+function laneViews(scope: Scope, ...platforms: Platform[]): string[] {
+  const ids = new Set<string>()
+  for (const platform of platforms) {
+    for (const view of viewsFor(platform)) {
+      if (scope.get(platform)?.has(view.id)) ids.add(view.id)
+    }
+  }
+  return [...ids]
+}
+
+/**
  * Is the relay stub needed for this run?
  *
  * Any native platform (three of the eight store shots steer), or any in-scope
  * view whose content is steering-dependent. A web-only run of the settings
  * views does not need it, and making it unconditional would tax the fast path.
  */
-function needsRelay(options: Options): boolean {
+function needsRelay(options: Options, scope: Scope): boolean {
   if (options.platforms.some((platform) => NATIVE_PLATFORMS.includes(platform))) return true
-  const inScope = new Set(
-    options.platforms.flatMap((platform) =>
-      viewsFor(platform)
-        .map((view) => view.id)
-        .filter((id) => !options.viewIds || options.viewIds.includes(id))
-    )
-  )
-  return [...inScope].some((id) => STEER_DEPENDENT_VIEWS.has(id))
+  return laneViews(scope, ...options.platforms).some((id) => STEER_DEPENDENT_VIEWS.has(id))
 }
 
 async function composeServices(): Promise<Map<string, string>> {
@@ -177,7 +233,7 @@ async function reachable(url: string): Promise<boolean> {
   }
 }
 
-async function preflight(options: Options): Promise<Check[]> {
+async function preflight(options: Options, scope: Scope): Promise<Check[]> {
   const checks: Check[] = []
   const services = await composeServices()
   const running = (name: string): boolean => (services.get(name) ?? ``).toLowerCase() === `running`
@@ -191,7 +247,7 @@ async function preflight(options: Options): Promise<Check[]> {
         : `not running — \`docker compose up -d\` (repo root)${options.up ? ` (--up tried and failed)` : ``}`,
     })
   }
-  if (needsRelay(options) && !options.skipRelay) {
+  if (needsRelay(options, scope) && !options.skipRelay) {
     checks.push({
       label: `docker compose: steer-relay`,
       ok: running(`steer-relay`),
@@ -214,7 +270,7 @@ async function preflight(options: Options): Promise<Check[]> {
     detail: devOk ? undefined : `unreachable — \`bun dev\` (repo root)`,
   })
 
-  if (options.platforms.some((platform) => platform === `web` || platform === `web-mobile`)) {
+  if (laneViews(scope, `web`, `web-mobile`).length > 0) {
     const script = webCaptureScript()
     checks.push({
       label: `apps/web: capture:views script`,
@@ -225,7 +281,7 @@ async function preflight(options: Options): Promise<Check[]> {
     })
   }
 
-  if (options.platforms.includes(`desktop`)) {
+  if (laneViews(scope, `desktop`).length > 0) {
     const allowed = await screenRecordingAllowed()
     checks.push({
       label: `macOS screen recording`,
@@ -246,7 +302,7 @@ async function preflight(options: Options): Promise<Check[]> {
     if (binaryDetail) checks.push({ label: `desktop app binary`, ok: true, detail: binaryDetail })
   }
 
-  if (options.platforms.includes(`ios`)) {
+  if (laneViews(scope, `ios`).length > 0) {
     const ok = await hasCommand(`xcrun`)
     checks.push({
       label: `xcrun simctl`,
@@ -255,7 +311,7 @@ async function preflight(options: Options): Promise<Check[]> {
     })
   }
 
-  if (options.platforms.includes(`android`)) {
+  if (laneViews(scope, `android`).length > 0) {
     const hasAdb = await hasCommand(`adb`)
     if (!hasAdb) {
       checks.push({ label: `adb`, ok: false, detail: `not on PATH — install the Android SDK` })
@@ -304,12 +360,20 @@ interface LaneOutcome {
 async function captureWeb(
   platforms: Platform[],
   options: Options,
+  scope: Scope,
   outcomes: LaneOutcome[]
 ): Promise<void> {
   const formFactors = platforms.filter(
     (platform) => platform === `web` || platform === `web-mobile`
   )
   if (formFactors.length === 0) return
+  // One browser run serves both form factors, so it captures the UNION and the
+  // store writer drops what the narrower form factor did not ask for.
+  const views = laneViews(scope, ...formFactors)
+  if (views.length === 0) {
+    console.log(`\n── web ───────────────────────────────────────────────\n  skipped — no view in scope`)
+    return
+  }
   const formFactor = formFactors.length === 2 ? `all` : formFactors[0]!
   const cmd = [
     `bun`,
@@ -321,7 +385,7 @@ async function captureWeb(
     `--out`,
     rawDir(),
   ]
-  if (options.viewIds) cmd.push(`--views`, options.viewIds.join(`,`))
+  if (isScoped(options)) cmd.push(`--views`, views.join(`,`))
 
   console.log(`\n── web (${formFactor}) ─────────────────────────────────`)
   const result = await run({
@@ -485,7 +549,8 @@ function emptyTally(): PlatformTally {
  * `missing` rather than silently leaving the previous image in place unnoticed.
  */
 async function writeStore(
-  options: Options
+  options: Options,
+  scope: Scope
 ): Promise<{ tallies: Map<Platform, PlatformTally>; failures: string[] }> {
   const tallies = new Map<Platform, PlatformTally>()
   const failures: string[] = []
@@ -494,7 +559,7 @@ async function writeStore(
     const tally = emptyTally()
     tallies.set(platform, tally)
     for (const view of viewsFor(platform)) {
-      if (options.viewIds && !options.viewIds.includes(view.id)) continue
+      if (!scope.get(platform)?.has(view.id)) continue
       const raw = join(rawDir(), platform, `${view.id}.png`)
       if (!existsSync(raw)) {
         tally.missing++
@@ -571,18 +636,53 @@ function printTable(tallies: Map<Platform, PlatformTally>): number {
   return delta
 }
 
+/** One line per widened path, however many rules pointed at it. */
+function dedupeBroad(broad: AffectedScope[`broad`]): AffectedScope[`broad`] {
+  const seen = new Set<string>()
+  return broad.filter((entry) => {
+    const key = `${entry.path}|${entry.platforms.join(`,`)}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 /* ---------------------------------------------------------------------- main */
 
 async function main(): Promise<number> {
   const options = parseArgs(process.argv.slice(2))
+  const { scope, affected, since } = await resolveScope(options)
   const relayNeeded =
-    needsRelay(options) && !options.skipRelay && !options.dryRun && !options.writeOnly
+    needsRelay(options, scope) && !options.skipRelay && !options.dryRun && !options.writeOnly
 
   console.log(
     `shots: platforms ${options.platforms.join(`, `)}` +
       (options.viewIds ? ` · views ${options.viewIds.join(`, `)}` : ``) +
       (options.dryRun ? ` · DRY RUN (nothing is written)` : ``)
   )
+
+  if (affected && since) {
+    console.log(`\n── affected since ${since.slice(0, 8)} ──────────────────────`)
+    console.log(
+      `  ${affected.changed.length} changed file(s), ${affected.ignored.length} of them irrelevant`
+    )
+    for (const platform of options.platforms) {
+      const views = [...(scope.get(platform) ?? [])]
+      console.log(
+        `  ${platform.padEnd(12)}${views.length === 0 ? `— nothing to capture` : `${views.length}/${viewsFor(platform).length}: ${views.join(`, `)}`}`
+      )
+    }
+    for (const entry of dedupeBroad(affected.broad)) {
+      console.log(`  widened by ${entry.path} → ${entry.platforms.join(`, `)} (${entry.why})`)
+    }
+    // Nothing survived the diff: the merge that triggered this run cannot have
+    // moved a pixel. Say so and stop BEFORE preflight — the whole point of
+    // --since is that this path costs seconds, not a seeded stack.
+    if (options.platforms.every((platform) => (scope.get(platform)?.size ?? 0) === 0)) {
+      console.log(`\nNothing to capture — no view in scope. Store left untouched.`)
+      return 0
+    }
+  }
 
   if (options.up && !options.dryRun) {
     console.log(`\n── docker compose --profile steer up -d ──────────────`)
@@ -599,7 +699,7 @@ async function main(): Promise<number> {
   // guards: no stack, no simulators, no screen-recording grant. Only sharp,
   // which the encode would fail on loudly anyway.
   console.log(`\n── preflight ─────────────────────────────────────────`)
-  const checks = options.writeOnly ? [] : await preflight(options)
+  const checks = options.writeOnly ? [] : await preflight(options, scope)
   if (options.writeOnly) console.log(`  skipped — --write-only re-encodes .shots-raw/ only`)
   for (const check of checks) {
     console.log(`  ${check.ok ? `ok  ` : `FAIL`}  ${check.label}${check.detail ? `\n          ${check.detail.replace(/\n/g, `\n          `)}` : ``}`)
@@ -645,14 +745,14 @@ async function main(): Promise<number> {
 
       if (relayNeeded) relay = await startRelayStub(options)
 
-      await captureWeb(options.platforms, options, outcomes)
+      await captureWeb(options.platforms, options, scope, outcomes)
 
-      if (options.platforms.includes(`desktop`)) {
+      if (laneViews(scope, `desktop`).length > 0) {
         console.log(`\n── desktop ───────────────────────────────────────────`)
         try {
           const result = await captureDesktop({
             ids,
-            viewIds: options.viewIds,
+            viewIds: isScoped(options) ? laneViews(scope, `desktop`) : undefined,
             reposRoot: options.reposRoot,
           })
           outcomes.push({
@@ -670,7 +770,7 @@ async function main(): Promise<number> {
       }
 
       for (const platform of [`ios`, `android`] as const) {
-        if (!options.platforms.includes(platform)) continue
+        if (laneViews(scope, platform).length === 0) continue
         try {
           await captureFastlane(platform, outcomes)
         } catch (error) {
@@ -683,13 +783,13 @@ async function main(): Promise<number> {
       }
     }
 
-    const nativeInScope = options.platforms.filter((platform) =>
-      NATIVE_PLATFORMS.includes(platform)
+    const nativeInScope = options.platforms.filter(
+      (platform) => NATIVE_PLATFORMS.includes(platform) && laneViews(scope, platform).length > 0
     )
     if (nativeInScope.length > 0) {
       const imported = importNative({
         platforms: nativeInScope,
-        viewIds: options.viewIds,
+        viewIds: isScoped(options) ? laneViews(scope, ...nativeInScope) : undefined,
         dryRun: options.dryRun,
       })
       console.log(`\n── import native ─────────────────────────────────────`)
@@ -699,7 +799,7 @@ async function main(): Promise<number> {
     }
 
     console.log(`\n── store ─────────────────────────────────────────────`)
-    const { tallies, failures } = await writeStore(options)
+    const { tallies, failures } = await writeStore(options, scope)
     const index = await indexStore({ prune: options.prune, dryRun: options.dryRun })
     const delta = printTable(tallies)
     console.log(

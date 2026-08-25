@@ -92,7 +92,7 @@ bun run build:desktop / appimage:desktop / macapp:desktop / test:desktop
 bun run clean:desktop              # on zed/gpui rev bumps
 bun run --filter @exp/{domain-contract,design-tokens,icons} generate
 cd apps/web && bun run seed:screenshots        # demo data (shots + store captures reuse it)
-bun run shots                                  # all-platform view captures → shots/ store (--platform filters)
+bun run shots                                  # all-platform view captures → shots/ store (--platform/--since)
 bun run screenshots:store                      # ASO slide compositor → store upload dirs (--proposals = candidate sets)
 ```
 

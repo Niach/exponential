@@ -15,6 +15,8 @@ out of git") — the writer only rewrites a file when the image visibly changed
 bun run shots                       # capture DEFAULT_PLATFORMS (web, web-mobile, desktop, ios, android)
 bun run shots -- --platform web,web-mobile,desktop   # what the automation runs unattended
 bun run shots -- --views board,issue-detail          # subset of views
+bun run shots -- --since auto        # only the views the diff since the last refresh can have moved
+bun run shots -- --since origin/master~5   # …or since any ref
 bun run shots -- --skip-seed --skip-relay            # reuse an already-seeded stack
 bun run shots -- --force            # rewrite even visually-unchanged files
 bun run shots -- --dry-run          # decide + report, touch nothing
@@ -28,6 +30,33 @@ The orchestrator (`packages/shots/src/capture-all.ts`) preflights everything it
 needs, seeds the demo team, starts the steer-relay stub, runs each platform's
 capture lane, imports the native outputs, and writes the store + index. It exits
 non-zero if any in-scope view failed, after finishing everything else.
+
+## Only what the diff touched
+
+`--since <ref>` (or `--since auto`, meaning "the last commit that touched
+`shots/`") narrows the run to the `<view, platform>` pairs the changed files can
+actually have moved, and skips a whole lane whose set comes out empty — a
+web-only PR never launches the desktop app. When nothing is in scope the run
+prints "Nothing to capture" and exits before preflight, in seconds.
+
+The mapping lives in `packages/shots/src/affected.ts` and is deliberately
+FAIL-SAFE: a path narrows to specific views only when the repo proves the
+connection, and anything else widens to every view of every platform it could
+belong to. Web is precise (route → `routeTree.gen.ts` → transitive import graph
+of `apps/web/src`, type-only imports erased); desktop matches `crates/ui/src`
+module names against view ids and drive values and widens on anything else; the
+native lanes are whole-platform. A changed `views.json` entry and a view with no
+stored image yet are always in scope.
+
+Ask without capturing anything:
+
+```bash
+bun run shots:affected -- --since auto --platform web,web-mobile,desktop
+bun run shots:affected -- --since HEAD~3 --json
+```
+
+It prints the per-lane view lists plus every path that widened a lane and why —
+which is also how you find a rule that needs teaching (`IGNORED`, `BROAD`).
 
 ## Prerequisites
 
@@ -118,8 +147,11 @@ with sorted keys and no timestamps, so it only changes when an image does.
 ## The automation
 
 The team action **“Refresh app screenshots”** (trigger: `pr_merged`) runs
-`bun run shots -- --platform web,web-mobile,desktop` on its bound device,
-sanity-checks the diff, and pushes a `shots/`-only commit directly to master.
+`bun run shots -- --since auto --platform web,web-mobile,desktop` on its bound
+device, sanity-checks the diff, and pushes a `shots/`-only commit directly to
+master. `--since auto` is what keeps the unattended run cheap: it re-captures
+only the views the merged PR can have moved, and most merges cost one lane or
+none at all.
 Native (ios/android) refreshes stay a manual pre-release step — unattended
 simulator lanes are too slow and flaky. If `bun run test:shots` fails after a
 merge, the just-merged PR added a route/view the catalog doesn't know: add the
