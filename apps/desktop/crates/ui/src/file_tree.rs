@@ -9,7 +9,14 @@
 //! repo→trunk-root resolution needs a tRPC-only `repositories.list` lookup
 //! (never synced), so it runs off the foreground like the run bar / `+` shell
 //! tab; the resolved root is published into a per-window registry the
-//! [`crate::file_viewer`] reads (both live in the same window). Git reads are
+//! [`crate::file_viewer`] reads (both live in the same window).
+//!
+//! EXP-635: the trunk is the DEFAULT root, not the only one — a switcher on
+//! top of the tree lists the clone's linked worktrees (the coding sessions'
+//! `exp/<IDENTIFIER>` checkouts) and re-roots the whole surface at the picked
+//! one, so a branch's files are browsable without leaving the IDE. The
+//! registry always holds whatever root the tree is showing, so the viewer
+//! resolves its relative paths against the same tree. Git reads are
 //! `std::process::Command("git")` argv only (DNR L5) — status + ignored are a
 //! one-shot snapshot per load (the git bar / Source Control screen own the
 //! live trunk state, v4 §4.3/§4.4); [`FileTreeView::refresh`] re-reads them.
@@ -26,9 +33,10 @@ use gpui::{
     ParentElement, Render, SharedString, Styled, Subscription, Window, WindowId,
 };
 use gpui_component::{
+    button::{Button, ButtonVariants as _},
     h_flex,
     list::ListItem,
-    menu::PopupMenu,
+    menu::{DropdownMenu as _, PopupMenu, PopupMenuItem},
     tree::{tree, TreeEntry, TreeEvent, TreeItem, TreeState},
     v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
@@ -54,43 +62,54 @@ pub(crate) const MAX_VIEWER_BYTES: u64 = 2 * 1024 * 1024;
 const LOADING_SUFFIX: &str = "\u{1}__loading";
 
 // ---------------------------------------------------------------------------
-// Per-window trunk-root registry (shared with the file viewer)
+// Per-window file-root registry (shared with the file viewer)
 // ---------------------------------------------------------------------------
 
-/// Window → resolved trunk clone root. The file tree writes it when it resolves
-/// the active board's repo; [`crate::file_viewer`] reads it to turn a
-/// trunk-relative `Screen::FileViewer { path }` into an absolute path (a file
-/// is only reachable from the tree, so the root is always resolved first).
+/// Window → the file tree's ACTIVE root: the board's trunk clone, or (EXP-635)
+/// the linked worktree the switcher picked. The file tree writes it on every
+/// load; [`crate::file_viewer`] reads it to turn a root-relative
+/// `Screen::FileViewer { path }` into an absolute path (a file is only
+/// reachable from the tree, so the root is always resolved first).
 #[derive(Default)]
-struct TrunkRootRegistry {
+struct FileRootRegistry {
     by_window: HashMap<WindowId, PathBuf>,
 }
 
-impl Global for TrunkRootRegistry {}
+impl Global for FileRootRegistry {}
 
-/// The trunk clone root the file tree resolved for `window_id`, if any.
-pub(crate) fn window_trunk_root(window_id: WindowId, cx: &App) -> Option<PathBuf> {
-    cx.try_global::<TrunkRootRegistry>()
+/// The root the file tree resolved for `window_id`, if any.
+pub(crate) fn window_file_root(window_id: WindowId, cx: &App) -> Option<PathBuf> {
+    cx.try_global::<FileRootRegistry>()
         .and_then(|registry| registry.by_window.get(&window_id).cloned())
 }
 
-/// Publish a resolved trunk root for `window_id` from OUTSIDE the file tree.
+/// Publish a resolved root for `window_id` from OUTSIDE the file tree.
 ///
-/// The file viewer turns a trunk-relative `Screen::FileViewer { path }` into an
-/// absolute path via [`window_trunk_root`], which the file tree normally
+/// The file viewer turns a root-relative `Screen::FileViewer { path }` into an
+/// absolute path via [`window_file_root`], which the file tree normally
 /// populates on load. The ⌘K search (`crate::search_sheet`) can open a file
 /// result before the Files rail was ever shown (so the tree never rendered and
 /// never published), so it resolves the trunk root itself and publishes it here
 /// before navigating. Idempotent — a later file-tree load overwrites it with
 /// the same value.
-pub(crate) fn publish_trunk_root(window_id: WindowId, root: PathBuf, cx: &mut App) {
-    set_window_trunk_root(window_id, root, cx);
+pub(crate) fn publish_file_root(window_id: WindowId, root: PathBuf, cx: &mut App) {
+    set_window_file_root(window_id, root, cx);
 }
 
-fn set_window_trunk_root(window_id: WindowId, root: PathBuf, cx: &mut App) {
-    cx.default_global::<TrunkRootRegistry>()
+fn set_window_file_root(window_id: WindowId, root: PathBuf, cx: &mut App) {
+    cx.default_global::<FileRootRegistry>()
         .by_window
         .insert(window_id, root);
+}
+
+/// Re-root the window's file tree at the TRUNK clone (EXP-635). The ⌘K search
+/// greps the trunk, so opening one of its hits must put the tree back on the
+/// trunk — otherwise the published root (the trunk, from
+/// [`publish_file_root`]) and the visible tree (a worktree) would disagree.
+/// No-op when the tree is already on the trunk.
+pub(crate) fn select_trunk_root(window: &mut Window, cx: &mut App) {
+    let tree = crate::sidebar::window_file_tree(window, cx);
+    tree.update(cx, |tree, cx| tree.select_worktree(None, cx));
 }
 
 // ---------------------------------------------------------------------------
@@ -208,10 +227,19 @@ struct DirEntry {
     is_dir: bool,
 }
 
-/// Background load result: the resolved root, the root-level listing, and the
+/// Background load result: the resolved roots, the root-level listing, and the
 /// git status / ignored snapshots (all `Send`).
 struct TreeLoad {
+    /// The board's trunk clone — the switcher's anchor, and the root every
+    /// worktree of `worktrees` is registered against.
+    clone_root: PathBuf,
+    /// The root the tree actually shows: `clone_root`, or the picked worktree
+    /// (EXP-635). The resolution happens on the background thread because it
+    /// needs the fresh `git worktree list`.
     root: PathBuf,
+    /// The clone's registered worktrees, MAIN WORKING TREE FIRST (git's own
+    /// ordering) — empty when the clone is missing or git failed.
+    worktrees: Vec<coding::git_worktree::WorktreeEntry>,
     entries: Vec<DirEntry>,
     status: HashMap<String, char>,
     ignored: Vec<String>,
@@ -235,8 +263,19 @@ pub struct FileTreeView {
     load: Load,
     /// Stale-fetch guard (scope changes bump it).
     generation: u64,
-    /// Resolved trunk clone root (absolute).
-    trunk_root: Option<PathBuf>,
+    /// The root the tree is showing (absolute) — the trunk clone, or the
+    /// worktree [`Self::selected_worktree`] picked.
+    active_root: Option<PathBuf>,
+    /// The board's trunk clone root (absolute) — the switcher's anchor, kept
+    /// even while a worktree is the active root.
+    clone_root: Option<PathBuf>,
+    /// The clone's registered worktrees, MAIN WORKING TREE FIRST (EXP-635 —
+    /// the switcher's menu, re-read on every load and every `refresh`).
+    worktrees: Vec<coding::git_worktree::WorktreeEntry>,
+    /// The worktree the switcher picked; `None` = the trunk. Held by PATH
+    /// (git's own absolute form) so a re-listing can tell whether it is still
+    /// registered — a removed worktree falls the tree back to the trunk.
+    selected_worktree: Option<PathBuf>,
     tree_state: Entity<TreeState>,
     /// The persistent tree model (source of truth for rebuilds — expand state
     /// lives in each `TreeItem`'s shared `Rc`, so mutating children in place
@@ -285,7 +324,10 @@ impl FileTreeView {
             board_id: None,
             load: Load::Idle,
             generation: 0,
-            trunk_root: None,
+            active_root: None,
+            clone_root: None,
+            worktrees: Vec::new(),
+            selected_worktree: None,
             tree_state,
             roots: Vec::new(),
             loaded_dirs: HashSet::new(),
@@ -296,24 +338,43 @@ impl FileTreeView {
         }
     }
 
-    /// Re-read the git status / ignored snapshots for the current trunk without
+    /// Re-read the git status / ignored snapshots for the active root without
     /// rebuilding the tree (the rail toggle calls this so dots refresh when the
-    /// Files pane is shown). Structure + expand state are untouched.
+    /// Files pane is shown). Structure + expand state are untouched. EXP-635:
+    /// the worktree list is re-read with them, so a session started since the
+    /// last load shows up in the switcher — and a worktree removed underneath
+    /// the selection falls the tree back to the trunk (a full reload).
     pub fn refresh(&mut self, cx: &mut gpui::Context<Self>) {
-        let Some(root) = self.trunk_root.clone() else {
+        let Some(root) = self.active_root.clone() else {
             return;
         };
+        let clone_root = self.clone_root.clone();
         let generation = self.generation;
         cx.spawn(async move |this, cx| {
             let snapshot = cx
                 .background_executor()
-                .spawn(async move { (read_status(&root), list_ignored(&root)) })
+                .spawn(async move {
+                    (
+                        read_status(&root),
+                        list_ignored(&root),
+                        clone_root.map(|clone| list_worktrees(&clone)).unwrap_or_default(),
+                    )
+                })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 if this.generation != generation {
                     return;
                 }
-                let (status, ignored) = snapshot;
+                let (status, ignored, worktrees) = snapshot;
+                this.worktrees = worktrees;
+                if let Some(selected) = this.selected_worktree.clone() {
+                    if !is_linked_worktree(&this.worktrees, &selected) {
+                        // Gone (`git worktree remove`, EXP-481 device
+                        // command, …) — the trunk is the only safe root.
+                        this.select_worktree(None, cx);
+                        return;
+                    }
+                }
                 this.status = status;
                 this.ignored = ignored;
                 this.recompute_meta();
@@ -321,6 +382,23 @@ impl FileTreeView {
             });
         })
         .detach();
+    }
+
+    /// Re-root the tree at one of the clone's worktrees (`None` = the trunk).
+    /// Drops the loaded structure and kicks a fresh load — the old tree's
+    /// paths belong to the old root.
+    pub(crate) fn select_worktree(
+        &mut self,
+        worktree: Option<PathBuf>,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        if self.selected_worktree == worktree {
+            return;
+        }
+        self.selected_worktree = worktree;
+        self.load = Load::Idle;
+        self.reset_tree(cx);
+        cx.notify();
     }
 
     /// The window's active board (screen scope with the last-board
@@ -343,6 +421,12 @@ impl FileTreeView {
             if self.board_id.as_deref() != Some(scope.as_str()) {
                 self.board_id = Some(scope);
                 self.load = Load::Idle;
+                // A new board means a new clone: the switcher's options and
+                // its pick belong to the OLD one (unlike a plain re-root,
+                // which keeps them painted while the next root loads).
+                self.clone_root = None;
+                self.worktrees.clear();
+                self.selected_worktree = None;
                 self.reset_tree(cx);
             }
         }
@@ -364,6 +448,7 @@ impl FileTreeView {
             }
         };
         let settings = CodingHub::global(cx).read(cx).settings.clone();
+        let selected = self.selected_worktree.clone();
 
         self.load = Load::Loading;
         self.generation += 1;
@@ -372,23 +457,34 @@ impl FileTreeView {
             let loaded = cx
                 .background_executor()
                 .spawn(async move {
-                    let root =
+                    let clone_root =
                         coding::clone_path(&settings.repos_root_path(), &full_name);
-                    if !root.join(".git").is_dir() {
+                    if !clone_root.join(".git").is_dir() {
                         // Not cloned yet — the git bar's clone job owns that;
                         // the tree shows an empty root until it lands.
                         return TreeLoad {
-                            root,
+                            root: clone_root.clone(),
+                            clone_root,
+                            worktrees: Vec::new(),
                             entries: Vec::new(),
                             status: HashMap::new(),
                             ignored: Vec::new(),
                         };
                     }
+                    // EXP-635: the switcher's menu, and with it the check
+                    // that a remembered worktree is still registered — a
+                    // stale pick silently falls back to the trunk.
+                    let worktrees = list_worktrees(&clone_root);
+                    let root = selected
+                        .filter(|path| is_linked_worktree(&worktrees, path))
+                        .unwrap_or_else(|| clone_root.clone());
                     let entries = list_dir(&root, "");
                     TreeLoad {
                         status: read_status(&root),
                         ignored: list_ignored(&root),
                         entries,
+                        clone_root,
+                        worktrees,
                         root,
                     }
                 })
@@ -403,11 +499,19 @@ impl FileTreeView {
         .detach();
     }
 
-    /// Install a completed background load: publish the trunk root, keep the
+    /// Install a completed background load: publish the active root, keep the
     /// snapshots, and build the root-level `TreeItem`s.
     fn apply_load(&mut self, load: TreeLoad, cx: &mut gpui::Context<Self>) {
-        set_window_trunk_root(self.window_id, load.root.clone(), cx);
-        self.trunk_root = Some(load.root);
+        set_window_file_root(self.window_id, load.root.clone(), cx);
+        // A worktree that vanished between the pick and the load resolved
+        // back to the trunk on the background thread — mirror that here so
+        // the switcher's label agrees with what is on screen.
+        if load.root == load.clone_root {
+            self.selected_worktree = None;
+        }
+        self.clone_root = Some(load.clone_root);
+        self.worktrees = load.worktrees;
+        self.active_root = Some(load.root);
         self.status = load.status;
         self.ignored = load.ignored;
         self.roots = self.build_items(&load.entries);
@@ -426,7 +530,7 @@ impl FileTreeView {
         if id.ends_with(LOADING_SUFFIX) || self.loaded_dirs.contains(&id) {
             return;
         }
-        let Some(root) = self.trunk_root.clone() else {
+        let Some(root) = self.active_root.clone() else {
             return;
         };
         let entries = list_dir(&root, &id);
@@ -508,7 +612,9 @@ impl FileTreeView {
     }
 
     fn reset_tree(&mut self, cx: &mut gpui::Context<Self>) {
-        self.trunk_root = None;
+        self.active_root = None;
+        // `clone_root` / `worktrees` deliberately survive: the switcher keeps
+        // its options (and its label) painted while the next root loads.
         self.roots.clear();
         self.loaded_dirs.clear();
         self.status.clear();
@@ -519,6 +625,91 @@ impl FileTreeView {
     }
 
     // -- rendering ----------------------------------------------------------
+
+    /// EXP-635: the worktree switcher above the tree — the trunk plus every
+    /// linked worktree (the coding sessions' `exp/<IDENTIFIER>` checkouts),
+    /// labelled by branch. It doubles as the "which tree am I browsing"
+    /// indicator, so it renders whenever git listed anything at all; a
+    /// missing/uncloned repo (empty list) keeps the tree headerless.
+    fn render_root_switcher(&self, cx: &mut gpui::Context<Self>) -> Option<gpui::AnyElement> {
+        let trunk = self.worktrees.first()?;
+        let trunk_label = root_label(trunk);
+        let linked: Vec<(SharedString, PathBuf)> = self
+            .worktrees
+            .iter()
+            .skip(1)
+            .map(|entry| (root_label(entry), entry.path.clone()))
+            .collect();
+        let selected = self.selected_worktree.clone();
+        let label = match &selected {
+            Some(path) => linked
+                .iter()
+                .find(|(_, candidate)| candidate == path)
+                .map(|(label, _)| label.clone())
+                .unwrap_or_else(|| trunk_label.clone()),
+            None => trunk_label.clone(),
+        };
+        let view = cx.entity().downgrade();
+        // The pick is one shared closure: it clears the file selection (the
+        // open file's path belongs to the OLD root) before re-rooting.
+        let pick = move |view: &gpui::WeakEntity<Self>,
+                         target: Option<PathBuf>,
+                         window: &mut Window,
+                         cx: &mut App| {
+            let Some(view) = view.upgrade() else {
+                return;
+            };
+            crate::sidebar::select_file(window, cx, None);
+            view.update(cx, |tree, cx| tree.select_worktree(target, cx));
+        };
+        Some(
+            h_flex()
+                .flex_shrink_0()
+                .w_full()
+                .min_w_0()
+                .px_2()
+                .pb_1()
+                .child(
+                    Button::new("file-tree-root")
+                        .ghost()
+                        .cursor_pointer()
+                        .xsmall()
+                        .icon(Icon::new(registry::UI_BRANCH))
+                        .label(label)
+                        .dropdown_caret(true)
+                        .tooltip("Browse another worktree")
+                        .dropdown_menu(move |mut menu, _window, _cx| {
+                            let view = view.clone();
+                            menu = menu.item(PopupMenuItem::label("Trunk")).item(
+                                PopupMenuItem::new(trunk_label.clone())
+                                    .checked(selected.is_none())
+                                    .on_click({
+                                        let view = view.clone();
+                                        move |_, window, cx| pick(&view, None, window, cx)
+                                    }),
+                            );
+                            if !linked.is_empty() {
+                                menu = menu
+                                    .item(PopupMenuItem::separator())
+                                    .item(PopupMenuItem::label("Worktrees"));
+                            }
+                            for (label, path) in &linked {
+                                let view = view.clone();
+                                let path = path.clone();
+                                menu = menu.item(
+                                    PopupMenuItem::new(label.clone())
+                                        .checked(selected.as_ref() == Some(&path))
+                                        .on_click(move |_, window, cx| {
+                                            pick(&view, Some(path.clone()), window, cx)
+                                        }),
+                                );
+                            }
+                            menu
+                        }),
+                )
+                .into_any_element(),
+        )
+    }
 
     fn render_placeholder(&self, message: &str, cx: &App) -> gpui::AnyElement {
         v_flex()
@@ -547,7 +738,7 @@ impl Render for FileTreeView {
         let still_resolving = matches!(self.load, Load::Idle | Load::Loading);
         let body: gpui::AnyElement = if self.board_id.is_none() {
             self.render_placeholder("Open a board to browse its files.", cx)
-        } else if self.trunk_root.is_none() {
+        } else if self.active_root.is_none() {
             if still_resolving {
                 self.render_placeholder("Loading files…", cx)
             } else {
@@ -557,7 +748,7 @@ impl Render for FileTreeView {
             self.render_placeholder("This repository is not cloned yet.", cx)
         } else {
             let meta = self.meta.clone();
-            let trunk = self.trunk_root.clone().unwrap_or_default();
+            let trunk = self.active_root.clone().unwrap_or_default();
             let ctx_meta = meta.clone();
             let ctx_trunk = trunk.clone();
             // The active file (the center viewer's file, driven by the
@@ -578,13 +769,61 @@ impl Render for FileTreeView {
             .into_any_element()
         };
 
-        v_flex().size_full().child(body)
+        // The switcher is a fixed-height sibling, so the tree gets an
+        // explicitly sized flex-column wrapper to resolve its `size_full`
+        // against (the sidebar's dock-child rule).
+        v_flex()
+            .size_full()
+            .children(self.render_root_switcher(cx))
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .child(body),
+            )
     }
 }
 
 // ---------------------------------------------------------------------------
 // Row + context-menu builders (free fns — captured by the tree closures)
 // ---------------------------------------------------------------------------
+
+/// The clone's registered worktrees, MAIN WORKING TREE FIRST (git's ordering).
+/// A missing git / failed listing yields an empty list, which reads as "trunk
+/// only" everywhere — the switcher never blocks browsing. BLOCKING (spawns
+/// git); background executor only.
+fn list_worktrees(clone: &Path) -> Vec<coding::git_worktree::WorktreeEntry> {
+    coding::git_worktree::list_worktrees(clone).unwrap_or_default()
+}
+
+/// Is `path` one of the clone's LINKED worktrees? The main working tree — git
+/// always lists it FIRST, and the switcher calls it the trunk — deliberately
+/// never matches: the trunk is the `None` selection, so matching it here would
+/// let the tree hold a "worktree" pick that the label calls the trunk.
+fn is_linked_worktree(worktrees: &[coding::git_worktree::WorktreeEntry], path: &Path) -> bool {
+    worktrees
+        .iter()
+        .skip(1)
+        .any(|worktree| worktree.path == path)
+}
+
+/// The display name of one root: its branch, else its directory name (a
+/// detached worktree — `git worktree list` reports no branch for one).
+fn root_label(entry: &coding::git_worktree::WorktreeEntry) -> SharedString {
+    match &entry.branch {
+        Some(branch) => SharedString::from(branch.clone()),
+        None => SharedString::from(
+            entry
+                .path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| entry.path.to_string_lossy().into_owned()),
+        ),
+    }
+}
 
 /// One tree row, JetBrains-style: a single compact line — expand
 /// chevron (dirs only; files get an equal-width spacer so names align), then
@@ -888,3 +1127,53 @@ fn find_children_mut<'a>(items: &'a mut Vec<TreeItem>, id: &str) -> Option<&'a m
     None
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use coding::git_worktree::WorktreeEntry;
+
+    fn entry(path: &str, branch: Option<&str>) -> WorktreeEntry {
+        WorktreeEntry {
+            path: PathBuf::from(path),
+            branch: branch.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn root_label_prefers_the_branch_then_the_directory() {
+        assert_eq!(
+            root_label(&entry("/repos/acme/app", Some("master"))),
+            "master"
+        );
+        // Detached (or git-less): the directory name identifies it.
+        assert_eq!(
+            root_label(&entry("/repos/acme/.worktrees/EXP-42", None)),
+            "EXP-42"
+        );
+    }
+
+    #[test]
+    fn only_linked_worktrees_count_as_a_selection() {
+        // `git worktree list` order: the main working tree FIRST.
+        let worktrees = vec![
+            entry("/repos/acme/app", Some("master")),
+            entry("/repos/acme/app.worktrees/EXP-42", Some("exp/EXP-42")),
+        ];
+        assert!(is_linked_worktree(
+            &worktrees,
+            Path::new("/repos/acme/app.worktrees/EXP-42")
+        ));
+        // The trunk is the `None` selection — never a "worktree" pick.
+        assert!(!is_linked_worktree(&worktrees, Path::new("/repos/acme/app")));
+        // A removed worktree stops matching, which is what falls the tree
+        // back to the trunk.
+        assert!(!is_linked_worktree(
+            &worktrees,
+            Path::new("/repos/acme/app.worktrees/EXP-7")
+        ));
+        assert!(!is_linked_worktree(
+            &[],
+            Path::new("/repos/acme/app.worktrees/EXP-42")
+        ));
+    }
+}
