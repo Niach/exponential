@@ -15,6 +15,7 @@ import {
 
 // EXP-317: the cross-client nav glyphs come from the shared registry
 // (packages/icons/icons.json) so web, desktop, iOS and Android agree.
+const ActionChatIcon = conceptIcon(`action-chat`)
 const NavAgentsIcon = conceptIcon(`nav-agents`)
 const NavCreateIssueIcon = conceptIcon(`nav-create-issue`)
 const NavInboxIcon = conceptIcon(`nav-inbox`)
@@ -109,6 +110,10 @@ function TabDot({ className }: { className: string }) {
     />
   )
 }
+
+// The detached circular FAB beside the nav pill — one slot, whatever the
+// active surface puts in it.
+const FAB_CLASS = `pointer-events-auto flex size-[3.25rem] shrink-0 items-center justify-center rounded-full border border-glass-stroke-card bg-popover/85 text-foreground shadow-lg shadow-black/40 backdrop-blur-xl`
 
 function tabClass(active: boolean): string {
   return cn(
@@ -230,16 +235,31 @@ export function MobileTabBar({
           </button>
         )}
       </nav>
-      {boardTarget && (
+      {/* EXP-631: the Agents tab's FAB slot starts a chat instead of an
+          issue — the same launcher the device rows open, on its Chat tab
+          (native parity: iOS/Android hide compose on Agents too). */}
+      {onAgents ? (
         <Link
-          to="/t/$teamSlug/boards/$boardSlug"
-          params={{ teamSlug, boardSlug: boardTarget.slug }}
-          search={{ new: 1 }}
-          aria-label="New issue"
-          className="pointer-events-auto flex size-[3.25rem] shrink-0 items-center justify-center rounded-full border border-glass-stroke-card bg-popover/85 text-foreground shadow-lg shadow-black/40 backdrop-blur-xl"
+          to="/t/$teamSlug/agents"
+          params={{ teamSlug }}
+          search={{ chat: 1 }}
+          aria-label="Start chat"
+          className={FAB_CLASS}
         >
-          <NavCreateIssueIcon className="size-5" />
+          <ActionChatIcon className="size-5" />
         </Link>
+      ) : (
+        boardTarget && (
+          <Link
+            to="/t/$teamSlug/boards/$boardSlug"
+            params={{ teamSlug, boardSlug: boardTarget.slug }}
+            search={{ new: 1 }}
+            aria-label="New issue"
+            className={FAB_CLASS}
+          >
+            <NavCreateIssueIcon className="size-5" />
+          </Link>
+        )
       )}
     </div>
   )

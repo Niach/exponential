@@ -6,7 +6,8 @@ import SwiftUI
 /// helpdesk inbox, present only while the active team's helpdesk flag is on
 /// (EXP-180) — Agents — with a running-session dot — Reviews — its own entry
 /// per EXP-147, ordered after Agents per EXP-152 — and Search; base order per
-/// EXP-81) plus a detached circular compose button on the right. Attached via
+/// EXP-81) plus a detached circular button on the right — compose an issue on
+/// the board surfaces, start a chat on Agents (EXP-631). Attached via
 /// `.overlay(alignment: .bottom)` so content
 /// scrolls underneath it; each bar-visible scrollable reserves clearance with
 /// `.tabBarBottomInset()` (EXP-36). MainNavigator hides it on detail screens.
@@ -24,6 +25,9 @@ struct MobileTabBar: View {
     let showsSupport: Bool
     let supportUnread: Bool
     let showsCompose: Bool
+    /// EXP-631: the Agents surface puts a Chat launcher in the compose slot —
+    /// composing an issue is board-scoped and hidden there anyway.
+    let showsChat: Bool
     let onIssues: () -> Void
     let onSearch: () -> Void
     let onAgents: () -> Void
@@ -31,6 +35,7 @@ struct MobileTabBar: View {
     let onReviews: () -> Void
     let onSupport: () -> Void
     let onCompose: () -> Void
+    let onChat: () -> Void
 
     // EXP-523: the active pill SLIDES between tabs instead of cutting. One
     // capsule holds the geometry id at a time (the standard matched-geometry
@@ -125,24 +130,34 @@ struct MobileTabBar: View {
             Spacer()
 
             if showsCompose {
-                Button(action: onCompose) {
-                    AppIcon(AppIcons.navCreateIssue, size: AppIcon.Size.large, weight: .semibold)
-                        .foregroundStyle(.white)
-                        .frame(width: 52, height: 52)
-                        .background(.ultraThinMaterial, in: Circle())
-                        .overlay(
-                            Circle().stroke(Color.white.opacity(0.12), lineWidth: 0.5)
-                        )
-                        .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("New issue")
-                .accessibilityIdentifier("compose-button")
+                fab(glyph: AppIcons.navCreateIssue, action: onCompose)
+                    .accessibilityLabel("New issue")
+                    .accessibilityIdentifier("compose-button")
+            } else if showsChat {
+                fab(glyph: AppIcons.actionChat, action: onChat)
+                    .accessibilityLabel("Start chat")
+                    .accessibilityIdentifier("chat-button")
             }
         }
         .padding(.horizontal, showsSupport ? 12 : 20)
         .padding(.top, 8)
         .padding(.bottom, 4)
+    }
+
+    /// The detached circular button beside the pill — one slot, whatever the
+    /// active surface puts in it (compose an issue, start a chat).
+    private func fab(glyph: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            AppIcon(glyph, size: AppIcon.Size.large, weight: .semibold)
+                .foregroundStyle(.white)
+                .frame(width: 52, height: 52)
+                .background(.ultraThinMaterial, in: Circle())
+                .overlay(
+                    Circle().stroke(Color.white.opacity(0.12), lineWidth: 0.5)
+                )
+                .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
+        }
+        .buttonStyle(.plain)
     }
 
     private func tab(

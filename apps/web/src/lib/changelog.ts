@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-mobile-chat-button`,
+    date: `2026-08-25`,
+    title: `Start a chat from the Agents tab`,
+    summary: `On phones the Agents tab now carries a chat button in the corner, so a quick question to an agent is one tap away.`,
+    body: `- **One tap**: the round button sits where the new-issue button does on a board, and opens the launcher straight on its Chat tab.
+- **Everywhere on mobile**: iOS, Android and the web app on a phone all get it.
+- **Same chat as always**: pick a machine, pick a repository, type what you want, and the session opens as soon as your machine takes it.`,
+  },
+  {
     id: `2026-08-default-device`,
     date: `2026-08-24`,
     title: `Pick a default machine`,

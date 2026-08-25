@@ -330,6 +330,10 @@ private fun AuthenticatedNav(
             navController.popBackStack("support-inbox", inclusive = true)
         }
     }
+    // EXP-631: the Agents surface's FAB starts a chat instead. The bar lives
+    // out here, the launcher (with its devices and start handlers) lives in
+    // AgentsScreen — so a tap just bumps a counter the screen watches.
+    var chatRequest by remember { mutableStateOf(0) }
     // The single add-issue affordance: the FAB shows while a board is in
     // view — the Issues tab root (its resolved current board) or a pushed
     // board route — so it always targets the board on screen.
@@ -389,6 +393,7 @@ private fun AuthenticatedNav(
                 onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenActions = { navController.navigate("actions") { launchSingleTop = true } },
+                chatRequest = chatRequest,
             )
         }
         composable("actions") {
@@ -613,6 +618,7 @@ private fun AuthenticatedNav(
             showsSupport = helpdeskEnabled,
             supportUnread = supportUnread,
             showsCompose = composeBoardId != null,
+            showsChat = currentRoute == "agents",
             onIssues = { navController.popBackStack("home", inclusive = false) },
             onSearch = {
                 if (currentRoute != "search") {
@@ -657,6 +663,7 @@ private fun AuthenticatedNav(
             onCompose = {
                 composeBoardId?.let { navController.navigate("board/$it/new") }
             },
+            onChat = { chatRequest++ },
             modifier = Modifier.align(Alignment.BottomCenter),
         )
     }

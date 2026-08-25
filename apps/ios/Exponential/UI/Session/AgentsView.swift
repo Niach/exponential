@@ -18,6 +18,11 @@ import SwiftUI
 /// machines section is absent (web parity — nothing here can be started) and
 /// the tab shows the full-screen empty state until a session appears.
 struct AgentsView: View {
+    /// EXP-631: the mobile tab bar's Chat FAB bumps this counter (the bar
+    /// lives in AppNavigator, the launcher lives here) — every change opens
+    /// the Start coding sheet on its Chat tab.
+    var chatRequest: Int = 0
+
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(TeamState.self) private var teamState
@@ -29,6 +34,9 @@ struct AgentsView: View {
     /// fetched once per account instead of polled.
     @State private var latestVersions: LatestVersions?
     @State private var startSheetDevice: SteerDevice?
+    /// The tab bar's Chat launcher (EXP-631) — the same sheet, opened on its
+    /// Chat tab with no machine preference.
+    @State private var chatSheetPresented = false
     // Machine row actions (EXP-403/EXP-481): the settings-sheet target (Edit
     // — rename/sharing/defaults/worktrees live there now), the remove alert
     // target, the optimistic "Updating…" ids (the flag itself lands via
@@ -83,7 +91,28 @@ struct AgentsView: View {
 
     var body: some View {
         ZStack {
+            // The Chat sheet hangs off the background, not the ZStack: that
+            // node already owns the Start coding sheet + the merge alert, and
+            // stacking presentations on one node is where SwiftUI starts
+            // dropping them. The background is always present, so the FAB
+            // works with or without the machines section.
             AppBackground()
+                .sheet(isPresented: $chatSheetPresented) {
+                    StartCodingSheet(
+                        devices: onlineDevices,
+                        issues: viewModel?.startCandidates(teamId: teamState.activeTeam?.id) ?? [],
+                        preselectedIds: [],
+                        teamId: teamState.activeTeam?.id,
+                        initialTab: .chat,
+                        worktrees: viewModel?.worktrees,
+                        onStart: { chosenDevice, issueIds, options in
+                            start(on: chosenDevice, issueIds: issueIds, options: options)
+                        },
+                        onRunAction: { chosenDevice, action, options, inputs in
+                            runAction(on: chosenDevice, action: action, options: options, inputs: inputs)
+                        }
+                    )
+                }
 
             if let vm = viewModel {
                 if steerEnabled {
@@ -138,6 +167,9 @@ struct AgentsView: View {
             // EXP-432/EXP-481: the shared rows belong to the ACTIVE team —
             // the VM recomposes on the team switch.
             viewModel?.activeTeamId = teamId
+        }
+        .onChange(of: chatRequest) { _, _ in
+            chatSheetPresented = true
         }
         .onDisappear {
             viewModel?.stopObserving()

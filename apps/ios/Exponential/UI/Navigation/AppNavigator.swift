@@ -279,6 +279,10 @@ struct MainNavigator: View {
     /// sheet's `onDismiss`, not the create itself: a push that starts while the
     /// sheet is still animating away loses the transition.
     @State private var createdIssue: CreatedIssue?
+    /// EXP-631: the Agents FAB's chat request. The bar lives here, the
+    /// launcher (with its devices, team and start handlers) lives in
+    /// AgentsView — so a tap just bumps a counter the screen watches.
+    @State private var chatRequest = 0
 
     private struct ComposeTarget: Identifiable {
         let accountId: String
@@ -426,13 +430,15 @@ struct MainNavigator: View {
                     showsSupport: helpdeskEnabled,
                     supportUnread: supportUnread,
                     showsCompose: resolvedComposeTarget != nil,
+                    showsChat: isOnAgents,
                     onIssues: { path = [] },
                     onSearch: { if !isOnSearch { path = [.search] } },
                     onAgents: { if !isOnAgents { path = [.agents] } },
                     onMyWork: { if !isOnMyWork { path = [.myWork] } },
                     onReviews: { if !isOnReviews { path = [.reviews] } },
                     onSupport: { if !isOnSupport { path = [.support] } },
-                    onCompose: { composeTarget = resolvedComposeTarget }
+                    onCompose: { composeTarget = resolvedComposeTarget },
+                    onChat: { chatRequest += 1 }
                 )
             }
         }
@@ -624,7 +630,7 @@ struct MainNavigator: View {
             SearchView()
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
         case .agents:
-            AgentsView()
+            AgentsView(chatRequest: chatRequest)
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
         case .actions:
             ActionsListView()

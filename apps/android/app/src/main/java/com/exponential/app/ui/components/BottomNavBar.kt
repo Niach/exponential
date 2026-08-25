@@ -77,6 +77,9 @@ fun BottomNavBar(
     showsSupport: Boolean,
     supportUnread: Boolean,
     showsCompose: Boolean,
+    // EXP-631: the Agents surface puts a Chat launcher in the compose slot —
+    // composing an issue is board-scoped and hidden there anyway.
+    showsChat: Boolean,
     onIssues: () -> Unit,
     onSearch: () -> Unit,
     onAgents: () -> Unit,
@@ -84,6 +87,7 @@ fun BottomNavBar(
     onReviews: () -> Unit,
     onSupport: () -> Unit,
     onCompose: () -> Unit,
+    onChat: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // Six tabs (helpdesk on) must still fit a 360dp screen beside the compose
@@ -166,24 +170,37 @@ fun BottomNavBar(
 
         Spacer(Modifier.weight(1f))
 
+        // The detached circular button beside the pill — one slot, whatever
+        // the active surface puts in it (compose an issue, start a chat).
         if (showsCompose) {
-            Box(
-                modifier = Modifier
-                    .size(52.dp)
-                    .clip(CircleShape)
-                    .background(BottomBarPillFill)
-                    .border(GlassTokens.Hairline, Color.White.copy(alpha = 0.12f), CircleShape)
-                    .clickable(onClick = onCompose),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    ExpIcons.navCreateIssue,
-                    contentDescription = "New issue",
-                    modifier = Modifier.size(20.dp),
-                    tint = Color.White,
-                )
-            }
+            Fab(icon = ExpIcons.navCreateIssue, contentDescription = "New issue", onClick = onCompose)
+        } else if (showsChat) {
+            Fab(icon = ExpIcons.actionChat, contentDescription = "Start chat", onClick = onChat)
         }
+    }
+}
+
+@Composable
+private fun Fab(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(52.dp)
+            .clip(CircleShape)
+            .background(BottomBarPillFill)
+            .border(GlassTokens.Hairline, Color.White.copy(alpha = 0.12f), CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            icon,
+            contentDescription = contentDescription,
+            modifier = Modifier.size(20.dp),
+            tint = Color.White,
+        )
     }
 }
 
