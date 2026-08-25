@@ -434,14 +434,83 @@ function aurora(input: RenderInput) {
 
 /* ── Set 2: zinc (default) ───────────────────────────────────────────────── */
 
-const ZINC_BG = `linear-gradient(180deg, #09090B 0%, #18181B 100%)`
+/* Glass, in black and white only.
+ *
+ * The composition is aurora's — wordmark and centred type up top, one device
+ * centred under it, a magnified detail lifted out over its edge — but the depth
+ * comes entirely from LIGHT rather than hue: two soft white blooms in the
+ * background, a bezel and a pop-out card that are literally frosted glass, and
+ * a palette that never leaves the zinc ramp. No violet, no teal, no accent
+ * colour at all; the only saturated pixels in the frame belong to the product
+ * screenshot itself, which is the point.
+ *
+ * The device is CENTRED and whole. The earlier zinc bled it off alternating
+ * edges, which sliced the board header's own controls in half and read as a
+ * mistake rather than as a crop. */
+
+const ZINC_BG = [
+  `radial-gradient(115% 62% at 76% 4%, rgba(255,255,255,0.13), transparent 62%)`,
+  `radial-gradient(105% 58% at 14% 96%, rgba(255,255,255,0.07), transparent 62%)`,
+  `linear-gradient(180deg, #0B0B0E 0%, #131316 55%, #09090B 100%)`,
+].join(`, `)
+
+/** Frosted slab: a lit top edge falling away to near-nothing. */
+const ZINC_GLASS = `linear-gradient(155deg, rgba(255,255,255,0.20) 0%, rgba(255,255,255,0.055) 38%, rgba(255,255,255,0.02) 100%)`
+
+/* A deep drop plus a faint white bloom, so the device sits ON the background
+   instead of being pasted onto it. */
+const ZINC_FRAME_SHADOW = [
+  `0 0 150px rgba(255,255,255,0.075)`,
+  `0 48px 110px rgba(0,0,0,0.72)`,
+  `inset 0 1px 0 rgba(255,255,255,0.22)`,
+].join(`, `)
+
+/* The pop-out is the loudest object on the slide, so it carries the most glass:
+   a real backdrop blur over whatever it overlaps (the device, usually), a bright
+   hairline, and a shadow deep enough to read as lifted rather than inlaid. */
+const ZINC_POP_CARD = {
+  background: `rgba(255,255,255,0.10)`,
+  border: `1px solid rgba(255,255,255,0.26)`,
+  backdropFilter: `blur(32px) saturate(140%)`,
+  WebkitBackdropFilter: `blur(32px) saturate(140%)`,
+  boxShadow: [
+    `0 2px 0 rgba(255,255,255,0.16) inset`,
+    `0 52px 100px rgba(0,0,0,0.78)`,
+    `0 0 90px rgba(255,255,255,0.06)`,
+  ].join(`, `),
+}
+
+const ZINC_FG = `#FAFAFA`
+const ZINC_MUTED = `#A1A1AA`
+const ZINC_ACCENT = `#8E8E97`
 
 function zinc(input: RenderInput) {
   const c = ctx(input)
   const pad = Math.round(c.base * 0.085)
-  const screenW = Math.round(c.w * 0.86)
-  // Alternate which edge the frame bleeds off, slide to slide.
-  const rightBleed = c.slide.index % 2 === 0
+  const hero = !c.slide.shot
+  const screenW = Math.round(c.w * (hero ? 0.74 : 0.79))
+  const deviceTop = Math.round(c.h * (hero ? 0.29 : 0.3))
+
+  /* Park the pop-out ON TOP of the region it crops, so it reads as a lens over
+     that element rather than as a second copy of it floating nearby: the source
+     rows disappear behind the card instead of peeking out below it. Clamped so
+     a crop near the top of the screen cannot climb into the headline, and one
+     near the bottom cannot slide off the canvas. */
+  const popTop = (() => {
+    if (!c.pop) return Math.round(c.h * 0.68)
+    const screenH = (screenW * c.rawHeight) / c.rawWidth
+    const cropPxW = c.pop.w * c.rawWidth
+    const displayW = Math.min(c.w * 0.88, (cropPxW / CSS_SCALE) * MAX_POP_UPSCALE)
+    const cardH = (displayW * (c.pop.h * c.rawHeight)) / cropPxW
+    const sourceMid = deviceTop + (c.pop.y + c.pop.h / 2) * screenH
+    // The lower bound is the card's BOTTOM, not its top: clamping the top pulled
+    // tall cards up off their source and left a strip of the original peeking
+    // out underneath, which is the duplicate-looking artefact this is here to
+    // avoid in the first place.
+    return Math.round(
+      Math.min(Math.max(sourceMid - cardH / 2, c.h * 0.42), c.h * 0.97 - cardH)
+    )
+  })()
 
   if (c.slide.featureGraphic) {
     return (
@@ -457,46 +526,15 @@ function zinc(input: RenderInput) {
             gap: `${Math.round(c.h * 0.06)}px`,
           }}
         >
-          <Wordmark logo={c.logo} size={Math.round(c.h * 0.17)} label="Exponential" fg="#fafafa" />
+          <Wordmark logo={c.logo} size={Math.round(c.h * 0.17)} label="Exponential" fg={ZINC_FG} />
           <Headline
             slide={c.slide}
             base={Math.round(c.h * 1.45)}
             align="left"
-            accent="#71717A"
-            fg="#fafafa"
-            muted="#A1A1AA"
+            accent={ZINC_ACCENT}
+            fg={ZINC_FG}
+            muted={ZINC_MUTED}
             maxWidth={c.w * 0.82}
-          />
-        </div>
-      </Canvas>
-    )
-  }
-
-  // Hero is pure type + wordmark — no device, no capture.
-  if (!c.slide.shot) {
-    return (
-      <Canvas c={c} background={ZINC_BG}>
-        <div
-          style={{
-            position: `absolute`,
-            inset: 0,
-            display: `flex`,
-            flexDirection: `column`,
-            justifyContent: `center`,
-            padding: `0 ${pad}px`,
-            gap: `${Math.round(c.base * 0.09)}px`,
-          }}
-        >
-          <Wordmark logo={c.logo} size={Math.round(c.base * 0.11)} label="Exponential" fg="#fafafa" />
-          <Headline
-            slide={c.slide}
-            base={c.base * 1.25}
-            align="left"
-            accent="#52525B"
-            fg="#fafafa"
-            muted="#A1A1AA"
-            maxWidth={c.w - pad * 2}
-            rule
           />
         </div>
       </Canvas>
@@ -508,20 +546,23 @@ function zinc(input: RenderInput) {
       <div
         style={{
           position: `absolute`,
-          left: `${pad}px`,
-          top: `${pad}px`,
-          right: `${pad}px`,
+          inset: 0,
+          display: `flex`,
+          flexDirection: `column`,
+          alignItems: `center`,
+          paddingTop: `${pad}px`,
+          gap: `${Math.round(c.base * 0.05)}px`,
         }}
       >
+        <Wordmark logo={c.logo} size={Math.round(c.base * 0.075)} fg={ZINC_FG} />
         <Headline
           slide={c.slide}
           base={c.base}
-          align="left"
-          accent="#52525B"
-          fg="#fafafa"
-          muted="#A1A1AA"
+          align="center"
+          accent={ZINC_ACCENT}
+          fg={ZINC_FG}
+          muted={ZINC_MUTED}
           maxWidth={c.w - pad * 2}
-          rule
         />
       </div>
 
@@ -529,10 +570,11 @@ function zinc(input: RenderInput) {
         <div
           style={{
             position: `absolute`,
-            top: `${Math.round(c.h * 0.32)}px`,
-            ...(rightBleed
-              ? { right: `${Math.round(-c.w * 0.12)}px` }
-              : { left: `${Math.round(-c.w * 0.12)}px` }),
+            left: `50%`,
+            // The hero tilts; every other slide is square-on, so the pop-out
+            // overlapping it reads as one lifted layer and not as clutter.
+            top: `${deviceTop}px`,
+            transform: hero ? `translateX(-50%) rotate(-6deg)` : `translateX(-50%)`,
           }}
         >
           <Frame
@@ -541,21 +583,25 @@ function zinc(input: RenderInput) {
             rawHeight={c.rawHeight}
             src={c.shotUri}
             radius={Math.round(c.w * 0.062)}
-            ring={Math.max(4, Math.round(c.w * 0.012))}
-            bezel="#0B0B0E"
-            ringColor="rgba(255,255,255,0.10)"
-            shadow="0 60px 120px rgba(0,0,0,0.55)"
+            ring={Math.max(4, Math.round(c.w * 0.013))}
+            bezel={ZINC_GLASS}
+            ringColor="rgba(255,255,255,0.28)"
+            shadow={ZINC_FRAME_SHADOW}
             notch={c.form !== `android-phone`}
           />
         </div>
       ) : null}
 
-      {c.pop && c.shotUri ? (
+      {c.pop && c.shotUri && !hero ? (
         <div
           style={{
             position: `absolute`,
-            top: `${Math.round(c.h * 0.74)}px`,
-            ...(rightBleed ? { left: `${Math.round(c.w * 0.05)}px` } : { right: `${Math.round(c.w * 0.05)}px` }),
+            left: `50%`,
+            // Deliberately overlapping the device's lower edge and pushed off
+            // its centre line: the detail has to look like it was pulled OUT of
+            // the screen, which a card floating in clear space below never does.
+            top: `${popTop}px`,
+            transform: `translateX(-50%)`,
           }}
         >
           <PopOut
@@ -563,17 +609,13 @@ function zinc(input: RenderInput) {
             rawWidth={c.rawWidth}
             rawHeight={c.rawHeight}
             src={c.shotUri}
-            targetW={c.w * 0.8}
-            rotate={0}
-            radius={Math.round(c.base * 0.032)}
-            card={{
-              background: `rgba(255,255,255,0.06)`,
-              border: `1px solid rgba(255,255,255,0.12)`,
-              backdropFilter: `blur(24px)`,
-              WebkitBackdropFilter: `blur(24px)`,
-              boxShadow: `0 40px 80px rgba(0,0,0,0.6)`,
-              padding: `${Math.round(c.base * 0.018)}px`,
-            }}
+            // Wider than the device (0.79w) on purpose — the card has to break
+            // both of its edges to read as lifted off the screen — but still
+            // inside the canvas with a margin.
+            targetW={c.w * 0.88}
+            rotate={-1.5}
+            radius={Math.round(c.base * 0.038)}
+            card={{ ...ZINC_POP_CARD, padding: `${Math.round(c.base * 0.016)}px` }}
           />
         </div>
       ) : null}

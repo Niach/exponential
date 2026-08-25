@@ -5,7 +5,7 @@
    device/canvas change. Resolution ladder, most specific first:
 
      1. a sidecar `pop-<shot>.json` next to the raw   (hand-tuned, wins)
-     2. the HAND_RECTS entry for `<shot>:<form>`      (first guesses below)
+     2. the HAND_RECTS entry for `<shot>:<form>`      (measured, below)
      3. nothing — the slide still renders, just without a pop-out
 
    Sidecars are either a bare rect (`{"x":…,"y":…,"w":…,"h":…}`) or a map keyed
@@ -33,50 +33,64 @@ function valid(r: unknown): r is Rect {
   )
 }
 
-/* ── FIRST GUESSES — hand-tuned by eye against the seeded demo data, NOT
-   measured. Expect to move all of them once real captures exist; that is what
-   `--debug-crops` and the sidecars are for. Phone rects assume a single-column
-   list; the iPad rects target the right-hand detail pane of the split view. ── */
+/* ── MEASURED on 2026-08-24 against the committed raws — iPhone 17 Pro Max
+   (1320×2868), iPad Pro 13-inch M5 (2064×2752) and the Android phone
+   (1080×2400) — by reading each capture, locating the element the slide's
+   headline is about and converting its bounding box, with a ~1–2% margin.
+   Re-measure whenever `seed:screenshots` or a client's layout changes.
+
+   Two things the raws taught us: the iPad shots are NOT split views (every
+   surface is one full-width column, so the tablet rects are full-bleed), and
+   a lone list row on a phone is ~9:1, so several rects deliberately take in
+   the neighbouring group header or sibling row to land in the 2:1–6:1 band the
+   compositor's cards want. Rows are always framed whole — never half a row. ── */
 export const HAND_RECTS: Record<string, Rect> = {
-  // An issue row mid-list.
-  "board:ios-phone": { x: 0.04, y: 0.42, w: 0.92, h: 0.095 },
-  "board:android-phone": { x: 0.04, y: 0.40, w: 0.92, h: 0.085 },
-  "board:ios-tablet": { x: 0.36, y: 0.36, w: 0.56, h: 0.08 },
+  // The richest issue row (APP-6: priority, id, label dot, due date, avatar),
+  // under its "Todo" group header. Tablet takes the whole Todo group.
+  "board:ios-phone": { x: 0.024, y: 0.359, w: 0.953, h: 0.081 },
+  "board:android-phone": { x: 0.024, y: 0.33, w: 0.951, h: 0.0735 },
+  "board:ios-tablet": { x: 0.007, y: 0.226, w: 0.986, h: 0.157 },
 
-  // The agent picker chips.
-  "start-coding:ios-phone": { x: 0.05, y: 0.54, w: 0.9, h: 0.13 },
-  "start-coding:android-phone": { x: 0.05, y: 0.5, w: 0.9, h: 0.12 },
-  "start-coding:ios-tablet": { x: 0.32, y: 0.44, w: 0.42, h: 0.12 },
+  // The Claude Code / Codex / pi agent picker, plus the Model + Effort rows
+  // right under it — the picker alone is a ~12:1 sliver.
+  "start-coding:ios-phone": { x: 0.0315, y: 0.578, w: 0.937, h: 0.177 },
+  "start-coding:android-phone": { x: 0.0289, y: 0.5165, w: 0.942, h: 0.156 },
+  "start-coding:ios-tablet": { x: 0.228, y: 0.606, w: 0.543, h: 0.133 },
 
-  // The unanswered question bubble in the lower third.
-  "steering:ios-phone": { x: 0.06, y: 0.62, w: 0.88, h: 0.155 },
-  "steering:android-phone": { x: 0.06, y: 0.6, w: 0.88, h: 0.14 },
-  "steering:ios-tablet": { x: 0.38, y: 0.56, w: 0.54, h: 0.14 },
+  // The agent's unanswered question card with its two numbered options.
+  // The tablet rect also takes the prose question that sets it up.
+  "steering:ios-phone": { x: 0.0174, y: 0.609, w: 0.965, h: 0.209 },
+  "steering:android-phone": { x: 0.0289, y: 0.559, w: 0.951, h: 0.212 },
+  "steering:ios-tablet": { x: 0.007, y: 0.7205, w: 0.986, h: 0.161 },
 
-  // A diff hunk.
-  "review:ios-phone": { x: 0.04, y: 0.46, w: 0.92, h: 0.175 },
-  "review:android-phone": { x: 0.04, y: 0.44, w: 0.92, h: 0.16 },
-  "review:ios-tablet": { x: 0.36, y: 0.4, w: 0.58, h: 0.16 },
+  // The floating Merge action bar (dismiss / Merge / open on GitHub), which
+  // sits over the diff at the bottom of the review screen.
+  "review:ios-phone": { x: 0.195, y: 0.9015, w: 0.603, h: 0.0585 },
+  "review:android-phone": { x: 0.178, y: 0.9025, w: 0.643, h: 0.0675 },
+  "review:ios-tablet": { x: 0.2725, y: 0.906, w: 0.46, h: 0.088 },
 
-  // An action row.
-  "actions:ios-phone": { x: 0.04, y: 0.3, w: 0.92, h: 0.105 },
-  "actions:android-phone": { x: 0.04, y: 0.29, w: 0.92, h: 0.095 },
-  "actions:ios-tablet": { x: 0.36, y: 0.26, w: 0.56, h: 0.09 },
+  // The "Update dependencies" action row: title, description, its
+  // "1 automation" sub-line and the run button. Tablet takes two such rows.
+  "actions:ios-phone": { x: 0.0206, y: 0.314, w: 0.958, h: 0.107 },
+  "actions:android-phone": { x: 0.0267, y: 0.258, w: 0.9455, h: 0.095 },
+  "actions:ios-tablet": { x: 0.008, y: 0.1875, w: 0.985, h: 0.1235 },
 
-  // The top unread notification.
-  "inbox:ios-phone": { x: 0.04, y: 0.2, w: 0.92, h: 0.105 },
-  "inbox:android-phone": { x: 0.04, y: 0.2, w: 0.92, h: 0.095 },
-  "inbox:ios-tablet": { x: 0.06, y: 0.2, w: 0.36, h: 0.09 },
+  // The top unread notification (APP-6 assigned, bold + unread dot).
+  // Tablet needs three rows to stay out of sliver territory.
+  "inbox:ios-phone": { x: 0.0217, y: 0.189, w: 0.955, h: 0.0735 },
+  "inbox:android-phone": { x: 0.0222, y: 0.1465, w: 0.955, h: 0.0705 },
+  "inbox:ios-tablet": { x: 0.007, y: 0.1095, w: 0.986, h: 0.151 },
 
-  // A message bubble in the thread.
-  "support:ios-phone": { x: 0.06, y: 0.45, w: 0.88, h: 0.135 },
-  "support:android-phone": { x: 0.06, y: 0.43, w: 0.88, h: 0.125 },
-  "support:ios-tablet": { x: 0.38, y: 0.4, w: 0.54, h: 0.12 },
+  // The top open ticket — reporter name and their message. The mobile support
+  // shots are the thread LIST, so the preview line is the reporter's message.
+  "support:ios-phone": { x: 0.0217, y: 0.188, w: 0.955, h: 0.0935 },
+  "support:android-phone": { x: 0.02, y: 0.1345, w: 0.955, h: 0.072 },
+  "support:ios-tablet": { x: 0.007, y: 0.1095, w: 0.986, h: 0.187 },
 
-  // The "Coding now" row.
-  "issue-detail:ios-phone": { x: 0.04, y: 0.34, w: 0.92, h: 0.115 },
-  "issue-detail:android-phone": { x: 0.04, y: 0.33, w: 0.92, h: 0.105 },
-  "issue-detail:ios-tablet": { x: 0.36, y: 0.3, w: 0.58, h: 0.1 },
+  // The markdown checklist and the live green "Coding now" row below it.
+  "issue-detail:ios-phone": { x: 0.042, y: 0.36, w: 0.923, h: 0.198 },
+  "issue-detail:android-phone": { x: 0.032, y: 0.324, w: 0.928, h: 0.2145 },
+  "issue-detail:ios-tablet": { x: 0.007, y: 0.165, w: 0.986, h: 0.148 },
 }
 
 function sidecarRect(rawPath: string, shot: string, form: Form): Rect | null {

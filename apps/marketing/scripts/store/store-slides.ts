@@ -97,6 +97,8 @@ export type Slide = {
   headline: string[]
   sub?: string
   forms: Form[]
+  /** Suppress the magnified detail card — the screen carries the slide alone. */
+  noPop?: boolean
   /** Play's 1024×500 feature graphic, not a phone screenshot. */
   featureGraphic?: boolean
 }
@@ -114,18 +116,23 @@ export const SLIDES: Slide[] = [
     shot: null,
     decorShot: `board`,
     eyebrow: `Exponential`,
-    headline: [`Vibecode`, `together.`],
+    headline: [`The next-gen`, `dev platform`],
     sub: `Issues, customer support and coding agents in one workspace, in sync on every device.`,
     forms: PHONES,
   },
   {
-    id: `board`,
+    // Straight after the hero: the issue IS the collaboration surface, and it
+    // is the one screen that shows several people on the same thing at once.
+    // No pop-out — the body, the checklist and the activity already fill it,
+    // and a magnified card on top would just cover one of them.
+    id: `issue-detail`,
     index: 2,
-    shot: `board`,
-    eyebrow: `Boards`,
-    headline: [`The next-gen`, `dev platform`],
-    sub: `Issues, boards and realtime sync`,
+    shot: `issue-detail`,
+    eyebrow: `Issues`,
+    headline: [`Collaborate`, `with your team`],
+    sub: `Markdown, checklists, mentions — live on every device`,
     forms: PHONES,
+    noPop: true,
   },
   {
     id: `start-coding`,
@@ -164,32 +171,13 @@ export const SLIDES: Slide[] = [
     forms: PHONES,
   },
   {
-    id: `inbox`,
-    index: 7,
-    shot: `inbox`,
-    eyebrow: `Inbox`,
-    headline: [`A calm`, `inbox`],
-    sub: `Assignments, mentions and merged PRs`,
-    forms: PHONES,
-  },
-  {
     id: `support`,
-    index: 8,
+    index: 7,
     shot: `support`,
     eyebrow: `Helpdesk`,
     headline: [`Support`, `built in`],
     sub: `Customer tickets land next to the code`,
     forms: PHONES,
-  },
-  {
-    // iOS ships 9 slots; Play caps the phone set at 8, so this one is iOS-only.
-    id: `issue-detail`,
-    index: 9,
-    shot: `issue-detail`,
-    eyebrow: `Issues`,
-    headline: [`Everything`, `on the issue`],
-    sub: `Markdown, checklists, mentions — live on every device`,
-    forms: [`ios-phone`, `ios-tablet`],
   },
   {
     id: `feature-graphic`,

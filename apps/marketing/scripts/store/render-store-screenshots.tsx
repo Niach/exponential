@@ -192,7 +192,7 @@ function buildInput(
     shotUri: raw ? pngDataUri(raw.path) : null,
     rawWidth: raw?.width ?? device.rawWidth,
     rawHeight: raw?.height ?? device.rawHeight,
-    pop: raw ? popRect(slide.shot, form, raw.path) : null,
+    pop: raw && !slide.noPop ? popRect(slide.shot, form, raw.path) : null,
     logo: LOGO,
   }
 }
