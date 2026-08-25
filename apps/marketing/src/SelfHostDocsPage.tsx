@@ -358,9 +358,9 @@ GITHUB_APP_CLIENT_SECRET=<oauth client secret>
               device tokens. A self-hosted relay cannot, by design.
             </p>
             <p>
-              Self-hosted users still get web notifications, the email digest,
-              and the desktop app&apos;s notifications. Only mobile push is
-              cloud-only.
+              Self-hosted users still get in-app notifications in every client,
+              including the desktop app, plus the email digest. Only mobile
+              push is cloud-only.
             </p>
 
             <h3>Why a self-hosted relay can&apos;t serve the store apps</h3>
