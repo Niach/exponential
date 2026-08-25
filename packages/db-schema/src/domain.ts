@@ -588,10 +588,6 @@ export const issueDescriptionSchema = z.string().max(MAX_ISSUE_DESCRIPTION)
 
 export type IssueDescription = z.infer<typeof issueDescriptionSchema>
 
-export const commentBodySchema = z.string().min(1).max(10_000)
-
-export type CommentBody = z.infer<typeof commentBodySchema>
-
 // EXP-554: comments may be attachment-only, so the body alone can be empty —
 // the "body or attachments" rule lives in the comments router where both are
 // visible. Attachments link via attachments.comment_id, never inline markdown.

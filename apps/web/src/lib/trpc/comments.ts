@@ -247,17 +247,6 @@ export const commentsRouter = router({
             .max(MAX_COMMENT_ATTACHMENTS)
             .optional(),
         })
-        .superRefine((value, refineCtx) => {
-          if (
-            value.body.trim().length === 0 &&
-            (value.attachmentIds ?? []).length === 0
-          ) {
-            refineCtx.addIssue({
-              code: `custom`,
-              message: `Comment needs text or attachments`,
-            })
-          }
-        })
     )
     .mutation(async ({ ctx, input }) => {
       const existing = await loadCommentForMutation(ctx.db, input.id)
@@ -272,6 +261,28 @@ export const commentsRouter = router({
       // have NO bypass here (EXP-398) — nobody rewrites or deletes someone
       // else's words, and every client hides the menu to match.
       await resolveTeamAccess(ctx.session.user.id, existing.teamId, `comment`)
+
+      // "Body or attachments" checked HERE, not in a zod refine, so that an
+      // empty body with attachmentIds omitted (= leave attachments alone)
+      // counts the comment's EXISTING links (EXP-560 — a refine can't see
+      // them).
+      if (input.body.trim().length === 0) {
+        const keptAttachments = input.attachmentIds
+          ? input.attachmentIds.length
+          : (
+              await ctx.db
+                .select({ id: attachments.id })
+                .from(attachments)
+                .where(eq(attachments.commentId, input.id))
+                .limit(1)
+            ).length
+        if (keptAttachments === 0) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `Comment needs text or attachments`,
+          })
+        }
+      }
 
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)

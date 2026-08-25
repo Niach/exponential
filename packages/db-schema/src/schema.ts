@@ -25,7 +25,7 @@ import {
   actionInputsSchema,
   type AutomationTrigger,
   codingSessionStatusSchema,
-  commentBodySchema,
+  commentBodyWithAttachmentsSchema,
   issueDescriptionSchema,
   issueEventTypeSchema,
   issueEventTypeValues,
@@ -1878,7 +1878,7 @@ export const selectIssueLabelSchema = createSelectSchema(issueLabels)
 export const selectUserSchema = createSelectSchema(users)
 
 export const selectCommentSchema = createSelectSchema(comments, {
-  body: commentBodySchema,
+  body: commentBodyWithAttachmentsSchema,
 })
 export const createCommentSchema = createInsertSchema(comments).omit({
   id: true,
