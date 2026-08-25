@@ -176,5 +176,21 @@ merge, the just-merged PR added a route/view the catalog doesn't know: add the
 - **Flat/dark desktop shots** — Electric hadn't synced before the shutter; the
   capturer retries once with extra delay, but a slow first run may need a rerun
   of just that platform.
+- **`shape proxy` preflight fails / every desktop shot is skeletons and empty
+  states** — you are on the wrong Node. On **Node 26**, `fetch` over a unix
+  socket returns the right status and body with ZERO headers (TCP is fine — an
+  undici regression), and nitro's dev worker is reached over exactly such a
+  socket. So `bun dev` serves every TanStack Start route with its headers
+  stripped: no `content-type` (Start throws `expected content-type header to be
+  set` in the browser), no `set-cookie` (the web lane cannot log in), and no
+  `electric-handle`/`electric-offset` — the shape cursor, without which no
+  client ever syncs. The JSON is correct, so the app looks alive and just stays
+  empty. Use the Node pinned in `.tool-versions`:
+  `PATH="/opt/homebrew/opt/node@24/bin:$PATH" bun dev` — `vite.config.ts` now
+  refuses to start dev on a known-broken major. The built app is unaffected
+  (it runs under Bun) and is always a valid fallback:
+  `cd apps/web && bun run build && PORT=5173 bun --env-file=.env .output/server/index.mjs`.
+  The run also checks this in one request before opening a window, rather than
+  photographing forty empty shells and exiting 0.
 - **`screencapture` permission errors** — grant Screen Recording to the
   terminal app in System Settings → Privacy & Security, then rerun.
