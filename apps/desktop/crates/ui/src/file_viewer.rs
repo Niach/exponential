@@ -12,7 +12,7 @@
 //! switches, exactly like the issue detail.
 //!
 //! Trunk-relative paths resolve against the per-window trunk root the file
-//! tree published (`crate::file_tree::window_trunk_root`) — a file is only
+//! tree published (`crate::file_tree::window_file_root`) — a file is only
 //! reachable by clicking it in the tree, so the root is always resolved
 //! first. The read runs on the background executor; rendering/highlighting
 //! is the `TextView` code block's own (virtualized `gpui::list` in
@@ -123,7 +123,7 @@ impl FileViewerView {
         let Some(path) = self.path.clone() else {
             return;
         };
-        let Some(root) = file_tree::window_trunk_root(self.window_id, cx) else {
+        let Some(root) = file_tree::window_file_root(self.window_id, cx) else {
             // The tree hasn't resolved a trunk root for this window — nothing
             // to read against (should not happen via the tree click path).
             self.parent_dir = None;

@@ -680,9 +680,13 @@ impl SearchDelegate {
         if let RepoState::Ready { root, .. } = &self.repo {
             // `window_id` is the OPENER's id (captured at open) — the trunk
             // root must land on the window the viewer will open in.
-            crate::file_tree::publish_trunk_root(self.window_id, root.clone(), cx);
+            crate::file_tree::publish_file_root(self.window_id, root.clone(), cx);
         }
         native_dialog::close_then(window, cx, move |window, cx| {
+            // EXP-635: the grep ran on the TRUNK, so the tree goes back to it
+            // — a hit opened while the switcher sat on a worktree would
+            // otherwise resolve against the wrong root.
+            crate::file_tree::select_trunk_root(window, cx);
             crate::sidebar::select_file(window, cx, Some(path));
             crate::sidebar::activate_tool(window, cx, crate::sidebar::ToolWindow::Files);
         });

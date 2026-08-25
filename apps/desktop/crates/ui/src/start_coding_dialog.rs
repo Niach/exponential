@@ -257,8 +257,11 @@ fn open(
     // the OPENER window (EXP-284: the dialog is its own native window).
     let opener = window.window_handle();
     // EXP-285: trimmed 640 → 560 and user-resizable — the two-column layout
-    // tolerates it (both lists are max_h-capped).
-    let height = (window.viewport_size().height * 0.85).min(px(520.));
+    // tolerates it (both lists are max_h-capped). EXP-635: 520 → 540 — with
+    // the picker column at its tallest (a capped issue list plus the batch
+    // cost note) the body overflowed by ~20px and grew a sliver of a
+    // scrollbar; the two columns fit outright now.
+    let height = (window.viewport_size().height * 0.85).min(px(540.));
     let spec =
         DialogSpec::new("Start coding", size(px(760.), height)).resizable(size(px(640.), px(480.)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {

@@ -10,9 +10,10 @@
 //!   dot while open PRs exist) and **Files / Source Control** (Source Control carries
 //!   an amber badge while the trunk needs attention — a paused conflict,
 //!   local commits, or a dirty tree, EXP-346 — and opens the changes
-//!   screen immediately). The active tool's icon is tinted with the active
-//!   board's color. One tool is ALWAYS active — re-clicking never
-//!   unselects. Bottom: terminal-dock toggle, settings gear, and the
+//!   screen immediately). Tool glyphs stay WHITE selected or not (EXP-635);
+//!   the active board's color rides the 2px selection marker only. One tool
+//!   is ALWAYS active — re-clicking never unselects. Bottom: terminal-dock
+//!   toggle, settings gear, and the
 //!   **account button as the very bottom element** — its dropdown holds the
 //!   account-level actions only (EXP-69: team switching moved into the
 //!   top bar's merged board picker).
@@ -365,6 +366,16 @@ pub(crate) fn select_file(window: &mut Window, cx: &mut App, path: Option<String
     });
 }
 
+/// The window's file tree (EXP-635: `crate::file_tree::select_trunk_root`
+/// re-roots it from outside — the entity lives on the shared rail state, so
+/// every reach-in goes through here).
+pub(crate) fn window_file_tree(
+    window: &mut Window,
+    cx: &mut App,
+) -> Entity<crate::file_tree::FileTreeView> {
+    rail_shared_for_window(window, cx).read(cx).file_tree.clone()
+}
+
 /// DEV-ONLY `EXP_DEV_TOOL` values: `inbox` | `my-issues` | `board` |
 /// `reviews` | `support` | `files` | `source-control` (anything else = the
 /// ordinary default). See [`rail_shared_for_window`].
@@ -663,14 +674,14 @@ fn rail_row(
     icon: Icon,
     label: impl Into<SharedString>,
     active: bool,
-    accent: Hsla,
     badge: Option<RailBadge>,
     cx: &App,
 ) -> gpui::Stateful<gpui::Div> {
-    // Active entries keep the collapsed rail's accent tint on the glyph; the
-    // glass active fill carries the selection (no 2px marker bar — the row
-    // fill IS the marker at this width).
-    let icon = if active { icon.text_color(accent) } else { icon };
+    // EXP-635: selection never recolors the glyph — a tool icon stays white
+    // whether or not its entry is active (a board row keeps the board tint
+    // the caller already applied). The glass active fill carries the
+    // selection (no 2px marker bar — the row fill IS the marker at this
+    // width).
     h_flex()
         .id(id)
         .w_full()
@@ -754,8 +765,9 @@ impl RailView {
         }
     }
 
-    /// One tool-window icon: a ghost icon button, `selected` + tinted with
-    /// the board accent while its tool window is active; `badge` paints an
+    /// One tool-window icon: a ghost icon button, `selected` while its tool
+    /// window is active — the glyph stays white either way (EXP-635) and the
+    /// board accent rides the marker bar alone; `badge` paints an
     /// attention dot in the given color (EXP-214: review green for open PRs,
     /// amber for support/conflicts), `None` for no dot. EXP-282: on the
     /// EXPANDED rail the same entry renders as a labelled row instead.
@@ -782,13 +794,12 @@ impl RailView {
                 Some(Screen::Actions) | Some(Screen::GettingStarted)
             );
         if expanded {
-            return rail_row(id, icon, label, active, accent, badge, cx)
+            return rail_row(id, icon, label, active, badge, cx)
                 .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
                     activate_tool(window, cx, tool);
                 }))
                 .into_any_element();
         }
-        let icon = if active { icon.text_color(accent) } else { icon };
         div()
             .relative()
             .child(
@@ -845,13 +856,12 @@ impl RailView {
         );
         let icon = Icon::from(icons::registry::NAV_AGENTS);
         if expanded {
-            return rail_row("rail-actions", icon, "Actions", active, accent, None, cx)
+            return rail_row("rail-actions", icon, "Actions", active, None, cx)
                 .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
                     navigate(window, cx, Screen::Actions);
                 }))
                 .into_any_element();
         }
-        let icon = if active { icon.text_color(accent) } else { icon };
         div()
             .relative()
             .child(
@@ -905,7 +915,6 @@ impl RailView {
                 icon,
                 "Getting started",
                 active,
-                accent,
                 None,
                 cx,
             )
@@ -914,7 +923,6 @@ impl RailView {
             }))
             .into_any_element();
         }
-        let icon = if active { icon.text_color(accent) } else { icon };
         div()
             .relative()
             .child(
@@ -1110,14 +1118,13 @@ impl RailView {
                 .map(|team_id| crate::settings::is_owner(cx, &team_id))
                 .unwrap_or(false);
             let settings_board_id = board.id.clone();
-            // EXP-282: the board's own color stays the row's accent (the
-            // glyph is always tinted — `active` only adds the row fill).
+            // EXP-282: the board's own color tints the glyph whether the
+            // row is active or not — `active` only adds the row fill.
             return rail_row(
                 ("rail-board", index),
                 icon,
                 SharedString::from(board.name.clone()),
                 active,
-                tint,
                 None,
                 cx,
             )
@@ -1451,7 +1458,6 @@ impl Render for RailView {
                 Icon::new(registry::NAV_SEARCH),
                 "Search",
                 false,
-                accent,
                 None,
                 cx,
             )
