@@ -20,16 +20,6 @@ export function oauthReturnCodeDeepLink(code: string): string {
   return `${DEEP_LINK_SCHEME}://oauth-return?code=${enc}#code=${enc}`
 }
 
-// DEPRECATED legacy pre-PKCE form: `exponential://oauth-return?token=…#token=…`
-// with the RAW session token. Minted ONLY for old installed clients that sent
-// no `code_challenge` to /api/mobile-oauth-start — new clients always present
-// a challenge and get the code form above. Scheduled for removal once
-// PKCE-capable store builds have saturated (REV-13 follow-up).
-export function oauthReturnDeepLink(token: string): string {
-  const enc = encodeURIComponent(token)
-  return `${DEEP_LINK_SCHEME}://oauth-return?token=${enc}#token=${enc}`
-}
-
 // `exponential://github-connected` — fired after the GitHub App install /
 // OAuth-claim flow to hand the user back to the native app. An optional
 // `?error=<code>` marks a flow that ended on an error card (EXP-365) so newer

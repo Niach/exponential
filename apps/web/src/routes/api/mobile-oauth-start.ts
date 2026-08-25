@@ -27,14 +27,15 @@ async function handle({ request }: { request: Request }) {
     return new Response(`Missing providerId or provider`, { status: 400 })
   }
 
-  // PKCE (REV-13): new clients present an S256 code_challenge here; the
-  // return page then mints a one-time code instead of leaking the raw session
-  // token into the deep link. Absent challenge = legacy token flow (old
-  // installed builds).
+  // PKCE (REV-13, required since EXP-543): the client presents an S256
+  // code_challenge here and the return page mints a one-time code instead of
+  // leaking the raw session token into the deep link. The challenge-less
+  // legacy token flow is gone — pre-PKCE installed builds (iOS < 0.13.45,
+  // Android < 0.11.0) can no longer sign in.
   const codeChallenge = url.searchParams.get(`code_challenge`)
   const codeChallengeMethod = url.searchParams.get(`code_challenge_method`)
-  if (codeChallenge !== null && !isValidCodeChallenge(codeChallenge)) {
-    return new Response(`Invalid code_challenge`, { status: 400 })
+  if (codeChallenge === null || !isValidCodeChallenge(codeChallenge)) {
+    return new Response(`Missing or invalid code_challenge`, { status: 400 })
   }
   if (codeChallengeMethod !== null && codeChallengeMethod !== `S256`) {
     return new Response(`Unsupported code_challenge_method`, { status: 400 })
@@ -87,12 +88,11 @@ async function handle({ request }: { request: Request }) {
     // OAuth callback. Overwriting it breaks Google's signInSocial flow (the
     // callback handler fails CSRF, falls back to the default redirect, and
     // the user lands on the web app instead of being deep-linked back).
-    // When the client presented a PKCE challenge, ride it in the same cookie
-    // as `<state>.<challenge>` — `.` is unambiguous (hex and base64url
-    // contain no dot) — so the return page knows to mint a code deep link
-    // bound to that challenge.
+    // The PKCE challenge rides in the same cookie as `<state>.<challenge>`
+    // — `.` is unambiguous (hex and base64url contain no dot) — so the
+    // return page mints a code deep link bound to that challenge.
     const state = randomBytes(32).toString(`hex`)
-    const cookieValue = codeChallenge ? `${state}.${codeChallenge}` : state
+    const cookieValue = `${state}.${codeChallenge}`
     // `Secure` only on an https deployment — see stateCookieSecureAttribute.
     const secure = stateCookieSecureAttribute(request)
     headers.append(

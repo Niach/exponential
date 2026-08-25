@@ -4,7 +4,6 @@ import {
   normalizeOauthErrorReason,
   oauthErrorMessage,
   oauthReturnCodeDeepLink,
-  oauthReturnDeepLink,
   oauthReturnErrorDeepLink,
 } from "@/lib/deep-link"
 import {
@@ -169,14 +168,15 @@ export const Route = createFileRoute(`/api/mobile-oauth-return`)({
           return failureResponse(request, `state_missing`)
         }
 
-        // PKCE (REV-13): /api/mobile-oauth-start appends the client's S256
-        // code_challenge to the state cookie as `<state>.<challenge>`. Its
-        // presence flips this page to the code deep link; a malformed second
-        // segment is rejected like a missing cookie.
+        // PKCE (REV-13, required since EXP-543): /api/mobile-oauth-start
+        // appends the client's S256 code_challenge to the state cookie as
+        // `<state>.<challenge>`. A missing or malformed second segment is
+        // rejected like a missing cookie — there is no challenge-less flow
+        // any more.
         const [, codeChallenge] = stateCookie.split(`.`)
-        if (codeChallenge !== undefined && !isValidCodeChallenge(codeChallenge)) {
+        if (codeChallenge === undefined || !isValidCodeChallenge(codeChallenge)) {
           console.warn(
-            `[mobile-oauth-return] malformed code_challenge in ${STATE_COOKIE_NAME} cookie — rejecting`
+            `[mobile-oauth-return] missing or malformed code_challenge in ${STATE_COOKIE_NAME} cookie — rejecting`
           )
           return failureResponse(request, `state_invalid`)
         }
@@ -198,27 +198,22 @@ export const Route = createFileRoute(`/api/mobile-oauth-return`)({
           return failureResponse(request, `session_cookie_missing`)
         }
 
-        // Two deep-link forms (both built in lib/deep-link.ts), each riding
-        // its payload in BOTH the query AND the fragment (EXP-21): the handoff
-        // is a client-side `window.location.href = "exponential://…"`, and
-        // when a browser hands a custom scheme to the OS it drops the URL
-        // #fragment (a client-only construct) — so on Linux the desktop app's
-        // xdg handler received a payloadless `exponential://oauth-return` and
-        // never signed in. The query survives that hop; the desktop parser
-        // reads it. iOS's ASWebAuthenticationSession keeps the whole URL and
-        // reads the fragment, so keep the fragment too rather than switching
-        // to query-only.
-        //
-        // - `?code=…#code=…` (REV-13, when the client presented a PKCE
-        //   challenge at /api/mobile-oauth-start): a single-use short-TTL
-        //   code the app redeems via POST /api/mobile-oauth-exchange with its
-        //   code_verifier — the raw session token never rides the deep link.
-        // - `?token=…#token=…` (DEPRECATED legacy, challenge-less starts
-        //   only): the raw session token, kept so old installed builds keep
-        //   signing in until the deprecation window closes.
-        const target = codeChallenge
-          ? oauthReturnCodeDeepLink(mintMobileOauthCode(token, codeChallenge))
-          : oauthReturnDeepLink(token)
+        // `?code=…#code=…` (REV-13, built in lib/deep-link.ts): a single-use
+        // short-TTL code the app redeems via POST /api/mobile-oauth-exchange
+        // with its code_verifier — the raw session token never rides the deep
+        // link. The payload rides in BOTH the query AND the fragment (EXP-21):
+        // the handoff is a client-side `window.location.href =
+        // "exponential://…"`, and when a browser hands a custom scheme to the
+        // OS it drops the URL #fragment (a client-only construct) — so on
+        // Linux the desktop app's xdg handler received a payloadless
+        // `exponential://oauth-return` and never signed in. The query survives
+        // that hop; the desktop parser reads it. iOS's
+        // ASWebAuthenticationSession keeps the whole URL and reads the
+        // fragment, so keep the fragment too rather than switching to
+        // query-only.
+        const target = oauthReturnCodeDeepLink(
+          mintMobileOauthCode(token, codeChallenge)
+        )
         // 200 HTML (not a 302 to the custom scheme) so the browser tab renders
         // a confirmation instead of spinning on an uncompletable navigation.
         return new Response(
