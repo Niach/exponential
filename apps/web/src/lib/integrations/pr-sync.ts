@@ -350,8 +350,6 @@ export async function applyPrLifecycleStatusInTx(
     actorUserId: opts.actorUserId,
     type: `status_changed`,
     payload: {
-      from: opts.currentStatus,
-      to: plan.status,
       fromStatusId: fromRow?.statusId ?? null,
       toStatusId: target?.id ?? null,
       fromName: fromRow?.fromName ?? null,

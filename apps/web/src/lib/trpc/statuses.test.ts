@@ -379,8 +379,6 @@ describe(`statuses.delete`, () => {
       issueId: ISSUE_1,
       type: `status_changed`,
       payload: {
-        from: `in_progress`,
-        to: `done`,
         fromStatusId: STATUS_A,
         toStatusId: STATUS_B,
         fromName: `Rückfrage`,
