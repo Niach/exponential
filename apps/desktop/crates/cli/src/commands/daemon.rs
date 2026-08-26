@@ -30,6 +30,10 @@ use crate::sidecars::Sidecars;
 /// `last_seen_at` freshness against the contract's 90s window, so one
 /// missed beat must not flap the badge.
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
+/// EXP-641: how often a 426-gated daemon re-tries the self-update while the
+/// gate holds and no newer release was installable yet (the release assets
+/// can still be uploading when the web deploy that raised the floor lands).
+const GATED_UPDATE_RETRY: Duration = Duration::from_secs(5 * 60);
 const DOCTOR_RECHECK: Duration = Duration::from_secs(5 * 60);
 /// EXP-414: a changed agent advertisement is only ACTED on once a second
 /// probe agrees ([`advert_transition`]) — this is the shortened recheck that
@@ -178,13 +182,30 @@ pub fn run(args: &[String]) -> CommandResult {
 // ---------------------------------------------------------------------------
 
 /// Why an update is parked for the next idle moment.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum UpdateTrigger {
     /// The settings-gated periodic check came due.
     Scheduled,
     /// The web "Update" button (heartbeat `updateRequested`) — acts even
     /// with auto-update off, and consumes the request either way.
     Requested,
+    /// EXP-641: the server 426-gated this build (sync, heartbeat or control
+    /// channel). A gated daemon is dead weight — sync stopped, heartbeats
+    /// rejected, so even the web "Update" button (which rides the heartbeat
+    /// RESPONSE) can no longer reach it — and its only way back is the new
+    /// binary. Acts like `Requested` (auto-update off is not a reason to
+    /// stay unusable) and bypasses the persisted check throttle; re-armed
+    /// every [`GATED_UPDATE_RETRY`] while the gate holds.
+    Gated,
+}
+
+/// EXP-641: whether a gated daemon should (re-)arm the update now. Pure so
+/// the retry cadence is unit-testable: the first attempt is immediate, later
+/// ones wait [`GATED_UPDATE_RETRY`] from the previous arm.
+fn gated_update_due(gated: bool, last_attempt: Option<Instant>, now: Instant) -> bool {
+    gated
+        && last_attempt
+            .is_none_or(|last| now.saturating_duration_since(last) >= GATED_UPDATE_RETRY)
 }
 
 /// One live session the daemon supervises (the desktop's `LocalSessions`).
@@ -338,7 +359,11 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // drain nudging the serialized worker, plus the 30s self-tick below.
     // Sync failing to open is not fatal: everything else (remote starts,
     // heartbeat, worktrees) keeps working, automations just stay dormant.
-    let sync_manager = start_automation_sync(&ctx);
+    // EXP-641: raised by every path the server can 426 (the sync pipeline's
+    // upgrade hook, the heartbeat) — the loop below turns it into an
+    // immediate, throttle-free self-update attempt.
+    let gated = Arc::new(AtomicBool::new(false));
+    let sync_manager = start_automation_sync(&ctx, &gated);
     let automation_worker = sync_manager.as_ref().map(|manager| {
         let worker = spawn_automation_worker(AutomationHost {
             ctx: Arc::clone(&ctx),
@@ -407,6 +432,8 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // (EXP-411).
     let mut pending_update: Option<UpdateTrigger> = None;
     let mut last_update_poll = Instant::now();
+    // EXP-641: when the gated trigger was last armed (retry cadence).
+    let mut last_gated_attempt: Option<Instant> = None;
     // EXP-414: an advertisement change observed by ONE probe, awaiting a
     // second agreeing probe before it tears the control channel down.
     let mut pending_advert: Option<coding::AgentAdvertisement> = None;
@@ -514,6 +541,13 @@ fn run_daemon(args: &[String]) -> CommandResult {
                         device_worker.send(DeviceWork::ReconcileLocal).ok();
                     }
                 }
+                Err(api::ApiError::UpgradeRequired) => {
+                    // EXP-641: the min-version gate. Not a transient — the
+                    // loop below updates out of it.
+                    if !gated.swap(true, Ordering::SeqCst) {
+                        log::warn!("devices.heartbeat: HTTP 426 — the server no longer accepts this build");
+                    }
+                }
                 Err(err) => log::debug!("devices.heartbeat failed: {err}"),
             }
         }
@@ -539,6 +573,23 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 pending_update = Some(UpdateTrigger::Scheduled);
             }
         }
+        // EXP-641: a 426-gated build updates NOW (no auto-update opt-in, no
+        // persisted throttle — both would leave the daemon dead until the
+        // next 6h tick), retrying while the gate holds.
+        if pending_update.is_none()
+            && gated_update_due(gated.load(Ordering::SeqCst), last_gated_attempt, Instant::now())
+        {
+            last_gated_attempt = Some(Instant::now());
+            let live = lock_sessions(&sessions).len();
+            if live > 0 {
+                log::info!(
+                    "server rejected this build (426) — updating once {live} live session(s) close"
+                );
+            } else {
+                log::info!("server rejected this build (426) — updating now");
+            }
+            pending_update = Some(UpdateTrigger::Gated);
+        }
         if let Some(trigger) = pending_update {
             let idle = lock_sessions(&sessions).is_empty();
             if idle {
@@ -556,6 +607,12 @@ fn run_daemon(args: &[String]) -> CommandResult {
                     }
                     Ok(other) => {
                         log::info!("update check: {other:?}");
+                        if trigger == UpdateTrigger::Gated {
+                            log::warn!(
+                                "still gated and no newer cli release is installable yet — retrying in {}s",
+                                GATED_UPDATE_RETRY.as_secs()
+                            );
+                        }
                         if matches!(trigger, UpdateTrigger::Requested) {
                             // Consume the web request even when there was
                             // nothing to install.
@@ -566,6 +623,12 @@ fn run_daemon(args: &[String]) -> CommandResult {
                     }
                     Err(err) => {
                         log::warn!("update failed: {err:#}");
+                        if trigger == UpdateTrigger::Gated {
+                            log::warn!(
+                                "still gated — retrying the update in {}s",
+                                GATED_UPDATE_RETRY.as_secs()
+                            );
+                        }
                         if matches!(trigger, UpdateTrigger::Requested) {
                             registered_ok = register_device(
                                 &ctx, &device_id, &device_label, &advertised, &device_worker,
@@ -1463,7 +1526,7 @@ const AUTOMATION_TICK: Duration = Duration::from_secs(30);
 /// Open the daemon's shape store and start its pipeline. `None` (logged, not
 /// fatal) leaves automations dormant while every other daemon duty — remote
 /// starts, heartbeat, worktree commands — keeps running.
-fn start_automation_sync(ctx: &Ctx) -> Option<Arc<sync::SyncManager>> {
+fn start_automation_sync(ctx: &Ctx, gated: &Arc<AtomicBool>) -> Option<Arc<sync::SyncManager>> {
     // NEVER `sync-v2.sqlite`: that file belongs to the desktop GUI, and two
     // pipelines writing one store would fight over shape offsets.
     let db_path = ctx
@@ -1477,7 +1540,16 @@ fn start_automation_sync(ctx: &Ctx) -> Option<Arc<sync::SyncManager>> {
             return None;
         }
     }
-    let manager = Arc::new(sync::SyncManager::new());
+    // EXP-641: the pipeline's 426 hook (the desktop routes it to the blocking
+    // "Update required" view; the daemon has nobody to show that to, so it
+    // self-updates instead — see the loop's gated trigger).
+    let on_upgrade_required: sync::UpgradeRequiredFn = {
+        let gated = Arc::clone(gated);
+        Arc::new(move || {
+            gated.store(true, Ordering::SeqCst);
+        })
+    };
+    let manager = Arc::new(sync::SyncManager::new().on_upgrade_required(on_upgrade_required));
     let config = sync::AccountSyncConfig {
         account_id: ctx.account.id.clone(),
         base_url: ctx.account.instance_url.clone(),
@@ -2291,6 +2363,56 @@ fn uninstall(args: &[String]) -> CommandResult {
     Ok(ExitCode::SUCCESS)
 }
 
+/// EXP-641: restart the installed service so a daemon it supervises picks up
+/// a freshly installed binary (`exponential update` swaps the file; the
+/// running process keeps the old inode until it re-execs). `Ok(false)` when
+/// no service is installed — the caller tells the user to restart by hand.
+pub fn restart_service() -> anyhow::Result<bool> {
+    if cfg!(target_os = "macos") {
+        let plist = dirs::home_dir()
+            .context("resolve home")?
+            .join("Library/LaunchAgents/at.exponential.cli.plist");
+        if !plist.exists() {
+            return Ok(false);
+        }
+        // `kickstart -k` restarts a loaded launchd service in place.
+        let target = format!("gui/{}/at.exponential.cli", unsafe { libc::getuid() });
+        let status = std::process::Command::new("launchctl")
+            .args(["kickstart", "-k", &target])
+            .status()
+            .context("run launchctl kickstart")?;
+        if !status.success() {
+            bail!("launchctl kickstart -k {target} exited with {status}");
+        }
+        Ok(true)
+    } else {
+        let unit = dirs::config_dir()
+            .context("resolve XDG config dir")?
+            .join("systemd/user/exponential-daemon.service");
+        if !unit.exists() {
+            return Ok(false);
+        }
+        let status = std::process::Command::new("systemctl")
+            .args(["--user", "restart", "exponential-daemon"])
+            .status()
+            .context("run systemctl --user restart")?;
+        if !status.success() {
+            bail!("systemctl --user restart exponential-daemon exited with {status}");
+        }
+        Ok(true)
+    }
+}
+
+/// The manual restart command for this platform's service (printed when
+/// [`restart_service`] cannot do it).
+pub fn restart_hint() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "launchctl kickstart -k gui/$(id -u)/at.exponential.cli"
+    } else {
+        "systemctl --user restart exponential-daemon"
+    }
+}
+
 /// Stop and remove the launchd agent / systemd user unit. Shared with the
 /// top-level `uninstall`, which removes the service before the binary.
 pub fn remove_service() -> anyhow::Result<()> {
@@ -2354,6 +2476,24 @@ mod tests {
                 .map(|agent| (agent.to_string(), coding::AgentLaunchDefaults::default()))
                 .collect(),
         }
+    }
+
+    #[test]
+    fn gated_update_is_immediate_then_paced() {
+        let now = Instant::now();
+        // Not gated: never.
+        assert!(!gated_update_due(false, None, now));
+        assert!(!gated_update_due(false, Some(now), now + GATED_UPDATE_RETRY * 2));
+        // Gated, never attempted: right away — no 6h throttle to wait out.
+        assert!(gated_update_due(true, None, now));
+        // Gated, attempted just now: wait for the retry cadence.
+        assert!(!gated_update_due(true, Some(now), now));
+        assert!(!gated_update_due(
+            true,
+            Some(now),
+            now + GATED_UPDATE_RETRY - Duration::from_secs(1)
+        ));
+        assert!(gated_update_due(true, Some(now), now + GATED_UPDATE_RETRY));
     }
 
     #[test]

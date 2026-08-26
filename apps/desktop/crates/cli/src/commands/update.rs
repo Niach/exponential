@@ -56,6 +56,7 @@ pub fn run(args: &[String]) -> CommandResult {
     match check_and_install()? {
         UpdateOutcome::Updated { version } => {
             println!("Updated to {version}.");
+            nudge_running_daemon(&crate::context::data_dir(), &mut std::io::stdout());
             Ok(ExitCode::SUCCESS)
         }
         UpdateOutcome::UpToDate { latest } => {
@@ -138,6 +139,46 @@ pub fn check_and_install() -> anyhow::Result<UpdateOutcome> {
     Ok(UpdateOutcome::Updated { version })
 }
 
+/// EXP-641: the binary on disk just changed under a running daemon, which
+/// keeps executing the OLD inode until it re-execs. Restart it through its
+/// service when it is idle; with live sessions (never kill an agent under a
+/// user) or without a service, say what to do instead. Its own gated/
+/// scheduled check would eventually get there too — but "eventually" is up
+/// to 6h, and a 426-gated daemon is useless meanwhile.
+fn nudge_running_daemon(data_dir: &std::path::Path, out: &mut impl std::io::Write) {
+    use super::daemon;
+    let Some(pid) = daemon::daemon_pid(data_dir) else {
+        return;
+    };
+    let live = crate::registry::sessions_owned_by(data_dir, pid);
+    if live > 0 {
+        let _ = writeln!(
+            out,
+            "The daemon (pid {pid}) still runs the previous version and has {live} live session(s); restart it once they finish: {}",
+            daemon::restart_hint()
+        );
+        return;
+    }
+    match daemon::restart_service() {
+        Ok(true) => {
+            let _ = writeln!(out, "Daemon restarted on the new version.");
+        }
+        Ok(false) => {
+            let _ = writeln!(
+                out,
+                "The daemon (pid {pid}) still runs the previous version — restart it to pick up the update."
+            );
+        }
+        Err(err) => {
+            let _ = writeln!(
+                out,
+                "Could not restart the daemon (pid {pid}): {err:#} — restart it by hand: {}",
+                daemon::restart_hint()
+            );
+        }
+    }
+}
+
 /// Whether an auto-check is due (enabled + throttle elapsed).
 pub fn auto_check_due(data_dir: &std::path::Path, interval_secs: u64) -> bool {
     if prefs::auto_update(data_dir) != Some(true) {
@@ -161,6 +202,8 @@ pub fn maybe_auto_update_and_reexec() {
     match check_and_install() {
         Ok(UpdateOutcome::Updated { version }) => {
             eprintln!("(exponential updated to {version} — restarting)");
+            // EXP-641: a daemon on this machine now runs a stale inode too.
+            nudge_running_daemon(&data_dir, &mut std::io::stderr());
             exec_self();
             // exec only returns on failure; the old code keeps working.
         }
