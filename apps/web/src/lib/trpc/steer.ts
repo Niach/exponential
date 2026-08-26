@@ -185,7 +185,10 @@ export const steerRouter = router({
       })
     }),
 
-  // The caller's online desktops — powers the "Start on my desktop" picker.
+  // The caller's online desktops, straight off the relay — kept for OLD
+  // clients only (new clients read the synced devices shape). Since EXP-485
+  // the frames carry no agents/launchDefaults advertisement, so these rows
+  // are presence + caps only.
   myDevices: authedProcedure.query(async ({ ctx }) => {
     const config = getSteerRelayConfig()
     if (!config) return { devices: [] as SteerDevice[] }
@@ -345,48 +348,48 @@ export const steerRouter = router({
       }
       const userId = ctx.session.user.id
 
-      const fetchDevices = async (
-        forUserId: string = userId
-      ): Promise<SteerDevice[]> => {
-        try {
-          const { devices } = await relayGetDevices(config, forUserId)
-          return devices
-        } catch {
-          throw new TRPCError({
-            code: `BAD_GATEWAY`,
-            message: `Couldn't reach the steer relay. Try again.`,
-          })
-        }
+      // EXP-485: the persisted devices row (written by devices.register at
+      // every daemon/control-channel start) is the ONLY source of a
+      // machine's agents/unauthedAgents/caps — the relay online frame no
+      // longer carries the advertisement, and online-ness stays with
+      // relayPostStart (an offline device 404s device_offline).
+      //
+      // EXP-432 resolution order: the caller's own row wins (the start stays
+      // wire-identical); otherwise a registered server device SHARED with
+      // the subject's team resolves to its owner — the team_members join
+      // refuses a lingering share whose owner left the team (the daemon's
+      // own codingSessions.start would fail on the gone membership anyway).
+      // No row at all refuses (EXP-542): every supported desktop/CLI
+      // registers at startup, so an unregistered target is a build too old
+      // to serve the start.
+      const targetDeviceColumns = {
+        agents: devicesTable.agents,
+        unauthedAgents: devicesTable.unauthedAgents,
+        caps: devicesTable.caps,
       }
-
-      // EXP-432: resolve which account's presence bucket the target deviceId
-      // lives in. The caller's own presence wins (today's path — the start
-      // stays wire-identical); otherwise a registered server device SHARED
-      // with the subject's team resolves to its owner's bucket — the caller's
-      // membership in that team is already asserted by the subject checks
-      // above each call site, and the daemon re-verifies the share when it
-      // echoes `startedBy` into codingSessions.start. Anything else keeps the
-      // legacy lenient shape (device undefined; the relay answers
-      // device_offline).
       const resolveTargetDevice = async (
         teamId: string
       ): Promise<{
         ownerId: string
-        device: SteerDevice | undefined
+        device: { agents: string[]; unauthedAgents: string[]; caps: string[] }
         shared: boolean
       }> => {
-        const own = await fetchDevices()
-        const ownDevice = own.find((d) => d.deviceId === input.deviceId)
-        if (ownDevice) {
-          return { ownerId: userId, device: ownDevice, shared: false }
-        }
         const { db } = await import(`@/db/connection`)
-        // The team_members join mirrors devices.list: a lingering share whose
-        // owner left the team must not route starts to their machine (the
-        // daemon's own codingSessions.start would fail on the owner's gone
-        // membership anyway — this just refuses before waking the box).
+        const [own] = await db
+          .select(targetDeviceColumns)
+          .from(devicesTable)
+          .where(
+            and(
+              eq(devicesTable.userId, userId),
+              eq(devicesTable.deviceId, input.deviceId)
+            )
+          )
+          .limit(1)
+        if (own) {
+          return { ownerId: userId, device: own, shared: false }
+        }
         const [row] = await db
-          .select({ userId: devicesTable.userId })
+          .select({ ...targetDeviceColumns, userId: devicesTable.userId })
           .from(devicesTable)
           .innerJoin(
             teamMembers,
@@ -404,12 +407,18 @@ export const steerRouter = router({
           )
           .limit(1)
         if (!row || row.userId === userId) {
-          return { ownerId: userId, device: undefined, shared: false }
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `That machine hasn't registered with this server yet. Open (or restart) the Exponential app on it.`,
+          })
         }
-        const ownerDevices = await fetchDevices(row.userId)
         return {
           ownerId: row.userId,
-          device: ownerDevices.find((d) => d.deviceId === input.deviceId),
+          device: {
+            agents: row.agents,
+            unauthedAgents: row.unauthedAgents,
+            caps: row.caps,
+          },
           shared: true,
         }
       }
@@ -620,8 +629,8 @@ export const steerRouter = router({
         const { ownerId, device, shared } = await resolveTargetDevice(
           action.teamId
         )
-        const caps = device?.caps ?? []
-        if (!device || !caps.includes(`actions`)) {
+        const caps = device.caps
+        if (!caps.includes(`actions`)) {
           throw new TRPCError({
             code: `PRECONDITION_FAILED`,
             message: `That desktop app can't run actions yet. Update it.`,
@@ -649,16 +658,9 @@ export const steerRouter = router({
             message: `That desktop app can't fix merge conflicts yet. Update it.`,
           })
         }
-        // The chat builtin (EXP-615) likewise needs its own launch path —
-        // an older desktop would treat the id as a real action and fail.
-        if (input.actionId === BUILTIN_CHAT_ID && !caps.includes(`chat`)) {
-          throw new TRPCError({
-            code: `PRECONDITION_FAILED`,
-            message: `That desktop app can't run chat yet. Update it.`,
-          })
-        }
-        // EXP-257: actions run on any agent the device advertised, same
-        // lenient fallback as the issue branch (nothing advertised ⇒ claude).
+        // EXP-624 removed the chat-cap refusal here: the desktop/CLI fleet
+        // floor advertises `chat` (>= 0.14.22), enforced via
+        // CLIENT_MIN_VERSION_DESKTOP rather than a per-start gate.
         const actionAgent = input.agent ?? `claude`
         // ...but only on a desktop that actually LAUNCHES the chosen agent. A
         // pre-EXP-257 desktop advertises `actions` and its full agent list,
@@ -675,13 +677,12 @@ export const steerRouter = router({
             message: `That desktop app can only run actions on claude yet. Update it.`,
           })
         }
-        // EXP-409: nullish fallback ONLY — an explicitly empty list means
-        // nothing is runnable (every installed agent signed out), so it must
-        // not fall back to claude. Mirrors the issue path below, including
-        // the signed-out message.
-        const actionDeviceAgents = device.agents ?? [`claude`]
-        if (!actionDeviceAgents.includes(actionAgent)) {
-          const signedOut = (device.unauthedAgents ?? []).includes(actionAgent)
+        // EXP-409: an empty registered list means nothing is runnable (every
+        // installed agent signed out) — no claude fallback (the EXP-542
+        // absent-advertisement leniency is gone; the row is authoritative).
+        // Mirrors the issue path below, including the signed-out message.
+        if (!device.agents.includes(actionAgent)) {
+          const signedOut = device.unauthedAgents.includes(actionAgent)
           throw new TRPCError({
             code: `PRECONDITION_FAILED`,
             message: signedOut
@@ -768,17 +769,15 @@ export const steerRouter = router({
         }
       }
 
-      // EXP-201: the target device advertised which agent CLIs it can run —
-      // refuse a start naming one it didn't (an old desktop advertises
-      // nothing ⇒ claude-only, exactly what it can do). An EXPLICITLY empty
-      // list (EXP-409) means nothing is runnable — the claude fallback only
-      // covers the absent-advertisement legacy case. A signed-out agent gets
-      // the sign-in message, not "not installed".
+      // EXP-201: the target device registered which agent CLIs it can run —
+      // refuse a start naming one it didn't. An empty list (EXP-409) means
+      // nothing is runnable (every installed agent signed out) — no claude
+      // fallback since EXP-542. A signed-out agent gets the sign-in message,
+      // not "not installed".
       const agent = input.agent ?? `claude`
       const { ownerId, device, shared } = await resolveTargetDevice(teamId)
-      const deviceAgentIds = device?.agents ?? [`claude`]
-      if (device && !deviceAgentIds.includes(agent)) {
-        const signedOut = (device.unauthedAgents ?? []).includes(agent)
+      if (!device.agents.includes(agent)) {
+        const signedOut = device.unauthedAgents.includes(agent)
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
           message: signedOut
@@ -787,31 +786,15 @@ export const steerRouter = router({
         })
       }
 
-      // EXP-481: resume is gated STRICTLY on the PERSISTED row's `resume` cap
-      // (like `actions`, unlike the lenient agents fallback) — an old build
+      // EXP-481: resume is gated on the row's `resume` cap — an old build
       // would silently drop the flag and start fresh, which reads as data
-      // loss to someone expecting their session back. Persisted caps are as
-      // accurate as live ones here: caps are immutable per build and
-      // registered at startup; an unregistered legacy desktop therefore
-      // refuses, correctly.
-      if (input.resume) {
-        const { db } = await import(`@/db/connection`)
-        const [target] = await db
-          .select({ caps: devicesTable.caps })
-          .from(devicesTable)
-          .where(
-            and(
-              eq(devicesTable.userId, ownerId),
-              eq(devicesTable.deviceId, input.deviceId)
-            )
-          )
-          .limit(1)
-        if (!target?.caps.includes(`resume`)) {
-          throw new TRPCError({
-            code: `PRECONDITION_FAILED`,
-            message: `That device can't resume sessions yet. Update it.`,
-          })
-        }
+      // loss to someone expecting their session back. Caps are immutable per
+      // build and registered at startup.
+      if (input.resume && !device.caps.includes(`resume`)) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `That device can't resume sessions yet. Update it.`,
+        })
       }
 
       const options = {

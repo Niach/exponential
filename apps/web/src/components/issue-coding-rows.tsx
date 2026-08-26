@@ -507,10 +507,10 @@ function AgentRow({
   }
 
   // Not running: only members can remote-start, and only on a repo-backed
-  // board with the relay enabled. Gate the desktop-presence fetch behind that
-  // — RemoteStartRow (which owns useRemoteStart) mounts ONLY here, so a
-  // non-member / steer-off / repo-less / already-running issue view never fires
-  // an ungated steer.myDevices round-trip.
+  // board with the relay enabled. Gate the device wiring behind that —
+  // RemoteStartRow (which owns useRemoteStart over the synced devices shape)
+  // mounts ONLY here, so a non-member / steer-off / repo-less /
+  // already-running issue view never wires it up.
   if (!isMember || !steerEnabled || !board.repositoryId) {
     // An open PR still deserves its Merge button (EXP-268) even when remote
     // start can't render (steer off / repo-less board) — a main-column row,
@@ -537,7 +537,7 @@ function AgentRow({
   )
 }
 
-// The remote-start affordance — split out so its steer.myDevices fetch only
+// The remote-start affordance — split out so its device wiring only
 // runs when the start row can actually render (AgentRow gates the mount).
 function RemoteStartRow({
   issue,

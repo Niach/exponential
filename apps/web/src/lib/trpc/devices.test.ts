@@ -301,7 +301,13 @@ describe(`devices.requestUpdate + heartbeat`, () => {
     expect(await caller.requestUpdate({ deviceId: `dev-1` })).toEqual({
       ok: true,
     })
-    expect(await caller.heartbeat({ deviceId: `dev-1` })).toMatchObject({
+    expect(
+      await caller.heartbeat({
+        deviceId: `dev-1`,
+        activeSessions: 0,
+        defaultsSyncedAt: null,
+      })
+    ).toMatchObject({
       ok: true,
       updateRequested: true,
     })
@@ -311,12 +317,20 @@ describe(`devices.requestUpdate + heartbeat`, () => {
 describe(`devices.heartbeat`, () => {
   it(`reports ok: false when the row was removed, so the daemon re-registers`, async () => {
     h.state.updateReturning = [[]]
-    const result = await caller.heartbeat({ deviceId: `dev-gone` })
+    const result = await caller.heartbeat({
+      deviceId: `dev-gone`,
+      activeSessions: 0,
+      defaultsSyncedAt: null,
+    })
     expect(result).toEqual({ ok: false, updateRequested: false })
   })
 
   it(`bumps last_seen_at for a live row`, async () => {
-    const result = await caller.heartbeat({ deviceId: `dev-1` })
+    const result = await caller.heartbeat({
+      deviceId: `dev-1`,
+      activeSessions: 0,
+      defaultsSyncedAt: null,
+    })
     expect(result).toMatchObject({ ok: true, updateRequested: false })
     expect(h.state.updates[0]?.set).toMatchObject({
       lastSeenAt: expect.any(Date),
@@ -324,14 +338,18 @@ describe(`devices.heartbeat`, () => {
   })
 
   it(`stores the reported live-session count (EXP-411)`, async () => {
-    await caller.heartbeat({ deviceId: `dev-1`, activeSessions: 2 })
+    await caller.heartbeat({
+      deviceId: `dev-1`,
+      activeSessions: 2,
+      defaultsSyncedAt: null,
+    })
     expect(h.state.updates[0]?.set).toMatchObject({ activeSessions: 2 })
   })
 
-  it(`leaves the stored count alone when a pre-EXP-411 daemon omits it`, async () => {
-    await caller.heartbeat({ deviceId: `dev-1` })
-    const set = h.state.updates[0]?.set as Record<string, unknown>
-    expect(`activeSessions` in set).toBe(false)
+  it(`rejects a beat omitting the required fields (pre-EXP-481 daemons retired)`, async () => {
+    await expect(
+      caller.heartbeat({ deviceId: `dev-1` } as never)
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
   })
 })
 
@@ -363,29 +381,29 @@ describe(`devices.list`, () => {
       kind: `server`,
       online: true,
       registered: true,
-      // The live advertisement wins over the registered snapshot...
-      agents: [`claude`, `pi`],
-      caps: [`actions`, `fix-conflicts`],
-      // ...but the REGISTRY label is authoritative (renames stay visible).
+      // EXP-485: presence feeds the `online` flag and nothing else — the
+      // frame's stale advertisement never wins over the registered row.
+      agents: [`claude`],
+      caps: [`actions`],
+      // The REGISTRY label is authoritative too (renames stay visible).
       deviceLabel: `buildbox`,
+    })
+    // Write-on-observe: a connected row staler than 60s gets its last_seen_at
+    // advanced, so a later disconnect reads near the actual disconnect.
+    expect(h.state.updates).toHaveLength(1)
+    expect(h.state.updates[0]?.set).toMatchObject({
+      lastSeenAt: expect.any(Date),
     })
   })
 
-  it(`passes signed-out agents through from live presence (EXP-409)`, async () => {
-    h.state.selectRows = [registryRow()]
+  it(`reports signed-out agents off the registered row (EXP-409/EXP-485)`, async () => {
+    // The daemon's only agent is signed out: `register` persisted a runnable
+    // list that is explicitly empty and an unauthed list naming it.
+    h.state.selectRows = [
+      registryRow({ agents: [], unauthedAgents: [`claude`] }),
+    ]
     h.relayGetDevices.mockResolvedValue({
-      devices: [
-        {
-          deviceId: `dev-1`,
-          deviceLabel: `buildbox`,
-          connectedAt: 1,
-          // The daemon's only agent is signed out: runnable list explicitly
-          // empty, the unauthed list names it.
-          agents: [],
-          unauthedAgents: [`claude`],
-          caps: [],
-        },
-      ],
+      devices: [{ deviceId: `dev-1`, deviceLabel: `buildbox`, connectedAt: 1 }],
     })
     const { devices } = await caller.list()
     expect(devices[0]).toMatchObject({
@@ -395,32 +413,29 @@ describe(`devices.list`, () => {
     })
   })
 
-  it(`passes launch defaults through from live presence; offline rows carry none (EXP-437)`, async () => {
+  it(`carries launch defaults off the registered row, online or not (EXP-481)`, async () => {
     const launchDefaults = {
       defaultAgent: `claude`,
       agents: { claude: { model: `opus`, effort: ``, planMode: true } },
     }
-    h.state.selectRows = [registryRow()]
+    h.state.selectRows = [registryRow({ launchDefaults })]
     h.relayGetDevices.mockResolvedValue({
-      devices: [
-        {
-          deviceId: `dev-1`,
-          deviceLabel: `buildbox`,
-          connectedAt: 1,
-          agents: [`claude`],
-          caps: [`actions`],
-          launchDefaults,
-        },
-      ],
+      devices: [{ deviceId: `dev-1`, deviceLabel: `buildbox`, connectedAt: 1 }],
     })
     const { devices } = await caller.list()
     expect(devices[0]?.launchDefaults).toEqual(launchDefaults)
 
-    // Offline (relay down): no defaults — you cannot start there anyway.
-    h.state.selectRows = [registryRow()]
+    // Offline (relay down) reads the SAME server-authoritative copy: the
+    // defaults are the machine's persisted state, not a presence frame.
+    h.state.selectRows = [registryRow({ launchDefaults })]
     h.relayGetDevices.mockRejectedValue(new Error(`relay down`))
     const { devices: offline } = await caller.list()
-    expect(offline[0]?.launchDefaults).toBeUndefined()
+    expect(offline[0]?.launchDefaults).toEqual(launchDefaults)
+
+    // A row that never seeded any carries none.
+    h.state.selectRows = [registryRow()]
+    const { devices: unseeded } = await caller.list()
+    expect(unseeded[0]?.launchDefaults).toBeUndefined()
   })
 
   it(`defaults unauthedAgents to empty for offline registry rows`, async () => {
@@ -614,7 +629,11 @@ describe(`devices.setShared — kill fan-out`, () => {
 
     await caller.setShared({ deviceId: `dev-1`, teamId: null })
 
-    expect(h.endForeignHostedSessions).toHaveBeenCalledWith(`actor`, TEAM_A)
+    expect(h.endForeignHostedSessions).toHaveBeenCalledWith(
+      `actor`,
+      TEAM_A,
+      `dev-1`
+    )
     expect(updatesWhenKilled).toBe(2)
   })
 
@@ -624,7 +643,12 @@ describe(`devices.setShared — kill fan-out`, () => {
     await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_B })
 
     expect(h.state.updates[0]?.set).toMatchObject({ sharedTeamId: TEAM_B })
-    expect(h.endForeignHostedSessions).toHaveBeenCalledWith(`actor`, TEAM_A)
+    // Device-scoped since EXP-560 — only this machine's foreign runs die.
+    expect(h.endForeignHostedSessions).toHaveBeenCalledWith(
+      `actor`,
+      TEAM_A,
+      `dev-1`
+    )
   })
 
   it(`ends nothing on a first share (null → team)`, async () => {
@@ -731,18 +755,20 @@ describe(`devices.list({teamId})`, () => {
   })
 
   it(`merges the OWNER's relay presence onto a shared row`, async () => {
-    h.state.selectQueue = [[], [sharedJoinRow()]]
+    h.state.selectQueue = [
+      [],
+      [
+        sharedJoinRow({
+          agents: [`claude`, `codex`],
+          caps: [`actions`, `action-inputs`],
+        }),
+      ],
+    ]
     h.relayGetDevices.mockImplementation((_config, userId: string) =>
       userId === `teammate`
         ? Promise.resolve({
             devices: [
-              {
-                deviceId: `dev-2`,
-                deviceLabel: `teambox`,
-                connectedAt: 1,
-                agents: [`claude`, `codex`],
-                caps: [`actions`, `action-inputs`],
-              },
+              { deviceId: `dev-2`, deviceLabel: `teambox`, connectedAt: 1 },
             ],
           })
         : Promise.resolve({ devices: [] })
@@ -750,8 +776,9 @@ describe(`devices.list({teamId})`, () => {
     const { devices } = await caller.list({ teamId: TEAM })
     expect(devices[0]).toMatchObject({
       deviceId: `dev-2`,
+      // EXP-485: the owner's presence decides ONLY online-ness — the
+      // advertisement is the teammate's registered row.
       online: true,
-      // Live advertisement wins over the registered snapshot.
       agents: [`claude`, `codex`],
       caps: [`actions`, `action-inputs`],
     })
@@ -1109,7 +1136,11 @@ describe(`devices.heartbeat — work pull (EXP-481)`, () => {
     h.state.selectRows = [
       { id: `cmd-1`, kind: `worktree_prune`, payload: {} },
     ]
-    const result = (await caller.heartbeat({ deviceId: `dev-1` })) as WorkPull
+    const result = (await caller.heartbeat({
+      deviceId: `dev-1`,
+      activeSessions: 0,
+      defaultsSyncedAt: `2026-08-10T10:00:00.000Z`,
+    })) as WorkPull
     expect(result.ok).toBe(true)
     expect(result.commands).toEqual([
       { id: `cmd-1`, kind: `worktree_prune`, payload: {} },
@@ -1117,15 +1148,11 @@ describe(`devices.heartbeat — work pull (EXP-481)`, () => {
   })
 
   it(`includes launch defaults ONLY when the device's stamp differs`, async () => {
-    // Old daemon: no defaultsSyncedAt — no defaults in the response.
-    h.state.updateReturning = heartbeatRow()
-    const legacy = await caller.heartbeat({ deviceId: `dev-1` })
-    expect(legacy).not.toHaveProperty(`launchDefaults`)
-
     // Stale device stamp (null = never converged) → defaults included.
     h.state.updateReturning = heartbeatRow()
     const stale = (await caller.heartbeat({
       deviceId: `dev-1`,
+      activeSessions: 0,
       defaultsSyncedAt: null,
     })) as WorkPull
     expect(stale.launchDefaults).toEqual({ defaultAgent: `codex` })
@@ -1135,6 +1162,7 @@ describe(`devices.heartbeat — work pull (EXP-481)`, () => {
     h.state.updateReturning = heartbeatRow()
     const converged = await caller.heartbeat({
       deviceId: `dev-1`,
+      activeSessions: 0,
       defaultsSyncedAt: `2026-08-10T10:00:00.000Z`,
     })
     expect(converged).not.toHaveProperty(`launchDefaults`)

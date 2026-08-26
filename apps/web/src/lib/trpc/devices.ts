@@ -8,19 +8,20 @@
 // remove/prune) delivered on the heartbeat plus a best-effort relay
 // `check_in` nudge. `list` (tRPC + live relay presence merge) is retained
 // for OLD clients only — new clients read the shapes and derive online-ness
-// from last_seen_at freshness.
+// from last_seen_at freshness. Since EXP-485 `register` is the SOLE
+// agents/caps/unauthedAgents writer (the relay online frame no longer
+// advertises them).
 // EXP-432 bends the per-user rule exactly once: a server device may be SHARED
 // with one team (`shared_team_id`, owner-toggled via `setShared`), and a
 // team-scoped `list({teamId})` additionally returns teammates' shared rows so
 // members can remote-start on them.
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, asc, desc, eq, ne, inArray, or, sql } from "drizzle-orm"
+import { and, asc, desc, eq, ne, inArray, sql } from "drizzle-orm"
 import { contract } from "@exp/domain-contract"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import {
   automations,
-  codingSessions,
   deviceCommands,
   deviceLaunchDefaultsSchema,
   devices,
@@ -137,16 +138,16 @@ export type DeviceListEntry = {
   // EXP-432: set ONLY on teammates' shared rows — the device owner, for
   // attribution in lists/pickers. Absent on the caller's own rows.
   owner?: { id: string; name: string }
-  // Runnable agents (installed AND signed in since EXP-409).
+  // Runnable agents (installed AND signed in since EXP-409). Persisted by
+  // devices.register — the registered row is the only source since EXP-485
+  // (the relay online frame no longer advertises them).
   agents: string[]
-  // EXP-409: agents installed but signed out on the machine — live relay
-  // presence only (not persisted: an offline row reads offline regardless).
+  // EXP-409: agents installed but signed out on the machine.
   unauthedAgents: string[]
   caps: string[]
-  // EXP-437: the machine's per-agent launch defaults — live relay presence
-  // only (never persisted: you can only START on an online device, so the
-  // seed source is exactly as fresh as it needs to be). Absent = old
-  // desktop build; clients seed static contract defaults.
+  // EXP-437/EXP-481: the machine's per-agent launch defaults off the
+  // server-authoritative row. Absent = never seeded; clients seed static
+  // contract defaults.
   launchDefaults?: SteerLaunchDefaults
   online: boolean
   // ISO timestamp of the last register/heartbeat; null for a relay-only
@@ -261,21 +262,20 @@ export const devicesRouter = router({
   // next register consumes the flag either way. While sessions are live the
   // daemon defers the update and reports the count back here
   // (`activeSessions`, EXP-411) so `list` can say "queued" instead of
-  // letting the spinner run forever; pre-EXP-411 daemons omit the field and
-  // the stored count stays untouched.
+  // letting the spinner run forever.
   // EXP-481: the heartbeat is also the device's WORK PULL — one round trip
   // carries pending commands and (when the device's converged stamp differs)
   // the authoritative launch defaults. A relay `check_in` nudge just means
-  // "heartbeat now". Old daemons omit `defaultsSyncedAt` and ignore the extra
-  // response fields — fully backward compatible.
+  // "heartbeat now". Both fields are REQUIRED since EXP-485 — the pre-EXP-411
+  // and pre-EXP-481 daemon tolerances retired with the fleet.
   heartbeat: authedProcedure
     .input(
       z.object({
         deviceId: deviceIdInput,
-        activeSessions: z.number().int().min(0).max(1000).optional(),
+        activeSessions: z.number().int().min(0).max(1000),
         // The launch-defaults stamp the device last converged to (null =
-        // never). Absent = pre-EXP-481 daemon — no defaults in the response.
-        defaultsSyncedAt: z.string().datetime().nullable().optional(),
+        // never).
+        defaultsSyncedAt: z.string().datetime().nullable(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -285,9 +285,7 @@ export const devicesRouter = router({
         .set({
           lastSeenAt: now,
           updatedAt: now,
-          ...(input.activeSessions === undefined
-            ? {}
-            : { activeSessions: input.activeSessions }),
+          activeSessions: input.activeSessions,
         })
         .where(
           and(
@@ -321,9 +319,7 @@ export const devicesRouter = router({
         .limit(COMMANDS_PER_HEARTBEAT)
 
       const serverStamp = stampOf(row.launchDefaultsUpdatedAt)
-      const wantsDefaults =
-        input.defaultsSyncedAt !== undefined &&
-        (input.defaultsSyncedAt ?? null) !== serverStamp
+      const wantsDefaults = input.defaultsSyncedAt !== serverStamp
       return {
         ok: true,
         updateRequested: Boolean(row.updateRequestedAt),
@@ -378,7 +374,6 @@ export const devicesRouter = router({
       const [row] = await ctx.db
         .select({
           id: devices.id,
-          caps: devices.caps,
           launchDefaults: devices.launchDefaults,
           launchDefaultsUpdatedAt: devices.launchDefaultsUpdatedAt,
         })
@@ -551,7 +546,7 @@ export const devicesRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const [row] = await ctx.db
-        .select({ id: devices.id, caps: devices.caps })
+        .select({ id: devices.id })
         .from(devices)
         .where(
           and(
@@ -859,17 +854,14 @@ export const devicesRouter = router({
         deviceLabel: row.label,
         kind: row.kind === `server` ? `server` : `desktop`,
         platform: row.platform,
-        // The live advertisement is fresher than the registered snapshot —
-        // startSession gates on exactly what the relay holds. Offline rows
-        // fall back to the persisted copies (EXP-481) so old clients also
-        // stop blanking a machine's story the moment it disconnects.
-        agents: online?.agents ?? row.agents,
-        unauthedAgents: online?.unauthedAgents ?? row.unauthedAgents,
-        caps: online?.caps ?? row.caps,
+        // EXP-485: the registered row is the ONLY advertisement source —
+        // the relay frame no longer carries agents/defaults; relay presence
+        // feeds just the `online` flag (and the write-on-observe bump).
+        agents: row.agents,
+        unauthedAgents: row.unauthedAgents,
+        caps: row.caps,
         launchDefaults:
-          online?.launchDefaults ??
-          (row.launchDefaults as SteerLaunchDefaults | null) ??
-          undefined,
+          (row.launchDefaults as SteerLaunchDefaults | null) ?? undefined,
         online: Boolean(online),
         lastSeenAt: row.lastSeenAt.toISOString(),
         registered: true,
@@ -882,9 +874,9 @@ export const devicesRouter = router({
     })
 
     // Teammates' shared rows, appended AFTER own rows (stable UI grouping).
-    // Same live-over-snapshot merge as own rows; no write-on-observe — a
-    // server device heartbeats its own last_seen_at every 60s, and list()
-    // must not write other users' rows.
+    // Row-sourced like own rows; no write-on-observe — a server device
+    // heartbeats its own last_seen_at every 60s, and list() must not write
+    // other users' rows.
     for (const { device: row, ownerName } of sharedRows) {
       const online = liveByOwner.get(row.userId)?.get(row.deviceId)
       entries.push({
@@ -892,13 +884,11 @@ export const devicesRouter = router({
         deviceLabel: row.label,
         kind: `server`,
         platform: row.platform,
-        agents: online?.agents ?? row.agents,
-        unauthedAgents: online?.unauthedAgents ?? row.unauthedAgents,
-        caps: online?.caps ?? row.caps,
+        agents: row.agents,
+        unauthedAgents: row.unauthedAgents,
+        caps: row.caps,
         launchDefaults:
-          online?.launchDefaults ??
-          (row.launchDefaults as SteerLaunchDefaults | null) ??
-          undefined,
+          (row.launchDefaults as SteerLaunchDefaults | null) ?? undefined,
         online: Boolean(online),
         lastSeenAt: row.lastSeenAt.toISOString(),
         registered: true,
@@ -1004,8 +994,14 @@ export const devicesRouter = router({
       // once shared_team_id has moved, resolveStartAttribution refuses new
       // foreign attributions, so nothing can slip in behind the fan-out.
       // First share (null → team) and a same-team re-share end nothing.
+      // Device-scoped (EXP-560): only THIS machine's foreign runs die — the
+      // owner's other same-team shares keep theirs.
       if (row.sharedTeamId !== null && row.sharedTeamId !== input.teamId) {
-        await endForeignHostedSessions(ctx.session.user.id, row.sharedTeamId)
+        await endForeignHostedSessions(
+          ctx.session.user.id,
+          row.sharedTeamId,
+          input.deviceId
+        )
       }
       return { ok: true, txid }
     }),
@@ -1024,27 +1020,6 @@ export const devicesRouter = router({
             and(
               eq(devices.userId, ctx.session.user.id),
               eq(devices.deviceId, input.deviceId)
-            )
-          )
-        // EXP-549: refresh the `device_label` SNAPSHOT on this machine's live
-        // sessions too. New clients resolve the label off the synced devices
-        // row by `device_id`; old builds (and any surface that only holds the
-        // row) render the snapshot, so a rename must reach it — otherwise a
-        // running session keeps showing the hostname the device stamped at
-        // start. Own-hosted rows (user_id) plus shared-device rows this
-        // account hosts for teammates (host_user_id); ended rows keep their
-        // historical label.
-        await tx
-          .update(codingSessions)
-          .set({ deviceLabel: input.label })
-          .where(
-            and(
-              eq(codingSessions.deviceId, input.deviceId),
-              or(
-                eq(codingSessions.userId, ctx.session.user.id),
-                eq(codingSessions.hostUserId, ctx.session.user.id)
-              ),
-              ne(codingSessions.status, `ended`)
             )
           )
         return id

@@ -140,11 +140,13 @@ impl CodingHub {
                 true
             });
             if landed {
-                // EXP-367: a changed installed-agent set re-advertises (or
-                // hangs up) the steer presence — installing the first agent
-                // CLI brings remote start online without an app restart.
+                // EXP-485: a changed advertisement (agents, sign-in state,
+                // per-agent defaults) re-posts the devices ROW — the online
+                // frame carries none of it any more, so only a flip of the
+                // dial decision itself (EXP-367: the last agent CLI vanishing,
+                // or the first one appearing) touches the socket.
                 let _ = cx.update(|cx| {
-                    crate::steer_wiring::restart_control_channel_if_needed(cx);
+                    crate::steer_wiring::refresh_device_advertisement(cx);
                 });
             }
         })

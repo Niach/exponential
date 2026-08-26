@@ -44,37 +44,21 @@ pub enum SteerRole {
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(tag = "t", rename_all = "snake_case")]
 pub enum ClientFrame<'a> {
+    /// EXP-485: presence ONLY. The agent/launch-defaults advertisement left
+    /// this frame — the web server reads it off the persisted `devices` row
+    /// written by `devices.register`, which survives relay restarts and
+    /// doesn't need a re-dial to change. `caps` stays: the relay itself
+    /// routes on it.
     #[serde(rename_all = "camelCase")]
     Online {
         device_id: &'a str,
         #[serde(skip_serializing_if = "Option::is_none")]
         device_label: Option<&'a str>,
-        /// EXP-201: the agent CLIs installed on this device (contract
-        /// `codingAgent` ids) — remote Start-coding pickers only offer
-        /// these. Absent (old desktop) = the relay defaults to
-        /// `["claude"]`. Since EXP-409 this means RUNNABLE (installed AND
-        /// signed in); senders with a signed-out agent MUST send the list
-        /// explicitly (even empty) so the legacy default can't mislabel an
-        /// unauthed machine as claude-capable.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        agents: Option<&'a [String]>,
-        /// EXP-409: agents that are INSTALLED but signed out — unusable
-        /// (never in `agents`), advertised so machine lists can say "sign
-        /// in on that machine" instead of pretending the CLI is missing.
-        /// Old relays strip the field (non-strict zod).
-        #[serde(skip_serializing_if = "Option::is_none")]
-        unauthed_agents: Option<&'a [String]>,
         /// EXP-253/EXP-257: feature capabilities (`actions`,
         /// `action-inputs`) — remote Run-action pickers strictly gate on
         /// them (absent = no action launch path).
         #[serde(skip_serializing_if = "Option::is_none")]
         caps: Option<&'a [String]>,
-        /// EXP-437: this machine's per-agent launch defaults — remote
-        /// Start-coding dialogs seed from the selected device. Absent (old
-        /// desktop, or no runnable agent) = clients fall back to static
-        /// contract defaults. Old relays strip the field (non-strict zod).
-        #[serde(skip_serializing_if = "Option::is_none")]
-        launch_defaults: Option<&'a LaunchDefaults>,
     },
     #[serde(rename_all = "camelCase")]
     Hello {
@@ -112,38 +96,6 @@ pub enum ClientFrame<'a> {
     /// tell the activity audience to clear its feed. Sent right before a
     /// full-history re-publish, so a reconnect never doubles the feed.
     ActivityReset,
-}
-
-/// EXP-437: the machine's per-agent launch defaults on the `online` frame —
-/// what remote Start-coding dialogs pre-fill when this device is selected.
-/// Serialize-only; wire mirror of `protocol.ts` `launchDefaults`.
-#[derive(Clone, Debug, Default, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct LaunchDefaults {
-    /// `settings.default_agent` id — remote pickers preselect it (clamped to
-    /// the advertised runnable set client-side).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub default_agent: Option<String>,
-    /// One entry per RUNNABLE agent id, capability-masked device-side.
-    /// `BTreeMap` keeps serialization deterministic for the byte-locked
-    /// vectors below (claude < codex < pi — contract order).
-    pub agents: std::collections::BTreeMap<String, AgentLaunchDefaults>,
-}
-
-/// One agent's defaults within [`LaunchDefaults`]. Blank `model`/`effort` =
-/// "CLI default / omit the flag" — meaningful, so both always serialize;
-/// false booleans are skipped (absent = false on every reader).
-#[derive(Clone, Debug, Default, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentLaunchDefaults {
-    pub model: String,
-    pub effort: String,
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub ultracode: bool,
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub plan_mode: bool,
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub skip_permissions: bool,
 }
 
 /// A single public activity event (masterplan §P7) — the desktop emits these
@@ -519,9 +471,12 @@ pub enum ServerFrame {
         /// EXP-481: resume the issue's existing worktree/agent session
         /// instead of starting fresh. Single-issue frames only (the web
         /// server rejects it elsewhere); the launcher's marker gate degrades
-        /// a mismatched resume to a fresh seeded session.
+        /// a mismatched resume to a fresh seeded session. EXP-542: absent
+        /// (every pre-481 sender) is simply `false` — "resume, unstated" was
+        /// never a third state, so the Option only made every consumer
+        /// `unwrap_or(false)`.
         #[serde(default)]
-        resume: Option<bool>,
+        resume: bool,
     },
     /// EXP-481: fire-and-forget check-in nudge — the web server persisted
     /// new work for this device (a queued command, edited launch defaults);
@@ -584,10 +539,7 @@ mod tests {
             ClientFrame::Online {
                 device_id: "dev-1",
                 device_label: Some("MacBook"),
-                agents: None,
-                unauthed_agents: None,
                 caps: None,
-                launch_defaults: None,
             }
             .to_json(),
             r#"{"t":"online","deviceId":"dev-1","deviceLabel":"MacBook"}"#
@@ -596,105 +548,24 @@ mod tests {
             ClientFrame::Online {
                 device_id: "dev-1",
                 device_label: None,
-                agents: None,
-                unauthed_agents: None,
                 caps: None,
-                launch_defaults: None,
             }
             .to_json(),
             r#"{"t":"online","deviceId":"dev-1"}"#
         );
-        // EXP-201: the installed-agent advertisement rides `agents`.
-        let agents = vec!["claude".to_string(), "pi".to_string()];
-        assert_eq!(
-            ClientFrame::Online {
-                device_id: "dev-1",
-                device_label: Some("MacBook"),
-                agents: Some(&agents),
-                unauthed_agents: None,
-                caps: None,
-                launch_defaults: None,
-            }
-            .to_json(),
-            r#"{"t":"online","deviceId":"dev-1","deviceLabel":"MacBook","agents":["claude","pi"]}"#
-        );
-        // EXP-253: the capability advertisement rides `caps`.
+        // EXP-253: the capability advertisement rides `caps` — the ONE
+        // advertisement left on this frame. EXP-485 took `agents`,
+        // `unauthedAgents` and `launchDefaults` off it: the web server reads
+        // them off the persisted devices row instead.
         let caps = vec!["actions".to_string()];
         assert_eq!(
             ClientFrame::Online {
                 device_id: "dev-1",
                 device_label: Some("MacBook"),
-                agents: Some(&agents),
-                unauthed_agents: None,
                 caps: Some(&caps),
-                launch_defaults: None,
             }
             .to_json(),
-            r#"{"t":"online","deviceId":"dev-1","deviceLabel":"MacBook","agents":["claude","pi"],"caps":["actions"]}"#
-        );
-        // EXP-409: signed-out agents ride `unauthedAgents`, and the runnable
-        // list goes on the wire EXPLICITLY (even empty) alongside them so the
-        // relay's legacy ["claude"] default can't apply.
-        let none: Vec<String> = vec![];
-        let unauthed = vec!["claude".to_string()];
-        assert_eq!(
-            ClientFrame::Online {
-                device_id: "dev-1",
-                device_label: Some("MacBook"),
-                agents: Some(&none),
-                unauthed_agents: Some(&unauthed),
-                caps: None,
-                launch_defaults: None,
-            }
-            .to_json(),
-            r#"{"t":"online","deviceId":"dev-1","deviceLabel":"MacBook","agents":[],"unauthedAgents":["claude"]}"#
-        );
-    }
-
-    /// EXP-437: the launch-defaults advertisement — camelCase keys, blank
-    /// model/effort ALWAYS present (blank is meaningful), false booleans
-    /// skipped, BTreeMap agent order (claude < codex), defaultAgent first.
-    #[test]
-    fn online_launch_defaults_serialize_byte_exact() {
-        let agents = vec!["claude".to_string(), "codex".to_string()];
-        let defaults = LaunchDefaults {
-            default_agent: Some("claude".to_string()),
-            agents: [
-                (
-                    "claude".to_string(),
-                    AgentLaunchDefaults {
-                        model: "fable".to_string(),
-                        effort: "".to_string(),
-                        ultracode: false,
-                        plan_mode: true,
-                        skip_permissions: false,
-                    },
-                ),
-                (
-                    "codex".to_string(),
-                    AgentLaunchDefaults {
-                        model: "".to_string(),
-                        effort: "high".to_string(),
-                        ultracode: false,
-                        plan_mode: false,
-                        skip_permissions: true,
-                    },
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        };
-        assert_eq!(
-            ClientFrame::Online {
-                device_id: "dev-1",
-                device_label: Some("MacBook"),
-                agents: Some(&agents),
-                unauthed_agents: None,
-                caps: None,
-                launch_defaults: Some(&defaults),
-            }
-            .to_json(),
-            r#"{"t":"online","deviceId":"dev-1","deviceLabel":"MacBook","agents":["claude","codex"],"launchDefaults":{"defaultAgent":"claude","agents":{"claude":{"model":"fable","effort":"","planMode":true},"codex":{"model":"","effort":"high","skipPermissions":true}}}}"#
+            r#"{"t":"online","deviceId":"dev-1","deviceLabel":"MacBook","caps":["actions"]}"#
         );
     }
 
@@ -1161,10 +1032,7 @@ mod tests {
                 ClientFrame::Online {
                     device_id: "d",
                     device_label: None,
-                    agents: None,
-                    unauthed_agents: None,
                     caps: None,
-                    launch_defaults: None,
                 },
                 "online",
             ),
@@ -1213,22 +1081,27 @@ mod tests {
                 ultracode: None,
                 plan_mode: None,
                 skip_permissions: None,
-                resume: None,
+                resume: false,
             }
         );
     }
 
     #[test]
     fn start_session_deserializes_resume_and_check_in() {
-        // EXP-481: `resume: true` rides a single-issue frame; absent = None
+        // EXP-481: `resume: true` rides a single-issue frame; absent = false
         // (fresh start — the pre-481 wire, byte-identical).
         match ServerFrame::parse(r#"{"t":"start_session","issueId":"issue-9","resume":true}"#)
             .unwrap()
         {
             ServerFrame::StartSession { issue_id, resume, .. } => {
                 assert_eq!(issue_id.as_deref(), Some("issue-9"));
-                assert_eq!(resume, Some(true));
+                assert!(resume);
             }
+            other => panic!("expected StartSession, got {other:?}"),
+        }
+        // EXP-542: an absent flag deserializes to plain `false`.
+        match ServerFrame::parse(r#"{"t":"start_session","issueId":"issue-9"}"#).unwrap() {
+            ServerFrame::StartSession { resume, .. } => assert!(!resume),
             other => panic!("expected StartSession, got {other:?}"),
         }
         // The check-in nudge is a bare tag frame.
@@ -1264,7 +1137,7 @@ mod tests {
                 ultracode: None,
                 plan_mode: None,
                 skip_permissions: None,
-                resume: None,
+                resume: false,
             }
         );
     }
@@ -1293,7 +1166,7 @@ mod tests {
                 ultracode: Some(true),
                 plan_mode: Some(false),
                 skip_permissions: Some(true),
-                resume: None,
+                resume: false,
             }
         );
     }
@@ -1325,7 +1198,7 @@ mod tests {
                 ultracode: Some(true),
                 plan_mode: Some(false),
                 skip_permissions: None,
-                resume: None,
+                resume: false,
             }
         );
     }
@@ -1358,7 +1231,7 @@ mod tests {
                 ultracode: None,
                 plan_mode: None,
                 skip_permissions: None,
-                resume: None,
+                resume: false,
             }
         );
     }
@@ -1404,7 +1277,7 @@ mod tests {
                 ultracode: None,
                 plan_mode: None,
                 skip_permissions: Some(true),
-                resume: None,
+                resume: false,
             }
         );
     }
@@ -1437,7 +1310,7 @@ mod tests {
                 ultracode: None,
                 plan_mode: None,
                 skip_permissions: None,
-                resume: None,
+                resume: false,
             }
         );
     }

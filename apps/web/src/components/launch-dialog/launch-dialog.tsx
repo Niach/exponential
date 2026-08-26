@@ -21,7 +21,6 @@ import { trpc } from "@/lib/trpc-client"
 import { missingRequiredInputs, buildInputsPayload } from "@/lib/action-inputs"
 import type { CodingLaunchPrefs } from "@/lib/coding-launch-prefs"
 import {
-  deviceCanChat,
   deviceCanFixConflicts,
   deviceCanResume,
   deviceCanRunActionInputs,
@@ -384,14 +383,12 @@ export function LaunchDialog({
       .filter(deviceIsOnline)
       .filter(deviceHasRunnableAgent)
     if (tab === `issues`) return online
-    // Chat rides the builtin-action rails, so the server gates it on the
-    // action caps too — mirror the exact gate here (parity with iOS/Android).
+    // Chat rides the builtin-action rails — gate on the action caps (the
+    // chat cap itself is fleet-wide since 0.14.22, EXP-624).
     if (tab === `chat`)
       return online.filter(
         (candidate) =>
-          deviceCanRunActions(candidate) &&
-          deviceCanRunActionInputs(candidate) &&
-          deviceCanChat(candidate)
+          deviceCanRunActions(candidate) && deviceCanRunActionInputs(candidate)
       )
     return online.filter(
       (candidate) =>
