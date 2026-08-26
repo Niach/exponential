@@ -193,7 +193,7 @@ describe(`codingSessions.start — issue path`, () => {
       // caller's own.
       hostUserId: null,
       deviceId: null,
-      deviceLabel: `MacBook`,
+      deviceLabel: null,
       status: `running`,
     })
     expect(result.session).toMatchObject({ id: SESSION_ID, issueId: ISSUE_ID })
@@ -228,7 +228,7 @@ describe(`codingSessions.start — batch path`, () => {
       userId: `actor`,
       hostUserId: null,
       deviceId: null,
-      deviceLabel: `MacBook`,
+      deviceLabel: null,
       status: `running`,
     })
     // A batch run spans boards: issue_id/board_id must be ABSENT so the
@@ -286,7 +286,7 @@ describe(`codingSessions.start — action path (EXP-253)`, () => {
       userId: `actor`,
       hostUserId: null,
       deviceId: null,
-      deviceLabel: `MacBook`,
+      deviceLabel: null,
       status: `running`,
     })
     // Action rows are batch-shaped: issue_id/board_id absent so the populate
@@ -575,7 +575,7 @@ describe(`codingSessions — builtin create-action (EXP-257)`, () => {
       actionId: null,
       actionName: `Create action`,
       userId: `actor`,
-      deviceLabel: `MacBook`,
+      deviceLabel: null,
       status: `running`,
     })
     expect(`issueId` in inserts[0]!.values).toBe(false)
@@ -1011,13 +1011,13 @@ describe(`codingSessions — device stamp (EXP-549)`, () => {
     })
   })
 
-  it(`start without a deviceId (old client) stamps NULL and no lookup`, async () => {
+  it(`start without a deviceId stamps NULL — the label never rides alone (EXP-560)`, async () => {
     await caller.start({ issueId: ISSUE_ID, deviceLabel: `old-host` })
 
     expect(selectWheres).toHaveLength(0)
     expect(inserts[0]!.values).toMatchObject({
       deviceId: null,
-      deviceLabel: `old-host`,
+      deviceLabel: null,
     })
   })
 

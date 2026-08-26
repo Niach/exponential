@@ -31,12 +31,13 @@ public struct SessionDevicePresentation: Equatable {
 
     /// Join the session to its live devices row and derive both fields.
     ///
-    /// Match order: the row whose `deviceId` equals the session's stamped
-    /// `device_id` (preferring the session owner's own row — two users may
-    /// share a machine id through a shared server row) and, ONLY for rows
-    /// written before that column existed, the UNIQUE row whose label still
-    /// equals the snapshot (0 or 2+ matches = no row: an ambiguous label must
-    /// never claim a machine is offline).
+    /// The ONLY join is `device_id`: the row whose `deviceId` equals the
+    /// session's stamped one, preferring the session owner's own row (two users
+    /// may share a machine id through a shared server row). The label-matching
+    /// fallback for pre-EXP-549 rows is gone (EXP-560) — those rows have long
+    /// since drained, and matching on a mutable display name could claim the
+    /// wrong machine is offline. A session without a stamped `device_id`
+    /// resolves no row and simply keeps its own snapshot label.
     public static func resolve(
         session: CodingSessionEntity,
         devices: [DeviceEntity],
@@ -57,13 +58,9 @@ public struct SessionDevicePresentation: Equatable {
         session: CodingSessionEntity,
         devices: [DeviceEntity]
     ) -> DeviceEntity? {
-        if let deviceId = session.deviceId, !deviceId.isEmpty {
-            let byId = devices.filter { $0.deviceId == deviceId }
-            return byId.first { $0.userId == session.userId } ?? byId.first
-        }
-        guard let snapshot = session.deviceLabel, !snapshot.isEmpty else { return nil }
-        let byLabel = devices.filter { $0.label == snapshot }
-        return byLabel.count == 1 ? byLabel.first : nil
+        guard let deviceId = session.deviceId, !deviceId.isEmpty else { return nil }
+        let byId = devices.filter { $0.deviceId == deviceId }
+        return byId.first { $0.userId == session.userId } ?? byId.first
     }
 
     /// Whether the run reads "Paused" rather than live: the host is offline

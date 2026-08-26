@@ -876,11 +876,13 @@ pub(crate) struct SessionDevicePresentation {
 
 /// Resolve `session`'s host machine against the synced `devices` rows.
 ///
-/// Match order: the row whose steer `device_id` equals the session's
-/// (EXP-549's stamp; preferring the session owner's own row when a shared
-/// device produced several), then — ONLY for pre-EXP-549 rows that carry no
-/// `device_id` — the UNIQUE row whose label equals the snapshot (0 or 2+
-/// matches resolve nothing: guessing would rename the wrong machine).
+/// The ONE match is on the session's steer `device_id` (EXP-549's stamp),
+/// preferring the session owner's own row when a shared device produced
+/// several. EXP-589: a row with NO `device_id` resolves no machine at all —
+/// it falls straight through to the session's own `device_label` snapshot,
+/// never offline. The old label-equality fallback (unique-label match) is
+/// gone: matching machines by NAME could only ever rename the right one or
+/// mislabel the wrong one, and the presentation reads the same either way.
 pub(crate) fn session_device_presentation<'a>(
     session: &domain::rows::CodingSession,
     devices: impl Iterator<Item = &'a domain::rows::DeviceRow>,
@@ -899,23 +901,7 @@ pub(crate) fn session_device_presentation<'a>(
                 .copied()
                 .or_else(|| matches.first().copied())
         }
-        None => {
-            let snapshot = session.device_label.as_deref().filter(|l| !l.is_empty());
-            match snapshot {
-                Some(snapshot) => {
-                    let mut matches = devices
-                        .filter(|row| row.label.as_deref() == Some(snapshot))
-                        .take(2);
-                    match (matches.next(), matches.next()) {
-                        // Ambiguous (two machines share the name) — resolve
-                        // nothing rather than pick the wrong one.
-                        (Some(row), None) => Some(row),
-                        _ => None,
-                    }
-                }
-                None => None,
-            }
-        }
+        None => None,
     };
     match row {
         Some(row) => SessionDevicePresentation {
@@ -1340,47 +1326,27 @@ mod tests {
         assert_eq!(presentation.label.as_deref(), Some("Build server"));
     }
 
-    /// Pre-EXP-549 rows carry no `device_id` — a UNIQUE label match still
-    /// resolves the machine (so its online-ness applies), and an ambiguous
-    /// one resolves nothing rather than guessing.
+    /// EXP-589: a row with no `device_id` resolves NO machine — it shows its
+    /// own label snapshot and is never accused of being offline, even when a
+    /// same-named machine happens to be synced (that label match was the
+    /// removed fallback). A session that DOES carry a device_id likewise never
+    /// falls back to the label: an unknown machine stays unresolved.
     #[test]
-    fn session_device_presentation_falls_back_to_a_unique_label_only() {
+    fn session_device_presentation_never_matches_by_label() {
         let now_ms = 1784289600_000_i64;
         let unique = vec![device_row(
             "d-1",
             Some("dev-1"),
             Some("user-1"),
             Some("mac-studio"),
+            // Long stale: would have read "offline" through the old fallback.
             Some("2026-07-17T09:00:00Z"),
         )];
         let legacy = hosted_session(None, Some("mac-studio"), Some("user-1"));
         let presentation = session_device_presentation(&legacy, unique.iter(), now_ms);
         assert_eq!(presentation.label.as_deref(), Some("mac-studio"));
-        assert!(presentation.offline, "stale heartbeat = offline");
+        assert!(!presentation.offline, "an unresolved machine is never offline");
 
-        // Two machines named the same → no row, so no offline claim.
-        let ambiguous = vec![
-            device_row(
-                "d-1",
-                Some("dev-1"),
-                Some("user-1"),
-                Some("mac-studio"),
-                Some("2026-07-17T09:00:00Z"),
-            ),
-            device_row(
-                "d-2",
-                Some("dev-2"),
-                Some("user-1"),
-                Some("mac-studio"),
-                Some("2026-07-17T11:59:30Z"),
-            ),
-        ];
-        let presentation = session_device_presentation(&legacy, ambiguous.iter(), now_ms);
-        assert_eq!(presentation.label.as_deref(), Some("mac-studio"));
-        assert!(!presentation.offline);
-
-        // A session that DOES carry a device_id never falls back to the
-        // label — an unknown machine stays unresolved.
         let stamped = hosted_session(Some("dev-unknown"), Some("mac-studio"), Some("user-1"));
         let presentation = session_device_presentation(&stamped, unique.iter(), now_ms);
         assert_eq!(presentation.label.as_deref(), Some("mac-studio"));

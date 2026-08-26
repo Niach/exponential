@@ -64,9 +64,9 @@ final class SessionDevicePresentationTests: XCTestCase {
         XCTAssertFalse(resolved.offline)
     }
 
-    // The id match wins even when another row's label happens to equal the
-    // snapshot.
-    func testMatchByIdBeatsLabelMatch() {
+    // The id is the only join: another row whose label happens to equal the
+    // snapshot never interferes.
+    func testMatchByIdIgnoresLabelLookalike() {
         let rows = [
             device(id: "r1", deviceId: "dev-1", label: "macbook", lastSeenAt: fresh),
             device(id: "r2", deviceId: "dev-2", label: "old-name", lastSeenAt: stale),
@@ -97,23 +97,13 @@ final class SessionDevicePresentationTests: XCTestCase {
         XCTAssertEqual(resolved.label, "my-view")
     }
 
-    // Pre-EXP-549 rows carry no device_id — a UNIQUE label match still joins
-    // them to their machine.
-    func testUniqueLabelFallbackOnlyWithoutDeviceId() {
+    // A stamped-but-unknown device id does NOT fall back to the label — the row
+    // it names simply hasn't synced, which is not evidence the machine is
+    // offline.
+    func testUnknownDeviceIdKeepsSnapshotAndStaysOnline() {
         let rows = [
             device(id: "r1", deviceId: "dev-1", label: "macbook", lastSeenAt: stale)
         ]
-        let legacy = SessionDevicePresentation.resolve(
-            session: session(deviceId: nil, deviceLabel: "macbook"),
-            devices: rows,
-            now: now
-        )
-        XCTAssertEqual(legacy.label, "macbook")
-        XCTAssertTrue(legacy.offline)
-
-        // A stamped-but-unknown device id does NOT fall back to the label —
-        // the row it names simply hasn't synced, which is not evidence the
-        // machine is offline.
         let stamped = SessionDevicePresentation.resolve(
             session: session(deviceId: "dev-gone", deviceLabel: "macbook"),
             devices: rows,
@@ -123,12 +113,12 @@ final class SessionDevicePresentationTests: XCTestCase {
         XCTAssertFalse(stamped.offline)
     }
 
-    // An ambiguous label claims nothing: keep the snapshot, never call it
-    // offline.
-    func testAmbiguousLabelKeepsSnapshotAndStaysOnline() {
+    // EXP-560: no stamped device_id resolves NO row, even when exactly one
+    // row's label equals the snapshot. The snapshot is still what we print, and
+    // an unmatched machine is never reported offline.
+    func testMissingDeviceIdMatchesNoRowDespiteUniqueLabel() {
         let rows = [
-            device(id: "r1", deviceId: "dev-1", label: "macbook", lastSeenAt: stale),
-            device(id: "r2", deviceId: "dev-2", label: "macbook", lastSeenAt: stale),
+            device(id: "r1", deviceId: "dev-1", label: "macbook", lastSeenAt: stale)
         ]
         let resolved = SessionDevicePresentation.resolve(
             session: session(deviceId: nil, deviceLabel: "macbook"),

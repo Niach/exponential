@@ -80,16 +80,17 @@ async function resolveStartAttribution(
 // `deviceId` plus its OS hostname as `deviceLabel`; the registry row's `label`
 // (the user's RENAME, `devices.rename`) wins for the snapshot whenever the
 // caller — the hosting account in both self-hosted and shared-device runs —
-// owns a row for that deviceId. Clients still prefer the live devices row via
-// `device_id`; the snapshot is what old builds and legacy rows render. One
-// select, only when a deviceId rides along (pre-EXP-549 clients send none).
+// owns a row for that deviceId. Clients prefer the live devices row via
+// `device_id`; the snapshot renders historical rows. Every supported sender
+// stamps a deviceId (EXP-560 retired the label-only pre-EXP-549 wire —
+// `deviceLabel` stays ACCEPTED on the input but never rides alone).
 async function resolveSessionDevice(
   db: Context[`db`],
   callerId: string,
   input: { deviceId?: string; deviceLabel?: string }
 ): Promise<{ deviceId: string | null; deviceLabel: string | null }> {
   if (!input.deviceId) {
-    return { deviceId: null, deviceLabel: input.deviceLabel ?? null }
+    return { deviceId: null, deviceLabel: null }
   }
   const [device] = await db
     .select({ label: devices.label })

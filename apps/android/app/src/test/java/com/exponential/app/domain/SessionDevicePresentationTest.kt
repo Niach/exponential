@@ -72,7 +72,7 @@ class SessionDevicePresentationTest {
     }
 
     @Test
-    fun `the label fallback only applies to rows with no stamped device_id`() {
+    fun `only the stamped device_id resolves a row — never the label`() {
         val devices = listOf(device("row-1", "dev-1", "macbook", lastSeenAt = iso(-10 * 60_000)))
         // Stamped but unknown machine: no row, so the snapshot renders and
         // presence stays unknown (never a fake pause).
@@ -83,22 +83,11 @@ class SessionDevicePresentationTest {
         )
         assertEquals("macbook", stamped.label)
         assertFalse(stamped.offline)
-        // Legacy row (no device_id): the unique same-label row matches, and its
-        // stale heartbeat reads offline.
-        val legacy = resolveSessionDevice(session(deviceLabel = "macbook"), devices, nowMs)
-        assertEquals("macbook", legacy.label)
-        assertTrue(legacy.offline)
-    }
-
-    @Test
-    fun `an ambiguous label keeps the snapshot and claims nothing about presence`() {
-        val devices = listOf(
-            device("row-1", "dev-1", "macbook", lastSeenAt = iso(-10 * 60_000)),
-            device("row-2", "dev-2", "macbook", userId = "someone-else", lastSeenAt = iso(-10 * 60_000)),
-        )
-        val resolved = resolveSessionDevice(session(deviceLabel = "macbook"), devices, nowMs)
-        assertEquals("macbook", resolved.label)
-        assertFalse(resolved.offline)
+        // EXP-560: no device_id resolves nothing at all, even when exactly one
+        // row still carries the snapshot label — the guess is gone.
+        val unstamped = resolveSessionDevice(session(deviceLabel = "macbook"), devices, nowMs)
+        assertEquals("macbook", unstamped.label)
+        assertFalse(unstamped.offline)
     }
 
     @Test

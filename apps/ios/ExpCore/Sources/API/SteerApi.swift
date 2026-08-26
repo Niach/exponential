@@ -351,11 +351,6 @@ public struct SteerDevicesResult: Decodable, Sendable {
     }
 }
 
-private struct ControlTicketInput: Encodable {
-    let kind = "control"
-    let deviceLabel: String?
-}
-
 private struct ViewerTicketInput: Encodable {
     let kind = "viewer"
     let codingSessionId: String
@@ -466,16 +461,6 @@ public final class SteerApi: Sendable {
     /// Whether the relay is configured on this instance (`steer.config` query).
     public func config(accountId: String) async throws -> SteerConfig {
         try await trpc.query(accountId: accountId, path: "steer.config")
-    }
-
-    /// Mint a `control` ticket for a device-presence socket.
-    /// Retained for a future phone→desktop remote-input surface; not yet wired to UI.
-    public func mintControlTicket(accountId: String, deviceLabel: String?) async throws -> SteerTicket {
-        try await trpc.mutation(
-            accountId: accountId,
-            path: "steer.mintTicket",
-            input: ControlTicketInput(deviceLabel: deviceLabel)
-        )
     }
 
     /// Mint a `viewer` ticket (watch + optional steer, per the ticket's perm)

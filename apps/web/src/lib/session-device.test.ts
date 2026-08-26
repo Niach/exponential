@@ -70,14 +70,14 @@ describe(`resolveSessionDevice`, () => {
     ).toEqual({ label: `box`, online: null })
   })
 
-  it(`legacy rows (no id) match a UNIQUE row by label`, () => {
+  it(`rows without an id keep their snapshot even when one label matches (EXP-560)`, () => {
     expect(
       resolveSessionDevice(
         { deviceId: null, deviceLabel: `macbook`, userId: `me` },
         [device({ lastSeenAt: stale }), device({ deviceId: `dev-2`, label: `server` })],
         NOW
       )
-    ).toEqual({ label: `macbook`, online: false })
+    ).toEqual({ label: `macbook`, online: null })
   })
 
   it(`legacy rows with an ambiguous label resolve to the snapshot only`, () => {

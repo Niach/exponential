@@ -30,11 +30,10 @@ type DeviceLike = Pick<
 >
 
 /**
- * Resolve the session's device row: by `device_id` (preferring the session
- * owner's own row), else — ONLY for legacy rows without an id — the UNIQUE
- * row whose label equals the snapshot (an ambiguous label resolves to
- * nothing rather than guessing). Falls back to the snapshot with unknown
- * online-ness.
+ * Resolve the session's device row by `device_id` (preferring the session
+ * owner's own row). A row-less session — historical NULL-device_id rows —
+ * falls back to the snapshot with unknown online-ness (EXP-560 retired the
+ * unique-label guess: a mutable display name must not decide pause state).
  */
 export function resolveSessionDevice(
   session: SessionDeviceRow,
@@ -45,9 +44,6 @@ export function resolveSessionDevice(
   if (session.deviceId) {
     const matches = devices.filter((d) => d.deviceId === session.deviceId)
     row = matches.find((d) => d.userId === session.userId) ?? matches[0]
-  } else if (session.deviceLabel) {
-    const matches = devices.filter((d) => d.label === session.deviceLabel)
-    row = matches.length === 1 ? matches[0] : undefined
   }
   if (!row) return { label: session.deviceLabel, online: null }
   return {
