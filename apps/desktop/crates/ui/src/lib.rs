@@ -117,6 +117,7 @@ pub use update::check_for_updates;
 pub use session::{
     bootstrap as bootstrap_session, sign_out_active, upgrade_required_handler, AuthContext,
 };
+pub use session_registry::install_end_observer as install_session_end_observer;
 pub use shell::Shell;
 pub use window_hooks::set_window_opened_hook;
 

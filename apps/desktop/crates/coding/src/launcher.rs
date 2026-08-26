@@ -25,7 +25,7 @@
 //! mirror).
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use api::error::ApiError;
 use api::token_store::TokenStore;
@@ -1987,7 +1987,7 @@ pub fn spawn_prepared_with(
         let trpc = Arc::clone(&exit_trpc);
         let end_session_id = end_session_id.clone();
         std::thread::spawn(move || {
-            let _ = coding_sessions::end(&trpc, &end_session_id);
+            end_session_best_effort(&trpc, &end_session_id);
         });
         if let Some(notify) = exit_notify {
             notify(exit, cx);
@@ -2016,7 +2016,7 @@ pub fn spawn_prepared_with(
             let trpc = Arc::clone(&trpc);
             let session_id = session_id.clone();
             std::thread::spawn(move || {
-                let _ = coding_sessions::end(&trpc, &session_id);
+                end_session_best_effort(&trpc, &session_id);
             });
         })?;
 
@@ -2028,10 +2028,44 @@ pub fn spawn_prepared_with(
     })
 }
 
+/// EXP-640: observer for the outcome of EVERY `codingSessions.end` this
+/// crate (and, via [`end_session`], the host) issues. The desktop's
+/// crash-recovery registry hangs off it: an entry is dropped only once the
+/// end actually RESOLVED. Before this, the host dropped the entry as soon as
+/// the local session went away — so an end rejected by the server's 426
+/// min-version gate (every call from a just-superseded build, while the app
+/// sat on the blocking "Update required" screen) left the row `running` with
+/// nothing left to reconcile it, until the server's 2h sweep.
+pub type SessionEndObserver =
+    Arc<dyn Fn(&str, &Result<coding_sessions::CodingSession, ApiError>) + Send + Sync>;
+
+static SESSION_END_OBSERVER: OnceLock<SessionEndObserver> = OnceLock::new();
+
+/// Install the process-wide [`SessionEndObserver`]. First caller wins; a
+/// later call is a no-op (the host installs it once at bootstrap).
+pub fn set_session_end_observer(observer: SessionEndObserver) {
+    let _ = SESSION_END_OBSERVER.set(observer);
+}
+
+/// `codingSessions.end` with the outcome reported to the
+/// [`SessionEndObserver`]. Every end this crate issues goes through here so
+/// the host's registry sees each outcome exactly where it happens.
+pub fn end_session(
+    trpc: &TrpcClient,
+    session_id: &str,
+) -> Result<coding_sessions::CodingSession, ApiError> {
+    let result = coding_sessions::end(trpc, session_id);
+    if let Some(observer) = SESSION_END_OBSERVER.get() {
+        observer(session_id, &result);
+    }
+    result
+}
+
 /// Best-effort session end for teardown paths that bypass the exit hook
-/// (app quit with a live child, relay kill). Idempotent server-side.
+/// (app quit with a live child, relay kill). Idempotent server-side; the
+/// outcome still reaches the [`SessionEndObserver`].
 pub fn end_session_best_effort(trpc: &TrpcClient, session_id: &str) {
-    let _ = coding_sessions::end(trpc, session_id);
+    let _ = end_session(trpc, session_id);
 }
 
 #[cfg(test)]

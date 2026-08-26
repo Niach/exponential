@@ -145,6 +145,10 @@ fn main() {
             Some(on_upgrade_required),
         );
         cx.set_global(store);
+        // EXP-640: the crash-recovery session registry drops an entry only
+        // once its `codingSessions.end` resolved — installed before any
+        // session can launch.
+        ui::install_session_end_observer(data_dir.clone());
         cx.set_global(ui::AuthContext {
             auth,
             client: std::sync::Arc::new(api::AuthClient::new()),
