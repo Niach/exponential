@@ -344,6 +344,27 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
             return true
         }
 
+        // EXP-624: a 400 is Electric refusing the REQUEST we hold state for —
+        // a shape definition or handle it no longer recognises. That is
+        // deterministic: retrying the same handle/offset at backoff fails
+        // forever (`isSchemaError` only matches SQLite messages, so nothing
+        // else rescues it). Treat it exactly like a 409 rotation — drop the
+        // handle, mark needs_refetch and resnapshot on the next poll — which
+        // costs one extra snapshot in the worst case and unwedges the shape in
+        // the expected one.
+        if httpResponse.statusCode == 400 {
+            let newHandle = httpResponse.value(forHTTPHeaderField: "electric-handle") ?? ""
+            logger.warning("[\(self.shapeName)] HTTP 400 — resnapshotting shape")
+            SyncDebug.shared.log("[\(shapeName)] HTTP 400, resnapshot")
+            try await pool.write { db in
+                try ElectricOffset(
+                    shape: shapeName, handle: newHandle, offset: initialOffset,
+                    needsRefetch: true, isLive: false
+                ).save(db)
+            }
+            return true
+        }
+
         // Dead-session gate: shape reads always carry the bearer, so a 401 is
         // the server rejecting this account's credential (deleted user, revoked
         // session). Trip the gate for the owning account only — SyncManager
