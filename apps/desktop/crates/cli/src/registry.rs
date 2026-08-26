@@ -113,9 +113,22 @@ pub fn stale_ids(data_dir: &Path, account_id: &str) -> Vec<String> {
         .collect()
 }
 
+/// Live sessions a daemon at `pid` still owns, by this registry's account
+/// (EXP-641: `exponential update` must not restart a daemon out from under a
+/// running agent).
+pub fn sessions_owned_by(data_dir: &Path, pid: u32) -> usize {
+    let _guard = locked();
+    load(data_dir)
+        .iter()
+        .filter(|entry| entry.pid == Some(pid))
+        .count()
+}
+
 /// Whether an end outcome RESOLVES the entry (desktop parity): success and
 /// any 4xx (404 = swept, 403 = resurrected under another owner) drop it;
-/// transport/401/5xx keep it for the next start's reconcile.
+/// transport/401/5xx — and the 426 min-version gate, `UpgradeRequired`, which
+/// rejects the CALL while the row stays `running` — keep it for the next
+/// start's reconcile.
 pub fn end_outcome_resolves(result: &Result<api::coding_sessions::CodingSession, api::ApiError>) -> bool {
     match result {
         Ok(_) => true,

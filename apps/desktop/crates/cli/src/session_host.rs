@@ -504,8 +504,19 @@ fn supervise(
         publisher.shutdown(Some(outcome));
     }
     ctx.activity_active.store(false, Ordering::SeqCst);
-    let _ = api::coding_sessions::end(&ctx.trpc, &ctx.session_id);
-    registry::remove(&ctx.data_dir, &ctx.session_id);
+    // EXP-641: the registry entry goes only with a RESOLVED end. An end the
+    // server rejects (the 426 min-version gate mid-deploy, a dead network)
+    // keeps it for the restarted daemon's reconcile instead of stranding the
+    // row `running` for the server sweep's 2h window.
+    let result = api::coding_sessions::end(&ctx.trpc, &ctx.session_id);
+    if registry::end_outcome_resolves(&result) {
+        registry::remove(&ctx.data_dir, &ctx.session_id);
+    } else if let Err(err) = &result {
+        log::info!(
+            "end of coding session {} did not resolve ({err}) — kept for the next start's reconcile",
+            ctx.session_id
+        );
+    }
     let _ = done_tx.send(exit);
 }
 
