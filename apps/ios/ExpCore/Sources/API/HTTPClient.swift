@@ -77,8 +77,8 @@ public final class HTTPClient: Sendable {
     }
 
     /// POST a single file as `multipart/form-data` under field name `file` (the
-    /// shape the `/api/issues/{id}/images` route expects). Authed for `accountId`.
-    /// Mirrors the hand-rolled boundary in IssueImagesApi so other callers (the
+    /// shape the `/api/issues/{id}/files` route expects). Authed for `accountId`.
+    /// Mirrors the hand-rolled boundary in AttachmentsApi so other callers (the
     /// preview feedback reporter) don't re-implement it.
     public func postMultipart(
         _ url: URL,

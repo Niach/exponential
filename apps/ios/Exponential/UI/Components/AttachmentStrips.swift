@@ -453,7 +453,6 @@ enum CommentAttachmentUploads {
         _ items: [PendingCommentAttachment],
         accountId: String,
         issueId: String,
-        issueImagesApi: IssueImagesApi,
         attachmentsApi: AttachmentsApi
     ) async -> Outcome {
         var result = items
@@ -461,25 +460,14 @@ enum CommentAttachmentUploads {
             let item = result[index]
             if item.uploadedId != nil { continue }
             do {
-                let uploadedId: String
-                if AttachmentFiles.isInlineImage(contentType: item.contentType) {
-                    uploadedId = try await issueImagesApi.upload(
-                        accountId: accountId,
-                        issueId: issueId,
-                        data: item.data,
-                        filename: item.filename,
-                        contentType: item.contentType
-                    ).id
-                } else {
-                    uploadedId = try await attachmentsApi.upload(
-                        accountId: accountId,
-                        issueId: issueId,
-                        data: item.data,
-                        filename: item.filename,
-                        contentType: item.contentType
-                    ).id
-                }
-                result[index].uploadedId = uploadedId
+                // EXP-613: inline images and files share the one /files route.
+                result[index].uploadedId = try await attachmentsApi.upload(
+                    accountId: accountId,
+                    issueId: issueId,
+                    data: item.data,
+                    filename: item.filename,
+                    contentType: item.contentType
+                ).id
             } catch {
                 return Outcome(items: result, failure: error.localizedDescription)
             }

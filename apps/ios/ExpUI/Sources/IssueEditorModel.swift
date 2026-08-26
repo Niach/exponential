@@ -19,11 +19,11 @@ public enum ImageUploadState: Equatable, Sendable {
     case failed(ImageUploadFailureReason)
 }
 
-/// Classify an upload error for the failed tile: the images route answers the
+/// Classify an upload error for the failed tile: the upload route answers the
 /// team storage cap with HTTP 412 (its body carries billing copy that must
 /// never render — EXP-216).
 private func uploadFailureReason(_ error: any Error) -> ImageUploadFailureReason {
-    if case IssueImagesError.httpError(412, _) = error { return .storageFull }
+    if case AttachmentsError.httpError(412, _) = error { return .storageFull }
     return .other
 }
 

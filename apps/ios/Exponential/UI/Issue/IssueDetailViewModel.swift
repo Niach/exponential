@@ -112,7 +112,6 @@ final class IssueDetailViewModel {
     private let issueId: String
     private let db: DatabaseManager
     private let issuesApi: IssuesApi
-    private let issueImagesApi: IssueImagesApi
     private let attachmentsApi: AttachmentsApi
     private let labelsApi: LabelsApi
     private let subscriptionsApi: SubscriptionsApi
@@ -140,7 +139,6 @@ final class IssueDetailViewModel {
         issueId: String,
         db: DatabaseManager,
         issuesApi: IssuesApi,
-        issueImagesApi: IssueImagesApi,
         attachmentsApi: AttachmentsApi,
         labelsApi: LabelsApi,
         subscriptionsApi: SubscriptionsApi,
@@ -152,7 +150,6 @@ final class IssueDetailViewModel {
         self.issueId = issueId
         self.db = db
         self.issuesApi = issuesApi
-        self.issueImagesApi = issueImagesApi
         self.attachmentsApi = attachmentsApi
         self.labelsApi = labelsApi
         self.subscriptionsApi = subscriptionsApi
@@ -661,7 +658,7 @@ final class IssueDetailViewModel {
     }
 
     private func makeImageUploader(issueId: String) -> @Sendable (PendingImage) async throws -> String {
-        let api = issueImagesApi
+        let api = attachmentsApi
         let accountId = accountId
         return { image in
             let uploaded = try await api.upload(

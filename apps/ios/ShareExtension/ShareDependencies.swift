@@ -10,7 +10,7 @@ import Foundation
 final class ShareDependencies {
     let auth: AuthRepository
     let issuesApi: IssuesApi
-    let issueImagesApi: IssueImagesApi
+    let attachmentsApi: AttachmentsApi
 
     init() {
         let keychain = KeychainStore()
@@ -20,6 +20,6 @@ final class ShareDependencies {
         let trpc = TrpcClient(httpClient: httpClient, auth: auth)
         self.auth = auth
         self.issuesApi = IssuesApi(trpc: trpc)
-        self.issueImagesApi = IssueImagesApi(httpClient: httpClient, auth: auth)
+        self.attachmentsApi = AttachmentsApi(httpClient: httpClient, trpc: trpc, auth: auth)
     }
 }

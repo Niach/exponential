@@ -313,7 +313,7 @@ struct CommentThreadView: View {
     /// The comment-edit image uploader (the NEW-comment path lives in
     /// IssueDetailBottomBar with its own copy).
     private func makeCommentImageUploader() -> @Sendable (PendingImage) async throws -> String {
-        let api = deps.issueImagesApi
+        let api = deps.attachmentsApi
         let acc = accountId
         let issueId = issue.id
         return { image in
@@ -796,7 +796,6 @@ private struct RegularCommentRow: View {
                 pendingAttachments,
                 accountId: accountId,
                 issueId: issueId,
-                issueImagesApi: deps.issueImagesApi,
                 attachmentsApi: deps.attachmentsApi
             )
             pendingAttachments = outcome.items

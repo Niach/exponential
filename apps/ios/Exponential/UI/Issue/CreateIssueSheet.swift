@@ -649,7 +649,7 @@ struct CreateIssueSheet: View {
             // Upload drafts atomically against the new issue id and patch the
             // final markdown (with real attachment URLs swapped in by block).
             if !editor.pendingImages.isEmpty {
-                let api = deps.issueImagesApi
+                let api = deps.attachmentsApi
                 let acc = accountId
                 let uploader: @Sendable (PendingImage) async throws -> String = { image in
                     let uploaded = try await api.upload(

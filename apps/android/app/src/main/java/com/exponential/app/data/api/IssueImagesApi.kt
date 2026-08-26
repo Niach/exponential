@@ -75,7 +75,9 @@ class IssueImagesApi @Inject constructor(
             ?: throw TrpcException("No instance URL for account $accountId")
         val token = account.token
         val (body, boundary) = buildImageUploadBody(bytes, filename, contentType)
-        val response = client.post("$baseUrl/api/issues/$issueId/images") {
+        // EXP-613: inline images ride the general /files route too — the
+        // legacy image-only /images route stays server-side for old builds.
+        val response = client.post("$baseUrl/api/issues/$issueId/files") {
             // A multi-MB photo on a slow uplink can legitimately take longer
             // than the client-wide 30s request budget.
             timeout { requestTimeoutMillis = 120_000 }

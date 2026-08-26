@@ -82,7 +82,7 @@ let shareExtensionSources: SourceFilesList = [
     // The neutral plan-cap copy the compose form renders (EXP-216).
     "ExpCore/Sources/API/TrpcErrorInfo.swift",
     "ExpCore/Sources/API/IssuesApi.swift",
-    "ExpCore/Sources/API/IssueImagesApi.swift",
+    "ExpCore/Sources/API/AttachmentsApi.swift",
     "ShareExtension/**",
 ]
 

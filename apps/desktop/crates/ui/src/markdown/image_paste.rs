@@ -4,8 +4,8 @@
 //!
 //! Mirrors the web semantics exactly:
 //! - **Detail editor** (issue exists): upload immediately via
-//!   `POST /api/issues/{issueId}/images` (multipart `file` field —
-//!   `apps/web/src/routes/api/issues/$issueId/images.ts`), then insert the
+//!   `POST /api/issues/{issueId}/files` (multipart `file` field —
+//!   `apps/web/src/routes/api/issues/$issueId/files.ts`), then insert the
 //!   canonical **relative** form `![alt](/api/attachments/{id})`.
 //! - **Create dialog** (no issue yet): stage bytes under a `draft://<id>`
 //!   placeholder (web keeps `blob:` object URLs the same way), create the
@@ -71,7 +71,7 @@ pub struct StagedImage {
     pub bytes: Arc<Vec<u8>>,
 }
 
-/// Response of `POST /api/issues/{issueId}/images`.
+/// Response of the issue upload routes (`/files`, legacy `/images`).
 #[derive(Debug, Clone, Deserialize)]
 pub struct UploadedImage {
     pub id: String,
@@ -117,8 +117,9 @@ pub trait AttachmentTransport: Send + Sync {
     /// EXP-297: upload one ARBITRARY file to an issue —
     /// `POST /api/issues/{id}/files`, same single-part multipart contract and
     /// same response shape as [`Self::upload`] (`width`/`height` are null for
-    /// non-images). The legacy `/images` route stays byte-frozen for old
-    /// native builds, so the two paths are deliberately separate methods.
+    /// non-images). [`Self::upload`] posts here too since EXP-613 (the
+    /// legacy `/images` route stays server-side for old builds); the two
+    /// methods survive for their distinct size caps and error labels.
     fn upload_file(
         &self,
         issue_id: &str,
@@ -247,7 +248,9 @@ impl AttachmentTransport for HttpAttachmentTransport {
         content_type: &str,
         bytes: &[u8],
     ) -> anyhow::Result<UploadedImage> {
-        let url = format!("{}/api/issues/{issue_id}/images", self.base_url);
+        // EXP-613: inline images ride the general /files route too — the
+        // legacy image-only /images route stays server-side for old builds.
+        let url = format!("{}/api/issues/{issue_id}/files", self.base_url);
         self.post_multipart(&url, "image", filename, content_type, bytes)
     }
 
@@ -852,7 +855,7 @@ mod tests {
         assert_eq!(uploaded.url, "/api/attachments/att-1");
         assert_eq!(uploaded.width, Some(2));
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.starts_with("POST /api/issues/issue-1/images HTTP/1.1"));
+        assert!(request.starts_with("POST /api/issues/issue-1/files HTTP/1.1"));
         assert!(
             request
                 .to_ascii_lowercase()

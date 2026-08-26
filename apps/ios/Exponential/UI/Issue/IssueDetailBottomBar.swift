@@ -467,7 +467,6 @@ struct IssueDetailBottomBar: View {
                 pendingAttachments,
                 accountId: accountId,
                 issueId: issue.id,
-                issueImagesApi: deps.issueImagesApi,
                 attachmentsApi: deps.attachmentsApi
             )
             pendingAttachments = outcome.items
