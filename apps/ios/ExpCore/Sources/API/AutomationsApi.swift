@@ -190,7 +190,7 @@ public final class AutomationsApi: Sendable {
 
     /// Member-gated `automations.list` — sortOrder-then-createdAt ordered
     /// server-side. The synced shape is the read path on mobile; this stays
-    /// for one-shot reconciliation and older servers.
+    /// for one-shot reconciliation.
     public func list(accountId: String, teamId: String) async throws -> [AutomationDto] {
         let result: AutomationsListResult = try await trpc.query(
             accountId: accountId,

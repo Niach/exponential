@@ -328,15 +328,6 @@ public struct AgentAnswerTracker: Equatable, Sendable {
 /// The feed's pure logic: which cards are still answerable, how wire events
 /// fold into the feed, and how the flat feed projects into render rows.
 public enum AgentFeed {
-    /// The desktop's pre-EXP-249 resolution narrations (steer/src/activity.rs).
-    /// It still publishes all three BESIDE the semantic `question_resolved`
-    /// event, so a v2 client (every client, EXP-613) simply drops them: the
-    /// card they describe is already retired by the semantic event, and
-    /// rendering them would duplicate it as a narration row. Web and Android
-    /// drop the same three strings — never reword without updating all four.
-    public static let planResolvedNarration = "Plan approval answered."
-    public static let questionAnsweredPrefix = "Question answered: "
-    public static let questionDismissedNarration = "Question dismissed."
     /// Client-side feed cap — old events fall off the top. Matches the relay's
     /// ACTIVITY_LOG_CAP so a full replay never truncates.
     public static let feedCap = 2000

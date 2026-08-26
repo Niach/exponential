@@ -115,12 +115,9 @@ function ReviewsPage() {
     })
     // Merging through the representative issue merges the ONE PR — the server
     // then completes every linked issue and ends its live coding sessions
-    // (EXP-498; closeSessions kept on the wire for old-server compat).
+    // (EXP-498).
     trpc.issues.mergePr
-      .mutate(
-        { issueId: entry.issue.id, closeSessions: true },
-        { context: { skipErrorToast: true } }
-      )
+      .mutate({ issueId: entry.issue.id }, { context: { skipErrorToast: true } })
       .catch((error: unknown) => {
         // Captioned on the row instead of toasted: the reason (GitHub's
         // verbatim "not mergeable") has to stay next to the recovery button,

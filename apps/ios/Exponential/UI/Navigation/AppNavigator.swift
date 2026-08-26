@@ -144,18 +144,6 @@ struct AppNavigator: View {
             handleWebLink(url)
             return
         }
-        // exponential://oauth-return#token=...
-        if url.host == "oauth-return", let fragment = url.fragment {
-            let params = fragment.split(separator: "&").reduce(into: [String: String]()) { dict, pair in
-                let parts = pair.split(separator: "=", maxSplits: 1)
-                if parts.count == 2 {
-                    dict[String(parts[0])] = String(parts[1])
-                }
-            }
-            if let token = params["token"] {
-                NotificationCenter.default.post(name: .oauthTokenReceived, object: nil, userInfo: ["token": token])
-            }
-        }
         // exponential://github-connected[?error=<code>] — the GitHub App install flow
         // finished (fired by the server's post-install page). The in-app install
         // surface (ASWebAuthenticationSession) normally consumes this as its
@@ -926,7 +914,6 @@ struct MainNavigator: View {
 }
 
 extension Notification.Name {
-    static let oauthTokenReceived = Notification.Name("oauthTokenReceived")
     /// `exponential://github-connected` arrived — a GitHub App install just
     /// completed.
     static let githubConnected = Notification.Name("githubConnected")

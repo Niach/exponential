@@ -181,13 +181,6 @@ const MCP_JSON_FILE: &str = ".exp-mcp.json";
 /// same no-`coding`-dependency rule as [`MCP_JSON_FILE`]).
 const GIT_CREDENTIALS_FILE: &str = "exp-git-credentials";
 
-/// The plan-picker resolution narration (EXP-150/EXP-174). Viewer clients
-/// match this EXACT text to retire a pending plan-approval card — the
-/// transcript tail lags the grid-emitted plan question, so "any later event"
-/// is not a resolution signal for plan cards. Never reword without updating
-/// the web / iOS / Android agent-session views.
-pub const PLAN_RESOLVED_NARRATION: &str = "Plan approval answered.";
-
 /// Substring identifying claude's "refine with Ultraplan on Claude Code on
 /// the web" plan-picker option (key "3" on v2.1.211+). We strip it from the
 /// remotely-offered plan-approval options — it hands the plan off to
@@ -212,20 +205,6 @@ const PLAN_FEEDBACK_OPTION: &str = "Tell Claude what to change";
 /// cover, stranding a remote steerer; same stance as
 /// [`ULTRAPLAN_WEB_OPTION`].
 const LOGIN_THIRD_PARTY_OPTION: &str = "3rd-party platform";
-
-/// Answered-question narration prefix (EXP-197). When the transcript flushes
-/// an answered `AskUserQuestion` (claude withholds the entry until the picker
-/// resolves), the emitter publishes one `Question answered: <answer>`
-/// narration per question — clients match this EXACT prefix to fold the
-/// answer into the pending question card instead of rendering a narration
-/// row. Never reword without updating the web / iOS / Android views.
-pub const QUESTION_ANSWERED_PREFIX: &str = "Question answered: ";
-
-/// Dismissed-question narration (EXP-197) — published when an
-/// `AskUserQuestion` resolves WITHOUT answers (Esc / rejected), so viewers
-/// retire the pending card instead of leaving it answerable-looking. Clients
-/// match the EXACT text; same reword rule as above.
-pub const QUESTION_DISMISSED_NARRATION: &str = "Question dismissed.";
 
 // ---------------------------------------------------------------------------
 // Redaction
@@ -545,7 +524,7 @@ fn normalized_texts_match(a: &str, b: &str) -> bool {
 /// (`origin.kind == "human"` — the initial prompt and steered messages);
 /// tool RESULTS and injected system content are never published — with ONE
 /// targeted exception: an `AskUserQuestion` tool_result's collected answers
-/// (human-chosen input, EXP-197) become `Question answered:` narrations.
+/// (human-chosen input, EXP-197) ride its `question_resolved` event.
 /// Every string is redacted and truncated to the relay caps.
 pub fn process_transcript_line(
     line: &str,
@@ -869,19 +848,15 @@ fn record_pending_asks(entry: &Value, state: &mut TranscriptState) -> Vec<String
     ids
 }
 
-/// An `AskUserQuestion` tool_result → its collected answers, published as one
-/// `Question answered: <answer>` narration per question (in question order,
-/// from the entry's `toolUseResult.answers` map), or the single dismissal
-/// narration when it resolved without answers (Esc / rejected — the
+/// An `AskUserQuestion` tool_result → one semantic `question_resolved` keyed
+/// by the ask's `tool_use_id` (= the `askId` the question events carried),
+/// which retires every card of that ask (EXP-249). It carries the collected
+/// answers in question order (from the entry's `toolUseResult.answers` map),
+/// or `dismissed` when it resolved without answers (Esc / rejected — the
 /// `toolUseResult` is a plain string then). ONLY results whose tool_use id
 /// was recorded as an AskUserQuestion are ever read — generic tool results
 /// stay unpublished (the EXP-78 privacy stance); the answers themselves are
 /// human-chosen input.
-///
-/// EXP-249: each resolution ALSO emits a semantic `question_resolved` keyed by
-/// the ask's `tool_use_id` (= the `askId` the question events carried), which
-/// retires every card of that ask. The narrations stay for pre-v2 clients that
-/// only string-match.
 fn take_ask_answers(
     entry: &Value,
     redactor: &Redactor,
@@ -927,16 +902,9 @@ fn take_ask_answers(
                         continue;
                     }
                     let answer = redactor.redact(answer);
-                    events.push(ActivityEvent::narration(truncate(
-                        &format!("{QUESTION_ANSWERED_PREFIX}{answer}"),
-                        NARRATION_MAX,
-                    )));
                     collected.push(truncate(&answer, ANSWER_MAX));
                 }
             }
-        }
-        if collected.is_empty() {
-            events.push(ActivityEvent::narration(QUESTION_DISMISSED_NARRATION));
         }
         let dismissed = collected.is_empty();
         collected.truncate(ANSWERS_MAX);
@@ -2531,9 +2499,6 @@ impl SteerState {
     /// The plan picker left the screen — answered, dismissed, or superseded.
     fn resolve_plan(&mut self, sender: &ActivitySender) {
         self.resolution_seen = true;
-        // Legacy signal FIRST: pre-v2 clients retire the card on this exact
-        // narration and nothing else (EXP-150/EXP-174).
-        sender.send(ActivityEvent::narration(PLAN_RESOLVED_NARRATION));
         let Some(plan) = self.plan.take() else { return };
         self.live.remove(&plan.id);
         if plan.published {
@@ -4895,7 +4860,7 @@ mod tests {
     }
 
     #[test]
-    fn answered_ask_emits_answer_narrations_in_question_order() {
+    fn answered_ask_resolves_with_answers_in_question_order() {
         let redactor = Redactor::new(vec![]);
         let mut state = TranscriptState::default();
         let (tool_use, tool_result) = answered_ask_lines();
@@ -4909,10 +4874,7 @@ mod tests {
         assert_eq!(
             events,
             vec![
-                // Legacy narrations (pre-v2 clients string-match these)…
-                ActivityEvent::narration(format!("{QUESTION_ANSWERED_PREFIX}Mushrooms, Cheese")),
-                ActivityEvent::narration(format!("{QUESTION_ANSWERED_PREFIX}Large")),
-                // …plus the EXP-249 semantic retirement of the whole ask.
+                // The EXP-249 semantic retirement of the whole ask.
                 ActivityEvent::QuestionResolved {
                     id: None,
                     ask_id: Some("toolu_ask1".into()),
@@ -4943,9 +4905,9 @@ mod tests {
             "matches are consumed"
         );
 
-        // The answers still flow (2 narrations + the semantic resolution).
+        // The answers still flow (the semantic resolution).
         let events = process_transcript_line(&tool_result, &redactor, &mut state);
-        assert_eq!(events.len(), 3);
+        assert_eq!(events.len(), 1);
     }
 
     #[test]
@@ -4962,13 +4924,13 @@ mod tests {
         );
         // …and the resolution retires the hook-published cards by askId.
         match &process_transcript_line(&tool_result, &redactor, &mut state)[..] {
-            [_, _, ActivityEvent::QuestionResolved {
+            [ActivityEvent::QuestionResolved {
                 ask_id, answers, ..
             }] => {
                 assert_eq!(ask_id.as_deref(), Some("toolu_ask1"));
                 assert_eq!(answers.as_ref().unwrap().len(), 2);
             }
-            other => panic!("expected two narrations + a resolution, got {other:?}"),
+            other => panic!("expected a resolution, got {other:?}"),
         }
         assert!(state.hook_published_asks.is_empty(), "the ask is over");
     }
@@ -4993,10 +4955,10 @@ mod tests {
             vec![],
             "the twin never publishes while the sidecar owns asks"
         );
-        // The resolution still flows (narrations + the semantic retirement).
+        // The resolution still flows (the semantic retirement).
         assert_eq!(
             process_transcript_line(&tool_result, &redactor, &mut state).len(),
-            3
+            1
         );
     }
 
@@ -5218,7 +5180,7 @@ mod tests {
     }
 
     #[test]
-    fn rejected_ask_emits_the_dismissal_narration() {
+    fn rejected_ask_resolves_as_dismissed() {
         let redactor = Redactor::new(vec![]);
         let mut state = TranscriptState::default();
         let (tool_use, _) = answered_ask_lines();
@@ -5237,16 +5199,13 @@ mod tests {
         .to_string();
         assert_eq!(
             process_transcript_line(&rejected, &redactor, &mut state),
-            vec![
-                ActivityEvent::narration(QUESTION_DISMISSED_NARRATION),
-                ActivityEvent::QuestionResolved {
-                    id: None,
-                    ask_id: Some("toolu_ask1".into()),
-                    answers: None,
-                    dismissed: Some(true),
-                    at: None,
-                },
-            ]
+            vec![ActivityEvent::QuestionResolved {
+                id: None,
+                ask_id: Some("toolu_ask1".into()),
+                answers: None,
+                dismissed: Some(true),
+                at: None,
+            }]
         );
     }
 
@@ -5295,20 +5254,14 @@ mod tests {
         })
         .to_string();
         match &process_transcript_line(&result, &redactor, &mut state)[..] {
-            [ActivityEvent::Narration { text, .. }, ActivityEvent::QuestionResolved { answers, .. }] =>
-            {
-                assert!(text.starts_with(QUESTION_ANSWERED_PREFIX));
-                assert!(
-                    !text.contains("expu_abcdef"),
-                    "typed answer leaked a key: {text}"
-                );
+            [ActivityEvent::QuestionResolved { answers, .. }] => {
                 let answers = answers.as_ref().expect("answers");
                 assert!(
                     !answers[0].contains("expu_abcdef"),
                     "typed answer leaked a key: {answers:?}"
                 );
             }
-            other => panic!("expected an answer narration + resolution, got {other:?}"),
+            other => panic!("expected a resolution, got {other:?}"),
         }
     }
 
@@ -5575,14 +5528,13 @@ mod tests {
             other => panic!("expected the plan question, got {other:?}"),
         }
 
-        // Resolution keeps the legacy narration AND retires the card by id.
+        // Resolution retires the card by id.
         steer.resolve_plan(&sender);
         match &drained(&rx)[..] {
-            [ActivityEvent::Narration { text, .. }, ActivityEvent::QuestionResolved { id, .. }] => {
-                assert_eq!(text, PLAN_RESOLVED_NARRATION);
+            [ActivityEvent::QuestionResolved { id, .. }] => {
                 assert_eq!(id.as_deref(), Some("toolu_plan"));
             }
-            other => panic!("expected narration + resolution, got {other:?}"),
+            other => panic!("expected the resolution, got {other:?}"),
         }
         assert!(!steer.has_pending_question());
     }

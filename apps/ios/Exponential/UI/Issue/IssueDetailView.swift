@@ -418,8 +418,8 @@ struct IssueDetailView: View {
                 viewModel = vm
                 // Opening an issue clears its inbox notifications (EXP-92) —
                 // push taps and universal links never pass through the inbox's
-                // own mark-read. Fire-and-forget; also tolerates older
-                // self-hosted servers without the mutation.
+                // own mark-read. Fire-and-forget: a failure just leaves the
+                // notifications unread.
                 let notificationsApi = deps.notificationsApi
                 let accountId = accountId
                 let issueId = issueId

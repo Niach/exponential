@@ -347,23 +347,15 @@ pub struct MergeResult {
 /// server's user-facing message. Blocking; background executor only (§3.5).
 ///
 /// EXP-498: merge always ends the issue's live coding sessions — the server
-/// enforces it regardless of the flag, and the desktop tears down off the
-/// resulting kill-watch echo (or its own local tab close). `closeSessions:
-/// true` stays hardcoded on the wire so a pre-498 server closes too.
+/// enforces it unconditionally, and the desktop tears down off the resulting
+/// kill-watch echo (or its own local tab close).
 pub fn merge_pr(trpc: &TrpcClient, issue_id: &str) -> Result<MergeResult, ApiError> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
     struct Input<'a> {
         issue_id: &'a str,
-        close_sessions: bool,
     }
-    trpc.mutation(
-        "issues.mergePr",
-        &Input {
-            issue_id,
-            close_sessions: true,
-        },
-    )
+    trpc.mutation("issues.mergePr", &Input { issue_id })
 }
 
 // ---------------------------------------------------------------------------
@@ -881,8 +873,8 @@ mod tests {
         assert!(request.ends_with(r#"{"id":"i-1","boardId":"p-2"}"#));
     }
 
-    /// EXP-498: merge always closes — `closeSessions: true` is hardcoded on
-    /// the wire so a pre-498 server ends the sessions too.
+    /// EXP-498: merge always closes, server-side — the input carries the
+    /// issue id and nothing else.
     #[test]
     fn merge_pr_posts_camel_case_input_and_decodes_result() {
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"merged":true}}}"#);
@@ -890,9 +882,7 @@ mod tests {
         assert!(out.merged);
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/issues.mergePr HTTP/1.1"));
-        assert!(request.ends_with(
-            r#"{"issueId":"1f7f6f9e-0000-4000-8000-000000000000","closeSessions":true}"#
-        ));
+        assert!(request.ends_with(r#"{"issueId":"1f7f6f9e-0000-4000-8000-000000000000"}"#));
         assert!(crate::trpc::tests::has_header(&request, "Authorization: Bearer tok-1"));
     }
 

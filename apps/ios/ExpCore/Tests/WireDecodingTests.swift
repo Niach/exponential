@@ -275,8 +275,9 @@ final class WireDecodingTests: XCTestCase {
     }
 
     func testAuthConfigMissingFlagsDefaultToFalse() throws {
-        // An older self-hosted server may not publish the flags — the login
-        // screen must hide the hand-off rather than offer a dead link.
+        // An instance that publishes none of the optional flags must still
+        // decode — the login screen hides the hand-off rather than offering a
+        // dead link.
         let config = try decode(AuthConfig.self, #"""
         {
           "passwordEnabled": true,
@@ -348,7 +349,7 @@ final class WireDecodingTests: XCTestCase {
     }
 
     func testTeamRepoSharedByAbsentOrNullIsNil() throws {
-        // Old servers omit the key; legacy sharer-less rows send null — both
+        // Sharer-less rows send null and the key itself is optional — both
         // must decode with a nil sharedBy (row management falls to owners).
         let absent = try decode(TeamRepo.self, #"""
         {

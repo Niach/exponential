@@ -5,20 +5,15 @@ import com.exponential.app.domain.AgentFeedItem
 import com.exponential.app.domain.AgentFeedRow
 import com.exponential.app.domain.AnswerState
 import com.exponential.app.domain.FEED_CAP
-import com.exponential.app.domain.PLAN_RESOLVED_NARRATION
-import com.exponential.app.domain.QUESTION_ANSWERED_PREFIX
-import com.exponential.app.domain.QUESTION_DISMISSED_NARRATION
 import com.exponential.app.domain.QuestionOption
 import com.exponential.app.domain.SUBAGENT_FALLBACK_TYPE
 import com.exponential.app.domain.activeQuestionIds
 import com.exponential.app.domain.appendUserMessage
 import com.exponential.app.domain.applyActivityEvent
-import com.exponential.app.domain.attachQuestionAnswer
 import com.exponential.app.domain.capFeed
 import com.exponential.app.domain.collectSubagents
 import com.exponential.app.domain.completeSubagent
 import com.exponential.app.domain.currentStepperStep
-import com.exponential.app.domain.dismissPendingQuestions
 import com.exponential.app.domain.failUnacknowledged
 import com.exponential.app.domain.groupFeedRows
 import com.exponential.app.domain.localAnswerSummary
@@ -88,20 +83,9 @@ class AgentFeedTest {
     }
 
     @Test
-    fun `plan question retires on the resolution narration`() {
-        val feed = listOf(
-            plan(1),
-            tool(2),
-            AgentFeedItem.Narration(3, PLAN_RESOLVED_NARRATION),
-        )
-        assertEquals(emptySet<Long>(), activeQuestionIds(feed))
-    }
-
-    @Test
     fun `plan question survives a human message`() {
         // Steering a message mid-plan leaves the picker up (EXP-249, web
-        // parity) — only a newer question or the resolution narration retires
-        // a plan card.
+        // parity) — only a newer question retires a plan card.
         val feed = listOf(plan(1), tool(2), AgentFeedItem.UserMessage(3, "1"))
         assertEquals(setOf(1L), activeQuestionIds(feed))
     }
@@ -146,8 +130,7 @@ class AgentFeedTest {
         assertEquals(setOf(1L, 3L), activeQuestionIds(feed))
     }
 
-    // EXP-197: `Question answered:` narrations fold into the earliest
-    // unanswered card; resolved cards are never active.
+    // Resolved cards are never active.
 
     @Test
     fun `resolved question is never active and retires earlier plan cards`() {
@@ -157,37 +140,6 @@ class AgentFeedTest {
             emptySet<Long>(),
             activeQuestionIds(listOf(plan(1), question(2).copy(resolved = true))),
         )
-    }
-
-    @Test
-    fun `answers attach earliest-first in question order`() {
-        val feed = listOf(question(1), question(2))
-        val first = attachQuestionAnswer(feed, "Red")!!
-        assertEquals("Red", (first[0] as AgentFeedItem.Question).answer)
-        assertEquals(null, (first[1] as AgentFeedItem.Question).answer)
-        val second = attachQuestionAnswer(first, "Blue")!!
-        assertEquals("Blue", (second[1] as AgentFeedItem.Question).answer)
-    }
-
-    @Test
-    fun `answers never attach to plan, wire-id or already-answered cards`() {
-        assertEquals(null, attachQuestionAnswer(listOf(plan(1)), "Red"))
-        assertEquals(null, attachQuestionAnswer(listOf(question(1).copy(wireId = "q1")), "Red"))
-        assertEquals(
-            null,
-            attachQuestionAnswer(listOf(question(1).copy(resolved = true, answer = "Red")), "Blue"),
-        )
-        assertEquals(null, attachQuestionAnswer(emptyList(), "Red"))
-    }
-
-    @Test
-    fun `dismissal retires every pending non-plan card`() {
-        val feed = listOf(question(1), plan(2), question(3))
-        val out = dismissPendingQuestions(feed)!!
-        assertEquals(true, (out[0] as AgentFeedItem.Question).resolved)
-        assertEquals(false, (out[1] as AgentFeedItem.Question).resolved)
-        assertEquals(true, (out[2] as AgentFeedItem.Question).resolved)
-        assertEquals(null, dismissPendingQuestions(out.filterIsInstance<AgentFeedItem.Question>().filter { it.resolved }))
     }
 
     // EXP-249: re-emission replaces a card in place.
@@ -266,7 +218,54 @@ class AgentFeedTest {
         val feed = listOf<AgentFeedItem>(question(1).copy(wireId = "a"))
         assertNull(resolveQuestions(feed, id = "ghost", askId = null))
         assertNull(resolveQuestions(feed, id = null, askId = "ghost"))
-        assertNull(resolveQuestions(feed, id = null, askId = null))
+    }
+
+    // The codex publisher's rollout cards carry NEITHER a wire id nor an ask
+    // id, so its `question_resolved` names nothing: retire every card still
+    // unresolved and land the answers positionally (web/iOS parity).
+
+    @Test
+    fun `an id-less resolution retires every unresolved card in answer order`() {
+        val feed = listOf<AgentFeedItem>(
+            question(1).copy(resolved = true, answer = "Old"),
+            question(2),
+            tool(3),
+            plan(4),
+        )
+        val out = resolveQuestions(feed, id = null, askId = null, answers = listOf("Red", "Approve"))!!
+        val byFeedId = out.filterIsInstance<AgentFeedItem.Question>().associateBy { it.id }
+        // The already-resolved card consumes no answer and keeps its own.
+        assertEquals("Old", byFeedId[1L]?.answer)
+        assertEquals("Red", byFeedId[2L]?.answer)
+        assertEquals("Approve", byFeedId[4L]?.answer)
+        assertTrue(byFeedId.values.all { it.resolved })
+    }
+
+    @Test
+    fun `an id-less resolution skips submit steps and tolerates missing answers`() {
+        val feed = listOf<AgentFeedItem>(
+            step("ask1", index = 1, feedId = 1),
+            submitStep("ask1", feedId = 2),
+            question(3),
+        )
+        val out = resolveQuestions(feed, id = null, askId = null, answers = listOf("One"))!!
+        val byFeedId = out.filterIsInstance<AgentFeedItem.Question>().associateBy { it.id }
+        assertEquals("One", byFeedId[1L]?.answer)
+        assertNull(byFeedId[2L]?.answer)
+        // Answers ran out — the card still retires, answerless.
+        assertNull(byFeedId[3L]?.answer)
+        assertTrue(byFeedId.values.all { it.resolved })
+    }
+
+    @Test
+    fun `an id-less dismissal retires every card answerless`() {
+        val feed = listOf<AgentFeedItem>(question(1), plan(2))
+        val out = resolveQuestions(feed, id = null, askId = null, dismissed = true)!!
+        val cards = out.filterIsInstance<AgentFeedItem.Question>()
+        assertTrue(cards.all { it.resolved })
+        assertTrue(cards.all { it.answer == null })
+        // Nothing left unresolved — a repeat matches nothing.
+        assertNull(resolveQuestions(out, id = null, askId = null))
     }
 
     // EXP-97: consecutive runs of >=2 tool calls collapse into one render row.
@@ -572,7 +571,6 @@ class AgentFeedTest {
         assertTrue(card.multiSelect)
         assertEquals("warm", card.options[0].description)
         assertNull(card.options[1].description)
-        assertTrue(state.semanticQuestions)
     }
 
     @Test
@@ -616,30 +614,6 @@ class AgentFeedTest {
         // A LATE ack after the expiry still locks the card for good.
         val late = failed.applying(event("""{"kind":"answer_ack","id":"local:1"}"""))
         assertEquals(AnswerState.Acked, late.answerLocks["local:1"])
-    }
-
-    @Test
-    fun `legacy resolution narrations are swallowed once questions carry ids`() {
-        val semantic = ActivityFeedState()
-            .applying(event("""{"kind":"question","id":"q1","text":"Which?","options":[{"label":"Red","key":"1"}]}"""))
-            .applying(event("""{"kind":"question_resolved","id":"q1","answers":["Red"]}"""))
-            .applying(narration("${QUESTION_ANSWERED_PREFIX}Red"))
-            .applying(narration(PLAN_RESOLVED_NARRATION))
-            .applying(narration(QUESTION_DISMISSED_NARRATION))
-        assertEquals(1, semantic.feed.size)
-    }
-
-    @Test
-    fun `legacy resolution narrations still fold into id-less cards`() {
-        val legacy = ActivityFeedState()
-            .applying(event("""{"kind":"question","text":"Which?","options":[{"label":"Red","key":"1"}]}"""))
-            .applying(narration("${QUESTION_ANSWERED_PREFIX}Red"))
-        assertEquals(1, legacy.feed.size)
-        assertEquals("Red", (legacy.feed.single() as AgentFeedItem.Question).answer)
-        // With no card waiting the answer renders as narration instead.
-        val orphan = ActivityFeedState().applying(narration("${QUESTION_ANSWERED_PREFIX}Red"))
-        assertEquals(1, orphan.feed.size)
-        assertTrue(orphan.feed.single() is AgentFeedItem.Narration)
     }
 
     // EXP-483: prose from the withheld ask/plan entry flushes AFTER its

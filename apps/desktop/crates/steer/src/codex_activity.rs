@@ -50,9 +50,9 @@ use terminal::{display_offset, screen_lines, TermHandle};
 
 use crate::activity::{
     secrets_from_worktree, DiffSnapshots, EmitterConfig, NeedsInputForwarder, Redactor,
-    ANSWER_MAX, NARRATION_MAX, OPTION_DESCRIPTION_MAX, OPTION_LABEL_MAX, POLL_INTERVAL,
-    QUESTION_ANSWERED_PREFIX, QUESTION_DISMISSED_NARRATION, QUESTION_HEADER_MAX,
-    QUESTION_OPTIONS_MAX, QUESTION_TEXT_MAX, TOOL_DETAIL_MAX, TOOL_NAME_MAX,
+    ANSWERS_MAX, ANSWER_MAX, NARRATION_MAX, OPTION_DESCRIPTION_MAX, OPTION_LABEL_MAX,
+    POLL_INTERVAL, QUESTION_HEADER_MAX, QUESTION_OPTIONS_MAX, QUESTION_TEXT_MAX, TOOL_DETAIL_MAX,
+    TOOL_NAME_MAX,
 };
 use crate::activity::{
     settle, settle_for, tail_transcript, truncate, AnswerAttempt, RemoteAnswer, ANSWER_RETRY_TTL,
@@ -706,10 +706,12 @@ fn request_user_input_events(
     events
 }
 
-/// A `function_call_output` resolves a pending ask: publish the legacy
-/// resolution narrations (`Question answered: <answer>` per extracted
-/// answer, else the dismissal) so the viewers retire the cards. Every OTHER
-/// tool output is never read or published.
+/// A `function_call_output` resolves a pending ask: publish one semantic
+/// `question_resolved` (EXP-249) carrying the extracted answers, or the
+/// dismissal when none could be read. It stays id-less AND askId-less like
+/// the cards this ask published, so viewers retire every pending card and
+/// land the answers positionally. Every OTHER tool output is never read or
+/// published.
 fn parse_function_call_output(
     payload: &Value,
     state: &mut CodexState,
@@ -722,18 +724,19 @@ fn parse_function_call_output(
         return Vec::new();
     };
     let answers = extract_answers(payload.get("output"), ask.questions);
-    if answers.is_empty() {
-        return vec![ActivityEvent::narration(QUESTION_DISMISSED_NARRATION)];
-    }
-    answers
+    let dismissed = answers.is_empty();
+    let mut collected: Vec<String> = answers
         .into_iter()
-        .map(|answer| {
-            ActivityEvent::narration(format!(
-                "{QUESTION_ANSWERED_PREFIX}{}",
-                truncate(&redactor.redact(&answer), ANSWER_MAX)
-            ))
-        })
-        .collect()
+        .map(|answer| truncate(&redactor.redact(&answer), ANSWER_MAX))
+        .collect();
+    collected.truncate(ANSWERS_MAX);
+    vec![ActivityEvent::QuestionResolved {
+        id: None,
+        ask_id: None,
+        answers: (!dismissed).then_some(collected),
+        dismissed: dismissed.then_some(true),
+        at: None,
+    }]
 }
 
 /// Best-effort answer extraction from a `request_user_input` output. The
@@ -1292,15 +1295,20 @@ mod tests {
         }
         assert!(state.attention(), "pending ask flags needs-input");
 
-        // The matching output resolves it with an answered narration.
+        // The matching output resolves the id-less cards with their answers.
         let events = parse(
             &mut state,
             r#"{"timestamp":"t","type":"response_item","payload":{"type":"function_call_output","call_id":"ask1","output":"{\"answers\":{\"q1\":\"Yes\"}}"}}"#,
         );
-        assert_eq!(events.len(), 1);
         assert_eq!(
-            narration_text(&events[0]),
-            &format!("{QUESTION_ANSWERED_PREFIX}Yes")
+            events,
+            vec![ActivityEvent::QuestionResolved {
+                id: None,
+                ask_id: None,
+                answers: Some(vec!["Yes".into()]),
+                dismissed: None,
+                at: None,
+            }]
         );
         assert!(!state.attention());
     }
@@ -1317,7 +1325,16 @@ mod tests {
             &mut state,
             r#"{"timestamp":"t","type":"response_item","payload":{"type":"function_call_output","call_id":"ask2","output":""}}"#,
         );
-        assert_eq!(narration_text(&events[0]), QUESTION_DISMISSED_NARRATION);
+        assert_eq!(
+            events,
+            vec![ActivityEvent::QuestionResolved {
+                id: None,
+                ask_id: None,
+                answers: None,
+                dismissed: Some(true),
+                at: None,
+            }]
+        );
         assert!(!state.attention());
     }
 

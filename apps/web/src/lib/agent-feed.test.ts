@@ -5,16 +5,13 @@ import {
   answerKey,
   applyQuestionResolved,
   askStepperView,
-  attachQuestionAnswer,
   beginAnswer,
   clearAnswer,
   collectSubagents,
   consumeEcho,
   createActivityCoalescer,
-  dismissPendingQuestions,
   failAnswer,
   groupFeedRows,
-  hasSemanticQuestions,
   isAnswerLocked,
   looksLikeMarkdown,
   pushEcho,
@@ -24,7 +21,6 @@ import {
   visibleSubagentTabs,
   ECHO_CAP,
   ECHO_TTL_MS,
-  PLAN_RESOLVED_NARRATION,
   type AnswerStates,
   type EchoEntry,
   type QuestionLike,
@@ -113,15 +109,6 @@ describe(`activeQuestionIds — legacy cards`, () => {
     expect(activeQuestionIds(feed)).toEqual(new Set([1]))
   })
 
-  it(`retires a plan question on the resolution narration`, () => {
-    const feed = [
-      { id: 1, kind: `question`, planMode: true },
-      { id: 2, kind: `tool` },
-      { id: 3, kind: `narration`, text: PLAN_RESOLVED_NARRATION },
-    ]
-    expect(activeQuestionIds(feed)).toEqual(new Set())
-  })
-
   // EXP-249: steering mid-plan leaves the picker up — a human message is no
   // resolution signal.
   it(`keeps a plan question active behind a human message`, () => {
@@ -180,26 +167,9 @@ describe(`activeQuestionIds — protocol v2 cards`, () => {
   })
 })
 
-describe(`hasSemanticQuestions`, () => {
-  it(`is true only once a card carries a wire id`, () => {
-    expect(hasSemanticQuestions([])).toBe(false)
-    expect(
-      hasSemanticQuestions([
-        { kind: `question` },
-        { kind: `narration`, questionId: `x` },
-      ])
-    ).toBe(false)
-    expect(
-      hasSemanticQuestions([{ kind: `question`, questionId: `tu_1` }])
-    ).toBe(true)
-  })
-})
-
-// EXP-197 legacy path: `Question answered:` narrations fold into the earliest
-// unanswered card; resolved cards are never active.
 type QuestionItem = QuestionLike
 
-describe(`legacy narration resolution`, () => {
+describe(`resolved cards`, () => {
   it(`resolved question is never active and retires earlier plan cards`, () => {
     expect(
       activeQuestionIds([{ id: 1, kind: `question`, resolved: true }])
@@ -210,44 +180,6 @@ describe(`legacy narration resolution`, () => {
         { id: 2, kind: `question`, resolved: true },
       ])
     ).toEqual(new Set())
-  })
-
-  it(`answers attach earliest-first in question order`, () => {
-    const feed: QuestionItem[] = [
-      { id: 1, kind: `question` },
-      { id: 2, kind: `question` },
-    ]
-    const first = attachQuestionAnswer(feed, `Red`)!
-    expect(first[0]).toMatchObject({ resolved: true, answer: `Red` })
-    expect(first[1].resolved).toBeUndefined()
-    const second = attachQuestionAnswer(first, `Blue`)!
-    expect(second[1]).toMatchObject({ resolved: true, answer: `Blue` })
-  })
-
-  it(`answers never attach to plan cards or already-answered cards`, () => {
-    expect(
-      attachQuestionAnswer([{ id: 1, kind: `question`, planMode: true }], `x`)
-    ).toBeNull()
-    expect(
-      attachQuestionAnswer(
-        [{ id: 1, kind: `question`, resolved: true, answer: `Red` }],
-        `Blue`
-      )
-    ).toBeNull()
-    expect(attachQuestionAnswer([], `x`)).toBeNull()
-  })
-
-  it(`dismissal retires every pending non-plan card`, () => {
-    const feed: QuestionItem[] = [
-      { id: 1, kind: `question` },
-      { id: 2, kind: `question`, planMode: true },
-      { id: 3, kind: `question` },
-    ]
-    const out = dismissPendingQuestions(feed)!
-    expect(out[0].resolved).toBe(true)
-    expect(out[1].resolved).toBeUndefined()
-    expect(out[2].resolved).toBe(true)
-    expect(dismissPendingQuestions(out)).toBeNull()
   })
 })
 
@@ -866,13 +798,6 @@ describe(`looksLikeMarkdown`, () => {
       )
     ).toBe(false)
     expect(looksLikeMarkdown(`https://example.dev/a_long_path/v2`)).toBe(false)
-  })
-
-  it(`leaves the legacy magic narrations on the plain path`, () => {
-    expect(looksLikeMarkdown(PLAN_RESOLVED_NARRATION)).toBe(false)
-    expect(
-      looksLikeMarkdown(`Question answered: Yes, go ahead and refactor it`)
-    ).toBe(false)
   })
 
   it(`detects emphasis, code spans and headings`, () => {

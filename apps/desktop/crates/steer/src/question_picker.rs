@@ -449,7 +449,7 @@ const STREAK: u8 = 2;
 
 /// Per-session question-picker state machine. Unlike the plan watcher it has
 /// no Resolved output — resolution reaches viewers through the transcript
-/// flush (the answered twin's `Question answered:` narrations) — but it DOES
+/// flush (the answered twin's `question_resolved` event) — but it DOES
 /// re-fire when the visible question changes, so the multi-question tab flow
 /// publishes each question as it comes up.
 #[derive(Default)]

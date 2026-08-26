@@ -197,8 +197,8 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
     // grouping, terminal-set checks, coding gates) keep working verbatim.
     public let status: String
     /// The team's `issue_statuses` row this issue sits in (EXP-314). NULL on a
-    /// pre-backfill snapshot or an older server — resolution falls back to the
-    /// team row matching `status`, then to a constructed builtin default.
+    /// pre-backfill snapshot — resolution falls back to the team row matching
+    /// `status`, then to a constructed builtin default.
     public let statusId: String?
     public let priority: String
     public let assigneeId: String?

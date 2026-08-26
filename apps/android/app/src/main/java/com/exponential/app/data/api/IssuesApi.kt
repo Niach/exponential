@@ -60,14 +60,11 @@ data class ClosePrInput(@SerialName("issueId") val issueId: String)
 
 /**
  * `issues.mergePr` (EXP-498): merge always ends the linked live coding
- * sessions — the server enforces it regardless of the flag; the `true`
- * default only matters against a pre-498 server (the flag is otherwise
- * vestigial wire compat).
+ * sessions — the server enforces it unconditionally.
  */
 @Serializable
 data class MergePrInput(
     @SerialName("issueId") val issueId: String,
-    @SerialName("closeSessions") val closeSessions: Boolean = true,
 )
 
 /**
@@ -200,14 +197,13 @@ class IssuesApi @Inject constructor(private val trpc: TrpcClient) {
      * issues and completes them together; the `done` flip arrives via Electric.
      *
      * Merge always ends the linked live coding sessions (EXP-498) — the rows
-     * drop out of the live lists via sync; the `true` default on
-     * [closeSessions] only matters against a pre-498 server.
+     * drop out of the live lists via sync.
      */
-    suspend fun mergePr(accountId: String, issueId: String, closeSessions: Boolean = true) {
+    suspend fun mergePr(accountId: String, issueId: String) {
         trpc.mutationUnit(
             accountId,
             path = "issues.mergePr",
-            input = MergePrInput(issueId, closeSessions),
+            input = MergePrInput(issueId),
             inputSerializer = MergePrInput.serializer(),
         )
     }

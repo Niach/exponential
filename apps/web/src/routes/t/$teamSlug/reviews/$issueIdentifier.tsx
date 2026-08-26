@@ -237,13 +237,9 @@ function ReviewDetailPage() {
     setConfirmMergeOpen(false)
     setMerging(true)
     setActionError(null)
-    // Merge always closes the live coding sessions (EXP-498; closeSessions
-    // kept on the wire for old-server compat).
+    // Merge always closes the live coding sessions (EXP-498).
     trpc.issues.mergePr
-      .mutate(
-        { issueId: issue.id, closeSessions: true },
-        { context: { skipErrorToast: true } }
-      )
+      .mutate({ issueId: issue.id }, { context: { skipErrorToast: true } })
       .catch((error: unknown) => {
         setActionError({
           action: `merge`,

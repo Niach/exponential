@@ -379,7 +379,7 @@ class AgentsViewModel @Inject constructor(
             val accountId = auth.activeAccountId.value ?: return@launch
             _mergeErrors.value = _mergeErrors.value - issueId
             _merging.value = _merging.value + issueId
-            runCatching { issuesApi.mergePr(accountId, issueId, closeSessions = true) }
+            runCatching { issuesApi.mergePr(accountId, issueId) }
                 .onFailure { t ->
                     if (t is CancellationException) throw t
                     // Conflicts, branch protection and GitHub App errors are the

@@ -93,25 +93,10 @@ export function createActivityCoalescer<Op>(
   }
 }
 
-/** The desktop's plan-picker resolution narration (steer/src/activity.rs) —
- *  the legacy no-protocol-change signal that a pending plan approval was
- *  answered. Protocol v2 desktops still emit it beside `question_resolved`. */
-export const PLAN_RESOLVED_NARRATION = `Plan approval answered.`
-
-/** The desktop's answered-question narration prefix (steer/src/activity.rs,
- *  EXP-197): one `Question answered: <answer>` narration per question flushes
- *  with the transcript once an AskUserQuestion resolves — folded into the
- *  earliest unanswered question card instead of rendering as a narration. */
-export const QUESTION_ANSWERED_PREFIX = `Question answered: `
-
-/** The desktop's dismissed-question narration (EXP-197) — the ask resolved
- *  WITHOUT answers (Esc / rejected); retires every pending question card. */
-export const QUESTION_DISMISSED_NARRATION = `Question dismissed.`
-
 /** The feed `question` item the helpers reason over. `questionId` is the wire
  *  id (protocol v2): present ⇒ resolution arrives as explicit events and the
  *  card is answerable through the semantic `answer` frame; absent ⇒ a legacy
- *  card, answerable by raw keystroke and retired by narration matching. */
+ *  card, answerable by raw keystroke and retired positionally. */
 export interface QuestionLike {
   id: number
   kind: string
@@ -127,42 +112,6 @@ export interface QuestionLike {
   index?: number
   total?: number
   text?: string
-}
-
-/** Whether the desktop publishes question identities — new clients then prefer
- *  the semantic resolution events and ignore the legacy magic narrations. */
-export function hasSemanticQuestions(
-  feed: readonly { kind: string; questionId?: string }[]
-): boolean {
-  return feed.some((i) => i.kind === `question` && i.questionId !== undefined)
-}
-
-/** Fold an answer into the EARLIEST unanswered non-plan question card
- *  (answers arrive in question order, so earliest-first keeps multi-question
- *  asks aligned). Legacy path only. Null when no card is waiting — the caller
- *  falls back to rendering the narration so the answer is never lost. */
-export function attachQuestionAnswer<T extends QuestionLike>(
-  feed: readonly T[],
-  answer: string
-): T[] | null {
-  const index = feed.findIndex(
-    (i) => i.kind === `question` && i.planMode !== true && i.resolved !== true
-  )
-  if (index < 0) return null
-  const next = [...feed]
-  next[index] = { ...next[index], resolved: true, answer }
-  return next
-}
-
-/** Retire every pending non-plan question card (the ask was dismissed).
- *  Legacy path only. Null when nothing was pending. */
-export function dismissPendingQuestions<T extends QuestionLike>(
-  feed: readonly T[]
-): T[] | null {
-  const pending = (i: T) =>
-    i.kind === `question` && i.planMode !== true && i.resolved !== true
-  if (!feed.some(pending)) return null
-  return feed.map((i) => (pending(i) ? { ...i, resolved: true } : i))
 }
 
 /** Replace the card carrying `questionId` in place — protocol v2 re-emits a
@@ -270,10 +219,9 @@ export function applyQuestionResolved<T extends QuestionLike>(
  *  order), PLUS any plan-approval card with no resolution signal after it —
  *  plan questions are published from the live terminal grid the moment the
  *  picker appears while the transcript tail lags, so tool rows and narration
- *  flush in BEHIND a picker that is still on screen. Only a newer question or
- *  the desktop's explicit `PLAN_RESOLVED_NARRATION` proves a plan picker
- *  resolved — a human message does NOT (steering mid-plan leaves the picker
- *  up). */
+ *  flush in BEHIND a picker that is still on screen. Only a newer question
+ *  proves a plan picker resolved — a human message does NOT (steering mid-plan
+ *  leaves the picker up). */
 export function activeQuestionIds(
   feed: readonly {
     id: number
@@ -311,11 +259,6 @@ export function activeQuestionIds(
       }
     } else {
       trailing = false
-      if (
-        item.kind === `narration` &&
-        item.text?.trim() === PLAN_RESOLVED_NARRATION
-      )
-        retired = true
     }
     if (retired && !trailing) break
   }
