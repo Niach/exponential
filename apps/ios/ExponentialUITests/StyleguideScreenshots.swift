@@ -570,18 +570,20 @@ final class StyleguideScreenshots: XCTestCase {
         snapshot("sg_settings-account", settle: 2)
 
         // ── sg_onboarding: the first-run create-or-join wizard ───────────────
-        // LAST on purpose: it switches the signed-in identity. Accounts are
-        // keyed per (instance, userId) — ServerAccount.makeId — so "Add server"
-        // pointed at the SAME instance signs the newcomer in ALONGSIDE the demo
-        // user rather than replacing them, and nothing above has to be redone
-        // if this step ever regresses.
+        // LAST on purpose: it switches the signed-in identity. AppNavigator
+        // shows LoginView at the root only when EVERY account is tokenless, so
+        // "Add server" on the same instance can never reach a login while the
+        // demo user is signed in (its cover just re-points the pending row).
+        // Sign the demo account out instead — we are on its ServerDetail
+        // screen right after sg_settings-account — and the root becomes the
+        // LoginView for that instance.
         //
         // The newcomer (`newcomer@exponential.at`) is a member of nothing with
         // a null `onboardingCompletedAt`, so the app opens the wizard. NOTHING
         // is submitted: creating a team or accepting an invite would mutate the
         // seed and burn the invite the desktop/web lanes photograph.
-        goBack(app)
-        addServerAndSignIn(
+        app.buttons["Sign out"].firstMatch.tap()
+        submitLogin(
             app,
             email: ScreenshotSeed.newcomerEmail,
             password: ScreenshotSeed.newcomerPassword
@@ -632,40 +634,4 @@ final class StyleguideScreenshots: XCTestCase {
         settle(1)
     }
 
-    /// Settings → "Add server" → the same instance → sign in as `email`.
-    ///
-    /// Deliberately NOT `presentLoginScreen`: that helper treats a visible
-    /// `tab-issues` as "already signed in", and the Add-server cover is
-    /// presented OVER the tab bar, which is still in the query hierarchy.
-    @MainActor
-    private func addServerAndSignIn(_ app: XCUIApplication, email: String, password: String) {
-        XCTAssertTrue(
-            app.staticTexts["Servers"].waitForExistence(timeout: 20),
-            "Did not return to the Settings screen"
-        )
-        let addServer = app.buttons["Add server"].firstMatch
-        XCTAssertTrue(addServer.waitForExistence(timeout: 20), "\"Add server\" row missing from Settings")
-        addServer.tap()
-
-        // InstanceView again: cloud first, the self-hosted URL field behind the
-        // link (EXP-14).
-        let urlField = app.textFields["instance-url-field"]
-        let selfHostLink = app.buttons["instance-self-host-link"]
-        XCTAssertTrue(
-            selfHostLink.waitForExistence(timeout: 20) || urlField.exists,
-            "Add server did not present the instance picker"
-        )
-        if selfHostLink.exists && !urlField.exists {
-            selfHostLink.tap()
-        }
-        XCTAssertTrue(urlField.waitForExistence(timeout: 15), "Instance URL field never appeared")
-        focus(urlField)
-        clearText(of: urlField)
-        urlField.typeText(ScreenshotSeed.instanceUrl)
-        let continueButton = app.buttons["instance-continue-button"]
-        XCTAssertTrue(continueButton.waitForExistence(timeout: 10))
-        continueButton.tap()
-
-        submitLogin(app, email: email, password: password)
-    }
 }

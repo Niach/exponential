@@ -16,8 +16,8 @@
 
    Sources, matching where each harness can actually write:
 
-     ios      ~/Library/Caches/tools.fastlane/screenshots/<simulator>-pop-<shot>.json
-              — the same host directory SnapshotHelper writes its PNGs to. The
+     ios      ~/Library/Caches/tools.fastlane/exp-pop/<simulator>-pop-<shot>.json
+              — a sibling of the host dir SnapshotHelper writes PNGs to. The
               simulator prefix picks the form, exactly as `formForFile` does for
               the images: anything matching /ipad/i is the tablet.
      android  apps/android/fastlane/exp-pop/pop-<shot>.json — where the
@@ -46,7 +46,10 @@ const FORMS: readonly Form[] = [`ios-phone`, `ios-tablet`, `android-phone`]
 /** Where each harness leaves its measurements. */
 function sourceDir(platform: Platform): string {
   return platform === `ios`
-    ? join(homedir(), `Library/Caches/tools.fastlane/screenshots`)
+    // A sibling of fastlane's `screenshots` cache dir: the collector `rm_rf`s
+    // that one after moving the PNGs out, so sidecars written there vanish
+    // before this script runs (learned the hard way, EXP-627).
+    ? join(homedir(), `Library/Caches/tools.fastlane/exp-pop`)
     : join(REPO, `apps/android/fastlane/exp-pop`)
 }
 

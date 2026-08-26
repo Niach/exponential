@@ -11,7 +11,7 @@ import XCTest
 /// window frame, written next to the PNG the same run produces.
 ///
 /// Output: `<simulator>-pop-<shot>.json` in
-/// `~/Library/Caches/tools.fastlane/screenshots/` — the exact host directory
+/// `~/Library/Caches/tools.fastlane/exp-pop/` — a sibling of the host directory
 /// `SnapshotHelper.swift` writes `<simulator>-<shot>.png` into, so fastlane's
 /// own copy step carries both to `fastlane/screenshots-raw/`.
 /// `bun run screenshots:pop-sidecars -- --platform ios` then merges them into
@@ -107,8 +107,12 @@ enum PopRects {
 
     @MainActor
     private static func write(shot: String, rect: CGRect) {
-        // The same host cache directory SnapshotHelper writes the PNGs into.
-        guard let directory = Snapshot.screenshotsDirectory else {
+        // A SIBLING of the directory SnapshotHelper writes the PNGs into —
+        // never that directory itself: fastlane's collector `rm_rf`s it after
+        // moving the PNGs out (snapshot/collector.rb), which would delete
+        // these sidecars before `screenshots:pop-sidecars` gets to read them.
+        guard let directory = Snapshot.cacheDirectory?
+            .appendingPathComponent("exp-pop", isDirectory: true) else {
             NSLog("EXP-627 pop rect: no screenshots directory — skipping \(shot)")
             return
         }
