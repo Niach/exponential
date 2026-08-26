@@ -27,8 +27,12 @@ import { dirname, join } from "node:path"
 import { captureFor, viewsFor, type NativeCapture, type Platform } from "@exp/view-catalog"
 import { rawShotPath, repoRoot } from "./paths.ts"
 
-/** The platforms this importer handles. */
-export const NATIVE_PLATFORMS: readonly Platform[] = [`ios`, `android`]
+/**
+ * The platforms this importer handles. `ipad` rides the iOS lane: the Snapfile
+ * already runs the store set on both simulators, so the tablet PNGs sit in the
+ * SAME directory as the iPhone ones and differ only by their filename prefix.
+ */
+export const NATIVE_PLATFORMS: readonly Platform[] = [`ios`, `ipad`, `android`]
 
 /**
  * The tEXt chunk the store compositor stamps into finished marketing slides
@@ -64,6 +68,17 @@ function sourceDirs(platform: Platform, lane: NativeCapture[`lane`]): SourceDir[
           devicePrefix: /^iPhone/,
         },
         { dir: ios(`screenshots`), legacy: true, devicePrefix: /^iPhone/ },
+      ]
+    case `ipad`:
+      // Same dirs, same shot ids — only the simulator prefix separates the two
+      // frames, which is exactly why the catalog makes `ipad` mirror `ios`.
+      return [
+        {
+          dir: lane === `store` ? ios(`screenshots-raw`) : ios(`screenshots-styleguide`),
+          legacy: false,
+          devicePrefix: /^iPad/,
+        },
+        { dir: ios(`screenshots`), legacy: true, devicePrefix: /^iPad/ },
       ]
     case `android`:
       return [

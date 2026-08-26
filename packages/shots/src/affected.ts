@@ -33,8 +33,14 @@
  *                     unmatched ui module — widens to every desktop view. The
  *                     win that matters is a web-only PR skipping the desktop
  *                     lane entirely.
- *   ios / android     WHOLE-PLATFORM. The native lanes are a manual pre-release
- *                     step; nothing here tries to be clever about them.
+ *   ios / ipad /      BY NAME, like desktop. A Swift/Kotlin file's basename
+ *   android           minus its role suffix (`IssueDetailView` → `issue-detail`)
+ *                     is matched against view ids and shot names, and its
+ *                     DIRECTORY against a view family (`UI/Support` → the two
+ *                     support views). `NATIVE_SHARED` lists what can never
+ *                     narrow — ExpCore/ExpUI, themes, icons, the fastlane lanes
+ *                     — and widens the platform. `ipad` rides `ios`: one lane
+ *                     photographs both frames.
  *
  * Two inputs are read directly rather than inferred: `views.json` is diffed
  * ENTRY BY ENTRY against the base revision (an added or edited view is in scope
@@ -70,6 +76,28 @@ const IGNORED: RegExp[] = [
   /^(docs|selfhost|shots)\//,
   /^\.github\//,
   /\.md$/,
+  // Store LISTING text and artwork: release notes, descriptions, keywords.
+  // fastlane's lane files are not here — those drive the capture (NATIVE_SHARED).
+  /^apps\/(ios|android)\/fastlane\/metadata\//,
+  // The changelog and its "What's new" card: every capture context pre-seeds
+  // `exp.changelogSeenId` (capture-web.ts) precisely so the card never opens
+  // over a shot, so a released entry cannot reach the store.
+  /^apps\/web\/src\/lib\/changelog(-seen)?\.ts$/,
+  /^apps\/web\/src\/components\/whats-new\.tsx$/,
+  // Static assets no photographed screen renders: the service worker, the PWA
+  // manifest, the licence dump, and the icons that live in a browser chrome the
+  // capture crops away. (`logo-*.svg` is NOT here — the sidebar draws it.)
+  /^apps\/web\/public\/(sw\.js|manifest\.json|NOTICES\.txt|og-card\.png|favicon\.ico|apple-touch-icon\.png|icon-\d+\.(png|jpg))$/,
+  // Server surfaces with no photographed screen behind them: the MCP endpoint
+  // and its scope machinery, the admin-only metrics, the GitHub/SES webhooks,
+  // the unsubscribe link and the marketing contact form. None of them can move
+  // a pixel on a SEEDED instance — the seed writes the state they would.
+  /^apps\/web\/src\/routes\/api\/(mcp\.ts|contact\.ts|webhooks\/|email\/)/,
+  /^apps\/web\/src\/lib\/(mcp|metrics)\//,
+  // One-off operator scripts. Named individually rather than by a `scripts/`
+  // prefix, because the capture pipeline itself lives in that directory and
+  // absolutely does widen (see BROAD).
+  /^apps\/web\/scripts\/(backfill-[a-z-]+|scrub-widget-descriptions|fix-server-trace|capture-social-shots)\.ts$/,
 ]
 
 /** The catalog file, diffed entry by entry instead of matched by rule. */
@@ -86,19 +114,52 @@ const BROAD: { test: RegExp; platforms: readonly Platform[]; why: string }[] = [
     why: `the seeded demo data every platform photographs`,
   },
   {
-    test: /^apps\/web\/scripts\/(capture-views\.ts|lib\/capture-web\.ts|screenshot-(ids|desktop)\.ts)$/,
+    test: /^apps\/web\/scripts\/(screenshot-demo|lib\/demo-ids)\.ts$/,
+    platforms: PLATFORMS,
+    why: `the demo identity and ids every lane resolves against`,
+  },
+  {
+    test: /^apps\/web\/scripts\/(capture-views\.ts|lib\/capture-web\.ts|screenshot-ids\.ts)$/,
     platforms: [`web`, `web-mobile`],
     why: `the browser capturer itself`,
   },
-  { test: /^apps\/ios\//, platforms: [`ios`], why: `an iOS source change` },
-  { test: /^apps\/android\//, platforms: [`android`], why: `an Android source change` },
+  {
+    // The relay stub is what puts a device online: without it the desktop app,
+    // the browser and the natives ALL photograph "no desktop online" states.
+    // It used to widen the web lane only, which was a fail-safe bug.
+    test: /^apps\/web\/scripts\/screenshot-(desktop|prune-devices)\.ts$/,
+    platforms: [`web`, `web-mobile`, `desktop`],
+    why: `the stand-in desktop every steering and launcher view needs online`,
+  },
+]
+
+/**
+ * Native paths that can never narrow to a view, in match order.
+ *
+ * The name-based attribution below only works on a file that IS a screen. A
+ * shared component, a colour token, an icon set or the fastlane lane itself
+ * feeds every shot on its platform, so it widens — the same bargain the desktop
+ * lane strikes with "an unmatched ui module widens the whole lane".
+ */
+const NATIVE_SHARED: { test: RegExp; platforms: readonly Platform[]; why: string }[] = [
+  {
+    test: /^apps\/ios\/(ExpCore|ExpUI|Tuist|Project\.swift|Exponential\/(Data|Notifications|Assets\.xcassets|Resources)\/|Exponential\/UI\/(Components|Markdown|Navigation)\/|ExponentialUITests\/|fastlane\/|scripts\/)/,
+    platforms: [`ios`, `ipad`],
+    why: `shared iOS code the whole app renders through`,
+  },
+  {
+    test: /^apps\/android\/(gradle|build\.gradle|settings\.gradle|fastlane\/|app\/src\/androidTest\/|app\/src\/main\/res\/|app\/src\/main\/java\/com\/exponential\/app\/(data|domain|navigation|App[A-Za-z]*\.kt|MainActivity\.kt)|app\/src\/main\/java\/com\/exponential\/app\/ui\/(components|theme|icons|emoji|markdown)\/)/,
+    platforms: [`android`],
+    why: `shared Android code the whole app renders through`,
+  },
 ]
 
 /** Where a changed path lands when nothing narrowed it — its platform roots. */
 const SOURCE_ROOTS: { test: RegExp; platforms: readonly Platform[] }[] = [
   { test: /^apps\/web\//, platforms: [`web`, `web-mobile`] },
   { test: /^apps\/desktop\//, platforms: [`desktop`] },
-  { test: /^apps\/ios\//, platforms: [`ios`] },
+  // One simulator lane produces both frames, so an unmapped iOS file moves both.
+  { test: /^apps\/ios\//, platforms: [`ios`, `ipad`] },
   { test: /^apps\/android\//, platforms: [`android`] },
 ]
 
@@ -224,6 +285,27 @@ export function affectedScope(options: AffectedOptions): AffectedScope {
       }
     }
 
+    if (!attributed && /^apps\/(ios|android)\//.test(path)) {
+      const shared = NATIVE_SHARED.find((rule) => rule.test.test(path))
+      if (shared) {
+        widen(path, shared.platforms, shared.why)
+        continue
+      }
+      // `ipad` is not a lane of its own — whatever the iOS file names, it names
+      // on both frames, so the two are attributed together.
+      const natives: Platform[] = path.startsWith(`apps/ios/`)
+        ? [`ios`, `ipad`]
+        : [`android`]
+      for (const platform of natives) {
+        if (!hits.has(platform)) continue
+        const viewIds = nativeMatches(path, platform)
+        if (viewIds.length === 0) continue
+        for (const viewId of viewIds) add(viewId, platform, `${path}: names this view's screen`)
+        attributed = true
+      }
+      if (attributed) continue
+    }
+
     if (!attributed && graph && path.startsWith(`packages/`)) {
       // A workspace package the web app imports (`@exp/icons`, `@exp/db-schema`):
       // the graph carries it as a single `pkg:<name>` node, so it narrows to the
@@ -320,6 +402,80 @@ function desktopMatches(path: RepoPath): string[] {
   return VIEWS.filter(
     (view) => view.desktop && desktopTokens(view).some((token) => candidates.has(token))
   ).map((view) => view.id)
+}
+
+/* ------------------------------------------------------------- native by name */
+
+/**
+ * Directory → the view FAMILY it draws, for the native files whose name matches
+ * nothing. `UI/Support/SupportInboxListContent.swift` is not a view id, but
+ * everything in that folder feeds the two support views and nothing else.
+ *
+ * Families are deliberately GENEROUS supersets: over-capturing inside a family
+ * costs one extra simulator shot, while a family that is too tight silently
+ * commits a stale one. A directory nobody claims here widens the platform.
+ */
+const NATIVE_DIRS: { dir: string; views: RegExp }[] = [
+  { dir: `auth`, views: /^sign-in$/ },
+  { dir: `onboarding`, views: /^onboarding/ },
+  { dir: `invite`, views: /^invite-accept$/ },
+  { dir: `search`, views: /^search$/ },
+  { dir: `inbox`, views: /^inbox$/ },
+  { dir: `myissues`, views: /^my-issues$/ },
+  { dir: `mywork`, views: /^my-issues$/ },
+  { dir: `personal`, views: /^(inbox|my-issues)$/ },
+  { dir: `support`, views: /^support-/ },
+  { dir: `settings`, views: /^settings-/ },
+  { dir: `actions`, views: /^(agents|actions-mobile|action-|automations)/ },
+  // The coding family: the launcher's three tabs, the agents surface, the
+  // machine dialogs and the steering dock all live in one folder on both
+  // platforms and share their view models.
+  { dir: `session`, views: /^(steering|start-coding|agents|machine-settings|add-server)/ },
+  { dir: `steer`, views: /^(steering|start-coding)/ },
+]
+
+/** Role suffixes a screen's filename carries on one platform or the other. */
+const NATIVE_SUFFIX = /(View|Screen|Content|Sheet|Test|Row|List)$/
+
+/** `IssueDetailView.swift` → `issue-detail`; `OnboardingScreen.kt` → `onboarding`. */
+export function nativeStem(path: RepoPath): string | undefined {
+  const match = path.match(/\/([A-Za-z0-9_]+)\.(swift|kt)$/)
+  if (!match) return undefined
+  const base = match[1]!.replace(NATIVE_SUFFIX, ``)
+  if (base === ``) return undefined
+  return base
+    .replace(/([a-z0-9])([A-Z])/g, `$1-$2`)
+    .replace(/_/g, `-`)
+    .toLowerCase()
+}
+
+/**
+ * Names one native view answers to: its id plus its shot names with the lane
+ * prefix stripped (`sg_board-filters` → `board-filters`, `01_board` → `board`).
+ */
+function nativeTokens(view: View): string[] {
+  const tokens = new Set<string>([view.id])
+  for (const capture of [view.ios, view.ipad, view.android]) {
+    if (!capture) continue
+    tokens.add(capture.shot.replace(/^(sg_|\d+_)/, ``))
+  }
+  return [...tokens]
+}
+
+/**
+ * Views a Swift/Kotlin path names — the native mirror of `desktopMatches`.
+ * Empty = nothing proved a connection, so the caller widens the platform.
+ */
+export function nativeMatches(path: RepoPath, platform: Platform): string[] {
+  const stem = nativeStem(path)
+  const segments = path.toLowerCase().split(`/`)
+  const family = NATIVE_DIRS.find((entry) => segments.includes(entry.dir))
+  const ids = new Set<string>()
+  for (const view of viewsFor(platform)) {
+    if (stem && nativeTokens(view).includes(stem)) ids.add(view.id)
+    else if (family && family.views.test(view.id)) ids.add(view.id)
+  }
+  return [...ids]
 }
 
 /* ------------------------------------------------------------------ web graph */

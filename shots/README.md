@@ -13,6 +13,7 @@ out of git") — the writer only rewrites a file when the image visibly changed
 
 ```bash
 bun run shots                       # capture DEFAULT_PLATFORMS (web, web-mobile, desktop, ios, android)
+bun run shots -- --platform ipad    # the OPT-IN tablet lane: the 8 store views only
 bun run shots -- --platform web,web-mobile,desktop   # what the automation runs unattended
 bun run shots -- --views board,issue-detail          # subset of views
 bun run shots -- --since auto        # only the views the diff since the last refresh can have moved
@@ -45,8 +46,13 @@ connection, and anything else widens to every view of every platform it could
 belong to. Web is precise (route → `routeTree.gen.ts` → transitive import graph
 of `apps/web/src`, type-only imports erased); desktop matches `crates/ui/src`
 module names against view ids and drive values and widens on anything else; the
-native lanes are whole-platform. A changed `views.json` entry and a view with no
-stored image yet are always in scope.
+native lanes match a Swift/Kotlin file's basename minus its role suffix
+(`IssueDetailView` → `issue-detail`) against view ids and shot names, then its
+DIRECTORY against a view family (`UI/Support` → the support views), and widen
+the whole platform for shared code (ExpCore/ExpUI, themes, icons, the fastlane
+lanes). `ipad` always moves with `ios`: one simulator lane produces both frames.
+A changed `views.json` entry and a view with no stored image yet are always in
+scope.
 
 Ask without capturing anything:
 
@@ -71,6 +77,26 @@ which is also how you find a rule that needs teaching (`IGNORED`, `BROAD`).
   with at least `DATABASE_URL`, `BETTER_AUTH_*`, `ELECTRIC_URL`,
   `STEER_RELAY_URL=ws://localhost:4002`, `STEER_RELAY_SECRET` matching the
   compose relay (`dev-steer-secret` by default).
+- The `sign-in` view is the CLOUD card — Google and Apple above the password
+  form — so the instance has to advertise them. Placeholder values are enough
+  (nothing signs in through them; the lanes use the password form):
+
+  ```sh
+  GOOGLE_CLIENT_ID=placeholder GOOGLE_CLIENT_SECRET=placeholder GOOGLE_LOGIN_ENABLED=true
+  APPLE_CLIENT_ID=placeholder  APPLE_CLIENT_SECRET=placeholder  APPLE_LOGIN_ENABLED=true
+  ```
+
+  Without them the run DROPS `sign-in` from the web/web-mobile/desktop lanes and
+  says so, rather than committing a bare password box under that name.
+- `GITHUB_TOKEN` for the `review-diff` view. Its diff is fetched live from
+  GitHub, and the anonymous limit is 60 requests an hour for the whole machine —
+  once the web lane has spent it the desktop lane photographs a 403. Any token
+  with public-repo read makes the lane deterministic.
+- The native STYLEGUIDE lanes need the relay stub running too
+  (`cd apps/web && bun run screenshots:desktop`, or let `bun run shots` start
+  it): `sg_machine-settings` and the `sg_start-coding-*` shots render off the
+  demo user's OWN registered device, which the stub announces — the seed does
+  not plant it.
 - iOS: Xcode + the Snapfile's simulators (iPhone 17 Pro Max, iPad Pro 13-inch)
   and `bundle install` under `apps/ios`. Run lanes with `LC_ALL=en_US.UTF-8`.
 - Android: an English-locale phone emulator booted, exactly one device attached.
@@ -100,7 +126,14 @@ which is also how you find a rule that needs teaching (`IGNORED`, `BROAD`).
 | web-mobile | same, `--form-factor web-mobile` (390×844@3x, mobile layout)         |
 | desktop    | `packages/shots/src/capture-desktop.ts` — launches the gpui app per view via the `EXP_DEV_*` overrides and `screencapture`s the window; views marked `manual` in the catalog are skipped (fill them with `--manual <view-id>` while the wanted state is on screen) |
 | ios        | `cd apps/ios && bundle exec fastlane screenshots && bundle exec fastlane styleguide_screenshots` |
+| ipad       | no lane of its own — the iOS `screenshots` lane runs on both simulators and writes `iPad…-<shot>.png` beside the iPhone files; the importer picks them apart by prefix |
 | android    | `cd apps/android && bundle exec fastlane screenshots && bundle exec fastlane styleguide_screenshots` |
+
+Both native lanes take a `shots:<id,id,…>` option (`bundle exec fastlane
+styleguide_screenshots shots:sg_board,sg_reviews`). Navigation still runs; a
+snapshot outside the list is simply not taken. `bun run shots` computes that list
+from the catalog whenever the run is scoped, and skips a lane whose list came out
+empty.
 
 Raw PNGs land in the gitignored `.shots-raw/<platform>/<view-id>.png`; only the
 encoded webp store is committed.
@@ -123,17 +156,35 @@ family, one `drive` per view:
 | `screen`   | `EXP_DEV_SCREEN`                    | a centre screen (`settings`, `actions`, `getting-started`, `issue:<id>`, `pr:<id>`) |
 | `settings` | `EXP_DEV_SCREEN` + `EXP_DEV_SETTINGS` | one settings section |
 | `dialog`   | `EXP_DEV_DIALOG`                    | one dialog, fired once from the render path after the state it needs resolves |
+| `login`    | — (no session injected)             | the pre-login card, on its own throwaway data dir |
+| `onboarding` | `EXP_DEV_ONBOARDING`              | the first-run wizard, signed in as the team-less NEWCOMER on its own data dir, WITHOUT `EXP_SKIP_ONBOARDING` |
 | `manual`   | —                                   | nothing: capture it by hand with `--manual <view-id>` |
 
 A view may add `desktop.env` on top for the cases that are a drive PLUS a flag —
-`EXP_DEV_FILTER=1` for the board's filter popover, `EXP_DEV_OPEN_SHELL=1` for a
-docked terminal, `EXP_DEV_ACTIONS_TAB` for the Actions screen's tab.
+`EXP_DEV_FILTER=1` for the board's filter popover, `EXP_DEV_BOARD_ID` to point
+the rail at a board other than the last-visited one, `EXP_DEV_SELECT` to
+pre-select the rows the bulk bar needs, `EXP_DEV_SEARCH_QUERY` to open the
+palette with a query already typed, `EXP_DEV_OPEN_SHELL=1` for a docked
+terminal, `EXP_DEV_ACTIONS_TAB` for the Actions screen's tab, `EXP_DEV_LOGIN`
+for which state the login card starts in. Every one of them is documented in
+`packages/shots/src/desktop-env.md`.
 
-Values may carry `$placeholders` resolved against the seeded database by
-`bun run screenshots:ids`: `$APP-5` and friends are issue identifiers,
-`$thread`, `$action`, `$device`, `$automation`, `$board` and `$team` name one
-well-known seeded row each. An unresolvable placeholder SKIPS the view rather
-than photographing whatever the app fell back to.
+The desktop app tells the capturer when it is photographable (EXP-633): with
+`EXP_DEV_READY_FILE` set it writes a marker once a window exists, the session is
+synced, every Electric shape is past its first `up-to-date` and any requested
+dialog has opened, and logs what it is still blocked on every five seconds until
+then. `anchorDelayMs` is therefore a POST-ready settle — the last frame or two of
+layout — not a sync wait, which is why the values in the catalog are a few
+hundred milliseconds rather than seconds.
+
+Values may carry `$placeholders` — in the drive value AND in `desktop.env` —
+resolved against the seeded database by `bun run screenshots:ids` (which is a
+thin printer over `apps/web/scripts/lib/demo-ids.ts`): `$APP-5` and friends are
+issue identifiers, and `$thread`, `$action`, `$device`, `$automation`, `$board`,
+`$emptyBoard` and `$team` name one well-known seeded row each. `web.route` adds
+`$supportToken`, the reporter magic link for the seeded helpdesk thread — a
+CREDENTIAL, resolved lazily and never printed. An unresolvable placeholder SKIPS
+the view rather than photographing whatever the app fell back to.
 
 ## How the diff-skip works
 
@@ -144,18 +195,73 @@ the changed fraction is within the view's `diffTolerance` (default 0.005 —
 absorbs the seed's relative timestamps). `index.json` is re-derived from disk
 with sorted keys and no timestamps, so it only changes when an image does.
 
+`SCREENSHOT_FREEZE_NOW` (epoch ms or an ISO timestamp) pins the seed's clock so
+absolute dates and ordering stop moving between runs. It is opt-in and `bun run
+shots` never sets it: it does nothing for the relative labels each CLIENT renders
+against the real clock, and a stale frozen instant reddens every due date and
+takes every device offline.
+
+## Store slides and their pop-out rects
+
+The App Store / Play listing images are a separate product from this store: the
+compositor in `apps/marketing/scripts/store/` takes the eight raw `store`-lane
+captures, bezels them, adds a headline, and lifts one element out of the screen
+as a floating card. That last part needs a RECT, and it resolves in three tiers
+(`store-crops.ts`):
+
+1. a `pop-<shot>.json` sidecar next to the raw capture — form-keyed
+   (`ios-phone` / `ios-tablet` / `android-phone`),
+2. the committed `HAND_RECTS` fallback, measured by eye and prone to going stale,
+3. nothing — the slide still renders, just flat.
+
+Sidecars are the accurate tier, because the UI test knows exactly where the
+element it just photographed was. `PopRects.swift` / `PopRects.kt` record it as
+they run, and
+
+```bash
+bun run screenshots:pop-sidecars -- --platform ios      # or android
+```
+
+merges those recordings into the form-keyed files the compositor reads, keeping
+any form this run did not measure and deleting the inputs it consumed. Both
+Fastfiles call it after their capture lane, non-fatally.
+
+To tune a rect by hand instead, run the compositor with `--debug-crops`: it
+writes each raw with every candidate rect stroked and labelled, so a number can
+be nudged and re-checked in one pass. Sidecars are NOT committed (EXP-348 keeps
+store screenshots out of git) — only `HAND_RECTS` is.
+
 ## The automation
 
-The team action **“Refresh app screenshots”** (trigger: `pr_merged`) runs
-`bun run shots -- --since auto --platform web,web-mobile,desktop` on its bound
-device, sanity-checks the diff, and pushes a `shots/`-only commit directly to
-master. `--since auto` is what keeps the unattended run cheap: it re-captures
-only the views the merged PR can have moved, and most merges cost one lane or
-none at all.
-Native (ios/android) refreshes stay a manual pre-release step — unattended
-simulator lanes are too slow and flaky. If `bun run test:shots` fails after a
-merge, the just-merged PR added a route/view the catalog doesn't know: add the
-`views.json` entry (or an `excludedRoutes` row) first.
+The team action **“Refresh app screenshots”** (trigger: `pr_merged`) runs on its
+bound device and pushes a `shots/`-only commit straight to master, then
+redeploys the styleguide site.
+
+What makes it affordable is that it asks first. `bun run shots:affected --since
+auto` maps the merged diff to `<view, platform>` pairs; a lane whose list comes
+out empty is never started, and a diff that moved nothing at all ends the run in
+seconds. All FIVE lanes are in play — web, web-mobile, desktop, ios and android
+— not just the browser ones: the native suites take `shots:<ids>` subsets, so an
+iOS-only PR costs the two or three simulator shots it actually moved instead of
+forty. `ipad` stays out; it is opt-in and only the store slides need it.
+
+A lane whose DEVICE is not available is skipped, not failed: no booted emulator
+means no android lane, no Xcode means no ios lane, and the run still refreshes
+everything else and says what it left behind. The same goes for the redeploy —
+a missing or unreachable `coolify` CLI is reported, never fatal.
+
+The action may narrow further with `--views` when a BROAD rule widened a lane
+more than the change warrants (a tRPC router touched by a one-line fix widens
+every web view), and it states its reasoning when it does. Narrowing is a
+judgement call about a fail-safe default, so it is written down rather than
+silently applied.
+
+If `bun run test:shots` fails after a merge, the just-merged PR added a
+route/view the catalog does not know: add the `views.json` entry (or an
+`excludedRoutes` row) first. And every capture is eyeballed before it is
+committed — a wrong screen under the right filename passes every gate there is,
+so "no skeleton rows, no empty states that should have data" is part of the
+review, not of the tooling.
 
 ## Troubleshooting
 
@@ -173,9 +279,14 @@ merge, the just-merged PR added a route/view the catalog doesn't know: add the
 - **401s from capture login** — re-run `cd apps/web && bun run seed:screenshots`
   (it tears down and rebuilds the demo team; also confirm
   `BETTER_AUTH_TRUSTED_ORIGINS` includes `https://localhost:3000`).
-- **Flat/dark desktop shots** — Electric hadn't synced before the shutter; the
-  capturer retries once with extra delay, but a slow first run may need a rerun
-  of just that platform.
+- **`never signalled ready within 90s`** — the desktop app came up but never
+  reached a photographable state, so the capturer refused to press the shutter
+  (EXP-633). Almost always the stack, not the app: a stopped `electric`
+  container, an instance that was never seeded, or a dev server serving shapes
+  without their control headers (see the Node bullet below). Reproduce it with
+  the exact env the failure printed plus `EXP_DEV_READY_FILE=/tmp/ready.json` —
+  the app logs `waiting: …` every five seconds and names the shapes that never
+  went live.
 - **`shape proxy` preflight fails / every desktop shot is skeletons and empty
   states** — you are on the wrong Node. On **Node 26**, `fetch` over a unix
   socket returns the right status and body with ZERO headers (TCP is fine — an

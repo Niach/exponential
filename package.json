@@ -32,6 +32,7 @@
     "movie:studio": "cd apps/marketing && remotion studio src/movie/remotion/entry.ts",
     "movie:render": "cd apps/marketing && remotion render src/movie/remotion/entry.ts ClosedLoop out/closed-loop.mp4 --crf 16",
     "screenshots:store": "bun run --filter @exp/marketing screenshots:store",
+    "screenshots:pop-sidecars": "bun run --filter @exp/marketing screenshots:pop-sidecars",
     "screenshots:social": "bun run --filter @exp/web screenshots:social",
     "shots": "bun run --filter @exp/shots capture",
     "shots:index": "bun run --filter @exp/shots index",

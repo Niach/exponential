@@ -4,9 +4,10 @@
  * never claim a shot the store does not actually hold: the FILE is the truth for
  * existence, `shots/index.json` only enriches it with dimensions and bytes.
  *
- * Three states per (view, platform) pair:
+ * Four states per (view, platform) pair:
  *   - `ok`      the catalog declares it and the file is on disk
  *   - `missing` the catalog declares it, nothing captured yet
+ *   - `manual`  declared, but with no automated path (a `manual` desktop drive)
  *   - `n/a`     the catalog does not declare it (the view's `notes` says why)
  */
 
@@ -15,6 +16,7 @@ import type { Dirent } from "node:fs"
 import path from "node:path"
 
 import {
+  DEFAULT_PLATFORMS,
   GROUPS,
   PLATFORMS,
   PLATFORM_FRAME,
@@ -59,7 +61,13 @@ export interface GalleryData {
   storeDir: string
   /** Whether `index.json` was present and parseable. */
   indexPresent: boolean
-  counts: { ok: number; missing: number; na: number }
+  /**
+   * `manual` is broken out of `missing` because the two mean opposite things to
+   * a reviewer: `missing` is work the pipeline still owes, `manual` is work only
+   * a human can do (`--manual <view-id>` over a live session). `na` counts only
+   * `DEFAULT_PLATFORMS`, so the opt-in iPad lane does not read as forty gaps.
+   */
+  counts: { ok: number; missing: number; manual: number; na: number }
 }
 
 /** One entry of the generated `shots/index.json`. */
@@ -218,12 +226,13 @@ export function readGallery(dir = storeDir()): GalleryData {
     }))
     .filter((section) => section.views.length > 0)
 
-  const counts = { ok: 0, missing: 0, na: 0 }
+  const counts = { ok: 0, missing: 0, manual: 0, na: 0 }
   for (const entry of views) {
     for (const shot of entry.shots) {
       if (shot.state === `ok`) counts.ok += 1
-      else if (shot.state === `missing` || shot.state === `manual`) counts.missing += 1
-      else counts.na += 1
+      else if (shot.state === `missing`) counts.missing += 1
+      else if (shot.state === `manual`) counts.manual += 1
+      else if (DEFAULT_PLATFORMS.includes(shot.platform)) counts.na += 1
     }
   }
 
@@ -237,12 +246,26 @@ export function readGallery(dir = storeDir()): GalleryData {
   }
 }
 
-/** Every declared-but-uncaptured pair, as `<view-id>/<platform>`. */
+/** Every declared-but-uncaptured pair the PIPELINE owes, as `<view-id>/<platform>`. */
 export function missingPairs(data: GalleryData): string[] {
+  return pairsInState(data, `missing`)
+}
+
+/**
+ * Pairs waiting on a person rather than on a lane: a desktop drive of kind
+ * `manual` has no automated path by construction (the steering view needs a
+ * live agent session on screen), so it is reported separately and never fails
+ * `--check`.
+ */
+export function manualPairs(data: GalleryData): string[] {
+  return pairsInState(data, `manual`)
+}
+
+function pairsInState(data: GalleryData, state: ShotState): string[] {
   const out: string[] = []
   for (const entry of data.views) {
     for (const shot of entry.shots) {
-      if (shot.state === `missing`) out.push(`${entry.view.id}/${shot.platform}`)
+      if (shot.state === state) out.push(`${entry.view.id}/${shot.platform}`)
     }
   }
   return out
