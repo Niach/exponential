@@ -574,6 +574,13 @@ async function captureOne(options: CaptureOneOptions): Promise<string> {
         )
       }
       await waitForReady(readyFile, child, options)
+      // Raise BEFORE the settle, not only before the shutter: gpui only
+      // repaints a window that is not key on its own schedule, and the
+      // deferred layers (an open popover, a dialog's prefilled input) landed
+      // reliably only after activation — measured at ~2s after the raise,
+      // never within a 300ms grace. The second raise below is the guard
+      // against something else having stolen the front in the meantime.
+      await raiseWindow(child.pid)
       await sleep(options.anchorDelayMs + (attempt === 1 ? FLAT_RETRY_EXTRA_MS : 0))
       // Raise the window right before the shutter: `-R` photographs a screen
       // RECT, so anything overlapping it would end up in the store.

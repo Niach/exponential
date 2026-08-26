@@ -195,7 +195,10 @@ impl MachinesSection {
         if !devices.is_ready() {
             return None;
         }
-        let me = crate::queries::active_account(cx)?.id;
+        // The USER id, not the account key: `devices.user_id` is the Better Auth
+        // user id, `Account.id` is the per-instance account key (EXP-642 — the
+        // old comparison never matched, which the My/Team split made visible).
+        let me = crate::queries::active_account(cx)?.user_id;
         let users = collections.users.read(cx);
         let now_ms = chrono::Utc::now().timestamp_millis();
         let mut mine = Vec::new();

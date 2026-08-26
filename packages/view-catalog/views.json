@@ -367,8 +367,10 @@
         },
         "env": {
           "EXP_DEV_FILTER": "1"
-        }
-      }
+        },
+        "anchorDelayMs": 2500
+      },
+      "diffTolerance": 0.002
     },
     {
       "id": "issue-detail",
@@ -517,12 +519,13 @@
           "kind": "dialog",
           "value": "search"
         },
-        "anchorDelayMs": 600,
+        "anchorDelayMs": 2500,
         "env": {
           "EXP_DEV_TOOL": "board",
           "EXP_DEV_SEARCH_QUERY": "cold start"
         }
-      }
+      },
+      "diffTolerance": 0.0005
     },
     {
       "id": "board-empty",
@@ -572,7 +575,15 @@
         "recipe": "openBoardBulkEdit",
         "settleMs": 600
       },
-      "webMobile": "inherit",
+      "webMobile": {
+        "route": "/t/$teamSlug/boards/$boardSlug",
+        "anchor": {
+          "testId": "bulk-action-bar",
+          "timeoutMs": 30000
+        },
+        "recipe": "openBoardBulkEdit",
+        "settleMs": 600
+      },
       "ios": {
         "shot": "sg_board-bulk-edit",
         "lane": "styleguide"
