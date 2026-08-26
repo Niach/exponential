@@ -1,6 +1,10 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import { actionCollection, codingSessionCollection } from "@/lib/collections"
+import {
+  actionCollection,
+  codingSessionCollection,
+  deviceCollection,
+} from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import { useSession } from "@/hooks/use-session"
 import {
@@ -18,7 +22,7 @@ import {
   type GettingStartedEntry,
   type GettingStartedSignals,
 } from "@/components/getting-started/getting-started-model"
-import type { Team } from "@/db/schema"
+import type { Device, Team } from "@/db/schema"
 
 export interface GettingStartedProgress {
   /** Some signal source has not answered yet — render neutral / stay hidden. */
@@ -117,10 +121,6 @@ export function useGettingStartedProgress(
   const [githubInstalled, setGithubInstalled] = useState<boolean | null>(null)
   const [hasWidget, setHasWidget] = useState<boolean | null>(null)
   const [mcpConnected, setMcpConnected] = useState<boolean | null>(null)
-  const [deviceKinds, setDeviceKinds] = useState<{
-    desktop: boolean
-    server: boolean
-  } | null>(null)
 
   // Team-scoped answers must not leak across a team switch — the
   // sidebar keeps this hook mounted, and a stale `true` would flash the new
@@ -177,39 +177,23 @@ export function useGettingStartedProgress(
     }
   }, [resolved, canManageWidgets, teamId])
 
-  // User-level, team-independent — fire immediately. devices.list without a
-  // teamId returns only the caller's own rows (no shared-device join, no
-  // relay presence fetches) and works with the steer relay unconfigured, so
-  // this stays a cheap one-shot rather than the 15s useRemoteStart poll. The
-  // focus listener catches "installed the app / ran the server one-liner in
-  // another window" and retires once both kinds exist.
-  useEffect(() => {
-    let cancelled = false
-    const check = () => {
-      trpc.devices.list
-        .query(undefined)
-        .then((result) => {
-          if (cancelled) return
-          const desktop = result.devices.some(
-            (device) => device.kind === `desktop`
-          )
-          const server = result.devices.some(
-            (device) => device.kind === `server`
-          )
-          setDeviceKinds({ desktop, server })
-          if (desktop && server) window.removeEventListener(`focus`, check)
-        })
-        .catch(() => {
-          if (!cancelled) setDeviceKinds({ desktop: false, server: false })
-        })
+  // User-level, team-independent. The synced devices shape already carries
+  // the caller's own rows (EXP-481) — "installed the app / ran the server
+  // one-liner in another window" arrives as a live insert, so the old
+  // devices.list one-shot + focus listener is gone (EXP-485).
+  const { data: deviceRows } = useLiveQuery((query) =>
+    query.from({ d: deviceCollection })
+  )
+  const deviceKinds = useMemo(() => {
+    if (deviceRows === undefined || !currentUserId) return null
+    const own = (deviceRows as Device[]).filter(
+      (device) => device.userId === currentUserId
+    )
+    return {
+      desktop: own.some((device) => device.kind === `desktop`),
+      server: own.some((device) => device.kind === `server`),
     }
-    check()
-    window.addEventListener(`focus`, check)
-    return () => {
-      cancelled = true
-      window.removeEventListener(`focus`, check)
-    }
-  }, [])
+  }, [deviceRows, currentUserId])
 
   // User-level, team-independent — fire immediately.
   useEffect(() => {

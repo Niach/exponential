@@ -6,9 +6,9 @@ import XCTest
 // rides a client-side resolution — the team's open batch PRs, collapsed by
 // prUrl with the NEWEST linked issue as the representative. EXP-545: the
 // session resolves ITS OWN PR by the branch the pr_open flip stamped on the
-// row; a pre-stamp legacy row falls back to the sole open batch PR. Anything
-// ambiguous or unmatched must resolve to nil: Reviews still lists every PR
-// there.
+// row. EXP-546: that branch is the only key — a branchless row resolves nil
+// rather than guessing. Anything ambiguous or unmatched must resolve to nil:
+// Reviews still lists every PR there.
 final class BatchPrResolutionTests: XCTestCase {
     private func issue(
         id: String,
@@ -59,18 +59,16 @@ final class BatchPrResolutionTests: XCTestCase {
             sessionBranch: "exp/batch-a1b2c3d4", openBatchPrs: open
         )
         XCTAssertEqual(resolved?.id, "i-3")
-        // Legacy rows flipped before the branch stamp existed still resolve
-        // the sole open batch PR.
-        let legacy = BatchPrResolution.resolve(
-            sessionBranch: nil, openBatchPrs: open
+        // EXP-546: a branchless row resolves nothing, even when there is
+        // exactly one open batch PR to guess at.
+        XCTAssertNil(
+            BatchPrResolution.resolve(sessionBranch: nil, openBatchPrs: open)
         )
-        XCTAssertEqual(legacy?.id, "i-3")
     }
 
     func testSessionBranchPicksItsOwnPrAmongConcurrentBatchRuns() {
         // EXP-545: with the stamped branch a session resolves its own PR even
-        // while a second batch PR is open; a branchless legacy row stays
-        // ambiguous.
+        // while a second batch PR is open; a branchless row resolves nil.
         let open = BatchPrResolution.openBatchPrs(
             issues: [
                 issue(id: "i-1", prUrl: "https://github.com/acme/web/pull/7"),
@@ -122,7 +120,7 @@ final class BatchPrResolutionTests: XCTestCase {
 
     // Single-issue `exp/<IDENTIFIER>` branches, non-open PR states,
     // out-of-team boards, and rows without a prUrl never count as the batch
-    // PR — nor may they trip the exactly-one legacy guard on a real one.
+    // PR — nor may they trip the exactly-one branch guard on a real one.
     func testIgnoresNonBatchNonOpenOutOfTeamAndUrlLessRows() {
         let batchUrl = "https://github.com/acme/web/pull/7"
         let open = BatchPrResolution.openBatchPrs(
@@ -154,9 +152,8 @@ final class BatchPrResolutionTests: XCTestCase {
             sessionBranch: "exp/batch-a1b2c3d4", openBatchPrs: open
         )
         XCTAssertEqual(resolved?.id, "i-1")
-        XCTAssertEqual(
-            BatchPrResolution.resolve(sessionBranch: nil, openBatchPrs: open)?.id,
-            "i-1"
+        XCTAssertNil(
+            BatchPrResolution.resolve(sessionBranch: nil, openBatchPrs: open)
         )
     }
 

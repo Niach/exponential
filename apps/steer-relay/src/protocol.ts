@@ -20,28 +20,30 @@ export const onlineFrame = z.object({
   t: z.literal(`online`),
   deviceId: z.string().min(1).max(128),
   deviceLabel: z.string().max(255).optional(),
-  // EXP-201: the agent CLIs installed on the device (`claude`/`codex`/`pi`).
-  // The relay is a dumb pipe — plain bounded strings here; the WEB SERVER
-  // validates the vocabulary when a start names one. Absent (old desktop) ⇒
-  // the hub defaults to ["claude"]. Since EXP-409 this list means RUNNABLE
-  // (installed AND signed in); senders with signed-out agents send it
-  // explicitly, even empty.
+  // EXP-201/EXP-409: the agent CLIs installed on the device
+  // (`claude`/`codex`/`pi`), runnable vs signed-out. ACCEPTED FROM OLD
+  // SENDERS ONLY — HEAD desktops and CLI daemons no longer advertise either
+  // list, because the web server reads the persisted `devices` row written by
+  // `devices.register` instead (EXP-485): that row survives relay restarts and
+  // changes without a re-dial. The schema keeps both fields so a pre-485
+  // sender's online frame still parses (a dropped online frame reads as an
+  // offline machine); the relay is a dumb pipe and never interprets them.
   agents: z.array(z.string().min(1).max(32)).max(16).optional(),
-  // EXP-409: agents installed but SIGNED OUT — unusable (never in `agents`),
-  // surfaced so machine lists can say "sign in on that machine". Same
-  // dumb-pipe stance.
+  // See `agents`: accepted from OLD senders, no longer advertised at HEAD.
   unauthedAgents: z.array(z.string().min(1).max(32)).max(16).optional(),
   // EXP-253: feature capabilities (`actions`). Same dumb-pipe stance — the
   // web server interprets them. Absent (old desktop) ⇒ the hub defaults to
   // [] and action starts to that device are refused server-side.
   caps: z.array(z.string().min(1).max(32)).max(16).optional(),
-  // EXP-437: the machine's per-agent launch defaults — remote Start-coding
-  // dialogs seed from the selected device. Same dumb-pipe stance: bounded
-  // strings only, vocabulary-free (clients validate against the contract).
-  // Blank model/effort is meaningful ("CLI default"); booleans absent =
-  // false. `.catch(undefined)` so a malformed/oversized blob degrades to
-  // "no defaults" instead of failing the WHOLE online parse (a dropped
-  // online frame reads as an offline machine).
+  // EXP-437: the machine's per-agent launch defaults. ACCEPTED FROM OLD
+  // SENDERS ONLY — HEAD desktops and CLI daemons no longer advertise them;
+  // the web server reads the persisted `devices` row instead (EXP-485).
+  // Same dumb-pipe stance while it lasts: bounded strings only,
+  // vocabulary-free (clients validate against the contract). Blank
+  // model/effort is meaningful ("CLI default"); booleans absent = false.
+  // `.catch(undefined)` so a malformed/oversized blob degrades to "no
+  // defaults" instead of failing the WHOLE online parse (a dropped online
+  // frame reads as an offline machine).
   launchDefaults: z
     .object({
       defaultAgent: z.string().min(1).max(32).optional(),
@@ -339,8 +341,7 @@ export type ServerFrame =
   // the web server persisted new work (a queued command, edited launch
   // defaults) and an online device should heartbeat NOW instead of on its
   // next cadence. No reply frame exists; the heartbeat pickup is the durable
-  // path. Only sent to devices whose registered caps prove a
-  // check_in-aware build (the web server guards; old desktops never see it).
+  // path.
   | { t: `check_in` }
   | { t: `bye`; outcome?: string }
   | { t: `error`; code: string; message?: string }

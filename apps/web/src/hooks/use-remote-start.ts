@@ -137,14 +137,14 @@ export function useRemoteStart({
   }, [enabled, currentUserId, deviceRows, userRows, now, teamId])
 
   // `latestVersions` is instance config, not a shape column — one fetch per
-  // mount (the returned device rows are ignored; sync owns those now).
+  // mount (sync owns the device rows).
   const [refreshTick, setRefreshTick] = useState(0)
   useEffect(() => {
     if (!enabled) return
     let active = true
-    trpc.devices.list
+    trpc.devices.latestVersions
       .query()
-      .then((res) => active && setLatestVersions(res.latestVersions ?? null))
+      .then((res) => active && setLatestVersions(res ?? null))
       .catch(() => {})
     return () => {
       active = false

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 // EXP-498: merge always closes. Two writers share the semantics — the in-tx
 // sweep `endLiveIssueSessionsInTx` (run by applyPrMergeState's claim winner)
 // and the standalone idempotent sweep `endMergedPrSessions` (mergePr's
-// backstop for claim races and legacy `merged` rows). A structural fake `tx`
+// backstop for claim races). A structural fake `tx`
 // (recording set values + where clause) plus mocked relay helpers is enough —
 // the where clause is asserted by SHAPE, since a fake db cannot execute it
 // (the coding-session-kill.test.ts pattern).
@@ -78,7 +78,7 @@ beforeEach(() => {
 })
 
 describe(`endLiveIssueSessionsInTx`, () => {
-  it(`flips every live status (incl. legacy merged) to ended and returns the ids`, async () => {
+  it(`flips every live status to ended and returns the ids`, async () => {
     h.returning = [{ id: `sess-1` }, { id: `sess-2` }]
 
     const ids = await endLiveIssueSessionsInTx(
@@ -99,7 +99,6 @@ describe(`endLiveIssueSessionsInTx`, () => {
       `col:status`,
       `running`,
       `in_review`,
-      `merged`,
     ])
   })
 })
@@ -123,7 +122,6 @@ describe(`endMergedPrSessions`, () => {
       `col:status`,
       `running`,
       `in_review`,
-      `merged`,
     ])
     expect(h.relayPostKill).toHaveBeenCalledTimes(2)
     expect(h.relayPostKill).toHaveBeenCalledWith(expect.anything(), `sess-1`)

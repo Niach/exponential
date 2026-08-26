@@ -505,6 +505,29 @@ impl ShapeClient {
                 idle_live: false,
             });
         }
+        if response.status == 400 {
+            // EXP-624: a 400 here is DETERMINISTIC — the offset/handle pair we
+            // resumed with is one this Electric no longer understands (a shape
+            // definition or handle mismatch a future Electric may report as
+            // 400 rather than 409). Retrying it at backoff would wedge the
+            // shape forever on a request that can never succeed, so take the
+            // 409 path instead: mark the refetch, drop the cursor, and let the
+            // next poll resnapshot from scratch. Stale rows stay visible until
+            // that refetch replaces them atomically.
+            log::warn!(
+                "sync {}: 400 from the shape endpoint — resnapshotting",
+                spec.name
+            );
+            self.cfg
+                .store
+                .mark_needs_refetch(spec.name, headers.handle.as_deref())
+                .map_err(ShapeError::Store)?;
+            *cursor = None;
+            return Ok(PollOutcome {
+                pause: true,
+                idle_live: false,
+            });
+        }
         if !(200..300).contains(&response.status) {
             return Err(ShapeError::Http(response.status));
         }

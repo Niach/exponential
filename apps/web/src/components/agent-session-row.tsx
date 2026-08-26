@@ -57,7 +57,6 @@ export function SectionLabel({
 const STATE_DOT: Record<Exclude<SessionDisplayState, `running`>, string> = {
   needs_input: `bg-amber-500`,
   review: `bg-emerald-500`,
-  merged: `bg-sky-500`,
   done: `bg-sky-500`,
 }
 
@@ -67,7 +66,6 @@ const STATE_LABEL: Record<
 > = {
   needs_input: { text: `Needs input`, className: `text-amber-400` },
   review: { text: `Ready for review`, className: `text-emerald-400` },
-  merged: { text: `Merged`, className: `text-sky-400` },
   done: { text: `Done`, className: `text-sky-400` },
 }
 

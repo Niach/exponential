@@ -27,7 +27,7 @@ data class SessionDevicePresentation(
     /**
      * Whether the session should read "paused" instead of live. Only a session
      * that would otherwise render as still-working can pause — a row already
-     * in review / done / merged is parked on its own outcome, and an offline
+     * in review / done is parked on its own outcome, and an offline
      * machine says nothing about it.
      */
     fun isPaused(state: CodingSessionDisplayState): Boolean =
@@ -44,18 +44,15 @@ data class SessionDevicePresentation(
 /**
  * Join [session] to its live [devices] row and derive the presentation.
  *
- * Match order:
- *  1. The row whose steer `device_id` equals the session's stamped one —
- *     preferring the session owner's own row, since a shared server machine
- *     (EXP-432) can appear once per user.
- *  2. ONLY for rows started before the stamp existed (null `deviceId`): the
- *     UNIQUE row whose label still equals the snapshot. Ambiguous (2+) or
- *     absent means no row — a renamed machine simply keeps its snapshot
- *     rather than risking the wrong machine's presence.
+ * The ONLY match is the row whose steer `device_id` equals the session's
+ * stamped one — preferring the session owner's own row, since a shared server
+ * machine (EXP-432) can appear once per user. The legacy `device_label`
+ * unique-match fallback is gone (EXP-560): those pre-stamp rows have drained,
+ * and guessing a machine by name could land on a DIFFERENT one.
  *
  * With no row we cannot know anything about presence, so the snapshot label
- * renders and `offline` stays false — an unknown machine must never fake a
- * paused session.
+ * renders and `offline` stays false — an unknown machine (or a null
+ * `deviceId`) must never fake a paused session.
  */
 fun resolveSessionDevice(
     session: CodingSessionEntity,
@@ -63,14 +60,9 @@ fun resolveSessionDevice(
     nowMs: Long,
 ): SessionDevicePresentation {
     val deviceId = session.deviceId
-    val row = if (deviceId != null) {
-        // A stamped-but-unknown machine stays unresolved — never fall through
-        // to the label guess, which could land on a DIFFERENT machine.
-        val matches = devices.filter { it.deviceId == deviceId }
-        matches.firstOrNull { it.userId == session.userId } ?: matches.firstOrNull()
-    } else {
-        val snapshot = session.deviceLabel?.takeIf { it.isNotBlank() }
-        snapshot?.let { label -> devices.filter { it.label == label }.singleOrNull() }
+    val row = deviceId?.let {
+        val matches = devices.filter { device -> device.deviceId == it }
+        matches.firstOrNull { device -> device.userId == session.userId } ?: matches.firstOrNull()
     }
     if (row == null) {
         return SessionDevicePresentation(label = session.deviceLabel, offline = false)

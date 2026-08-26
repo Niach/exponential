@@ -130,9 +130,11 @@ type Tx = Parameters<
   Parameters<typeof import("@/db/connection").db.transaction>[0]
 >[0]
 
-// The full status_changed payload (EXP-314): the legacy {from,to} anchor
-// enums stay for old readers/rows; ids + display-name snapshots let clients
-// render custom statuses without a lookup that may no longer resolve.
+// A status move (EXP-314): ids + display-name snapshots let clients render
+// custom statuses without a lookup that may no longer resolve. The anchor
+// enums feed the notification pipeline and enum-keyed subsystems in-process;
+// since EXP-544 they are no longer duplicated into the event payload (old
+// event ROWS still carry {from,to} and clients keep their read fallback).
 interface StatusChange {
   from: string
   to: string
@@ -262,7 +264,12 @@ async function finalizeIssueUpdateInTx(
       teamId,
       actorUserId,
       type: `status_changed`,
-      payload: { ...statusChange },
+      payload: {
+        fromStatusId: statusChange.fromStatusId,
+        toStatusId: statusChange.toStatusId,
+        fromName: statusChange.fromName,
+        toName: statusChange.toName,
+      },
     })
   }
   if (current.assigneeId !== issue.assigneeId) {
@@ -1246,8 +1253,7 @@ export const issuesRouter = router({
       if (row.prState === `merged`) {
         // Already merged (e.g. the webhook beat us) — idempotent no-op for
         // the PR itself, but merge always closes (EXP-498): sweep any live
-        // sessions the earlier writer missed (or legacy rows a pre-498
-        // webhook parked in `merged`).
+        // sessions the earlier writer missed.
         const linked = await ctx.db
           .select({ id: issues.id })
           .from(issues)

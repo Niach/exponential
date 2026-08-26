@@ -31,6 +31,7 @@ import com.exponential.app.domain.stableDeviceOrder
 import com.exponential.app.domain.toSteerDevice
 import com.exponential.app.ui.issue.StartIssueOption
 import com.exponential.app.ui.issue.SteerStartState
+import com.exponential.app.ui.steer.steerDeviceFlow
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -52,8 +53,9 @@ import kotlinx.coroutines.launch
 // registry became server-authoritative synced state): own rows plus (EXP-432)
 // teammates' server machines shared with the selected team, with online-ness
 // derived client-side from last_seen_at freshness on a 30s ticker. The 15s
-// devices.list polling died with the shape; the tRPC list survives only as
-// the latestVersions source (one fetch per account).
+// devices.list polling died with the shape, and EXP-485 retired the procedure
+// itself — only the informational `devices.latestVersions` query is still
+// fetched (one per account).
 
 data class AgentRow(
     val session: CodingSessionEntity,
@@ -95,19 +97,9 @@ class AgentsViewModel @Inject constructor(
     // devices shape — plus the selected team's shared servers. null until the
     // shape's initial snapshot has landed (offset is_live), so the section
     // shows nothing rather than a flash of "No machines yet".
-    val devices: StateFlow<List<SteerDevice>?> = combine(
-        dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() },
-        dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeAll() },
-        dbFlow.scopedQuery(null as Boolean?) { it.electricOffsetDao().observeIsLive("devices") },
-        combine(selection.selectedId, auth.userId) { teamId, userId -> teamId to userId },
-        DeviceLiveness.ticker(),
-    ) { rows, users, snapshotLive, (teamId, userId), now ->
-        if (snapshotLive != true && rows.isEmpty()) {
-            null
-        } else {
-            composeDeviceList(rows, users, teamId, userId, now)
-        }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    val devices: StateFlow<List<SteerDevice>?> =
+        steerDeviceFlow(dbFlow, selection.selectedId, auth.userId)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     // Informational CLIENT_LATEST_VERSION_* values behind the "update
     // available" hint on a machine row; both null until the first list lands.
@@ -231,12 +223,12 @@ class AgentsViewModel @Inject constructor(
                         .getOrDefault(false)
                     configuredAccountId = accountId
                 }
-                // The rows come from sync now — devices.list survives ONLY as
-                // the latestVersions source (informational, one fetch per
-                // account; a failure just hides the update hint).
+                // The rows come from sync — the only thing left to fetch is the
+                // informational version floor (one query per account; a failure
+                // just hides the update hint).
                 if (_steerEnabled.value == true) {
-                    runCatching { devicesApi.list(accountId) }
-                        .onSuccess { _latestVersions.value = it.latestVersions }
+                    runCatching { devicesApi.latestVersions(accountId) }
+                        .onSuccess { _latestVersions.value = it }
                 }
             }
         }
@@ -505,19 +497,17 @@ fun openBatchPrRepresentatives(
  * branch the server's pr_open batch flip stamped on the row. Matching "the
  * team's sole open batch PR" alone could offer a teammate's PR once this
  * session's own PR closed unmerged (prState `closed` while the row stays
- * in_review). Rows flipped before the stamp existed ([sessionBranch] null)
- * keep the legacy sole-open-PR fallback; anything ambiguous resolves to null
- * — with concurrent batch runs Reviews still lists every PR.
+ * in_review). EXP-546: the pre-EXP-545 branchless rows have drained, so a null
+ * [sessionBranch] no longer falls back to "the sole open batch PR" — it
+ * resolves nothing, and such a row simply shows no Merge shortcut. Anything
+ * ambiguous resolves to null too — with concurrent batch runs Reviews still
+ * lists every PR.
  */
 fun resolveBatchPrIssue(
     representatives: List<IssueEntity>,
     sessionBranch: String?,
 ): IssueEntity? =
-    if (sessionBranch != null) {
-        representatives.filter { it.branch == sessionBranch }.singleOrNull()
-    } else {
-        representatives.singleOrNull()
-    }
+    sessionBranch?.let { branch -> representatives.filter { it.branch == branch }.singleOrNull() }
 
 /**
  * The synced devices rows → the tab's SteerDevice list (EXP-481): the

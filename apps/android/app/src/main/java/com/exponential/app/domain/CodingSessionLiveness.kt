@@ -14,21 +14,16 @@ import kotlinx.coroutines.flow.flow
 //
 // EXP-194: a session is live in both the `running` and `in_review` states (the
 // PR-open parking spot — terminal still alive, "ready for review"); only
-// `ended` and stale rows drop out.
-//
-// `merged` counts as live too: a LEGACY parking spot (EXP-358, reversed by
-// EXP-498 — new servers END sessions on merge), kept so rows written by a
-// pre-498 server stay alive until explicitly ended or stale.
+// `ended` and stale rows drop out. Merging ends the session (EXP-498), so
+// there is no post-merge parking spot to keep alive (EXP-540).
 object CodingSessionLiveness {
 
-    // The coding_session statuses that can render as a live badge (EXP-194,
-    // EXP-358): `running`, the `in_review` PR-open parking spot and the
-    // post-merge `merged` one. The DAO query filters to these; isLive then
-    // applies the staleness cut on top.
+    // The coding_session statuses that can render as a live badge (EXP-194):
+    // `running` and the `in_review` PR-open parking spot. The DAO query filters
+    // to these; isLive then applies the staleness cut on top.
     val liveStatuses: List<String> = listOf(
         DomainContract.codingSessionStatusRunning,
         DomainContract.codingSessionStatusInReview,
-        DomainContract.codingSessionStatusMerged,
     )
 
     // Tolerant wire-timestamp → epoch ms. Delegates to WireTimestamps so the
@@ -47,8 +42,7 @@ object CodingSessionLiveness {
 
     fun isLive(session: CodingSessionEntity, nowMs: Long = System.currentTimeMillis()): Boolean =
         (session.status == DomainContract.codingSessionStatusRunning ||
-            session.status == DomainContract.codingSessionStatusInReview ||
-            session.status == DomainContract.codingSessionStatusMerged) &&
+            session.status == DomainContract.codingSessionStatusInReview) &&
             !isStale(session.updatedAt, nowMs)
 
     // Cold minute clock for combine()-based re-evaluation — Room flows only

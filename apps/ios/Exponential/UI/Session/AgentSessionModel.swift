@@ -123,7 +123,7 @@ final class AgentSessionModel {
     /// the session is PAUSED, not ended (it resumes when the machine comes
     /// back), so the viewer shows that instead of an endless "waiting for the
     /// live stream". Mirrors `SessionDevicePresentation.isPaused`: an
-    /// in_review/merged/ended row is past caring where its machine is.
+    /// in_review/ended row is past caring where its machine is.
     var hostDeviceOffline: Bool {
         guard hostDevice.offline, let session, !sessionEnded else { return false }
         return session.status == DomainContract.codingSessionStatusRunning
@@ -193,7 +193,7 @@ final class AgentSessionModel {
     private let codingSessionId: String
     private let currentUserId: String?
     private let steerApi: SteerApi
-    private let issueImagesApi: IssueImagesApi
+    private let attachmentsApi: AttachmentsApi
     private let db: DatabaseManager
 
     private var task: URLSessionWebSocketTask?
@@ -275,14 +275,14 @@ final class AgentSessionModel {
         session: CodingSessionEntity,
         currentUserId: String?,
         steerApi: SteerApi,
-        issueImagesApi: IssueImagesApi,
+        attachmentsApi: AttachmentsApi,
         db: DatabaseManager
     ) {
         self.accountId = accountId
         self.codingSessionId = session.id
         self.currentUserId = currentUserId
         self.steerApi = steerApi
-        self.issueImagesApi = issueImagesApi
+        self.attachmentsApi = attachmentsApi
         self.db = db
         self.session = session
         // Snapshot-only until the devices observation lands (EXP-549).
@@ -447,7 +447,7 @@ final class AgentSessionModel {
         var pending = images
         for index in pending.indices where pending[index].uploadedId == nil {
             do {
-                let uploaded = try await issueImagesApi.upload(
+                let uploaded = try await attachmentsApi.upload(
                     accountId: accountId,
                     issueId: issueId,
                     data: pending[index].data,
@@ -494,33 +494,6 @@ final class AgentSessionModel {
             sendText(json)
         }
         lockAnswer(questionId, labels: labels)
-    }
-
-    /// Answer a LEGACY question card (a desktop that publishes no question ids,
-    /// so there is nothing to address a semantic `answer` frame to): the raw
-    /// TUI keystroke, which the desktop passes to the PTY unwrapped.
-    /// NOTHING follows the digit — the old trailing `\r` submitted the picker a
-    /// second time and cascaded into the NEXT question (EXP-249). `lockKey`
-    /// locks the card; multi-select toggles pass nil (each digit only toggles,
-    /// `sendLegacyAdvance` submits).
-    func sendLegacyKey(_ key: String, lockKey: String? = nil) {
-        guard !key.isEmpty, connected else { return }
-        if let lockKey, answerTracker.isLocked(lockKey) { return }
-        let frame: [String: Any] = ["t": "input", "data": key]
-        if let data = try? JSONSerialization.data(withJSONObject: frame),
-           let json = String(data: data, encoding: .utf8) {
-            sendText(json)
-        }
-        if let lockKey { lockAnswer(lockKey) }
-    }
-
-    /// Advance a legacy multi-select picker. Tab, NOT Enter: with the cursor on
-    /// an option row Enter TOGGLES it (verified against claude v2.1.215 —
-    /// silently corrupting the selection), while Tab moves to the next
-    /// tab/review step, whose picker the grid watcher publishes as its own card
-    /// (EXP-197).
-    func sendLegacyAdvance(lockKey: String?) {
-        sendLegacyKey("\t", lockKey: lockKey)
     }
 
     /// Lock a card and arm ITS OWN expiry that frees it again (flagged
@@ -836,28 +809,12 @@ final class AgentSessionModel {
             guard let text = event["text"] as? String else { return }
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return }
-            // LEGACY resolution signals (EXP-197): a protocol-v2 desktop emits
-            // them BESIDE `question_resolved` purely for old clients, so they
-            // are dropped entirely once the feed carries question ids. On a
-            // legacy feed they fold into the pending card instead of rendering
-            // as a narration row — with no card waiting the answer still
-            // renders, so it is never lost.
-            let semantic = AgentFeed.hasSemanticQuestions(feed)
-            if trimmed.hasPrefix(AgentFeed.questionAnsweredPrefix) {
-                guard !semantic else { return }
-                let answer = String(trimmed.dropFirst(AgentFeed.questionAnsweredPrefix.count))
-                if let out = AgentFeed.attachQuestionAnswer(feed, answer: answer) {
-                    feed = out
-                    return
-                }
-                // No legacy card waiting — fall through so the answer still shows.
-            } else if trimmed == AgentFeed.questionDismissedNarration {
-                guard !semantic else { return }
-                if let out = AgentFeed.dismissPendingQuestions(feed) { feed = out }
-                return
-            } else if trimmed == AgentFeed.planResolvedNarration, semantic {
-                // Legacy feeds need it IN the feed — `activeQuestionIds` reads
-                // it as the plan card's only retirement signal.
+            // The desktop's pre-EXP-249 resolution narrations ride alongside
+            // `question_resolved`, which has already retired the card they
+            // describe — drop them instead of rendering a duplicate row.
+            if trimmed.hasPrefix(AgentFeed.questionAnsweredPrefix)
+                || trimmed == AgentFeed.questionDismissedNarration
+                || trimmed == AgentFeed.planResolvedNarration {
                 return
             }
             // EXP-483: prose from the withheld ask/plan entry flushes AFTER
@@ -947,7 +904,11 @@ final class AgentSessionModel {
     }
 
     private func decodeQuestion(_ event: [String: Any]) -> AgentQuestion? {
-        guard let text = event["text"] as? String, !text.isEmpty,
+        // The wire id is required (EXP-613): it addresses the `answer` frame
+        // and every resolution event, so an id-less card would be unanswerable
+        // and never retire. No publisher emits one.
+        guard let wireId = Self.trimmedField(event["id"]),
+              let text = event["text"] as? String, !text.isEmpty,
               let rawOptions = event["options"] as? [[String: Any]] else { return nil }
         let options: [AgentQuestionOption] = rawOptions.compactMap { o in
             guard let label = o["label"] as? String, let key = o["key"] as? String,
@@ -960,7 +921,7 @@ final class AgentSessionModel {
         guard !options.isEmpty else { return nil }
         return AgentQuestion(
             id: takeEventId(),
-            wireId: Self.trimmedField(event["id"]),
+            wireId: wireId,
             askId: Self.trimmedField(event["askId"]),
             index: Self.positiveInt(event["index"]),
             total: Self.positiveInt(event["total"]),

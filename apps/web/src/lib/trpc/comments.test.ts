@@ -43,7 +43,11 @@ vi.mock(`@/lib/storage/issue-attachment-cleanup`, () => ({
   deleteStorageObjects: h.deleteStorageObjects,
 }))
 
-import { comments as commentsTable, issues as issuesTable } from "@/db/schema"
+import {
+  attachments as attachmentsTable,
+  comments as commentsTable,
+  issues as issuesTable,
+} from "@/db/schema"
 import { commentsRouter } from "@/lib/trpc/comments"
 import { extractMentionEmails } from "@/lib/mention-refs"
 
@@ -72,6 +76,9 @@ const state = {
   commentRows: [] as { id: string; body: string }[],
   issueUpdates: [] as Record<string, unknown>[],
   commentUpdates: [] as Record<string, unknown>[],
+  // Rows the NON-tx attachments probe sees (the update path's existing-links
+  // check, EXP-560).
+  dbAttachmentRows: [] as { id: string }[],
 }
 
 function resetMarkdownState() {
@@ -128,18 +135,22 @@ const fakeTx = {
 }
 
 const fakeDb = {
-  // loadCommentForMutation's author/team lookup.
+  // loadCommentForMutation's author/team lookup, plus the update path's
+  // existing-attachments probe (EXP-560) keyed by table.
   select: () => ({
-    from: () => ({
+    from: (table?: unknown) => ({
       where: () => ({
-        limit: async () => [
-          {
-            id: COMMENT_ID,
-            authorId: state.authorId,
-            issueId: ISSUE_ID,
-            teamId: `ws-1`,
-          },
-        ],
+        limit: async () =>
+          table === attachmentsTable
+            ? state.dbAttachmentRows
+            : [
+                {
+                  id: COMMENT_ID,
+                  authorId: state.authorId,
+                  issueId: ISSUE_ID,
+                  teamId: `ws-1`,
+                },
+              ],
       }),
     }),
   }),
@@ -157,6 +168,7 @@ describe(`comments.update mention resolution (REV2-26)`, () => {
     state.previousBody = ``
     state.authorId = `actor`
     state.selectQueue = []
+    state.dbAttachmentRows = []
     resetMarkdownState()
     h.resolveMentions.mockReset()
     h.resolveMentions.mockImplementation(async (...args: unknown[]) =>
@@ -256,6 +268,7 @@ describe(`comments are author-only`, () => {
     state.previousBody = `someone else's words`
     state.authorId = `not-actor`
     state.selectQueue = []
+    state.dbAttachmentRows = []
     resetMarkdownState()
     h.resolveTeamAccess.mockClear()
   })
@@ -302,6 +315,7 @@ describe(`comment attachments (EXP-554)`, () => {
     state.previousBody = ``
     state.authorId = `actor`
     state.selectQueue = []
+    state.dbAttachmentRows = []
     resetMarkdownState()
     h.getIssueTeamContext.mockImplementation(async () => ({
       issueId: ISSUE_ID,
@@ -377,6 +391,33 @@ describe(`comment attachments (EXP-554)`, () => {
         body: `hi`,
         attachmentIds: [ATTACHMENT_A],
       })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+  })
+
+  it(`update accepts an empty body when attachmentIds is omitted but links exist (EXP-560)`, async () => {
+    state.previousBody = `old`
+    state.dbAttachmentRows = [{ id: ATTACHMENT_A }]
+
+    const result = await caller.update({ id: COMMENT_ID, body: `` })
+
+    expect(result.comment.body).toBe(``)
+  })
+
+  it(`update refuses an empty body when attachmentIds is omitted and nothing is linked`, async () => {
+    state.previousBody = `old`
+    state.dbAttachmentRows = []
+
+    await expect(
+      caller.update({ id: COMMENT_ID, body: `` })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+  })
+
+  it(`update refuses an empty body with an explicitly empty attachment set`, async () => {
+    state.previousBody = `old`
+    state.dbAttachmentRows = [{ id: ATTACHMENT_A }]
+
+    await expect(
+      caller.update({ id: COMMENT_ID, body: ``, attachmentIds: [] })
     ).rejects.toMatchObject({ code: `BAD_REQUEST` })
   })
 

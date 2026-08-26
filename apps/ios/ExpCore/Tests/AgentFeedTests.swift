@@ -2,32 +2,13 @@ import XCTest
 
 @testable import ExpCore
 
-// EXP-78/EXP-174/EXP-197 + steer protocol v2 (EXP-249). Mirrors the Android
-// AgentFeedTest: the trailing-run rule for LEGACY question cards, the semantic
-// resolution path for v2 cards, the wire folds (attach/dismiss/resolve/upsert),
-// the render grouping, and the per-card answer lock.
+// EXP-78/EXP-197 + steer protocol v2 (EXP-249, the only wire since EXP-613).
+// Mirrors the Android AgentFeedTest: the semantic resolution path, the wire
+// folds (resolve/upsert/splice), the render grouping, and the per-card answer
+// lock.
 final class AgentFeedTests: XCTestCase {
 
-    // MARK: - activeQuestionIds (legacy heuristics)
-
-    func testReturnsTheTrailingConsecutiveQuestionRun() {
-        let feed: [AgentFeedItem] = [
-            .narration(id: 1, text: "working"),
-            .question(question(2)),
-            tool(3),
-            .question(question(4)),
-            .question(question(5)),
-        ]
-        XCTAssertEqual(AgentFeed.activeQuestionIds(feed), [4, 5])
-    }
-
-    func testEmptyWhenTheFeedEndsWithANonQuestion() {
-        let feed: [AgentFeedItem] = [
-            .question(question(1)),
-            .narration(id: 2, text: "moved on"),
-        ]
-        XCTAssertEqual(AgentFeed.activeQuestionIds(feed), [])
-    }
+    // MARK: - activeQuestionIds
 
     func testHandlesAnAllQuestionFeedAndAnEmptyFeed() {
         XCTAssertEqual(
@@ -37,7 +18,7 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertEqual(AgentFeed.activeQuestionIds([]), [])
     }
 
-    func testTrailingQuestionsAreUnaffectedByToolRunsBeforeThem() {
+    func testQuestionsAreUnaffectedByToolRunsBeforeThem() {
         let feed: [AgentFeedItem] = [tool(1), tool(2), .question(question(3))]
         XCTAssertEqual(AgentFeed.activeQuestionIds(feed), [3])
     }
@@ -51,56 +32,21 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertEqual(AgentFeed.activeQuestionIds(feed), [1])
     }
 
-    func testPlanQuestionRetiresOnTheResolutionNarration() {
-        let feed: [AgentFeedItem] = [
-            .question(plan(1)),
-            tool(2),
-            .narration(id: 3, text: AgentFeed.planResolvedNarration),
-        ]
-        XCTAssertEqual(AgentFeed.activeQuestionIds(feed), [])
-    }
-
     func testPlanQuestionSurvivesAHumanMessage() {
         // Steering a message mid-plan leaves the picker up (EXP-249, web
-        // parity) — only a newer question or the resolution narration retires
-        // a plan card.
+        // parity) — only `question_resolved` retires a card.
         let feed: [AgentFeedItem] = [
             .question(plan(1)), tool(2), .userMessage(id: 3, text: "1"),
         ]
         XCTAssertEqual(AgentFeed.activeQuestionIds(feed), [1])
     }
 
-    func testPlanQuestionRetiresWhenANewerQuestionFollows() {
-        let feed: [AgentFeedItem] = [.question(plan(1)), tool(2), .question(question(3))]
-        XCTAssertEqual(AgentFeed.activeQuestionIds(feed), [3])
-    }
-
-    func testNonPlanQuestionIsRetiredByAnyLaterEvent() {
-        XCTAssertEqual(AgentFeed.activeQuestionIds([.question(question(1)), tool(2)]), [])
-        XCTAssertEqual(
-            AgentFeed.activeQuestionIds([
-                .question(question(1)),
-                .permission(id: 2, tool: "Bash", detail: nil),
-            ]),
-            []
-        )
-    }
-
-    func testResolvedQuestionIsNeverActiveAndRetiresEarlierPlanCards() {
+    func testResolvedQuestionIsNeverActive() {
         var answered = question(1)
         answered.resolved = true
         answered.answers = ["Red"]
         XCTAssertEqual(AgentFeed.activeQuestionIds([.question(answered)]), [])
-
-        var resolved = question(2)
-        resolved.resolved = true
-        XCTAssertEqual(
-            AgentFeed.activeQuestionIds([.question(plan(1)), .question(resolved)]),
-            []
-        )
     }
-
-    // MARK: - activeQuestionIds (protocol v2)
 
     func testSemanticQuestionStaysActiveUntilItIsResolved() {
         let feed: [AgentFeedItem] = [
@@ -124,52 +70,6 @@ final class AgentFeedTests: XCTestCase {
             .question(question(2, wireId: "tu#1", askId: "tu", index: 2, total: 2)),
         ]
         XCTAssertEqual(AgentFeed.activeQuestionIds(feed), [1, 2])
-    }
-
-    // MARK: - Legacy narration folds
-
-    func testAnswersAttachEarliestFirstInQuestionOrder() {
-        let feed: [AgentFeedItem] = [.question(question(1)), .question(question(2))]
-        let first = AgentFeed.attachQuestionAnswer(feed, answer: "Red")
-        XCTAssertEqual(first?[0].question?.answers, ["Red"])
-        XCTAssertEqual(first?[1].question?.answers, [])
-        let second = AgentFeed.attachQuestionAnswer(first ?? [], answer: "Blue")
-        XCTAssertEqual(second?[1].question?.answers, ["Blue"])
-    }
-
-    func testAnswersNeverAttachToPlanSemanticOrAnsweredCards() {
-        XCTAssertNil(AgentFeed.attachQuestionAnswer([.question(plan(1))], answer: "Red"))
-        XCTAssertNil(
-            AgentFeed.attachQuestionAnswer(
-                [.question(question(1, wireId: "tu_1"))], answer: "Red"
-            )
-        )
-        var answered = question(1)
-        answered.resolved = true
-        XCTAssertNil(AgentFeed.attachQuestionAnswer([.question(answered)], answer: "Blue"))
-        XCTAssertNil(AgentFeed.attachQuestionAnswer([], answer: "Red"))
-    }
-
-    func testDismissalRetiresEveryPendingLegacyNonPlanCard() {
-        let feed: [AgentFeedItem] = [
-            .question(question(1)),
-            .question(plan(2)),
-            .question(question(3, wireId: "tu_3")),
-            .question(question(4)),
-        ]
-        let out = AgentFeed.dismissPendingQuestions(feed)
-        XCTAssertEqual(out?[0].question?.resolved, true)
-        XCTAssertEqual(out?[1].question?.resolved, false)
-        XCTAssertEqual(out?[2].question?.resolved, false)
-        XCTAssertEqual(out?[3].question?.resolved, true)
-        XCTAssertNil(AgentFeed.dismissPendingQuestions(out ?? []))
-    }
-
-    func testSemanticFeedsAreDetectedSoLegacyNarrationsCanBeSwallowed() {
-        XCTAssertFalse(AgentFeed.hasSemanticQuestions([.question(question(1)), tool(2)]))
-        XCTAssertTrue(
-            AgentFeed.hasSemanticQuestions([.question(question(1, wireId: "tu_1")), tool(2)])
-        )
     }
 
     // MARK: - question_resolved
@@ -680,8 +580,10 @@ final class AgentFeedTests: XCTestCase {
         total: Int? = nil
     ) -> AgentQuestion {
         AgentQuestion(
+            // Every card carries a wire id (EXP-613) — the fixtures derive one
+            // unless the test pins a specific value.
             id: id,
-            wireId: wireId,
+            wireId: wireId ?? "q\(id)",
             askId: askId,
             index: index,
             total: total,
@@ -696,6 +598,7 @@ final class AgentFeedTests: XCTestCase {
     private func plan(_ id: Int) -> AgentQuestion {
         AgentQuestion(
             id: id,
+            wireId: "plan\(id)",
             text: "# Plan\n\n- step one",
             options: [AgentQuestionOption(label: "Approve", key: "1")],
             planMode: true

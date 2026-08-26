@@ -6,7 +6,6 @@ import {
   normalizeOauthErrorReason,
   oauthErrorMessage,
   oauthReturnCodeDeepLink,
-  oauthReturnDeepLink,
   oauthReturnErrorDeepLink,
 } from "@/lib/deep-link"
 
@@ -17,9 +16,9 @@ describe(`success deep links`, () => {
     )
   })
 
-  it(`percent-encodes the legacy token in both forms`, () => {
-    expect(oauthReturnDeepLink(`a b+c`)).toBe(
-      `${DEEP_LINK_SCHEME}://oauth-return?token=a%20b%2Bc#token=a%20b%2Bc`
+  it(`percent-encodes the code in both forms`, () => {
+    expect(oauthReturnCodeDeepLink(`a b+c`)).toBe(
+      `${DEEP_LINK_SCHEME}://oauth-return?code=a%20b%2Bc#code=a%20b%2Bc`
     )
   })
 

@@ -318,10 +318,7 @@ private fun CollapsedBar(
                         CodingSessionDisplayState.Running -> PulsingDot(size = 10.dp)
                         CodingSessionDisplayState.NeedsInput -> StaticDot(NeedsInputAmber, size = 10.dp)
                         CodingSessionDisplayState.Review -> StaticDot(ReviewGreen, size = 10.dp)
-                        // EXP-358: a merged-but-alive session reads like Done.
-                        CodingSessionDisplayState.Done,
-                        CodingSessionDisplayState.Merged,
-                        -> StaticDot(DoneBlue, size = 10.dp)
+                        CodingSessionDisplayState.Done -> StaticDot(DoneBlue, size = 10.dp)
                     }
                 }
             }

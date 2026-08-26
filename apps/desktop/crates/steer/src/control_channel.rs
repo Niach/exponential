@@ -58,33 +58,23 @@ const PING_INTERVAL: Duration = Duration::from_secs(30);
 const LIVENESS_TIMEOUT: Duration = Duration::from_secs(90);
 
 /// The stable device identity this channel announces (§8.2).
+///
+/// EXP-485: presence only. The installed/signed-out agent lists and the
+/// per-agent launch defaults are NOT here — they reach the server through
+/// `devices.register`, whose persisted row outlives relay restarts and can
+/// change without tearing this socket down.
 #[derive(Clone, Debug)]
 pub struct DeviceIdentity {
     /// Install-persistent UUID ([`crate::persistent_device_id`]).
     pub device_id: String,
     /// OS hostname (`api::users::hostname()`) — the phone picker's label.
     pub device_label: String,
-    /// EXP-201: the agent CLIs installed on this device (contract
-    /// `codingAgent` ids, from the coding doctor) — advertised in the
-    /// `online` frame so remote pickers only offer them. Since EXP-409 this
-    /// means RUNNABLE (installed AND signed in). Empty AND no unauthed
-    /// agents = omit the field (the relay then defaults to `["claude"]`);
-    /// with unauthed agents present the empty list is sent explicitly so
-    /// that legacy default can't mislabel the machine.
-    pub agents: Vec<String>,
-    /// EXP-409: agents installed but SIGNED OUT — unusable, advertised so
-    /// machine lists can say "sign in on that machine". Empty = omit.
-    pub unauthed_agents: Vec<String>,
     /// EXP-253/EXP-257: feature capabilities (`actions`, `action-inputs`) —
     /// advertised in the `online` frame; remote Run-action pickers strictly
     /// gate on `actions`, and the server additionally requires
     /// `action-inputs` for builtin/inputs-carrying starts. Empty = omit the
     /// field.
     pub caps: Vec<String>,
-    /// EXP-437: this machine's per-agent launch defaults — remote
-    /// Start-coding dialogs seed from the selected device. `None` = omit
-    /// (no runnable agent; clients fall back to static defaults).
-    pub launch_defaults: Option<crate::frames::LaunchDefaults>,
 }
 
 /// The two server calls the channel needs, injectable for tests. Blocking
@@ -161,8 +151,8 @@ pub struct RemoteStart {
     pub skip_permissions: Option<bool>,
     /// EXP-481: resume the issue's existing worktree/agent session. Only
     /// meaningful on the Issue subject (the server rejects it elsewhere);
-    /// absent = fresh start (the pre-481 wire).
-    pub resume: Option<bool>,
+    /// absent on the wire = `false`, a fresh start (the pre-481 wire).
+    pub resume: bool,
 }
 
 /// Build a [`RemoteStart`] from the raw `start_session` frame fields, enforcing
@@ -187,7 +177,7 @@ pub(crate) fn remote_start_from_frame(
     ultracode: Option<bool>,
     plan_mode: Option<bool>,
     skip_permissions: Option<bool>,
-    resume: Option<bool>,
+    resume: bool,
 ) -> Option<RemoteStart> {
     let subject = match (issue_id, issue_ids, action_id) {
         (Some(issue_id), None, None) => RemoteStartSubject::Issue(issue_id),
@@ -454,20 +444,12 @@ async fn connect_and_listen(
         Err(crate::DialError::Other(reason)) => return ConnectionOutcome::ConnectFailed(reason),
     };
 
-    // §8.3 #3 — announce presence immediately on open (EXP-201: including
-    // the installed-agent advertisement; empty = omit, relay defaults to
-    // claude-only — UNLESS a signed-out agent exists (EXP-409), where the
-    // empty runnable list must be explicit so the default can't mislabel
-    // the machine as claude-capable).
-    let send_agents = !device.agents.is_empty() || !device.unauthed_agents.is_empty();
+    // §8.3 #3 — announce presence immediately on open. EXP-485: presence +
+    // `caps` only; the agent lists and launch defaults ride `devices.register`.
     let online = ClientFrame::Online {
         device_id: &device.device_id,
         device_label: Some(&device.device_label),
-        agents: send_agents.then_some(device.agents.as_slice()),
-        unauthed_agents: (!device.unauthed_agents.is_empty())
-            .then_some(device.unauthed_agents.as_slice()),
         caps: (!device.caps.is_empty()).then_some(device.caps.as_slice()),
-        launch_defaults: device.launch_defaults.as_ref(),
     }
     .to_json();
     if let Err(err) = ws.send(Message::Text(online)).await {
@@ -618,7 +600,7 @@ mod tests {
                 Some(true),
                 None,
                 Some(true),
-                None,
+                false,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Issue("issue-9".into()),
@@ -629,7 +611,7 @@ mod tests {
                 ultracode: Some(true),
                 plan_mode: None,
                 skip_permissions: Some(true),
-                resume: None,
+                resume: false,
             })
         );
 
@@ -650,7 +632,7 @@ mod tests {
                 None,
                 Some(false),
                 None,
-                None,
+                false,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Batch {
@@ -665,7 +647,7 @@ mod tests {
                 ultracode: None,
                 plan_mode: Some(false),
                 skip_permissions: None,
-                resume: None,
+                resume: false,
             })
         );
     }
@@ -689,7 +671,7 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
+                false,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Issue("issue-9".into()),
@@ -700,7 +682,7 @@ mod tests {
                 ultracode: None,
                 plan_mode: None,
                 skip_permissions: None,
-                resume: None,
+                resume: false,
             })
         );
     }
@@ -724,7 +706,7 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
+                false,
             ),
             None
         );
@@ -732,7 +714,7 @@ mod tests {
         assert_eq!(
             remote_start_from_frame(
                 None, None, None, None, None, None, None, None, None, None, None, None, None,
-                None, None,
+                None, false,
             ),
             None
         );
@@ -753,7 +735,7 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
+                false,
             ),
             None
         );
@@ -774,7 +756,7 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
+                false,
             ),
             None
         );
@@ -795,7 +777,7 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
+                false,
             ),
             None
         );
@@ -820,7 +802,7 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
+                false,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Action {
@@ -837,7 +819,7 @@ mod tests {
                 ultracode: None,
                 plan_mode: None,
                 skip_permissions: None,
-                resume: None,
+                resume: false,
             })
         );
         // Repo-less action: repo simply absent.
@@ -857,7 +839,7 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
+                false,
             )
             .map(|start| start.subject),
             Some(RemoteStartSubject::Action {
@@ -906,7 +888,7 @@ mod tests {
                 None,
                 None,
                 Some(true),
-                None,
+                false,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Action {
@@ -923,7 +905,7 @@ mod tests {
                 ultracode: None,
                 plan_mode: None,
                 skip_permissions: Some(true),
-                resume: None,
+                resume: false,
             })
         );
     }
@@ -947,7 +929,7 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
+                false,
             ),
             None
         );
@@ -968,7 +950,7 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
+                false,
             ),
             None
         );
@@ -989,7 +971,7 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
+                false,
             ),
             None
         );

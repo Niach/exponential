@@ -112,14 +112,10 @@ final class IssueDetailViewModel {
     private let issueId: String
     private let db: DatabaseManager
     private let issuesApi: IssuesApi
-    private let issueImagesApi: IssueImagesApi
     private let attachmentsApi: AttachmentsApi
     private let labelsApi: LabelsApi
     private let subscriptionsApi: SubscriptionsApi
     private let steerApi: SteerApi
-    /// EXP-432: the start circle's device source — `devices.list` team-scoped,
-    /// not `steer.myDevices`, so a teammate's shared server counts too.
-    private let devicesApi: DevicesApi
     /// Widget/agent submission metadata (EXP-496) — tRPC-only.
     private let widgetsApi: WidgetsApi
     private let auth: AuthRepository
@@ -143,12 +139,10 @@ final class IssueDetailViewModel {
         issueId: String,
         db: DatabaseManager,
         issuesApi: IssuesApi,
-        issueImagesApi: IssueImagesApi,
         attachmentsApi: AttachmentsApi,
         labelsApi: LabelsApi,
         subscriptionsApi: SubscriptionsApi,
         steerApi: SteerApi,
-        devicesApi: DevicesApi,
         widgetsApi: WidgetsApi,
         auth: AuthRepository
     ) {
@@ -156,12 +150,10 @@ final class IssueDetailViewModel {
         self.issueId = issueId
         self.db = db
         self.issuesApi = issuesApi
-        self.issueImagesApi = issueImagesApi
         self.attachmentsApi = attachmentsApi
         self.labelsApi = labelsApi
         self.subscriptionsApi = subscriptionsApi
         self.steerApi = steerApi
-        self.devicesApi = devicesApi
         self.widgetsApi = widgetsApi
         self.auth = auth
         let instanceUrl = auth.accounts.first(where: { $0.id == accountId })?.instanceUrl ?? auth.instanceUrl
@@ -266,15 +258,13 @@ final class IssueDetailViewModel {
         })
 
         // Live sessions for this issue (14th synced shape) — running AND
-        // in_review (the terminal stays alive after the PR opens, EXP-194)
-        // AND merged (the merge parks the session, EXP-358).
+        // in_review (the terminal stays alive after the PR opens, EXP-194).
         let sessionObs = ValueObservation.tracking { db in
             try CodingSessionEntity
                 .filter(Column("issue_id") == issueId)
                 .filter([
                     DomainContract.codingSessionStatusRunning,
                     DomainContract.codingSessionStatusInReview,
-                    DomainContract.codingSessionStatusMerged,
                 ].contains(Column("status")))
                 .fetchAll(db)
         }
@@ -544,7 +534,7 @@ final class IssueDetailViewModel {
         steerConfig = await SteerConfigCache.load(accountId: accountId, api: steerApi)
         guard steerConfig?.enabled == true, permissions.isMember, runningSessions.isEmpty else { return }
         // Scoped to the issue's team (EXP-432): teammates' shared servers are
-        // start targets too. `devices.list` also returns OFFLINE machines,
+        // start targets too. The synced rows carry OFFLINE machines as well,
         // which the circle must never offer — `onlineStartTargets` drops them.
         steerDevices = await DeviceQueries.onlineStartTargets(
             db: db, accountId: accountId,
@@ -668,7 +658,7 @@ final class IssueDetailViewModel {
     }
 
     private func makeImageUploader(issueId: String) -> @Sendable (PendingImage) async throws -> String {
-        let api = issueImagesApi
+        let api = attachmentsApi
         let accountId = accountId
         return { image in
             let uploaded = try await api.upload(

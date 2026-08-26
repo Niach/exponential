@@ -2,9 +2,9 @@ import Foundation
 import XCTest
 @testable import ExpCore
 
-// EXP-358: the `merged` session status IS the display state — a PR merge no
-// longer ends the run. The pre-EXP-358 `in_review` + merged-PR derivation has
-// to keep working for rows written by older servers/desktops.
+// EXP-540: a PR merge ends the run (EXP-498), so no session status of its own
+// carries "merged". The `in_review` + merged-PR derivation has to keep working
+// for rows a lagging older server left parked in review.
 final class CodingSessionDisplayTests: XCTestCase {
     private func session(status: String, needsInput: Bool = false) -> CodingSessionEntity {
         CodingSessionEntity(
@@ -23,33 +23,9 @@ final class CodingSessionDisplayTests: XCTestCase {
         )
     }
 
-    func testMergedStatusWins() {
-        XCTAssertEqual(
-            CodingSessionDisplayState.of(session: session(status: "merged"), prState: "merged"),
-            .merged
-        )
-        // The status stands on its own — the issue's prState may not have
-        // synced yet, and a batch/action session has no issue at all.
-        XCTAssertEqual(
-            CodingSessionDisplayState.of(session: session(status: "merged"), prState: nil),
-            .merged
-        )
-    }
-
-    func testMergedOutranksNeedsInput() {
-        // Same precedence the PR-derived merge already had: a merged run is
-        // not waiting on a picker.
-        XCTAssertEqual(
-            CodingSessionDisplayState.of(
-                session: session(status: "merged", needsInput: true), prState: "open"
-            ),
-            .merged
-        )
-    }
-
-    func testLegacyInReviewWithMergedPrStaysDone() {
-        // Old rows never get the new status — the PR outcome still resolves
-        // them (EXP-214).
+    func testInReviewWithMergedPrIsDone() {
+        // Old-server tolerance: the row never left `in_review` after its PR
+        // merged, so the PR outcome resolves it (EXP-214).
         XCTAssertEqual(
             CodingSessionDisplayState.of(session: session(status: "in_review"), prState: "merged"),
             .done

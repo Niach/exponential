@@ -746,8 +746,7 @@ struct MainNavigator: View {
             } catch {}
         }
         // Live coding sessions drive the Agents tab's dot — running AND in_review
-        // (the "agent finished, look at it" signal counts too, EXP-194) AND
-        // merged (a merge parks the session, it no longer ends it, EXP-358).
+        // (the "agent finished, look at it" signal counts too, EXP-194).
         // OWN sessions only, matching the owner-only Agents list: a teammate's
         // session must not light a dot over a screen that shows nothing.
         // Captured here because startObserving() re-runs on account switch.
@@ -757,7 +756,6 @@ struct MainNavigator: View {
                 .filter([
                     DomainContract.codingSessionStatusRunning,
                     DomainContract.codingSessionStatusInReview,
-                    DomainContract.codingSessionStatusMerged,
                 ].contains(Column("status")))
                 .fetchAll(db)
         }

@@ -70,14 +70,14 @@ describe(`resolveSessionDevice`, () => {
     ).toEqual({ label: `box`, online: null })
   })
 
-  it(`legacy rows (no id) match a UNIQUE row by label`, () => {
+  it(`rows without an id keep their snapshot even when one label matches (EXP-560)`, () => {
     expect(
       resolveSessionDevice(
         { deviceId: null, deviceLabel: `macbook`, userId: `me` },
         [device({ lastSeenAt: stale }), device({ deviceId: `dev-2`, label: `server` })],
         NOW
       )
-    ).toEqual({ label: `macbook`, online: false })
+    ).toEqual({ label: `macbook`, online: null })
   })
 
   it(`legacy rows with an ambiguous label resolve to the snapshot only`, () => {
@@ -107,9 +107,8 @@ describe(`sessionIsPaused`, () => {
     expect(sessionIsPaused(`running`, offline)).toBe(true)
     expect(sessionIsPaused(`needs_input`, offline)).toBe(true)
   })
-  it(`never overrides review/merged/done`, () => {
+  it(`never overrides review/done`, () => {
     expect(sessionIsPaused(`review`, offline)).toBe(false)
-    expect(sessionIsPaused(`merged`, offline)).toBe(false)
     expect(sessionIsPaused(`done`, offline)).toBe(false)
   })
   it(`unknown or online devices never pause`, () => {

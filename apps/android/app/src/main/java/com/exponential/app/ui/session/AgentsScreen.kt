@@ -737,7 +737,7 @@ private fun AgentSessionRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // running → pulsing green; parked states → static dot: review green,
-            // done/merged blue, needs-input amber (EXP-194/EXP-214/EXP-358);
+            // done blue, needs-input amber (EXP-194/EXP-214);
             // paused-on-an-offline-machine → static grey (EXP-550).
             when {
                 paused -> StaticDot(LostGray)
@@ -746,7 +746,6 @@ private fun AgentSessionRow(
                     CodingSessionDisplayState.NeedsInput -> StaticDot(NeedsInputAmber)
                     CodingSessionDisplayState.Review -> StaticDot(ReviewGreen)
                     CodingSessionDisplayState.Done -> StaticDot(DoneBlue)
-                    CodingSessionDisplayState.Merged -> StaticDot(DoneBlue)
                 }
             }
             Spacer(Modifier.width(12.dp))
@@ -786,7 +785,6 @@ private fun AgentSessionRow(
                             CodingSessionDisplayState.NeedsInput -> "Needs input · $deviceName"
                             CodingSessionDisplayState.Review -> "Ready for review · $deviceName"
                             CodingSessionDisplayState.Done -> "Done · $deviceName"
-                            CodingSessionDisplayState.Merged -> "Merged · $deviceName"
                             CodingSessionDisplayState.Running ->
                                 "$deviceName · started ${relativeTime(session.startedAt)}"
                         }
@@ -798,7 +796,6 @@ private fun AgentSessionRow(
                             CodingSessionDisplayState.NeedsInput -> NeedsInputAmber
                             CodingSessionDisplayState.Review -> ReviewGreen
                             CodingSessionDisplayState.Done -> DoneBlue
-                            CodingSessionDisplayState.Merged -> DoneBlue
                             CodingSessionDisplayState.Running ->
                                 MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
                         }

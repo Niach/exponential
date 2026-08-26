@@ -7,6 +7,12 @@ import { TRPCError } from "@trpc/server"
 // for a single (or duplicate-collapsed) id vs a "fat" batch body (issueIds +
 // teamId + repo, installationId stripped) for 2+. The relay call is
 // mocked, so a caller + a handful of stubs is enough.
+//
+// EXP-485/EXP-542: the TARGET MACHINE is resolved purely from the persisted
+// `devices` row — startSession never reads relay presence any more (the
+// online frame carries no agents/caps advertisement, and online-ness stays
+// with relayPostStart's 404). So every scenario below queues the row(s)
+// resolveTargetDevice selects; see queueOwnDevice / queueSharedDevice.
 
 const h = vi.hoisted(() => {
   // Minimal drizzle select-chain: each awaited query pops the next row set
@@ -130,6 +136,26 @@ function lastStartBody(): Record<string, unknown> {
   return h.relayPostStart.mock.calls.at(-1)![1] as Record<string, unknown>
 }
 
+// resolveTargetDevice runs the caller's OWN (user_id, device_id) select
+// first and only falls through to the shared-server select when it misses,
+// so a scenario queues its rows in that order. A row is the whole
+// advertisement now: agents, unauthedAgents and caps are notNull columns.
+// Queue NOTHING to model a machine that never registered (EXP-542).
+function ownDeviceRow(over: Record<string, unknown> = {}) {
+  return {
+    userId: `actor`,
+    deviceId: `dev-1`,
+    agents: [`claude`, `codex`, `pi`],
+    unauthedAgents: [],
+    caps: [],
+    ...over,
+  }
+}
+
+function queueOwnDevice(over: Record<string, unknown> = {}): void {
+  h.dbQueue.push([ownDeviceRow(over)])
+}
+
 beforeEach(() => {
   h.getSteerRelayConfig.mockReset()
   h.getSteerRelayConfig.mockReturnValue({
@@ -146,17 +172,8 @@ beforeEach(() => {
   h.relayPostKill.mockReset()
   h.relayPostKill.mockResolvedValue(undefined)
   h.relayGetDevices.mockReset()
-  // Default: the target device is online and advertises all three agents.
-  h.relayGetDevices.mockResolvedValue({
-    devices: [
-      {
-        deviceId: `dev-1`,
-        deviceLabel: `MacBook`,
-        connectedAt: 0,
-        agents: [`claude`, `codex`, `pi`],
-      },
-    ],
-  })
+  // Only steer.myDevices reads presence now; startSession must never call it.
+  h.relayGetDevices.mockResolvedValue({ devices: [] })
   h.assertTeamMember.mockReset()
   h.assertTeamMember.mockResolvedValue({ role: `member` })
   h.getIssueTeamContext.mockReset()
@@ -251,6 +268,9 @@ describe(`steer.startSession — server-side validation`, () => {
   })
 
   it(`maps a relay 404 to PRECONDITION_FAILED carrying the relay reason`, async () => {
+    // The registered row says nothing about online-ness — an offline machine
+    // is exactly this: a resolvable row whose relay bucket 404s.
+    queueOwnDevice()
     h.relayPostStart.mockResolvedValue({
       ok: false,
       status: 404,
@@ -266,6 +286,7 @@ describe(`steer.startSession — server-side validation`, () => {
 
 describe(`steer.startSession — routed body shape`, () => {
   it(`routes a single issueId as the legacy single-issue body`, async () => {
+    queueOwnDevice()
     await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
     const body = lastStartBody()
     expect(body).toMatchObject({
@@ -279,6 +300,7 @@ describe(`steer.startSession — routed body shape`, () => {
   })
 
   it(`routes a single-element issueIds as the legacy single-issue body`, async () => {
+    queueOwnDevice()
     await caller.startSession({ issueIds: [ISSUE_A], deviceId: `dev-1` })
     const body = lastStartBody()
     expect(body.issueId).toBe(ISSUE_A)
@@ -286,6 +308,7 @@ describe(`steer.startSession — routed body shape`, () => {
   })
 
   it(`collapses duplicate issueIds to one → legacy single-issue body`, async () => {
+    queueOwnDevice()
     await caller.startSession({
       issueIds: [ISSUE_A, ISSUE_A],
       deviceId: `dev-1`,
@@ -297,6 +320,7 @@ describe(`steer.startSession — routed body shape`, () => {
   })
 
   it(`routes 2+ issues as a batch body with the repo group and no installationId`, async () => {
+    queueOwnDevice()
     await caller.startSession({
       issueIds: [ISSUE_A, ISSUE_B],
       deviceId: `dev-1`,
@@ -324,6 +348,7 @@ describe(`steer.startSession — routed body shape`, () => {
 
 describe(`steer.startSession — agent selection (EXP-201)`, () => {
   it(`forwards agent + skipPermissions to the relay body`, async () => {
+    queueOwnDevice()
     await caller.startSession({
       issueId: ISSUE_A,
       deviceId: `dev-1`,
@@ -341,12 +366,8 @@ describe(`steer.startSession — agent selection (EXP-201)`, () => {
     })
   })
 
-  it(`rejects an agent the device did not advertise`, async () => {
-    h.relayGetDevices.mockResolvedValue({
-      devices: [
-        { deviceId: `dev-1`, deviceLabel: `Mac`, connectedAt: 0, agents: [`claude`] },
-      ],
-    })
+  it(`rejects an agent the row did not register`, async () => {
+    queueOwnDevice({ agents: [`claude`] })
     const error = await rejectionOf(
       caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, agent: `codex` })
     )
@@ -356,18 +377,18 @@ describe(`steer.startSession — agent selection (EXP-201)`, () => {
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 
-  it(`treats a device without an advertisement as claude-only`, async () => {
-    h.relayGetDevices.mockResolvedValue({
-      devices: [{ deviceId: `dev-1`, deviceLabel: `Mac`, connectedAt: 0 }],
-    })
+  it(`names a signed-out agent instead of "not installed" (EXP-409)`, async () => {
+    // Installed but signed out: the runnable list is empty (no claude
+    // fallback since EXP-542) and the message says where to fix it.
+    queueOwnDevice({ agents: [], unauthedAgents: [`claude`] })
     const error = await rejectionOf(
-      caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, agent: `pi` })
+      caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
     )
     expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
-
-    // Claude (explicit or absent) still routes.
-    await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
-    expect(h.relayPostStart).toHaveBeenCalledTimes(1)
+    expect((error as TRPCError).message).toContain(
+      `claude is installed on that device but not signed in`
+    )
+    expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 
   it(`validates model/effort against the AGENT's contract lists`, async () => {
@@ -393,7 +414,9 @@ describe(`steer.startSession — agent selection (EXP-201)`, () => {
     )
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
 
-    // Blank model is the codex/pi "CLI default" — valid.
+    // Blank model is the codex/pi "CLI default" — valid. (Only this call
+    // reaches the device resolve; the two above fail at the input layer.)
+    queueOwnDevice()
     await caller.startSession({
       issueId: ISSUE_A,
       deviceId: `dev-1`,
@@ -427,6 +450,7 @@ describe(`steer.startSession — agent selection (EXP-201)`, () => {
     )
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
 
+    queueOwnDevice()
     await caller.startSession({
       issueId: ISSUE_A,
       deviceId: `dev-1`,
@@ -455,32 +479,25 @@ const REPO_INPUT_ID = `44444444-4444-4444-8444-444444444444`
 const BUILTIN_ID = `builtin:create-action`
 const BUILTIN_TEAM_ID = `55555555-5555-4555-8555-555555555555`
 
-function actionsCapableDevice(caps: string[], agents?: string[]) {
-  h.relayGetDevices.mockResolvedValue({
-    devices: [
-      {
-        deviceId: `dev-1`,
-        deviceLabel: `MacBook`,
-        connectedAt: 0,
-        agents: agents ?? [`claude`, `codex`, `pi`],
-        caps,
-      },
-    ],
-  })
+// The action row the action branch loads FIRST — the device row it resolves
+// last always goes on the queue after it.
+function queueAction(over: Record<string, unknown> = {}) {
+  h.dbQueue.push([
+    {
+      id: ACTION_ID,
+      teamId: `ws-1`,
+      repositoryId: null,
+      name: `A`,
+      inputs: [],
+      ...over,
+    },
+  ])
 }
 
 describe(`steer.startSession — action runs (EXP-257)`, () => {
   it(`forwards the FULL option set on an action start (no more Claude-only clamp)`, async () => {
-    actionsCapableDevice([`actions`, `action-inputs`])
-    h.dbQueue.push([
-      {
-        id: ACTION_ID,
-        teamId: `ws-1`,
-        repositoryId: null,
-        name: `Code review`,
-        inputs: [],
-      },
-    ])
+    queueAction({ name: `Code review` })
+    queueOwnDevice({ caps: [`actions`, `action-inputs`] })
     await caller.startSession({
       actionId: ACTION_ID,
       deviceId: `dev-1`,
@@ -516,11 +533,9 @@ describe(`steer.startSession — action runs (EXP-257)`, () => {
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 
-  it(`rejects an agent the device did not advertise on action starts`, async () => {
-    actionsCapableDevice([`actions`, `action-inputs`], [`claude`])
-    h.dbQueue.push([
-      { id: ACTION_ID, teamId: `ws-1`, repositoryId: null, name: `A`, inputs: [] },
-    ])
+  it(`rejects an agent the row did not register on action starts`, async () => {
+    queueAction()
+    queueOwnDevice({ caps: [`actions`, `action-inputs`], agents: [`claude`] })
     const error = await rejectionOf(
       caller.startSession({
         actionId: ACTION_ID,
@@ -535,21 +550,12 @@ describe(`steer.startSession — action runs (EXP-257)`, () => {
   it(`treats an explicitly empty agents list as nothing-runnable (EXP-409)`, async () => {
     // Every installed agent signed out: agents=[] must NOT fall back to
     // claude, and a signed-out agent gets the sign-in message.
-    h.relayGetDevices.mockResolvedValue({
-      devices: [
-        {
-          deviceId: `dev-1`,
-          deviceLabel: `MacBook`,
-          connectedAt: 0,
-          agents: [],
-          unauthedAgents: [`claude`],
-          caps: [`actions`, `action-inputs`],
-        },
-      ],
+    queueAction()
+    queueOwnDevice({
+      agents: [],
+      unauthedAgents: [`claude`],
+      caps: [`actions`, `action-inputs`],
     })
-    h.dbQueue.push([
-      { id: ACTION_ID, teamId: `ws-1`, repositoryId: null, name: `A`, inputs: [] },
-    ])
     const error = await rejectionOf(
       caller.startSession({ actionId: ACTION_ID, deviceId: `dev-1` })
     )
@@ -561,10 +567,10 @@ describe(`steer.startSession — action runs (EXP-257)`, () => {
   })
 
   it(`refuses a device without the actions cap`, async () => {
-    // Default beforeEach device advertises agents but NO caps.
-    h.dbQueue.push([
-      { id: ACTION_ID, teamId: `ws-1`, repositoryId: null, name: `A`, inputs: [] },
-    ])
+    // A registered row with agents but NO caps — an old build with no action
+    // launch path at all.
+    queueAction()
+    queueOwnDevice()
     const error = await rejectionOf(
       caller.startSession({ actionId: ACTION_ID, deviceId: `dev-1` })
     )
@@ -573,10 +579,8 @@ describe(`steer.startSession — action runs (EXP-257)`, () => {
   })
 
   it(`input-less runs stay allowed on an actions-only (pre-inputs) desktop`, async () => {
-    actionsCapableDevice([`actions`])
-    h.dbQueue.push([
-      { id: ACTION_ID, teamId: `ws-1`, repositoryId: null, name: `A`, inputs: [] },
-    ])
+    queueAction()
+    queueOwnDevice({ caps: [`actions`] })
     await caller.startSession({ actionId: ACTION_ID, deviceId: `dev-1` })
     expect(h.relayPostStart).toHaveBeenCalledTimes(1)
   })
@@ -585,10 +589,8 @@ describe(`steer.startSession — action runs (EXP-257)`, () => {
     // A pre-EXP-257 desktop advertises `actions` + its full agent list, but
     // its action runner forces claude while honoring the model string — the
     // start would silently launch claude with a codex model.
-    actionsCapableDevice([`actions`], [`claude`, `codex`])
-    h.dbQueue.push([
-      { id: ACTION_ID, teamId: `ws-1`, repositoryId: null, name: `A`, inputs: [] },
-    ])
+    queueAction()
+    queueOwnDevice({ caps: [`actions`], agents: [`claude`, `codex`] })
     const error = await rejectionOf(
       caller.startSession({
         actionId: ACTION_ID,
@@ -603,10 +605,8 @@ describe(`steer.startSession — action runs (EXP-257)`, () => {
   })
 
   it(`claude runs stay allowed on an actions-only desktop (options it ignores are not a regression)`, async () => {
-    actionsCapableDevice([`actions`], [`claude`])
-    h.dbQueue.push([
-      { id: ACTION_ID, teamId: `ws-1`, repositoryId: null, name: `A`, inputs: [] },
-    ])
+    queueAction()
+    queueOwnDevice({ caps: [`actions`], agents: [`claude`] })
     await caller.startSession({
       actionId: ACTION_ID,
       deviceId: `dev-1`,
@@ -618,16 +618,10 @@ describe(`steer.startSession — action runs (EXP-257)`, () => {
   })
 
   it(`inputs-carrying runs require the action-inputs cap`, async () => {
-    actionsCapableDevice([`actions`])
-    h.dbQueue.push([
-      {
-        id: ACTION_ID,
-        teamId: `ws-1`,
-        repositoryId: null,
-        name: `A`,
-        inputs: [{ key: `topic`, label: `Topic`, type: `text`, required: false }],
-      },
-    ])
+    queueAction({
+      inputs: [{ key: `topic`, label: `Topic`, type: `text`, required: false }],
+    })
+    queueOwnDevice({ caps: [`actions`] })
     const error = await rejectionOf(
       caller.startSession({
         actionId: ACTION_ID,
@@ -641,20 +635,16 @@ describe(`steer.startSession — action runs (EXP-257)`, () => {
   })
 
   it(`validates values against the schema — missing required, unknown key`, async () => {
-    actionsCapableDevice([`actions`, `action-inputs`])
+    // Both calls fail before the device resolve, so no row is queued.
     const defs = [{ key: `topic`, label: `Topic`, type: `text`, required: true }]
-    h.dbQueue.push([
-      { id: ACTION_ID, teamId: `ws-1`, repositoryId: null, name: `A`, inputs: defs },
-    ])
+    queueAction({ inputs: defs })
     let error = await rejectionOf(
       caller.startSession({ actionId: ACTION_ID, deviceId: `dev-1` })
     )
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
     expect((error as TRPCError).message).toContain(`Missing required input`)
 
-    h.dbQueue.push([
-      { id: ACTION_ID, teamId: `ws-1`, repositoryId: null, name: `A`, inputs: defs },
-    ])
+    queueAction({ inputs: defs })
     error = await rejectionOf(
       caller.startSession({
         actionId: ACTION_ID,
@@ -668,18 +658,12 @@ describe(`steer.startSession — action runs (EXP-257)`, () => {
   })
 
   it(`resolves repo-typed inputs to display names, team-scoped`, async () => {
-    actionsCapableDevice([`actions`, `action-inputs`])
-    h.dbQueue.push([
-      {
-        id: ACTION_ID,
-        teamId: `ws-1`,
-        repositoryId: null,
-        name: `A`,
-        inputs: [{ key: `repo`, label: `Repository`, type: `repo`, required: true }],
-      },
-    ])
-    // The repo lookup select.
+    queueAction({
+      inputs: [{ key: `repo`, label: `Repository`, type: `repo`, required: true }],
+    })
+    // The repo lookup select, then the device resolve.
     h.dbQueue.push([{ teamId: `ws-1`, fullName: `acme/api` }])
+    queueOwnDevice({ caps: [`actions`, `action-inputs`] })
     await caller.startSession({
       actionId: ACTION_ID,
       deviceId: `dev-1`,
@@ -697,16 +681,9 @@ describe(`steer.startSession — action runs (EXP-257)`, () => {
   })
 
   it(`rejects a cross-team repo input value`, async () => {
-    actionsCapableDevice([`actions`, `action-inputs`])
-    h.dbQueue.push([
-      {
-        id: ACTION_ID,
-        teamId: `ws-1`,
-        repositoryId: null,
-        name: `A`,
-        inputs: [{ key: `repo`, label: `Repository`, type: `repo`, required: true }],
-      },
-    ])
+    queueAction({
+      inputs: [{ key: `repo`, label: `Repository`, type: `repo`, required: true }],
+    })
     h.dbQueue.push([{ teamId: `ws-OTHER`, fullName: `evil/repo` }])
     const error = await rejectionOf(
       caller.startSession({
@@ -739,7 +716,9 @@ describe(`steer.startSession — builtin create-action (EXP-257)`, () => {
   })
 
   it(`routes a builtin start with no DB action load and the resolved inputs`, async () => {
-    actionsCapableDevice([`actions`, `action-inputs`])
+    // The device row is the ONLY queued select — the builtin never loads a
+    // DB action.
+    queueOwnDevice({ caps: [`actions`, `action-inputs`] })
     const teamId = `55555555-5555-4555-8555-555555555555`
     await caller.startSession({
       actionId: BUILTIN_ID,
@@ -747,7 +726,6 @@ describe(`steer.startSession — builtin create-action (EXP-257)`, () => {
       deviceId: `dev-1`,
       inputs: { description: `Review PRs weekly` },
     })
-    // No queued rows were consumed — the builtin never loads a DB action.
     expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, teamId)
     expect(lastStartBody()).toMatchObject({
       actionId: BUILTIN_ID,
@@ -767,7 +745,6 @@ describe(`steer.startSession — builtin create-action (EXP-257)`, () => {
   })
 
   it(`enforces the builtin's required description`, async () => {
-    actionsCapableDevice([`actions`, `action-inputs`])
     const error = await rejectionOf(
       caller.startSession({
         actionId: BUILTIN_ID,
@@ -782,7 +759,7 @@ describe(`steer.startSession — builtin create-action (EXP-257)`, () => {
   })
 
   it(`builtin starts require the action-inputs cap`, async () => {
-    actionsCapableDevice([`actions`])
+    queueOwnDevice({ caps: [`actions`] })
     const error = await rejectionOf(
       caller.startSession({
         actionId: BUILTIN_ID,
@@ -813,8 +790,8 @@ const CHAT_ID = `builtin:chat`
 
 describe(`steer.startSession — builtin chat (EXP-615)`, () => {
   it(`routes a chat start with the override-aware repo group`, async () => {
-    actionsCapableDevice([`actions`, `action-inputs`, `chat`])
-    // resolveActionInputs' repo resolver, then the chat repo-group lookup.
+    // resolveActionInputs' repo resolver, the chat repo-group lookup, then
+    // the device resolve.
     h.dbQueue.push([{ teamId: BUILTIN_TEAM_ID, fullName: `acme/api` }])
     h.dbQueue.push([
       {
@@ -824,6 +801,7 @@ describe(`steer.startSession — builtin chat (EXP-615)`, () => {
         defaultBranchOverride: `develop`,
       },
     ])
+    queueOwnDevice({ caps: [`actions`, `action-inputs`, `chat`] })
     await caller.startSession({
       actionId: CHAT_ID,
       teamId: BUILTIN_TEAM_ID,
@@ -860,7 +838,6 @@ describe(`steer.startSession — builtin chat (EXP-615)`, () => {
   })
 
   it(`enforces the required prompt and repo inputs`, async () => {
-    actionsCapableDevice([`actions`, `action-inputs`, `chat`])
     const error = await rejectionOf(
       caller.startSession({
         actionId: CHAT_ID,
@@ -876,10 +853,9 @@ describe(`steer.startSession — builtin chat (EXP-615)`, () => {
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 
-  it(`chat starts require the chat cap`, async () => {
-    // An EXP-257-era desktop advertises actions + action-inputs but has no
-    // chat launch path — the dedicated cap must block it.
-    actionsCapableDevice([`actions`, `action-inputs`])
+  it(`starts without the chat cap — actions + action-inputs is enough (EXP-624)`, async () => {
+    // The per-start `chat` gate is gone: the fleet floor advertising it is
+    // enforced by CLIENT_MIN_VERSION_DESKTOP instead.
     h.dbQueue.push([{ teamId: BUILTIN_TEAM_ID, fullName: `acme/api` }])
     h.dbQueue.push([
       {
@@ -889,73 +865,62 @@ describe(`steer.startSession — builtin chat (EXP-615)`, () => {
         defaultBranchOverride: null,
       },
     ])
-    const error = await rejectionOf(
-      caller.startSession({
-        actionId: CHAT_ID,
-        teamId: BUILTIN_TEAM_ID,
-        deviceId: `dev-1`,
-        inputs: { prompt: `hello`, repo: REPO_INPUT_ID },
-      })
-    )
-    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
-    expect((error as TRPCError).message).toContain(`can't run chat`)
-    expect(h.relayPostStart).not.toHaveBeenCalled()
+    queueOwnDevice({ caps: [`actions`, `action-inputs`] })
+    const result = await caller.startSession({
+      actionId: CHAT_ID,
+      teamId: BUILTIN_TEAM_ID,
+      deviceId: `dev-1`,
+      inputs: { prompt: `hello`, repo: REPO_INPUT_ID },
+    })
+    expect(result).toEqual({ ok: true })
+    expect(lastStartBody()).toMatchObject({
+      actionId: CHAT_ID,
+      repo: { fullName: `acme/api`, defaultBranch: `main` },
+    })
   })
 })
 
 // ── Shared server devices (EXP-432) ──────────────────────────────────────────
 // A deviceId the caller doesn't own resolves through the `devices` table: a
-// SERVER device shared with the subject's team routes to its OWNER's presence
-// bucket, and the start carries `startedBy` so the hosting daemon can attribute
-// the session row back to the requester. Anything else keeps the pre-EXP-432
-// lenient shape (post with the caller's own userId; the relay 404s).
+// registered SERVER device shared with the subject's team routes to its
+// OWNER's relay bucket, and the start carries `startedBy` so the hosting
+// daemon can attribute the session row back to the requester. Anything the
+// team-scoped lookup does not match refuses outright (EXP-542) — the
+// pre-EXP-542 lenient "post it with the caller's own userId" path is gone.
 
 const SHARED_DEVICE = `srv-1`
 
-// The caller has nothing online; `owner-1` hosts the shared server device.
-function ownerHostsSharedDevice(caps?: string[], agents?: string[]) {
-  h.relayGetDevices.mockImplementation(
-    async (_config: unknown, forUserId: string) =>
-      forUserId === `owner-1`
-        ? {
-            devices: [
-              {
-                deviceId: SHARED_DEVICE,
-                deviceLabel: `build-box`,
-                connectedAt: 0,
-                agents: agents ?? [`claude`, `codex`, `pi`],
-                ...(caps ? { caps } : {}),
-              },
-            ],
-          }
-        : { devices: [] }
-  )
-}
-
-// The row the devices lookup finds. It carries the scoping columns so the
-// harness's where-filter can reject a row the real query would not match.
+// The row the shared lookup finds. It carries the scoping columns so the
+// harness's where-filter can reject a row the real query would not match,
+// plus the advertisement the start is gated on.
 function sharedDeviceRow(overrides: Record<string, unknown> = {}) {
   return {
     userId: `owner-1`,
     deviceId: SHARED_DEVICE,
     sharedTeamId: `ws-1`,
     kind: `server`,
+    agents: [`claude`, `codex`, `pi`],
+    unauthedAgents: [],
+    caps: [],
     ...overrides,
   }
 }
 
+// The caller owns nothing under this deviceId, so the own-row select comes
+// back empty and the shared-row select answers.
+function queueSharedDevice(overrides: Record<string, unknown> = {}): void {
+  h.dbQueue.push([])
+  h.dbQueue.push([sharedDeviceRow(overrides)])
+}
+
 describe(`steer.startSession — shared devices (EXP-432)`, () => {
   it(`routes an issue start to the sharing owner's bucket with startedBy`, async () => {
-    ownerHostsSharedDevice()
-    h.dbQueue.push([sharedDeviceRow()])
+    queueSharedDevice()
 
     await caller.startSession({ issueId: ISSUE_A, deviceId: SHARED_DEVICE })
 
-    // Presence was read for the caller first, then for the resolved owner.
-    expect(h.relayGetDevices.mock.calls.map((c) => c[1])).toEqual([
-      `actor`,
-      `owner-1`,
-    ])
+    // EXP-485: resolution is pure DB — no presence round-trip at all.
+    expect(h.relayGetDevices).not.toHaveBeenCalled()
     expect(lastStartBody()).toMatchObject({
       userId: `owner-1`,
       startedBy: `actor`,
@@ -965,8 +930,7 @@ describe(`steer.startSession — shared devices (EXP-432)`, () => {
   })
 
   it(`routes a batch start to the sharing owner's bucket with startedBy`, async () => {
-    ownerHostsSharedDevice()
-    h.dbQueue.push([sharedDeviceRow()])
+    queueSharedDevice()
 
     await caller.startSession({
       issueIds: [ISSUE_A, ISSUE_B],
@@ -981,9 +945,8 @@ describe(`steer.startSession — shared devices (EXP-432)`, () => {
     })
   })
 
-  it(`gates the agent list against the OWNER's presence, not the caller's`, async () => {
-    ownerHostsSharedDevice(undefined, [`claude`])
-    h.dbQueue.push([sharedDeviceRow()])
+  it(`gates the agent list against the OWNER's row, not the caller's`, async () => {
+    queueSharedDevice({ agents: [`claude`] })
 
     const error = await rejectionOf(
       caller.startSession({
@@ -998,80 +961,71 @@ describe(`steer.startSession — shared devices (EXP-432)`, () => {
   })
 
   it(`omits startedBy entirely on an own-device start`, async () => {
+    queueOwnDevice()
+
     await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
 
     const body = lastStartBody()
     expect(body.userId).toBe(`actor`)
     expect(`startedBy` in body).toBe(false)
-    // The caller's own presence answered — no devices lookup, no second
-    // relay round-trip.
-    expect(h.relayGetDevices).toHaveBeenCalledTimes(1)
+    // EXP-485: no presence round-trip on any path.
+    expect(h.relayGetDevices).not.toHaveBeenCalled()
   })
 
-  it(`keeps the lenient path for a device nobody shared (relay 404 ⇒ PRECONDITION_FAILED)`, async () => {
-    h.relayGetDevices.mockResolvedValue({ devices: [] })
-    h.relayPostStart.mockResolvedValue({
-      ok: false,
-      status: 404,
-      reason: `device_offline`,
-    })
-
+  it(`refuses a deviceId nobody registered (EXP-542)`, async () => {
+    // Nothing queued: both selects come back empty. Every supported build
+    // registers at startup, so an unresolvable target is refused here
+    // instead of being posted at the caller's own relay bucket.
     const error = await rejectionOf(
       caller.startSession({ issueId: ISSUE_A, deviceId: `ghost` })
     )
     expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
-    expect((error as TRPCError).message).toBe(`device_offline`)
-    const body = lastStartBody()
-    expect(body.userId).toBe(`actor`)
-    expect(`startedBy` in body).toBe(false)
+    expect((error as TRPCError).message).toContain(`hasn't registered`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 
   it(`does NOT resolve a device shared with a DIFFERENT team`, async () => {
-    ownerHostsSharedDevice()
     // The issue lives in ws-1; the share targets another team, so the
-    // team-scoped lookup matches nothing.
-    h.dbQueue.push([sharedDeviceRow({ sharedTeamId: `ws-OTHER` })])
+    // team-scoped lookup matches nothing and the start refuses.
+    queueSharedDevice({ sharedTeamId: `ws-OTHER` })
 
-    await caller.startSession({ issueId: ISSUE_A, deviceId: SHARED_DEVICE })
-
-    const body = lastStartBody()
-    expect(body.userId).toBe(`actor`)
-    expect(`startedBy` in body).toBe(false)
-    // The owner's presence was never fetched.
-    expect(h.relayGetDevices.mock.calls.map((c) => c[1])).toEqual([`actor`])
+    const error = await rejectionOf(
+      caller.startSession({ issueId: ISSUE_A, deviceId: SHARED_DEVICE })
+    )
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toContain(`hasn't registered`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 
   it(`does NOT resolve a non-server (desktop) device row`, async () => {
-    ownerHostsSharedDevice()
-    h.dbQueue.push([sharedDeviceRow({ kind: `desktop` })])
+    queueSharedDevice({ kind: `desktop` })
 
-    await caller.startSession({ issueId: ISSUE_A, deviceId: SHARED_DEVICE })
-
-    const body = lastStartBody()
-    expect(body.userId).toBe(`actor`)
-    expect(`startedBy` in body).toBe(false)
+    const error = await rejectionOf(
+      caller.startSession({ issueId: ISSUE_A, deviceId: SHARED_DEVICE })
+    )
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toContain(`hasn't registered`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 
   it(`never marks the caller's OWN shared device as a shared start`, async () => {
-    // The caller shared their own server device with the team but its daemon
-    // is offline — the row resolves to themselves, so no startedBy rides.
-    h.relayGetDevices.mockResolvedValue({ devices: [] })
-    h.dbQueue.push([sharedDeviceRow({ userId: `actor` })])
+    // The caller shared their own server device with the team — the own-row
+    // select wins, so no startedBy rides. The shared row queued behind it is
+    // left unconsumed: that second select never runs.
+    queueOwnDevice({ deviceId: SHARED_DEVICE, sharedTeamId: `ws-1` })
+    h.dbQueue.push([sharedDeviceRow()])
 
     await caller.startSession({ issueId: ISSUE_A, deviceId: SHARED_DEVICE })
 
     const body = lastStartBody()
     expect(body.userId).toBe(`actor`)
     expect(`startedBy` in body).toBe(false)
-    expect(h.relayGetDevices).toHaveBeenCalledTimes(1)
+    expect(h.dbQueue).toHaveLength(1)
   })
 
   it(`routes an action start to the owner's bucket with startedBy`, async () => {
-    ownerHostsSharedDevice([`actions`, `action-inputs`])
-    h.dbQueue.push([
-      { id: ACTION_ID, teamId: `ws-1`, repositoryId: null, name: `A`, inputs: [] },
-    ])
-    h.dbQueue.push([sharedDeviceRow()])
+    queueAction()
+    queueSharedDevice({ caps: [`actions`, `action-inputs`] })
 
     await caller.startSession({ actionId: ACTION_ID, deviceId: SHARED_DEVICE })
 
@@ -1083,13 +1037,10 @@ describe(`steer.startSession — shared devices (EXP-432)`, () => {
     })
   })
 
-  it(`checks the action caps against the OWNER's presence`, async () => {
-    // The owner's daemon is old: it advertises no caps at all.
-    ownerHostsSharedDevice()
-    h.dbQueue.push([
-      { id: ACTION_ID, teamId: `ws-1`, repositoryId: null, name: `A`, inputs: [] },
-    ])
-    h.dbQueue.push([sharedDeviceRow()])
+  it(`checks the action caps against the OWNER's row`, async () => {
+    // The owner's daemon is old: it registered no caps at all.
+    queueAction()
+    queueSharedDevice()
 
     const error = await rejectionOf(
       caller.startSession({ actionId: ACTION_ID, deviceId: SHARED_DEVICE })
@@ -1100,8 +1051,7 @@ describe(`steer.startSession — shared devices (EXP-432)`, () => {
   })
 
   it(`requires action-inputs on the owner's device for a builtin start`, async () => {
-    ownerHostsSharedDevice([`actions`])
-    h.dbQueue.push([sharedDeviceRow({ sharedTeamId: BUILTIN_TEAM_ID })])
+    queueSharedDevice({ sharedTeamId: BUILTIN_TEAM_ID, caps: [`actions`] })
 
     const error = await rejectionOf(
       caller.startSession({
@@ -1116,8 +1066,10 @@ describe(`steer.startSession — shared devices (EXP-432)`, () => {
   })
 
   it(`routes a builtin start on a shared device with startedBy`, async () => {
-    ownerHostsSharedDevice([`actions`, `action-inputs`])
-    h.dbQueue.push([sharedDeviceRow({ sharedTeamId: BUILTIN_TEAM_ID })])
+    queueSharedDevice({
+      sharedTeamId: BUILTIN_TEAM_ID,
+      caps: [`actions`, `action-inputs`],
+    })
 
     await caller.startSession({
       actionId: BUILTIN_ID,
@@ -1242,10 +1194,6 @@ describe(`steer.killSession — owner OR host (EXP-432)`, () => {
 // EXP-481: remote resume — single-issue only, strictly gated on the
 // persisted row's `resume` cap.
 describe(`steer.startSession — resume (EXP-481)`, () => {
-  const resumeRow = (caps: string[]) => [
-    { userId: `actor`, deviceId: `dev-1`, caps },
-  ]
-
   it(`rejects resume on a batch start at the input layer`, async () => {
     const error = await rejectionOf(
       caller.startSession({
@@ -1271,7 +1219,7 @@ describe(`steer.startSession — resume (EXP-481)`, () => {
   })
 
   it(`refuses when the persisted row lacks the resume cap`, async () => {
-    h.dbQueue.push(resumeRow([`actions`]))
+    queueOwnDevice({ caps: [`actions`] })
     const error = await rejectionOf(
       caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, resume: true })
     )
@@ -1281,15 +1229,15 @@ describe(`steer.startSession — resume (EXP-481)`, () => {
   })
 
   it(`refuses when the device never registered (legacy desktop)`, async () => {
-    h.dbQueue.push([])
     const error = await rejectionOf(
       caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, resume: true })
     )
     expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toContain(`hasn't registered`)
   })
 
   it(`rides the relay body when the cap is present`, async () => {
-    h.dbQueue.push(resumeRow([`actions`, `resume`, `worktrees`]))
+    queueOwnDevice({ caps: [`actions`, `resume`, `worktrees`] })
     const result = await caller.startSession({
       issueId: ISSUE_A,
       deviceId: `dev-1`,
@@ -1300,6 +1248,7 @@ describe(`steer.startSession — resume (EXP-481)`, () => {
   })
 
   it(`stays off the wire when not requested`, async () => {
+    queueOwnDevice()
     await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
     // Undefined option fields are dropped by JSON.stringify in relayPostStart
     // — same stance as model/effort.

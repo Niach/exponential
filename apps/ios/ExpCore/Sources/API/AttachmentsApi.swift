@@ -1,12 +1,13 @@
 import Foundation
 
-// EXP-297 — arbitrary-content-type issue attachments.
+// EXP-297 — issue attachments of every content type, inline images included
+// (EXP-613: the legacy /images route's client is gone, this is the one path).
 //
 // Upload is a plain REST multipart route (tRPC's transport doesn't carry binary
 // bodies well): POST /api/issues/{issueId}/files, ONE part named "file". The
 // response shape is dictated by apps/web/src/lib/storage/issue-attachment-upload.ts
-// — the same body the older /images route returns (`width`/`height` ride along
-// but are null for non-images, so they're simply not decoded here).
+// (`width`/`height` ride along but are null for non-images, so they're simply
+// not decoded here).
 //
 // Delete and the byte read go through the normal authed paths: the
 // `attachments.delete` tRPC mutation and a bearer GET on /api/attachments/{id}.
@@ -63,8 +64,8 @@ public final class AttachmentsApi: Sendable {
             throw AttachmentsError.invalidUrl
         }
 
-        // Byte-identical to IssueImagesApi's hand-rolled body: the quoted
-        // `name="file"` form is the contract both routes parse (EXP-61).
+        // Hand-rolled body: the quoted `name="file"` form is the contract the
+        // route parses (EXP-61).
         // Quotes/backslashes/CRLF in the user's filename would break the
         // quoted-string disposition — replaced like Android's
         // buildImageUploadBody does, regardless of caller sanitization.
@@ -184,6 +185,12 @@ public final class AttachmentsApi: Sendable {
         auth.accounts.first(where: { $0.id == accountId })?.instanceUrl
     }
 }
+
+/// Neutral storage-cap copy shown instead of the upload route's HTTP 412 body,
+/// which carries purchase language ("Upgrade to upload more.") that must never
+/// render in the iOS app (App Store 3.1.1 — EXP-216). Mirrors the failed-tile
+/// wording in the main editor.
+public let storageFullNeutralMessage = "Team storage is full."
 
 public enum AttachmentsError: Error, LocalizedError, Sendable {
     case noInstanceUrl

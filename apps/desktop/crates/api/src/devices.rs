@@ -9,10 +9,11 @@
 //! without the router must never break control-channel start (callers
 //! ignore the error).
 //!
-//! [`list`] is the read side behind the "My machines" section (all four
-//! clients render it): the registry merged with live relay presence, so a
-//! row carries both durable identity (label, kind, last seen, version) and
-//! the live advertisement (online, agents, caps).
+//! There is no read side here any more (EXP-485): the "My machines" rows
+//! stream over the synced `devices` shape, and [`latest_versions`] is the
+//! one query left — instance config (`CLIENT_LATEST_VERSION_*`) that sync
+//! cannot carry. [`DeviceEntry`] stays as the shape the UI maps synced rows
+//! into.
 
 use serde::{Deserialize, Serialize};
 
@@ -169,9 +170,10 @@ pub fn rename(trpc: &TrpcClient, device_id: &str, label: &str) -> Result<(), Api
     Ok(())
 }
 
-/// One row of `devices.list`. Every field past `deviceId` is defaulted: an
-/// older server answers a narrower shape, and a missing field must read as
-/// "unknown", never as a decode failure that blanks the whole list.
+/// One rendered machine row. Since EXP-485 nothing decodes this off the
+/// wire — the UI maps SYNCED `devices` rows into it — but every field past
+/// `deviceId` stays defaulted so a narrower source reads as "unknown"
+/// rather than blanking the row.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceEntry {
@@ -256,21 +258,11 @@ pub struct LatestVersions {
     pub cli: Option<String>,
 }
 
-/// `devices.list` output.
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DeviceList {
-    #[serde(default)]
-    pub devices: Vec<DeviceEntry>,
-    #[serde(default)]
-    pub latest_versions: LatestVersions,
-}
-
-/// `devices.list` — query, no input. Per-USER (never team-scoped), and
-/// deliberately tRPC rather than an Electric shape: machine state is not
-/// team product data.
-pub fn list(trpc: &TrpcClient) -> Result<DeviceList, ApiError> {
-    trpc.query("devices.list")
+/// `devices.latestVersions` — query, no input. The device ROWS stream over
+/// the `devices` shape (EXP-485); the only thing left that sync cannot carry
+/// is this instance-level config pair, so it is its own tiny query.
+pub fn latest_versions(trpc: &TrpcClient) -> Result<LatestVersions, ApiError> {
+    trpc.query("devices.latestVersions")
 }
 
 /// `devices.remove` — drop the registry row. A still-running daemon
@@ -535,47 +527,24 @@ mod tests {
     }
 
     #[test]
-    fn list_decodes_rows_and_latest_versions() {
+    fn latest_versions_queries_the_wire_path_and_tolerates_absent_values() {
         let (base, captured) = one_shot_server(
             200,
-            r#"{"result":{"data":{"devices":[{"deviceId":"dev-1","deviceLabel":"tower","kind":"server","platform":"linux","agents":["claude"],"caps":["actions"],"online":true,"lastSeenAt":"2026-08-03T10:11:12.000Z","registered":true,"version":"0.4.1","updateRequested":true,"updateBlocked":true}],"latestVersions":{"desktop":"0.9.0","cli":"0.5.0"}}}}"#,
+            r#"{"result":{"data":{"desktop":"0.9.0","cli":"0.5.0"}}}"#,
         );
-        let list = list(&client(&base)).unwrap();
-        assert_eq!(list.devices.len(), 1);
-        let device = &list.devices[0];
-        assert_eq!(device.device_id, "dev-1");
-        assert_eq!(device.device_label, "tower");
-        assert!(device.is_server());
-        assert_eq!(device.platform.as_deref(), Some("linux"));
-        assert_eq!(device.agents, vec!["claude".to_string()]);
-        assert!(device.online);
-        assert_eq!(device.last_seen_at.as_deref(), Some("2026-08-03T10:11:12.000Z"));
-        assert!(device.registered);
-        assert_eq!(device.version.as_deref(), Some("0.4.1"));
-        assert!(device.update_requested);
-        assert!(device.update_blocked);
-        assert_eq!(list.latest_versions.desktop.as_deref(), Some("0.9.0"));
-        assert_eq!(list.latest_versions.cli.as_deref(), Some("0.5.0"));
+        let latest = latest_versions(&client(&base)).unwrap();
+        assert_eq!(latest.desktop.as_deref(), Some("0.9.0"));
+        assert_eq!(latest.cli.as_deref(), Some("0.5.0"));
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.starts_with("GET /api/trpc/devices.list HTTP/1.1"));
-    }
+        assert!(request.starts_with("GET /api/trpc/devices.latestVersions HTTP/1.1"));
 
-    #[test]
-    fn list_tolerates_a_narrow_row_and_absent_versions() {
-        // An older server (or a relay-only row) answers without the newer
-        // fields — the list must still decode instead of reading as empty.
-        let (base, _captured) = one_shot_server(
-            200,
-            r#"{"result":{"data":{"devices":[{"deviceId":"dev-2","deviceLabel":"laptop","kind":"desktop","platform":null,"online":false,"lastSeenAt":null,"registered":false}]}}}"#,
-        );
-        let list = list(&client(&base)).unwrap();
-        let device = &list.devices[0];
-        assert!(!device.is_server());
-        assert!(device.agents.is_empty());
-        assert_eq!(device.version, None);
-        assert!(!device.update_requested);
-        assert!(!device.update_blocked);
-        assert_eq!(list.latest_versions.cli, None);
+        // Unset server-side (and an older server answering a narrower shape):
+        // every field must read as "unknown", never as a decode failure.
+        let (base, _captured) =
+            one_shot_server(200, r#"{"result":{"data":{"desktop":null}}}"#);
+        let latest = latest_versions(&client(&base)).unwrap();
+        assert_eq!(latest.desktop, None);
+        assert_eq!(latest.cli, None);
     }
 
     #[test]

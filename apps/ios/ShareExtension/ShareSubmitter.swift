@@ -15,7 +15,7 @@ import Foundation
 @MainActor
 final class ShareSubmitter {
     let issuesApi: IssuesApi
-    let issueImagesApi: IssueImagesApi
+    let attachmentsApi: AttachmentsApi
 
     private struct Destination: Equatable {
         let accountId: String
@@ -30,9 +30,9 @@ final class ShareSubmitter {
     /// a patch that has already landed.
     private var patchedDescription: String?
 
-    init(issuesApi: IssuesApi, issueImagesApi: IssueImagesApi) {
+    init(issuesApi: IssuesApi, attachmentsApi: AttachmentsApi) {
         self.issuesApi = issuesApi
-        self.issueImagesApi = issueImagesApi
+        self.attachmentsApi = attachmentsApi
     }
 
     func submit(payload: SharedPayload, accountId: String, boardId: String) async throws {
@@ -68,7 +68,7 @@ final class ShareSubmitter {
         var failedCount = 0
         for (index, image) in payload.images.enumerated() where uploadedUrls[index] == nil {
             do {
-                let uploaded = try await issueImagesApi.upload(
+                let uploaded = try await attachmentsApi.upload(
                     accountId: accountId,
                     issueId: issueId,
                     data: image.data,

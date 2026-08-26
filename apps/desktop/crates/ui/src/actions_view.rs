@@ -108,9 +108,9 @@ pub struct ActionsView {
     tab: ActionsTab,
     scroll: ScrollHandle,
     /// EXP-403: the same per-user device registry web/iOS/Android show,
-    /// leading the page like the web's MyMachines section. It owns its own
-    /// `devices.list` poll and only polls while rendered — i.e. while this
-    /// screen's tab is visible.
+    /// leading the page like the web's MyMachines section. Its rows come
+    /// straight off the synced `devices` shape (EXP-485), so it holds no
+    /// poll of its own.
     machines: Entity<crate::machines::MachinesSection>,
     /// `repositories.list` rows for the rows' repo glyphs, keyed by the team
     /// they belong to (a team switch refetches).

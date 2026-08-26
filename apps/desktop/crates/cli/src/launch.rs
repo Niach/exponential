@@ -393,7 +393,6 @@ mod tests {
             name: None,
             is_admin: false,
             onboarding_completed_at: None,
-            getting_started_dismissed_at: None,
         };
         let trpc = Arc::new(api::trpc::TrpcClient::new(
             &account.instance_url,

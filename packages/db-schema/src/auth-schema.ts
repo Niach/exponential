@@ -32,11 +32,6 @@ export const users = pgTable(
     desktopAppCardDismissedAt: timestamp(`desktop_app_card_dismissed_at`, {
       withTimezone: true,
     }),
-    // One-shot dismissal of the "Getting started" cards on the empty project
-    // board (EXP-88). SERVER-ONLY like desktopAppCardDismissedAt; never syncs.
-    gettingStartedDismissedAt: timestamp(`getting_started_dismissed_at`, {
-      withTimezone: true,
-    }),
     // Signup attribution (EXP-362) — SERVER-ONLY like the dismissal stamps;
     // never syncs. Stamped once, right after account creation: the ref/utm/
     // referrer values ride URLs (cookieless — see conversion_events), and the

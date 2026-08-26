@@ -36,7 +36,7 @@ import { isAdminUser } from "./app-user"
 import { mintAppleClientSecret } from "./apple"
 import { withAuthDbFailureSignal } from "./db-failure-signal"
 import {
-  resolveDismissalFlags,
+  resolveDesktopCardDismissal,
   resolveOnboardingCompletedAt,
 } from "./onboarding"
 import {
@@ -210,16 +210,6 @@ export const auth = betterAuth({
       // view (users.dismissDesktopAppCard). Surfaced read-only on the session
       // so the card stays hidden on later loads; never client-settable.
       desktopAppCardDismissedAt: {
-        type: `date`,
-        defaultValue: null,
-        required: false,
-        input: false,
-      },
-      // LEGACY (EXP-548): the old "Getting started" dismissal stamp
-      // (users.dismissGettingStarted, EXP-88). No client reads it any more —
-      // the checklist hides itself once complete; kept on the session for
-      // pre-EXP-548 desktop builds that still deserialize it.
-      gettingStartedDismissedAt: {
         type: `date`,
         defaultValue: null,
         required: false,
@@ -583,7 +573,7 @@ export const auth = betterAuth({
       // resolve on read (see their resolvers for the one-way semantics).
       const [onboardingCompletedAt, dismissals] = await Promise.all([
         resolveOnboardingCompletedAt(user),
-        resolveDismissalFlags(user),
+        resolveDesktopCardDismissal(user),
       ])
       return {
         user: { ...user, onboardingCompletedAt, ...dismissals },

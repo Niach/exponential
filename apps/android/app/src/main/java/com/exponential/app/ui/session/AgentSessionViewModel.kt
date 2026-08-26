@@ -95,7 +95,7 @@ class AgentSessionViewModel @Inject constructor(
      * EXP-550: the machine running this session is offline while the session
      * is still supposed to be WORKING — the run is paused (lid closed), not
      * lost and not ended, and it continues when the machine comes back. A row
-     * already in review / merged / ended is parked on its own outcome, so its
+     * already in review / ended is parked on its own outcome, so its
      * machine's presence says nothing. The relay redial loop is untouched:
      * this only changes what the screen says while it keeps trying.
      */

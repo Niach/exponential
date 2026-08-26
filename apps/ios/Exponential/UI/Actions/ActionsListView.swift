@@ -564,7 +564,6 @@ struct ActionsListView: View {
         switch status {
         case DomainContract.codingSessionStatusRunning: return "Running"
         case DomainContract.codingSessionStatusInReview: return "In review"
-        case DomainContract.codingSessionStatusMerged: return "Merged"
         case DomainContract.codingSessionStatusEnded: return "Ended"
         default: return status.replacingOccurrences(of: "_", with: " ").capitalized
         }

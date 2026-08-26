@@ -157,7 +157,7 @@ struct AgentSessionView: View {
                     session: session,
                     currentUserId: deps.auth.userId,
                     steerApi: deps.steerApi,
-                    issueImagesApi: deps.issueImagesApi,
+                    attachmentsApi: deps.attachmentsApi,
                     db: deps.db
                 )
             }
@@ -506,8 +506,7 @@ struct AgentSessionView: View {
         }
     }
 
-    /// A lone question card: a plan approval, a single-question ask, or a
-    /// legacy (pre-EXP-249) card with no wire id.
+    /// A lone question card: a plan approval or a single-question ask.
     @ViewBuilder
     private func questionCard(_ question: AgentQuestion) -> some View {
         QuestionCard(
@@ -519,9 +518,6 @@ struct AgentSessionView: View {
             pending: model?.isAnswerPending(question.lockKey) ?? false,
             failed: model?.isAnswerFailed(question.lockKey) ?? false,
             onAnswer: { keys, text in sendAnswer(question, keys: keys, text: text) },
-            onLegacyToggle: { key in model?.sendLegacyKey(key) },
-            onLegacyAnswer: { key in model?.sendLegacyKey(key, lockKey: question.lockKey) },
-            onLegacySubmit: { model?.sendLegacyAdvance(lockKey: question.lockKey) },
             markdownContext: markdownContext
         )
         .id(question.id)
@@ -553,9 +549,6 @@ struct AgentSessionView: View {
                 pending: model?.isAnswerPending(question.lockKey) ?? false,
                 failed: model?.isAnswerFailed(question.lockKey) ?? false,
                 onAnswer: { keys, text in sendAnswer(question, keys: keys, text: text) },
-                onLegacyToggle: { _ in },
-                onLegacyAnswer: { _ in },
-                onLegacySubmit: {},
                 markdownContext: markdownContext
             )
             // A fresh identity per step — the card's local selection state must
@@ -571,7 +564,6 @@ struct AgentSessionView: View {
     }
 
     private func sendAnswer(_ question: AgentQuestion, keys: [String], text: String? = nil) {
-        guard let wireId = question.wireId else { return }
         // The picked labels (a typed free-text reply wins over its row's
         // "Type something" label) — what the stepper shows for this step
         // until the desktop resolves the ask (EXP-588).
@@ -581,7 +573,8 @@ struct AgentSessionView: View {
             return option.label
         }
         model?.sendAnswer(
-            questionId: wireId, askId: question.askId, keys: keys, text: text, labels: labels
+            questionId: question.wireId, askId: question.askId,
+            keys: keys, text: text, labels: labels
         )
     }
 
@@ -1043,12 +1036,6 @@ private struct QuestionCard: View {
     /// Protocol v2: one semantic frame carrying every chosen key; the second
     /// argument is the typed reply for a `freeText` option (EXP-513).
     let onAnswer: ([String], String?) -> Void
-    /// Legacy multi-select: the raw digit that TOGGLES an option.
-    let onLegacyToggle: (String) -> Void
-    /// Legacy single-select: the raw digit that answers (and locks).
-    let onLegacyAnswer: (String) -> Void
-    /// Legacy multi-select: submit the picker (Tab).
-    let onLegacySubmit: () -> Void
     /// Image fetching for the prompt's markdown render (EXP-440).
     var markdownContext: AgentMarkdownContext? = nil
 
@@ -1094,7 +1081,7 @@ private struct QuestionCard: View {
     /// the option tap.
     private var needsExplicitSubmit: Bool { question.multiSelect }
 
-    private var submitTitle: String { question.isSemantic ? "Submit" : "Continue" }
+    private var submitTitle: String { "Submit" }
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -1297,9 +1284,8 @@ private struct QuestionCard: View {
             }
         }
         if answerable, needsExplicitSubmit {
-            // Semantic multi-select submits every picked key at once; a legacy
-            // picker already toggled each digit and only needs the Tab.
-            let disabled = locked || (question.isSemantic && picked.isEmpty)
+            // Multi-select submits every picked key at once.
+            let disabled = locked || picked.isEmpty
             GlassPillButton(submitTitle, isActive: !disabled, enabled: !disabled) {
                 submit()
             }
@@ -1343,12 +1329,10 @@ private struct QuestionCard: View {
             } else {
                 picked.append(option.key)
             }
-            // A legacy picker toggles on the raw digit; v2 batches the keys
-            // into the submit frame.
-            if !question.isSemantic { onLegacyToggle(option.key) }
+            // The keys batch into the submit frame.
             return
         }
-        if option.freeText, question.isSemantic {
+        if option.freeText {
             // EXP-513: collect the reply first — nothing is sent until it
             // submits (the desktop types it into the TUI row).
             freeTextKey = freeTextKey == option.key ? nil : option.key
@@ -1356,11 +1340,7 @@ private struct QuestionCard: View {
             return
         }
         picked = [option.key]
-        if question.isSemantic {
-            onAnswer([option.key], nil)
-        } else {
-            onLegacyAnswer(option.key)
-        }
+        onAnswer([option.key], nil)
     }
 
     /// Truncate to the relay's 4000-UTF-16-unit answer cap, backing off one
@@ -1387,13 +1367,8 @@ private struct QuestionCard: View {
     }
 
     private func submit() {
-        guard !locked else { return }
-        if question.isSemantic {
-            guard !picked.isEmpty else { return }
-            onAnswer(picked, nil)
-        } else {
-            onLegacySubmit()
-        }
+        guard !locked, !picked.isEmpty else { return }
+        onAnswer(picked, nil)
     }
 
     private func optionLabel(

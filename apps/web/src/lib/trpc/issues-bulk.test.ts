@@ -302,9 +302,9 @@ describe(`issues.bulkUpdate`, () => {
       expect(update.set.completedAt).toBeInstanceOf(Date)
     }
     const statusEvents = eventsOfType(`status_changed`)
-    // EXP-314: the payload carries the precise status-row pair + name
-    // snapshots alongside the legacy anchors (all null here — the fake rows
-    // never carried a status_id).
+    // EXP-314/EXP-544: the payload carries the precise status-row pair +
+    // name snapshots (all null here — the fake rows never carried a
+    // status_id); the legacy {from,to} anchors are no longer duplicated in.
     const statusIdFields = {
       fromStatusId: null,
       toStatusId: null,
@@ -312,8 +312,8 @@ describe(`issues.bulkUpdate`, () => {
       toName: null,
     }
     expect(statusEvents.map((e) => [e.issueId, e.payload])).toEqual([
-      [ID_A, { from: `todo`, to: `done`, ...statusIdFields }],
-      [ID_B, { from: `todo`, to: `done`, ...statusIdFields }],
+      [ID_A, statusIdFields],
+      [ID_B, statusIdFields],
     ])
     // ≤25 ids → per-issue status notifications fire post-commit.
     expect(h.fireAndForgetStatusChangeNotify).toHaveBeenCalledTimes(2)

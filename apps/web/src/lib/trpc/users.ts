@@ -200,18 +200,6 @@ export const usersRouter = router({
     return { ok: true }
   }),
 
-  // LEGACY (EXP-548): the "Getting started" checklist no longer dismisses on
-  // any client — it hides itself once every entry is done. Kept only so
-  // desktop builds before EXP-548 (which fire it best-effort from their
-  // Dismiss button) keep getting a 200; nothing reads the flag any more.
-  dismissGettingStarted: authedProcedure.mutation(async ({ ctx }) => {
-    await ctx.db
-      .update(users)
-      .set({ gettingStartedDismissedAt: new Date(), updatedAt: new Date() })
-      .where(eq(users.id, ctx.session.user.id))
-    return { ok: true }
-  }),
-
   revokePersonalApiKey: authedProcedure
     .input(z.object({ id: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {

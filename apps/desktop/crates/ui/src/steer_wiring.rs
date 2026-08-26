@@ -324,8 +324,8 @@ struct ControlChannels {
     /// The agent advertisement the account's presence currently carries —
     /// runnable + signed-out sets (EXP-409), including the DELIBERATE
     /// absence (nothing installed → offline, EXP-367).
-    /// [`restart_control_channel_if_needed`] compares against it so a doctor
-    /// refresh only re-dials when the sets actually changed.
+    /// [`refresh_device_advertisement`] compares against it so a doctor
+    /// refresh only re-registers (or re-dials) when the sets actually changed.
     advertised: HashMap<String, coding::AgentAdvertisement>,
 }
 struct ControlChannelsGlobal(Entity<ControlChannels>);
@@ -362,7 +362,7 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
     // remote Start-coding pickers only offer these. Probed via the coding
     // doctor (blocking `--version` spawns) on the BACKGROUND executor, then
     // the channel starts on the foreground with the result. A settings /
-    // toolchain change re-advertises via `restart_control_channel_if_needed`
+    // toolchain change re-advertises via `refresh_device_advertisement`
     // (every doctor refresh), besides the sign-in / account switch / relay
     // reconnect cycles that re-run this whole function.
     let settings = coding_flow::CodingHub::global(cx).read(cx).settings.clone();
@@ -377,82 +377,24 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
             .background_executor()
             .spawn(async move { coding::run_doctor(&settings).agent_advertisement(&settings) })
             .await;
-        let agents = advertisement.agents.clone();
-        // EXP-253/EXP-257: the actions capabilities — advertised when ANY
-        // agent is usable (action runs stopped being Claude-only), plus
-        // `action-inputs` (this build understands builtin + inputs-carrying
-        // starts) and `fix-conflicts` (EXP-259: this build launches the
-        // "Fix merge conflicts" builtin — a pre-EXP-259 desktop would treat
-        // its id as a real action and fail the fetch). Remote clients
-        // strictly gate action starts on these, so an incapable desktop is
-        // never targeted.
-        // EXP-481 adds `resume` (start_session honors the resume flag),
-        // `worktrees` (inventory + remove/prune commands) and
-        // `launch-defaults` (server-authoritative defaults + check_in).
-        // EXP-490: those three are BUILD capabilities, not agent
-        // capabilities — they must ride even with zero runnable agents, or
-        // the server skips the check_in nudge (`deviceUnderstandsCheckIn`)
-        // and every remote command/defaults edit waits out the 30s
-        // heartbeat (~15s average spinner).
-        let mut caps: Vec<String> = vec![
-            "resume".to_string(),
-            "worktrees".to_string(),
-            "launch-defaults".to_string(),
-        ];
-        if !agents.is_empty() {
-            caps.extend([
-                "actions".to_string(),
-                "action-inputs".to_string(),
-                "fix-conflicts".to_string(),
-                // EXP-530: this build runs the automation host, so a trigger
-                // may be BOUND to this device. Agent-gated with the rest —
-                // an automation is an action run, and a machine with no
-                // runnable agent could only fail every firing. Hand-synced
-                // with the CLI daemon's `ACTION_CAPS`.
-                "automations".to_string(),
-                // EXP-615: this build runs the hidden `builtin:chat` action
-                // (a pre-EXP-615 desktop would treat its id as a real action
-                // and fail the fetch), so remote Chat starts may target it.
-                "chat".to_string(),
-            ]);
-        }
+        let caps = device_caps(&advertisement);
         // EXP-403: record this machine in the per-user devices registry so the
         // agents UI can show it with an offline "last seen" state (relay
         // presence alone empties on every relay restart). Best-effort — an
         // older server without the devices router must never break
         // control-channel start — and registered even with no agents so the
-        // UI can explain WHY the machine is not startable.
-        {
-            let trpc = Arc::clone(&trpc);
-            let device_id = device_id.clone();
-            let device_label = device_label.clone();
-            let advertisement = advertisement.clone();
-            let caps = caps.clone();
-            let launch_defaults = serde_json::to_value(coding::defaults_wire(&settings2))
-                .expect("defaults serialize cannot fail");
-            cx.background_executor()
-                .spawn(async move {
-                    // EXP-481: the local defaults ride as a first-ever SEED
-                    // (server-side no-op once the column is set); the
-                    // device-sync beat reconciles the response copy within
-                    // one interval, so it is deliberately dropped here.
-                    let _ = api::devices::register(
-                        &trpc,
-                        &api::devices::RegisterDevice {
-                            device_id: &device_id,
-                            label: &device_label,
-                            kind: "desktop",
-                            platform: Some(std::env::consts::OS),
-                            agents: &advertisement.agents,
-                            unauthed_agents: &advertisement.unauthed_agents,
-                            caps: &caps,
-                            launch_defaults: Some(&launch_defaults),
-                            version: Some(domain::client_version::current_version()),
-                        },
-                    );
-                })
-                .detach();
-        }
+        // UI can explain WHY the machine is not startable. EXP-485: this row
+        // is now the ONLY path the agent lists and launch defaults take to the
+        // server; the online frame carries neither.
+        register_device(
+            Arc::clone(&trpc),
+            device_id.clone(),
+            device_label.clone(),
+            &advertisement,
+            &caps,
+            &settings2,
+            &cx.background_executor(),
+        );
         let _ = cx.update(|cx| {
             // The probe raced a sign-out/switch: starting a socket for a
             // no-longer-active account would leak it past its stop call.
@@ -465,10 +407,9 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
             // run anything remotely, so it goes fully OFFLINE for remote
             // start: don't dial at all and hang up any live socket from
             // before the last agent vanished. An installed-but-signed-out
-            // agent (EXP-409) still dials — with an EXPLICIT empty runnable
-            // list — so the machine list can say "sign in" instead of
-            // showing the device offline. A later doctor refresh re-dials
-            // via `restart_control_channel_if_needed`.
+            // agent (EXP-409) still dials, so the machine list can say
+            // "sign in" instead of showing the device offline. A later
+            // doctor refresh re-dials via `refresh_device_advertisement`.
             if advertisement.nothing_installed() {
                 let channels = ControlChannels::global(cx);
                 channels.update(cx, |channels, _| {
@@ -481,13 +422,12 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
                 });
                 return;
             }
+            // EXP-485: presence + caps only — `devices.register` above owns
+            // the agent lists and the launch defaults.
             let device = DeviceIdentity {
                 device_id,
                 device_label,
-                agents: agents.clone(),
-                unauthed_agents: advertisement.unauthed_agents.clone(),
                 caps,
-                launch_defaults: launch_defaults_frame(&advertisement),
             };
             let on_start: steer::control_channel::StartSessionFn = Arc::new(move |start| {
                 let _ = inbox.send(start);
@@ -528,15 +468,18 @@ pub fn stop_control_channel(account_id: &str, cx: &mut App) {
     }
 }
 
-/// Re-dial (or hang up) the active account's control socket when the
-/// doctor's installed-agent set changed since the last advertisement
-/// (EXP-367: installing the first agent CLI brings the device ONLINE for
-/// remote start without a restart; removing the last takes it offline).
+/// Re-post this machine's advertisement (and, when the DIAL decision itself
+/// flipped, re-dial or hang up the control socket) after a doctor refresh.
 /// Called from `CodingHub::refresh_doctor` completion — the one choke point
 /// every "Check tools" / settings save / onboarding recheck funnels through.
-/// `start_control_channel` re-probes on the background executor itself, so a
-/// disagreeing race converges on the set it actually advertises.
-pub fn restart_control_channel_if_needed(cx: &mut App) {
+///
+/// EXP-485: the online frame no longer carries the agent lists or the launch
+/// defaults, so a toolchain/settings change only has to reach the devices
+/// ROW — a plain `devices.register`, no presence gap. The socket is only torn
+/// down or brought up when the dial decision itself changes, i.e. when
+/// `nothing_installed()` flips (EXP-367: the last agent CLI vanishing takes
+/// the device offline for remote start; installing the first brings it back).
+pub fn refresh_device_advertisement(cx: &mut App) {
     let Some(account) = queries::active_account(cx) else {
         return;
     };
@@ -546,46 +489,123 @@ pub fn restart_control_channel_if_needed(cx: &mut App) {
     let Some(report) = hub.read(cx).doctor.report.clone() else {
         return;
     };
-    // EXP-437: the advertisement embeds the per-agent launch defaults, so a
-    // Settings → Agents edit (model/effort/toggles/default agent) re-dials
-    // just like an install/uninstall does — the equality check covers both.
-    let desired = report.agent_advertisement(&hub.read(cx).settings);
+    let settings = hub.read(cx).settings.clone();
+    // The advertisement embeds the per-agent launch defaults, so a Settings →
+    // Agents edit (model/effort/toggles/default agent) re-registers just like
+    // an install/uninstall does — the equality check covers both.
+    let desired = report.agent_advertisement(&settings);
     let current = ControlChannels::global_ref(cx)
         .and_then(|channels| channels.read(cx).advertised.get(&account.id).cloned());
-    if current.as_ref() != Some(&desired) {
+    if current.as_ref() == Some(&desired) {
+        return;
+    }
+    // The dial/hang-up decision flipped → the full path (`start_control_channel`
+    // re-probes on the background executor itself, so a disagreeing race
+    // converges on the set it actually advertises, and it registers too).
+    let dialing = current
+        .as_ref()
+        .is_none_or(|current| current.nothing_installed());
+    if dialing != desired.nothing_installed() {
         start_control_channel(&account, cx);
+        return;
+    }
+    // Otherwise: the socket stays exactly as it is; only the row changes.
+    let Some(auth) = cx.try_global::<AuthContext>().cloned() else {
+        return;
+    };
+    let provider = auth.auth.token_provider(&account.id);
+    let trpc = Arc::new(api::TrpcClient::new(&account.instance_url, provider));
+    let caps = device_caps(&desired);
+    register_device(
+        trpc,
+        steer::persistent_device_id(&auth.data_dir),
+        api::users::hostname(),
+        &desired,
+        &caps,
+        &settings,
+        &cx.background_executor(),
+    );
+    if let Some(channels) = ControlChannels::global_ref(cx) {
+        channels.update(cx, |channels, _| {
+            channels.advertised.insert(account.id.clone(), desired);
+        });
     }
 }
 
-/// EXP-437: the wire form of the doctor advertisement's launch defaults —
-/// `None` when no agent is runnable (nothing to seed remotely). Shared shape
-/// with the CLI daemon's copy in `commands/daemon.rs` (the `coding` and
-/// `steer` crates deliberately don't depend on each other).
-fn launch_defaults_frame(
-    advertisement: &coding::AgentAdvertisement,
-) -> Option<steer::LaunchDefaults> {
-    if advertisement.agents.is_empty() {
-        return None;
-    }
-    Some(steer::LaunchDefaults {
-        default_agent: Some(advertisement.default_agent.clone()),
-        agents: advertisement
-            .launch_defaults
+/// The caps this build advertises for a doctor snapshot (EXP-253/EXP-257: the
+/// actions capabilities ride only while ANY agent is usable — action runs
+/// stopped being Claude-only — plus `action-inputs` for builtin +
+/// inputs-carrying starts and `fix-conflicts` for the EXP-259 builtin, whose
+/// ids a pre-EXP-259 desktop would treat as real actions and fail to fetch).
+/// EXP-481's `resume`/`worktrees`/`launch-defaults` are BUILD capabilities and
+/// ride even with zero runnable agents. Hand-synced with the CLI daemon's
+/// `DEVICE_CAPS` + `ACTION_CAPS`.
+fn device_caps(advertisement: &coding::AgentAdvertisement) -> Vec<String> {
+    let mut caps: Vec<String> = ["resume", "worktrees", "launch-defaults"]
+        .iter()
+        .map(|cap| cap.to_string())
+        .collect();
+    if !advertisement.agents.is_empty() {
+        caps.extend(
+            [
+                "actions",
+                "action-inputs",
+                "fix-conflicts",
+                // EXP-530: this build runs the automation host, so a trigger
+                // may be BOUND to this device. Agent-gated with the rest — an
+                // automation is an action run, and a machine with no runnable
+                // agent could only fail every firing.
+                "automations",
+                // EXP-615: this build runs the hidden `builtin:chat` action.
+                "chat",
+            ]
             .iter()
-            .map(|(agent, defaults)| {
-                (
-                    agent.clone(),
-                    steer::AgentLaunchDefaults {
-                        model: defaults.model.clone(),
-                        effort: defaults.effort.clone(),
-                        ultracode: defaults.ultracode,
-                        plan_mode: defaults.plan_mode,
-                        skip_permissions: defaults.skip_permissions,
-                    },
-                )
-            })
-            .collect(),
-    })
+            .map(|cap| cap.to_string()),
+        );
+    }
+    caps
+}
+
+/// Best-effort `devices.register` on the background executor (EXP-403) — the
+/// machine's row in the per-user registry, and since EXP-485 the ONLY path the
+/// agent lists and launch defaults take to the server. An older server without
+/// the devices router must never break control-channel start, so failures are
+/// swallowed.
+fn register_device(
+    trpc: Arc<api::TrpcClient>,
+    device_id: String,
+    device_label: String,
+    advertisement: &coding::AgentAdvertisement,
+    caps: &[String],
+    settings: &coding::Settings,
+    executor: &gpui::BackgroundExecutor,
+) {
+    let agents = advertisement.agents.clone();
+    let unauthed_agents = advertisement.unauthed_agents.clone();
+    let caps = caps.to_vec();
+    // EXP-481: the local defaults ride as a first-ever SEED (server-side no-op
+    // once the column is set); the device-sync beat reconciles the response
+    // copy within one interval, so it is deliberately dropped here.
+    let launch_defaults = serde_json::to_value(coding::defaults_wire(settings))
+        .expect("defaults serialize cannot fail");
+    executor
+        .spawn(async move {
+            let _ = api::devices::register(
+                &trpc,
+                &api::devices::RegisterDevice {
+                    device_id: &device_id,
+                    label: &device_label,
+                    kind: "desktop",
+                    platform: Some(std::env::consts::OS),
+                    agents: &agents,
+                    unauthed_agents: &unauthed_agents,
+                    caps: &caps,
+                    launch_defaults: Some(&launch_defaults),
+                    version: Some(domain::client_version::current_version()),
+                },
+            );
+        })
+        .detach();
 }
 
 /// Relay `start_session` → the §7 launcher on a shell window. The SAME
@@ -832,7 +852,7 @@ fn remote_issue_start(issue_id: String, start: &steer::RemoteStart, cx: &mut App
     // EXP-481: honor the remote resume flag — the launcher's marker gate
     // degrades a missing/foreign worktree to a fresh seeded session, so an
     // optimistic flag is always safe.
-    let resume = start.resume.unwrap_or(false);
+    let resume = start.resume;
     let Some((request, deps)) = coding_flow::build_launch(&issue_id, origin, options, resume, cx)
     else {
         log::warn!("steer: remote start for {issue_id} ignored — not signed in / not synced");

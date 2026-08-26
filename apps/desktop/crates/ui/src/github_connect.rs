@@ -148,10 +148,10 @@ pub(crate) struct GithubStatus {
     /// team — the preferred **connect** target (`connect_url.or(install_url)`).
     #[serde(default)]
     pub connect_url: Option<String>,
-    #[serde(default)]
-    pub accounts: Vec<String>,
     /// The team's linked installations — `needs_reauth` drives the
-    /// grant-model reconnect notice.
+    /// grant-model reconnect notice, and `account_login` is where the account
+    /// NAMES come from (EXP-558 dropped the flat `accounts` mirror; serde
+    /// ignores it while older servers still send it).
     #[serde(default)]
     pub installations: Vec<GithubInstallation>,
 }

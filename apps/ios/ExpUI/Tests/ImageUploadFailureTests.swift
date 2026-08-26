@@ -3,7 +3,7 @@ import XCTest
 import ExpCore
 import ExpUI
 
-// EXP-216: a storage-cap upload failure (HTTP 412 from the images route) must
+// EXP-216: a storage-cap upload failure (HTTP 412 from the upload route) must
 // surface as `.failed(.storageFull)` so the editor can explain the failure
 // with neutral copy instead of a bare retry state; any other error stays
 // `.failed(.other)`, and a successful retry clears back to `.idle`.
@@ -36,7 +36,7 @@ final class ImageUploadFailureTests: XCTestCase {
     func testStorageFullFailureIsClassified() async {
         let (model, imageId) = modelWithDraftImage()
         let saved = await model.commitPendingImages { _ in
-            throw IssueImagesError.httpError(412, "Your plan allows up to 250 MB of attachment storage. Upgrade to upload more.")
+            throw AttachmentsError.httpError(412, "Your plan allows up to 250 MB of attachment storage. Upgrade to upload more.")
         }
         XCTAssertFalse(saved)
         XCTAssertEqual(model.uploadState(for: imageId), .failed(.storageFull))
@@ -45,7 +45,7 @@ final class ImageUploadFailureTests: XCTestCase {
     func testOtherFailureIsClassifiedAsOther() async {
         let (model, imageId) = modelWithDraftImage()
         let saved = await model.commitPendingImages { _ in
-            throw IssueImagesError.httpError(500, "boom")
+            throw AttachmentsError.httpError(500, "boom")
         }
         XCTAssertFalse(saved)
         XCTAssertEqual(model.uploadState(for: imageId), .failed(.other))
@@ -56,7 +56,7 @@ final class ImageUploadFailureTests: XCTestCase {
         let failOnce = FailOnce()
         _ = await model.commitPendingImages { _ in
             if failOnce.shouldFail() {
-                throw IssueImagesError.httpError(412, "storage full")
+                throw AttachmentsError.httpError(412, "storage full")
             }
             return "/api/attachments/fake"
         }

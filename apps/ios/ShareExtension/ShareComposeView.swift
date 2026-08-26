@@ -176,7 +176,7 @@ struct ShareComposeView: View {
         var submitted = payload
         submitted.title = title
         submitted.descriptionText = descriptionText
-        let submitter = self.submitter ?? ShareSubmitter(issuesApi: deps.issuesApi, issueImagesApi: deps.issueImagesApi)
+        let submitter = self.submitter ?? ShareSubmitter(issuesApi: deps.issuesApi, attachmentsApi: deps.attachmentsApi)
         self.submitter = submitter
         Task {
             do {

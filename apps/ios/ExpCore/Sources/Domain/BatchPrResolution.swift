@@ -9,10 +9,11 @@ import Foundation
 // flip stamped on the row. Matching "the team's sole open batch PR" alone
 // could offer a teammate's PR once this session's own PR closed unmerged
 // (prState `closed` while the row stays in_review — only merge ends it).
-// Rows flipped before the stamp existed (nil session branch) keep the legacy
-// sole-open-PR fallback; anything ambiguous resolves to nil — with
-// concurrent batch runs Reviews still lists every PR. Mirrors web's
-// `use-agents-data.ts` and Android's `AgentsViewModel.kt`.
+// EXP-546: the branch is now the ONLY key — rows flipped before the EXP-545
+// stamp existed have drained, so a branchless in_review batch row simply shows
+// no Merge shortcut rather than guessing at the sole open PR. Anything
+// unmatched or ambiguous resolves to nil — Reviews still lists every PR.
+// Mirrors web's `use-agents-data.ts` and Android's `AgentsViewModel.kt`.
 
 public enum BatchPrResolution {
     /// The team's open batch PRs, one representative (newest linked) issue
@@ -45,19 +46,16 @@ public enum BatchPrResolution {
         return Array(byPrUrl.values)
     }
 
-    /// The representative issue of the session's OWN open batch PR (matched
-    /// by the row's stamped branch), or — for a pre-EXP-545 row with no
-    /// stamp — the sole open batch PR. Nil when the match is absent or
-    /// ambiguous.
+    /// The representative issue of the session's OWN open batch PR, matched by
+    /// the row's stamped branch. Nil when the branch is missing, matches
+    /// nothing, or is ambiguous.
     public static func resolve(
         sessionBranch: String?,
         openBatchPrs: [IssueEntity]
     ) -> IssueEntity? {
-        if let sessionBranch, !sessionBranch.isEmpty {
-            let matches = openBatchPrs.filter { $0.branch == sessionBranch }
-            return matches.count == 1 ? matches.first : nil
-        }
-        return openBatchPrs.count == 1 ? openBatchPrs.first : nil
+        guard let sessionBranch, !sessionBranch.isEmpty else { return nil }
+        let matches = openBatchPrs.filter { $0.branch == sessionBranch }
+        return matches.count == 1 ? matches.first : nil
     }
 
     /// created_at comes off the Electric wire as Postgres text and off

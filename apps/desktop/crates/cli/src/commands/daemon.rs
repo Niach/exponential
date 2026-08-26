@@ -40,10 +40,7 @@ const ADVERT_CONFIRM_RECHECK: Duration = Duration::from_secs(30);
 /// `worktrees` (inventory reporting + remove/prune commands) and
 /// `launch-defaults` (server-authoritative defaults convergence + the
 /// `check_in` nudge frame). EXP-490 split them off [`ACTION_CAPS`]: these
-/// three are BUILD capabilities and ride even with zero runnable agents —
-/// dropping them made the server skip the `check_in` nudge
-/// (`deviceUnderstandsCheckIn`), so every remote command/defaults edit
-/// waited out the 30s heartbeat.
+/// three are BUILD capabilities and ride even with zero runnable agents.
 pub const DEVICE_CAPS: [&str; 3] = ["resume", "worktrees", "launch-defaults"];
 
 /// The action-run capabilities — advertised only while at least one agent is
@@ -580,13 +577,12 @@ fn run_daemon(args: &[String]) -> CommandResult {
         }
 
         // Re-advertise on toolchain changes (the desktop's
-        // `restart_control_channel_if_needed`): installing the first agent
-        // brings remote start online without a restart; removing the last
-        // hangs up. Sign-in state rides the same probe (EXP-409): logging
-        // into claude over ssh flips the machine runnable without a restart.
-        // EXP-414: acted on only once TWO consecutive probes agree — the
-        // stop + re-dial is a real presence gap, and a single flaky auth
-        // probe was flapping the machine offline every 5 minutes.
+        // `refresh_device_advertisement`): installing the first agent brings
+        // remote start online without a restart; removing the last hangs up.
+        // Sign-in state rides the same probe (EXP-409): logging into claude
+        // over ssh flips the machine runnable without a restart.
+        // EXP-414: acted on only once TWO consecutive probes agree — a single
+        // flaky auth probe was flapping the machine offline every 5 minutes.
         let doctor_due = if pending_advert.is_some() {
             ADVERT_CONFIRM_RECHECK
         } else {
@@ -606,16 +602,26 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 ),
                 AdvertStep::Apply => {
                     log::info!("agent advertisement changed: {advertised:?} -> {agents:?}");
+                    // EXP-485: the online frame carries neither the agent
+                    // lists nor the launch defaults any more, so a changed
+                    // advertisement only has to reach the devices ROW. The
+                    // socket is touched ONLY when the dial decision itself
+                    // flips (EXP-367 `nothing_installed`) — re-dialing for a
+                    // model tweak was a pointless presence gap on every
+                    // machine list.
+                    let redial = advertised.nothing_installed() != agents.nothing_installed();
                     advertised = agents;
-                    if let Some(handle) = control.take() {
-                        handle.stop();
+                    if redial {
+                        if let Some(handle) = control.take() {
+                            handle.stop();
+                        }
+                        control = runtime.as_ref().and_then(|runtime| {
+                            dial_control(
+                                runtime, &ctx, &device_id, &device_label, &advertised, &inbox_tx,
+                                &check_in,
+                            )
+                        });
                     }
-                    control = runtime.as_ref().and_then(|runtime| {
-                        dial_control(
-                            runtime, &ctx, &device_id, &device_label, &advertised, &inbox_tx,
-                            &check_in,
-                        )
-                    });
                     registered_ok = register_device(
                         &ctx, &device_id, &device_label, &advertised, &device_worker,
                     );
@@ -659,36 +665,6 @@ fn run_daemon(args: &[String]) -> CommandResult {
 fn probe_agents(ctx: &Ctx) -> coding::AgentAdvertisement {
     let settings = coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir));
     coding::run_doctor(&settings).agent_advertisement(&settings)
-}
-
-/// EXP-437: the wire form of the doctor advertisement's launch defaults —
-/// `None` when no agent is runnable. Twin of `steer_wiring`'s copy (the
-/// `coding` and `steer` crates deliberately don't depend on each other).
-fn launch_defaults_frame(
-    advertisement: &coding::AgentAdvertisement,
-) -> Option<steer::LaunchDefaults> {
-    if advertisement.agents.is_empty() {
-        return None;
-    }
-    Some(steer::LaunchDefaults {
-        default_agent: Some(advertisement.default_agent.clone()),
-        agents: advertisement
-            .launch_defaults
-            .iter()
-            .map(|(agent, defaults)| {
-                (
-                    agent.clone(),
-                    steer::AgentLaunchDefaults {
-                        model: defaults.model.clone(),
-                        effort: defaults.effort.clone(),
-                        ultracode: defaults.ultracode,
-                        plan_mode: defaults.plan_mode,
-                        skip_permissions: defaults.skip_permissions,
-                    },
-                )
-            })
-            .collect(),
-    })
 }
 
 /// What a doctor re-probe should do to the live advertisement (EXP-414).
@@ -797,14 +773,12 @@ fn dial_control(
     if advertised.nothing_installed() {
         return None;
     }
-    let caps = device_caps(advertised);
+    // EXP-485: presence + caps only — the agent lists and the launch defaults
+    // reach the server through `devices.register`'s persisted row.
     let device = DeviceIdentity {
         device_id: device_id.to_string(),
         device_label: device_label.to_string(),
-        agents: advertised.agents.clone(),
-        unauthed_agents: advertised.unauthed_agents.clone(),
-        caps,
-        launch_defaults: launch_defaults_frame(advertised),
+        caps: device_caps(advertised),
     };
     let inbox = inbox.clone();
     let on_start: StartSessionFn = Arc::new(move |start| {
@@ -882,7 +856,7 @@ fn handle_remote_start(
             ctx, sidecars, runtime, sessions, personal_key, options, origin, issue_id,
             // EXP-481: honor the remote resume flag — the launcher's marker
             // gate degrades a missing/foreign worktree to a fresh session.
-            start.resume.unwrap_or(false),
+            start.resume,
         ),
         RemoteStartSubject::Batch { issue_ids, team_id, repo } => remote_batch_start(
             ctx, sidecars, runtime, sessions, personal_key, options, origin, issue_ids, team_id, repo,

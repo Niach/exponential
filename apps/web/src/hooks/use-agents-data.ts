@@ -39,10 +39,9 @@ export interface AgentSessionRow {
 // Team Agents page + dock data: the caller's OWN live coding sessions in the
 // team (synced coding_sessions shape, team-scoped by the denormalized
 // team_id), joined client-side to their issue / board / driving user,
-// newest-first. Live = `running` OR `in_review` OR `merged` (EXP-194: the
-// agent's PR is open, terminal still alive awaiting review; EXP-358: it
-// survives the merge too — consumers read `session.status` to render
-// "Ready for review" vs "Merged" vs "Coding now"). Ended
+// newest-first. Live = `running` OR `in_review` (EXP-194: the
+// agent's PR is open, terminal still alive awaiting review — consumers read
+// `session.status` to render "Ready for review" vs "Coding now"). Ended
 // sessions dropped out with the redesign — the live trail lives on each
 // issue, and the dock/Agents page only surface live work.
 // EXP-312 follow-up: a live session is viewable/steerable only by its owner,
@@ -148,9 +147,9 @@ export function useAgentsData(
     // distinct prUrl. A session resolves ITS OWN PR by the branch the
     // pr_open batch flip stamped on the row (EXP-545) — matching by "the
     // team's sole open batch PR" alone could target a teammate's PR once
-    // the session's own PR closed unmerged. Rows flipped before the stamp
-    // existed (branch NULL) keep the legacy sole-open-PR fallback; anything
-    // ambiguous resolves to nothing — Reviews still lists every PR.
+    // the session's own PR closed unmerged. Pre-stamp branchless rows have
+    // drained (EXP-546), so a NULL branch resolves nothing and shows no
+    // Merge shortcut — Reviews still lists every PR.
     const batchPrByUrl = new Map<string, Issue>()
     for (const issue of (openPrIssueRows ?? []) as Issue[]) {
       if (!issue.prUrl || !issue.branch?.startsWith(`exp/batch-`)) continue
@@ -166,13 +165,11 @@ export function useAgentsData(
     }
     const batchPrReps = [...batchPrByUrl.values()]
     const resolveBatchPr = (sessionBranch: string | null): Issue | undefined => {
-      if (sessionBranch) {
-        const matches = batchPrReps.filter(
-          (issue) => issue.branch === sessionBranch
-        )
-        return matches.length === 1 ? matches[0] : undefined
-      }
-      return batchPrReps.length === 1 ? batchPrReps[0] : undefined
+      if (!sessionBranch) return undefined
+      const matches = batchPrReps.filter(
+        (issue) => issue.branch === sessionBranch
+      )
+      return matches.length === 1 ? matches[0] : undefined
     }
 
     const toRow = (session: CodingSession): AgentSessionRow => {
@@ -205,9 +202,7 @@ export function useAgentsData(
     const running = sessions
       .filter(
         (session) =>
-          (session.status === `running` ||
-            session.status === `in_review` ||
-            session.status === `merged`) &&
+          (session.status === `running` || session.status === `in_review`) &&
           !isCodingSessionStale(session.updatedAt, now)
       )
       .sort(

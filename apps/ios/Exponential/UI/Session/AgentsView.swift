@@ -28,7 +28,7 @@ struct AgentsView: View {
     @Environment(TeamState.self) private var teamState
     @State private var viewModel: AgentsViewModel?
     @State private var steerEnabled = false
-    /// EXP-420: `devices.list`'s advertised latest versions — gates the
+    /// EXP-420: the instance's advertised latest versions — gates the
     /// server rows' Update action on an actually-newer CLI build. The one
     /// remaining tRPC read here (instance config, not a shape column):
     /// fetched once per account instead of polled.
@@ -254,10 +254,8 @@ struct AgentsView: View {
     /// once per account.
     private func refreshLatestVersions() async {
         guard steerEnabled else { return }
-        let result = try? await deps.devicesApi.list(
-            accountId: accountId, teamId: teamState.activeTeam?.id
-        )
-        latestVersions = result?.latestVersions ?? latestVersions
+        let result = try? await deps.devicesApi.latestVersions(accountId: accountId)
+        latestVersions = result ?? latestVersions
     }
 
     private var emptyState: some View {
@@ -790,14 +788,12 @@ struct AgentsView: View {
     }
 
     /// Static-dot/label tint per parked display state (EXP-194/EXP-214):
-    /// review green, done/merged blue (the issue-status palette), needs-input
-    /// amber.
+    /// review green, done blue (the issue-status palette), needs-input amber.
     private func stateColor(_ state: CodingSessionDisplayState) -> Color {
         switch state {
         case .needsInput: DesignTokens.Semantic.yellow
         case .review: DesignTokens.Semantic.green
         case .done: DesignTokens.Semantic.blue
-        case .merged: DesignTokens.Semantic.blue
         case .running: DesignTokens.Semantic.green
         }
     }
@@ -807,7 +803,6 @@ struct AgentsView: View {
         case .needsInput: "Needs input"
         case .review: "Ready for review"
         case .done: "Done"
-        case .merged: "Merged"
         case .running: nil
         }
     }

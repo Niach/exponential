@@ -408,12 +408,10 @@ struct IssueDetailView: View {
                     issueId: issueId,
                     db: deps.db,
                     issuesApi: deps.issuesApi,
-                    issueImagesApi: deps.issueImagesApi,
                     attachmentsApi: deps.attachmentsApi,
                     labelsApi: deps.labelsApi,
                     subscriptionsApi: deps.subscriptionsApi,
                     steerApi: deps.steerApi,
-                    devicesApi: deps.devicesApi,
                     widgetsApi: deps.widgetsApi,
                     auth: deps.auth
                 )

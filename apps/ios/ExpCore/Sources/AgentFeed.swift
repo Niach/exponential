@@ -7,9 +7,8 @@ import Foundation
 // model (Exponential/UI/Session/AgentSessionModel.swift) owns only the socket.
 
 /// One answer choice of a `question` activity event. `key` is what a steering
-/// client submits: protocol v2 puts it inside the semantic `answer` frame (the
-/// desktop maps keys onto its own picker), older desktops take it as the raw
-/// TUI keystroke.
+/// client submits — it rides inside the semantic `answer` frame and the desktop
+/// maps it onto its own picker.
 public struct AgentQuestionOption: Equatable, Sendable {
     public let label: String
     public let key: String
@@ -33,10 +32,10 @@ public struct AgentQuestion: Equatable, Sendable, Identifiable {
     /// Local monotonic feed id — the render identity. A re-emission of the same
     /// wire id keeps the id the card already had (see `AgentFeed.upsertQuestion`).
     public var id: Int
-    /// Protocol-v2 stable question id. nil = a legacy desktop that only
-    /// screen-scraped the TUI: no `answer` frame and no explicit resolution, so
-    /// the trailing-run heuristics below still apply to it.
-    public let wireId: String?
+    /// Protocol-v2 stable question id — what every `answer`, `answer_ack` and
+    /// `question_resolved` frame addresses. Required: a card with no id could
+    /// not be answered, and no publisher emits one (EXP-613).
+    public let wireId: String
     /// Groups the steps of ONE multi-question ask into a single stepper card.
     public let askId: String?
     /// 1-based step position; absent on the ask's final review/submit step.
@@ -54,7 +53,7 @@ public struct AgentQuestion: Equatable, Sendable, Identifiable {
 
     public init(
         id: Int,
-        wireId: String? = nil,
+        wireId: String,
         askId: String? = nil,
         index: Int? = nil,
         total: Int? = nil,
@@ -82,16 +81,12 @@ public struct AgentQuestion: Equatable, Sendable, Identifiable {
         self.dismissed = dismissed
     }
 
-    /// Answerable through the semantic `answer` frame (protocol v2).
-    public var isSemantic: Bool { wireId != nil }
-
     /// The ask's final review/submit step: it belongs to an ask but carries no
     /// step position of its own.
     public var isSubmitStep: Bool { askId != nil && index == nil }
 
-    /// Key of the per-card answer lock — the wire id when there is one, else a
-    /// local stand-in so legacy cards lock against double taps too.
-    public var lockKey: String { wireId ?? "local:\(id)" }
+    /// Key of the per-card answer lock.
+    public var lockKey: String { wireId }
 
     /// The chosen answer(s) once resolved, for display.
     public var answerSummary: String? {
@@ -333,14 +328,14 @@ public struct AgentAnswerTracker: Equatable, Sendable {
 /// The feed's pure logic: which cards are still answerable, how wire events
 /// fold into the feed, and how the flat feed projects into render rows.
 public enum AgentFeed {
-    /// The desktop's plan-picker resolution narration (steer/src/activity.rs) —
-    /// the legacy, pre-`question_resolved` signal that a pending plan approval
-    /// was answered. Still emitted alongside the semantic events so old clients
-    /// keep working; new clients only fall back to it for cards with no wire id.
+    /// The desktop's pre-EXP-249 resolution narrations (steer/src/activity.rs).
+    /// It still publishes all three BESIDE the semantic `question_resolved`
+    /// event, so a v2 client (every client, EXP-613) simply drops them: the
+    /// card they describe is already retired by the semantic event, and
+    /// rendering them would duplicate it as a narration row. Web and Android
+    /// drop the same three strings — never reword without updating all four.
     public static let planResolvedNarration = "Plan approval answered."
-    /// The desktop's answered-question narration prefix (legacy path).
     public static let questionAnsweredPrefix = "Question answered: "
-    /// The desktop's dismissed-question narration (legacy path).
     public static let questionDismissedNarration = "Question dismissed."
     /// Client-side feed cap — old events fall off the top. Matches the relay's
     /// ACTIVITY_LOG_CAP so a full replay never truncates.
@@ -351,101 +346,17 @@ public enum AgentFeed {
     /// (EXP-350).
     public static let subagentFallbackType = "agent"
 
-    /// Ids of the question items still answerable.
-    ///
-    /// Protocol-v2 cards (a wire id) are answerable until the desktop retires
-    /// them with `question_resolved` — no screen-scraping heuristics apply.
-    /// LEGACY cards keep the EXP-174 rule: the TRAILING consecutive question
-    /// run, plus any plan-approval card with no resolution signal after it
-    /// (plan pickers are published from the live terminal grid the moment they
-    /// appear, so lagging transcript flushes can land BEHIND a picker that is
-    /// still on screen). Mirrors the Android `activeQuestionIds`.
+    /// Ids of the question items still answerable: every card the desktop has
+    /// not retired with `question_resolved` (EXP-249). No screen-scraping
+    /// heuristics — an unresolved card stays active however far back it is.
+    /// Mirrors the Android `activeQuestionIds`.
     public static func activeQuestionIds(_ feed: [AgentFeedItem]) -> Set<Int> {
         var ids = Set<Int>()
-        // Still inside the trailing consecutive question run.
-        var trailing = true
-        // A resolution signal lies after the current position.
-        var retired = false
-        // The scan runs the whole feed (no early exit): v2 cards resolve
-        // explicitly, so an unresolved one stays active however far back it is.
-        for item in feed.reversed() {
-            switch item {
-            case let .question(question) where question.isSemantic:
-                if !question.resolved { ids.insert(question.id) }
-                // Still a question event for the LEGACY cards before it —
-                // seeing one proves the picker moved on.
-                trailing = false
-                retired = true
-            case let .question(question):
-                if question.resolved {
-                    // An answered/dismissed card is itself a resolution signal
-                    // and is never active.
-                    trailing = false
-                    retired = true
-                } else {
-                    if trailing || (question.planMode && !retired) { ids.insert(question.id) }
-                    retired = true
-                }
-            // A human message breaks the trailing run but does NOT retire a
-            // plan card — steering a message mid-plan leaves the picker up
-            // (web parity, EXP-249).
-            case .userMessage:
-                trailing = false
-            case let .narration(_, text):
-                trailing = false
-                if text.trimmingCharacters(in: .whitespacesAndNewlines) == planResolvedNarration {
-                    retired = true
-                }
-            case .tool, .subagent, .permission:
-                trailing = false
-            }
+        for item in feed {
+            guard let question = item.question, !question.resolved else { continue }
+            ids.insert(question.id)
         }
         return ids
-    }
-
-    /// Whether the desktop publishes question identities. From the first such
-    /// card on, its legacy resolution narrations are duplicates of the semantic
-    /// events (it emits both so pre-EXP-249 clients keep working) and must be
-    /// SWALLOWED instead of rendered.
-    public static func hasSemanticQuestions(_ feed: [AgentFeedItem]) -> Bool {
-        feed.contains { $0.question?.isSemantic == true }
-    }
-
-    /// Fold a legacy `Question answered: <answer>` narration into the EARLIEST
-    /// unanswered non-plan LEGACY card (answers arrive in question order, so
-    /// earliest-first keeps multi-question asks aligned). nil when no card is
-    /// waiting — the caller renders the narration so the answer is never lost.
-    /// v2 cards are never touched: they resolve through `question_resolved`.
-    public static func attachQuestionAnswer(
-        _ feed: [AgentFeedItem], answer: String
-    ) -> [AgentFeedItem]? {
-        guard let index = feed.firstIndex(where: { item in
-            guard let question = item.question else { return false }
-            return !question.isSemantic && !question.planMode && !question.resolved
-        }), let question = feed[index].question else { return nil }
-        var updated = question
-        updated.resolved = true
-        updated.answers = [answer]
-        var out = feed
-        out[index] = .question(updated)
-        return out
-    }
-
-    /// Retire every pending non-plan LEGACY card (the ask was dismissed).
-    /// nil when nothing changed.
-    public static func dismissPendingQuestions(_ feed: [AgentFeedItem]) -> [AgentFeedItem]? {
-        var out = feed
-        var changed = false
-        for i in out.indices {
-            guard let question = out[i].question,
-                  !question.isSemantic, !question.planMode, !question.resolved
-            else { continue }
-            var updated = question
-            updated.resolved = true
-            out[i] = .question(updated)
-            changed = true
-        }
-        return changed ? out : nil
     }
 
     /// Apply a `question_resolved` event: retire the card with `id`, else every
@@ -499,8 +410,7 @@ public enum AgentFeed {
     public static func upsertQuestion(
         _ feed: [AgentFeedItem], question: AgentQuestion
     ) -> [AgentFeedItem] {
-        guard let wireId = question.wireId,
-              let index = feed.firstIndex(where: { $0.question?.wireId == wireId }),
+        guard let index = feed.firstIndex(where: { $0.question?.wireId == question.wireId }),
               let existing = feed[index].question
         else { return feed + [.question(question)] }
         var merged = question
@@ -519,7 +429,7 @@ public enum AgentFeed {
     /// the picker resolves, so that prose arrives AFTER the already-published
     /// card and tags itself with `beforeQuestionId` to be spliced back above
     /// it. Matches resolved cards too (the twin normally flushes post-answer).
-    /// nil when no card matches (evicted, legacy producer) — the caller
+    /// nil when no card matches (evicted) — the caller
     /// appends.
     public static func spliceBeforeQuestion(
         _ feed: [AgentFeedItem], anchor: String, item: AgentFeedItem

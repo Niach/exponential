@@ -424,8 +424,6 @@ export const statusesRouter = router({
               actorUserId: ctx.session.user.id,
               type: `status_changed`,
               payload: {
-                from: issue.status,
-                to: targetAnchor,
                 fromStatusId: row.id,
                 toStatusId: targetRow.id,
                 fromName: row.name,

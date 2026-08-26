@@ -785,9 +785,7 @@ pub fn team_issues(cx: &App, team_id: &str) -> Vec<domain::rows::Issue> {
 }
 
 /// EXP-153: a `running` (or `in_review` — EXP-194: PR open, terminal still
-/// alive; or `merged` — EXP-358: the PR landed and the session KEEPS running
-/// until someone explicitly closes it) coding_sessions row renders as live
-/// only while its `updated_at`
+/// alive) coding_sessions row renders as live only while its `updated_at`
 /// (heartbeat-advanced) is inside the contract stale window — stale rows are
 /// treated as ABSENT, mirroring the server sweep's DELETE (never as `ended`,
 /// which is the kill-switch signal). Missing/unparseable `updated_at` → live
@@ -804,7 +802,6 @@ pub(crate) fn coding_session_is_live(
         session.status.as_deref(),
         Some(domain::contract::CODING_SESSION_STATUS_RUNNING)
             | Some(domain::contract::CODING_SESSION_STATUS_IN_REVIEW)
-            | Some(domain::contract::CODING_SESSION_STATUS_MERGED)
     );
     if !live_status {
         return false;
@@ -879,11 +876,13 @@ pub(crate) struct SessionDevicePresentation {
 
 /// Resolve `session`'s host machine against the synced `devices` rows.
 ///
-/// Match order: the row whose steer `device_id` equals the session's
-/// (EXP-549's stamp; preferring the session owner's own row when a shared
-/// device produced several), then — ONLY for pre-EXP-549 rows that carry no
-/// `device_id` — the UNIQUE row whose label equals the snapshot (0 or 2+
-/// matches resolve nothing: guessing would rename the wrong machine).
+/// The ONE match is on the session's steer `device_id` (EXP-549's stamp),
+/// preferring the session owner's own row when a shared device produced
+/// several. EXP-589: a row with NO `device_id` resolves no machine at all —
+/// it falls straight through to the session's own `device_label` snapshot,
+/// never offline. The old label-equality fallback (unique-label match) is
+/// gone: matching machines by NAME could only ever rename the right one or
+/// mislabel the wrong one, and the presentation reads the same either way.
 pub(crate) fn session_device_presentation<'a>(
     session: &domain::rows::CodingSession,
     devices: impl Iterator<Item = &'a domain::rows::DeviceRow>,
@@ -902,23 +901,7 @@ pub(crate) fn session_device_presentation<'a>(
                 .copied()
                 .or_else(|| matches.first().copied())
         }
-        None => {
-            let snapshot = session.device_label.as_deref().filter(|l| !l.is_empty());
-            match snapshot {
-                Some(snapshot) => {
-                    let mut matches = devices
-                        .filter(|row| row.label.as_deref() == Some(snapshot))
-                        .take(2);
-                    match (matches.next(), matches.next()) {
-                        // Ambiguous (two machines share the name) — resolve
-                        // nothing rather than pick the wrong one.
-                        (Some(row), None) => Some(row),
-                        _ => None,
-                    }
-                }
-                None => None,
-            }
-        }
+        None => None,
     };
     match row {
         Some(row) => SessionDevicePresentation {
@@ -937,9 +920,9 @@ pub(crate) fn session_device_presentation<'a>(
 }
 
 /// EXP-550: a session whose host machine is offline (lid closed) is PAUSED,
-/// not live — but only while it would otherwise read as in-flight. Review /
-/// Merged / Done are outcomes the offline host cannot un-say, so they are
-/// never overridden.
+/// not live — but only while it would otherwise read as in-flight. Review and
+/// Done are outcomes the offline host cannot un-say, so they are never
+/// overridden.
 pub(crate) fn session_is_paused(
     display: CodingSessionDisplay,
     presentation: &SessionDevicePresentation,
@@ -966,16 +949,16 @@ pub(crate) fn session_is_paused(
 /// non-running rows for the same reason; this ordering also heals rows the
 /// noise already stamped.
 ///
-/// EXP-358: the server now flips a merged run's session to its own `merged`
-/// status (the session survives the merge), so that status decides directly —
-/// but the `in_review` + `pr_state = merged` inference stays as the fallback
-/// for rows written by older servers/clients.
+/// EXP-498/EXP-540: a merged PR now ENDS the session, and the session status
+/// `merged` is retired — so `in_review` + `pr_state = merged` is the only
+/// merge inference left. It is kept for old-SERVER tolerance: a lagging
+/// self-host server can still park a row in `in_review` while its PR is
+/// already merged.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CodingSessionDisplay {
     Running,
     NeedsInput,
     Review,
-    Merged,
     Done,
 }
 
@@ -984,9 +967,6 @@ pub(crate) fn coding_session_display(
     pr_state: Option<&str>,
 ) -> CodingSessionDisplay {
     let merged = pr_state == Some(domain::contract::PR_STATE_MERGED);
-    if session.status.as_deref() == Some(domain::contract::CODING_SESSION_STATUS_MERGED) {
-        return CodingSessionDisplay::Merged;
-    }
     if session.status.as_deref() == Some(domain::contract::CODING_SESSION_STATUS_IN_REVIEW) {
         return if merged {
             CodingSessionDisplay::Done
@@ -1099,6 +1079,10 @@ mod tests {
         assert!(!coding_session_is_live(&s, now));
         let s = session(None, Some("2026-07-17T11:59:00Z"));
         assert!(!coding_session_is_live(&s, now));
+        // EXP-540: the retired `merged` status is not a live status either —
+        // a merged PR ends the session (EXP-498).
+        let s = session(Some("merged"), Some("2026-07-17T11:59:00Z"));
+        assert!(!coding_session_is_live(&s, now));
     }
 
     /// EXP-194: an `in_review` row (PR open, terminal alive) is live while
@@ -1112,36 +1096,22 @@ mod tests {
         assert!(!coding_session_is_live(&stale, now));
     }
 
-    /// EXP-358: a `merged` row (PR landed, session deliberately still alive)
-    /// is live while fresh and absent when stale — exactly like `in_review`.
+    /// EXP-540: with the `merged` session status retired, `in_review` + a
+    /// merged PR is the only merge inference left — kept for old-SERVER
+    /// tolerance (a lagging self-host can still park a row in `in_review`
+    /// while its PR is already merged).
     #[test]
-    fn coding_session_merged_is_live_until_stale() {
-        let now = 1784289600_i64;
-        let fresh = session(Some("merged"), Some("2026-07-17T11:30:00Z"));
-        assert!(coding_session_is_live(&fresh, now));
-        let stale = session(Some("merged"), Some("2026-07-17T09:00:00Z"));
-        assert!(!coding_session_is_live(&stale, now));
-    }
-
-    /// EXP-358: the synced `merged` status decides on its own; the legacy
-    /// `in_review` + merged-PR inference stays for rows older servers wrote.
-    #[test]
-    fn coding_session_display_reads_the_merged_status_and_the_legacy_fallback() {
-        let merged_row = session(Some("merged"), Some("2026-07-17T11:30:00Z"));
-        assert!(coding_session_display(&merged_row, None) == CodingSessionDisplay::Merged);
+    fn coding_session_display_infers_done_from_a_merged_pr_in_review() {
+        let row = session(Some("in_review"), Some("2026-07-17T11:30:00Z"));
         assert!(
-            coding_session_display(&merged_row, Some(domain::contract::PR_STATE_OPEN))
-                == CodingSessionDisplay::Merged
-        );
-        let legacy = session(Some("in_review"), Some("2026-07-17T11:30:00Z"));
-        assert!(
-            coding_session_display(&legacy, Some(domain::contract::PR_STATE_MERGED))
+            coding_session_display(&row, Some(domain::contract::PR_STATE_MERGED))
                 == CodingSessionDisplay::Done
         );
         assert!(
-            coding_session_display(&legacy, Some(domain::contract::PR_STATE_OPEN))
+            coding_session_display(&row, Some(domain::contract::PR_STATE_OPEN))
                 == CodingSessionDisplay::Review
         );
+        assert!(coding_session_display(&row, None) == CodingSessionDisplay::Review);
     }
 
     #[test]
@@ -1356,47 +1326,27 @@ mod tests {
         assert_eq!(presentation.label.as_deref(), Some("Build server"));
     }
 
-    /// Pre-EXP-549 rows carry no `device_id` — a UNIQUE label match still
-    /// resolves the machine (so its online-ness applies), and an ambiguous
-    /// one resolves nothing rather than guessing.
+    /// EXP-589: a row with no `device_id` resolves NO machine — it shows its
+    /// own label snapshot and is never accused of being offline, even when a
+    /// same-named machine happens to be synced (that label match was the
+    /// removed fallback). A session that DOES carry a device_id likewise never
+    /// falls back to the label: an unknown machine stays unresolved.
     #[test]
-    fn session_device_presentation_falls_back_to_a_unique_label_only() {
+    fn session_device_presentation_never_matches_by_label() {
         let now_ms = 1784289600_000_i64;
         let unique = vec![device_row(
             "d-1",
             Some("dev-1"),
             Some("user-1"),
             Some("mac-studio"),
+            // Long stale: would have read "offline" through the old fallback.
             Some("2026-07-17T09:00:00Z"),
         )];
         let legacy = hosted_session(None, Some("mac-studio"), Some("user-1"));
         let presentation = session_device_presentation(&legacy, unique.iter(), now_ms);
         assert_eq!(presentation.label.as_deref(), Some("mac-studio"));
-        assert!(presentation.offline, "stale heartbeat = offline");
+        assert!(!presentation.offline, "an unresolved machine is never offline");
 
-        // Two machines named the same → no row, so no offline claim.
-        let ambiguous = vec![
-            device_row(
-                "d-1",
-                Some("dev-1"),
-                Some("user-1"),
-                Some("mac-studio"),
-                Some("2026-07-17T09:00:00Z"),
-            ),
-            device_row(
-                "d-2",
-                Some("dev-2"),
-                Some("user-1"),
-                Some("mac-studio"),
-                Some("2026-07-17T11:59:30Z"),
-            ),
-        ];
-        let presentation = session_device_presentation(&legacy, ambiguous.iter(), now_ms);
-        assert_eq!(presentation.label.as_deref(), Some("mac-studio"));
-        assert!(!presentation.offline);
-
-        // A session that DOES carry a device_id never falls back to the
-        // label — an unknown machine stays unresolved.
         let stamped = hosted_session(Some("dev-unknown"), Some("mac-studio"), Some("user-1"));
         let presentation = session_device_presentation(&stamped, unique.iter(), now_ms);
         assert_eq!(presentation.label.as_deref(), Some("mac-studio"));
@@ -1421,11 +1371,7 @@ mod tests {
             assert!(session_is_paused(display, &offline));
             assert!(!session_is_paused(display, &online));
         }
-        for display in [
-            CodingSessionDisplay::Review,
-            CodingSessionDisplay::Merged,
-            CodingSessionDisplay::Done,
-        ] {
+        for display in [CodingSessionDisplay::Review, CodingSessionDisplay::Done] {
             assert!(!session_is_paused(display, &offline));
             assert!(!session_is_paused(display, &online));
         }

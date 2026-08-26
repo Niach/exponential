@@ -2073,7 +2073,6 @@ pub(crate) fn coding_now_pill(issue_id: &str, cx: &App) -> Option<impl IntoEleme
             crate::queries::CodingSessionDisplay::Review => {
                 ("ready for review", theme::tokens::GREEN)
             }
-            crate::queries::CodingSessionDisplay::Merged => ("merged", theme::tokens::BLUE),
             crate::queries::CodingSessionDisplay::Done => ("done", theme::tokens::BLUE),
             crate::queries::CodingSessionDisplay::Running => ("coding now", theme::tokens::GREEN),
         }

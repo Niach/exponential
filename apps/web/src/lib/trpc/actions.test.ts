@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { TRPCError } from "@trpc/server"
 
-// EXP-257 actions router: the virtual builtin "Create action" rides every
-// list (non-editable/non-deletable), inputs schemas persist through
-// create/update, and the reserved name stays unique. DB access is a queued
-// select-chain + insert recorder (steer.test.ts precedent).
+// Actions router (EXP-257/EXP-539): list returns DB rows only (clients and
+// the MCP tool construct/append the virtual builtins themselves), the
+// reserved builtin ids stay read/write-protected, inputs schemas persist
+// through create/update, and the reserved name stays unique. DB access is a
+// queued select-chain + insert recorder (steer.test.ts precedent).
 
 const h = vi.hoisted(() => {
   const selectResults: unknown[][] = []
@@ -92,43 +93,20 @@ beforeEach(() => {
   h.assertTeamOwner.mockClear()
 })
 
-describe(`actions.list — builtin injection (EXP-257)`, () => {
-  it(`appends the virtual builtins and flags real rows builtin: false`, async () => {
+describe(`actions.list — rows only (EXP-539)`, () => {
+  it(`returns DB rows flagged builtin: false and appends nothing`, async () => {
     selectResults.push([
       { id: ACTION_ID, teamId: TEAM_ID, name: `Code review`, inputs: [] },
     ])
     const { actions } = await caller.list({ teamId: TEAM_ID })
-    expect(actions).toHaveLength(3)
+    expect(actions).toHaveLength(1)
     expect(actions[0]).toMatchObject({ id: ACTION_ID, builtin: false })
-    expect(actions[1]).toMatchObject({
-      id: BUILTIN_ID,
-      teamId: TEAM_ID,
-      name: `Create action`,
-      builtin: true,
-      inputs: [
-        { key: `description`, type: `text`, required: true },
-        // EXP-615: the optional up-front name (blank = the agent names it).
-        { key: `name`, type: `text`, required: false },
-        { key: `repo`, type: `repo`, required: false },
-        // EXP-273: the author picks the new action's glyph up front.
-        { key: `icon`, type: `icon`, required: false },
-      ],
-    })
-    // EXP-259: the second builtin — "Fix merge conflicts" with its required
-    // pr input (the representative issue id of an open PR).
-    expect(actions[2]).toMatchObject({
-      id: FIX_CONFLICTS_ID,
-      teamId: TEAM_ID,
-      name: `Fix merge conflicts`,
-      builtin: true,
-      inputs: [{ key: `pr`, type: `pr`, required: true }],
-    })
   })
 
-  it(`never appends the hidden chat builtin (EXP-615)`, async () => {
+  it(`stays empty for a team with no actions (clients construct builtins locally)`, async () => {
     selectResults.push([])
     const { actions } = await caller.list({ teamId: TEAM_ID })
-    expect(actions.map((a) => a.id)).toEqual([BUILTIN_ID, FIX_CONFLICTS_ID])
+    expect(actions).toEqual([])
   })
 })
 

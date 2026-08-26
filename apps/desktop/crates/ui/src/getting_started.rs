@@ -86,10 +86,10 @@ pub(crate) enum EntryState {
 /// Web `GettingStartedSignals`, field for field.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Signals {
-    /// devices.list (own rows) has a desktop-kind device — this IDE
-    /// registers itself on sign-in, so this is normally true here.
+    /// The synced `devices` shape (own rows) has a desktop-kind device —
+    /// this IDE registers itself on sign-in, so this is normally true here.
     pub has_desktop_device: bool,
-    /// devices.list (own rows) has a server-kind device.
+    /// The synced `devices` shape (own rows) has a server-kind device.
     pub has_server_device: bool,
     /// integrations.github.status → installed.
     pub github_installed: bool,
@@ -258,8 +258,6 @@ pub struct GettingStartedProgress {
     /// Team-keyed so a switch back is instant; a team's own answers never
     /// leak to another (the web hook has the identical guard).
     teams: HashMap<String, TeamAnswers>,
-    /// `(desktop, server)` kinds in devices.list; `None` until answered.
-    devices: Option<(bool, bool)>,
     /// mcpGrants.hasAny || personal keys > 0; `None` until answered.
     mcp_connected: Option<bool>,
     /// The team the poll loop refreshes — the last one a caller asked for.
@@ -290,7 +288,6 @@ impl GettingStartedProgress {
             let subscriptions = store.observe_collections(cx);
             GettingStartedProgress {
                 teams: HashMap::new(),
-                devices: None,
                 mcp_connected: None,
                 wanted_team: None,
                 fetch_seq: 0,
@@ -381,9 +378,10 @@ impl GettingStartedProgress {
         .detach();
     }
 
-    /// One seq-guarded round: `devices.list` + the MCP pair (user-level), the
-    /// wanted team's `integrations.github.status`, and — owners only —
-    /// `widgets.list`. Failures keep the last answer.
+    /// One seq-guarded round: the MCP pair (user-level), the wanted team's
+    /// `integrations.github.status`, and — owners only — `widgets.list`.
+    /// Failures keep the last answer. The device signals are NOT here: they
+    /// derive from the synced `devices` shape (EXP-485).
     fn fetch(&mut self, cx: &mut gpui::Context<Self>) {
         let Some(trpc) = queries::trpc_client(cx) else {
             return;
@@ -401,12 +399,11 @@ impl GettingStartedProgress {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    let devices = api::devices::list(&trpc);
                     let github = crate::github_connect::fetch_github_status(&trpc, &fetch_team);
                     let widgets = ask_widgets.then(|| api::widgets::list(&trpc, &fetch_team));
                     let grants = api::users::mcp_grants_has_any(&trpc);
                     let keys = api::users::list_personal_api_keys(&trpc);
-                    (devices, github, widgets, grants, keys)
+                    (github, widgets, grants, keys)
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
@@ -414,15 +411,7 @@ impl GettingStartedProgress {
                     return;
                 }
                 this.inflight = false;
-                let (devices, github, widgets, grants, keys) = result;
-                match devices {
-                    Ok(list) => {
-                        let desktop = list.devices.iter().any(|device| device.kind == "desktop");
-                        let server = list.devices.iter().any(api::devices::DeviceEntry::is_server);
-                        this.devices = Some((desktop, server));
-                    }
-                    Err(err) => log::warn!("[ui] getting-started devices.list failed: {err}"),
-                }
+                let (github, widgets, grants, keys) = result;
                 // Web parity: both halves best-effort, a failure counts as
                 // "no" for that half (checklist hint, not access control).
                 let has_grant = grants.unwrap_or_else(|err| {
@@ -453,6 +442,32 @@ impl GettingStartedProgress {
             });
         })
         .detach();
+    }
+
+    /// EXP-485: the device signals come off the SYNCED `devices` shape —
+    /// `(desktop, server)` among the signed-in user's OWN rows, `None` while
+    /// the shape is still Waiting so the checklist stays neutral exactly as
+    /// it did while the tRPC list was unanswered.
+    fn device_kinds(cx: &App) -> Option<(bool, bool)> {
+        let collections = Store::global(cx).collections();
+        let devices = collections.devices.read(cx);
+        if !devices.is_ready() {
+            return None;
+        }
+        let me = queries::active_account(cx)?.id;
+        let mut desktop = false;
+        let mut server = false;
+        for row in devices
+            .iter()
+            .filter(|row| row.user_id.as_deref() == Some(me.as_str()))
+        {
+            match row.kind.as_deref() {
+                Some("desktop") => desktop = true,
+                Some("server") => server = true,
+                _ => {}
+            }
+        }
+        Some((desktop, server))
     }
 
     fn signals(&self, team_id: &str, cx: &App) -> Signals {
@@ -486,7 +501,8 @@ impl GettingStartedProgress {
             .and_then(|team| team.helpdesk_enabled)
             == Some(true);
         let answers = self.teams.get(team_id);
-        let (has_desktop_device, has_server_device) = self.devices.unwrap_or((false, false));
+        let (has_desktop_device, has_server_device) =
+            Self::device_kinds(cx).unwrap_or((false, false));
         Signals {
             has_desktop_device,
             has_server_device,
@@ -515,7 +531,7 @@ impl GettingStartedProgress {
         // viewer's own row lands, exactly the web `resolved` guard).
         let membership_resolved = crate::settings::my_membership(cx, team_id).is_some();
         let loading = !membership_resolved
-            || self.devices.is_none()
+            || Self::device_kinds(cx).is_none()
             || self.mcp_connected.is_none()
             || answers.and_then(|a| a.github_installed).is_none()
             || (gates.can_manage_widgets && answers.and_then(|a| a.has_widget).is_none());

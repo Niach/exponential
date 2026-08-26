@@ -5,30 +5,32 @@
 // deleting an account left the agent alive on the host's machine with no client
 // able to reach it.
 //
-// The predicate deliberately carries NO device identity: rows written by
-// pre-EXP-549 clients carry only a `device_label` SNAPSHOT (`device_id` is
-// NULL there), and an under-kill would recreate exactly the lifecycle gap this
-// closes. So an owner who shares TWO servers with the SAME team over-kills the
-// other box's sessions when unsharing one — rare, and recoverable by restarting
-// on the still-shared device.
+// Since EXP-560 every live row carries its `device_id` stamp, so the unshare
+// path scopes the kill to the one machine whose share was withdrawn; member
+// removal passes no deviceId and sweeps every box the host runs for them.
 import { and, eq, inArray, ne } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { codingSessions } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
 import { getSteerRelayConfig, relayPostKill } from "@/lib/steer"
 
-/** Statuses that still have a live agent behind them (EXP-358 keeps
- * in_review/merged steerable). */
-const LIVE_STATUSES = [`running`, `in_review`, `merged`] as const
+/** Statuses that still have a live agent behind them (in_review stays
+ * steerable while the PR awaits review). */
+const LIVE_STATUSES = [`running`, `in_review`] as const
 
 /**
  * End every live session hosted by `hostUserId` for a REQUESTER other than
  * themselves within `teamId` — the sessions a share was the consent for.
- * Returns the ended session ids.
+ * `deviceId` narrows the kill to one machine (the unshare path since
+ * EXP-560 — every live row carries its device stamp, so unsharing one of
+ * two same-team servers no longer over-kills the other box); member removal
+ * stays device-agnostic (a removed member's runs on ANY of the host's boxes
+ * must die). Returns the ended session ids.
  */
 export async function endForeignHostedSessions(
   hostUserId: string,
-  teamId: string
+  teamId: string,
+  deviceId?: string
 ): Promise<string[]> {
   const endedSessionIds = await db.transaction(async (tx) => {
     const txId = await generateTxId(tx)
@@ -41,6 +43,7 @@ export async function endForeignHostedSessions(
           eq(codingSessions.hostUserId, hostUserId),
           ne(codingSessions.userId, hostUserId),
           eq(codingSessions.teamId, teamId),
+          ...(deviceId ? [eq(codingSessions.deviceId, deviceId)] : []),
           inArray(codingSessions.status, [...LIVE_STATUSES])
         )
       )

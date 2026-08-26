@@ -148,12 +148,6 @@ export function deviceCanFixConflicts(device: SteerDevice): boolean {
   return (device.caps ?? []).includes(`fix-conflicts`)
 }
 
-/** EXP-615: the hidden chat builtin needs its own launch path on the device —
- * an older desktop would treat the id as a real action and fail its fetch. */
-export function deviceCanChat(device: SteerDevice): boolean {
-  return (device.caps ?? []).includes(`chat`)
-}
-
 /** EXP-530: only devices advertising this capability evaluate action
  * triggers locally — older builds would accept the binding and never fire.
  * Offline-but-capable devices stay pickable (they catch up on reconnect). */

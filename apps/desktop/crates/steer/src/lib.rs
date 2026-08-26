@@ -72,9 +72,9 @@ pub use activity::{
     Steering,
 };
 pub use frames::{
-    ActivityEvent, AgentLaunchDefaults, ClientFrame, LaunchDefaults, QuestionOption,
-    ServerFrame, StartInput, StartRepoGroup, SteerRole, SubagentStatus, CLOSE_REPLACED,
-    CLOSE_SESSION_ENDED, CLOSE_SLOW_CONSUMER, CLOSE_UNAUTHORIZED,
+    ActivityEvent, ClientFrame, QuestionOption, ServerFrame, StartInput, StartRepoGroup,
+    SteerRole, SubagentStatus, CLOSE_REPLACED, CLOSE_SESSION_ENDED, CLOSE_SLOW_CONSUMER,
+    CLOSE_UNAUTHORIZED,
 };
 pub use hooks::{
     hook_settings_json, write_hook_curl_config, HookContext, HookEvent, HookEventKind,

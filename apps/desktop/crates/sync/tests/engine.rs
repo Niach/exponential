@@ -298,6 +298,13 @@ fn conflict_409(replacement_handle: &str) -> MockResponse {
     resp
 }
 
+/// EXP-624: a deterministic 400 (a shape definition/handle mismatch a future
+/// Electric may report this way) carrying NO replacement handle — the bare
+/// resnapshot case.
+fn bad_request_400() -> MockResponse {
+    MockResponse::new(400, json!({"message": "invalid shape request"}))
+}
+
 fn unauthorized_401() -> MockResponse {
     MockResponse::new(401, json!({"message": "unauthorized"}))
 }
@@ -607,6 +614,53 @@ fn conflict_409_refetches_atomically_with_no_empty_state() {
         )
     });
     assert!(saw_full_replace);
+
+    harness.stop();
+}
+
+// ---------------------------------------------------------------------------
+// 2b. 400 → the same resnapshot path as a 409 (EXP-624)
+// ---------------------------------------------------------------------------
+
+/// A 400 is DETERMINISTIC: the same request would fail forever, so the generic
+/// non-2xx path (retry at backoff) wedges the shape. It must take the 409's
+/// resnapshot route instead — marker set, cursor dropped, next poll = a bare
+/// `offset=-1` refetch that replaces the table.
+#[test]
+fn bad_request_400_resnapshots_instead_of_wedging() {
+    let _serial = serial();
+    let server = MockShapeServer::start(live_idle("h-2", "0_7", Duration::from_millis(200)));
+    server.push(snapshot("h-1", "0_0", &[("a", "A"), ("b", "B")]));
+    server.push(bad_request_400().hold(Duration::from_millis(50)));
+    server.push(snapshot("h-2", "0_7", &[("b", "B v2"), ("c", "C")]));
+
+    let dir = TempDir::new("400");
+    let store = Arc::new(ShapeStore::open(&dir.db_path()).unwrap());
+    let mut harness = ClientHarness::spawn(&server, Arc::clone(&store), "issues");
+
+    // The initial snapshot lands…
+    assert!(wait_until(Duration::from_secs(5), || {
+        store.count(shape_by_name("issues").unwrap()).unwrap() == 2
+    }));
+
+    // …then the 400 resnapshots onto the replacement handle instead of
+    // retrying the doomed request forever.
+    assert!(wait_until(Duration::from_secs(10), || {
+        store
+            .shape_state("issues")
+            .unwrap()
+            .is_some_and(|s| s.handle == "h-2" && !s.needs_refetch)
+    }));
+    assert!(wait_until(Duration::from_secs(2), || {
+        issue_ids(&store) == HashSet::from(["b".into(), "c".into()])
+    }));
+
+    // The refetch went out as a BARE offset=-1 (this 400 carried no
+    // replacement handle, so none is echoed).
+    assert!(server
+        .requests()
+        .iter()
+        .any(|r| r.param("offset") == Some("-1") && r.param("handle").is_none()));
 
     harness.stop();
 }

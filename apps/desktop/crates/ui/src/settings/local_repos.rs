@@ -1005,9 +1005,8 @@ impl Render for LocalReposPane {
 // ---------------------------------------------------------------------------
 
 /// The branches held by a live coding session ANYWHERE: a synced
-/// `running`/`in_review`/`merged` session mapped through its issue to
-/// `<prefix><IDENTIFIER>` (EXP-358: a merged run's session keeps running, so
-/// it keeps occupying its worktree). Includes other devices' sessions; batch
+/// `running`/`in_review` session mapped through its issue to
+/// `<prefix><IDENTIFIER>`. Includes other devices' sessions; batch
 /// and action runs have no issue row to map through and are covered by
 /// [`local_session_on_branch`] instead.
 fn live_session_branches(prefix: &str, cx: &App) -> HashSet<String> {
@@ -1022,7 +1021,6 @@ fn live_session_branches(prefix: &str, cx: &App) -> HashSet<String> {
                 session.status.as_deref(),
                 Some(domain::contract::CODING_SESSION_STATUS_RUNNING)
                     | Some(domain::contract::CODING_SESSION_STATUS_IN_REVIEW)
-                    | Some(domain::contract::CODING_SESSION_STATUS_MERGED)
             )
         })
         .filter_map(|session| session.issue_id.as_deref())

@@ -86,7 +86,7 @@ describe(`endForeignHostedSessions`, () => {
       updatedAt: expect.any(Date),
     })
     // Hosted BY this user, requested by SOMEONE ELSE, in the unshared team,
-    // and still live (EXP-358 keeps in_review/merged steerable).
+    // and still live.
     expect(whereShape(h.updates[0]!.where)).toEqual([
       `col:host_user_id`,
       HOST,
@@ -97,11 +97,31 @@ describe(`endForeignHostedSessions`, () => {
       `col:status`,
       `running`,
       `in_review`,
-      `merged`,
     ])
     expect(h.relayPostKill).toHaveBeenCalledTimes(2)
     expect(h.relayPostKill).toHaveBeenCalledWith(expect.anything(), `sess-1`)
     expect(h.relayPostKill).toHaveBeenCalledWith(expect.anything(), `sess-2`)
+  })
+
+  it(`scopes the kill to one machine when a deviceId is given (EXP-560)`, async () => {
+    h.returning = [{ id: `sess-1` }]
+
+    const ids = await endForeignHostedSessions(HOST, TEAM, `dev-1`)
+
+    expect(ids).toEqual([`sess-1`])
+    expect(whereShape(h.updates[0]!.where)).toEqual([
+      `col:host_user_id`,
+      HOST,
+      `col:user_id`,
+      HOST,
+      `col:team_id`,
+      TEAM,
+      `col:device_id`,
+      `dev-1`,
+      `col:status`,
+      `running`,
+      `in_review`,
+    ])
   })
 
   it(`relays nothing when no row matched`, async () => {
