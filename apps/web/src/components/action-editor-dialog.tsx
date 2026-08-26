@@ -165,16 +165,23 @@ export function ActionEditorDialog({
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="action-name">Name</Label>
-                <Input
-                  id="action-name"
-                  value={name}
-                  onChange={(e) => {
-                    setName(e.target.value)
-                    setNameError(null)
-                  }}
-                  placeholder="Code review sweep"
-                  autoFocus
-                />
+                <div className="flex items-center gap-2">
+                  <IconPicker
+                    value={icon}
+                    onChange={(next) => setIcon(next as BoardIcon)}
+                  />
+                  <Input
+                    id="action-name"
+                    value={name}
+                    onChange={(e) => {
+                      setName(e.target.value)
+                      setNameError(null)
+                    }}
+                    placeholder="Code review sweep"
+                    className="flex-1"
+                    autoFocus
+                  />
+                </div>
                 {nameError && (
                   <p className="text-xs text-destructive">{nameError}</p>
                 )}
@@ -193,13 +200,6 @@ export function ActionEditorDialog({
                 />
               </div>
 
-              <div className="space-y-2">
-                <Label>Icon</Label>
-                <IconPicker
-                  value={icon}
-                  onChange={(next) => setIcon(next as BoardIcon)}
-                />
-              </div>
               <div className="space-y-2">
                 <Label htmlFor="action-repository">Repository (optional)</Label>
                 <Select value={repoValue} onValueChange={setRepoValue}>

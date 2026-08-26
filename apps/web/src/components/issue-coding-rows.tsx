@@ -278,9 +278,10 @@ function IssueMergeButton({ issue }: { issue: Issue }) {
   )
 }
 
-// Membership gate shared by both exported pieces (the server enforces it
-// regardless; this only decides what renders).
-function useIsTeamMember(teamId: string, currentUserId: string) {
+// Membership gate shared by both exported pieces and the bulk bar's
+// "Start coding" button (the server enforces it regardless; this only decides
+// what renders).
+export function useIsTeamMember(teamId: string, currentUserId: string) {
   const { data: memberRows } = useLiveQuery(
     (query) =>
       query

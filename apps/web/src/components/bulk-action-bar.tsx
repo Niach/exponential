@@ -3,6 +3,7 @@ import {
   Check,
   Flag,
   ListTodo,
+  LoaderCircle,
   Minus,
   Tag,
   Trash2,
@@ -11,6 +12,13 @@ import {
 } from "lucide-react"
 import type { Issue, Label, User } from "@/db/schema"
 import { issueCollection, issueLabelCollection } from "@/lib/collections"
+import { conceptIcon } from "@/lib/icons.generated"
+import { useSession } from "@/hooks/use-session"
+import { useTeamBoards } from "@/hooks/use-team-data"
+import { useRemoteStart } from "@/hooks/use-remote-start"
+import { useSteerConfig } from "@/components/agent-session"
+import { useIsTeamMember } from "@/components/issue-coding-rows"
+import { LaunchDialog } from "@/components/launch-dialog/launch-dialog"
 import { trpc } from "@/lib/trpc-client"
 import { issuePriorityOptions } from "@/lib/domain"
 import type { IssuePriority } from "@/lib/domain"
@@ -50,6 +58,9 @@ interface BulkActionBarProps {
   issueLabelMap: Map<string, Label[]>
   labels: Label[]
   users: User[]
+  // Scopes the "Start coding" gates (membership, boards, devices) — My Issues
+  // spans boards, so the selection alone cannot name the team.
+  teamId: string
   onClear: () => void
 }
 
@@ -68,6 +79,7 @@ export function BulkActionBar({
   issueLabelMap,
   labels,
   users,
+  teamId,
   onClear,
 }: BulkActionBarProps) {
   const [busy, setBusy] = useState(false)
@@ -382,6 +394,12 @@ export function BulkActionBar({
           </DropdownMenuContent>
         </DropdownMenu>
 
+        <BulkStartCodingButton
+          teamId={teamId}
+          issues={issues}
+          onClear={onClear}
+        />
+
         <Separator orientation="vertical" className="mx-1 h-4!" />
 
         <DropdownMenu>
@@ -416,5 +434,124 @@ export function BulkActionBar({
         </DropdownMenu>
       </div>
     </div>
+  )
+}
+
+const StartCodingIcon = conceptIcon(`action-run`)
+
+// EXP-642: bulk "Start coding" — the desktop/iOS/Android selection bars have
+// had it since EXP-439, only web lacked it. Gates, in order: member, relay
+// configured, at least one selected issue on a REPO-BACKED board. That last
+// one matters because LaunchDialog seeds its checkboxes from
+// `initialIssueIds` but only LISTS repo-backed boards, so an unfiltered seed
+// would silently include issues the dialog can neither show nor start.
+function BulkStartCodingButton({
+  teamId,
+  issues,
+  onClear,
+}: {
+  teamId: string
+  issues: Issue[]
+  onClear: () => void
+}) {
+  const { data: session } = useSession()
+  const currentUserId = session?.user?.id
+  const steer = useSteerConfig()
+  const isMember = useIsTeamMember(teamId, currentUserId ?? ``)
+  const boards = useTeamBoards(teamId)
+
+  const startableIds = useMemo(() => {
+    const repoBacked = new Set(
+      boards.filter((board) => board.repositoryId).map((board) => board.id)
+    )
+    return issues
+      .filter((issue) => repoBacked.has(issue.boardId))
+      .map((issue) => issue.id)
+  }, [boards, issues])
+
+  if (
+    !currentUserId ||
+    !isMember ||
+    !steer?.enabled ||
+    startableIds.length === 0
+  ) {
+    return null
+  }
+  return (
+    <BulkStartCodingControl
+      teamId={teamId}
+      currentUserId={currentUserId}
+      issueIds={startableIds}
+      onClear={onClear}
+    />
+  )
+}
+
+// Split out so the device wiring (`useRemoteStart` over the synced devices
+// shape) mounts only once the gates above passed — same posture as
+// RemoteStartRow in issue-coding-rows.tsx.
+function BulkStartCodingControl({
+  teamId,
+  currentUserId,
+  issueIds,
+  onClear,
+}: {
+  teamId: string
+  currentUserId: string
+  issueIds: string[]
+  onClear: () => void
+}) {
+  const remote = useRemoteStart({ currentUserId, teamId })
+  const [dialogOpen, setDialogOpen] = useState(false)
+
+  // Devices still resolving, or nothing to start on: stay quiet rather than
+  // spend a slot in an already-crowded bar on an explanation (the issue view
+  // carries that copy).
+  if (remote.devices === null || remote.devices.length === 0) return null
+
+  const busy = remote.starting || remote.sentTo !== null
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="text-muted-foreground"
+        disabled={busy}
+        aria-label="Start coding"
+        onClick={() => setDialogOpen(true)}
+      >
+        {busy ? (
+          <LoaderCircle className="size-4 animate-spin" />
+        ) : (
+          <StartCodingIcon className="size-4" />
+        )}
+        <span className="hidden lg:inline">Start coding</span>
+      </Button>
+      <LaunchDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        devices={remote.devices}
+        starting={remote.starting}
+        teamId={teamId}
+        initialTab="issues"
+        initialIssueIds={issueIds}
+        onStartIssues={(device, options, ids) => {
+          remote
+            .startIssues(device, options, ids)
+            .then(() => {
+              setDialogOpen(false)
+              // Desktop parity (EXP-439): a launched selection is done with.
+              onClear()
+            })
+            .catch(() => {})
+        }}
+        onRunAction={(device, action, options, inputs) => {
+          remote
+            .runAction(device, action, options, inputs)
+            .then(() => setDialogOpen(false))
+            .catch(() => {})
+        }}
+      />
+    </>
   )
 }

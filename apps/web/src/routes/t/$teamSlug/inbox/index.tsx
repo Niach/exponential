@@ -121,39 +121,42 @@ function InboxPage() {
       {/* EXP-525: the tab row is also the my-issues control row — dropping the
           separate filter bar left the list flush against the tabs, so the row
           carries its own bottom padding. */}
-      <div className="flex shrink-0 items-center justify-between px-4 pt-3 pb-2 md:px-6">
-        {/* EXP-616: the capsule segmented control, still URL-driven — the
-            controlled value is the parsed ?tab and every change navigates. */}
-        <Tabs
-          value={tab}
-          onValueChange={(next) => setTab(next as `inbox` | `my-issues`)}
-          className="w-fit shrink-0"
-        >
-          <TabsList>
-            <TabsTrigger value="inbox" className="px-3">
-              <InboxTabIcon />
-              Inbox
-              <UnreadTabCount />
-            </TabsTrigger>
-            <TabsTrigger value="my-issues" className="px-3">
-              <MyIssuesTabIcon />
-              My Issues
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+      <div className="flex shrink-0 items-center justify-between gap-2 px-4 pt-3 pb-2 md:px-6">
+        <div className="flex min-w-0 items-center gap-2">
+          {/* EXP-616: the capsule segmented control, still URL-driven — the
+              controlled value is the parsed ?tab and every change navigates. */}
+          <Tabs
+            value={tab}
+            onValueChange={(next) => setTab(next as `inbox` | `my-issues`)}
+            className="w-fit shrink-0"
+          >
+            <TabsList>
+              <TabsTrigger value="inbox" className="px-3">
+                <InboxTabIcon />
+                Inbox
+                <UnreadTabCount />
+              </TabsTrigger>
+              <TabsTrigger value="my-issues" className="px-3">
+                <MyIssuesTabIcon />
+                My Issues
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+          {/* The My Issues bulk-action bar portals in here (EXP-525) so a
+              selection never reflows the list under it; EXP-642 moved the
+              slot LEFT, beside the tabs, away from the filter trigger. */}
+          {tab === `my-issues` && (
+            <div ref={setBulkSlot} className="contents" />
+          )}
+        </div>
         {tab === `inbox` ? (
           <MarkAllReadButton />
         ) : (
-          <div className="flex min-w-0 items-center gap-1">
-            {/* The My Issues bulk-action bar portals in here (EXP-525) so a
-                selection never reflows the list under it. */}
-            <div ref={setBulkSlot} className="contents" />
-            <MyIssuesFilterAction
-              teamSlug={teamSlug}
-              filters={filters}
-              onFiltersChange={setFilters}
-            />
-          </div>
+          <MyIssuesFilterAction
+            teamSlug={teamSlug}
+            filters={filters}
+            onFiltersChange={setFilters}
+          />
         )}
       </div>
 
