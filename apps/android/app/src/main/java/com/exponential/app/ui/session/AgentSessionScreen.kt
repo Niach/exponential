@@ -1309,6 +1309,9 @@ private fun QuestionCard(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            // EXP-627: the store slide's pop-out rect is measured off the
+            // question card (`PopRects`), iOS parity.
+            .testTag("agent-feed-question")
             .padding(vertical = 5.dp),
         verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(8.dp),

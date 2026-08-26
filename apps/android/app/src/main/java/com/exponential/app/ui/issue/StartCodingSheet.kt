@@ -131,6 +131,18 @@ data class StartIssueOption(
  * run launches on. */
 enum class SubjectTab { Issues, Actions, Chat }
 
+/**
+ * The styleguide capture suite addresses the subject tabs by testTag —
+ * "Actions" and "Chat" also read as ordinary nodes elsewhere in the sheet, so
+ * the label alone is not a handle (EXP-642). Byte-identical to the iOS
+ * accessibility identifiers on `StartCodingSheet.SubjectTab`.
+ */
+internal fun subjectTabTestTag(tab: SubjectTab): String = when (tab) {
+    SubjectTab.Issues -> "start-coding-tab-issues"
+    SubjectTab.Actions -> "start-coding-tab-actions"
+    SubjectTab.Chat -> "start-coding-tab-chat"
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StartCodingSheet(
@@ -544,6 +556,7 @@ fun StartCodingSheet(
                 },
                 onSelect = { subjectTab = it },
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                testTag = ::subjectTabTestTag,
             )
 
             Column(

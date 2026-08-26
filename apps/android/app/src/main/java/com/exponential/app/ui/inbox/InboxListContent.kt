@@ -23,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -101,6 +102,9 @@ private fun InboxRow(group: InboxGroup, onClick: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
+            // EXP-627: the store slide's pop-out rect is measured off the first
+            // row (`PopRects`), iOS parity.
+            .testTag("notification-row")
             .alpha(if (read) 0.6f else 1f)
             .glassRow()
             .clickable(onClick = onClick)
@@ -154,6 +158,7 @@ private fun SupportInboxRow(group: SupportGroup, onClick: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
+            .testTag("notification-row")
             .alpha(if (read) 0.6f else 1f)
             .glassRow()
             .clickable(onClick = onClick)

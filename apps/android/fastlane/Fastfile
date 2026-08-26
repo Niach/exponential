@@ -8,6 +8,9 @@
 # release build stays UNSIGNED (fallback) so `build` still produces artifacts before a
 # keystore exists — you just cannot upload an unsigned .aab to Play.
 
+require "fileutils"
+require "shellwords"
+
 default_platform(:android)
 
 # Matches the `production` product flavor (flavorDimensions "env") — the only flavor
@@ -95,8 +98,44 @@ platform :android do
   # The screenshot tests read the backend URL from the `instanceUrl`
   # instrumentation argument; default is http://10.0.2.2:5173 (host loopback
   # from the emulator).
-  def screenshot_launch_arguments
-    ENV["SCREENGRAB_INSTANCE_URL"]&.then { |url| ["instanceUrl #{url}"] }
+  #
+  # EXP-642: `fastlane screenshots shots:1_board,2_issue-detail` additionally
+  # appends a `shots` argument that narrows the run to those shot ids — what the
+  # "Refresh app screenshots" automation uses when a diff only touched a couple
+  # of views. Navigation always runs; only the capture is skipped, so a subset
+  # run is narrower, not faster.
+  def screenshot_launch_arguments(options = {})
+    args = []
+    url = ENV["SCREENGRAB_INSTANCE_URL"]
+    args << "instanceUrl #{url}" if url
+    ids = options[:shots].to_s.split(/[,\s]+/).reject(&:empty?)
+    unless ids.empty?
+      UI.message("shots: capturing only #{ids.join(', ')}")
+      args << "shots #{ids.join(',')}"
+    end
+    args.empty? ? nil : args
+  end
+
+  # EXP-627: the store suite writes one pop-out rect sidecar per shot into the
+  # app's external files dir (see androidTest/PopRects.kt). Pull them next to
+  # the raw PNGs so `bun run screenshots:pop-sidecars` can merge them into the
+  # form-keyed files the store compositor reads. Best effort throughout — a
+  # capture run must never fail over a missing crop hint.
+  POP_RECT_DEVICE_DIR = "/sdcard/Android/data/at.exponential/files/exp-pop".freeze
+
+  def pull_pop_rects(destination)
+    FileUtils.mkdir_p(destination)
+    sh("adb pull #{POP_RECT_DEVICE_DIR}/. #{destination.shellescape}")
+  rescue StandardError => e
+    UI.important("Pop-rect sidecar pull skipped: #{e.message}")
+  end
+
+  def merge_pop_sidecars(platform)
+    # `sh` runs from the fastlane/ dir; the repo root is three levels up.
+    root = File.expand_path("../../..", __dir__)
+    sh("cd #{root.shellescape} && bun run screenshots:pop-sidecars -- --platform #{platform}")
+  rescue StandardError => e
+    UI.important("Pop-rect sidecar merge skipped: #{e.message}")
   end
 
   # screengrab ALWAYS auto-loads `fastlane/Screengrabfile` — the filename is
@@ -117,36 +156,44 @@ platform :android do
        "Needs the seeded local backend running (see fastlane/Screengrabfile); " \
        "override the instance URL with SCREENGRAB_INSTANCE_URL. Raw captures land " \
        "in fastlane/screenshots-raw/ — follow up with `bun run screenshots:store` " \
-       "(repo root) before sync_store, which composites the Play set (EXP-580)."
-  lane :screenshots do
+       "(repo root) before sync_store, which composites the Play set (EXP-580). " \
+       "`shots:1_board,2_issue-detail` narrows the run to those shot ids (EXP-642)."
+  lane :screenshots do |options|
     gradle(
       tasks: [":app:assembleProductionDebug", ":app:assembleProductionDebugAndroidTest"],
     )
 
     # Everything else (APK paths, package name, locales, output dir) comes from
     # fastlane/Screengrabfile.
-    launch_arguments = screenshot_launch_arguments
+    launch_arguments = screenshot_launch_arguments(options)
     if launch_arguments
       screengrab(launch_arguments: launch_arguments)
     else
       screengrab
     end
+
+    # Pop-out rect sidecars land beside the raw PNGs screengrab just wrote.
+    pull_pop_rects(File.expand_path("screenshots-raw/en-US/images/phoneScreenshots", __dir__))
+    merge_pop_sidecars("android")
   end
 
   desc "Capture the STYLEGUIDE reference screenshots (EXP-566) on a booted emulator: " \
-       "11 sg_* shots of the plain app surfaces, into fastlane/styleguide-screenshots/. " \
-       "Same seeded local backend as `screenshots` (no steer relay needed); override " \
-       "the instance URL with SCREENGRAB_INSTANCE_URL. Config lives in " \
-       "fastlane/Screengrabfile-styleguide."
-  lane :styleguide_screenshots do
+       "24 sg_* shots of the plain app surfaces, into fastlane/styleguide-screenshots/. " \
+       "Same seeded local backend as `screenshots` and no steer relay, but since " \
+       "EXP-642 it DOES need `bun run screenshots:desktop`: sg_machine-settings and " \
+       "the two sg_start-coding-* shots photograph the demo user's own registered " \
+       "device row. Override the instance URL with SCREENGRAB_INSTANCE_URL; " \
+       "`shots:sg_reviews,sg_search` narrows the run to those shot ids (EXP-642). " \
+       "Config lives in fastlane/Screengrabfile-styleguide."
+  lane :styleguide_screenshots do |options|
     gradle(
       tasks: [":app:assembleProductionDebug", ":app:assembleProductionDebugAndroidTest"],
     )
 
-    options = screengrab_options_from("Screengrabfile-styleguide")
-    launch_arguments = screenshot_launch_arguments
-    options[:launch_arguments] = launch_arguments if launch_arguments
-    screengrab(options)
+    config = screengrab_options_from("Screengrabfile-styleguide")
+    launch_arguments = screenshot_launch_arguments(options)
+    config[:launch_arguments] = launch_arguments if launch_arguments
+    screengrab(config)
   end
 
   # Release notes are en-US only: changelogs/<vc>.txt lives under en-US and Play

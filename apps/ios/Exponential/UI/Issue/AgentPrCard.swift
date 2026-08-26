@@ -92,6 +92,10 @@ struct AgentPrCard: View {
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
         }
+        // EXP-642: the store slide's pop-out rect is measured off this row
+        // (`PopRects`). `contain` keeps the link inside it queryable.
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("coding-now-row")
     }
 
     private func sessionRowContent(_ session: CodingSessionEntity, chevron: Bool) -> some View {

@@ -1,11 +1,14 @@
 # screengrab configuration for the STYLEGUIDE capture suite (EXP-566).
 #
 # Same machinery as fastlane/Screengrabfile, pointed at
-# StyleguideScreenshotsTest instead of the store flow: 19 shots
-# (sg_instance-picker … sg_settings-account) of the plain app surfaces, used as the
+# StyleguideScreenshotsTest instead of the store flow: 24 shots
+# (sg_sign-in … sg_onboarding) of the plain app surfaces, used as the
 # cross-platform design reference rather than as Play listing assets. The shot
 # names are a byte-exact contract shared with the other clients — never rename
 # one without changing it everywhere.
+#
+# `bundle exec fastlane styleguide_screenshots shots:sg_reviews,sg_search`
+# narrows a run to those ids (EXP-642); the navigation still runs in full.
 #
 # fastlane's screengrab action ALWAYS auto-loads `fastlane/Screengrabfile`
 # (Screengrab.screengrabfile_name is hardcoded, and there is no config-path
@@ -14,13 +17,18 @@
 # ConfigurationFile and passes the result to screengrab as explicit action
 # arguments, which take precedence over the auto-loaded store config.
 #
-# Prereqs are the store suite's minus live steering — no shot needs a relay or
-# a running desktop:
+# Prereqs are the store suite's minus live steer TRAFFIC — no shot here watches
+# a live session, but since EXP-642 three of them DO need the relay stub, which
+# is what registers the demo user's own device row:
 #   1. A running, seeded local backend reachable from the emulator:
 #        bun run backend:up && bun dev
 #        bun run seed:screenshots                                    (from apps/web)
-#   2. An English-locale phone emulator booted (only one device attached).
-#   3. Both APKs built: bundle exec fastlane styleguide_screenshots does this
+#   2. The relay stub left running for the whole capture:
+#        bun run screenshots:desktop                                 (from apps/web)
+#      Without it sg_machine-settings (gated `isMine && registered`) and the two
+#      sg_start-coding-* shots have no machine row to open.
+#   3. An English-locale phone emulator booted (only one device attached).
+#   4. Both APKs built: bundle exec fastlane styleguide_screenshots does this
 #      for you.
 #
 # Output lands in fastlane/styleguide-screenshots/en-US/images/phoneScreenshots/
@@ -42,7 +50,9 @@ clear_previous_screenshots(true)
 use_timestamp_suffix(false)
 
 # Reinstall to clear app data between runs — the test drives the full
-# first-launch flow (instance picker → login) and needs a signed-out app.
+# first-launch flow (instance picker → login) and needs a signed-out app. It
+# also keeps the newcomer account the last shot (sg_onboarding) adds from
+# leaking into the next run.
 reinstall_app(true)
 
 # productionDebug variant, built via `fastlane styleguide_screenshots` (paths

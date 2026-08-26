@@ -39,6 +39,8 @@ in fastlane/screenshots-raw/; follow up with `bun run screenshots:store` (repo
 
 root) to composite them into fastlane/screenshots/ before sync_store — EXP-580.
 
+`shots:01_board,02_issue-detail` narrows the run to those shot ids (EXP-642).
+
 ### ios styleguide_screenshots
 
 ```sh
@@ -47,13 +49,19 @@ root) to composite them into fastlane/screenshots/ before sync_store — EXP-580
 
 Regenerate the Tuist project and capture the STYLEGUIDE screenshots (EXP-566):
 
-the 11 cross-platform `sg_*` surface shots from
+the 24 cross-platform `sg_*` surface shots from
 
 ExponentialUITests/StyleguideScreenshots.swift, iPhone only, into
 
-fastlane/screenshots-styleguide/. Same seeded backend as `screenshots`, but no
+fastlane/screenshots-styleguide/. Same seeded backend as `screenshots` and no
 
-steer relay and no `screenshots:desktop` needed. Never uploaded to ASC.
+steer relay, but it DOES need `bun run screenshots:desktop` since EXP-642:
+
+sg_machine-settings and the two sg_start-coding-* shots photograph the demo
+
+user's own registered device row. Never uploaded to ASC.
+
+`shots:sg_reviews,sg_search` narrows the run to those shot ids (EXP-642).
 
 ### ios beta
 

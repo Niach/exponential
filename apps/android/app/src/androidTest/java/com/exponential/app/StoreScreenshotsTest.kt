@@ -8,13 +8,14 @@ import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
+import org.junit.After
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.ClassRule
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.RuleChain
 import org.junit.runner.RunWith
-import tools.fastlane.screengrab.Screengrab
 import tools.fastlane.screengrab.locale.LocaleTestRule
 
 /**
@@ -38,9 +39,12 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  * them the steering and Start-coding shots are unreachable and the issue
  * detail renders "Live steering is unavailable on this instance."
  *
- * The sign-in flow, the polling helpers and the diff expansion live in
- * [ScreenshotFlow], shared with [StyleguideScreenshotsTest]; its KDoc carries
- * the synchronization notes.
+ * The sign-in flow, the polling helpers, the diff expansion and the capture
+ * wrapper live in [ScreenshotFlow], shared with [StyleguideScreenshotsTest];
+ * its KDoc carries the synchronization notes. `popRects = true` additionally
+ * writes the pop-out rect sidecar the store compositor crops from (EXP-627, see
+ * [PopRects]), and [ScreenshotFlow.screenshot] honours the lane's optional
+ * `shots` allowlist (EXP-642).
  */
 @RunWith(AndroidJUnit4::class)
 class StoreScreenshotsTest {
@@ -85,9 +89,28 @@ class StoreScreenshotsTest {
 
     private val instanceUrl: String = ScreenshotFlow.instanceUrl()
 
+    /** Set at the very end of the walk — see [assertRequestedShotsWereReached]. */
+    private var finished = false
+
     @Before
     fun setUp() {
         ScreenshotFlow.useUiAutomatorScreenshots()
+    }
+
+    /**
+     * Fails the run when a `shots` id was never reached — almost always a typo,
+     * which would otherwise look like a perfectly green empty run. Guarded on
+     * the walk having completed so an earlier failure is not buried under a
+     * second one.
+     */
+    @After
+    fun assertRequestedShotsWereReached() {
+        if (!finished) return
+        val missing = ScreenshotFlow.unreachedShots()
+        assertTrue(
+            "EXP-642 shots: ${missing.joinToString(", ")} — no such shot in this suite",
+            missing.isEmpty(),
+        )
     }
 
     @Test
@@ -103,7 +126,7 @@ class StoreScreenshotsTest {
         flow.waitFor(hasText(SHOWCASE_ISSUE_TITLE), SYNC_TIMEOUT)
         flow.waitForGone(hasText("Syncing", substring = true), SYNC_TIMEOUT)
         flow.settle()
-        Screengrab.screenshot("1_board")
+        flow.screenshot("1_board", popRects = true)
 
         // --- Issue detail: open APP-5 and wait for its markdown description.
         // The live session row above the thread is what makes this shot read
@@ -113,7 +136,7 @@ class StoreScreenshotsTest {
         flow.waitFor(hasText("Startup profiling", substring = true), NAV_TIMEOUT)
         flow.waitFor(hasText("Coding now", substring = true), SYNC_TIMEOUT)
         flow.settle()
-        Screengrab.screenshot("2_issue-detail")
+        flow.screenshot("2_issue-detail", popRects = true)
 
         // --- Live steering: the session row's chevron is only clickable for
         // the session's own owner (EXP-312). Gate on the FEED tag, not the
@@ -128,7 +151,7 @@ class StoreScreenshotsTest {
         // localhost — see the Screengrabfile prereqs.
         flow.waitFor(hasText(FEED_QUESTION_FRAGMENT, substring = true), SYNC_TIMEOUT)
         flow.settle(longer = true)
-        Screengrab.screenshot("4_steering")
+        flow.screenshot("4_steering", popRects = true)
         composeRule.onNode(hasContentDescription("Back")).performClick()
         flow.settle()
 
@@ -142,7 +165,7 @@ class StoreScreenshotsTest {
         composeRule.onNode(hasContentDescription("Start coding")).performClick()
         flow.waitFor(hasTestTag("start-coding-sheet"), NAV_TIMEOUT)
         flow.settle()
-        Screengrab.screenshot("3_start-coding")
+        flow.screenshot("3_start-coding", popRects = true)
         composeRule.onAllNodes(hasText("Cancel")).onFirst().performClick()
         // The sheet animates out over the detail — let it finish before the
         // back press, or the tap lands on the dismissing scrim.
@@ -159,7 +182,7 @@ class StoreScreenshotsTest {
         flow.waitFor(hasTestTag("changes-file-row"), SYNC_TIMEOUT)
         flow.expandDiffFiles()
         flow.settle()
-        Screengrab.screenshot("5_review")
+        flow.screenshot("5_review", popRects = true)
 
         // --- Actions (EXP-253): the list rides the Agents header pill; the
         // seed inserts three team actions above the two client builtins.
@@ -171,7 +194,7 @@ class StoreScreenshotsTest {
         flow.waitFor(hasTestTag("action-row"), SYNC_TIMEOUT)
         flow.waitFor(hasText("Update dependencies", substring = true), SYNC_TIMEOUT)
         flow.settle()
-        Screengrab.screenshot("6_actions")
+        flow.screenshot("6_actions", popRects = true)
         composeRule.onNode(hasContentDescription("Back")).performClick()
 
         // --- My Work tab (EXP-58: Inbox + My Issues merged behind a
@@ -181,13 +204,15 @@ class StoreScreenshotsTest {
         composeRule.onNode(hasContentDescription("My Work")).performClick()
         flow.waitFor(hasText(SHOWCASE_ISSUE_TITLE, substring = true), SYNC_TIMEOUT)
         flow.settle()
-        Screengrab.screenshot("7_inbox")
+        flow.screenshot("7_inbox", popRects = true)
 
         // --- Support inbox: the tab only exists because the seed flips the
         // team's helpdesk_enabled on; threads come from tRPC polling.
         composeRule.onNode(hasContentDescription("Support")).performClick()
         flow.waitFor(hasTestTag("support-thread-row"), SYNC_TIMEOUT)
         flow.settle()
-        Screengrab.screenshot("8_support")
+        flow.screenshot("8_support", popRects = true)
+
+        finished = true
     }
 }

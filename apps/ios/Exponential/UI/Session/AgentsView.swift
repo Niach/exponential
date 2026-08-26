@@ -466,6 +466,7 @@ struct AgentsView: View {
                         .padding(6)
                 }
                 .accessibilityLabel("Machine actions")
+                .accessibilityIdentifier("machine-menu")
             }
         }
         .padding(.horizontal, 12)

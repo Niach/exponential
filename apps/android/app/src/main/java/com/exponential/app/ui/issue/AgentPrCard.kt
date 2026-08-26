@@ -26,6 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
@@ -139,6 +140,9 @@ private fun SessionRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                // EXP-627: the store slide's pop-out rect is measured off this
+                // row (`PopRects`), iOS parity.
+                .testTag("coding-now-row")
                 .let { if (watchable) it.clickable { onWatch(session.id) } else it },
             verticalAlignment = Alignment.CenterVertically,
         ) {

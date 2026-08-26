@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -45,6 +46,10 @@ fun <T> GlassSegmentedControl(
     modifier: Modifier = Modifier,
     badge: (T) -> Int = { 0 },
     leadingIcon: (@Composable (T) -> Unit)? = null,
+    // EXP-642: optional per-segment testTag, so a capture suite can address ONE
+    // segment (the Start-coding sheet's Issues/Actions/Chat tabs) instead of
+    // guessing at a label that also matches other nodes. null = untagged.
+    testTag: ((T) -> String?)? = null,
     // EXP-615: an optional smaller face, for a strip whose labels would
     // otherwise wrap at phone widths. Segment labels never wrap regardless
     // (one line, ellipsized).
@@ -63,9 +68,11 @@ fun <T> GlassSegmentedControl(
     ) {
         options.forEach { option ->
             val active = option == selected
+            val tag = testTag?.invoke(option)
             Row(
                 modifier = Modifier
                     .weight(1f)
+                    .then(if (tag != null) Modifier.testTag(tag) else Modifier)
                     .clip(capsule)
                     .background(
                         if (active) Color.White.copy(alpha = 0.12f) else Color.Transparent,

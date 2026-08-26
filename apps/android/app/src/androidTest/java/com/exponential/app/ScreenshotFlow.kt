@@ -38,6 +38,20 @@ class ScreenshotFlow(private val composeRule: ComposeTestRule) {
         const val DEMO_EMAIL = "demo@exponential.at"
         const val DEMO_PASSWORD = "screenshots-demo"
 
+        /**
+         * The seed's SECOND identity (EXP-627): verified, member of nothing,
+         * with a null `onboardingCompletedAt`. Signing in as them is the only
+         * way to photograph the first-run wizard — the demo user finished it
+         * long ago and is bounced straight to a board. Accounts are keyed per
+         * (instance, userId) — `ServerAccount.makeId` — so "Add server" pointed
+         * at the SAME instance adds the newcomer ALONGSIDE the demo account
+         * rather than replacing it (and `AccountDeduplicator` only prunes
+         * TOKENLESS duplicates, so the signed-in demo row survives). Keep in
+         * lockstep with `apps/web/scripts/screenshot-demo.ts`.
+         */
+        const val NEWCOMER_EMAIL = "newcomer@exponential.at"
+        const val NEWCOMER_PASSWORD = "screenshots-newcomer"
+
         /** APP-5 — the seeded showcase issue (description + the only comment thread). */
         const val SHOWCASE_ISSUE_TITLE = "Reduce cold start below 800 ms"
 
@@ -71,6 +85,68 @@ class ScreenshotFlow(private val composeRule: ComposeTestRule) {
         fun useUiAutomatorScreenshots() {
             Screengrab.setDefaultScreenshotStrategy(UiAutomatorScreenshotStrategy())
         }
+
+        /**
+         * The optional per-run shot allowlist (EXP-642).
+         *
+         * `bundle exec fastlane screenshots shots:1_board,2_issue-detail`
+         * appends `shots <ids>` to screengrab's launch arguments, which arrive
+         * here as the `shots` instrumentation argument. Unset = capture
+         * everything, which is what a plain lane run does.
+         *
+         * Only the CAPTURE is skipped, never the navigation: the suites are one
+         * long scripted walk through the app, and skipping a tap would strand
+         * every later shot on the wrong screen. A subset run is therefore not
+         * faster, only narrower — exactly what the automation needs when a diff
+         * touched two views.
+         */
+        private val requestedShots: Set<String>? by lazy {
+            InstrumentationRegistry.getArguments().getString("shots")
+                ?.split(',', ' ', '\n')
+                ?.map { it.trim() }
+                ?.filter { it.isNotEmpty() }
+                ?.toSet()
+                ?.takeIf { it.isNotEmpty() }
+        }
+
+        /** Every id a suite actually reached — the typo check compares it. */
+        private val offeredShots = mutableSetOf<String>()
+
+        /** Records [name] as reached and reports whether to capture it. */
+        fun isShotWanted(name: String): Boolean {
+            offeredShots += name
+            return requestedShots?.contains(name) ?: true
+        }
+
+        /**
+         * Requested ids the suite never reached — a misspelt `shots:` value, or
+         * a name from the other lane. Almost always a typo, which would
+         * otherwise look like a perfectly green empty run.
+         */
+        fun unreachedShots(): List<String> =
+            requestedShots?.minus(offeredShots)?.sorted() ?: emptyList()
+    }
+
+    /**
+     * Capture [name] — unless it is outside this run's `shots` allowlist, in
+     * which case nothing is written.
+     *
+     * Every capture in both suites goes through this wrapper rather than
+     * `Screengrab.screenshot` directly, so the allowlist can never be bypassed
+     * by accident. The literal `screenshot("…"` at each call site is
+     * load-bearing: `packages/view-catalog/src/views.test.ts` greps for it to
+     * prove the suites and the catalog list the same shots.
+     *
+     * [popRects] additionally writes the store compositor's pop-out rect
+     * sidecar for this shot (EXP-627, see [PopRects]) — the store lane only.
+     */
+    fun screenshot(name: String, popRects: Boolean = false) {
+        if (!isShotWanted(name)) {
+            android.util.Log.i("EXP-642", "shots: skipping $name — not in the `shots` allowlist")
+            return
+        }
+        if (popRects) PopRects.dump(composeRule, name)
+        Screengrab.screenshot(name)
     }
 
     /**

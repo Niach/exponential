@@ -523,6 +523,10 @@ struct ChangesView: View {
             }
             .padding(.top, 8)
             .padding(.bottom, 4)
+            // EXP-642: the store slide's pop-out rect is measured off the
+            // review bar (`PopRects`). `contain` keeps its buttons queryable.
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("pr-merge-bar")
         }
     }
 

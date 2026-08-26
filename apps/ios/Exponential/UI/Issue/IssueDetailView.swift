@@ -204,6 +204,11 @@ struct IssueDetailView: View {
                                 ? { url in vm.uploadFile(from: url) }
                                 : nil
                         )
+                        // EXP-642: the store slide's pop-out rect is measured
+                        // off this block (`PopRects`). `contain` keeps the
+                        // editor's own elements queryable.
+                        .accessibilityElement(children: .contain)
+                        .accessibilityIdentifier("issue-description")
 
                         // Coding + PR status card (EXP-156): "Coding now" /
                         // GitHub-style PR + branch chips → diff page. Remote
@@ -601,13 +606,21 @@ struct IssueDetailView: View {
             )
             .presentationBackground(.ultraThinMaterial)
         case .startCoding:
+            // EXP-642: `teamId` + `onRunAction` are what light up the sheet's
+            // Actions and Chat tabs — without them the issue detail offered
+            // Issues-only, unlike every other host.
             StartCodingSheet(
                 devices: vm.steerDevices ?? [],
                 issues: startCandidates,
-                preselectedIds: [issue.id]
-            ) { device, issueIds, options in
-                vm.startCoding(on: device, issueIds: issueIds, options: options)
-            }
+                preselectedIds: [issue.id],
+                teamId: vm.board?.teamId,
+                onStart: { device, issueIds, options in
+                    vm.startCoding(on: device, issueIds: issueIds, options: options)
+                },
+                onRunAction: { device, action, options, inputs in
+                    vm.runAction(on: device, action: action, options: options, inputs: inputs)
+                }
+            )
         }
     }
 
