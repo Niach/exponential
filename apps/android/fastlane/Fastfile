@@ -173,7 +173,7 @@ platform :android do
     end
 
     # Pop-out rect sidecars land beside the raw PNGs screengrab just wrote.
-    pull_pop_rects(File.expand_path("screenshots-raw/en-US/images/phoneScreenshots", __dir__))
+    pull_pop_rects(File.expand_path("exp-pop", __dir__))
     merge_pop_sidecars("android")
   end
 

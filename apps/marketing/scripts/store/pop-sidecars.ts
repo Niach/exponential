@@ -57,9 +57,14 @@ interface Measured {
   file: string
 }
 
-/** `iPhone 17 Pro Max-pop-board.json` / `pop-board.json` → shot + form. */
+/**
+ * `iPhone 17 Pro Max-pop-01_board.json` / `pop-1_board.json` → shot + form.
+ * The harnesses name the file after the STORE shot (`01_board`), the
+ * compositor keys everything by the bare name (`board`, see `shotKey` in
+ * raw-store.ts) — strip the numeric prefix here, once.
+ */
 function parseName(platform: Platform, file: string): { shot: string; form: Form } | null {
-  const match = /^(.*?)pop-([a-z0-9-]+)\.json$/.exec(basename(file))
+  const match = /^(.*?)pop-(?:\d+_)?([a-z0-9-]+)\.json$/.exec(basename(file))
   if (!match) return null
   const prefix = match[1]!.replace(/-$/, ``)
   const form: Form =
