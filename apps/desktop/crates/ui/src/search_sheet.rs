@@ -180,6 +180,19 @@ pub fn open_search(window: &mut Window, cx: &mut App) {
             cx.new(|cx| InputState::new(window, cx).placeholder("Search issues and files…"));
         // Focus the query input so typing starts immediately (web autoFocus).
         input.update(cx, |state, cx| state.focus(window, cx));
+        // DEV-ONLY (§11.4 headless verification, the EXP_DEV_* family):
+        // `EXP_DEV_SEARCH_QUERY=<text>` opens the palette with the query
+        // already typed — both the input's value AND the list's query, since
+        // `set_value` fires no `InputEvent::Change`. Unset/blank in normal
+        // runs. Never document for users.
+        if let Some(query) = std::env::var("EXP_DEV_SEARCH_QUERY")
+            .ok()
+            .map(|query| query.trim().to_string())
+            .filter(|query| !query.is_empty())
+        {
+            input.update(cx, |state, cx| state.set_value(query.clone(), window, cx));
+            list.update(cx, |list, cx| list.set_query(&query, window, cx));
+        }
         let view = cx.new(|cx| SearchSheetView::new(list, input, window, cx));
         DialogContent::new(view).padless()
     });

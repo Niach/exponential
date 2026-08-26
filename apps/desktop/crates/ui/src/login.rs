@@ -31,6 +31,8 @@
 //! `Synced` — including `AuthExpired`, the dead-token routing
 //! (never an empty board).
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use gpui::{
     div, App, AppContext as _, ClipboardItem, Entity, FontWeight, Global, InteractiveElement as _,
     IntoElement, ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled,
@@ -244,6 +246,10 @@ impl LoginView {
 
     /// §5.7 step 1: `GET /api/auth-config` for the chosen instance (stale
     /// responses are dropped by comparing the fetched-for URL).
+    ///
+    /// EXP-633: every in-flight fetch holds a [`ConfigPendingGuard`], so the
+    /// capture pipeline's ready probe can wait for the real provider buttons
+    /// instead of photographing the placeholder spinner.
     fn fetch_auth_config(&mut self, cx: &mut gpui::Context<Self>) {
         let Some(instance) = self.effective_instance(cx) else {
             self.auth_config = None;
@@ -259,7 +265,11 @@ impl LoginView {
         self.config_pending = true;
 
         let auth = cx.global::<AuthContext>().clone();
+        let pending = ConfigPendingGuard::new();
         cx.spawn(async move |this, cx| {
+            // Dropped when the fetch lands OR when the task itself is dropped
+            // (window closed mid-flight) — the counter can never leak.
+            let _pending = pending;
             let client = auth.client.clone();
             let fetch_for = instance.clone();
             let result = cx
@@ -834,4 +844,35 @@ fn labeled(cx: &App, label: &'static str, input: Input) -> impl IntoElement {
                 .child(label),
         )
         .child(input)
+}
+
+// ---------------------------------------------------------------------------
+// EXP-633: auth-config readiness (the capture pipeline's ready handshake)
+// ---------------------------------------------------------------------------
+
+/// How many `GET /api/auth-config` fetches are in flight, process-wide.
+static CONFIG_PENDING: AtomicUsize = AtomicUsize::new(0);
+
+/// RAII counter for [`CONFIG_PENDING`] — held by the spawned fetch task, so a
+/// dropped task (window closed mid-flight) releases it just like a landed one.
+struct ConfigPendingGuard;
+
+impl ConfigPendingGuard {
+    fn new() -> Self {
+        CONFIG_PENDING.fetch_add(1, Ordering::SeqCst);
+        Self
+    }
+}
+
+impl Drop for ConfigPendingGuard {
+    fn drop(&mut self) {
+        CONFIG_PENDING.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// EXP-633: no auth-config fetch is in flight, so a signed-out screen shows
+/// its real provider buttons rather than the loading placeholder. Read by
+/// [`crate::dev_ready`].
+pub(crate) fn login_config_settled() -> bool {
+    CONFIG_PENDING.load(Ordering::SeqCst) == 0
 }

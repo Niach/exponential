@@ -1301,7 +1301,8 @@ impl Focusable for ScreensPanel {
 /// `start-coding-actions` (the builtin "Fix merge conflicts" run) |
 /// `start-coding-chat` | `create-action` | `action-editor:<uuid>` |
 /// `automation-new` | `automation-edit:<uuid>` | `create-board` |
-/// `create-team` | `join-team` | `add-server` | `device-settings:<uuid>` |
+/// `create-team` | `join-team[:<invite-token>]` (a token prefills the paste
+/// field and previews the invite) | `add-server` | `device-settings:<uuid>` |
 /// `duplicate-picker:<issue-uuid>` (anything else = no dialog, logged once).
 /// Each opens EXACTLY ONCE, 1500ms after the state it needs has resolved, so
 /// a capture run lands on the overlay without synthetic input. Never document
@@ -1319,7 +1320,9 @@ enum DevDialog {
     AutomationEdit(String),
     CreateBoard,
     CreateTeam,
-    JoinTeam,
+    /// EXP-642: an optional invite token — `join-team:<token>` opens the
+    /// dialog already previewing that invite.
+    JoinTeam(Option<String>),
     AddServer,
     DeviceSettings(String),
     DuplicatePicker(String),
@@ -1330,7 +1333,7 @@ enum DevDialog {
 const DEV_DIALOG_SPECS: &str = "create-issue | search | start-coding | \
     start-coding-actions | start-coding-chat | create-action | \
     action-editor:<uuid> | automation-new | automation-edit:<uuid> | \
-    create-board | create-team | join-team | add-server | \
+    create-board | create-team | join-team[:<invite-token>] | add-server | \
     device-settings:<uuid> | duplicate-picker:<issue-uuid>";
 
 fn parse_dev_dialog(spec: &str) -> Option<DevDialog> {
@@ -1344,9 +1347,15 @@ fn parse_dev_dialog(spec: &str) -> Option<DevDialog> {
         "automation-new" => Some(DevDialog::AutomationNew),
         "create-board" => Some(DevDialog::CreateBoard),
         "create-team" => Some(DevDialog::CreateTeam),
-        "join-team" => Some(DevDialog::JoinTeam),
+        "join-team" => Some(DevDialog::JoinTeam(None)),
         "add-server" => Some(DevDialog::AddServer),
         _ => {
+            if let Some(token) = spec.strip_prefix("join-team:") {
+                let token = token.trim();
+                return Some(DevDialog::JoinTeam(
+                    (!token.is_empty()).then(|| token.to_string()),
+                ));
+            }
             if let Some(id) = spec.strip_prefix("action-editor:") {
                 return Some(DevDialog::ActionEditor(id.to_string()));
             }
@@ -1376,7 +1385,7 @@ enum DevDialogTarget {
     AutomationEdit { automation_id: String },
     CreateBoard { team_id: String },
     CreateTeam,
-    JoinTeam,
+    JoinTeam { token: Option<String> },
     AddServer,
     DeviceSettings { device_id: String },
     DuplicatePicker { issue_id: String },
@@ -1413,7 +1422,7 @@ fn open_dev_dialog(target: DevDialogTarget, window: &mut Window, cx: &mut App) {
             crate::create_board_dialog::open(window, cx, team_id)
         }
         DevDialogTarget::CreateTeam => crate::create_team_dialog::open(window, cx),
-        DevDialogTarget::JoinTeam => crate::join_team::open(window, cx, None),
+        DevDialogTarget::JoinTeam { token } => crate::join_team::open(window, cx, token),
         DevDialogTarget::AddServer => crate::machines::open_add_server_dialog(window, cx),
         DevDialogTarget::DeviceSettings { device_id } => {
             crate::device_settings::open(window, cx, device_id)
@@ -1422,6 +1431,18 @@ fn open_dev_dialog(target: DevDialogTarget, window: &mut Window, cx: &mut App) {
             crate::issue_detail::open_duplicate_picker(issue_id, window, cx)
         }
     }
+}
+
+/// EXP-633: set once the requested dev dialog is actually UP (or once the
+/// spec turned out to be unrecognised, so a typo can never hang the probe).
+static DIALOG_OPENED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// EXP-633: has the DEV-ONLY dialog hook finished its work? `true` when this
+/// run asked for no dialog at all, otherwise `true` once the dialog opened.
+/// The ready probe ([`crate::dev_ready`]) waits on this so a capture never
+/// photographs the screen a beat before its overlay appears.
+pub(crate) fn dev_dialog_settled() -> bool {
+    dev_dialog_spec().is_none() || DIALOG_OPENED.load(std::sync::atomic::Ordering::SeqCst)
 }
 
 /// The DEV-ONLY spec this run asked for: `EXP_DEV_DIALOG`, or the legacy
@@ -1499,11 +1520,13 @@ impl ScreensPanel {
                 }
                 DevDialogTarget::CreateTeam
             }
-            DevDialog::JoinTeam => {
+            DevDialog::JoinTeam(token) => {
                 if !signed_in {
                     return None;
                 }
-                DevDialogTarget::JoinTeam
+                DevDialogTarget::JoinTeam {
+                    token: token.clone(),
+                }
             }
             DevDialog::AddServer => {
                 // The snippet names the account's instance — without one it
@@ -1550,6 +1573,8 @@ impl ScreensPanel {
                      expected {DEV_DIALOG_SPECS}"
                 );
             }
+            // Nothing will ever open — release the ready probe (EXP-633).
+            DIALOG_OPENED.store(true, Ordering::SeqCst);
             return;
         };
         let Some(target) = self.resolve_dev_dialog(&dialog, cx) else {
@@ -1563,6 +1588,8 @@ impl ScreensPanel {
                 .timer(std::time::Duration::from_millis(1500))
                 .await;
             let opened = cx.update(|window, cx| open_dev_dialog(target, window, cx));
+            // EXP-633: the ready probe waits for the overlay, not the timer.
+            DIALOG_OPENED.store(true, Ordering::SeqCst);
             eprintln!("[exp-desktop] dev: EXP_DEV_DIALOG={spec} fired ({opened:?})");
         })
         .detach();
