@@ -1,5 +1,6 @@
 Everything since 0.14.0:
 
+- Start a chat with an agent straight from the Agents tab
 - Pick a default machine and every Start coding dialog preselects it
 - Live sessions keep streaming while you move around the app, and steering drafts survive reconnects
 - No more notifications about your own pull requests

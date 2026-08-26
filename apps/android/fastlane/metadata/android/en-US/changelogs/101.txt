@@ -1,0 +1,1 @@
+Start a chat with an agent straight from the Agents tab, browse a coding session's worktree from the desktop app, plus fixes.
