@@ -62,9 +62,8 @@ sealed interface AgentFeedItem {
      *  [planMode] marks an ExitPlanMode plan-approval picker (EXP-97) —
      *  presentation-only, absent on events from older desktops/relays.
      *  [resolved]/[answer] come from the desktop's `question_resolved` event
-     *  (EXP-249), or from the legacy `Question answered:` / `Question
-     *  dismissed.` narrations when the card carries no [wireId] — a resolved
-     *  card renders its answer and is never answerable again. */
+     *  (EXP-249) — a resolved card renders its answer and is never answerable
+     *  again. */
     data class Question(
         override val id: Long,
         val text: String,
@@ -83,7 +82,11 @@ sealed interface AgentFeedItem {
         val index: Int? = null,
         val total: Int? = null,
         val header: String? = null,
-    ) : AgentFeedItem
+    ) : AgentFeedItem {
+        /** The ask's final review/submit step: it belongs to an ask but
+         *  carries no step position of its own, and consumes no answer. */
+        val isSubmitStep: Boolean get() = askId != null && index == null
+    }
 
     /** A subagent's lifecycle row (EXP-249) — the header of the collapsible
      *  group its tool calls render inside. */
@@ -109,49 +112,10 @@ sealed interface AgentFeedItem {
 fun questionLockKey(item: AgentFeedItem.Question): String =
     item.wireId ?: "local:${item.id}"
 
-/** The desktop's plan-picker resolution narration (steer/src/activity.rs) —
- *  the no-protocol-change signal that a pending plan approval was answered. */
-const val PLAN_RESOLVED_NARRATION = "Plan approval answered."
-
-/** The desktop's answered-question narration prefix (steer/src/activity.rs,
- *  EXP-197): one `Question answered: <answer>` narration per question flushes
- *  with the transcript once an AskUserQuestion resolves — folded into the
- *  earliest unanswered question card instead of rendering as a narration. */
-const val QUESTION_ANSWERED_PREFIX = "Question answered: "
-
-/** The desktop's dismissed-question narration (EXP-197) — the ask resolved
- *  WITHOUT answers (Esc / rejected); retires every pending question card. */
-const val QUESTION_DISMISSED_NARRATION = "Question dismissed."
-
 /** `subagent.agentType` when the desktop's hook payload carried none — old
  *  desktop builds also stamp it onto the COMPLETED edge, so it is a sentinel
  *  the label selection skips past, never a type to prefer (EXP-350). */
 const val SUBAGENT_FALLBACK_TYPE = "agent"
-
-/** Fold an answer into the EARLIEST unanswered non-plan question card
- *  (answers arrive in question order, so earliest-first keeps multi-question
- *  asks aligned). Legacy path only — cards carrying a wire id resolve through
- *  [resolveQuestions]. Null when no card is waiting: the caller then falls
- *  back to rendering the narration so the answer is never lost. */
-fun attachQuestionAnswer(feed: List<AgentFeedItem>, answer: String): List<AgentFeedItem>? {
-    val index = feed.indexOfFirst {
-        it is AgentFeedItem.Question && it.wireId == null && !it.planMode && !it.resolved
-    }
-    if (index < 0) return null
-    val item = feed[index] as AgentFeedItem.Question
-    return feed.toMutableList().apply {
-        this[index] = item.copy(resolved = true, answer = answer)
-    }
-}
-
-/** Retire every pending non-plan legacy question card (the ask was dismissed).
- *  Null when nothing was pending. */
-fun dismissPendingQuestions(feed: List<AgentFeedItem>): List<AgentFeedItem>? {
-    fun pending(it: AgentFeedItem) =
-        it is AgentFeedItem.Question && it.wireId == null && !it.planMode && !it.resolved
-    if (feed.none(::pending)) return null
-    return feed.map { if (pending(it)) (it as AgentFeedItem.Question).copy(resolved = true) else it }
-}
 
 /** Append a question card, or REPLACE the card carrying the same wire id in
  *  place (EXP-249) — a re-emission augments an ask (options the desktop
@@ -192,8 +156,10 @@ fun spliceBeforeQuestion(
 
 /** Fold a `question_resolved` event into the feed (EXP-249): retire the card
  *  named by [id], else every card of [askId] — whose [answers] map onto the
- *  ask's steps in step order. Null when nothing matched, so the caller can
- *  fall back to the legacy narration path. */
+ *  ask's steps in step order — else, with NEITHER given, every card still
+ *  unresolved, [answers] landing positionally on the answer-consuming ones
+ *  (the codex publisher's rollout cards carry no ids at all). A dismissal
+ *  carries no answers. Null when nothing matched. */
 fun resolveQuestions(
     feed: List<AgentFeedItem>,
     id: String?,
@@ -212,7 +178,24 @@ fun resolveQuestions(
             )
         }
     }
-    if (askId == null) return null
+    if (askId == null) {
+        if (feed.none { it is AgentFeedItem.Question && !it.resolved }) return null
+        // Answers arrive in card order, so a cursor over the feed keeps them
+        // aligned; the ask's final submit step consumes none.
+        var cursor = 0
+        return feed.map { item ->
+            if (item !is AgentFeedItem.Question || item.resolved) {
+                item
+            } else {
+                val answer = if (dismissed || item.isSubmitStep) {
+                    item.answer
+                } else {
+                    answers.getOrNull(cursor)?.also { cursor += 1 } ?: item.answer
+                }
+                item.copy(resolved = true, answer = answer)
+            }
+        }
+    }
     val steps = orderedSteps(feed.filterIsInstance<AgentFeedItem.Question>().filter { it.askId == askId })
     if (steps.isEmpty()) return null
     val answerByFeedId = steps.withIndex().associate { (i, step) -> step.id to answers.getOrNull(i) }
@@ -258,10 +241,9 @@ fun completeSubagent(
  * plan-approval question with no resolution signal after it. Plan questions
  * are published from the live terminal grid the moment the picker appears,
  * while the transcript tail lags — so tool rows and narration can flush in
- * BEHIND a plan card whose picker is still on screen. Only a newer question or
- * the desktop's explicit [PLAN_RESOLVED_NARRATION] proves a plan picker
- * actually resolved — a human message does NOT (steering mid-plan leaves the
- * picker up).
+ * BEHIND a plan card whose picker is still on screen. Only a newer question
+ * proves a plan picker actually resolved — a human message does NOT (steering
+ * mid-plan leaves the picker up).
  */
 fun activeQuestionIds(feed: List<AgentFeedItem>): Set<Long> {
     val ids = mutableSetOf<Long>()
@@ -287,14 +269,9 @@ fun activeQuestionIds(feed: List<AgentFeedItem>): Set<Long> {
                     retired = true
                 }
             }
-            // A human message breaks the trailing run but does NOT retire a
-            // plan card — steering a message mid-plan leaves the picker up
-            // (web parity, EXP-249).
-            is AgentFeedItem.UserMessage -> trailing = false
-            is AgentFeedItem.Narration -> {
-                trailing = false
-                if (item.text.trim() == PLAN_RESOLVED_NARRATION) retired = true
-            }
+            // Anything else breaks the trailing run but does NOT retire a plan
+            // card — steering a message mid-plan leaves the picker up (web
+            // parity, EXP-249).
             else -> trailing = false
         }
         if (retired && !trailing) break
@@ -484,11 +461,6 @@ data class ActivityFeedState(
      *  otherwise read "Answered" ×N until then (EXP-588, web/iOS parity).
      *  Dropped with a failed lock — a rolled-back step has no answer. */
     val answerLabels: Map<String, List<String>> = emptyMap(),
-    /** True once the desktop published a question carrying a wire id: from
-     *  then on its legacy resolution narrations are duplicates of the semantic
-     *  events (it emits both so pre-EXP-249 clients keep working) and must be
-     *  swallowed instead of rendered. */
-    val semanticQuestions: Boolean = false,
     val nextEventId: Long = 0L,
 )
 
@@ -505,38 +477,19 @@ fun ActivityFeedState.applyActivityEvent(
 ): ActivityFeedState = when (event.str("kind")) {
     "narration" -> {
         val text = event.str("text").orEmpty()
-        val trimmed = text.trim()
-        when {
-            text.isBlank() -> this
-            // Question-resolution signals fold into the pending card instead
-            // of rendering as narration rows (EXP-197). A desktop publishing
-            // structured questions emits them ONLY for pre-EXP-249 clients —
-            // swallow them, `question_resolved` already did the work.
-            trimmed.startsWith(QUESTION_ANSWERED_PREFIX) -> when {
-                semanticQuestions -> this
-                else -> {
-                    val answer = trimmed.removePrefix(QUESTION_ANSWERED_PREFIX)
-                    // No card waiting — render it, so the answer is never lost.
-                    attachQuestionAnswer(feed, answer)?.let { withFeed(it) }
-                        ?: append(AgentFeedItem.Narration(nextEventId, text))
-                }
+        if (text.isBlank()) {
+            this
+        } else {
+            // EXP-483: prose from the withheld ask/plan entry flushes AFTER
+            // its already-published card — splice it back above.
+            val anchor = event.str("beforeQuestionId")?.takeIf { it.isNotBlank() }
+            val spliced = anchor?.let {
+                spliceBeforeQuestion(feed, it, AgentFeedItem.Narration(nextEventId, text))
             }
-            trimmed == QUESTION_DISMISSED_NARRATION ->
-                if (semanticQuestions) this
-                else dismissPendingQuestions(feed)?.let { withFeed(it) } ?: this
-            trimmed == PLAN_RESOLVED_NARRATION && semanticQuestions -> this
-            else -> {
-                // EXP-483: prose from the withheld ask/plan entry flushes
-                // AFTER its already-published card — splice it back above.
-                val anchor = event.str("beforeQuestionId")?.takeIf { it.isNotBlank() }
-                val spliced = anchor?.let {
-                    spliceBeforeQuestion(feed, it, AgentFeedItem.Narration(nextEventId, text))
-                }
-                if (spliced != null) {
-                    copy(feed = capFeed(spliced), nextEventId = nextEventId + 1)
-                } else {
-                    append(AgentFeedItem.Narration(nextEventId, text))
-                }
+            if (spliced != null) {
+                copy(feed = capFeed(spliced), nextEventId = nextEventId + 1)
+            } else {
+                append(AgentFeedItem.Narration(nextEventId, text))
             }
         }
     }
@@ -597,7 +550,6 @@ fun ActivityFeedState.applyActivityEvent(
             val next = upsertQuestion(feed, question)
             copy(
                 feed = capFeed(next),
-                semanticQuestions = semanticQuestions || wireId != null,
                 // A replaced card consumed no id.
                 nextEventId = if (next.size > feed.size) nextEventId + 1 else nextEventId,
             )
@@ -610,8 +562,7 @@ fun ActivityFeedState.applyActivityEvent(
             event["answers"]?.jsonArray?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
         }.getOrNull().orEmpty()
         val next = resolveQuestions(feed, id, askId, answers, event.bool("dismissed"))
-            ?: if (id == null && askId == null) dismissPendingQuestions(feed) else null
-        copy(feed = next ?: feed, semanticQuestions = true).releaseResolvedLocks()
+        copy(feed = next ?: feed).releaseResolvedLocks()
     }
     "answer_ack" -> {
         val id = event.str("id")?.takeIf { it.isNotBlank() }
@@ -620,10 +571,7 @@ fun ActivityFeedState.applyActivityEvent(
         } else {
             // The desktop injected the answer: the card stays locked on EVERY
             // viewer (not just the sender) and a stepper advances a step.
-            copy(
-                answerLocks = answerLocks + (id to AnswerState.Acked),
-                semanticQuestions = true,
-            )
+            copy(answerLocks = answerLocks + (id to AnswerState.Acked))
         }
     }
     "subagent" -> {

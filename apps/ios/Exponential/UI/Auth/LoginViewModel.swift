@@ -394,15 +394,7 @@ final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProv
                     return
                 }
 
-                // Legacy raw-token form (pre-PKCE servers, self-hosted lag).
-                if let token = params["token"] {
-                    self.error = nil
-                    await self.handleOAuthToken(token)
-                    self.webAuthSession = nil
-                    return
-                }
-
-                self.error = "No token in callback: \(callbackURL.absoluteString)"
+                self.error = "No code in callback: \(callbackURL.absoluteString)"
                 self.webAuthSession = nil
             }
         }

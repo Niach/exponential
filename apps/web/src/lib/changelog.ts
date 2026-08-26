@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-files-worktree-switcher`,
+    date: `2026-08-26`,
+    title: `Browse a session's worktree in the desktop app`,
+    summary: `The Files tree can now switch from the trunk to any coding session's worktree, and the last compatibility shims for older builds are gone.`,
+    body: `- **Worktree switcher**: the Files tree carries a branch dropdown listing the trunk and every coding session's worktree; picking one re-roots the tree, its git status and the file viewer.
+- **Rail icons**: a selected tool entry keeps its white icon; the board color now lives on the selection marker only.
+- **Start coding dialog**: the tallest picker state no longer shows a sliver of a scrollbar.
+- **Cleanup**: the compatibility paths kept for pre-August app builds and older self-hosted servers are retired. Update the desktop app and CLI when prompted; the store apps keep working.`,
+  },
+  {
     id: `2026-08-mobile-chat-button`,
     date: `2026-08-25`,
     title: `Start a chat from the Agents tab`,

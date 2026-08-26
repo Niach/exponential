@@ -76,8 +76,8 @@ public struct RepoSharer: Decodable, Sendable, Equatable {
 /// fields the settings surface needs. `private` is a Swift keyword, mapped to
 /// `isPrivate`. `boards` are the boards this repo backs (v4 — no more
 /// per-board links / primary star). `sharedBy` is the member who connected
-/// the repo (EXP-557) — nil on old servers and for legacy sharer-less rows;
-/// row management is sharer-or-owner.
+/// the repo (EXP-557) — null for sharer-less rows; row management is
+/// sharer-or-owner.
 public struct TeamRepo: Decodable, Sendable, Identifiable, Equatable {
     public let id: String
     public let fullName: String
@@ -93,7 +93,7 @@ public struct TeamRepo: Decodable, Sendable, Identifiable, Equatable {
         defaultBranch = (try? c.decode(String.self, forKey: .defaultBranch)) ?? "main"
         isPrivate = (try? c.decode(Bool.self, forKey: .isPrivate)) ?? false
         boards = (try? c.decode([RepoBoardSummary].self, forKey: .boards)) ?? []
-        sharedBy = (try? c.decodeIfPresent(RepoSharer.self, forKey: .sharedBy)) ?? nil
+        sharedBy = try c.decodeIfPresent(RepoSharer.self, forKey: .sharedBy)
     }
 
     enum CodingKeys: String, CodingKey {

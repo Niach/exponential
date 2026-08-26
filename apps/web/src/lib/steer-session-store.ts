@@ -4,23 +4,17 @@ import {
   ackAnswer,
   answerKey,
   applyQuestionResolved,
-  attachQuestionAnswer,
   beginAnswer,
   clearAnswer,
   consumeEcho,
   createActivityCoalescer,
-  dismissPendingQuestions,
   failAnswer,
-  hasSemanticQuestions,
   isAnswerLocked,
   pushEcho,
   spliceBeforeQuestion,
   upsertQuestion,
   ANSWER_ACK_TIMEOUT_MS,
   FEED_CAP,
-  PLAN_RESOLVED_NARRATION,
-  QUESTION_ANSWERED_PREFIX,
-  QUESTION_DISMISSED_NARRATION,
   type AnswerStates,
   type EchoEntry,
 } from "@/lib/agent-feed"
@@ -408,40 +402,6 @@ export function createSteerSessionStore(
       case `narration`: {
         const trimmed = event.text.trim()
         if (!trimmed) return
-        // Resolution narrations are the LEGACY signal (EXP-197): a protocol
-        // v2 desktop emits them beside `question_resolved` purely for old
-        // clients, so they are dropped once the feed carries question ids.
-        // On a legacy feed they fold into the pending card instead of
-        // rendering as a narration row; with no card waiting the answer
-        // still renders, so it is never lost.
-        if (trimmed.startsWith(QUESTION_ANSWERED_PREFIX)) {
-          const answer = trimmed.slice(QUESTION_ANSWERED_PREFIX.length)
-          if (hasSemanticQuestions(feed)) return
-          feed =
-            attachQuestionAnswer(feed, answer) ??
-            [
-              ...feed,
-              { id: nextId++, kind: `narration` as const, text: event.text },
-            ].slice(-FEED_CAP)
-          return
-        }
-        if (trimmed === QUESTION_DISMISSED_NARRATION) {
-          if (!hasSemanticQuestions(feed)) {
-            feed = dismissPendingQuestions(feed) ?? feed
-          }
-          return
-        }
-        if (trimmed === PLAN_RESOLVED_NARRATION) {
-          // Legacy feeds need it IN the feed — `activeQuestionIds` reads it
-          // as the plan card's only retirement signal.
-          if (!hasSemanticQuestions(feed)) {
-            feed = [
-              ...feed,
-              { id: nextId++, kind: `narration` as const, text: event.text },
-            ].slice(-FEED_CAP)
-          }
-          return
-        }
         // EXP-483: prose from the withheld ask/plan entry flushes AFTER
         // its already-published card — splice it back above the card.
         const anchor = event.beforeQuestionId

@@ -34,9 +34,9 @@ final class TimezoneClaimer: @unchecked Sendable {
 
     func start() {
         task = Task { [weak self] in
-            // Failed claims (offline at launch, an older server without the
-            // route) back off exponentially instead of retrying every tick;
-            // the cadence resets once a pass completes without failures.
+            // Failed claims (offline at launch) back off exponentially instead
+            // of retrying every tick; the cadence resets once a pass completes
+            // without failures.
             var interval = Self.baseInterval
             while !Task.isCancelled {
                 guard let self else { return }

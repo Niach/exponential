@@ -402,9 +402,9 @@ struct TeamRepositoriesSection: View {
     // MARK: - Stale accounts (EXP-557)
 
     // Linked installations with zero grants from ANY member — a reconnect can
-    // never refresh them. Only the `status` endpoint carries the mark; on old
-    // servers it decodes absent → no rows. Suspended installs are excluded
-    // (their fix is an unsuspend on GitHub, REV2-29).
+    // never refresh them. Only the `status` endpoint carries the mark.
+    // Suspended installs are excluded (their fix is an unsuspend on GitHub,
+    // REV2-29).
     private var staleAccounts: [GithubInstallation] {
         (githubStatus?.installations ?? []).filter { $0.isStale && !$0.isSuspended }
     }
@@ -511,8 +511,8 @@ struct TeamRepositoriesSection: View {
             githubLoadFailed = true
         }
         // Stale marks ride ONLY the `status` endpoint (EXP-557) — fetched
-        // separately and non-fatal: on old servers or failure the Disconnect
-        // rows simply don't render. Keep the last good value on failure.
+        // separately and non-fatal: on failure the Disconnect rows simply
+        // don't render, and the last good value is kept.
         do {
             githubStatus = try await integrationsApi.githubStatus(
                 accountId: accountId,

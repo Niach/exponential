@@ -98,10 +98,8 @@ export function RunningIndicator({
 }
 
 // Merge always closes (EXP-498): merges the PR, completes every linked
-// issue, and ends the session server-side. closeSessions: true stays on the
-// wire so an old (pre-498) server closes too. Spinner held until the
-// Electric echo flips the issue's prState away from `open` (mirrors
-// IssueMergeButton).
+// issue, and ends the session server-side. Spinner held until the Electric
+// echo flips the issue's prState away from `open` (mirrors IssueMergeButton).
 function SessionMergeButton({
   prState,
   prNumber,
@@ -127,7 +125,7 @@ function SessionMergeButton({
     setMerging(true)
     try {
       // Failures surface via the global mutation-error toast.
-      await trpc.issues.mergePr.mutate({ issueId, closeSessions: true })
+      await trpc.issues.mergePr.mutate({ issueId })
       setConfirmOpen(false) // keep `merging` until the echo flips prState
     } catch {
       setMerging(false)

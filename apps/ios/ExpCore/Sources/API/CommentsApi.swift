@@ -23,7 +23,7 @@ public struct UpdateCommentInput: Encodable, Sendable {
     public let body: String
     /// The FULL desired set — rows linked to this comment but missing from it
     /// are hard-deleted server-side. Omitted (nil) leaves attachments untouched,
-    /// which is what an old client and the MCP tools send.
+    /// which is what the MCP tools send.
     public let attachmentIds: [String]?
 
     public init(id: String, body: String, attachmentIds: [String]? = nil) {

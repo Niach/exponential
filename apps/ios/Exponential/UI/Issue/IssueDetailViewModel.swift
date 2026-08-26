@@ -456,9 +456,9 @@ final class IssueDetailViewModel {
     /// a synced one; comments, timeline events and every later edit still
     /// arrive through Electric as usual.
     ///
-    /// Every failure is swallowed: an older self-hosted server has no
-    /// `issues.get` at all, and a genuine NOT_FOUND/FORBIDDEN is the same
-    /// answer as silence — the timeout state below explains it.
+    /// Every failure is swallowed: a NOT_FOUND/FORBIDDEN — or a dropped
+    /// request — is the same answer as silence, and the timeout state below
+    /// explains it.
     private func fetchIssueFallback() async {
         guard let result = try? await issuesApi.get(accountId: accountId, id: issueId),
               let pool = try? db.pool(forAccountId: accountId) else { return }
@@ -522,8 +522,8 @@ final class IssueDetailViewModel {
     /// only matters while startable (member, relay on, no live session) — the
     /// same gating the AgentPrCard start area used.
     /// EXP-496: fetch the widget/agent submission metadata card's data.
-    /// Errors degrade to "no card" — non-members and older self-hosted
-    /// servers without the procedure both land there.
+    /// Errors degrade to "no card" — non-members and a dropped request both
+    /// land there.
     func loadWidgetSubmission() async {
         widgetSubmission = try? await widgetsApi.submissionForIssue(
             accountId: accountId, issueId: issueId

@@ -806,17 +806,9 @@ final class AgentSessionModel {
         guard let event, let kind = event["kind"] as? String else { return }
         switch kind {
         case "narration":
-            guard let text = event["text"] as? String else { return }
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return }
-            // The desktop's pre-EXP-249 resolution narrations ride alongside
-            // `question_resolved`, which has already retired the card they
-            // describe — drop them instead of rendering a duplicate row.
-            if trimmed.hasPrefix(AgentFeed.questionAnsweredPrefix)
-                || trimmed == AgentFeed.questionDismissedNarration
-                || trimmed == AgentFeed.planResolvedNarration {
-                return
-            }
+            guard let text = event["text"] as? String,
+                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else { return }
             // EXP-483: prose from the withheld ask/plan entry flushes AFTER
             // its already-published card — splice it back above the card.
             if let anchor = Self.trimmedField(event["beforeQuestionId"]),

@@ -1213,11 +1213,6 @@ export const issuesRouter = router({
     .input(
       z.object({
         issueId: z.string().uuid(),
-        // Deprecated (EXP-498): merge ALWAYS ends the linked live coding
-        // sessions now — the flag is accepted for old-client wire compat and
-        // ignored. New clients still send `true` so an old server (pre-498
-        // self-host) closes too.
-        closeSessions: z.boolean().optional().default(false),
       })
     )
     .mutation(async ({ ctx, input }): Promise<{ merged: true }> => {

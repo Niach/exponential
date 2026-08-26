@@ -223,46 +223,36 @@ class MainActivity : ComponentActivity() {
             authRepository.reportLoginError(oauthErrorMessage(error))
             return
         }
-        // New servers deliver a single-use PKCE `code` (REV-13) we redeem via
-        // /api/mobile-oauth-exchange with the in-memory verifier; old servers
-        // (self-hosted lag) still deliver the raw `token`. Both ride in the
-        // fragment AND the query (EXP-21 — browsers drop the #fragment when
+        // The server delivers a single-use PKCE `code` (REV-13) we redeem via
+        // /api/mobile-oauth-exchange with the in-memory verifier. It rides in
+        // the fragment AND the query (EXP-21 — browsers drop the #fragment when
         // handing a custom scheme to the OS, so scan both).
-        val code = oauthReturnParam(data, "code")
-        if (code != null) {
-            val verifier = authRepository.consumeOauthVerifier()
-            if (verifier == null) {
-                // A code arrived without an attempt this process started —
-                // out-of-band (or interception replay); nothing to redeem with.
-                authRepository.reportLoginError("Couldn't verify your account. Please try again.")
-                return
-            }
-            lifecycleScope.launch {
-                val account = authRepository.accounts.value
-                    .firstOrNull { it.id == authRepository.activeAccountId.value }
-                    ?: return@launch
-                val token = authApi.exchangeOauthCode(account.instanceUrl, code, verifier)
-                if (token == null) {
-                    authRepository.reportLoginError("Couldn't verify your account. Please try again.")
-                    return@launch
-                }
-                completeOauthLogin(token)
-            }
+        val code = oauthReturnParam(data, "code") ?: return
+        val verifier = authRepository.consumeOauthVerifier()
+        if (verifier == null) {
+            // A code arrived without an attempt this process started —
+            // out-of-band (or interception replay); nothing to redeem with.
+            authRepository.reportLoginError("Couldn't verify your account. Please try again.")
             return
         }
-        // Legacy path: raw token in the deep link (pre-PKCE servers only).
-        val token = oauthReturnParam(data, "token") ?: return
-        lifecycleScope.launch { completeOauthLogin(token) }
+        lifecycleScope.launch {
+            val account = authRepository.accounts.value
+                .firstOrNull { it.id == authRepository.activeAccountId.value }
+                ?: return@launch
+            val token = authApi.exchangeOauthCode(account.instanceUrl, code, verifier)
+            if (token == null) {
+                authRepository.reportLoginError("Couldn't verify your account. Please try again.")
+                return@launch
+            }
+            completeOauthLogin(token)
+        }
     }
 
     // Scan the *encoded* fragment first (primary form), then the encoded query,
     // and decode once with Uri.decode (URI-style, `+` stays literal).
-    // data.fragment + URLDecoder.decode would form-decode `+` → space and
-    // corrupt the base64 HMAC signature better-auth appends to session cookies
-    // (signed cookie value is `${id}.${btoa(HMAC)}` and btoa emits `+` `/` `=`).
-    // A mangled signature fails HMAC verification in better-auth's bearer
-    // plugin and every authed request 401s. (PKCE codes are pure base64url and
-    // decode-inert, but the legacy token path still needs this care.)
+    // data.fragment + URLDecoder.decode would form-decode `+` → space, so a
+    // value carrying one would arrive corrupted; decoding here stays URI-style
+    // for every parameter regardless of alphabet.
     private fun oauthReturnParam(data: android.net.Uri, key: String): String? {
         for (encoded in listOfNotNull(data.encodedFragment, data.encodedQuery)) {
             val value = encoded

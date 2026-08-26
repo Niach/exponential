@@ -98,7 +98,7 @@ class LoginViewModel @Inject constructor(
      * /api/mobile-oauth-return, which deep-links back via
      * exponential://oauth-return?code=…#code=… — a single-use code
      * MainActivity redeems through /api/mobile-oauth-exchange with the
-     * verifier (pre-PKCE servers still deep-link the legacy #token=… form).
+     * verifier.
      */
     fun oidcStartUrl(providerId: String): String? {
         val baseUrl = auth.instanceUrl.value ?: return null

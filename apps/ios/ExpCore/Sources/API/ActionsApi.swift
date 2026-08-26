@@ -39,10 +39,11 @@ public struct ActionInputDto: Decodable, Sendable, Equatable {
 
 /// One team action (`actions.list` row). `repositoryId` is nil for repo-less
 /// actions (the desktop runs those in a scratch dir); `description` is the
-/// optional one-liner under the name. `builtin == true` marks the server-
-/// appended virtual "Create action" row (EXP-257 — pinned FIRST by this flag,
-/// never by sort order; non-editable, `body` empty); `inputs` is the typed
-/// inputs schema. Both are optional so older servers keep decoding.
+/// optional one-liner under the name. `builtin == true` marks a virtual
+/// builtin row (EXP-257/EXP-539 — constructed locally by every client, pinned
+/// FIRST by this flag and never by sort order; non-editable, `body` empty).
+/// `inputs` is the typed inputs schema — nil when a synced row carries no
+/// parseable inputs JSON.
 public struct ActionDto: Decodable, Identifiable, Sendable {
     public let id: String
     public let teamId: String

@@ -764,9 +764,8 @@ struct AgentsView: View {
         steerEnabled && !(issue.branch ?? "").isEmpty
     }
 
-    /// Merge the row's PR — the server always ends its session too (EXP-498;
-    /// `closeSessions: true` stays on the wire for old-server compat). No
-    /// local list surgery: the server flips the row to `ended`, which drops
+    /// Merge the row's PR — the server always ends its session too (EXP-498).
+    /// No local list surgery: the server flips the row to `ended`, which drops
     /// it out of the live query through sync. A refusal (conflicts, branch
     /// protection) captions THIS row.
     private func merge(_ target: MergeTarget) {
@@ -777,8 +776,7 @@ struct AgentsView: View {
             do {
                 try await deps.issuesApi.mergePr(
                     accountId: accountId,
-                    issueId: target.issueId,
-                    closeSessions: true
+                    issueId: target.issueId
                 )
             } catch {
                 mergeErrors[target.rowId] = error.localizedDescription

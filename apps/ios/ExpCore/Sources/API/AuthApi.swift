@@ -29,11 +29,10 @@ public struct AuthConfig: Codable, Sendable {
         self.appleLoginEnabled = appleLoginEnabled
     }
 
-    // appleLoginEnabled is absent from pre-SIWA servers (self-hosted lag) —
-    // decode it as optional so the login screen keeps working against them.
-    // signupEnabled/passwordResetEnabled get the same treatment and default to
-    // false: a missing flag hides the affordance rather than offering a link
-    // the server would dead-end.
+    // The login screen is the FIRST thing to touch an arbitrary instance URL,
+    // so the optional flags decode permissively and default to false: a
+    // missing flag hides the affordance rather than offering a link the
+    // server would dead-end, and never bricks the screen outright.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         passwordEnabled = try c.decode(Bool.self, forKey: .passwordEnabled)

@@ -64,8 +64,7 @@ pub enum MergeOp {
     /// `issues.mergePr` — squash-merge the issue's linked PR (a batch PR
     /// completes every linked issue). Echo-settled: the spinner holds until
     /// `pr_state` leaves `open`. Merge always closes (EXP-498): the server
-    /// ends the issues' live coding sessions on every merge, and the API
-    /// layer hardcodes `closeSessions: true` for pre-498 servers.
+    /// ends the issues' live coding sessions on every merge.
     MergeIssuePr { issue_id: String },
     /// `issues.closePr` — close the linked PR WITHOUT merging (EXP-100).
     /// Echo-settled like the merge.

@@ -209,7 +209,7 @@ export type CodingControlVariant = `row` | `fab` | `start`
 // dialog for an issue whose linked PR is open. Mirrors the reviews pages'
 // semantics — `issues.mergePr`, spinner held until the Electric echo flips
 // `prState` away from `open`. Merge always closes the live coding sessions
-// (EXP-498); closeSessions: true stays on the wire for old-server compat.
+// (EXP-498).
 function IssueMergeButton({ issue }: { issue: Issue }) {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [merging, setMerging] = useState(false)
@@ -227,7 +227,7 @@ function IssueMergeButton({ issue }: { issue: Issue }) {
     setMerging(true)
     try {
       // Failures surface via the global mutation-error toast.
-      await trpc.issues.mergePr.mutate({ issueId: issue.id, closeSessions: true })
+      await trpc.issues.mergePr.mutate({ issueId: issue.id })
       setConfirmOpen(false) // keep `merging` until the echo flips prState
     } catch {
       setMerging(false)

@@ -185,16 +185,12 @@ public struct ClosePrInput: Encodable, Sendable {
 /// App. For a batch PR (one PR linked to several issues) the server resolves
 /// the PR to ALL its linked issues, so passing any one of them merges the PR
 /// and completes them all.
-/// EXP-498: merge always ends the linked live coding sessions — the server
-/// enforces it regardless of `closeSessions`; callers keep sending `true` so
-/// a pre-498 server closes too (the flag is otherwise vestigial).
+/// EXP-498: merge always ends the linked live coding sessions.
 public struct MergePrInput: Encodable, Sendable {
     public let issueId: String
-    public let closeSessions: Bool
 
-    public init(issueId: String, closeSessions: Bool = true) {
+    public init(issueId: String) {
         self.issueId = issueId
-        self.closeSessions = closeSessions
     }
 }
 
@@ -314,7 +310,8 @@ public struct FetchedIssue: Decodable, Sendable {
     public let title: String
     public let description: String?
     public let status: String
-    /// EXP-314 — nullable, and absent on older servers.
+    /// EXP-314 — nullable: the precise `issue_statuses` row, if the issue has
+    /// one.
     public let statusId: String?
     public let priority: String
     public let assigneeId: String?
@@ -408,13 +405,12 @@ public final class IssuesApi: Sendable {
     /// Squash-merge the issue's open PR via the GitHub App (EXP-131). Server
     /// resolves a batch PR to every linked issue, so merging completes them all;
     /// the `prState`/`status` flips arrive through Electric sync.
-    /// Merge always ends the linked coding sessions (EXP-498) — the default
-    /// `closeSessions: true` only matters against a pre-498 server.
-    public func mergePr(accountId: String, issueId: String, closeSessions: Bool = true) async throws {
+    /// Merge always ends the linked coding sessions (EXP-498).
+    public func mergePr(accountId: String, issueId: String) async throws {
         try await trpc.mutationVoid(
             accountId: accountId,
             path: "issues.mergePr",
-            input: MergePrInput(issueId: issueId, closeSessions: closeSessions)
+            input: MergePrInput(issueId: issueId)
         )
     }
 
@@ -453,9 +449,8 @@ public final class IssuesApi: Sendable {
     /// screens that must show an issue before sync delivers it (EXP-264).
     /// `issues.get` is a `.query`, so this takes the same GET-with-input
     /// helper `prFiles`/`search` use. Throws NOT_FOUND for an unknown or
-    /// trashed issue, FORBIDDEN for a non-member — and plain HTTP 404 against
-    /// an older server that has no such procedure, so callers must treat any
-    /// error as "not available" rather than a failure worth surfacing.
+    /// trashed issue, FORBIDDEN for a non-member — callers treat any error as
+    /// "not available" rather than a failure worth surfacing.
     public func get(accountId: String, id: String) async throws -> IssueGetResult {
         try await trpc.query(
             accountId: accountId,
