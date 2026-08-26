@@ -1,4 +1,4 @@
-const CACHE_NAME = `exponential-v2`
+const CACHE_NAME = `exponential-v3`
 const STATIC_ASSETS = [`/icon-192.png`, `/icon-512.png`, `/apple-touch-icon.png`, `/logo-dark.svg`, `/logo-light.svg`]
 
 self.addEventListener(`install`, (event) => {
@@ -20,8 +20,11 @@ self.addEventListener(`fetch`, (event) => {
   // Only handle same-origin requests
   if (url.origin !== self.location.origin) return
 
-  // Skip API routes entirely
-  if (url.pathname.startsWith(`/api/`)) return
+  // Skip API routes entirely — and server-function RPCs with them (EXP-632):
+  // they are POST-shaped data calls whose responses must never be replayed
+  // from a cache, and a cached HTML shell answered for one would break the
+  // page far more quietly than a failed request.
+  if (url.pathname.startsWith(`/api/`) || url.pathname.startsWith(`/_serverFn/`)) return
 
   // Cache-first for explicitly listed static assets only (icons, logos)
   if (STATIC_ASSETS.some((asset) => url.pathname === asset)) {
@@ -35,6 +38,10 @@ self.addEventListener(`fetch`, (event) => {
     return
   }
 
-  // Network-first for everything else (HTML, hashed build assets, etc.)
-  event.respondWith(fetch(request).catch(() => caches.match(request)))
+  // Network-first for everything else (HTML, hashed build assets, etc.).
+  // `caches.match` resolves UNDEFINED on a miss, and respondWith(undefined)
+  // throws — the offline path has to end in a Response either way.
+  event.respondWith(
+    fetch(request).catch(async () => (await caches.match(request)) ?? Response.error())
+  )
 })
