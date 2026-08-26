@@ -27,8 +27,8 @@ import {
 // Automations (EXP-583, split out of actions.trigger from EXP-530): a schedule
 // or issue-event trigger that runs ONE action on ONE device with its own
 // agent/model/effort. Rows sync via the `automations` shape; this router is
-// the write path (team-owner-only) plus a member-gated `list` for MCP and
-// pre-shape native builds. There is NO server scheduler — the bound device
+// the write path (team-owner-only) plus a member-gated `list` for MCP.
+// There is NO server scheduler — the bound device
 // selects its enabled rows off Electric and self-starts the run
 // (codingSessions.start with startedReason + automationId).
 

@@ -32,7 +32,11 @@ public struct GithubStatusResult: Decodable, Sendable {
             installed: try container.decode(Bool.self, forKey: .installed),
             installUrl: try container.decodeIfPresent(String.self, forKey: .installUrl),
             connectUrl: try container.decodeIfPresent(String.self, forKey: .connectUrl),
-            accounts: try container.decode([String].self, forKey: .accounts),
+            // EXP-558: `accounts` is a legacy server mirror of `installations`
+            // and is scheduled for removal once shipped builds tolerate its
+            // absence — so decode it tolerantly rather than failing the whole
+            // status decode the day the server drops it.
+            accounts: try container.decodeIfPresent([String].self, forKey: .accounts) ?? [],
             installations: try container.decodeIfPresent([GithubInstallation].self, forKey: .installations) ?? []
         )
     }

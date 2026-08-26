@@ -899,10 +899,18 @@ fn primary_status_line(status: Option<&GithubStatus>, cx: &gpui::App) -> impl In
             }));
     }
 
-    let label: SharedString = if status.accounts.is_empty() {
+    // EXP-558: the account names come off `installations[]` (which is decoded
+    // alongside and carries the same logins) — the flat `accounts` mirror is
+    // going away server-side.
+    let accounts: Vec<String> = status
+        .installations
+        .iter()
+        .map(|installation| installation.label())
+        .collect();
+    let label: SharedString = if accounts.is_empty() {
         "GitHub connected".into()
     } else {
-        format!("GitHub: {}", status.accounts.join(", ")).into()
+        format!("GitHub: {}", accounts.join(", ")).into()
     };
     row.child(
         div()
