@@ -103,13 +103,13 @@ pub use git_worktree::{
 pub use launch_gate::LaunchHold;
 #[cfg(feature = "gpui")]
 pub use launcher::{spawn_prepared, spawn_prepared_with, ExitNotify};
-pub use launcher::SESSION_HEARTBEAT_INTERVAL;
+pub use launcher::{set_session_end_observer, SESSION_HEARTBEAT_INTERVAL};
 pub use launcher::{
-    default_device_label, end_session_best_effort, prepare, prepare_agent_shell,
+    default_device_label, end_session, end_session_best_effort, prepare, prepare_agent_shell,
     prepare_with_hooks, ActionLaunchRequest, ActionRunKind,
     AgentShellLaunch, AgentShellRequest, CodingDeps, CodingError, DisabledReason,
     GitWorktrees, HookSetup, IssueSeed, IssueSeedFn, LaunchOrigin, LaunchOutcome, LaunchRequest,
-    ObserverSetup,
+    ObserverSetup, SessionEndObserver,
     Prepared, PreparedAgentShell, PrepareRequest, PreparedLaunch, WorktreeProvider,
 };
 pub use mcp_json::{

@@ -418,14 +418,14 @@ impl LocalSessions {
         crate::device_sync::report_soon(cx);
         if let Some(entry) = removed {
             TokenRefreshers::release(&entry.clone, cx);
-            // EXP-229: the session's end path is running (or already ran) —
-            // drop it from the crash-recovery registry so a later reconcile
-            // doesn't re-end it. If the end itself fails, the server sweep
-            // (or the next launch's reconcile of a still-registered quit-time
-            // entry) remains the backstop.
-            if let Some(auth) = cx.try_global::<AuthContext>() {
-                crate::session_registry::remove(&auth.data_dir, &entry.session_id);
-            }
+            // EXP-640: the crash-recovery registry entry is deliberately NOT
+            // dropped here — the session's end path is running (or already
+            // ran), and only its RESOLVED outcome removes the entry (the
+            // coding crate's session-end observer, `session_registry`). An
+            // end this build can no longer land (the server 426-gated it
+            // mid-deploy, a dead network) thus stays recorded for the next
+            // launch's reconcile instead of ghosting "coding now" for the
+            // server sweep's 2h window.
         }
     }
 

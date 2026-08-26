@@ -7,14 +7,25 @@
 //! quit-time `codingSessions.end` could never authenticate) strands rows in
 //! `running`, and every client's start-gate then blocks the issue as "coding
 //! now" until the server's 2h staleness sweep. The registry closes that
-//! window: entries are recorded on [`LocalSessions::insert`], removed on
-//! [`LocalSessions::remove`], and whatever survives is reconciled (ended
+//! window: entries are recorded on [`LocalSessions::insert`], removed when
+//! the row's `codingSessions.end` RESOLVES (EXP-640 — the coding crate's
+//! [`coding::SessionEndObserver`], installed by [`install_end_observer`],
+//! reports every end's outcome), and whatever survives is reconciled (ended
 //! best-effort, idempotent server-side) the next time the account connects
 //! ([`reconcile_stale_sessions`], wired into `session::connect_account`).
 //!
-//! Deliberately NOT touched by the quit hook: entries surviving a clean quit
-//! are re-ended as no-ops by the next launch's reconcile — which doubles as
-//! the retry for ends the 2s quit drain lost to a dead network.
+//! EXP-640: removal used to ride `LocalSessions::remove`, i.e. the local
+//! session going away — regardless of whether its end had landed. A deploy
+//! that bumps the min client version 426-gates EVERY call from the build
+//! still running, so the ends fired while the app sat on the blocking
+//! "Update required" screen all failed, the entries were dropped anyway, and
+//! the relaunched build had nothing to reconcile: the rows stayed `running`
+//! (phantom "coding now" badges) until the server's 2h sweep. Keying removal
+//! on the resolved outcome makes the next launch's reconcile the retry.
+//!
+//! Deliberately NOT touched by the quit hook: entries surviving a quit whose
+//! ends never landed (dead network, the 2s drain) are re-ended by the next
+//! launch's reconcile.
 //!
 //! Safety: the reconcile only ends ids NOT currently in `LocalSessions`, and
 //! `KillWatch` only watches locally launched (i.e. `LocalSessions`-tracked)
@@ -48,7 +59,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use gpui::App;
 
@@ -139,6 +150,33 @@ pub(crate) fn remove(data_dir: &Path, session_id: &str) {
     if entries.len() != before {
         save(data_dir, &entries);
     }
+}
+
+/// EXP-640: the outcome of one `codingSessions.end` for a recorded session.
+/// Resolved (2xx, or a 4xx meaning swept/foreign) drops the entry; anything
+/// else (transport, 5xx, 401, and the 426 min-version gate —
+/// `ApiError::UpgradeRequired`) keeps it for the next launch's reconcile.
+fn on_end_outcome(
+    data_dir: &Path,
+    session_id: &str,
+    result: &Result<api::coding_sessions::CodingSession, api::ApiError>,
+) {
+    if end_outcome_resolves(result) {
+        remove(data_dir, session_id);
+    } else if let Err(err) = result {
+        log::info!(
+            "[session-registry] end of coding session {session_id} did not resolve ({err}) — kept for the next launch's reconcile"
+        );
+    }
+}
+
+/// Install the process-wide [`coding::SessionEndObserver`] that keeps the
+/// registry in step with the ends the coding crate and its host issue. Call
+/// once at bootstrap, before any session can be launched.
+pub fn install_end_observer(data_dir: PathBuf) {
+    coding::set_session_end_observer(Arc::new(move |session_id, result| {
+        on_end_outcome(&data_dir, session_id, result);
+    }));
 }
 
 /// The recorded entries belonging to `account_id`.
@@ -512,5 +550,45 @@ mod tests {
             "refused".into()
         ))));
         assert!(!end_outcome_resolves(&Err(api::ApiError::Unauthorized)));
+        // EXP-640: the min-version gate rejects the CALL, not the session —
+        // the row is still `running` and must stay recorded.
+        assert!(!end_outcome_resolves(&Err(api::ApiError::UpgradeRequired)));
+    }
+
+    #[test]
+    fn end_outcome_drops_the_entry_only_once_resolved() {
+        let dir = TempDir::new("end-outcome");
+        record(&dir.path, "sess-1", "acct-1");
+
+        // EXP-640: a 426-gated end (the superseded build's quit-time sweep)
+        // keeps the entry for the relaunched build's reconcile.
+        on_end_outcome(&dir.path, "sess-1", &Err(api::ApiError::UpgradeRequired));
+        assert_eq!(session_ids_for_account(&dir.path, "acct-1"), vec!["sess-1"]);
+        on_end_outcome(
+            &dir.path,
+            "sess-1",
+            &Err(api::ApiError::Transport("refused".into())),
+        );
+        assert_eq!(session_ids_for_account(&dir.path, "acct-1"), vec!["sess-1"]);
+
+        // A resolved end drops it.
+        let session: api::coding_sessions::CodingSession =
+            serde_json::from_str(r#"{"id":"sess-1"}"#).unwrap();
+        on_end_outcome(&dir.path, "sess-1", &Ok(session));
+        assert!(session_ids_for_account(&dir.path, "acct-1").is_empty());
+
+        // 404 = already swept server-side: resolved as well.
+        record(&dir.path, "sess-2", "acct-1");
+        on_end_outcome(
+            &dir.path,
+            "sess-2",
+            &Err(api::ApiError::Http {
+                status: 404,
+                message: String::new(),
+            }),
+        );
+        assert!(session_ids_for_account(&dir.path, "acct-1").is_empty());
+        // Unknown ids are a no-op either way.
+        on_end_outcome(&dir.path, "sess-unknown", &Err(api::ApiError::Unauthorized));
     }
 }
