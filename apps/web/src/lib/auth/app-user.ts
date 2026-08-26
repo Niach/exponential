@@ -9,7 +9,6 @@ export interface AppUserFields {
   isAdmin?: boolean | null
   onboardingCompletedAt?: string | Date | null
   desktopAppCardDismissedAt?: string | Date | null
-  gettingStartedDismissedAt?: string | Date | null
   // Index signature so concrete Better Auth user objects (which carry many
   // other fields) are assignable here without tripping weak-type detection.
   [key: string]: unknown

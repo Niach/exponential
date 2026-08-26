@@ -126,10 +126,9 @@ pub struct AuthUser {
     /// null on session reads, exactly like the web onboarding gate.
     #[serde(default)]
     pub onboarding_completed_at: Option<String>,
-    /// better-auth additionalField (EXP-470): the getting-started checklist
-    /// dismissal, same transport as the onboarding stamp.
-    #[serde(default)]
-    pub getting_started_dismissed_at: Option<String>,
+    // EXP-589: the EXP-470 `gettingStartedDismissedAt` additionalField is
+    // gone server-side; this struct never denies unknown fields, so an older
+    // server still sending it parses fine.
 }
 
 /// Successful password sign-in: the portable session token + the user.
