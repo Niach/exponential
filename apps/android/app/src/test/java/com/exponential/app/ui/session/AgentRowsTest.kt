@@ -240,16 +240,16 @@ class AgentRowsTest {
             teamId = "team-1",
         )
         assertEquals("newer", resolveBatchPrIssue(reps, "exp/batch-abcd1234")?.id)
-        // Legacy rows flipped before the branch stamp existed still resolve
-        // the sole open batch PR.
-        assertEquals("newer", resolveBatchPrIssue(reps, null)?.id)
+        // EXP-546: a branchless row resolves nothing, even with a single open
+        // batch PR to point at.
+        assertNull(resolveBatchPrIssue(reps, null))
     }
 
     @Test
     fun `session branch picks its own PR among concurrent batch runs`() {
         // EXP-545: with the stamped branch a session resolves ITS OWN PR even
-        // while a second batch PR is open; a branchless legacy row stays
-        // ambiguous.
+        // while a second batch PR is open; a branchless row resolves nothing
+        // (EXP-546).
         val reps = openBatchPrRepresentatives(
             issues = listOf(
                 issue("a", prUrl = "https://github.com/o/r/pull/1", prState = "open", branch = "exp/batch-abcd1234"),
@@ -292,7 +292,6 @@ class AgentRowsTest {
             teamId = "team-1",
         )
         assertNull(resolveBatchPrIssue(reps, "exp/batch-abcd1234"))
-        assertNull(resolveBatchPrIssue(reps, null))
     }
 
     @Test
@@ -313,6 +312,5 @@ class AgentRowsTest {
             teamId = "team-1",
         )
         assertNull(resolveBatchPrIssue(reps, "exp/batch-abcd1234"))
-        assertNull(resolveBatchPrIssue(reps, null))
     }
 }

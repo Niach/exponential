@@ -147,9 +147,9 @@ export function useAgentsData(
     // distinct prUrl. A session resolves ITS OWN PR by the branch the
     // pr_open batch flip stamped on the row (EXP-545) — matching by "the
     // team's sole open batch PR" alone could target a teammate's PR once
-    // the session's own PR closed unmerged. Rows flipped before the stamp
-    // existed (branch NULL) keep the legacy sole-open-PR fallback; anything
-    // ambiguous resolves to nothing — Reviews still lists every PR.
+    // the session's own PR closed unmerged. Pre-stamp branchless rows have
+    // drained (EXP-546), so a NULL branch resolves nothing and shows no
+    // Merge shortcut — Reviews still lists every PR.
     const batchPrByUrl = new Map<string, Issue>()
     for (const issue of (openPrIssueRows ?? []) as Issue[]) {
       if (!issue.prUrl || !issue.branch?.startsWith(`exp/batch-`)) continue
@@ -165,13 +165,11 @@ export function useAgentsData(
     }
     const batchPrReps = [...batchPrByUrl.values()]
     const resolveBatchPr = (sessionBranch: string | null): Issue | undefined => {
-      if (sessionBranch) {
-        const matches = batchPrReps.filter(
-          (issue) => issue.branch === sessionBranch
-        )
-        return matches.length === 1 ? matches[0] : undefined
-      }
-      return batchPrReps.length === 1 ? batchPrReps[0] : undefined
+      if (!sessionBranch) return undefined
+      const matches = batchPrReps.filter(
+        (issue) => issue.branch === sessionBranch
+      )
+      return matches.length === 1 ? matches[0] : undefined
     }
 
     const toRow = (session: CodingSession): AgentSessionRow => {

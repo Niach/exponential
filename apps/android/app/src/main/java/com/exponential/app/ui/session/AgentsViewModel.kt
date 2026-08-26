@@ -497,19 +497,17 @@ fun openBatchPrRepresentatives(
  * branch the server's pr_open batch flip stamped on the row. Matching "the
  * team's sole open batch PR" alone could offer a teammate's PR once this
  * session's own PR closed unmerged (prState `closed` while the row stays
- * in_review). Rows flipped before the stamp existed ([sessionBranch] null)
- * keep the legacy sole-open-PR fallback; anything ambiguous resolves to null
- * — with concurrent batch runs Reviews still lists every PR.
+ * in_review). EXP-546: the pre-EXP-545 branchless rows have drained, so a null
+ * [sessionBranch] no longer falls back to "the sole open batch PR" — it
+ * resolves nothing, and such a row simply shows no Merge shortcut. Anything
+ * ambiguous resolves to null too — with concurrent batch runs Reviews still
+ * lists every PR.
  */
 fun resolveBatchPrIssue(
     representatives: List<IssueEntity>,
     sessionBranch: String?,
 ): IssueEntity? =
-    if (sessionBranch != null) {
-        representatives.filter { it.branch == sessionBranch }.singleOrNull()
-    } else {
-        representatives.singleOrNull()
-    }
+    sessionBranch?.let { branch -> representatives.filter { it.branch == branch }.singleOrNull() }
 
 /**
  * The synced devices rows → the tab's SteerDevice list (EXP-481): the
