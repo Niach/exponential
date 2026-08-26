@@ -19,6 +19,20 @@ pub(crate) fn glass_card() -> Div {
         .bg(t::glass::FILL_CARD.to_hsla())
 }
 
+/// EXP-642: ONE row of a carded list — the web `GlassRow`
+/// (`components/ui/glass-rows.tsx`: `rounded-md border border-glass-stroke
+/// bg-glass-row`). Unlike [`glass_card`] these stack with a GAP instead of
+/// fusing into one bordered block, which is what the reviews/support/actions
+/// lists and the machines section wear since the glass-row ladder (EXP-616)
+/// landed on the web. Layout (padding, gap, hover, id) is the caller's job.
+pub(crate) fn glass_row_card() -> Div {
+    div()
+        .rounded(px(t::radius::MD))
+        .border_1()
+        .border_color(t::glass::STROKE_ROW.to_hsla())
+        .bg(t::glass::FILL_ROW.to_hsla())
+}
+
 /// Rounded tab-chip base for the hand-rolled tab strips (EXP-277: center
 /// screens + terminal dock). gpui-component's `TabVariant`s are either square
 /// (`Tab`, plus a non-removable strip-wide bottom border) or hardwired to

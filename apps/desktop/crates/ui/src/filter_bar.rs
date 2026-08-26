@@ -6,8 +6,10 @@
 //!
 //! Structure:
 //!
-//! 1. control row — either the list's INLINE bulk-action bar (while a
-//!    selection exists) or the right-aligned [`IssueFilterPopover`] trigger.
+//! 1. control row — the right-aligned [`IssueFilterPopover`] trigger, joined
+//!    (while a selection exists) by the list's INLINE bulk-action tray on the
+//!    LEFT of the same row (EXP-642 — the trigger no longer disappears; with
+//!    an `external_trigger` host the tray is the whole row).
 //!    (EXP-449 moved the **New Issue** button into the window titlebar, where
 //!    it is reachable from every screen.) The row keeps a fixed min-height so
 //!    the swap never moves the list rows (the EXP-289 no-jump invariant,
@@ -88,6 +90,9 @@ impl RenderOnce for IssueFilterBar {
         // trigger. Fixed min-height keeps the swap jump-free; both clusters
         // wrap (`flex_wrap`) so a narrow panel never overlaps anything.
         let control_row = match self.bulk {
+            // EXP-642: the bulk tray sits LEFT and the Filter trigger keeps
+            // its right-hand slot (web parity) — unless the host owns the
+            // trigger, in which case the tray is the whole row.
             Some(bulk) => Some(
                 h_flex()
                     .py_2()
@@ -96,7 +101,18 @@ impl RenderOnce for IssueFilterBar {
                     .justify_between()
                     .flex_wrap()
                     .gap_1()
-                    .child(bulk),
+                    .child(bulk)
+                    .when(!self.external_trigger, |row| {
+                        row.child(IssueFilterPopover::new(
+                            self.filters.clone(),
+                            self.labels.clone(),
+                            self.statuses.clone(),
+                            self.popover_view,
+                            self.label_query.clone(),
+                            self.on_filters_change.clone(),
+                            self.on_view_change.clone(),
+                        ))
+                    }),
             ),
             // EXP-525: with an external trigger the row vanishes entirely —
             // the strip hosts the trigger, so an empty row is dead space.

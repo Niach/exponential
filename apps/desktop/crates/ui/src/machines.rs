@@ -178,13 +178,18 @@ impl MachinesSection {
     }
 
     /// EXP-481: the rows from the SYNCED devices shape, mapped into the
-    /// legacy `DeviceEntry` shape `render_row` consumes — own rows first,
-    /// teammates' shared rows appended with their owner, each group in the
-    /// EXP-623 stable order (online-by-label first, so heartbeats can't
-    /// reorder the list; offline rows don't beat, so last-seen desc is
-    /// stable there). `None` while the shape is Waiting (cold start / old
-    /// server) — the section renders its loading note.
-    fn synced_entries(&self, cx: &App) -> Option<Vec<api::devices::DeviceEntry>> {
+    /// legacy `DeviceEntry` shape `render_row` consumes — `(mine, team)`,
+    /// each group in the EXP-623 stable order (online-by-label first, so
+    /// heartbeats can't reorder the list; offline rows don't beat, so
+    /// last-seen desc is stable there). EXP-642 keeps the two groups apart:
+    /// they render as their own headed sections, web parity. `None` while the
+    /// shape is Waiting (cold start / old server) — the section renders its
+    /// loading note.
+    #[allow(clippy::type_complexity)] // one call site, two plain row groups
+    fn synced_entries(
+        &self,
+        cx: &App,
+    ) -> Option<(Vec<api::devices::DeviceEntry>, Vec<api::devices::DeviceEntry>)> {
         let collections = sync::Store::global(cx).collections();
         let devices = collections.devices.read(cx);
         if !devices.is_ready() {
@@ -259,8 +264,7 @@ impl MachinesSection {
         };
         mine.sort_by(stable_order);
         shared.sort_by(stable_order);
-        mine.extend(shared);
-        Some(mine)
+        Some((mine, shared))
     }
 
     // -- render --------------------------------------------------------------
@@ -288,6 +292,9 @@ impl MachinesSection {
             .filter(|owner| !owner.name.is_empty())
             .map(|owner| format!("Shared by {}", owner.name).into());
         let server = device.is_server();
+        // EXP-642: only an OWN row wears the chip — the Team machines section
+        // is shared by definition.
+        let shared = device.owner.is_none() && device.shared_team_id.is_some();
         let kind_icon = if server {
             registry::UI_SERVER
         } else {
@@ -407,116 +414,139 @@ impl MachinesSection {
                 );
             });
 
-        // ONE line per machine, the web row's shape (EXP-480): icon · name ·
-        // version | spacer | status dot + text · ▶ · ⋯ — `min_w_0` down the
-        // name side so only the NAME gives way.
-        gpui_component::h_flex()
+        // EXP-642: one CARD per machine, the web `GlassRow` two-line shape —
+        // icon · (name · version · default star · "Shared") over the status
+        // line · ▶ · ⋯ — `min_w_0` down the name side so only the NAME gives
+        // way.
+        let row_hover = theme.list_active.opacity(0.5);
+        crate::surface::glass_row_card()
             .id(SharedString::from(format!("machine-{}", device.device_id)))
+            .flex()
             .w_full()
             .min_w_0()
             .items_center()
-            .gap_2()
+            .gap_3()
             .px_3()
-            .py_2()
-            .border_b_1()
-            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
-            .hover(|this| this.bg(theme.list_hover))
+            .py_2p5()
+            .hover(move |this| this.bg(row_hover))
             .child(
                 div()
                     .flex_shrink_0()
                     .child(Icon::new(kind_icon).xsmall().text_color(muted)),
             )
             .child(
-                gpui_component::h_flex()
+                gpui_component::v_flex()
                     .flex_1()
                     .min_w_0()
-                    .items_center()
-                    .gap_1p5()
-                    // Web keeps the version ADJACENT to the name, so the name
-                    // is fit-content — a `truncate` here would render at the
-                    // EXP-175 collapsed width (it needs `flex_1` on the
-                    // ellipsis div itself); the cluster clips instead.
-                    .overflow_hidden()
+                    .gap_0p5()
                     .child(
-                        div()
-                            .id(("machine-name", index))
-                            .flex_shrink_0()
-                            .text_sm()
-                            .whitespace_nowrap()
-                            .text_color(theme.foreground)
-                            .when_some(owner_tooltip, |this, owner| {
-                                this.tooltip(move |window, cx| {
-                                    gpui_component::tooltip::Tooltip::new(owner.clone())
-                                        .build(window, cx)
-                                })
-                            })
-                            .child(label.clone()),
-                    )
-                    // EXP-622: the machine every device picker prefills.
-                    .when(device.is_default, |this| {
-                        this.child(
-                            Icon::new(registry::UI_DEVICE_DEFAULT)
-                                .xsmall()
-                                .flex_shrink_0()
-                                .text_color(muted),
-                        )
-                    })
-                    .when_some(device.version.clone(), |this, version| {
-                        // Stateful: the outdated hint rides a tooltip, and
-                        // `tooltip` lives on gpui's STATEFUL interactive trait.
-                        let hint: SharedString =
-                            format!("Update available: v{}", latest.unwrap_or_default()).into();
-                        this.child(
+                        gpui_component::h_flex()
+                        .w_full()
+                        .min_w_0()
+                        .items_center()
+                        .gap_1p5()
+                        // Web keeps the version ADJACENT to the name, so the name
+                        // is fit-content — a `truncate` here would render at the
+                        // EXP-175 collapsed width (it needs `flex_1` on the
+                        // ellipsis div itself); the cluster clips instead.
+                        .overflow_hidden()
+                        .child(
                             div()
-                                .id(("machine-version", index))
+                                .id(("machine-name", index))
                                 .flex_shrink_0()
-                                .text_xs()
-                                .text_color(if outdated {
-                                    theme::tokens::YELLOW.to_hsla()
-                                } else {
-                                    muted
-                                })
-                                .when(outdated, |this| {
+                                .text_sm()
+                                .whitespace_nowrap()
+                                .text_color(theme.foreground)
+                                .when_some(owner_tooltip, |this, owner| {
                                     this.tooltip(move |window, cx| {
-                                        gpui_component::tooltip::Tooltip::new(hint.clone())
+                                        gpui_component::tooltip::Tooltip::new(owner.clone())
                                             .build(window, cx)
                                     })
                                 })
-                                .child(SharedString::from(format!("v{version}"))),
+                                .child(label.clone()),
                         )
-                    }),
-            )
-            .child(
-                gpui_component::h_flex()
-                    .flex_shrink_0()
-                    .items_center()
-                    .gap_1p5()
-                    .text_xs()
-                    .text_color(muted)
-                    .when(device.online, |this| {
-                        // EXP-409: online but nothing runnable (every
-                        // installed agent signed out) shows amber, not green.
-                        let dot = if sign_in_needed(device) {
-                            theme::tokens::YELLOW.to_hsla()
-                        } else {
-                            theme::tokens::GREEN.to_hsla()
-                        };
-                        this.child(
-                            div()
-                                .size_1p5()
-                                .flex_shrink_0()
-                                .rounded_full()
-                                .bg(dot),
-                        )
-                    })
-                    .child(SharedString::from(status_line(device)))
-                    .when(updating, |this| {
-                        this.child(div().child(if queued {
-                            "Update queued"
-                        } else {
-                            "Updating…"
-                        }))
-                    }),
+                        // EXP-622: the machine every device picker prefills.
+                        .when(device.is_default, |this| {
+                            this.child(
+                                Icon::new(registry::UI_DEVICE_DEFAULT)
+                                    .xsmall()
+                                    .flex_shrink_0()
+                                    .text_color(muted),
+                            )
+                        })
+                        .when_some(device.version.clone(), |this, version| {
+                            // Stateful: the outdated hint rides a tooltip, and
+                            // `tooltip` lives on gpui's STATEFUL interactive trait.
+                            let hint: SharedString =
+                                format!("Update available: v{}", latest.unwrap_or_default()).into();
+                            this.child(
+                                div()
+                                    .id(("machine-version", index))
+                                    .flex_shrink_0()
+                                    .text_xs()
+                                    .text_color(if outdated {
+                                        theme::tokens::YELLOW.to_hsla()
+                                    } else {
+                                        muted
+                                    })
+                                    .when(outdated, |this| {
+                                        this.tooltip(move |window, cx| {
+                                            gpui_component::tooltip::Tooltip::new(hint.clone())
+                                                .build(window, cx)
+                                        })
+                                    })
+                                    .child(SharedString::from(format!("v{version}"))),
+                            )
+                        })
+                        // EXP-642 (web parity): an own machine shared with a team
+                        // says so on the name line.
+                        .when(shared, |this| {
+                            this.child(
+                                div()
+                                    .flex_shrink_0()
+                                    .px_1()
+                                    .rounded(px(theme::tokens::radius::SM))
+                                    .border_1()
+                                    .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+                                    .text_xs()
+                                    .text_color(muted)
+                                    .child("Shared"),
+                            )
+                        }),
+                    )
+                    .child(
+                        gpui_component::h_flex()
+                            .w_full()
+                            .min_w_0()
+                            .items_center()
+                            .gap_1p5()
+                            .text_xs()
+                            .text_color(muted)
+                            .when(device.online, |this| {
+                                // EXP-409: online but nothing runnable (every
+                                // installed agent signed out) shows amber, not green.
+                                let dot = if sign_in_needed(device) {
+                                    theme::tokens::YELLOW.to_hsla()
+                                } else {
+                                    theme::tokens::GREEN.to_hsla()
+                                };
+                                this.child(
+                                    div()
+                                        .size_1p5()
+                                        .flex_shrink_0()
+                                        .rounded_full()
+                                        .bg(dot),
+                                )
+                            })
+                            .child(SharedString::from(status_line(device)))
+                            .when(updating, |this| {
+                                this.child(div().child(if queued {
+                                    "Update queued"
+                                } else {
+                                    "Updating…"
+                                }))
+                            }),
+                    ),
             )
             .child(div().flex_shrink_0().child(start_coding))
             .children(menu.map(|menu| div().flex_shrink_0().child(menu)))
@@ -665,16 +695,25 @@ impl Render for MachinesSection {
 
         let muted = cx.theme().muted_foreground;
         // EXP-485: the synced shape is the only source of rows.
-        let devices = self.synced_entries(cx);
-        let rows: Vec<gpui::AnyElement> = devices
+        let groups = self.synced_entries(cx);
+        let (mine, team) = match groups.as_ref() {
+            Some((mine, team)) => (mine.as_slice(), team.as_slice()),
+            None => (&[][..], &[][..]),
+        };
+        let mine_rows: Vec<gpui::AnyElement> = mine
             .iter()
-            .flatten()
             .enumerate()
             .map(|(index, device)| self.render_row(index, device, cx))
             .collect();
+        let team_rows: Vec<gpui::AnyElement> = team
+            .iter()
+            .enumerate()
+            // Offset the element ids so the two groups can never collide.
+            .map(|(index, device)| self.render_row(index + mine.len(), device, cx))
+            .collect();
 
-        // The web `SectionLabel` band (EXP-480): label · count · spacer ·
-        // "Add server" — the same band design as the Actions section below.
+        // EXP-642: the web `GlassSectionHeader` — a plain-text heading with
+        // no count, the "Add server" control trailing.
         let add_server = Button::new("machines-add-server")
             .outline().cursor_pointer()
             .web_xs()
@@ -684,36 +723,35 @@ impl Render for MachinesSection {
                 open_add_server_dialog(window, cx);
             })
             .into_any_element();
-        let count = devices.as_ref().map(Vec::len).unwrap_or(0);
 
         // NO `w_full` (EXP-508): as a child of the Actions page's centered
         // column, a percent width resolves against the UNCLAMPED ancestor
         // available width and shrink-wraps the section at wide windows (the
         // EXP-436 leak). Auto width + the column's flex-col stretch size it
-        // to the capped column width; the band/rows below a stretch-sized
+        // to the capped column width; the heading/rows below a stretch-sized
         // parent resolve their `w_full` correctly.
         gpui_component::v_flex()
             .min_w_0()
-            .child(crate::actions_view::section_band(
+            .child(crate::actions_view::section_heading(
                 "My machines",
-                count,
+                None,
                 Some(add_server),
                 cx,
             ))
-            .when(devices.is_none(), |this| {
+            .when(groups.is_none(), |this| {
                 this.child(
                     div()
-                        .px_3()
+                        .px_1()
                         .py_2()
                         .text_xs()
                         .text_color(muted)
                         .child("Loading machines…"),
                 )
             })
-            .when(devices.as_ref().is_some_and(|rows| rows.is_empty()), |this| {
+            .when(groups.is_some() && mine.is_empty(), |this| {
                 this.child(
                     div()
-                        .px_3()
+                        .px_1()
                         .py_2()
                         .text_xs()
                         .text_color(muted)
@@ -723,6 +761,24 @@ impl Render for MachinesSection {
                         ),
                 )
             })
-            .children(rows)
+            .child(gpui_component::v_flex().min_w_0().gap_2().children(mine_rows))
+            // EXP-432/642: teammates' shared machines get their OWN headed
+            // section, exactly like the web page.
+            .when(!team.is_empty(), |this| {
+                this.child(
+                    gpui_component::v_flex()
+                        .min_w_0()
+                        .pt_4()
+                        .child(crate::actions_view::section_heading(
+                            "Team machines",
+                            None,
+                            None,
+                            cx,
+                        ))
+                        .child(
+                            gpui_component::v_flex().min_w_0().gap_2().children(team_rows),
+                        ),
+                )
+            })
     }
 }

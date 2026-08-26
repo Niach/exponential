@@ -55,6 +55,7 @@ use sync::Store;
 use crate::actions::{CreateTeam, JoinTeam, SignOut, SwitchTeam};
 use crate::board::BoardView;
 use crate::coding_flow;
+use crate::controls::WebControl as _;
 use crate::trunk_sync::TrunkSync;
 use crate::icons::{self, registry, ExpIcon};
 use crate::issue_list::IssueQuery;
@@ -2383,6 +2384,10 @@ impl SidebarPanel {
             .into_any_element()
         } else {
             let muted = cx.theme().muted_foreground;
+            // EXP-642: the web `GlassSectionHeader` over a GAPPED list of
+            // glass row CARDS — one card per PR, one headed group per board
+            // (and one for each repo's unlinked pulls).
+            let heading_fg = cx.theme().foreground;
             let mut children: Vec<gpui::AnyElement> = Vec::new();
             for group in &groups {
                 let dot = group
@@ -2391,72 +2396,80 @@ impl SidebarPanel {
                     .as_deref()
                     .and_then(parse_hex_color)
                     .unwrap_or(muted);
-                children.push(
+                let mut block = v_flex().w_full().min_w_0().gap_2().pb_2().child(
                     h_flex()
-                        .px_2()
-                        .pt_2()
-                        .pb_0p5()
+                        .px_1()
+                        .pt_1()
                         .gap_1p5()
                         .items_center()
                         .child(div().size_2().flex_shrink_0().rounded_full().bg(dot))
                         .child(
                             div()
-                                .text_xs()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(muted)
+                                .text_sm()
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(heading_fg.opacity(0.7))
                                 .child(SharedString::from(group.board.name.clone())),
                         )
-                        .into_any_element(),
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(heading_fg.opacity(0.5))
+                                .child(SharedString::from(format!("{}", group.entries.len()))),
+                        ),
                 );
                 for entry in &group.entries {
-                    children.push(self.review_row(entry, cx));
+                    block = block.child(self.review_row(entry, cx));
                 }
+                children.push(block.into_any_element());
             }
             for repo in &pull_repos {
-                children.push(
+                let mut block = v_flex().w_full().min_w_0().gap_2().pb_2().child(
                     h_flex()
-                        .px_2()
-                        .pt_2()
-                        .pb_0p5()
+                        .px_1()
+                        .pt_1()
                         .gap_1p5()
                         .items_center()
                         .child(
                             Icon::from(ExpIcon::GitPullRequest)
                                 .xsmall()
                                 .flex_shrink_0()
-                                .text_color(muted),
+                                .text_color(heading_fg.opacity(0.7)),
                         )
                         .child(
                             div()
                                 .min_w_0()
-                                .text_xs()
+                                .text_sm()
                                 .truncate()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(muted)
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(heading_fg.opacity(0.7))
                                 .child(SharedString::from(repo.full_name.clone())),
                         )
                         .child(
                             div()
                                 .flex_shrink_0()
                                 .text_xs()
-                                .text_color(muted.opacity(0.8))
-                                .child(SharedString::from(format!(
-                                    "not linked to an issue \u{00B7} {}",
-                                    repo.pulls.len()
-                                ))),
+                                .text_color(heading_fg.opacity(0.5))
+                                .child(SharedString::from(format!("{}", repo.pulls.len()))),
                         )
-                        .into_any_element(),
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .text_xs()
+                                .text_color(muted.opacity(0.8))
+                                .child("not linked to an issue"),
+                        ),
                 );
                 for pull in &repo.pulls {
-                    children.push(self.pull_row(&repo.repository_id, pull, cx));
+                    block = block.child(self.pull_row(&repo.repository_id, pull, cx));
                 }
+                children.push(block.into_any_element());
             }
             div()
                 .id("reviews-scroll")
                 .flex_1()
                 .min_h_0()
                 .overflow_y_scrollbar()
-                .child(v_flex().p_1().gap_0p5().children(children))
+                .child(v_flex().p_2().gap_2().children(children))
                 .into_any_element()
         };
 
@@ -2510,13 +2523,13 @@ impl SidebarPanel {
         let batch_count = is_batch.then(|| format!("{} issues", entry.issues.len()));
 
         let theme = cx.theme();
-        let radius = theme.radius;
         let fg = theme.foreground;
         let muted = theme.muted_foreground;
         let danger = theme.danger;
-        // EXP-277: rows use the glass list fills (EXP-269 list_* tokens).
-        let row_hover = theme.list_hover;
+        // EXP-277/642: rows use the glass list fills (EXP-269 list_* tokens);
+        // hover is the web `GlassRow`'s `hover:bg-glass-active/50`.
         let row_active = theme.list_active;
+        let row_hover = row_active.opacity(0.5);
         // Open-PR green (the token the status/priority accents use).
         let pr_green = theme::tokens::GREEN.to_hsla();
 
@@ -2585,14 +2598,18 @@ impl SidebarPanel {
 
         let merge_button = {
             let mut button = Button::new(SharedString::from(format!("review-merge-{}", issue.id)))
-                .xsmall()
+                .web_sm()
                 .outline().cursor_pointer();
             if merging {
                 button = button.label("Merging…").loading(true).disabled(true);
             } else if armed {
                 button = button.label("Confirm merge").danger().cursor_pointer();
             } else {
-                button = button.label("Merge").disabled(closing);
+                // EXP-642 (web parity): the merge glyph rides the label.
+                button = button
+                    .icon(Icon::new(registry::PR_MERGED))
+                    .label("Merge")
+                    .disabled(closing);
             }
             let click_id = issue.id.clone();
             button.on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
@@ -2642,15 +2659,18 @@ impl SidebarPanel {
         };
 
         let nav_id = issue.id.clone();
-        v_flex()
+        // EXP-642: one glass row CARD per PR (web parity) — selected wears the
+        // active fill, hover half of it.
+        crate::surface::glass_row_card()
             .id(SharedString::from(format!("review-{}", issue.id)))
+            .flex()
+            .flex_col()
             .w_full()
-            .px_2()
-            .py_1()
+            .px_3()
+            .py_2p5()
             .gap_0p5()
-            .rounded(radius)
             .when(selected, |this| this.bg(row_active))
-            .hover(|this| this.bg(row_hover))
+            .hover(move |this| this.bg(row_hover))
             .cursor_pointer()
             .on_click(cx.listener(move |_, _, window, cx| {
                 // Any click outside the armed button disarms the confirm.
@@ -2707,10 +2727,12 @@ impl SidebarPanel {
                     .child(merge_button),
             )
             .child(
+                // EXP-642: `#N · branch` reads as code, like the web row.
                 div()
                     .pl_5()
                     .text_xs()
                     .truncate()
+                    .font_family(theme::terminal::FONT_FAMILY)
                     .text_color(muted)
                     .child(SharedString::from(sub)),
             )
@@ -2816,8 +2838,9 @@ impl SidebarPanel {
         let fg = theme.foreground;
         let muted = theme.muted_foreground;
         let danger = theme.danger;
-        // EXP-277: rows use the glass list fills (EXP-269 list_* tokens).
-        let row_hover = theme.list_hover;
+        // EXP-277/642: rows use the glass list fills (EXP-269 list_* tokens);
+        // hover is the web `GlassRow`'s `hover:bg-glass-active/50`.
+        let row_hover = theme.list_active.opacity(0.5);
         let pr_green = theme::tokens::GREEN.to_hsla();
 
         let key = pull_merge_key(repository_id, pull.number);
@@ -2831,16 +2854,19 @@ impl SidebarPanel {
 
         let merge_button = {
             let mut button = Button::new(SharedString::from(format!("pull-merge-{key}")))
-                .xsmall()
+                .web_sm()
                 .outline().cursor_pointer();
             if merging {
                 button = button.label("Merging…").loading(true).disabled(true);
             } else if pull.draft {
-                button = button.label("Merge").disabled(true);
+                button = button
+                    .icon(Icon::new(registry::PR_MERGED))
+                    .label("Merge")
+                    .disabled(true);
             } else if armed {
                 button = button.label("Confirm merge").danger().cursor_pointer();
             } else {
-                button = button.label("Merge");
+                button = button.icon(Icon::new(registry::PR_MERGED)).label("Merge");
             }
             let click_repo = repository_id.to_string();
             let number = pull.number;
@@ -2870,14 +2896,15 @@ impl SidebarPanel {
         };
 
         let url = pull.url.clone();
-        v_flex()
+        crate::surface::glass_row_card()
             .id(SharedString::from(format!("pull-{key}")))
+            .flex()
+            .flex_col()
             .w_full()
-            .px_2()
-            .py_1()
+            .px_3()
+            .py_2p5()
             .gap_0p5()
-            .rounded(radius)
-            .hover(|this| this.bg(row_hover))
+            .hover(move |this| this.bg(row_hover))
             .cursor_pointer()
             .on_click(cx.listener(move |_, _, _, cx| {
                 // Any click outside the armed button disarms the confirm.
@@ -2931,6 +2958,7 @@ impl SidebarPanel {
                     .pl_5()
                     .text_xs()
                     .truncate()
+                    .font_family(theme::terminal::FONT_FAMILY)
                     .text_color(muted)
                     .child(SharedString::from(sub)),
             )
@@ -3042,7 +3070,8 @@ impl SidebarPanel {
                         .flex_1()
                         .min_h_0()
                         .overflow_y_scrollbar()
-                        .child(v_flex().p_1().gap_0p5().children(rows))
+                        // EXP-642: gapped glass row CARDS (web parity).
+                        .child(v_flex().p_2().gap_2().children(rows))
                         .into_any_element()
                 }
             }
@@ -3065,12 +3094,12 @@ impl SidebarPanel {
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let theme = cx.theme();
-        let radius = theme.radius;
         let fg = theme.foreground;
         let muted = theme.muted_foreground;
-        // EXP-277: rows use the glass list fills (EXP-269 list_* tokens).
-        let row_hover = theme.list_hover;
+        // EXP-277/642: rows use the glass list fills (EXP-269 list_* tokens);
+        // hover is the web `GlassRow`'s `hover:bg-glass-active/50`.
         let row_active = theme.list_active;
+        let row_hover = row_active.opacity(0.5);
         // The unread dot is the white primary (web `bg-primary`).
         let unread_dot = theme::tokens::PRIMARY.to_hsla();
 
@@ -3108,15 +3137,16 @@ impl SidebarPanel {
 
         // EXP-525: the web list row — reporter name + time + unread dot on
         // line one, preview under (`support-inbox.tsx`).
-        v_flex()
+        crate::surface::glass_row_card()
             .id(SharedString::from(format!("support-{}", thread.id)))
+            .flex()
+            .flex_col()
             .w_full()
-            .px_2()
-            .py_1p5()
+            .px_3()
+            .py_2p5()
             .gap_0p5()
-            .rounded(radius)
             .when(selected, |this| this.bg(row_active))
-            .hover(|this| this.bg(row_hover))
+            .hover(move |this| this.bg(row_hover))
             .cursor_pointer()
             .on_click(cx.listener(move |_, _, window, cx| {
                 // Seed the tab label — thread titles are tRPC-only.
