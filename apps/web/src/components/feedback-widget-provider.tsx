@@ -24,6 +24,7 @@ function installSnippetStub(): void {
     `init`,
     `identify`,
     `setCustomData`,
+    `setLauncherHidden`,
     `open`,
     `close`,
     `submit`,
@@ -43,6 +44,15 @@ export function openFeedbackWidget(): boolean {
   if (status === `idle` || status === `failed`) return false
   window.ExponentialWidget?.open()
   return true
+}
+
+// Hide the floating launcher while our own UI owns its corner (EXP-642 —
+// the phone issue-detail properties sheet). The panel is untouched, so a
+// half-typed report survives. Optional-chained on the method too: a cached
+// pre-EXP-642 loader has replaced the stub without it.
+export function setFeedbackLauncherHidden(hidden: boolean): void {
+  if (status === `idle` || status === `failed`) return
+  window.ExponentialWidget?.setLauncherHidden?.(hidden)
 }
 
 export function FeedbackWidgetProvider() {
@@ -67,16 +77,10 @@ export function FeedbackWidgetProvider() {
     window.ExponentialWidget!.init({
       key: widget.widgetKey,
       // Dogfood the floating launcher like any customer site (EXP-163). The
-      // sidebar's FeedbackButton stays as a second entry point. Desktop is
-      // pinned to the bottom-right fab regardless of the remote config;
-      // mobile is deliberately left to the config/default (edge tab, middle
-      // right — EXP-569), which is what replaced the EXP-449 tab-bar-
-      // collision CSS hack.
-      launcher: { desktop: { mode: `fab`, position: `bottom-right` } },
-      // Cache-skew bridge: a cached pre-EXP-569 loader ignores `launcher`
-      // and still honors this; the new loader ignores `position` whenever
-      // `launcher` is present.
-      position: `bottom-right`,
+      // sidebar's FeedbackButton stays as a second entry point. NOTHING is
+      // pinned here (EXP-642): the stored widget config decides the launcher
+      // on every device, so the owner-picked nudge reaches desktop too
+      // instead of only viewports under 767px.
     })
     window.ExponentialWidget!.setCustomData({
       app: `exponential-web`,

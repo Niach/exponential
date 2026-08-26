@@ -170,14 +170,14 @@ describe(`resolveLauncher`, () => {
 })
 
 describe(`launcherPlacementCss`, () => {
-  it(`fab keeps 20px margins, bottom clears the safe area`, () => {
+  it(`fab keeps 20px side margins, both edges clear the safe area`, () => {
     expect(
       launcherPlacementCss({ mode: `fab`, position: `bottom-right` })
     ).toBe(
       `bottom:20px;bottom:calc(20px + env(safe-area-inset-bottom, 0px));right:20px;`
     )
     expect(launcherPlacementCss({ mode: `fab`, position: `top-left` })).toBe(
-      `top:20px;left:20px;`
+      `top:40px;top:calc(40px + env(safe-area-inset-top, 0px));left:20px;`
     )
   })
 
@@ -192,7 +192,7 @@ describe(`launcherPlacementCss`, () => {
       launcherPlacementCss({ mode: `tab`, position: `middle-right` })
     ).toBe(`top:50%;transform:translateY(-50%);right:0;`)
     expect(launcherPlacementCss({ mode: `tab`, position: `top-left` })).toBe(
-      `top:20px;left:0;`
+      `top:40px;top:calc(40px + env(safe-area-inset-top, 0px));left:0;`
     )
   })
 })
@@ -221,7 +221,7 @@ describe(`launcherOrigin / launcherButtonClass / panelSideOffset`, () => {
       `20px`
     )
     expect(panelSideOffset({ mode: `tab`, position: `middle-right` })).toBe(
-      `56px`
+      `48px`
     )
     expect(panelSideOffset({ mode: `fab`, position: `middle-left` })).toBe(
       `76px`

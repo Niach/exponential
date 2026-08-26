@@ -173,24 +173,26 @@ button.exp-fab .exp-fab-label {
 }
 button.exp-fab:hover .exp-fab-label,
 button.exp-fab:focus-visible .exp-fab-label { max-width: 180px; opacity: 1; }
-/* Edge tab ("nudge", EXP-569): a 44px square flush against the viewport
+/* Edge tab ("nudge", EXP-569): a 36px square flush against the viewport
    edge — its wrapper anchors at left:0/right:0, so the hover width-growth
    extends inward. No scale (a flush tab must not lift off the edge), no
    label, square + borderless on the edge side (a 1px hairline against the
-   viewport edge reads as a rendering artifact). */
+   viewport edge reads as a rendering artifact). Deliberately smaller than
+   the FAB (EXP-642): it now shows on desktop too, where it must nudge
+   rather than compete with the host page's own chrome. */
 button.exp-fab.exp-tab {
-  width: 44px;
-  height: 44px;
+  width: 36px;
+  height: 36px;
   padding: 0;
   transition: width 0.16s ease, box-shadow 0.16s ease;
 }
 button.exp-fab.exp-tab:hover {
   transform: none;
   gap: 0;
-  width: 52px;
+  width: 42px;
   box-shadow: 0 6px 22px rgba(0, 0, 0, 0.5);
 }
-button.exp-fab.exp-tab svg { width: 18px; height: 18px; }
+button.exp-fab.exp-tab svg { width: 16px; height: 16px; }
 button.exp-tab-right { border-radius: 10px 0 0 10px; border-right: none; }
 button.exp-tab-left { border-radius: 0 10px 10px 0; border-left: none; }
 `

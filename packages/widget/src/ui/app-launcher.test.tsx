@@ -93,8 +93,8 @@ describe(`EXP-569 launcher rendering`, () => {
     expect(fab().className).toBe(`exp-fab exp-tab exp-tab-right`)
     expect(fab().querySelector(`.exp-fab-label`)).toBeNull()
     expect(fab().parentElement!.style.cssText).toContain(`top: 50%`)
-    // The vertically-centered panel clears the flush 44px tab + 12px gap.
-    expect(root().style.getPropertyValue(`--exp-panel-side`)).toBe(`56px`)
+    // The vertically-centered panel clears the flush 36px tab + 12px gap.
+    expect(root().style.getPropertyValue(`--exp-panel-side`)).toBe(`48px`)
   })
 
   it(`the open panel anchors to the launcher position`, async () => {
