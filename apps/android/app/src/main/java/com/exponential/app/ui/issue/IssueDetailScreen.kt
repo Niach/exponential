@@ -47,6 +47,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -670,6 +671,9 @@ fun IssueDetailScreen(
                 // EXP-327: the description editor is the ONE attach affordance;
                 // non-image picks land in the Files section below.
                 onAttachFile = if (isModerator) { uri -> viewModel.uploadFile(uri) } else null,
+                // EXP-627: the store slide's pop-out rect is measured off this
+                // block (`PopRects`), iOS parity.
+                modifier = Modifier.testTag("issue-description"),
             )
             DisposableEffect(Unit) {
                 onDispose { viewModel.flushDescription() }

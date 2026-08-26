@@ -13,6 +13,14 @@ export const DEMO_PASSWORD = `screenshots-demo`
 export const DEMO_NAME = `Alex Carter`
 export const TEAM_SLUG = `acme`
 
+/**
+ * The seeded board with no issues on it — the `board-empty` view on every
+ * client. Named here because three places have to agree on it: the seed that
+ * creates it, `lib/demo-ids.ts` which resolves `$emptyBoard` to its uuid for
+ * the desktop lane, and the native suites that switch boards by title.
+ */
+export const EMPTY_BOARD_SLUG = `launch-marketing`
+
 /** The demo user's machine, in both the seeded sessions and the relay presence. */
 export const DEMO_DEVICE_LABEL = `Alex's MacBook Pro`
 
@@ -75,3 +83,14 @@ export const DEMO_INVITE_TOKEN = `screenshots-demo-invite`
  * too`) intact.
  */
 export const DEMO_FEED_QUESTION = `Cold start is at 740ms (target <800ms). Lazy-load the markdown editor too, or open the PR with what we have?`
+
+/**
+ * The helpdesk thread the `support-reporter` view is captured on.
+ *
+ * That view is the ANONYMOUS magic-link page (`/support/<token>`), so it is
+ * addressed by a token minted for ONE thread — and the catalog anchors the shot
+ * on the subject line. Seed, id lookup and manifest anchor therefore all have
+ * to quote the same string, which is why it lives here rather than inline in
+ * the seed's thread list.
+ */
+export const SUPPORT_REPORTER_THREAD_TITLE = `Can't sign in on the iPad app`

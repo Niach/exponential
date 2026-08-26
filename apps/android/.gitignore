@@ -39,3 +39,6 @@ vendor/bundle/
 
 # Kotlin 2.x build session metadata
 .kotlin/
+
+# EXP-627: pop-out rect sidecars pulled off the emulator, merged by screenshots:pop-sidecars
+fastlane/exp-pop/

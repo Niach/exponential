@@ -100,6 +100,11 @@ export interface ExponentialWidgetApi {
   // dark/light toggle; launcher and panel update live. Wins over both the
   // init option and the widget config.
   setTheme(theme: ExponentialWidgetTheme): void
+  // Hide/show the launcher at runtime (EXP-642) — for hosts whose own UI
+  // occasionally covers the launcher's corner (a bottom sheet, a mobile
+  // action bar). Only the button goes away: an open panel keeps rendering,
+  // and open()/close()/submit() keep working.
+  setLauncherHidden(hidden: boolean): void
   open(): void
   close(): void
   // Resolves with an error result instead of throwing. NOTE: calls queued
@@ -209,6 +214,11 @@ export interface WidgetRuntimeState {
   // setTheme() runtime override (EXP-435). Optional so pre-theme state
   // literals (tests, cached loaders) stay valid.
   themeOverride?: ExponentialWidgetTheme | null
+  // setLauncherHidden() runtime override (EXP-642). Optional for the same
+  // cache-skew reason: a bundle from before this field reads it as
+  // undefined (falsy) and simply keeps showing the launcher, so the
+  // protocol number stays 1.
+  launcherHidden?: boolean
 }
 
 declare global {

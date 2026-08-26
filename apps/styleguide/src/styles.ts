@@ -104,6 +104,9 @@ a { color: inherit; text-decoration: none; }
 .dot { width: 7px; height: 7px; border-radius: 50%; }
 .dot.ok { background: var(--fg); }
 .dot.missing { background: transparent; border: 1px dashed var(--muted-fg); }
+/* Awaiting a HUMAN, not the pipeline — a half-filled dot, so a manual gap never
+   reads as a capture the automation forgot. */
+.dot.manual { background: transparent; border: 1px solid var(--muted-fg); box-shadow: inset 0 -3px 0 var(--muted-fg); }
 .dot.na { background: transparent; border: 1px solid var(--stroke-strong); }
 .nav-empty { padding: 10px 16px; font-size: 12px; color: var(--muted-fg); }
 .hidden { display: none !important; }

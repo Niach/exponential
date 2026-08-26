@@ -9,6 +9,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.api.SteerDevice
@@ -47,7 +48,9 @@ internal fun AgentSegmentedTabs(
         selected = selected,
         label = ::agentLabel,
         onSelect = onSelect,
-        modifier = modifier,
+        // EXP-627: the store slide's pop-out rect is measured off the agent
+        // strip (`PopRects`), iOS parity.
+        modifier = modifier.testTag("start-coding-agent-picker"),
         leadingIcon = { value ->
             Icon(
                 painterResource(agentIconRes(value)),

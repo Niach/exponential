@@ -4,8 +4,8 @@
  * The catalog is written against the seed but never hardcodes a uuid, because a
  * uuid only exists after `seed:screenshots` has run and changes on every reseed.
  * Desktop drives therefore carry PLACEHOLDERS — `issue:$APP-5`, `pr:$APP-14`,
- * `support:$thread` — and this module is the lookup that turns them into the
- * `EXP_DEV_SCREEN` value the app actually parses.
+ * `support:$thread`, `$emptyBoard` — and this module is the lookup that turns
+ * them into the `EXP_DEV_*` values the app actually parses.
  *
  * The ids themselves come from `apps/web`'s `screenshots:ids` script, which is
  * the only thing that can see the database.
@@ -17,9 +17,18 @@ import { join } from "node:path"
 export interface DemoIds {
   teamId: string
   boardId: string
+  /** The seeded board with nothing on it — `$emptyBoard`. */
+  emptyBoardId?: string
   /** Keyed by human identifier: `{ "APP-5": "<uuid>" }`. */
   issues: Record<string, string>
   supportThreadId?: string
+  supportReporterThreadId?: string
+  /**
+   * The reporter's magic link — a CREDENTIAL, not an id. It rides this struct
+   * so the browser lane can address `/support/<token>`; nothing in the pipeline
+   * may print it, and it is absent whenever the host cannot mint one.
+   */
+  supportToken?: string
   actionId?: string
   deviceId?: string
   automationId?: string
@@ -35,7 +44,9 @@ const NAMED: Record<string, (ids: DemoIds) => string | undefined> = {
   device: (ids) => ids.deviceId,
   automation: (ids) => ids.automationId,
   board: (ids) => ids.boardId,
+  emptyBoard: (ids) => ids.emptyBoardId,
   team: (ids) => ids.teamId,
+  supportToken: (ids) => ids.supportToken,
 }
 
 /**
@@ -54,8 +65,11 @@ export function parseDemoIds(stdout: string): DemoIds {
   return {
     teamId: parsed.teamId,
     boardId: parsed.boardId ?? ``,
+    emptyBoardId: parsed.emptyBoardId,
     issues: parsed.issues ?? {},
     supportThreadId: parsed.supportThreadId,
+    supportReporterThreadId: parsed.supportReporterThreadId,
+    supportToken: parsed.supportToken,
     actionId: parsed.actionId,
     deviceId: parsed.deviceId,
     automationId: parsed.automationId,
@@ -81,8 +95,10 @@ export async function fetchDemoIds(): Promise<DemoIds> {
  * Substitute `$NAME` placeholders in a `DesktopDrive.value`.
  *
  * A handful of names (`$thread`, `$action`, `$device`, `$automation`, `$board`,
- * `$team`) point at one well-known seeded row; anything else is looked up as an
- * issue IDENTIFIER (`$APP-5`). Returns `undefined` when a placeholder has no id — the
+ * `$emptyBoard`, `$team`) point at one well-known seeded row; anything else is
+ * looked up as an issue IDENTIFIER (`$APP-5`). The same substitution runs over a
+ * view's `desktop.env` values, so `EXP_DEV_BOARD_ID=$emptyBoard` resolves too.
+ * Returns `undefined` when a placeholder has no id — the
  * caller skips that view with a note, which is the honest outcome: a desktop
  * launched with an unresolvable `EXP_DEV_SCREEN` silently falls back to the
  * default screen and would photograph the wrong view under the right filename.

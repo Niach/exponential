@@ -41,14 +41,9 @@ export function WidgetEmbed() {
     s.src = WIDGET.loader
     document.head.appendChild(s)
 
-    // Desktop pinned to the bottom-right fab; mobile left to the remote
-    // config/default (edge tab, middle right — EXP-569). The legacy
-    // `position` stays as the cache-skew bridge for pre-EXP-569 loaders.
-    api.init({
-      key: WIDGET.key,
-      launcher: { desktop: { mode: `fab`, position: `bottom-right` } },
-      position: `bottom-right`,
-    })
+    // Nothing pinned (EXP-642): the stored widget config owns the launcher
+    // on every device, so the owner-picked nudge shows on desktop too.
+    api.init({ key: WIDGET.key })
     api.setCustomData({ source: `marketing`, page: window.location.pathname })
   }, [])
 

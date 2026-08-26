@@ -11,32 +11,53 @@ import XCTest
 /// clients emit the same `sg_*` basenames so the compositor can pair them up.
 /// Never rename or reorder them without changing every client — and never add
 /// one here without the paired Android shot in StyleguideScreenshotsTest.kt.
+/// `packages/view-catalog/src/views.test.ts` gates both directions, and
+/// additionally requires the iOS and Android `sg_*` sets to be IDENTICAL.
 ///
-///   sg_instance-picker · sg_sign-in · sg_board-switcher · sg_board-filters ·
-///   sg_issue-comments · sg_issue-properties · sg_issue-create · sg_search ·
-///   sg_my-issues · sg_agents · sg_action-create · sg_automations-list ·
-///   sg_automations · sg_action-suggestions · sg_reviews · sg_support-thread ·
-///   sg_settings-root · sg_settings-team · sg_settings-account
+///   sg_sign-in · sg_board-switcher · sg_board-filters · sg_board-empty ·
+///   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
+///   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
+///   sg_start-coding-actions · sg_start-coding-chat · sg_machine-settings ·
+///   sg_action-create · sg_automations-list · sg_automations ·
+///   sg_action-suggestions · sg_reviews · sg_support-thread ·
+///   sg_settings-root · sg_settings-team · sg_settings-account · sg_onboarding
 ///
-/// EXP-566 retired `sg_settings-personal`: it photographed ServerDetailView
-/// here and the settings ROOT on Android, so the pair compared two different
-/// screens. It is now the two properly-paired shots sg_settings-root (the
-/// top-level list) and sg_settings-account (the server/account detail).
+/// EXP-642 reshuffled the front of the set: the old `sg_instance-picker` shot
+/// IS the cloud Apple/Google chooser a first-run user meets, so it took over
+/// the `sg_sign-in` name, and the password-form shot that used to carry it is
+/// gone (the form is a self-hosting detail, not the sign-in surface). The
+/// login flow itself is unchanged — the suite still signs in with it.
+/// EXP-566 had earlier retired `sg_settings-personal` in favour of the properly
+/// paired sg_settings-root (the top-level list) + sg_settings-account (the
+/// server/account detail).
 ///
-/// Same prerequisites as StoreScreenshots — a seeded dev server
-/// (`apps/web/scripts/seed-screenshots.ts`: demo@exponential.at /
-/// screenshots-demo, team "Acme", board "Mobile App", showcase issue APP-5,
-/// open PRs, actions, automations, helpdesk threads). Unlike the store suite
-/// this one does NOT need a live relay or an online desktop: sg_agents settles
-/// for whatever the Agents surface shows, so the run stays green without
-/// `screenshots:desktop`.
+/// Prerequisites — a seeded dev server (`apps/web/scripts/seed-screenshots.ts`:
+/// demo@exponential.at / screenshots-demo, team "Acme", boards "Mobile App" +
+/// the empty "Launch Marketing", showcase issue APP-5, open PRs, actions,
+/// automations, helpdesk threads) PLUS, since EXP-642, the relay stub:
+/// `bun run screenshots:desktop` (apps/web) registers the demo user's OWN
+/// device row, which is what `sg_machine-settings` (gated `isMine &&
+/// registered`) and the two `sg_start-coding-*` shots photograph. No steer
+/// RELAY traffic is needed beyond that registration — nothing here watches a
+/// live session.
 ///
 /// Every shot is gated on real seeded content, never on a container element —
 /// an empty list still renders its container and would silently ship a blank
-/// styleguide page. The two exceptions are called out where they happen
-/// (sg_agents, and the automations pair, whose rows are newer than this
-/// suite). Shared launch/sign-in/tap helpers live in ScreenshotFlow.swift.
+/// styleguide page. The exceptions are called out where they happen (the
+/// automations pair, whose rows are newer than this suite). Shared
+/// launch/sign-in/tap helpers live in ScreenshotFlow.swift, including the
+/// `snapshot(_:settle:)` overload every capture below goes through (it honours
+/// the lane's optional `shots:` allowlist).
 final class StyleguideScreenshots: XCTestCase {
+
+    /// Set at the very end of the capture walk, so the `shots:` typo check in
+    /// tearDown never piles a second failure onto a run that already broke.
+    private var finished = false
+
+    override func tearDown() {
+        assertRequestedShotsWereReached(suiteFinished: finished)
+        super.tearDown()
+    }
 
     private static let teamName = "Acme"
     /// APP-5 — the showcase issue: the only one the seed gives a comment thread
@@ -57,8 +78,17 @@ final class StyleguideScreenshots: XCTestCase {
     /// A seeded board — the anchor that says we are on TEAM settings rather
     /// than the outer Settings screen (both carry the nav title "Settings").
     private static let seededBoardName = "Mobile App"
+    /// The seed's SECOND board: created empty on purpose, so the "no issues
+    /// yet" state is photographable without deleting anything (EXP-642).
+    private static let emptyBoardName = "Launch Marketing"
+    /// Two backlog issues (APP-11 / APP-13) — the bulk-edit selection. Both
+    /// sit in the same group, so one scroll reaches both.
+    private static let bulkFirstTitle = "Localize the app in German and Spanish"
+    private static let bulkSecondTitle = "Audit accessibility labels for VoiceOver"
     /// One of the three seeded team actions, listed on the Actions segment.
     private static let seededActionName = "Nightly test triage"
+    /// The device `bun run screenshots:desktop` registers for the demo user.
+    private static let demoDeviceName = "Alex's MacBook Pro"
 
     @MainActor
     func testCaptureStyleguideScreenshots() throws {
@@ -66,34 +96,26 @@ final class StyleguideScreenshots: XCTestCase {
 
         let app = launchScreenshotApp()
 
-        // ── sg_instance-picker: the pre-login server chooser ─────────────────
+        // ── sg_sign-in: the pre-login server chooser ─────────────────────────
         // The Snapfile erases the simulator, so the app always boots onto
-        // InstanceView — its cloud buttons plus the "Use a self-hosted
-        // instance" link, untouched. `awaitLaunchStage` deliberately taps
-        // NOTHING, so this is the state a first-run user sees.
+        // InstanceView — its cloud (Apple / Google) buttons plus the "Use a
+        // self-hosted instance" link, untouched. `awaitLaunchStage`
+        // deliberately taps NOTHING, so this is the state a first-run user
+        // sees, and it is what the web/desktop `sign-in` shots show too.
         let launch = awaitLaunchStage(app)
         if launch == .instancePicker {
-            settle(1)
-            snapshot("sg_instance-picker")
-        } else {
-            print("EXP-566 sg_instance-picker SKIPPED: the app booted already signed in (stale keychain — is erase_simulator on?)")
-        }
-
-        // ── sg_sign-in: the login screen itself ─────────────────────────────
-        // Captured after the instance URL is accepted and BEFORE any
-        // credentials are typed, so the shot shows the empty email/password
-        // form rather than a half-filled one.
-        //
-        // If a keychain account somehow survived, the app comes up already
-        // signed in and there is no login screen to photograph — say so loudly
-        // and carry on with the rest.
-        let stage = presentLoginScreen(app)
-        if stage == .loginReady {
-            settle(1)
-            snapshot("sg_sign-in")
-            submitLogin(app)
+            snapshot("sg_sign-in", settle: 1)
         } else {
             print("EXP-566 sg_sign-in SKIPPED: the app booted already signed in (stale keychain — is erase_simulator on?)")
+        }
+
+        // The password form is deliberately NOT photographed any more
+        // (EXP-642) — the lane still drives it to get signed in.
+        let stage = presentLoginScreen(app)
+        if stage == .loginReady {
+            submitLogin(app)
+        } else {
+            print("EXP-566 sign-in SKIPPED: the app booted already signed in (stale keychain — is erase_simulator on?)")
         }
 
         // Wait for Electric to sync the board; the first login can take a while.
@@ -119,8 +141,7 @@ final class StyleguideScreenshots: XCTestCase {
             app.staticTexts[Self.teamName].firstMatch.waitForExistence(timeout: 30),
             "Board switcher never listed the seeded team"
         )
-        settle(2)
-        snapshot("sg_board-switcher")
+        snapshot("sg_board-switcher", settle: 2)
         dismissSheet(app, whileVisible: switcherHeadline)
 
         // ── sg_board-filters: the board's filter sheet ───────────────────────
@@ -138,9 +159,49 @@ final class StyleguideScreenshots: XCTestCase {
             app.buttons["Status"].waitForExistence(timeout: 15),
             "Filter sheet never showed its categories"
         )
-        settle(2)
-        snapshot("sg_board-filters")
+        snapshot("sg_board-filters", settle: 2)
         dismissSheet(app, whileVisible: filterSheetHeadline)
+
+        // ── sg_board-empty: a board with no issues on it ─────────────────────
+        // The seed's second board ("Launch Marketing") is created empty for
+        // exactly this shot, so nothing has to be deleted to reach the state.
+        switchBoard(app, to: Self.emptyBoardName)
+        XCTAssertTrue(
+            app.staticTexts["No issues yet"].waitForExistence(timeout: 60),
+            "\(Self.emptyBoardName) did not render its empty state"
+        )
+        snapshot("sg_board-empty", settle: 2)
+        switchBoard(app, to: Self.seededBoardName)
+        XCTAssertTrue(
+            showcaseRowTitle.waitForExistence(timeout: 60),
+            "Did not get back to \(Self.seededBoardName)"
+        )
+
+        // ── sg_board-bulk-edit: multi-select + the bulk action bar ───────────
+        // Long-press enters selection mode (with a haptic tick); a plain tap on
+        // a second row then adds it. Both rows are in the backlog group at the
+        // bottom of the list, so scroll them into view first.
+        let bulkFirst = app.staticTexts[Self.bulkFirstTitle]
+        XCTAssertTrue(
+            scrollUntilVisible(app, bulkFirst, attempts: 14),
+            "\(Self.bulkFirstTitle) never scrolled into view"
+        )
+        bulkFirst.press(forDuration: 1.0)
+        let bulkBar = anyElement(app, identified: "bulk-selection-bar")
+        XCTAssertTrue(
+            bulkBar.waitForExistence(timeout: 15),
+            "Long-press did not enter multi-select"
+        )
+        let bulkSecond = app.staticTexts[Self.bulkSecondTitle]
+        XCTAssertTrue(
+            scrollUntilVisible(app, bulkSecond, attempts: 8),
+            "\(Self.bulkSecondTitle) never scrolled into view"
+        )
+        bulkSecond.tap()
+        snapshot("sg_board-bulk-edit", settle: 2)
+        // Leave selection mode — every later shot assumes the plain list.
+        app.buttons["Clear selection"].firstMatch.tap()
+        _ = bulkBar.waitForNonExistence(timeout: 10)
 
         // ── sg_issue-comments: APP-5 scrolled to its comment thread ──────────
         // Tap the row's TITLE text, never the `issue-row-*` element (EXP-348).
@@ -160,8 +221,7 @@ final class StyleguideScreenshots: XCTestCase {
         scrollUntilVisible(app, commentsHeader, attempts: 14)
         app.swipeUp()
         app.swipeUp()
-        settle(2)
-        snapshot("sg_issue-comments")
+        snapshot("sg_issue-comments", settle: 2)
 
         // ── sg_issue-properties: the combined properties sheet ───────────────
         // Still on APP-5: the bottom bar's leading circle opens it (moderators
@@ -177,8 +237,7 @@ final class StyleguideScreenshots: XCTestCase {
             anyElement(app, containing: "Priority").waitForExistence(timeout: 15),
             "Properties sheet never showed its property rows"
         )
-        settle(2)
-        snapshot("sg_issue-properties")
+        snapshot("sg_issue-properties", settle: 2)
         // "Close" is the GlassSheetChrome ✕ — the app's only one. Let the sheet
         // finish animating out before the nav-bar back tap, or that tap lands
         // on the dismissing sheet.
@@ -201,8 +260,7 @@ final class StyleguideScreenshots: XCTestCase {
         XCTAssertTrue(titleField.waitForExistence(timeout: 15), "Create-issue sheet did not open")
         focus(titleField)
         titleField.typeText("Prefetch avatars before the first board paint")
-        settle(2)
-        snapshot("sg_issue-create")
+        snapshot("sg_issue-create", settle: 2)
         // Cancel — the styleguide run must not write anything to the seed.
         app.buttons["Cancel"].firstMatch.tap()
 
@@ -218,8 +276,7 @@ final class StyleguideScreenshots: XCTestCase {
             app.staticTexts[Self.showcaseTitle].firstMatch.waitForExistence(timeout: 30),
             "Search never returned the seeded issue for \"\(Self.searchQuery)\""
         )
-        settle(2)
-        snapshot("sg_search")
+        snapshot("sg_search", settle: 2)
 
         // ── sg_my-issues: My Work → the "My Issues" segment ──────────────────
         // The segment is a GlassSegmentedControl button carrying only an
@@ -235,14 +292,13 @@ final class StyleguideScreenshots: XCTestCase {
             app.staticTexts[Self.myIssueTitle].firstMatch.waitForExistence(timeout: 60),
             "My Issues never showed the issues assigned to the demo user"
         )
-        settle(2)
-        snapshot("sg_my-issues")
+        snapshot("sg_my-issues", settle: 2)
 
         // ── sg_agents: the machines / command centre ─────────────────────────
-        // Deliberately NOT gated on a machine row: without a relay + an online
-        // desktop the surface renders its empty state, and this suite is meant
-        // to run without `screenshots:desktop`. Give the device list a chance
-        // to arrive, then photograph whatever the surface settled on.
+        // Since EXP-642 this lane needs the relay stub (`screenshots:desktop`):
+        // the demo user's own device row is what the next three shots are
+        // taken from, and an empty machines list is not a useful reference
+        // shot either.
         let agentsTab = app.buttons["tab-agents"]
         XCTAssertTrue(agentsTab.waitForExistence(timeout: 15), "Agents tab missing")
         agentsTab.tap()
@@ -250,9 +306,62 @@ final class StyleguideScreenshots: XCTestCase {
             app.navigationBars["Agents"].waitForExistence(timeout: 30),
             "Agents surface never appeared"
         )
-        _ = app.staticTexts["My machines"].waitForExistence(timeout: 20)
-        settle(2)
-        snapshot("sg_agents")
+        XCTAssertTrue(
+            app.staticTexts[Self.demoDeviceName].firstMatch.waitForExistence(timeout: 60),
+            "No \(Self.demoDeviceName) row — is `bun run screenshots:desktop` running?"
+        )
+        snapshot("sg_agents", settle: 2)
+
+        // ── sg_start-coding-actions / -chat: the unified launch sheet ────────
+        // The machine row's play glyph opens the sheet the Agents surface owns;
+        // it wires teamId + onRunAction, so the Issues | Actions | Chat
+        // segmented control is there. The tabs carry identifiers because
+        // "Actions" and "Chat" also read as ordinary buttons elsewhere.
+        // Nothing is ever submitted — a run would land on a real machine.
+        let startCoding = app.buttons["Start coding"].firstMatch
+        XCTAssertTrue(
+            startCoding.waitForExistence(timeout: 20),
+            "The machine row offers no start action — is the stub device online with an agent?"
+        )
+        startCoding.tap()
+        let startSheet = anyElement(app, identified: "start-coding-sheet")
+        XCTAssertTrue(startSheet.waitForExistence(timeout: 20), "Start-coding sheet did not open")
+
+        let actionsTab = anyElement(app, identified: "start-coding-tab-actions")
+        XCTAssertTrue(actionsTab.waitForExistence(timeout: 15), "Start-coding sheet has no Actions tab")
+        actionsTab.tap()
+        XCTAssertTrue(
+            app.staticTexts[Self.seededActionName].firstMatch.waitForExistence(timeout: 60),
+            "The Actions tab never listed the team's actions"
+        )
+        snapshot("sg_start-coding-actions", settle: 2)
+
+        let chatTab = anyElement(app, identified: "start-coding-tab-chat")
+        XCTAssertTrue(chatTab.waitForExistence(timeout: 15), "Start-coding sheet has no Chat tab")
+        chatTab.tap()
+        snapshot("sg_start-coding-chat", settle: 2)
+        app.buttons["Cancel"].firstMatch.tap()
+        _ = startSheet.waitForNonExistence(timeout: 10)
+        settle(1)
+
+        // ── sg_machine-settings: the device settings sheet ───────────────────
+        // Own, registered machines only — the row menu is absent otherwise,
+        // which is why the relay stub is a prerequisite.
+        let machineMenu = app.buttons["machine-menu"].firstMatch
+        XCTAssertTrue(
+            machineMenu.waitForExistence(timeout: 20),
+            "No machine row menu — the stub device must be the demo user's OWN, registered machine"
+        )
+        machineMenu.tap()
+        let editItem = app.buttons["Edit"].firstMatch
+        XCTAssertTrue(editItem.waitForExistence(timeout: 15), "The machine menu never opened")
+        editItem.tap()
+        let deviceSheet = anyElement(app, identified: "device-settings-sheet")
+        XCTAssertTrue(deviceSheet.waitForExistence(timeout: 20), "Device settings sheet did not open")
+        snapshot("sg_machine-settings", settle: 2)
+        app.buttons["Done"].firstMatch.tap()
+        _ = deviceSheet.waitForNonExistence(timeout: 10)
+        settle(1)
 
         // ── The Actions surface: four shots off one push ─────────────────────
         // Actions has no tab of its own (the bar is full) — the entry rides the
@@ -297,8 +406,7 @@ final class StyleguideScreenshots: XCTestCase {
             anyElement(app, identified: "create-action-description").waitForExistence(timeout: 15),
             "Create-action sheet never rendered its form"
         )
-        settle(2)
-        snapshot("sg_action-create")
+        snapshot("sg_action-create", settle: 2)
         app.buttons["Cancel"].firstMatch.tap()
         _ = createActionSheet.waitForNonExistence(timeout: 10)
         settle(1)
@@ -319,8 +427,7 @@ final class StyleguideScreenshots: XCTestCase {
                 "The Automations segment rendered neither rows nor its empty state"
             )
         }
-        settle(2)
-        snapshot("sg_automations-list")
+        snapshot("sg_automations-list", settle: 2)
 
         // ── sg_automations: the automation editor sheet ──────────────────────
         // "New automation" is owner-only AND steer-gated on iOS (the pill is
@@ -339,17 +446,16 @@ final class StyleguideScreenshots: XCTestCase {
                 "Neither the New-automation entry nor a seeded automation row is available"
             )
             rowMenu.tap()
-            let editItem = app.buttons["Edit"].firstMatch
-            XCTAssertTrue(editItem.waitForExistence(timeout: 15), "The automation row menu never opened")
-            editItem.tap()
+            let editAutomation = app.buttons["Edit"].firstMatch
+            XCTAssertTrue(editAutomation.waitForExistence(timeout: 15), "The automation row menu never opened")
+            editAutomation.tap()
         }
         let automationSheet = anyElement(app, identified: "automation-form-sheet")
         XCTAssertTrue(
             automationSheet.waitForExistence(timeout: 20),
             "The automation form sheet did not open"
         )
-        settle(2)
-        snapshot("sg_automations")
+        snapshot("sg_automations", settle: 2)
         app.buttons["Cancel"].firstMatch.tap()
         _ = automationSheet.waitForNonExistence(timeout: 10)
         settle(1)
@@ -364,8 +470,7 @@ final class StyleguideScreenshots: XCTestCase {
             anyElement(app, identified: "suggestion-row").waitForExistence(timeout: 20),
             "The Suggestions segment never rendered its seed cards"
         )
-        settle(2)
-        snapshot("sg_action-suggestions")
+        snapshot("sg_action-suggestions", settle: 2)
         // Leave the surface on Actions so a retry starts where it started.
         actionsSegment.tap()
         goBack(app)
@@ -378,8 +483,7 @@ final class StyleguideScreenshots: XCTestCase {
             app.staticTexts[Self.reviewTitle].firstMatch.waitForExistence(timeout: 60),
             "Reviews tab never showed the seeded open PRs"
         )
-        settle(2)
-        snapshot("sg_reviews")
+        snapshot("sg_reviews", settle: 2)
 
         // ── sg_support-thread: the Emma Fischer helpdesk thread ─────────────
         // The tab exists only because the seed flips the team's
@@ -408,8 +512,7 @@ final class StyleguideScreenshots: XCTestCase {
             anyElement(app, containing: Self.supportReplyFragment).waitForExistence(timeout: 60),
             "The support thread body never loaded"
         )
-        settle(2)
-        snapshot("sg_support-thread")
+        snapshot("sg_support-thread", settle: 2)
         goBack(app)
 
         // ── sg_settings-root: the top-level settings list ────────────────────
@@ -432,8 +535,7 @@ final class StyleguideScreenshots: XCTestCase {
         // simply the team name — match the button by the staticText it contains.
         let teamRow = app.buttons.containing(.staticText, identifier: Self.teamName).firstMatch
         XCTAssertTrue(teamRow.waitForExistence(timeout: 20), "Team \"\(Self.teamName)\" missing from Settings")
-        settle(2)
-        snapshot("sg_settings-root")
+        snapshot("sg_settings-root", settle: 2)
 
         // ── sg_settings-team: team settings ─────────────────────────────────
         teamRow.tap()
@@ -443,8 +545,7 @@ final class StyleguideScreenshots: XCTestCase {
             app.staticTexts[Self.seededBoardName].waitForExistence(timeout: 30),
             "Team settings never listed the seeded boards"
         )
-        settle(2)
-        snapshot("sg_settings-team")
+        snapshot("sg_settings-team", settle: 2)
         goBack(app)
 
         // ── sg_settings-account: the account / server detail ──────────────────
@@ -466,7 +567,71 @@ final class StyleguideScreenshots: XCTestCase {
             app.buttons["Sign out"].waitForExistence(timeout: 20),
             "Account settings did not open"
         )
-        settle(2)
-        snapshot("sg_settings-account")
+        snapshot("sg_settings-account", settle: 2)
+
+        // ── sg_onboarding: the first-run create-or-join wizard ───────────────
+        // LAST on purpose: it switches the signed-in identity. AppNavigator
+        // shows LoginView at the root only when EVERY account is tokenless, so
+        // "Add server" on the same instance can never reach a login while the
+        // demo user is signed in (its cover just re-points the pending row).
+        // Sign the demo account out instead — we are on its ServerDetail
+        // screen right after sg_settings-account — and the root becomes the
+        // LoginView for that instance.
+        //
+        // The newcomer (`newcomer@exponential.at`) is a member of nothing with
+        // a null `onboardingCompletedAt`, so the app opens the wizard. NOTHING
+        // is submitted: creating a team or accepting an invite would mutate the
+        // seed and burn the invite the desktop/web lanes photograph.
+        app.buttons["Sign out"].firstMatch.tap()
+        submitLogin(
+            app,
+            email: ScreenshotSeed.newcomerEmail,
+            password: ScreenshotSeed.newcomerPassword
+        )
+        let getStarted = app.buttons["Get started"]
+        XCTAssertTrue(
+            getStarted.waitForExistence(timeout: 90),
+            "The onboarding wizard never appeared for \(ScreenshotSeed.newcomerEmail) — reseed with `bun run seed:screenshots`"
+        )
+        getStarted.tap()
+        XCTAssertTrue(
+            app.staticTexts["Set up your team"].waitForExistence(timeout: 30),
+            "The wizard never reached its team step"
+        )
+        // The mobile wizard shows the Create and Join cards on ONE step — this
+        // single shot is the whole `onboarding` view on iOS/Android (there is
+        // no separate create-team / join screen to photograph).
+        XCTAssertTrue(
+            app.buttons["Create team"].waitForExistence(timeout: 30),
+            "The team step never rendered its Create card"
+        )
+        snapshot("sg_onboarding", settle: 2)
+
+        finished = true
     }
+
+    // MARK: - Helpers
+
+    /// Board switcher → the named board.
+    ///
+    /// The sheet's rows are Buttons whose glyph + name + prefix SwiftUI merges
+    /// into ONE element, so there is no contained staticText to address — match
+    /// on the button's own concatenated label instead. The nav-row trigger
+    /// overrides its label to "Switch board", so it can never be the match.
+    @MainActor
+    private func switchBoard(_ app: XCUIApplication, to name: String) {
+        let switcherButton = app.buttons["Switch board"]
+        XCTAssertTrue(switcherButton.waitForExistence(timeout: 20), "Board switcher trigger missing")
+        switcherButton.tap()
+        let headline = app.staticTexts["Switch board"]
+        XCTAssertTrue(headline.waitForExistence(timeout: 15), "Board switcher sheet did not open")
+        let row = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@", name)
+        ).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 30), "Board \"\(name)\" missing from the switcher")
+        row.tap()
+        _ = headline.waitForNonExistence(timeout: 10)
+        settle(1)
+    }
+
 }

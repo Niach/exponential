@@ -90,4 +90,15 @@ describe(`buttonCss`, () => {
       `button.exp-tab-left { border-radius: 0 10px 10px 0; border-left: none; }`
     )
   })
+
+  // EXP-642: the tab shows on desktop too now, so it nudges at 36px rather
+  // than matching the FAB's bulk.
+  it(`sizes the edge tab below the fab`, () => {
+    const css = buttonCss(`#336699`, `dark`)
+    expect(css).toMatch(/exp-tab \{\n {2}width: 36px;\n {2}height: 36px;/)
+    expect(css).toMatch(/exp-tab:hover \{[\s\S]*?width: 42px;/)
+    expect(css).toContain(
+      `button.exp-fab.exp-tab svg { width: 16px; height: 16px; }`
+    )
+  })
 })

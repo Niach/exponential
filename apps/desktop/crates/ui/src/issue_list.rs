@@ -181,6 +181,8 @@ pub struct IssueListView {
     select_anchor: Option<String>,
     /// One bulk mutation in flight at a time (the bar's buttons disable).
     bulk_busy: bool,
+    /// DEV-ONLY one-shot latch for [`Self::apply_dev_selection`].
+    dev_selection_applied: bool,
     /// Whether the current scope's team has a single member — computed once
     /// per frame in `render` and read by the rows to drop the assignee cell
     /// (a solo team can only self-assign, so the affordance is noise).
@@ -245,6 +247,7 @@ impl IssueListView {
             selected: HashSet::new(),
             select_anchor: None,
             bulk_busy: false,
+            dev_selection_applied: false,
             solo_team: false,
             measured_width: Rc::new(Cell::new(px(0.))),
             compact: false,
@@ -326,6 +329,48 @@ impl IssueListView {
 
     /// The flattened VISIBLE issue ids of the last render (collapse honored)
     /// — the range/select-all universe (web `visibleFlatIssues`).
+    /// DEV-ONLY (§11.4 headless verification, the EXP_DEV_* family):
+    /// `EXP_DEV_SELECT=APP-11,APP-13,APP-10` pre-selects those issues so a
+    /// capture run lands on the bulk-action bar without synthetic input.
+    /// Runs from `render` (not `set_query`, which CLEARS the selection) and
+    /// only once every named identifier has synced — a partial match would
+    /// photograph a half-built selection. Unset in normal runs. Never
+    /// document for users.
+    fn apply_dev_selection(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.dev_selection_applied {
+            return;
+        }
+        let Ok(spec) = std::env::var("EXP_DEV_SELECT") else {
+            self.dev_selection_applied = true;
+            return;
+        };
+        let wanted: Vec<&str> = spec
+            .split(',')
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .collect();
+        if wanted.is_empty() {
+            self.dev_selection_applied = true;
+            return;
+        }
+        let mut ids = Vec::new();
+        for identifier in &wanted {
+            let found = self.rows.iter().find_map(|row| match row {
+                ListRow::Issue { issue, .. } if issue.identifier == *identifier => {
+                    Some(issue.id.clone())
+                }
+                _ => None,
+            });
+            // Not every row has synced yet — try again on the next render.
+            let Some(id) = found else { return };
+            ids.push(id);
+        }
+        self.dev_selection_applied = true;
+        self.select_anchor = ids.last().cloned();
+        self.selected = ids.into_iter().collect();
+        cx.notify();
+    }
+
     fn visible_issue_ids(&self) -> Vec<String> {
         self.rows
             .iter()
@@ -1034,10 +1079,12 @@ impl IssueListView {
         // no-jump invariant, without the old floating-overlay masking).
         // EXP-439: content-sized (no `w_full`) so the filter bar can keep
         // the New Issue button beside it on the same row.
-        h_flex()
+        // EXP-642: the cluster wears the glass TRAY so it reads as one card
+        // sitting left of the Filter trigger (web `BulkActionBar` parity).
+        crate::surface::glass_tray()
             .id("bulk-action-bar")
-            .gap_2()
-            .items_center()
+            .flex_shrink_0()
+            .gap_1()
             .child(
                 div()
                     .px_1()
@@ -1290,6 +1337,9 @@ impl Render for IssueListView {
                 .collect(),
         );
         self.rows = Rc::new(rows);
+        // DEV-ONLY: seed the bulk selection once the named rows are all
+        // present (see [`Self::apply_dev_selection`]).
+        self.apply_dev_selection(cx);
 
         // EXP-289: no bulk-action row here anymore — [`Self::bulk_bar`] hands
         // it to `BoardView`, which floats it over the title row. The list's

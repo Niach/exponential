@@ -3,6 +3,7 @@ import {
   resolveRepoInstallationToken,
 } from "@/lib/integrations/github-app"
 import type { GithubActorRef } from "@/lib/integrations/github-identity"
+import { TtlPromiseCache } from "@/lib/ttl-promise-cache"
 
 export interface PullFile {
   filename: string
@@ -203,6 +204,9 @@ export type GitHubFetch = (
 ) => Promise<{
   ok: boolean
   status: number
+  // Optional so unit stubs stay two-liners; the real `fetch` always has it,
+  // and githubRateLimitMessage needs the x-ratelimit-* headers.
+  headers?: { get: (name: string) => string | null }
   text: () => Promise<string>
   json: () => Promise<unknown>
 }>
@@ -551,6 +555,30 @@ export interface OpenPull {
   createdAt: string
 }
 
+// GitHub answers a burnt rate limit with 403 (secondary/primary) or 429 plus
+// `x-ratelimit-remaining: 0`. Unauthenticated reads share a 60 req/h bucket per
+// IP, so one busy self-hosted instance (or a screenshot lane) burns it for
+// everyone and the UI showed a bare "GitHub returned 403". Returns null when
+// the response is not a rate limit — the caller keeps its own message.
+export function githubRateLimitMessage(
+  res: { status: number; headers?: { get: (name: string) => string | null } },
+  repo: string,
+  authed: boolean
+): string | null {
+  if (res.status !== 403 && res.status !== 429) return null
+  const remaining = res.headers?.get(`x-ratelimit-remaining`)
+  if (remaining !== `0`) return null
+  const resetRaw = res.headers?.get(`x-ratelimit-reset`)
+  const reset = resetRaw ? Number(resetRaw) : Number.NaN
+  const when = Number.isFinite(reset)
+    ? `Try again in ~${Math.max(1, Math.ceil((reset * 1000 - Date.now()) / 60_000))} min`
+    : `Try again later`
+  const hint = authed
+    ? `.`
+    : ` — or set GITHUB_TOKEN on the server for public-repo reads.`
+  return `GitHub rate limit reached for ${repo}. ${when}${hint}`
+}
+
 // List a repository's open pull requests. The Reviews queue shows every open
 // PR of a team's repos — PRs opened outside the issue flow have no
 // issues row to sync from, so they must come straight from GitHub. Token
@@ -558,15 +586,20 @@ export interface OpenPull {
 // GITHUB_TOKEN env, then unauthenticated (public repos only).
 export async function listOpenPulls(
   repo: string,
-  token?: string | null
+  token?: string | null,
+  fetchImpl?: GitHubFetch
 ): Promise<OpenPull[]> {
-  const headers = githubApiHeaders(token || process.env.GITHUB_TOKEN)
-  const res = await fetch(
+  const authToken = token || process.env.GITHUB_TOKEN
+  const doFetch = fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+  const res = await doFetch(
     `https://api.github.com/repos/${repo}/pulls?state=open&per_page=100`,
-    { headers }
+    { headers: githubApiHeaders(authToken) }
   )
   if (!res.ok) {
-    throw new Error(`GitHub returned ${res.status} listing pulls for ${repo}`)
+    throw new Error(
+      githubRateLimitMessage(res, repo, Boolean(authToken)) ??
+        `GitHub returned ${res.status} listing pulls for ${repo}`
+    )
   }
   const data = (await res.json()) as Array<{
     number: number
@@ -597,23 +630,46 @@ export async function listOpenPulls(
 // private repos), then the optional `GITHUB_TOKEN` env (a self-hoster PAT),
 // then unauthenticated (public repos only). A private repo with no token
 // available returns a not-found error, surfaced to the UI.
+//
+// Cached for 60s per (repo, PR, auth posture) — the diff view is opened,
+// closed and reopened while reviewing, and every native client refetches on
+// focus; unauthenticated reads share GitHub's 60 req/h per-IP bucket, so the
+// uncached path burnt it and answered 403 (EXP-642). Rejections evict, so a
+// transient failure never sticks. The TOKEN is deliberately not part of the
+// key (secrets don't belong in cache keys) — only whether one was present,
+// which is what changes the visibility of the answer.
+const pullFilesCache = new TtlPromiseCache<PullFile[]>({
+  ttlMs: 60_000,
+  maxEntries: 200,
+})
+
 export async function fetchPullFiles(
   repo: string,
   prNumber: number,
-  token?: string | null
+  token?: string | null,
+  fetchImpl?: GitHubFetch
 ): Promise<PullFile[]> {
-  const headers = githubApiHeaders(token || process.env.GITHUB_TOKEN)
-  const url = `https://api.github.com/repos/${repo}/pulls/${prNumber}/files?per_page=100`
-  const res = await fetch(url, { headers })
-  if (!res.ok) {
-    throw new Error(`GitHub returned ${res.status} for ${repo}#${prNumber}`)
-  }
-  const data = (await res.json()) as PullFile[]
-  return data.map((f) => ({
-    filename: f.filename,
-    status: f.status,
-    additions: f.additions,
-    deletions: f.deletions,
-    patch: f.patch,
-  }))
+  const authToken = token || process.env.GITHUB_TOKEN
+  const key = `${repo}#${prNumber}#${authToken ? `auth` : `anon`}`
+  return pullFilesCache.get(key, async () => {
+    const doFetch = fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+    const res = await doFetch(
+      `https://api.github.com/repos/${repo}/pulls/${prNumber}/files?per_page=100`,
+      { headers: githubApiHeaders(authToken) }
+    )
+    if (!res.ok) {
+      throw new Error(
+        githubRateLimitMessage(res, repo, Boolean(authToken)) ??
+          `GitHub returned ${res.status} for ${repo}#${prNumber}`
+      )
+    }
+    const data = (await res.json()) as PullFile[]
+    return data.map((f) => ({
+      filename: f.filename,
+      status: f.status,
+      additions: f.additions,
+      deletions: f.deletions,
+      patch: f.patch,
+    }))
+  })
 }

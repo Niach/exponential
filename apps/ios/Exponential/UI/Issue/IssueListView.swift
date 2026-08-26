@@ -124,13 +124,21 @@ struct IssueListView: View {
         }
         .sheet(isPresented: $showStartSheet) {
             if let vm = viewModel {
+                // EXP-642: `teamId` + `onRunAction` are what light up the
+                // sheet's Actions and Chat tabs — the bulk bar offered
+                // Issues-only without them.
                 StartCodingSheet(
                     devices: steerDevices ?? [],
                     issues: vm.startCodingCandidates(),
-                    preselectedIds: selectedIds
-                ) { device, issueIds, options in
-                    startCoding(on: device, issueIds: issueIds, options: options)
-                }
+                    preselectedIds: selectedIds,
+                    teamId: vm.board?.teamId,
+                    onStart: { device, issueIds, options in
+                        startCoding(on: device, issueIds: issueIds, options: options)
+                    },
+                    onRunAction: { device, action, options, inputs in
+                        runAction(on: device, action: action, options: options, inputs: inputs)
+                    }
+                )
             }
         }
         .sheet(item: $bulkSheet) { sheet in
@@ -781,6 +789,10 @@ struct IssueListView: View {
         .padding(.vertical, 8)
         .glassCard(cornerRadius: 24)
         .transition(.move(edge: .bottom).combined(with: .opacity))
+        // EXP-642: the styleguide capture addresses the bar directly.
+        // `contain` keeps its buttons queryable.
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("bulk-selection-bar")
     }
 
     /// One 32pt property button in the selection bar (EXP-247).
@@ -1006,6 +1018,41 @@ struct IssueListView: View {
                 }
                 startWatcher.begin(
                     key: key,
+                    userId: deps.auth.userId,
+                    device: device,
+                    db: deps.db,
+                    accountId: accountId
+                )
+            } catch {
+                startWatcher.failed(error.localizedDescription)
+            }
+        }
+    }
+
+    /// Actions-mode launch from the same sheet (EXP-257/EXP-615) — the
+    /// private twin of IssueDetailViewModel.runAction. Without it the bulk
+    /// bar's sheet could not offer the Actions/Chat tabs at all (EXP-642).
+    private func runAction(
+        on device: SteerDevice,
+        action: ActionDto,
+        options: SteerStartOptions,
+        inputs: [String: String]
+    ) {
+        exitSelection()
+        startNotice = nil
+        startWatcher.sending()
+        Task {
+            do {
+                try await deps.steerApi.startSession(
+                    accountId: accountId,
+                    actionId: action.id,
+                    deviceId: device.deviceId,
+                    teamId: action.isBuiltin ? action.teamId : nil,
+                    options: options,
+                    inputs: inputs.isEmpty ? nil : inputs
+                )
+                startWatcher.begin(
+                    key: .action(name: action.name),
                     userId: deps.auth.userId,
                     device: device,
                     db: deps.db,

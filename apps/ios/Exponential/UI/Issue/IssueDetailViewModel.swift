@@ -591,6 +591,43 @@ final class IssueDetailViewModel {
         }
     }
 
+    /// Actions-mode launch from the SAME unified sheet (EXP-257/EXP-615 —
+    /// mirror of ReviewsView.runAction). The Actions and Chat tabs only render
+    /// when the host wires `teamId` + `onRunAction`, so without this the issue
+    /// detail's Start-coding sheet was Issues-only (EXP-642). Deliberately
+    /// does NOT touch `startPending`: that spinner belongs to the start circle
+    /// on THIS issue, and an action run produces an issue-less session row.
+    func runAction(
+        on device: SteerDevice,
+        action: ActionDto,
+        options: SteerStartOptions,
+        inputs: [String: String]
+    ) {
+        startWatcher.sending()
+        Task {
+            do {
+                try await steerApi.startSession(
+                    accountId: accountId,
+                    actionId: action.id,
+                    deviceId: device.deviceId,
+                    teamId: action.isBuiltin ? action.teamId : nil,
+                    options: options,
+                    inputs: inputs.isEmpty ? nil : inputs
+                )
+                startWatcher.begin(
+                    key: .action(name: action.name),
+                    userId: auth.userId,
+                    device: device,
+                    db: db,
+                    accountId: accountId
+                )
+            } catch {
+                startWatcher.failed(error.localizedDescription)
+                self.error = error.localizedDescription
+            }
+        }
+    }
+
     /// Same-team boards the issue can move to (EXP-57): the current board is
     /// excluded; name-sorted. Empty on a single-board team — the "Move to
     /// board" action hides then.

@@ -3,7 +3,7 @@
     {
       "id": "auth",
       "label": "Sign in & onboarding",
-      "blurb": "Everything before a team is in view: the merged sign-in/sign-up page, the native instance picker, first-run onboarding and invite acceptance.",
+      "blurb": "Everything before a team is in view: the sign-in card with whatever providers the instance advertises, first-run onboarding and invite acceptance.",
       "order": 1
     },
     {
@@ -39,7 +39,7 @@
     {
       "id": "support",
       "label": "Support",
-      "blurb": "The helpdesk thread list and one open conversation.",
+      "blurb": "The helpdesk thread list, one open conversation, and the magic-link page the reporter answers from.",
       "order": 7
     },
     {
@@ -72,7 +72,7 @@
     },
     {
       "route": "/auth/register",
-      "reason": "Unconditional redirect to /auth/login since EXP-188. The create-account state is captured as the sign-up view via the openRegister recipe."
+      "reason": "Unconditional redirect to /auth/login since EXP-188; the create-account state is the same card with its toggle flipped."
     },
     {
       "route": "/auth/forgot-password",
@@ -89,10 +89,6 @@
     {
       "route": "/auth/device",
       "reason": "RFC 8628 device-code entry for the CLI daemon; needs a pending device code to render anything."
-    },
-    {
-      "route": "/support/$token",
-      "reason": "Anonymous reporter magic-link page; needs a deterministic HMAC token minted per thread."
     },
     {
       "route": "/account/notifications",
@@ -156,12 +152,12 @@
       "id": "sign-in",
       "group": "auth",
       "title": "Sign in",
-      "blurb": "The merged auth page in its sign-in state: email/password plus whatever OIDC providers the instance advertises.",
+      "blurb": "The one pre-team surface every client shares: the OIDC buttons the instance advertises above the email/password form.",
       "order": 1,
       "web": {
         "route": "/auth/login",
         "anchor": {
-          "text": "Sign in",
+          "text": "Sign in with Google",
           "timeoutMs": 20000
         },
         "settleMs": 600
@@ -179,72 +175,18 @@
         "drive": {
           "kind": "login"
         },
-        "anchorDelayMs": 3000
-      },
-      "notes": {}
-    },
-    {
-      "id": "sign-up",
-      "group": "auth",
-      "title": "Create an account",
-      "blurb": "The same auth page toggled into its create-account state (EXP-188 merged signup into /auth/login; /auth/register is only a redirect).",
-      "order": 2,
-      "web": {
-        "route": "/auth/login",
-        "anchor": {
-          "text": "Create an account",
-          "timeoutMs": 20000
-        },
-        "recipe": "openRegister",
-        "settleMs": 600
-      },
-      "webMobile": "inherit",
-      "notes": {
-        "ios": "Native sign-up is the same form as sign-in with the toggle flipped; not worth a second styleguide shot.",
-        "android": "Native sign-up is the same form as sign-in with the toggle flipped; not worth a second styleguide shot.",
-        "desktop": "No native create-account state: the Register link opens the instance’s /auth/register in the system browser (login.rs `open_register`), because registration is a web flow."
-      }
-    },
-    {
-      "id": "instance-picker",
-      "group": "auth",
-      "title": "Instance picker",
-      "blurb": "The pre-login server chooser: cloud or a self-hosted URL. Native only, because the web app IS its instance.",
-      "order": 3,
-      "notes": {
-        "web": "Has no web equivalent by construction: the browser already resolved the instance by hostname.",
-        "web-mobile": "See web.",
-        "desktop": "Not a separate screen: an inline Cloud/self-hosted toggle on the login card that reveals a Server URL field. Captured in its self-hosted state."
-      },
-      "desktop": {
-        "drive": {
-          "kind": "login"
-        },
-        "anchorDelayMs": 3000,
+        "anchorDelayMs": 400,
         "env": {
-          "EXP_DEV_LOGIN": "self-hosted"
+          "EXP_DEV_LOGIN": "cloud"
         }
-      },
-      "ios": {
-        "shot": "sg_instance-picker",
-        "lane": "styleguide"
-      },
-      "android": {
-        "shot": "sg_instance-picker",
-        "lane": "styleguide"
       }
     },
     {
       "id": "onboarding",
       "group": "auth",
-      "title": "First-run onboarding",
+      "title": "Create / join team",
       "blurb": "Create-or-join: the choice card every signup lands on before it has a team.",
-      "order": 4,
-      "notes": {
-        "ios": "Mobile ships the full wizard; a styleguide shot needs the suite to sign in as the team-less newcomer, which the store lane’s flow cannot do mid-run.",
-        "android": "Mobile ships the full wizard; a styleguide shot needs the suite to sign in as the team-less newcomer, which the store lane’s flow cannot do mid-run.",
-        "desktop": "The desktop wizard has a fourth, desktop-only Tools step; reaching it needs a fresh data dir signed in as the newcomer. Manual."
-      },
+      "order": 2,
       "web": {
         "route": "/onboarding",
         "anchor": {
@@ -254,14 +196,29 @@
         "auth": "newcomer",
         "settleMs": 600
       },
-      "webMobile": "inherit"
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_onboarding",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_onboarding",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "onboarding",
+          "value": "choice"
+        },
+        "anchorDelayMs": 800
+      }
     },
     {
       "id": "onboarding-create-team",
       "group": "auth",
       "title": "Onboarding · Create a team",
       "blurb": "The wizard’s create branch: name the team you will own.",
-      "order": 5,
+      "order": 3,
       "web": {
         "route": "/onboarding",
         "anchor": {
@@ -274,9 +231,15 @@
       },
       "webMobile": "inherit",
       "notes": {
-        "ios": "Mobile has the same branch (TeamSetupView / OnboardingScreen step 2) but the suite cannot sign in as the team-less newcomer mid-run.",
-        "android": "Mobile has the same branch but the suite cannot sign in as the team-less newcomer mid-run.",
-        "desktop": "Same branch behind the desktop wizard’s TeamPage::Create; needs a fresh data dir signed in as the newcomer. Manual."
+        "ios": "The mobile wizard puts the Create and Join cards on ONE step (TeamSetupView / OnboardingScreen), so this branch is not a screen of its own there — see `onboarding`.",
+        "android": "The mobile wizard puts the Create and Join cards on ONE step (TeamSetupView / OnboardingScreen), so this branch is not a screen of its own there — see `onboarding`."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "onboarding",
+          "value": "create"
+        },
+        "anchorDelayMs": 800
       }
     },
     {
@@ -284,7 +247,7 @@
       "group": "auth",
       "title": "Onboarding · Join a team",
       "blurb": "The wizard’s other branch: paste the invite link a teammate sent you.",
-      "order": 6,
+      "order": 4,
       "web": {
         "route": "/onboarding",
         "anchor": {
@@ -297,9 +260,15 @@
       },
       "webMobile": "inherit",
       "notes": {
-        "ios": "Same newcomer-only precondition as onboarding-create-team.",
-        "android": "Same newcomer-only precondition as onboarding-create-team.",
-        "desktop": "Same: TeamPage::Join behind a fresh data dir. Manual."
+        "ios": "The mobile wizard puts the Create and Join cards on ONE step (TeamSetupView / OnboardingScreen), so this branch is not a screen of its own there — see `onboarding`.",
+        "android": "The mobile wizard puts the Create and Join cards on ONE step (TeamSetupView / OnboardingScreen), so this branch is not a screen of its own there — see `onboarding`."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "onboarding",
+          "value": "join"
+        },
+        "anchorDelayMs": 800
       }
     },
     {
@@ -307,11 +276,10 @@
       "group": "auth",
       "title": "Accept an invite",
       "blurb": "The landing page a teammate opens from an invite link, with the team they were invited to and the accept button.",
-      "order": 7,
+      "order": 5,
       "notes": {
-        "ios": "Reachable only through an `exponential://` deep link carrying a live token; the suite has no way to mint one mid-run.",
-        "android": "Reachable only through a deep link carrying a live token; the suite has no way to mint one mid-run.",
-        "desktop": "Same: needs a live token handed to the app as a deep link."
+        "ios": "InviteAcceptView accepts the invite the moment it appears (spinner → “Welcome!”): there is no landing card to photograph, and pressing on would burn the seeded token.",
+        "android": "Android does render the landing card, but the styleguide lane is a side-by-side comparison — a shot that exists on one native platform only has nothing to sit next to, so this stays web + desktop."
       },
       "web": {
         "route": "/invite/$inviteToken",
@@ -322,7 +290,17 @@
         "auth": "newcomer",
         "settleMs": 600
       },
-      "webMobile": "inherit"
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "dialog",
+          "value": "join-team:screenshots-demo-invite"
+        },
+        "anchorDelayMs": 600,
+        "env": {
+          "EXP_DEV_TOOL": "board"
+        }
+      }
     },
     {
       "id": "board",
@@ -343,6 +321,10 @@
         "shot": "01_board",
         "lane": "store"
       },
+      "ipad": {
+        "shot": "01_board",
+        "lane": "store"
+      },
       "android": {
         "shot": "1_board",
         "lane": "store"
@@ -351,8 +333,7 @@
         "drive": {
           "kind": "tool",
           "value": "board"
-        },
-        "anchorDelayMs": 1200
+        }
       }
     },
     {
@@ -384,11 +365,12 @@
           "kind": "tool",
           "value": "board"
         },
-        "anchorDelayMs": 1200,
         "env": {
           "EXP_DEV_FILTER": "1"
-        }
-      }
+        },
+        "anchorDelayMs": 2500
+      },
+      "diffTolerance": 0.002
     },
     {
       "id": "issue-detail",
@@ -416,6 +398,10 @@
         "shot": "02_issue-detail",
         "lane": "store"
       },
+      "ipad": {
+        "shot": "02_issue-detail",
+        "lane": "store"
+      },
       "android": {
         "shot": "2_issue-detail",
         "lane": "store"
@@ -424,8 +410,7 @@
         "drive": {
           "kind": "screen",
           "value": "issue:$APP-5"
-        },
-        "anchorDelayMs": 1200
+        }
       }
     },
     {
@@ -499,7 +484,7 @@
           "kind": "dialog",
           "value": "create-issue"
         },
-        "anchorDelayMs": 1800,
+        "anchorDelayMs": 600,
         "env": {
           "EXP_DEV_TOOL": "board"
         }
@@ -514,7 +499,7 @@
       "web": {
         "route": "/t/$teamSlug/boards/$boardSlug",
         "anchor": {
-          "text": "Search issues",
+          "text": "Reduce cold start below 800 ms",
           "timeoutMs": 20000
         },
         "recipe": "openSearch",
@@ -534,11 +519,13 @@
           "kind": "dialog",
           "value": "search"
         },
-        "anchorDelayMs": 1800,
+        "anchorDelayMs": 2500,
         "env": {
-          "EXP_DEV_TOOL": "board"
+          "EXP_DEV_TOOL": "board",
+          "EXP_DEV_SEARCH_QUERY": "cold start"
         }
-      }
+      },
+      "diffTolerance": 0.0005
     },
     {
       "id": "board-empty",
@@ -555,10 +542,22 @@
         "settleMs": 1000
       },
       "webMobile": "inherit",
-      "notes": {
-        "ios": "Mobile renders the same empty state; not worth a second native shot of an empty list.",
-        "android": "Mobile renders the same empty state; not worth a second native shot of an empty list.",
-        "desktop": "The rail always opens the last-visited board; pointing it at the empty one needs a board id the drive vocabulary does not carry yet."
+      "ios": {
+        "shot": "sg_board-empty",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_board-empty",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "tool",
+          "value": "board"
+        },
+        "env": {
+          "EXP_DEV_BOARD_ID": "$emptyBoard"
+        }
       }
     },
     {
@@ -576,11 +575,31 @@
         "recipe": "openBoardBulkEdit",
         "settleMs": 600
       },
-      "notes": {
-        "web-mobile": "The phone layout has no row checkboxes: bulk edit starts from a long press, which the mobile suites capture natively.",
-        "ios": "Long-press selection is a native gesture the styleguide lane does not drive yet.",
-        "android": "Long-press selection is a native gesture the styleguide lane does not drive yet.",
-        "desktop": "Same bar as web, but selecting rows needs a click sequence no dev hook performs."
+      "webMobile": {
+        "route": "/t/$teamSlug/boards/$boardSlug",
+        "anchor": {
+          "testId": "bulk-action-bar",
+          "timeoutMs": 30000
+        },
+        "recipe": "openBoardBulkEdit",
+        "settleMs": 600
+      },
+      "ios": {
+        "shot": "sg_board-bulk-edit",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_board-bulk-edit",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "tool",
+          "value": "board"
+        },
+        "env": {
+          "EXP_DEV_SELECT": "APP-11,APP-13,APP-10"
+        }
       }
     },
     {
@@ -627,8 +646,16 @@
       },
       "notes": {
         "web": "Wide layouts show the properties inline in the issue’s right-hand rail — see issue-detail.",
-        "web-mobile": "The phone web layout has its own bar, but the sheet is the native surface worth comparing.",
         "desktop": "Desktop shows the same properties inline in the issue header and rail."
+      },
+      "webMobile": {
+        "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-5",
+        "anchor": {
+          "testId": "issue-properties-sheet",
+          "timeoutMs": 30000
+        },
+        "recipe": "openIssuePropertiesMobile",
+        "settleMs": 600
       }
     },
     {
@@ -650,6 +677,10 @@
         "shot": "07_inbox",
         "lane": "store"
       },
+      "ipad": {
+        "shot": "07_inbox",
+        "lane": "store"
+      },
       "android": {
         "shot": "7_inbox",
         "lane": "store"
@@ -658,8 +689,7 @@
         "drive": {
           "kind": "tool",
           "value": "inbox"
-        },
-        "anchorDelayMs": 1000
+        }
       }
     },
     {
@@ -689,8 +719,7 @@
         "drive": {
           "kind": "tool",
           "value": "my-issues"
-        },
-        "anchorDelayMs": 1000
+        }
       },
       "notes": {
         "desktop": "The Inbox tool window's My Issues tab (ToolWindow::Inbox + InboxTab::MyIssues), one rail entry with the board tool."
@@ -730,8 +759,7 @@
         "drive": {
           "kind": "screen",
           "value": "actions"
-        },
-        "anchorDelayMs": 1200
+        }
       }
     },
     {
@@ -752,6 +780,10 @@
         "shot": "06_actions",
         "lane": "store"
       },
+      "ipad": {
+        "shot": "06_actions",
+        "lane": "store"
+      },
       "android": {
         "shot": "6_actions",
         "lane": "store"
@@ -764,7 +796,7 @@
     {
       "id": "start-coding",
       "group": "coding",
-      "title": "Start coding",
+      "title": "Start coding · Issues",
       "blurb": "The launcher: pick the machine, the agent and the options, then hand the issue to a coding session.",
       "order": 3,
       "web": {
@@ -781,6 +813,10 @@
         "shot": "03_start-coding",
         "lane": "store"
       },
+      "ipad": {
+        "shot": "03_start-coding",
+        "lane": "store"
+      },
       "android": {
         "shot": "3_start-coding",
         "lane": "store"
@@ -793,7 +829,7 @@
           "kind": "dialog",
           "value": "start-coding"
         },
-        "anchorDelayMs": 2500,
+        "anchorDelayMs": 600,
         "env": {
           "EXP_DEV_TOOL": "board"
         }
@@ -815,19 +851,23 @@
         "settleMs": 800
       },
       "webMobile": "inherit",
-      "notes": {
-        "ios": "Mobile runs actions from the Actions surface, not from a launcher dialog: see actions-mobile.",
-        "android": "Mobile runs actions from the Actions surface, not from a launcher dialog: see actions-mobile."
-      },
       "desktop": {
         "drive": {
           "kind": "dialog",
           "value": "start-coding-actions"
         },
-        "anchorDelayMs": 2500,
+        "anchorDelayMs": 600,
         "env": {
           "EXP_DEV_SCREEN": "actions"
         }
+      },
+      "ios": {
+        "shot": "sg_start-coding-actions",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_start-coding-actions",
+        "lane": "styleguide"
       }
     },
     {
@@ -846,19 +886,23 @@
         "settleMs": 800
       },
       "webMobile": "inherit",
-      "notes": {
-        "ios": "Chat is a launcher tab; mobile has no launcher dialog.",
-        "android": "Chat is a launcher tab; mobile has no launcher dialog."
-      },
       "desktop": {
         "drive": {
           "kind": "dialog",
           "value": "start-coding-chat"
         },
-        "anchorDelayMs": 2500,
+        "anchorDelayMs": 600,
         "env": {
           "EXP_DEV_SCREEN": "actions"
         }
+      },
+      "ios": {
+        "shot": "sg_start-coding-chat",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_start-coding-chat",
+        "lane": "styleguide"
       }
     },
     {
@@ -881,13 +925,22 @@
         "shot": "04_steering",
         "lane": "store"
       },
+      "ipad": {
+        "shot": "04_steering",
+        "lane": "store"
+      },
       "android": {
         "shot": "4_steering",
         "lane": "store"
       },
       "notes": {
         "web": "Needs `bun run screenshots:desktop` running: the feed is relay-fed, and an unreachable relay photographs a Reconnecting state instead. The anchor is the tail fragment of DEMO_FEED_QUESTION in apps/web/scripts/screenshot-demo.ts.",
-        "desktop": "The owning desktop app IS the session host; there is no dock to open on it. Capturing the host-side terminal view needs a live run. Manual."
+        "desktop": "The owning desktop app IS the session host — there is no dock to open on it, and the host-side terminal only has content while an agent is actually running. Capture it by hand: `bun run shots -- --manual steering` with a live session on screen."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "manual"
+        }
       }
     },
     {
@@ -910,15 +963,19 @@
           "kind": "dialog",
           "value": "device-settings:$device"
         },
-        "anchorDelayMs": 1800,
+        "anchorDelayMs": 600,
         "env": {
           "EXP_DEV_SCREEN": "actions"
         }
       },
-      "notes": {
-        "web-mobile": "The sheet exists on the phone layout too, but it is a wide three-column dialog there; the desktop and web shots are the ones worth comparing.",
-        "ios": "Needs a live registered machine; the styleguide lane runs against a simulator with none.",
-        "android": "Needs a live registered machine; the styleguide lane runs against an emulator with none."
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_machine-settings",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_machine-settings",
+        "lane": "styleguide"
       }
     },
     {
@@ -946,7 +1003,7 @@
           "kind": "dialog",
           "value": "add-server"
         },
-        "anchorDelayMs": 1800,
+        "anchorDelayMs": 600,
         "env": {
           "EXP_DEV_SCREEN": "actions"
         }
@@ -979,8 +1036,7 @@
         "drive": {
           "kind": "tool",
           "value": "reviews"
-        },
-        "anchorDelayMs": 1200
+        }
       }
     },
     {
@@ -1003,6 +1059,10 @@
         "shot": "05_review",
         "lane": "store"
       },
+      "ipad": {
+        "shot": "05_review",
+        "lane": "store"
+      },
       "android": {
         "shot": "5_review",
         "lane": "store"
@@ -1011,8 +1071,7 @@
         "drive": {
           "kind": "screen",
           "value": "pr:$APP-14"
-        },
-        "anchorDelayMs": 2000
+        }
       },
       "notes": {
         "web": "The diff is fetched live from GitHub, so this view is the slowest in the catalog and the most network-flaky. Keep the generous anchor timeout.",
@@ -1044,7 +1103,7 @@
           "kind": "dialog",
           "value": "action-editor:$action"
         },
-        "anchorDelayMs": 1800,
+        "anchorDelayMs": 600,
         "env": {
           "EXP_DEV_SCREEN": "actions"
         }
@@ -1073,7 +1132,7 @@
           "kind": "dialog",
           "value": "automation-new"
         },
-        "anchorDelayMs": 1800,
+        "anchorDelayMs": 600,
         "env": {
           "EXP_DEV_SCREEN": "actions"
         }
@@ -1115,7 +1174,7 @@
           "kind": "dialog",
           "value": "create-action"
         },
-        "anchorDelayMs": 1800,
+        "anchorDelayMs": 600,
         "env": {
           "EXP_DEV_SCREEN": "actions"
         }
@@ -1161,7 +1220,6 @@
           "kind": "screen",
           "value": "actions"
         },
-        "anchorDelayMs": 1500,
         "env": {
           "EXP_DEV_ACTIONS_TAB": "automations"
         }
@@ -1207,7 +1265,6 @@
           "kind": "screen",
           "value": "actions"
         },
-        "anchorDelayMs": 1500,
         "env": {
           "EXP_DEV_ACTIONS_TAB": "suggestions"
         }
@@ -1235,6 +1292,10 @@
         "shot": "08_support",
         "lane": "store"
       },
+      "ipad": {
+        "shot": "08_support",
+        "lane": "store"
+      },
       "android": {
         "shot": "8_support",
         "lane": "store"
@@ -1243,8 +1304,7 @@
         "drive": {
           "kind": "tool",
           "value": "support"
-        },
-        "anchorDelayMs": 1500
+        }
       },
       "notes": {
         "web": "Requires teams.helpdesk_enabled on the demo team; the rail/nav entry hides entirely when it is off."
@@ -1278,11 +1338,32 @@
         "drive": {
           "kind": "screen",
           "value": "support:$thread"
-        },
-        "anchorDelayMs": 1500
+        }
       },
       "notes": {
         "desktop": "Support data is server-only tRPC, so the thread id placeholder has to be resolved by the capturer at run time."
+      }
+    },
+    {
+      "id": "support-reporter",
+      "group": "support",
+      "title": "Reporter's conversation",
+      "blurb": "What the person who filed the ticket sees: the magic-link page carrying their whole thread, with no account and no team.",
+      "order": 3,
+      "web": {
+        "route": "/support/$supportToken",
+        "anchor": {
+          "text": "Can't sign in on the iPad app",
+          "timeoutMs": 30000
+        },
+        "auth": "anonymous",
+        "settleMs": 1500
+      },
+      "webMobile": "inherit",
+      "notes": {
+        "desktop": "A browser page, not an app surface: the reporter has no account, so no client ever renders it.",
+        "ios": "See desktop — the magic link opens in the reporter’s browser.",
+        "android": "See desktop — the magic link opens in the reporter’s browser."
       }
     },
     {
@@ -1637,8 +1718,7 @@
         "drive": {
           "kind": "settings",
           "value": "agents"
-        },
-        "anchorDelayMs": 1500
+        }
       },
       "notes": {
         "web": "Agent binaries are a property of the MACHINE, not the team: only the client that spawns them configures them.",
@@ -1657,8 +1737,7 @@
         "drive": {
           "kind": "settings",
           "value": "tools"
-        },
-        "anchorDelayMs": 1200
+        }
       },
       "notes": {
         "web": "Machine-local paths; nothing to configure from a browser.",
@@ -1677,8 +1756,7 @@
         "drive": {
           "kind": "settings",
           "value": "local-repos"
-        },
-        "anchorDelayMs": 1500
+        }
       },
       "notes": {
         "web": "Worktrees live on the device; the web app only queues remove/prune commands to it.",
@@ -1697,8 +1775,7 @@
         "drive": {
           "kind": "settings",
           "value": "archived-boards"
-        },
-        "anchorDelayMs": 1200
+        }
       },
       "notes": {
         "web": "Web folds this into settings-boards as a card below the live list, alongside the pending-deletion one.",
@@ -1718,7 +1795,7 @@
           "kind": "tool",
           "value": "files"
         },
-        "anchorDelayMs": 2000
+        "anchorDelayMs": 1200
       },
       "notes": {
         "web": "No client but the desktop app holds a clone, so no other client has a file tree.",
@@ -1738,7 +1815,7 @@
           "kind": "tool",
           "value": "source-control"
         },
-        "anchorDelayMs": 2500
+        "anchorDelayMs": 1200
       },
       "notes": {
         "web": "Desktop-only: it operates on the machine’s clone.",
@@ -1758,7 +1835,7 @@
           "kind": "tool",
           "value": "board"
         },
-        "anchorDelayMs": 2500,
+        "anchorDelayMs": 1500,
         "env": {
           "EXP_DEV_OPEN_SHELL": "1"
         }
@@ -1789,8 +1866,7 @@
         "drive": {
           "kind": "screen",
           "value": "getting-started"
-        },
-        "anchorDelayMs": 1000
+        }
       },
       "notes": {
         "web": "Not a route: it is a sidebar-footer sheet (EXP-88), and the button hides once every checklist entry is done (EXP-548). The seed must leave at least one entry incomplete or the recipe has nothing to click. The same cards also render inline under an EMPTY board's empty state.",

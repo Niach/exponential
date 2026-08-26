@@ -10,12 +10,16 @@
  *
  *   1. mint a session token from the demo credentials (`EXP_DEV_TOKEN`),
  *   2. per view: the run's throwaway `EXP_DATA_DIR`, the drive vars, a pinned
- *      window size, spawn the release binary,
+ *      window size, a fresh `EXP_DEV_READY_FILE`, spawn the release binary,
  *   3. poll System Events (by pid) until the app has a window — CGWindowList
  *      via JXA is a dead end on current macOS: `deepUnwrap` hands back an empty
  *      object and the CFBridging route segfaults, while the Accessibility query
  *      is stable,
- *   4. wait out the view's `anchorDelayMs` — Electric is still streaming,
+ *   4. wait for the app to WRITE its ready file (EXP-633): every shape Live,
+ *      the session synced, the requested dialog settled. This replaced a fixed
+ *      six-second sleep that was simultaneously too long for a settings pane
+ *      and too short for a cold Electric — the app now says when it is ready,
+ *      and `anchorDelayMs` is only the last frame of layout on top,
  *   5. raise the window and `screencapture -x -R<x,y,w,h>` its rect,
  *   6. gate on luminance variance: a flat dark rectangle means the window was
  *      caught before first paint, so retry once with more settle time,
@@ -32,17 +36,29 @@
  * developer's own loop, so a missing binary is a preflight failure with the
  * exact command to fix it.
  */
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync, mkdirSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { viewsFor, type DesktopCapture, type DesktopDrive } from "@exp/view-catalog"
 // The demo identity lives in ONE place (apps/web/scripts/screenshot-demo.ts) so
 // the seed, the relay stub and every capture lane sign in as the same user. It
 // is a dependency-free constants module; importing it beats a copy that drifts.
-import { DEMO_EMAIL, DEMO_PASSWORD } from "../../../apps/web/scripts/screenshot-demo.ts"
+import {
+  DEMO_EMAIL,
+  DEMO_PASSWORD,
+  NEWCOMER_EMAIL,
+  NEWCOMER_PASSWORD,
+} from "../../../apps/web/scripts/screenshot-demo.ts"
 import { luminanceVariance } from "./encode.ts"
 import { missingPlaceholder, resolveDriveValue, type DemoIds } from "./ids.ts"
-import { killChild, run, sleep, track } from "./lib/proc.ts"
+import { killChild, run, sleep, track, type Child } from "./lib/proc.ts"
 import { rawShotPath, repoRoot } from "./paths.ts"
 
 /** `[[bin]] name` of `apps/desktop/crates/app` — also the CGWindow owner name. */
@@ -59,10 +75,24 @@ export const WINDOW_SIZE = `1440x900`
  * Agents view would carry the developer's real machine name.
  */
 export const DEVICE_HOSTNAME = `Alex's Mac mini`
-/** Electric is still streaming when the window appears; the catalog can raise this. */
-export const DEFAULT_ANCHOR_DELAY_MS = 6_000
+/**
+ * Quiet time AFTER the app signalled ready — the last frame of layout, not a
+ * sync wait. It used to be 6s of blind sleep with the catalog pushing some
+ * views to 2.5s on top; the ready handshake below replaced all of that, so the
+ * default is now small on purpose (EXP-633).
+ */
+export const DEFAULT_ANCHOR_DELAY_MS = 900
 const WINDOW_TIMEOUT_MS = 60_000
 const WINDOW_POLL_MS = 500
+/**
+ * How long the app gets to reach a photographable state after its window
+ * appears. Generous because it covers a COLD Electric: the first launch of a
+ * run streams all 19 shapes from offset -1. Anything slower than this is not a
+ * slow machine, it is a stack that will never come up (a stopped Electric, an
+ * unseeded instance), and failing loudly beats a skeleton PNG.
+ */
+const READY_TIMEOUT_MS = 90_000
+const READY_POLL_MS = 250
 /** Mean per-channel stdev below this is an unpainted window, not a screen. */
 const FLAT_IMAGE_STDEV = 6
 const FLAT_RETRY_EXTRA_MS = 4_000
@@ -159,24 +189,31 @@ export async function screenRecordingAllowed(): Promise<
 }
 
 /**
- * Sign the demo user in and return a session token for `EXP_DEV_TOKEN`.
+ * Sign a capture identity in and return a session token for `EXP_DEV_TOKEN`.
+ *
+ * Defaults to the demo user; the onboarding drives pass the NEWCOMER instead,
+ * because the wizard only renders for an account with no team.
  *
  * Better Auth requires a same-origin `Origin` header on the sign-in endpoint,
  * and the capture host may be talking to the Caddy proxy over a self-signed
  * cert — hence the explicit header and the relaxed TLS.
  */
-export async function mintSessionToken(baseUrl: string): Promise<string> {
+export async function mintSessionToken(
+  baseUrl: string,
+  email: string = DEMO_EMAIL,
+  password: string = DEMO_PASSWORD
+): Promise<string> {
   const response = await fetch(`${baseUrl}/api/auth/sign-in/email`, {
     method: `POST`,
     headers: { "content-type": `application/json`, origin: baseUrl },
-    body: JSON.stringify({ email: DEMO_EMAIL, password: DEMO_PASSWORD }),
+    body: JSON.stringify({ email, password }),
     // Bun-only fetch option; the demo instance may sit behind Caddy's
     // self-signed dev certificate.
     tls: { rejectUnauthorized: false },
   })
   if (!response.ok) {
     throw new Error(
-      `sign-in failed (${response.status} ${response.statusText}) for ${DEMO_EMAIL} at ${baseUrl} — has \`bun run seed:screenshots\` been run against this instance?`
+      `sign-in failed (${response.status} ${response.statusText}) for ${email} at ${baseUrl} — has \`bun run seed:screenshots\` been run against this instance?`
     )
   }
   const body = (await response.json()) as { token?: string }
@@ -223,6 +260,10 @@ export function driveEnv(
   // Nothing to set: the ABSENCE of EXP_DEV_SERVER/EXP_DEV_TOKEN is what leaves
   // the app signed out, and `captureOne` gets there via `signedOut`.
   if (drive.kind === `login`) return { env: {} }
+  // The wizard is not a screen the shell routes to — it renders INSTEAD of the
+  // shell, for an account with no team. `captureOne` supplies the rest of that
+  // shape (newcomer token, scratch data dir, no EXP_SKIP_ONBOARDING).
+  if (drive.kind === `onboarding`) return { env: { EXP_DEV_ONBOARDING: drive.value } }
   const value = resolveDriveValue(drive.value, ids)
   if (value === undefined) {
     return { skip: `unresolved placeholder ${missingPlaceholder(drive.value, ids)} — reseed?` }
@@ -247,6 +288,42 @@ export function driveEnv(
       return { env }
     }
   }
+}
+
+/**
+ * Resolve `$placeholders` in a view's extra `desktop.env`.
+ *
+ * The same substitution the DRIVE gets, because the two are interchangeable in
+ * practice: `board-empty` is `tool:board` plus `EXP_DEV_BOARD_ID=$emptyBoard`,
+ * and an unresolved id there is exactly as silently wrong as one in the drive —
+ * the app ignores the malformed value and photographs the DEFAULT board under
+ * the empty board's filename.
+ */
+export function resolveEnv(
+  env: Record<string, string>,
+  ids: DemoIds
+): { env: Record<string, string> } | { skip: string } {
+  const out: Record<string, string> = {}
+  for (const [key, raw] of Object.entries(env)) {
+    const value = resolveDriveValue(raw, ids)
+    if (value === undefined) {
+      return { skip: `unresolved placeholder ${missingPlaceholder(raw, ids)} in ${key} — reseed?` }
+    }
+    out[key] = value
+  }
+  return { env: out }
+}
+
+/** Everything one view's launch adds to the environment, placeholders resolved. */
+function resolveDesktopVars(
+  desktop: DesktopCapture,
+  ids: DemoIds
+): { env: Record<string, string> } | { skip: string } {
+  const drive = driveEnv(desktop.drive, ids)
+  if (`skip` in drive) return drive
+  const extra = resolveEnv(desktop.env ?? {}, ids)
+  if (`skip` in extra) return extra
+  return { env: { ...drive.env, ...extra.env } }
 }
 
 /**
@@ -289,14 +366,14 @@ export async function captureDesktop(
 
   if (options.dryRun) {
     for (const view of views) {
-      const drive = driveEnv((view.desktop as DesktopCapture).drive, options.ids)
+      const resolved = resolveDesktopVars(view.desktop as DesktopCapture, options.ids)
       shots.push(
-        `skip` in drive
-          ? { viewId: view.id, state: `skipped`, reason: drive.skip }
+        `skip` in resolved
+          ? { viewId: view.id, state: `skipped`, reason: resolved.skip }
           : {
               viewId: view.id,
               state: `skipped`,
-              reason: `dry run: ${describe({ ...drive.env, ...((view.desktop as DesktopCapture).env ?? {}) })}`,
+              reason: `dry run: ${describe(resolved.env)}`,
             }
       )
     }
@@ -320,12 +397,25 @@ export async function captureDesktop(
       `the freshly minted session for ${DEMO_EMAIL} does not validate at ${baseUrl} — the instance is not the one that was seeded`
     )
   }
+  // Minted on first use, and only if an onboarding view is in scope: most runs
+  // never touch the wizard, and a lane that does not need the newcomer should
+  // not fail because the seed predates it.
+  let newcomerToken: string | undefined
 
   try {
    for (const view of views) {
+    const desktop = view.desktop as DesktopCapture
+    const kind = desktop.drive.kind
+    // A signed-out launch must not reuse the lane's data dir: the app persists
+    // its injected account there, so it would come up SIGNED IN and photograph
+    // the shell under a login filename. The wizard needs its own for the same
+    // reason PLUS one more — the run's dir already completed onboarding.
+    const signedOut = kind === `login`
+    const onboarding = kind === `onboarding`
+
     // Re-check before every launch: a reseed between two views would otherwise
     // photograph the login pane for the rest of the lane (see sessionValid).
-    if (!(await sessionValid(baseUrl, token))) {
+    if (!signedOut && !(await sessionValid(baseUrl, token))) {
       console.warn(`[desktop] session went stale (reseed?) — re-minting`)
       token = await mintSessionToken(baseUrl)
       if (!(await sessionValid(baseUrl, token))) {
@@ -334,30 +424,43 @@ export async function captureDesktop(
         )
       }
     }
-    const drive = driveEnv((view.desktop as DesktopCapture).drive, options.ids)
-    // A signed-out launch must not reuse the lane's data dir: the app persists
-    // its injected account there, so it would come up SIGNED IN and photograph
-    // the shell under a login filename.
-    const signedOut = (view.desktop as DesktopCapture).drive.kind === `login`
-    if (`skip` in drive) {
-      shots.push({ viewId: view.id, state: `skipped`, reason: drive.skip })
-      console.log(`[desktop] ${view.id}: skipped — ${drive.skip}`)
+
+    const resolved = resolveDesktopVars(desktop, options.ids)
+    if (`skip` in resolved) {
+      shots.push({ viewId: view.id, state: `skipped`, reason: resolved.skip })
+      console.log(`[desktop] ${view.id}: skipped — ${resolved.skip}`)
       continue
     }
+
+    if (onboarding && newcomerToken === undefined) {
+      try {
+        newcomerToken = await mintSessionToken(baseUrl, NEWCOMER_EMAIL, NEWCOMER_PASSWORD)
+      } catch (error) {
+        const reason = `no ${NEWCOMER_EMAIL} session: ${error instanceof Error ? error.message : String(error)}`
+        shots.push({ viewId: view.id, state: `skipped`, reason })
+        console.log(`[desktop] ${view.id}: skipped — ${reason}`)
+        continue
+      }
+    }
+
     try {
       const file = await captureOne({
         viewId: view.id,
         binary,
         processName,
         baseUrl,
-        token,
+        token: onboarding ? newcomerToken! : token,
         teamId: options.ids.teamId,
-        dataDir: signedOut ? scratchDirs[scratchDirs.push(makeDataDir(options.reposRoot)) - 1]! : dataDir,
+        dataDir:
+          signedOut || onboarding
+            ? scratchDirs[scratchDirs.push(makeDataDir(options.reposRoot)) - 1]!
+            : dataDir,
         // The view's own `env` layers on top: a drive says WHERE the app opens,
         // these say what else is already open when it gets there.
-        driveVars: { ...drive.env, ...((view.desktop as DesktopCapture).env ?? {}) },
-        anchorDelayMs: (view.desktop as DesktopCapture).anchorDelayMs ?? DEFAULT_ANCHOR_DELAY_MS,
+        driveVars: resolved.env,
+        anchorDelayMs: desktop.anchorDelayMs ?? DEFAULT_ANCHOR_DELAY_MS,
         signedOut,
+        onboarding,
       })
       shots.push({ viewId: view.id, state: `captured`, file })
     } catch (error) {
@@ -411,6 +514,13 @@ interface CaptureOneOptions {
    * everything when `EXP_DEV_SERVER`/`EXP_DEV_TOKEN` are absent.
    */
   signedOut?: boolean
+  /**
+   * The first-run wizard: signed in as the newcomer, but WITHOUT
+   * `EXP_SKIP_ONBOARDING` (which would render the shell instead) and without
+   * `EXP_DEV_TEAM` (the newcomer is in no team, and a team id it cannot see
+   * would be silently dropped anyway).
+   */
+  onboarding?: boolean
 }
 
 async function captureOne(options: CaptureOneOptions): Promise<string> {
@@ -418,6 +528,14 @@ async function captureOne(options: CaptureOneOptions): Promise<string> {
   mkdirSync(dirname(out), { recursive: true })
 
   for (let attempt = 0; attempt < 2; attempt++) {
+    // A FRESH path per attempt: a retry that found the previous attempt's file
+    // would "succeed" instantly against a window that has not synced yet, which
+    // is the exact failure the handshake exists to remove.
+    const readyFile = join(
+      mkdtempSync(join(tmpdir(), `exp-shots-ready-`)),
+      `${options.viewId}.json`
+    )
+    rmSync(readyFile, { force: true })
     const child = track(
       Bun.spawn({
         cmd: [options.binary],
@@ -429,10 +547,13 @@ async function captureOne(options: CaptureOneOptions): Promise<string> {
             : {
                 EXP_DEV_SERVER: options.baseUrl,
                 EXP_DEV_TOKEN: options.token,
-                EXP_DEV_TEAM: options.teamId,
+                // The wizard's whole precondition is "this account has no
+                // team"; naming one would be a contradiction, not a hint.
+                ...(options.onboarding ? {} : { EXP_DEV_TEAM: options.teamId }),
               }),
           EXP_DATA_DIR: options.dataDir,
-          EXP_SKIP_ONBOARDING: `1`,
+          ...(options.onboarding ? {} : { EXP_SKIP_ONBOARDING: `1` }),
+          EXP_DEV_READY_FILE: readyFile,
           EXP_WINDOW_SIZE: WINDOW_SIZE,
           HOSTNAME: DEVICE_HOSTNAME,
           ...options.driveVars,
@@ -452,6 +573,14 @@ async function captureOne(options: CaptureOneOptions): Promise<string> {
           `no window from pid ${child.pid} (\`${options.processName}\`) within ${WINDOW_TIMEOUT_MS}ms (${describe(options.driveVars)})`
         )
       }
+      await waitForReady(readyFile, child, options)
+      // Raise BEFORE the settle, not only before the shutter: gpui only
+      // repaints a window that is not key on its own schedule, and the
+      // deferred layers (an open popover, a dialog's prefilled input) landed
+      // reliably only after activation — measured at ~2s after the raise,
+      // never within a 300ms grace. The second raise below is the guard
+      // against something else having stolen the front in the meantime.
+      await raiseWindow(child.pid)
       await sleep(options.anchorDelayMs + (attempt === 1 ? FLAT_RETRY_EXTRA_MS : 0))
       // Raise the window right before the shutter: `-R` photographs a screen
       // RECT, so anything overlapping it would end up in the store.
@@ -482,9 +611,52 @@ async function captureOne(options: CaptureOneOptions): Promise<string> {
       return out
     } finally {
       killChild(child)
+      rmSync(dirname(readyFile), { recursive: true, force: true })
     }
   }
   throw new Error(`unreachable`)
+}
+
+/**
+ * Block until the app writes its ready file (EXP-633).
+ *
+ * The window appearing proves only that gpui got a surface; everything the shot
+ * is ABOUT — the board's rows, the members list, the dialog the drive asked for
+ * — arrives over Electric afterwards. The old lane slept six seconds and hoped,
+ * which was both wasteful on a warm stack and wrong on a cold one: a skeleton
+ * screen is not flat, so the variance gate waved it straight through and the
+ * store gained a confidently-empty picture under the right filename.
+ *
+ * So the app tells us instead. `install_dev_ready_probe` polls its own state
+ * (session Synced, every shape Live, any requested dialog settled — or, for the
+ * signed-out lane, the auth-config fetch finished) and writes the file once.
+ * Until then it logs what it is blocked on every five seconds, which is why the
+ * failure message says to run it by hand rather than guessing.
+ *
+ * Aborts early when the child has exited: a crash on boot would otherwise cost
+ * the full timeout, twice, per view.
+ */
+async function waitForReady(
+  readyFile: string,
+  child: Child,
+  options: CaptureOneOptions
+): Promise<void> {
+  const deadline = Date.now() + READY_TIMEOUT_MS
+  while (Date.now() < deadline) {
+    if (existsSync(readyFile)) return
+    if (child.exitCode !== null) {
+      throw new Error(
+        `the app exited (${child.exitCode}) before signalling ready — run it by hand with the same env to see why: ${describe(options.driveVars)}`
+      )
+    }
+    await sleep(READY_POLL_MS)
+  }
+  throw new Error(
+    `never signalled ready within ${READY_TIMEOUT_MS / 1000}s (${describe(options.driveVars)}) — ` +
+      `Electric is probably not syncing (a stopped electric container, an unseeded instance, or a ` +
+      `dev server serving shapes without their control headers). Run it by hand with the same env ` +
+      `plus EXP_DEV_READY_FILE; it logs what it is waiting for every 5s.`
+  )
 }
 
 /**
@@ -635,6 +807,18 @@ if (import.meta.main) {
       reposRoot: flag(`repos-root`) ?? process.env.SHOTS_REPOS_ROOT,
       dryRun: argv.includes(`--dry-run`),
     })
+    // A dry run's whole output IS the plan, and the capture path logs as it
+    // goes, so print only what the caller has not already seen.
+    if (argv.includes(`--dry-run`)) {
+      for (const shot of result.shots) {
+        console.log(`[desktop] ${shot.viewId}: ${shot.reason ?? shot.state}`)
+      }
+    }
+    console.log(
+      `[desktop] ${result.shots.filter((shot) => shot.state === `captured`).length} captured, ` +
+        `${result.shots.filter((shot) => shot.state === `skipped`).length} skipped, ` +
+        `${result.failures} failed`
+    )
     if (result.failures > 0) process.exit(1)
   }
 }

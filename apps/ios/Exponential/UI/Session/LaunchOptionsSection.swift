@@ -155,6 +155,11 @@ struct LaunchOptionsSection: View {
                     icon: { Image("agent-\($0)") },
                     onSelect: { onAgentChange($0) }
                 )
+                // EXP-642: the store slide's pop-out rect is measured off this
+                // capsule (`PopRects`), so it needs a stable handle. `contain`
+                // keeps the individual segments queryable.
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("start-coding-agent-picker")
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)

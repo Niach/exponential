@@ -111,6 +111,19 @@ enum TeamPage {
     Join,
 }
 
+/// DEV-ONLY (§11.4 headless verification, the EXP_DEV_* family):
+/// `EXP_DEV_ONBOARDING=choice|create|join` picks the Team step's sub-page so
+/// a capture run lands on it without synthetic input; anything else (and
+/// unset) keeps the ordinary [`TeamPage::Choice`] default. Never document for
+/// users.
+fn dev_team_page() -> TeamPage {
+    match std::env::var("EXP_DEV_ONBOARDING").ok().as_deref().map(str::trim) {
+        Some("create") => TeamPage::Create,
+        Some("join") => TeamPage::Join,
+        _ => TeamPage::default(),
+    }
+}
+
 pub struct OnboardingView {
     /// The account the session latches belong to — reset on account switch.
     account_id: Option<String>,
@@ -149,7 +162,7 @@ impl OnboardingView {
             account_id: None,
             account_steps_done: false,
             tools_step_done: false,
-            team_page: TeamPage::default(),
+            team_page: dev_team_page(),
             create_team: None,
             join_team: None,
             create_board: None,
@@ -168,7 +181,7 @@ impl OnboardingView {
             self.account_id = current;
             self.account_steps_done = false;
             self.tools_step_done = false;
-            self.team_page = TeamPage::default();
+            self.team_page = dev_team_page();
             self.create_team = None;
             self.join_team = None;
             self.create_board = None;
@@ -687,5 +700,27 @@ mod tests {
     #[test]
     fn team_page_defaults_to_choice() {
         assert_eq!(TeamPage::default(), TeamPage::Choice);
+    }
+
+    /// EXP-642: the DEV-ONLY sub-page override — unset/garbage keeps the
+    /// ordinary default, so a normal run can never land off the choice page.
+    /// (Env-free: the parse is exercised through `dev_team_page`'s match by
+    /// setting the variable for the duration of this single-threaded test.)
+    #[test]
+    fn dev_team_page_reads_the_env_override() {
+        // Nothing else in this crate reads the variable, and it is restored
+        // before the test returns.
+        std::env::remove_var("EXP_DEV_ONBOARDING");
+        assert_eq!(dev_team_page(), TeamPage::Choice);
+        for (value, expected) in [
+            ("choice", TeamPage::Choice),
+            ("create", TeamPage::Create),
+            ("join", TeamPage::Join),
+            ("nonsense", TeamPage::Choice),
+        ] {
+            std::env::set_var("EXP_DEV_ONBOARDING", value);
+            assert_eq!(dev_team_page(), expected, "{value}");
+        }
+        std::env::remove_var("EXP_DEV_ONBOARDING");
     }
 }

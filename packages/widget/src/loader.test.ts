@@ -181,6 +181,49 @@ describe(`loader`, () => {
     expect(window.__expWidget!.themeOverride).toBe(`light`)
   })
 
+  // EXP-642: hosts whose own UI covers the launcher's corner toggle it off
+  // and back on; the standalone host is removed and re-rendered identically.
+  it(`setLauncherHidden removes and restores the standalone launcher`, async () => {
+    installSnippetStub()
+    window.ExponentialWidget!.init({ key: `expw_${`a`.repeat(32)}` })
+    await importLoader()
+
+    const className = document
+      .querySelector<HTMLElement>(`[data-exponential-widget]`)!
+      .shadowRoot!.querySelector(`button`)!.className
+
+    window.ExponentialWidget!.setLauncherHidden(true)
+    expect(window.__expWidget!.launcherHidden).toBe(true)
+    expect(document.querySelector(`[data-exponential-widget]`)).toBeNull()
+
+    window.ExponentialWidget!.setLauncherHidden(false)
+    const host = document.querySelector<HTMLElement>(
+      `[data-exponential-widget]`
+    )
+    expect(host).not.toBeNull()
+    expect(host!.shadowRoot!.querySelector(`button`)!.className).toBe(
+      className
+    )
+  })
+
+  it(`setLauncherHidden lets the mounted bundle re-render instead`, async () => {
+    installSnippetStub()
+    window.ExponentialWidget!.init({ key: `expw_${`a`.repeat(32)}` })
+    await importLoader()
+
+    const stateChanged = vi.fn()
+    window.__expWidget!.bundle = {
+      open: vi.fn(),
+      close: vi.fn(),
+      stateChanged,
+    }
+    window.ExponentialWidget!.setLauncherHidden(true)
+    expect(stateChanged).toHaveBeenCalledTimes(1)
+    // A repeat call is a no-op — no redundant bundle re-render.
+    window.ExponentialWidget!.setLauncherHidden(true)
+    expect(stateChanged).toHaveBeenCalledTimes(1)
+  })
+
   it(`injects the bundle script once on open`, async () => {
     installSnippetStub()
     window.ExponentialWidget!.init({ key: `expw_${`a`.repeat(32)}` })

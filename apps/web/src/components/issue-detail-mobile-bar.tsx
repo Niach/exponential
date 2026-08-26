@@ -1,7 +1,8 @@
-import { useState, type ReactNode } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import type { User } from "@/db/schema"
 import { conceptIcon } from "@/lib/icons.generated"
 import { CommentComposer } from "@/components/comment-composer"
+import { setFeedbackLauncherHidden } from "@/components/feedback-widget-provider"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { cn } from "@/lib/utils"
 
@@ -40,6 +41,18 @@ export function IssueDetailMobileBar({
 }) {
   const [propertiesOpen, setPropertiesOpen] = useState(false)
   const [composing, setComposing] = useState(false)
+
+  // EXP-642 — the widget's mobile edge tab sits mid-right, exactly where the
+  // properties sheet slides in. Hide the launcher for as long as the sheet
+  // is up (and restore it on unmount, so navigating away mid-sheet can't
+  // strand it hidden). Only the launcher goes; an open feedback panel keeps
+  // its typed contents.
+  const launcherHidden = propertiesOpen && !hidden
+  useEffect(() => {
+    if (!launcherHidden) return
+    setFeedbackLauncherHidden(true)
+    return () => setFeedbackLauncherHidden(false)
+  }, [launcherHidden])
 
   if (hidden) return null
 
@@ -91,7 +104,11 @@ export function IssueDetailMobileBar({
         </div>
       </div>
       <Sheet open={propertiesOpen} onOpenChange={setPropertiesOpen}>
-        <SheetContent side="bottom" className="max-h-[80dvh] overflow-y-auto p-2 pb-[max(1rem,env(safe-area-inset-bottom))]">
+        <SheetContent
+          data-testid="issue-properties-sheet"
+          side="bottom"
+          className="max-h-[80dvh] overflow-y-auto p-2 pb-[max(1rem,env(safe-area-inset-bottom))]"
+        >
           <SheetTitle className="sr-only">Issue properties</SheetTitle>
           {propertiesNode}
         </SheetContent>

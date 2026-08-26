@@ -26,7 +26,10 @@
  *     means "the UUID of the issue whose identifier is APP-5", `pr:$APP-14` the
  *     same for a PR diff, and `support:$thread` means "any open support thread"
  *     (support data is server-only tRPC, so it has no stable identifier to
- *     name). A value with no `$` is literal.
+ *     name). `$emptyBoard` is the seeded board with no issues on it, and
+ *     `$supportToken` (in `web.route`) the reporter magic link minted for the
+ *     seeded thread. A value with no `$` is literal. `desktop.env` VALUES are
+ *     substituted the same way, so `EXP_DEV_BOARD_ID: "$emptyBoard"` works.
  *
  * Human-readable issue identifiers (APP-5, APP-14) DO appear in `web.route`,
  * because that is exactly what the URL carries.
@@ -37,12 +40,15 @@ import catalogJson from "../views.json"
 /**
  * Every surface the store holds an image for.
  *
- * iPad is deliberately absent: the tablet layout is the iPhone one widened, so
- * a second native lane doubled the runtime to document nothing new. The App
- * Store still needs its 13" slot, and the ASO compositor keeps capturing it
- * straight from the fastlane store lane — that path never touches this catalog.
+ * `ipad` is OPT-IN (`--platform ipad`), never part of a default run: the tablet
+ * layout is the iPhone one widened, so capturing all ~50 views on it would
+ * double the native runtime to document nothing new. What it IS worth holding
+ * is the eight App Store slides, which Apple demands in a 13" slot anyway — the
+ * store lane already photographs them, so the catalog names them here and the
+ * importer picks the iPad-prefixed files out of the same fastlane output.
+ * `DEFAULT_PLATFORMS` is therefore `PLATFORMS` minus this one.
  */
-export type Platform = `web` | `web-mobile` | `desktop` | `ios` | `android`
+export type Platform = `web` | `web-mobile` | `desktop` | `ios` | `ipad` | `android`
 
 /** Group ids, kept in sync with `views.json`'s `groups`. */
 export type GroupId =
@@ -130,15 +136,29 @@ export interface NativeCapture {
  *                 after the state it needs resolves.
  *   - `login`   → launch with NO injected session on a throwaway data dir: the
  *                 only way to reach the pre-login surfaces.
+ *   - `onboarding` → `EXP_DEV_ONBOARDING` (`choice` | `create` | `join`): the
+ *                 first-run wizard, launched as the team-less NEWCOMER on its
+ *                 own data dir and without `EXP_SKIP_ONBOARDING`. A drive of
+ *                 its own rather than a `screen` value because the wizard is
+ *                 what renders INSTEAD of the shell, and only for an identity
+ *                 the other drives never use.
  *   - `manual`  → no automated path; the note says why.
  */
 export type DesktopDrive =
   | { kind: `screen` | `tool` | `settings` | `dialog`; value: string }
+  | { kind: `onboarding`; value: `choice` | `create` | `join` }
   | { kind: `login` }
   | { kind: `manual` }
 
 export interface DesktopCapture {
   drive: DesktopDrive
+  /**
+   * Quiet time AFTER the app signalled ready (EXP-633), not a substitute for
+   * waiting on sync: the capturer blocks on the app's `EXP_DEV_READY_FILE`
+   * handshake first, so this only buys the last frame or two of layout — a
+   * dialog's open animation, a terminal's first prompt. Values above ~1.5s are
+   * a sign something else is being waited for and belongs in the handshake.
+   */
   anchorDelayMs?: number
   /**
    * Extra `EXP_DEV_*` vars layered on top of the drive's own, for the cases
@@ -165,6 +185,8 @@ export interface View {
   /** `inherit` = the same capture as `web`, shot at the phone viewport. */
   webMobile?: `inherit` | WebCapture
   ios?: NativeCapture
+  /** Opt-in tablet lane — see `Platform`. Same `shot` id as `ios`. */
+  ipad?: NativeCapture
   android?: NativeCapture
   desktop?: DesktopCapture
   /** Per-view override of `STORE_DEFAULT_TOLERANCE`. */
@@ -191,11 +213,18 @@ export const PLATFORMS: readonly Platform[] = [
   `web-mobile`,
   `desktop`,
   `ios`,
+  `ipad`,
   `android`,
 ]
 
-/** The platforms a normal run captures — every one of them. */
-export const DEFAULT_PLATFORMS: readonly Platform[] = PLATFORMS
+/**
+ * What a normal run captures: every platform except the opt-in tablet lane.
+ * `bun run shots --platform ipad` is the only way to reach `ipad`, and the
+ * styleguide only renders an iPad column for the views that declare one.
+ */
+export const DEFAULT_PLATFORMS: readonly Platform[] = PLATFORMS.filter(
+  (platform) => platform !== `ipad`
+)
 
 export const GROUPS: readonly Group[] = catalog.groups
 export const VIEWS: readonly View[] = catalog.views
@@ -216,6 +245,7 @@ export const STORE_DEFAULT_TOLERANCE = 0.005
  *   web-mobile   390×844  @3x  → 1170×2532 →  832×1800
  *   desktop     1440×900  @2x  → 2880×1800 → 1800×1125
  *   ios         iPhone 17 Pro Max 1320×2868 → 828×1800
+ *   ipad        iPad Pro 13"      2064×2752 → 1350×1800
  *   android     1080×2400                   → 810×1800
  */
 export const PLATFORM_FRAME: Record<Platform, { w: number; h: number }> = {
@@ -223,6 +253,7 @@ export const PLATFORM_FRAME: Record<Platform, { w: number; h: number }> = {
   [`web-mobile`]: { w: 832, h: 1800 },
   desktop: { w: 1800, h: 1125 },
   ios: { w: 828, h: 1800 },
+  ipad: { w: 1350, h: 1800 },
   android: { w: 810, h: 1800 },
 }
 
@@ -267,6 +298,8 @@ export function captureFor(
       return view.desktop
     case `ios`:
       return view.ios
+    case `ipad`:
+      return view.ipad
     case `android`:
       return view.android
   }

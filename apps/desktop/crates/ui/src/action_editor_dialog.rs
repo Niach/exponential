@@ -298,11 +298,30 @@ impl Render for ActionEditorDialogView {
         let muted = cx.theme().muted_foreground;
 
         // -- left column: the metadata form ---------------------------------
+        // EXP-642: the icon picker sits LEFT of the name input, one row
+        // (create_board_dialog's `name_field` shape; web parity) — there is
+        // no standalone "Icon" field any more.
         let icon_view = cx.entity().clone();
-        let mut name_field = v_flex()
-            .gap_2()
-            .child(field_label(cx, "Name"))
-            .child(Input::new(&self.name).web_input_sm());
+        let icon_picker = crate::board_form::icon_picker(
+            "action-edit",
+            Some(&self.icon),
+            false,
+            move |name, _, cx| {
+                let Some(name) = name else { return };
+                icon_view.update(cx, |this, cx| {
+                    this.icon = name.to_string();
+                    cx.notify();
+                });
+            },
+            cx,
+        );
+        let mut name_field = v_flex().gap_2().child(field_label(cx, "Name")).child(
+            h_flex()
+                .gap_2()
+                .items_center()
+                .child(icon_picker)
+                .child(div().flex_1().child(Input::new(&self.name).web_input_sm())),
+        );
         if let Some(name_error) = self.name_error.clone() {
             name_field = name_field.child(div().text_xs().text_color(danger).child(name_error));
         }
@@ -314,23 +333,6 @@ impl Render for ActionEditorDialogView {
                     .gap_2()
                     .child(field_label(cx, "Description (optional)"))
                     .child(Textarea::new(&self.description).h(px(64.))),
-            )
-            .child(
-                v_flex().gap_2().child(field_label(cx, "Icon")).child(
-                    crate::board_form::icon_picker(
-                        "action-edit",
-                        Some(&self.icon),
-                        false,
-                        move |name, _, cx| {
-                            let Some(name) = name else { return };
-                            icon_view.update(cx, |this, cx| {
-                                this.icon = name.to_string();
-                                cx.notify();
-                            });
-                        },
-                        cx,
-                    ),
-                ),
             )
             .child(
                 v_flex()

@@ -105,7 +105,7 @@ function start(): void {
 
   function renderButton(): void {
     if (!state || state.options.showButton === false) return
-    if (state.loaderButtonHost || state.disabled) return
+    if (state.loaderButtonHost || state.disabled || state.launcherHidden) return
 
     const launcher = resolveLauncher(
       state.options,
@@ -216,6 +216,7 @@ function start(): void {
         loaderButtonHost: null,
         bundle: null,
         themeOverride: null,
+        launcherHidden: false,
         configPromise: fetch(
           `${apiOrigin}/api/widget/config?key=${encodeURIComponent(options.key)}`,
           { credentials: `omit` }
@@ -308,6 +309,28 @@ function start(): void {
       state.themeOverride = themePref
       restyleButton()
       state.bundle?.stateChanged()
+    },
+
+    // Runtime launcher visibility (EXP-642): the host hides the button while
+    // its own UI owns that corner. Only the launcher is affected — an open
+    // panel stays open. While the bundle owns the button a stateChanged()
+    // re-render applies it; before that the standalone shadow host is
+    // removed and re-rendered.
+    setLauncherHidden(hidden) {
+      if (!state) return
+      const next = hidden === true
+      if (state.launcherHidden === next) return
+      state.launcherHidden = next
+      if (state.bundle) {
+        state.bundle.stateChanged()
+        return
+      }
+      if (next) {
+        state.loaderButtonHost?.remove()
+        state.loaderButtonHost = null
+        return
+      }
+      renderButton()
     },
 
     open() {

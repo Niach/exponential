@@ -51,6 +51,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -675,7 +676,10 @@ private fun IssueListContent(
         modifier = Modifier.fillMaxSize(),
     ) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            // EXP-642: the capture suites scroll to a named row
+            // (`performScrollToNode`) — a lazy list's off-screen rows are not
+            // composed, so the list itself needs a handle.
+            modifier = Modifier.fillMaxSize().testTag("issue-list"),
             // EXP-614: no horizontal contentPadding — the gutter rides the
             // individual items instead, so the sticky status header's tinted
             // band spans the full width (web/iOS parity) while the rows keep
@@ -928,6 +932,10 @@ internal fun IssueRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
+            // EXP-627/EXP-642: iOS parity (`issue-row-<identifier>`) — the
+            // store compositor measures its board pop-out rect off one named
+            // row, and the capture suites address rows by identifier.
+            .testTag("issue-row-${issue.identifier}")
             .glassRow()
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .then(
@@ -1132,6 +1140,9 @@ private fun SelectionBar(
     CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
         Row(
             modifier = Modifier
+                // EXP-642: the styleguide capture addresses the bar directly
+                // (iOS parity — `bulk-selection-bar`).
+                .testTag("bulk-selection-bar")
                 .clip(shape)
                 .background(DesignTokens.Palette.Card, shape)
                 .background(GlassTokens.RowFillActive, shape)

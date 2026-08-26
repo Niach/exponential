@@ -177,12 +177,19 @@ impl RenderOnce for IssueFilterPopover {
         // `EXP_DEV_FILTER=1` renders the popover already open so a capture run
         // lands on the filter menu without synthetic input. Unset in normal
         // runs. Never document for users.
+        //
+        // EXP-642: it must be the CONTROLLED `open`, not `default_open` —
+        // `PopoverState::new(default_open)` sets the flag but never calls
+        // `register_deferred_popover`, so the deferred layer draws nothing and
+        // the capture photographed a closed menu. `set_open` (the controlled
+        // path) registers it. The popover then stays pinned open for the whole
+        // dev run, which is exactly what a capture wants.
         let dev_open = std::env::var("EXP_DEV_FILTER").as_deref() == Ok("1");
 
         Popover::new("issue-filter-popover")
             .w(px(224.))
             .p_1()
-            .default_open(dev_open)
+            .when(dev_open, |popover| popover.open(true))
             .trigger(trigger)
             .on_open_change({
                 let on_view_change = self.on_view_change.clone();

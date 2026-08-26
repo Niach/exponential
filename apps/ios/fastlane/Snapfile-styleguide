@@ -5,16 +5,21 @@
 # additionally pins the three settings that differ, so the run is correct even
 # if that selection ever stops working.
 #
-# Captures the 19 `sg_*` shots from ExponentialUITests/StyleguideScreenshots.swift
-# (`sg_instance-picker` … `sg_settings-account`)
+# Captures the 24 `sg_*` shots from ExponentialUITests/StyleguideScreenshots.swift
+# (`sg_sign-in` … `sg_onboarding`)
 # — the cross-platform surface set a design review compares against the web,
 # desktop and Android captures of the same screens. The names are a contract;
 # see the doc comment on that suite.
 #
 # Requires the seeded local backend at http://localhost:5173 (apps/web
 # `bun run seed:screenshots`); override with SNAPSHOT_INSTANCE_URL. Unlike the
-# store lane it needs NO steer relay and NO `screenshots:desktop`: sg_agents
-# settles for whatever the Agents surface shows.
+# store lane it needs no steer TRAFFIC, but since EXP-642 it does need the relay
+# stub running — `bun run screenshots:desktop` (apps/web) registers the demo
+# user's OWN device row, which is what sg_machine-settings (gated `isMine &&
+# registered`) and the two sg_start-coding-* shots photograph.
+#
+# `bundle exec fastlane styleguide_screenshots shots:sg_reviews,sg_search`
+# narrows a run to those ids (EXP-642); the navigation still runs in full.
 
 # xcodebuild only forwards TEST_RUNNER_-prefixed env vars into the UI-test
 # runner process (prefix stripped) — a bare SNAPSHOT_INSTANCE_URL on the
@@ -62,7 +67,8 @@ number_of_retries(3)
 # Accounts live in the device keychain, which survives app reinstalls — erase
 # the simulator so every run starts on the fresh InstanceView sign-in flow.
 # sg_sign-in depends on this: without it the app boots already signed in and
-# there is no login screen left to photograph.
+# there is no server chooser left to photograph. It also keeps the newcomer
+# account the last shot (sg_onboarding) adds from leaking into the next run.
 erase_simulator(true)
 
 # The app forces dark mode; keep the simulator chrome consistent with it.

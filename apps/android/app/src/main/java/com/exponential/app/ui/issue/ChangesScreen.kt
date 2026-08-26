@@ -512,7 +512,9 @@ private fun ChangesBottomBar(
     val busy = merging || closing
     val barStroke = Color.White.copy(alpha = 0.12f)
     Column(
-        modifier = modifier.padding(horizontal = 16.dp),
+        // EXP-627: the store slide's pop-out rect is measured off the review
+        // bar (`PopRects`), iOS parity.
+        modifier = modifier.testTag("pr-merge-bar").padding(horizontal = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         if (actionError != null) {

@@ -99,6 +99,79 @@ describe(`desktop attribution`, () => {
   })
 })
 
+describe(`native attribution`, () => {
+  const NATIVE = [`ios`, `ipad`, `android`] as const
+
+  function nativeScope(...changedFiles: string[]) {
+    return affectedScope({ changedFiles, platforms: NATIVE, includeMissing: false })
+  }
+
+  function nativeViews(
+    result: ReturnType<typeof nativeScope>,
+    platform: (typeof NATIVE)[number]
+  ): string[] {
+    return result.byPlatform.get(platform) ?? []
+  }
+
+  test(`a screen file narrows to the view it is named after`, () => {
+    const result = nativeScope(`apps/ios/Exponential/UI/Issue/IssueDetailView.swift`)
+    expect(nativeViews(result, `ios`)).toEqual([`issue-detail`])
+    // The iPad frame comes out of the SAME lane, so it moves with it.
+    expect(nativeViews(result, `ipad`)).toEqual([`issue-detail`])
+    expect(nativeViews(result, `android`)).toEqual([])
+  })
+
+  test(`a Kotlin screen narrows the same way`, () => {
+    const result = nativeScope(
+      `apps/android/app/src/main/java/com/exponential/app/ui/onboarding/OnboardingScreen.kt`
+    )
+    expect(nativeViews(result, `android`)).toEqual([`onboarding`])
+    expect(nativeViews(result, `ios`)).toEqual([])
+  })
+
+  test(`an unnamed file falls back to its directory's view family`, () => {
+    // `SupportInboxListContent` is nobody's view id, but nothing in UI/Support
+    // draws anything except the two support views.
+    const result = nativeScope(`apps/ios/Exponential/UI/Support/SupportInboxListContent.swift`)
+    expect(nativeViews(result, `ios`).sort()).toEqual([`support-inbox`, `support-thread`])
+    expect(nativeViews(result, `ios`)).not.toContain(`board`)
+  })
+
+  test(`the auth family is the sign-in view`, () => {
+    const result = nativeScope(`apps/ios/Exponential/UI/Auth/LoginView.swift`)
+    expect(nativeViews(result, `ios`)).toEqual([`sign-in`])
+  })
+
+  test(`shared native code widens its platform and only its platform`, () => {
+    for (const path of [
+      `apps/ios/ExpCore/Sources/Session.swift`,
+      `apps/ios/Exponential/UI/Components/AppIcon.swift`,
+      `apps/ios/ExponentialUITests/ScreenshotFlow.swift`,
+    ]) {
+      const result = nativeScope(path)
+      expect(nativeViews(result, `ios`)).toHaveLength(viewsFor(`ios`).length)
+      expect(nativeViews(result, `ipad`)).toHaveLength(viewsFor(`ipad`).length)
+      expect(nativeViews(result, `android`)).toEqual([])
+    }
+    for (const path of [
+      `apps/android/app/src/main/java/com/exponential/app/ui/theme/Color.kt`,
+      `apps/android/app/src/main/java/com/exponential/app/data/api/Client.kt`,
+      `apps/android/app/src/main/res/values/strings.xml`,
+    ]) {
+      const result = nativeScope(path)
+      expect(nativeViews(result, `android`)).toHaveLength(viewsFor(`android`).length)
+      expect(nativeViews(result, `ios`)).toEqual([])
+    }
+  })
+
+  test(`an unmapped native file still widens — never silently drops`, () => {
+    const result = nativeScope(
+      `apps/android/app/src/main/java/com/exponential/app/ui/issue/IssueListScreen.kt`
+    )
+    expect(nativeViews(result, `android`)).toHaveLength(viewsFor(`android`).length)
+  })
+})
+
 describe(`fail-safe`, () => {
   test(`an unrecognised repo-wide path widens every lane`, () => {
     const result = scope(`docker-compose.yaml`)
@@ -111,6 +184,39 @@ describe(`fail-safe`, () => {
     const result = scope(`packages/icons/icons.json`)
     expect(views(result, `desktop`)).toHaveLength(viewsFor(`desktop`).length)
     expect(views(result, `web`).length).toBeGreaterThan(0)
+  })
+
+  test(`the demo identity widens every lane, the relay stub the live ones`, () => {
+    // Both used to be web-only rules. The stub is what puts a device ONLINE, so
+    // without it the desktop app photographs "no desktop online" too — a
+    // fail-safe bug, not a narrowing.
+    const identity = affectedScope({
+      changedFiles: [`apps/web/scripts/screenshot-demo.ts`],
+      platforms: PLATFORMS,
+      includeMissing: false,
+    })
+    for (const platform of PLATFORMS) {
+      expect(identity.byPlatform.get(platform)).toHaveLength(viewsFor(platform).length)
+    }
+
+    const stub = scope(`apps/web/scripts/screenshot-prune-devices.ts`)
+    for (const platform of WEB_LANES) {
+      expect(views(stub, platform)).toHaveLength(viewsFor(platform).length)
+    }
+  })
+
+  test(`server surfaces and assets no shot renders are dropped, not widened`, () => {
+    const result = scope(
+      `apps/web/src/lib/changelog.ts`,
+      `apps/web/src/components/whats-new.tsx`,
+      `apps/web/public/sw.js`,
+      `apps/web/src/routes/api/webhooks/github.ts`,
+      `apps/web/src/routes/api/mcp.ts`,
+      `apps/web/src/lib/metrics/server-timing.ts`,
+      `apps/web/scripts/backfill-default-branches.ts`
+    )
+    for (const platform of WEB_LANES) expect(views(result, platform)).toEqual([])
+    expect(result.ignored).toHaveLength(7)
   })
 
   test(`docs, tests and the capture pipeline itself change nothing`, () => {

@@ -16,6 +16,14 @@ enum ScreenshotSeed {
     static let demoEmail = "demo@exponential.at"
     static let demoPassword = "screenshots-demo"
 
+    /// The seed's SECOND identity (EXP-627): verified, member of nothing, with
+    /// a null `onboardingCompletedAt`. Signing in as them is the only way to
+    /// photograph the first-run wizard — the demo user completed it long ago
+    /// and is bounced straight to a board. Keep in lockstep with
+    /// `apps/web/scripts/screenshot-demo.ts` (NEWCOMER_EMAIL / NEWCOMER_PASSWORD).
+    static let newcomerEmail = "newcomer@exponential.at"
+    static let newcomerPassword = "screenshots-newcomer"
+
     /// The instance URL defaults to http://localhost:5173 and can be overridden
     /// with the SNAPSHOT_INSTANCE_URL environment variable (bridged through
     /// TEST_RUNNER_SNAPSHOT_INSTANCE_URL by the Snapfile — xcodebuild only
@@ -23,6 +31,63 @@ enum ScreenshotSeed {
     static var instanceUrl: String {
         ProcessInfo.processInfo.environment["SNAPSHOT_INSTANCE_URL"]
             ?? "http://localhost:5173"
+    }
+}
+
+/// Reaches the fastlane-provided global `snapshot(_:)` from inside the
+/// same-named XCTestCase overload below, where unqualified name lookup would
+/// otherwise find the member first.
+@MainActor
+private func captureSnapshot(_ name: String) {
+    snapshot(name)
+}
+
+/// The optional per-run shot allowlist (EXP-642 / A4).
+///
+/// `bundle exec fastlane screenshots shots:01_board,02_issue-detail` sets
+/// `TEST_RUNNER_EXP_SHOTS`, which xcodebuild forwards into the runner process
+/// as `EXP_SHOTS` (the prefix is stripped). Unset = capture everything, which
+/// is what a plain lane run does.
+///
+/// Only the CAPTURE is skipped, never the navigation: the suites are one long
+/// scripted walk through the app, and skipping a tap would strand every later
+/// shot on the wrong screen. A subset run is therefore not faster, only
+/// narrower — which is exactly what the automation needs when a diff touched
+/// two views.
+///
+/// `offered` is `nonisolated(unsafe)` mutable static state on purpose: the
+/// capture suites are single-threaded scripts, and isolating it to the main
+/// actor would make the tearDown typo check unoverridable (XCTestCase.tearDown
+/// is not main-actor isolated).
+enum ScreenshotShots {
+
+    /// nil = no allowlist (capture everything).
+    static let requested: Set<String>? = {
+        guard let raw = ProcessInfo.processInfo.environment["EXP_SHOTS"] else { return nil }
+        let ids = raw
+            .split(whereSeparator: { $0 == "," || $0 == " " || $0 == "\n" })
+            .map(String.init)
+            .filter { !$0.isEmpty }
+        return ids.isEmpty ? nil : Set(ids)
+    }()
+
+    /// Every id a suite actually reached — the typo check below compares this
+    /// against `requested`.
+    nonisolated(unsafe) private(set) static var offered: Set<String> = []
+
+    /// Records `name` as reached and reports whether it should be captured.
+    @discardableResult
+    static func isWanted(_ name: String) -> Bool {
+        offered.insert(name)
+        guard let requested else { return true }
+        return requested.contains(name)
+    }
+
+    /// Requested ids the suite never reached — a misspelt `shots:` value, or a
+    /// name from the other lane.
+    static var unreached: [String] {
+        guard let requested else { return [] }
+        return requested.subtracting(offered).sorted()
     }
 }
 
@@ -130,13 +195,19 @@ extension XCTestCase {
         return .loginReady
     }
 
-    /// Fills in the demo credentials on an already-visible LoginView and submits.
+    /// Fills in credentials on an already-visible LoginView and submits.
+    /// Defaults to the demo user; the styleguide suite's last shot passes the
+    /// newcomer instead (EXP-642).
     @MainActor
-    func submitLogin(_ app: XCUIApplication) {
+    func submitLogin(
+        _ app: XCUIApplication,
+        email: String = ScreenshotSeed.demoEmail,
+        password: String = ScreenshotSeed.demoPassword
+    ) {
         let emailField = app.textFields["login-email-field"]
         XCTAssertTrue(emailField.waitForExistence(timeout: 30), "Login email field never appeared")
         focus(emailField)
-        emailField.typeText(ScreenshotSeed.demoEmail)
+        emailField.typeText(email)
 
         // Plain textField (not secureTextField): under -uiTesting the app
         // renders the password field unsecured so the system save-password
@@ -144,7 +215,7 @@ extension XCTestCase {
         let passwordField = app.textFields["login-password-field"]
         XCTAssertTrue(passwordField.waitForExistence(timeout: 10))
         focus(passwordField)
-        passwordField.typeText(ScreenshotSeed.demoPassword)
+        passwordField.typeText(password)
 
         let signInButton = app.buttons["login-submit-button"]
         XCTAssertTrue(signInButton.waitForExistence(timeout: 10))
@@ -158,9 +229,13 @@ extension XCTestCase {
 
     /// The full InstanceView → LoginView → main UI sign-in flow.
     @MainActor
-    func signIn(_ app: XCUIApplication) {
+    func signIn(
+        _ app: XCUIApplication,
+        email: String = ScreenshotSeed.demoEmail,
+        password: String = ScreenshotSeed.demoPassword
+    ) {
         guard presentLoginScreen(app) == .loginReady else { return }
-        submitLogin(app)
+        submitLogin(app, email: email, password: password)
     }
 
     /// Dismisses the springboard "Save Password?" sheet if it shows up within
@@ -240,6 +315,43 @@ extension XCTestCase {
     @MainActor
     func settle(_ seconds: UInt32) {
         sleep(seconds)
+    }
+
+    // MARK: - Capture
+
+    /// Settle, then capture — unless `name` is outside this run's `shots:`
+    /// allowlist, in which case nothing is written and nothing is waited for.
+    ///
+    /// Every capture in both suites goes through this overload rather than the
+    /// bare fastlane `snapshot(_:)`, so the allowlist can never be bypassed by
+    /// accident. The literal `snapshot("…"` at each call site is load-bearing:
+    /// `packages/view-catalog/src/views.test.ts` greps for it to prove the
+    /// suites and the catalog list the same shots.
+    /// `popRects` opts the shot into the store compositor's pop-out sidecar
+    /// (EXP-627): the rect is measured AFTER the settle, so it describes the
+    /// same frame the PNG does.
+    @MainActor
+    func snapshot(_ name: String, settle seconds: Double, popRects app: XCUIApplication? = nil) {
+        guard ScreenshotShots.isWanted(name) else {
+            NSLog("EXP-642 shots: skipping \(name) — not in EXP_SHOTS")
+            return
+        }
+        if seconds > 0 { usleep(useconds_t(seconds * 1_000_000)) }
+        if let app { PopRects.dump(name, app) }
+        captureSnapshot(name)
+    }
+
+    /// Fails the run when a `shots:` id was never reached — almost always a
+    /// typo, which would otherwise look like a perfectly green empty run.
+    /// Call from `tearDown`, guarded on the suite having run to completion so
+    /// an earlier failure is not buried under a second one.
+    func assertRequestedShotsWereReached(suiteFinished: Bool) {
+        guard suiteFinished else { return }
+        let missing = ScreenshotShots.unreached
+        XCTAssertTrue(
+            missing.isEmpty,
+            "EXP-642 shots: \(missing.joined(separator: ", ")) — no such shot in this suite"
+        )
     }
 
     /// Scrolls until `element` is on screen (or `attempts` swipes have gone by),

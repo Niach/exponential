@@ -26,8 +26,21 @@ import XCTest
 /// with the SNAPSHOT_INSTANCE_URL environment variable.
 ///
 /// The launch/sign-in/tap helpers live in ScreenshotFlow.swift, shared with
-/// StyleguideScreenshots.
+/// StyleguideScreenshots — including the `snapshot(_:settle:popRects:)`
+/// overload every capture below goes through. `popRects: app` additionally
+/// writes the pop-out rect sidecar the store compositor crops from (EXP-627,
+/// see PopRects.swift), and the overload honours the lane's optional `shots:`
+/// allowlist (EXP-642).
 final class StoreScreenshots: XCTestCase {
+
+    /// Set at the very end of the capture walk, so the `shots:` typo check in
+    /// tearDown never piles a second failure onto a run that already broke.
+    private var finished = false
+
+    override func tearDown() {
+        assertRequestedShotsWereReached(suiteFinished: finished)
+        super.tearDown()
+    }
 
     private static let showcaseTitle = "Reduce cold start below 800 ms"
     private static let showcaseIdentifier = "APP-5"
@@ -98,8 +111,7 @@ final class StoreScreenshots: XCTestCase {
             app.staticTexts["Coding now"].firstMatch.waitForExistence(timeout: 30),
             "No live session on \(Self.showcaseIdentifier) — is screenshots:desktop running against the relay?"
         )
-        settle(2)
-        snapshot("02_issue-detail")
+        snapshot("02_issue-detail", settle: 2, popRects: app)
 
         // ── 04: live steering ───────────────────────────────────────────────
         // The bottom-bar circle turns into the session link once the demo user
@@ -127,8 +139,7 @@ final class StoreScreenshots: XCTestCase {
             feedQuestion.waitForExistence(timeout: 60),
             "The relay never replayed the transcript — is STEER_RELAY_URL reachable from the simulator?"
         )
-        settle(3)
-        snapshot("04_steering")
+        snapshot("04_steering", settle: 3, popRects: app)
         goBack(app)
 
         // ── 03: Start-coding dialog ─────────────────────────────────────────
@@ -147,8 +158,7 @@ final class StoreScreenshots: XCTestCase {
             startSheet.waitForExistence(timeout: 20),
             "Start-coding dialog did not open — is a desktop online on the relay?"
         )
-        settle(2)
-        snapshot("03_start-coding")
+        snapshot("03_start-coding", settle: 2, popRects: app)
         app.buttons["Cancel"].firstMatch.tap()
         goBack(app)
 
@@ -176,8 +186,7 @@ final class StoreScreenshots: XCTestCase {
             let row = fileRows.element(boundBy: index)
             if row.exists && row.isHittable { row.tap() }
         }
-        settle(2)
-        snapshot("05_review")
+        snapshot("05_review", settle: 2, popRects: app)
         goBack(app)
 
         // ── 06: actions (EXP-253) — the seed inserts three team actions above
@@ -198,8 +207,7 @@ final class StoreScreenshots: XCTestCase {
             app.staticTexts["Update dependencies"].firstMatch.waitForExistence(timeout: 30),
             "Seeded team actions never synced"
         )
-        settle(2)
-        snapshot("06_actions")
+        snapshot("06_actions", settle: 2, popRects: app)
         goBack(app)
 
         // ── 07: inbox (My Work tab, Inbox segment — the default) ────────────
@@ -212,8 +220,7 @@ final class StoreScreenshots: XCTestCase {
             app.staticTexts[Self.showcaseTitle].firstMatch.waitForExistence(timeout: 60),
             "Inbox never showed the seeded notifications"
         )
-        settle(2)
-        snapshot("07_inbox")
+        snapshot("07_inbox", settle: 2, popRects: app)
 
         // ── 08: support inbox (helpdesk threads) ────────────────────────────
         // The tab only exists because the seed flips the team's
@@ -230,8 +237,7 @@ final class StoreScreenshots: XCTestCase {
             threadRow.waitForExistence(timeout: 30),
             "Support inbox never showed the seeded threads"
         )
-        settle(2)
-        snapshot("08_support")
+        snapshot("08_support", settle: 2, popRects: app)
 
         // ── 01: home issue list (captured last, see above) ──────────────────
         app.buttons["tab-issues"].tap()
@@ -243,7 +249,8 @@ final class StoreScreenshots: XCTestCase {
         // has to start at the top of the first group.
         for _ in 0..<3 { app.swipeDown() }
         dismissSavePasswordSheet(timeout: 2)
-        settle(2)
-        snapshot("01_board")
+        snapshot("01_board", settle: 2, popRects: app)
+
+        finished = true
     }
 }

@@ -201,7 +201,14 @@ impl Navigation {
                 .as_deref()
                 .and_then(parse_dev_screen),
             back_stack: Vec::new(),
-            last_board_id: None,
+            // DEV-ONLY `EXP_DEV_BOARD_ID=<board uuid>` (EXP-642): pre-select
+            // the board the first render opens — `EXP_DEV_BOARD=1` is the
+            // (unrelated) debug-board switch, hence the `_ID` suffix. A blank
+            // value is ignored. Never document for users.
+            last_board_id: std::env::var("EXP_DEV_BOARD_ID")
+                .ok()
+                .map(|id| id.trim().to_string())
+                .filter(|id| !id.is_empty()),
             replaced_screen: None,
             pending_origin: None,
         }
@@ -279,7 +286,11 @@ pub fn nav_for_window(window: &Window, cx: &mut App) -> Entity<Navigation> {
         if last_team.is_some() || last_board.is_some() {
             nav.update(cx, |nav, _| {
                 nav.team_id = last_team;
-                nav.last_board_id = last_board;
+                // Same rule for the board (EXP-642): an EXP_DEV_BOARD_ID
+                // seed must survive the persisted value.
+                if nav.last_board_id.is_none() {
+                    nav.last_board_id = last_board;
+                }
             });
         }
     }

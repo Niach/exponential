@@ -7,9 +7,10 @@
 //! like the web's edit dialog, and the rail's Actions entry navigates here.
 //! EXP-480: the page is a tab-less FULL-PAGE mode (no tool column, no tab
 //! chip — `CenterPanel` unmounts the sidebar split while it is up), and both
-//! sections lead with the web's `SectionLabel` band ([`section_band`]) —
-//! "My machines" carries the "Add server" button, "Actions" the owner-only
-//! "New action".
+//! sections lead with the web's plain-text `GlassSectionHeader`
+//! ([`section_heading`]) over a GAPPED list of [`crate::surface::glass_row_card`]
+//! rows (EXP-642) — "My machines" carries the "Add server" button, "Actions"
+//! the owner-only "New action".
 //!
 //! EXP-431 carries over: the create builtin is not a row — creation lives
 //! behind the header's "New action" button
@@ -41,40 +42,40 @@ use crate::queries;
 /// The page column's width cap — the web page's `md:max-w-5xl`.
 const PAGE_COLUMN_W: f32 = 1024.;
 
-/// The web `SectionLabel` band (agent-session-row.tsx): a full-width
-/// rounded-top strip — label · count · spacer · optional trailing control.
+/// The web `GlassSectionHeader` (`components/ui/glass-rows.tsx`, EXP-616): a
+/// PLAIN-TEXT heading — no band, no fill, no border — `px_1 pt_1 pb_2`, label
+/// `text_sm` MEDIUM at 70% foreground, the optional count `text_xs` at 50%,
+/// then a spacer and the optional trailing control.
 /// Shared with [`crate::machines::MachinesSection`] so both page sections
-/// carry the identical header design (EXP-480).
-pub(crate) fn section_band(
+/// carry the identical header design (EXP-642 replaced the old fused band).
+pub(crate) fn section_heading(
     label: &'static str,
-    count: usize,
+    count: Option<usize>,
     trailing: Option<gpui::AnyElement>,
     cx: &App,
 ) -> gpui::AnyElement {
+    let foreground = cx.theme().foreground;
     gpui_component::h_flex()
         .w_full()
         .min_w_0()
         .items_center()
         .gap_1p5()
-        .px_3()
-        .py_1p5()
-        .rounded_t(px(theme::tokens::radius::SM))
-        .border_b_1()
-        .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
-        .bg(theme::tokens::glass::FILL_SECTION.to_hsla())
+        .px_1()
+        .pt_1()
+        .pb_2()
         .child(
             div()
                 .text_sm()
                 .font_weight(FontWeight::MEDIUM)
-                .text_color(cx.theme().foreground)
+                .text_color(foreground.opacity(0.7))
                 .child(SharedString::from(label)),
         )
-        .child(
+        .children(count.map(|count| {
             div()
                 .text_xs()
-                .text_color(cx.theme().muted_foreground)
-                .child(SharedString::from(format!("{count}"))),
-        )
+                .text_color(foreground.opacity(0.5))
+                .child(SharedString::from(format!("{count}")))
+        }))
         .child(div().flex_1())
         .children(trailing)
         .into_any_element()
@@ -265,6 +266,8 @@ impl ActionsView {
     ) -> gpui::AnyElement {
         let theme = cx.theme();
         let muted = theme.muted_foreground;
+        // EXP-642: the web `GlassRow` hover (`hover:bg-glass-active/50`).
+        let row_hover = theme.list_active.opacity(0.5);
         let run_id = action.id.clone();
         let repo_name = action.repository_id.as_deref().and_then(|repo_id| {
             self.repos.as_ref().and_then(|(_, rows)| {
@@ -349,15 +352,15 @@ impl ActionsView {
 
         // EXP-367: no agent CLI → Run disabled with the reason, never hidden.
         let no_agent = crate::coding_flow::no_agent_reason(cx);
-        let mut row = gpui_component::h_flex()
+        let mut row = crate::surface::glass_row_card()
+            .flex()
             .w_full()
             .min_w_0()
             .items_center()
             .gap_3()
             .px_3()
-            .py_2()
-            .border_b_1()
-            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+            .py_2p5()
+            .hover(move |this| this.bg(row_hover))
             .child(
                 div().flex_shrink_0().child(
                     crate::icons::action_icon(action.icon.as_deref())
@@ -473,6 +476,8 @@ impl ActionsView {
     ) -> gpui::AnyElement {
         let theme = cx.theme();
         let muted = theme.muted_foreground;
+        // EXP-642: the web `GlassRow` hover (`hover:bg-glass-active/50`).
+        let row_hover = theme.list_active.opacity(0.5);
         let parsed = crate::automation_editor::parsed_trigger(automation.trigger.as_ref());
         let summary = parsed
             .as_ref()
@@ -542,15 +547,15 @@ impl ActionsView {
 
         let toggle_id = automation.id.clone();
         let enabled = automation.enabled;
-        gpui_component::h_flex()
+        crate::surface::glass_row_card()
+            .flex()
             .w_full()
             .min_w_0()
             .items_center()
             .gap_3()
             .px_3()
-            .py_2()
-            .border_b_1()
-            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+            .py_2p5()
+            .hover(move |this| this.bg(row_hover))
             .child(
                 div()
                     .flex_shrink_0()
@@ -697,19 +702,15 @@ impl ActionsView {
             })
             .collect();
 
-        let mut body = gpui_component::v_flex().min_w_0().gap_4().child(
-            gpui_component::v_flex()
-                .min_w_0()
-                .rounded(px(theme::tokens::radius::SM))
-                .border_1()
-                .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-                .children(rows),
-        );
+        let mut body = gpui_component::v_flex()
+            .min_w_0()
+            .gap_6()
+            .child(gpui_component::v_flex().min_w_0().gap_2().children(rows));
 
         // The cross-action run log — the answer to "did the automations fire?"
-        let mut recent = gpui_component::v_flex().min_w_0().gap_2().child(section_band(
+        let mut recent = gpui_component::v_flex().min_w_0().gap_2().child(section_heading(
             "Recent automated runs",
-            runs.len().min(RECENT_RUNS_CAP),
+            Some(runs.len().min(RECENT_RUNS_CAP)),
             None,
             cx,
         ));
@@ -741,6 +742,8 @@ impl ActionsView {
     ) -> gpui::AnyElement {
         let theme = cx.theme();
         let muted = theme.muted_foreground;
+        // EXP-642: the web `GlassRow` hover (`hover:bg-glass-active/50`).
+        let row_hover = theme.list_active.opacity(0.5);
         let description = suggestion.description.to_string();
         let icon = suggestion.icon.to_string();
         // EXP-583: an "Action + automation" seed hands the create dialog a
@@ -754,15 +757,15 @@ impl ActionsView {
             "Action"
         };
         let no_agent = crate::coding_flow::no_agent_reason(cx);
-        gpui_component::h_flex()
+        crate::surface::glass_row_card()
+            .flex()
             .w_full()
             .min_w_0()
             .items_center()
             .gap_3()
             .px_3()
-            .py_2()
-            .border_b_1()
-            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+            .py_2p5()
+            .hover(move |this| this.bg(row_hover))
             .child(
                 div().flex_shrink_0().child(
                     crate::icons::action_icon(Some(suggestion.icon))
@@ -861,7 +864,7 @@ impl ActionsView {
             .id("actions-empty-nudge")
             .w_full()
             .min_w_0()
-            .rounded(px(theme::tokens::radius::SM))
+            .rounded(px(theme::tokens::radius::MD))
             .border_1()
             .border_dashed()
             .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
@@ -949,9 +952,9 @@ impl Render for ActionsView {
                     .into_any_element()
             });
         // EXP-574 (web parity): the tab capsule spans the page above the
-        // section; every tab leads with its band — Actions ("Actions" ·
-        // count · "New action"), Automations ("Automations" · count),
-        // Suggestions ("Suggestions" · count) since EXP-618.
+        // section; every tab leads with its plain-text heading — Actions
+        // ("Actions" · count · "New action"), Automations ("Automations" ·
+        // count), Suggestions ("Suggestions" · count) since EXP-618.
         let tabs = self.render_tabs(cx);
         // Owner-only "New automation" — the Automations band's twin of
         // "New action". No agent gate: authoring a binding starts nothing.
@@ -970,21 +973,21 @@ impl Render for ActionsView {
                     .into_any_element()
             });
         let header = match self.tab {
-            ActionsTab::Actions => Some(section_band(
+            ActionsTab::Actions => Some(section_heading(
                 "Actions",
-                actions.len(),
+                Some(actions.len()),
                 new_action,
                 cx,
             )),
-            ActionsTab::Automations => Some(section_band(
+            ActionsTab::Automations => Some(section_heading(
                 "Automations",
-                automations.len(),
+                Some(automations.len()),
                 new_automation,
                 cx,
             )),
-            ActionsTab::Suggestions => Some(section_band(
+            ActionsTab::Suggestions => Some(section_heading(
                 "Suggestions",
-                crate::action_suggestions::ACTION_SUGGESTIONS.len(),
+                Some(crate::action_suggestions::ACTION_SUGGESTIONS.len()),
                 None,
                 cx,
             )),
@@ -1019,16 +1022,12 @@ impl Render for ActionsView {
                         self.render_action_row(index, action, count, is_owner, cx)
                     })
                     .collect();
+                // EXP-642: each row is its OWN card — a gapped column, no
+                // fused bordered block.
                 let mut body = gpui_component::v_flex().min_w_0().gap_2();
                 if !rows.is_empty() {
-                    body = body.child(
-                        gpui_component::v_flex()
-                            .min_w_0()
-                            .rounded(px(theme::tokens::radius::SM))
-                            .border_1()
-                            .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-                            .children(rows),
-                    );
+                    body = body
+                        .child(gpui_component::v_flex().min_w_0().gap_2().children(rows));
                 }
                 body.children(nudge).into_any_element()
             }
@@ -1043,15 +1042,11 @@ impl Render for ActionsView {
                         .collect(),
                     None => Vec::new(),
                 };
-                let mut body = gpui_component::v_flex().min_w_0();
-                if !rows.is_empty() {
-                    body = body
-                        .rounded(px(theme::tokens::radius::SM))
-                        .border_1()
-                        .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-                        .children(rows);
-                }
-                body.into_any_element()
+                gpui_component::v_flex()
+                    .min_w_0()
+                    .gap_2()
+                    .children(rows)
+                    .into_any_element()
             }
         };
         let mut actions_section = gpui_component::v_flex()
@@ -1081,7 +1076,7 @@ impl Render for ActionsView {
             .min_w_0()
             .px_4()
             .py_4()
-            .gap_4()
+            .gap_6()
             .child(self.machines.clone())
             .child(actions_section);
 
@@ -1227,13 +1222,14 @@ fn render_run_row(session: &domain::rows::CodingSession, cx: &App) -> gpui::AnyE
         .unwrap_or_default();
     // `schedule` / `event` — why it fired.
     let reason = session.started_reason.clone().unwrap_or_default();
-    gpui_component::h_flex()
+    crate::surface::glass_row_card()
+        .flex()
         .w_full()
         .min_w_0()
         .items_center()
         .gap_2()
         .px_3()
-        .py_1p5()
+        .py_2p5()
         .child(
             Icon::from(registry::ACTION_AUTOMATION)
                 .xsmall()

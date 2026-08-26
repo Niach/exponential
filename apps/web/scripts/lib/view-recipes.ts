@@ -35,6 +35,15 @@ import {
 /** The seeded board every board-scoped view is captured on. */
 const BOARD_SLUG = `mobile-app`
 
+/**
+ * What `openSearch` types, and the seeded issue title it must bring back.
+ * Both halves are pinned here because `views.json` anchors the SEARCH view on
+ * the result row — the query and the anchor have to keep matching the same
+ * seeded issue (`seed-screenshots.ts`).
+ */
+const SEARCH_QUERY = `cold start`
+const SEARCH_RESULT_TITLE = `Reduce cold start below 800 ms`
+
 /** Everything a recipe is allowed to know about the instance it is driving. */
 export interface RecipeCtx {
   baseUrl: string
@@ -82,26 +91,6 @@ async function appears(locator: Locator, timeout: number): Promise<boolean> {
 async function openSidebar(page: Page): Promise<void> {
   const toggle = page.getByRole(`button`, { name: `Toggle Sidebar` })
   if (await appears(toggle, 2_000)) await toggle.first().click()
-}
-
-// ------------------------------------------------------------------- auth
-
-/**
- * Flip the merged sign-in page into sign-up mode. Runs UNAUTHENTICATED: an
- * existing session would bounce `/auth/login` to the team. The toggle only
- * renders when password auth AND public sign-up are both on (routes/auth/
- * login.tsx), which is dev's default.
- */
-async function recipeOpenRegister(page: Page): Promise<void> {
-  const toggle = page.getByRole(`button`, { name: `Create one`, exact: true })
-  if (!(await appears(toggle, 20_000))) {
-    throw new Error(
-      `no "Create one" toggle on /auth/login — public sign-up is off ` +
-        `(AUTH_SIGNUP_ENABLED) or password auth is disabled`
-    )
-  }
-  await toggle.click()
-  await page.getByText(`Create an account`).first().waitFor({ timeout: 10_000 })
 }
 
 // ------------------------------------------------------------- onboarding
@@ -204,11 +193,44 @@ async function recipeOpenCreateIssue(page: Page): Promise<void> {
 async function recipeOpenSearch(page: Page): Promise<void> {
   const input = page.getByPlaceholder(`Search issues...`)
   await page.keyboard.press(`ControlOrMeta+f`)
-  if (await appears(input, 4_000)) return
-  const button = page.getByRole(`button`, { name: `Search`, exact: true })
-  await button.first().waitFor({ timeout: 15_000 })
-  await button.first().click()
-  await input.first().waitFor({ timeout: 15_000 })
+  if (!(await appears(input, 4_000))) {
+    const button = page.getByRole(`button`, { name: `Search`, exact: true })
+    await button.first().waitFor({ timeout: 15_000 })
+    await button.first().click()
+    await input.first().waitFor({ timeout: 15_000 })
+  }
+  // An empty search box photographs the placeholder and a "start typing" hint,
+  // which says nothing about what search DOES. Type a seeded query and wait for
+  // the row it matches — the anchor in views.json is that same issue title.
+  await input.first().fill(SEARCH_QUERY)
+  await page
+    .getByText(SEARCH_RESULT_TITLE)
+    .filter({ visible: true })
+    .first()
+    .waitFor({ timeout: 15_000 })
+}
+
+/**
+ * Open the phone issue's properties sheet — status, priority, assignee, labels,
+ * due date and board, all from the bottom bar's pull-up.
+ *
+ * Mobile-only by construction: at md+ the same properties are inline in the
+ * issue's right-hand rail and the bar carrying this trigger is not mounted at
+ * all, so a wide viewport reads as a manifest mistake and fails loudly rather
+ * than waiting 20s for a button that can never exist.
+ */
+async function recipeOpenIssuePropertiesMobile(page: Page): Promise<void> {
+  const width = page.viewportSize()?.width ?? 0
+  if (width >= 768) {
+    throw new Error(
+      `the properties sheet is web-mobile only — the issue bottom bar carrying ` +
+        `it is md:hidden, and this viewport is ${width}px wide`
+    )
+  }
+  const trigger = page.getByRole(`button`, { name: `Issue properties`, exact: true })
+  await trigger.first().waitFor({ timeout: 20_000 })
+  await trigger.first().click()
+  await page.getByTestId(`issue-properties-sheet`).waitFor({ timeout: 15_000 })
 }
 
 /**
@@ -572,7 +594,6 @@ async function recipeOpenGettingStarted(page: Page): Promise<void> {
  * closing brace in column 0.
  */
 export const RECIPES: Record<string, Recipe> = {
-  openRegister: recipeOpenRegister,
   openOnboardingCreateTeam: recipeOpenOnboardingCreateTeam,
   openOnboardingJoin: recipeOpenOnboardingJoin,
   openFilterPopover: recipeOpenFilterPopover,
@@ -581,6 +602,7 @@ export const RECIPES: Record<string, Recipe> = {
   openSearch: recipeOpenSearch,
   openBoardBulkEdit: recipeOpenBoardBulkEdit,
   openBoardSwitcher: recipeOpenBoardSwitcher,
+  openIssuePropertiesMobile: recipeOpenIssuePropertiesMobile,
   openStartCoding: recipeOpenStartCoding,
   openStartCodingActions: recipeOpenStartCodingActions,
   openStartCodingChat: recipeOpenStartCodingChat,

@@ -521,6 +521,10 @@ struct AgentSessionView: View {
             markdownContext: markdownContext
         )
         .id(question.id)
+        // EXP-642: the store slide's pop-out rect is measured off the question
+        // card (`PopRects`). `contain` keeps its option buttons queryable.
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("agent-feed-question")
     }
 
     /// A multi-question ask (EXP-249) as ONE stepper card, claude-style: one
@@ -554,6 +558,8 @@ struct AgentSessionView: View {
             // A fresh identity per step — the card's local selection state must
             // never leak from one question into the next.
             .id(question.id)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("agent-feed-question")
         }
     }
 

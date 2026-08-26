@@ -6,6 +6,8 @@
 # it first. Non-interactive uploads authenticate with an App Store Connect API key read
 # from env (ASC_KEY_ID / ASC_ISSUER_ID / ASC_KEY_PATH).
 
+require "shellwords"
+
 default_platform(:ios)
 
 # snapshot hardcodes its config-file name to "Snapfile" (Snapshot.snapfile_name,
@@ -31,6 +33,32 @@ IPA_PATH = "build/Exponential.ipa".freeze
 STAGING_SCHEME = "Exponential-Staging".freeze
 STAGING_BUNDLE_ID = "at.exponential.staging".freeze
 STAGING_IPA_PATH = "build/Exponential-Staging.ipa".freeze
+
+# EXP-642: `fastlane screenshots shots:01_board,02_issue-detail` narrows a
+# capture run to those shot ids — what the "Refresh app screenshots" automation
+# uses when a diff only touched a couple of views. xcodebuild forwards ONLY
+# TEST_RUNNER_-prefixed variables into the UI-test runner process (with the
+# prefix stripped), so the suites read it as EXP_SHOTS. Navigation always runs;
+# only the capture is skipped, so a subset run is narrower, not faster.
+def apply_shot_subset(options)
+  ids = options[:shots].to_s.split(/[,\s]+/).reject(&:empty?)
+  return if ids.empty?
+  UI.message("EXP_SHOTS: capturing only #{ids.join(', ')}")
+  ENV["TEST_RUNNER_EXP_SHOTS"] = ids.join(",")
+end
+
+# EXP-627: merge the per-shot pop-out rect sidecars the UI test wrote
+# (`<simulator>-pop-<shot>.json`, see ExponentialUITests/PopRects.swift) into the
+# form-keyed `pop-<shot>.json` the store compositor reads. Best effort: a
+# missing script or a bun-less machine must never fail a capture run — the
+# compositor falls back to its hand-tuned crops.
+def merge_pop_sidecars(platform)
+  # `sh` runs from the fastlane/ dir; the repo root is three levels up.
+  root = File.expand_path("../../..", __dir__)
+  sh("cd #{root.shellescape} && bun run screenshots:pop-sidecars -- --platform #{platform}")
+rescue StandardError => e
+  UI.important("Pop-rect sidecar merge skipped: #{e.message}")
+end
 
 def asc_api_key
   # App Store Connect API key (Users & Access → Integrations → App Store Connect API).
@@ -87,24 +115,35 @@ platform :ios do
   desc "http://localhost:5173 — override with SNAPSHOT_INSTANCE_URL. Captures land RAW"
   desc "in fastlane/screenshots-raw/; follow up with `bun run screenshots:store` (repo"
   desc "root) to composite them into fastlane/screenshots/ before sync_store — EXP-580."
-  lane :screenshots do
+  desc "`shots:01_board,02_issue-detail` narrows the run to those shot ids (EXP-642)."
+  lane :screenshots do |options|
     sh("cd .. && tuist generate --no-open")
     # The sign-in flow types into text fields — make sure the simulators show
     # the software keyboard instead of assuming a connected hardware keyboard.
     sh("defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false || true")
-    snapshot
+    apply_shot_subset(options)
+    begin
+      snapshot
+    ensure
+      ENV.delete("TEST_RUNNER_EXP_SHOTS")
+    end
+    merge_pop_sidecars("ios")
   end
 
   desc "Regenerate the Tuist project and capture the STYLEGUIDE screenshots (EXP-566):"
-  desc "the 11 cross-platform `sg_*` surface shots from"
+  desc "the 24 cross-platform `sg_*` surface shots from"
   desc "ExponentialUITests/StyleguideScreenshots.swift, iPhone only, into"
-  desc "fastlane/screenshots-styleguide/. Same seeded backend as `screenshots`, but no"
-  desc "steer relay and no `screenshots:desktop` needed. Never uploaded to ASC."
-  lane :styleguide_screenshots do
+  desc "fastlane/screenshots-styleguide/. Same seeded backend as `screenshots` and no"
+  desc "steer relay, but it DOES need `bun run screenshots:desktop` since EXP-642:"
+  desc "sg_machine-settings and the two sg_start-coding-* shots photograph the demo"
+  desc "user's own registered device row. Never uploaded to ASC."
+  desc "`shots:sg_reviews,sg_search` narrows the run to those shot ids (EXP-642)."
+  lane :styleguide_screenshots do |options|
     sh("cd .. && tuist generate --no-open")
     # The sign-in flow types into text fields — make sure the simulators show
     # the software keyboard instead of assuming a connected hardware keyboard.
     sh("defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false || true")
+    apply_shot_subset(options)
     # Load fastlane/Snapfile-styleguide instead of fastlane/Snapfile (see the
     # Snapshot.snapfile_name override at the top of this file).
     ENV["SNAPFILE_NAME"] = "Snapfile-styleguide"
@@ -120,6 +159,7 @@ platform :ios do
       )
     ensure
       ENV.delete("SNAPFILE_NAME")
+      ENV.delete("TEST_RUNNER_EXP_SHOTS")
     end
   end
 

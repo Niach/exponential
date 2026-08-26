@@ -665,10 +665,14 @@ export function App({ state }: { state: WidgetRuntimeState }) {
 
   // Hidden while capturing too (EXP-435): a display-media frame can't
   // exclude the FAB by selector the way the snapDOM clone does.
+  // setLauncherHidden() (EXP-642) only takes the button away — the panel
+  // below keeps rendering, so a host hiding the launcher while its own sheet
+  // is up can't close a panel the visitor is typing in.
   const showButton =
     state.options.showButton !== false &&
     phase.kind !== `annotating` &&
     phase.kind !== `capturing` &&
+    state.launcherHidden !== true &&
     !state.disabled
   const panelVisible =
     phase.kind === `open` ||

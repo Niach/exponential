@@ -45,7 +45,7 @@ Build + upload the STAGING flavor (.aab) to the at.exponential.staging Play INTE
 [bundle exec] fastlane android screenshots
 ```
 
-Capture Play Store screenshots on a booted emulator via screengrab. Needs the seeded local backend running (see fastlane/Screengrabfile); override the instance URL with SCREENGRAB_INSTANCE_URL. Raw captures land in fastlane/screenshots-raw/ — follow up with `bun run screenshots:store` (repo root) before sync_store, which composites the Play set (EXP-580).
+Capture Play Store screenshots on a booted emulator via screengrab. Needs the seeded local backend running (see fastlane/Screengrabfile); override the instance URL with SCREENGRAB_INSTANCE_URL. Raw captures land in fastlane/screenshots-raw/ — follow up with `bun run screenshots:store` (repo root) before sync_store, which composites the Play set (EXP-580). `shots:1_board,2_issue-detail` narrows the run to those shot ids (EXP-642).
 
 ### android styleguide_screenshots
 
@@ -53,7 +53,7 @@ Capture Play Store screenshots on a booted emulator via screengrab. Needs the se
 [bundle exec] fastlane android styleguide_screenshots
 ```
 
-Capture the STYLEGUIDE reference screenshots (EXP-566) on a booted emulator: 11 sg_* shots of the plain app surfaces, into fastlane/styleguide-screenshots/. Same seeded local backend as `screenshots` (no steer relay needed); override the instance URL with SCREENGRAB_INSTANCE_URL. Config lives in fastlane/Screengrabfile-styleguide.
+Capture the STYLEGUIDE reference screenshots (EXP-566) on a booted emulator: 24 sg_* shots of the plain app surfaces, into fastlane/styleguide-screenshots/. Same seeded local backend as `screenshots` and no steer relay, but since EXP-642 it DOES need `bun run screenshots:desktop`: sg_machine-settings and the two sg_start-coding-* shots photograph the demo user's own registered device row. Override the instance URL with SCREENGRAB_INSTANCE_URL; `shots:sg_reviews,sg_search` narrows the run to those shot ids (EXP-642). Config lives in fastlane/Screengrabfile-styleguide.
 
 ### android production
 

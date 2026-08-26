@@ -33,6 +33,9 @@ struct InboxListContent: View {
                                 streamRow(group)
                             }
                             .buttonStyle(.plain)
+                            // EXP-642: the store slide's pop-out rect is
+                            // measured off the first row (`PopRects`).
+                            .accessibilityIdentifier("notification-row")
                             .simultaneousGesture(TapGesture().onEnded { viewModel.markGroupRead(group) })
                         case .support(let group):
                             // Support groups open the Support tab (tickets are
@@ -44,6 +47,7 @@ struct InboxListContent: View {
                                 supportRow(group)
                             }
                             .buttonStyle(.plain)
+                            .accessibilityIdentifier("notification-row")
                             .simultaneousGesture(TapGesture().onEnded {
                                 if let teamId = group.teamId {
                                     teamState.activeTeamId = teamId

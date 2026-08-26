@@ -31,7 +31,9 @@ import { join } from "node:path"
 import {
   DEFAULT_PLATFORMS,
   PLATFORMS,
+  captureFor,
   viewsFor,
+  type NativeCapture,
   type Platform,
 } from "@exp/view-catalog"
 import { lastStoreCommit, scopeSince, type AffectedScope } from "./affected.ts"
@@ -168,9 +170,66 @@ async function resolveScope(
   return { scope, affected, since }
 }
 
-/** Did anything narrow this run? Only then does a lane get an explicit view list. */
-function isScoped(options: Options): boolean {
-  return Boolean(options.viewIds || options.since)
+/**
+ * Drop `sign-in` from the browser and desktop lanes when this instance is not
+ * advertising the OIDC buttons the shot is about (EXP-642).
+ *
+ * The catalog's `sign-in` view is the CLOUD card: Google and Apple above the
+ * email/password form, because that is what a new user actually meets. Those
+ * buttons are env-driven (`buildAuthConfig`), so a dev instance without the
+ * credentials renders a bare password box — a perfectly valid screen, and the
+ * wrong one to commit under that name.
+ *
+ * SOFT on purpose: the whole run is worth having without this one view, and a
+ * capture host that cannot reach `/api/auth-config` (it is checked properly in
+ * preflight a moment later) should not lose the view over it either. The native
+ * lanes keep their `sg_sign-in` shot — the simulators talk to the cloud
+ * instance, not to this one.
+ */
+async function gateSignIn(scope: Scope): Promise<void> {
+  const lanes: Platform[] = [`web`, `web-mobile`, `desktop`]
+  if (!lanes.some((platform) => scope.get(platform)?.has(`sign-in`))) return
+
+  let config: { googleLoginEnabled?: boolean; appleLoginEnabled?: boolean } | undefined
+  try {
+    const response = await fetch(`${PROXY_URL}/api/auth-config`, {
+      signal: AbortSignal.timeout(8_000),
+      tls: { rejectUnauthorized: false },
+    })
+    if (response.ok) config = (await response.json()) as typeof config
+  } catch {
+    /* unreachable — preflight reports it; keep the view in scope */
+  }
+  if (!config) return
+  if (config.googleLoginEnabled && config.appleLoginEnabled) return
+
+  for (const platform of lanes) scope.get(platform)?.delete(`sign-in`)
+  console.log(
+    [
+      ``,
+      `── sign-in skipped ───────────────────────────────────────`,
+      `  This instance advertises no Google/Apple sign-in, so the shot would be a bare`,
+      `  password box rather than the cloud card the catalog describes. Export these`,
+      `  (placeholder values are fine — nothing signs in through them) and re-run:`,
+      `    GOOGLE_CLIENT_ID=… GOOGLE_CLIENT_SECRET=… GOOGLE_LOGIN_ENABLED=true`,
+      `    APPLE_CLIENT_ID=… APPLE_CLIENT_SECRET=… APPLE_LOGIN_ENABLED=true`,
+    ].join(`\n`)
+  )
+}
+
+/**
+ * Did anything narrow this run? Only then does a lane get an explicit view list.
+ *
+ * Derived from the SCOPE, not just from the flags: `gateSignIn` drops a view
+ * without any flag being passed, and a lane that was handed no list captures
+ * the whole catalog — which would photograph exactly the view the gate just
+ * removed.
+ */
+function isScoped(options: Options, scope: Scope): boolean {
+  if (options.viewIds || options.since) return true
+  return options.platforms.some(
+    (platform) => (scope.get(platform)?.size ?? 0) !== viewsFor(platform).length
+  )
 }
 
 /** The views one lane still has to capture, in catalog order. */
@@ -307,7 +366,8 @@ async function preflight(options: Options, scope: Scope): Promise<Check[]> {
     if (binaryDetail) checks.push({ label: `desktop app binary`, ok: true, detail: binaryDetail })
   }
 
-  if (laneViews(scope, `ios`).length > 0) {
+  // One simulator lane serves both frames — see `captureFastlane`.
+  if (laneViews(scope, `ios`, `ipad`).length > 0) {
     const ok = await hasCommand(`xcrun`)
     checks.push({
       label: `xcrun simctl`,
@@ -390,7 +450,7 @@ async function captureWeb(
     `--out`,
     rawDir(),
   ]
-  if (isScoped(options)) cmd.push(`--views`, views.join(`,`))
+  if (isScoped(options, scope)) cmd.push(`--views`, views.join(`,`))
 
   console.log(`\n── web (${formFactor}) ─────────────────────────────────`)
   const result = await run({
@@ -409,17 +469,57 @@ async function captureWeb(
   }
 }
 
+/**
+ * The catalog platforms one fastlane directory photographs. `ipad` has no lane
+ * of its own: the iOS Snapfile runs the store set on both simulators in one
+ * pass and writes both into the same output dir.
+ */
+function servedBy(platform: `ios` | `android`): Platform[] {
+  return platform === `ios` ? [`ios`, `ipad`] : [`android`]
+}
+
+/** The shot ids one fastlane lane still owes, deduped across served frames. */
+function laneShotIds(
+  scope: Scope,
+  platform: `ios` | `android`,
+  lane: NativeCapture[`lane`]
+): string[] {
+  const ids = new Set<string>()
+  for (const served of servedBy(platform)) {
+    for (const view of viewsFor(served)) {
+      if (!scope.get(served)?.has(view.id)) continue
+      const capture = captureFor(view, served) as NativeCapture | undefined
+      if (capture?.lane === lane) ids.add(capture.shot)
+    }
+  }
+  return [...ids]
+}
+
 async function captureFastlane(
-  platform: Platform,
-  outcomes: LaneOutcome[]
+  platform: `ios` | `android`,
+  outcomes: LaneOutcome[],
+  scope: Scope,
+  scoped: boolean
 ): Promise<void> {
   const dir = join(repoRoot(), platform === `android` ? `apps/android` : `apps/ios`)
   // Both lanes matter: `screenshots` is the 8-shot store set the catalog's
   // `store` captures name, `styleguide_screenshots` the wider parity set.
-  for (const lane of [`screenshots`, `styleguide_screenshots`]) {
+  for (const lane of [`screenshots`, `styleguide_screenshots`] as const) {
+    const shots = laneShotIds(scope, platform, lane === `screenshots` ? `store` : `styleguide`)
+    if (shots.length === 0) {
+      console.log(`\n── ${platform}: fastlane ${lane} — skipped, no shot in scope`)
+      continue
+    }
+    // `shots:<ids>` is the suites' own allowlist (EXP-642): navigation still
+    // runs, but a snapshot outside the list is not taken. A simulator lane is
+    // minutes per shot, so an unattended refresh that only moved two screens
+    // must not pay for forty.
+    const cmd = [`bundle`, `exec`, `fastlane`, lane]
+    if (scoped) cmd.push(`shots:${shots.join(`,`)}`)
+
     console.log(`\n── ${platform}: fastlane ${lane} ──────────────────────`)
     const result = await run({
-      cmd: [`bundle`, `exec`, `fastlane`, lane],
+      cmd,
       cwd: dir,
       stream: true,
       label: `[${platform}]`,
@@ -729,6 +829,7 @@ function dedupeBroad(broad: AffectedScope[`broad`]): AffectedScope[`broad`] {
 async function main(): Promise<number> {
   const options = parseArgs(process.argv.slice(2))
   const { scope, affected, since } = await resolveScope(options)
+  if (!options.writeOnly) await gateSignIn(scope)
   const relayNeeded =
     needsRelay(options, scope) && !options.skipRelay && !options.dryRun && !options.writeOnly
 
@@ -841,7 +942,7 @@ async function main(): Promise<number> {
         try {
           const result = await captureDesktop({
             ids,
-            viewIds: isScoped(options) ? laneViews(scope, `desktop`) : undefined,
+            viewIds: isScoped(options, scope) ? laneViews(scope, `desktop`) : undefined,
             reposRoot: options.reposRoot,
           })
           outcomes.push({
@@ -859,9 +960,9 @@ async function main(): Promise<number> {
       }
 
       for (const platform of [`ios`, `android`] as const) {
-        if (laneViews(scope, platform).length === 0) continue
+        if (laneViews(scope, ...servedBy(platform)).length === 0) continue
         try {
-          await captureFastlane(platform, outcomes)
+          await captureFastlane(platform, outcomes, scope, isScoped(options, scope))
         } catch (error) {
           outcomes.push({
             platform,
@@ -878,7 +979,7 @@ async function main(): Promise<number> {
     if (nativeInScope.length > 0) {
       const imported = importNative({
         platforms: nativeInScope,
-        viewIds: isScoped(options) ? laneViews(scope, ...nativeInScope) : undefined,
+        viewIds: isScoped(options, scope) ? laneViews(scope, ...nativeInScope) : undefined,
         dryRun: options.dryRun,
       })
       console.log(`\n── import native ─────────────────────────────────────`)

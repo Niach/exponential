@@ -59,6 +59,7 @@ import {
   buildAttachmentUrl,
 } from "@/lib/storage/issue-attachments"
 import { generateWidgetKey } from "@/lib/widget/key"
+import { parseFreezeNow } from "./lib/freeze-now"
 import {
   DEMO_DEVICE_ID,
   DEMO_SERVER_DEVICE_ID,
@@ -68,9 +69,11 @@ import {
   DEMO_NAME,
   DEMO_PASSWORD,
   DEMO_SERVER_VERSION,
+  EMPTY_BOARD_SLUG,
   NEWCOMER_EMAIL,
   NEWCOMER_NAME,
   NEWCOMER_PASSWORD,
+  SUPPORT_REPORTER_THREAD_TITLE,
   TEAM_SLUG,
 } from "./screenshot-demo"
 
@@ -100,7 +103,13 @@ if (!REVIEW_PR_NUMBER) {
   throw new Error(`SCREENSHOT_PR_URL must end in /pull/<number>: ${REVIEW_PR_URL}`)
 }
 
-const now = Date.now()
+// Opt-in frozen clock (SCREENSHOT_FREEZE_NOW) — see lib/freeze-now.ts for why
+// the capture pipeline deliberately does NOT set it.
+const frozenNow = parseFreezeNow(process.env.SCREENSHOT_FREEZE_NOW)
+if (frozenNow !== undefined) {
+  console.log(`clock frozen at ${new Date(frozenNow).toISOString()} (SCREENSHOT_FREEZE_NOW)`)
+}
+const now = frozenNow ?? Date.now()
 const daysAgo = (d: number) => new Date(now - d * 86_400_000)
 const hoursAgo = (h: number) => new Date(now - h * 3_600_000)
 const inDays = (d: number) =>
@@ -328,7 +337,7 @@ async function main() {
     {
       teamId: ws.id,
       name: `Launch Marketing`,
-      slug: `launch-marketing`,
+      slug: EMPTY_BOARD_SLUG,
       prefix: `MKT`,
       color: `#f59e0b`,
       icon: `square-kanban`,
@@ -1117,7 +1126,7 @@ async function main() {
     }>
   }> = [
     {
-      title: `Can't sign in on the iPad app`,
+      title: SUPPORT_REPORTER_THREAD_TITLE,
       reporterName: `Emma Fischer`,
       reporterEmail: `emma@lumenlabs.io`,
       messages: [

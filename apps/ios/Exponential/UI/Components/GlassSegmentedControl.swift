@@ -15,6 +15,11 @@ struct GlassSegmentedControl<Option: Hashable>: View {
     /// than registry glyphs. nil renders a label-only segment exactly as
     /// before.
     let icon: (Option) -> Image?
+    /// EXP-642: optional per-segment accessibility identifier, so a UI test can
+    /// address ONE segment (the Start-coding sheet's Issues/Actions/Chat tabs)
+    /// instead of guessing at a label that also matches other controls. nil
+    /// leaves the segment identifier-less, exactly as before.
+    let identifier: (Option) -> String?
     let badge: (Option) -> Int
     let onSelect: (Option) -> Void
 
@@ -22,6 +27,7 @@ struct GlassSegmentedControl<Option: Hashable>: View {
         options: [Option],
         selection: Option,
         label: @escaping (Option) -> String,
+        identifier: @escaping (Option) -> String? = { _ in nil },
         badge: @escaping (Option) -> Int = { _ in 0 },
         onSelect: @escaping (Option) -> Void
     ) {
@@ -30,6 +36,7 @@ struct GlassSegmentedControl<Option: Hashable>: View {
             selection: selection,
             label: label,
             icon: { _ in nil },
+            identifier: identifier,
             badge: badge,
             onSelect: onSelect
         )
@@ -42,6 +49,7 @@ struct GlassSegmentedControl<Option: Hashable>: View {
         selection: Option,
         label: @escaping (Option) -> String,
         icon: @escaping (Option) -> Image?,
+        identifier: @escaping (Option) -> String? = { _ in nil },
         badge: @escaping (Option) -> Int = { _ in 0 },
         onSelect: @escaping (Option) -> Void
     ) {
@@ -49,6 +57,7 @@ struct GlassSegmentedControl<Option: Hashable>: View {
         self.selection = selection
         self.label = label
         self.icon = icon
+        self.identifier = identifier
         self.badge = badge
         self.onSelect = onSelect
     }
@@ -100,5 +109,6 @@ struct GlassSegmentedControl<Option: Hashable>: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label(option))
+        .accessibilityIdentifier(identifier(option) ?? "")
     }
 }

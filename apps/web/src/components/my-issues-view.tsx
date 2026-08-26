@@ -109,6 +109,7 @@ export function MyIssuesView({
             issueLabelMap={issueLabelMap}
             labels={labelList}
             users={users}
+            teamId={team.id}
             onClear={() => setSelectedIds(new Set())}
           />,
           bulkActionSlot

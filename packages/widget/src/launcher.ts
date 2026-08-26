@@ -149,13 +149,15 @@ export function resolveLauncher(
 // so the two renders can never drift. Centering (translateY) lives on the
 // wrapper, hover transforms on the button — never combine the two on one
 // element. Tabs sit flush against the screen edge; FABs keep 20px margins
-// (bottom ones clearing notched-phone home indicators).
+// (bottom ones clearing notched-phone home indicators, top ones sitting
+// 40px down so a host page's sticky header stays reachable).
 export function launcherPlacementCss(p: WidgetLauncherPlacement): string {
   const left = p.position.endsWith(`left`)
-  // Double bottom declaration: browsers without env() drop only the calc and
-  // keep the plain 20px.
+  // Double declaration on both edges: browsers without env() drop only the
+  // calc and keep the plain px value. Top launchers keep 40px so they clear
+  // the sticky headers host pages put at the top of the viewport (EXP-642).
   const vertical = p.position.startsWith(`top`)
-    ? `top:20px;`
+    ? `top:40px;top:calc(40px + env(safe-area-inset-top, 0px));`
     : p.position.startsWith(`middle`)
       ? `top:50%;transform:translateY(-50%);`
       : `bottom:20px;bottom:calc(20px + env(safe-area-inset-bottom, 0px));`
@@ -189,11 +191,12 @@ export function launcherButtonClass(p: WidgetLauncherPlacement): string {
 }
 
 // Middle launchers sit BESIDE the panel, so its horizontal offset must clear
-// them (launcher width + 12px gap; tabs are flush, FABs 20px in). Top/bottom
-// launchers share their corner with the panel — the stock 20px stands.
+// them (launcher width + 12px gap; tabs are flush 36px wide, FABs 20px in).
+// Top/bottom launchers share their corner with the panel — the stock 20px
+// stands.
 export function panelSideOffset(p: WidgetLauncherPlacement): string {
   if (!p.position.startsWith(`middle`)) return `20px`
-  return p.mode === `tab` ? `56px` : `76px`
+  return p.mode === `tab` ? `48px` : `76px`
 }
 
 // The served icon markup gets innerHTML'd into the host page, and `host` in

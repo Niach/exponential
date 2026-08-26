@@ -43,6 +43,7 @@ mod create_issue_dialog;
 mod create_board_dialog;
 mod create_team_dialog;
 mod debug_board;
+mod dev_ready;
 mod description_editor;
 mod emoji;
 mod emoji_picker;
@@ -113,6 +114,7 @@ pub use actions::*;
 pub use icons::ExpIcon;
 pub use navigation::{navigate, Screen};
 pub use oauth::handle_open_urls;
+pub use dev_ready::install_dev_ready_probe;
 pub use update::check_for_updates;
 pub use session::{
     bootstrap as bootstrap_session, sign_out_active, upgrade_required_handler, AuthContext,

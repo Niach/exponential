@@ -186,6 +186,11 @@ fn main() {
         cx.activate(true);
         windows::open_shell_window(cx);
 
+        // DEV-ONLY (EXP-633): with EXP_DEV_READY_FILE set, signal the capture
+        // pipeline once the window, the session and (signed in) every shape
+        // have settled. No-op in normal runs.
+        ui::install_dev_ready_probe(cx);
+
         // Dev hook: EXP_WINDOWS=N opens N shell windows at startup so the
         // §3.10 multi-window gate ("a second window opens sharing the global
         // Store") is demonstrable headlessly/in CI without synthesizing menu

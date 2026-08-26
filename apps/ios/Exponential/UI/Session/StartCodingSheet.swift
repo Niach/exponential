@@ -134,6 +134,17 @@ struct StartCodingSheet: View {
             case .chat: "Chat"
             }
         }
+
+        /// The styleguide capture suite addresses the tabs by identifier —
+        /// "Actions" and "Chat" also read as ordinary buttons elsewhere in the
+        /// hierarchy, so the label alone is not a handle (EXP-642).
+        var accessibilityIdentifier: String {
+            switch self {
+            case .issues: "start-coding-tab-issues"
+            case .actions: "start-coding-tab-actions"
+            case .chat: "start-coding-tab-chat"
+            }
+        }
     }
 
     let devices: [SteerDevice]
@@ -289,6 +300,7 @@ struct StartCodingSheet: View {
                             options: [SubjectTab.issues, .actions, .chat],
                             selection: subjectTab,
                             label: { $0.label },
+                            identifier: { $0.accessibilityIdentifier },
                             onSelect: { subjectTab = $0 }
                         )
                     }

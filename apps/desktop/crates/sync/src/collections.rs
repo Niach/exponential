@@ -352,6 +352,22 @@ pub struct ShapeStatus {
     pub rows: usize,
 }
 
+/// The not-yet-live shapes of a [`Store::shape_statuses`] snapshot, in the
+/// snapshot's own (stable) order. Split out from [`Store::shapes_not_ready`]
+/// so the predicate is unit-testable without an `App`.
+fn not_ready_names(statuses: &[ShapeStatus]) -> Vec<&'static str> {
+    statuses
+        .iter()
+        .filter(|status| {
+            !matches!(
+                status.phase,
+                ShapeSyncPhase::Live | ShapeSyncPhase::Refetching
+            )
+        })
+        .map(|status| status.name)
+        .collect()
+}
+
 /// The 19 collection entities (§5.8). Cloning is cheap — `Entity` handles.
 #[derive(Clone)]
 pub struct Collections {
@@ -827,6 +843,21 @@ impl Store {
         self.collections.statuses(cx)
     }
 
+    /// EXP-633: the shapes that have NOT seen their first `up-to-date` yet,
+    /// by name — the capture pipeline's readiness handshake says what it is
+    /// still waiting for instead of sleeping a fixed number of seconds. The
+    /// predicate is [`Collection::is_ready`]'s (`Live | Refetching`), and an
+    /// empty shape still flips to Live on a bare `up-to-date`, so an account
+    /// with no data reaches ready like any other.
+    pub fn shapes_not_ready(&self, cx: &App) -> Vec<&'static str> {
+        not_ready_names(&self.collections.statuses(cx))
+    }
+
+    /// EXP-633: every subscribed shape has seen its first `up-to-date`.
+    pub fn all_shapes_ready(&self, cx: &App) -> bool {
+        self.shapes_not_ready(cx).is_empty()
+    }
+
     /// Observe every collection entity with a plain `cx.notify()` — for
     /// coarse-grained views (the debug board). Real screens observe only the
     /// collections they read (§5.8 fine-grained rule).
@@ -1083,6 +1114,34 @@ mod tests {
         health.record_failure(now - Duration::from_secs(1), "http 500".into());
         assert_eq!(health.health(now), SyncHealth::Offline);
         HashMap::from([(account_id.to_string(), health)])
+    }
+
+    /// EXP-633: the ready predicate IS `Collection::is_ready` — Live and
+    /// Refetching count as ready (a refetch replays rows the collection
+    /// already has), Waiting and Snapshot do not.
+    #[test]
+    fn not_ready_names_lists_shapes_before_their_first_up_to_date() {
+        let status = |name, phase| ShapeStatus {
+            name,
+            phase,
+            rows: 0,
+        };
+        let statuses = [
+            status("issues", ShapeSyncPhase::Live),
+            status("comments", ShapeSyncPhase::Waiting),
+            status("labels", ShapeSyncPhase::Refetching),
+            status("issue_events", ShapeSyncPhase::Snapshot),
+        ];
+        assert_eq!(
+            not_ready_names(&statuses),
+            vec!["comments", "issue_events"]
+        );
+        let all_live = [
+            status("issues", ShapeSyncPhase::Live),
+            status("labels", ShapeSyncPhase::Refetching),
+        ];
+        assert!(not_ready_names(&all_live).is_empty());
+        assert!(not_ready_names(&[]).is_empty());
     }
 
     #[test]

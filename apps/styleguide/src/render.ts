@@ -4,7 +4,7 @@
  * bytes for the same store, and the page works over `file://`.
  */
 
-import { PLATFORM_FRAME } from "@exp/view-catalog"
+import { DEFAULT_PLATFORMS, PLATFORM_FRAME } from "@exp/view-catalog"
 import type { Platform } from "@exp/view-catalog"
 
 import { client } from "./client.ts"
@@ -16,6 +16,7 @@ const PLATFORM_LABEL: Record<Platform, string> = {
   [`web-mobile`]: `Web mobile`,
   desktop: `Desktop`,
   ios: `iOS`,
+  ipad: `iPad`,
   android: `Android`,
 }
 
@@ -45,7 +46,8 @@ function formatBytes(bytes: number | undefined): string | undefined {
 
 function dotClass(state: Shot[`state`]): string {
   if (state === `ok`) return `ok`
-  return state === `missing` || state === `manual` ? `missing` : `na`
+  if (state === `manual`) return `manual`
+  return state === `missing` ? `missing` : `na`
 }
 
 function placeholderWidth(platform: Platform): number {
@@ -86,9 +88,15 @@ function renderFigure(entry: ViewEntry, shot: Shot): string {
  * sit next to three full-height "not declared for this platform" boxes, which
  * made every such view read as three quarters broken. The reasons still matter,
  * so they collapse into one line under the rail instead of dominating it.
+ *
+ * Only over `DEFAULT_PLATFORMS`: `ipad` is an OPT-IN lane that just eight views
+ * declare, so listing it as a gap on the other forty would turn a deliberate
+ * scope decision into forty "Not on iPad" lines.
  */
 function renderNotApplicable(shots: Shot[]): string {
-  const na = shots.filter((shot) => shot.state === `n/a`)
+  const na = shots.filter(
+    (shot) => shot.state === `n/a` && DEFAULT_PLATFORMS.includes(shot.platform)
+  )
   if (na.length === 0) return ``
   const labels = na.map((shot) => PLATFORM_LABEL[shot.platform]).join(`, `)
   const reasons = na

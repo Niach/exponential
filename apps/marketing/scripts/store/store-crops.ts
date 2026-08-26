@@ -11,7 +11,23 @@
    Sidecars are either a bare rect (`{"x":…,"y":…,"w":…,"h":…}`) or a map keyed
    by form (`{"ios-phone":{…}}`). They are not committed; tune them by eye with
    `--debug-crops`, which writes the raw with every candidate rect stroked and
-   labelled. */
+   labelled.
+
+   Two ways a sidecar comes into being, and the second is the one to reach for:
+
+     MEASURED  the UI tests (`PopRects.swift` / `PopRects.kt`) record the real
+               on-screen frame of the element each store shot is about, and
+               `bun run screenshots:pop-sidecars -- --platform ios|android`
+               merges those recordings into the form-keyed files this module
+               reads. Accurate by construction, and it survives a re-seed.
+     BY EYE    `--debug-crops` renders the raw with every candidate rect stroked
+               and labelled; nudge the numbers and re-run. This is also how a
+               MEASURED rect gets overridden when the element is technically
+               right but reads badly in a 2:1 card.
+
+   `HAND_RECTS` below is the third tier: a committed fallback for a machine that
+   has never run the native lanes at all. It is measured by eye and goes stale —
+   treat a disagreement between it and a fresh sidecar as the sidecar winning. */
 
 import { existsSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
@@ -19,7 +35,7 @@ import type { Form } from "./raw-store"
 
 export type Rect = { x: number; y: number; w: number; h: number }
 
-function valid(r: unknown): r is Rect {
+export function isRect(r: unknown): r is Rect {
   const c = r as Rect | null
   return (
     !!c &&
@@ -104,8 +120,8 @@ function sidecarRect(rawPath: string, shot: string, form: Form): Rect | null {
     return null
   }
   const byForm = (parsed as Record<string, unknown> | null)?.[form]
-  const candidate = valid(byForm) ? byForm : parsed
-  if (!valid(candidate)) {
+  const candidate = isRect(byForm) ? byForm : parsed
+  if (!isRect(candidate)) {
     console.warn(`pop-${shot}.json has no usable rect for ${form} — ignoring`)
     return null
   }

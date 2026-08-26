@@ -60,6 +60,9 @@ const FORM_FACTORS: Record<
   },
 }
 
+/** Both form factors, in the order a run walks them. */
+const FORM_FACTORS_ORDER: readonly FormFactor[] = [`web`, `web-mobile`]
+
 /**
  * Who a view is photographed as, when the manifest does not say.
  *
@@ -90,12 +93,44 @@ interface Credentials {
   landing: string
 }
 
+/**
+ * The one route placeholder that needs the DATABASE, not a constant: the
+ * reporter's magic link is an HMAC over a thread id that only exists after a
+ * seed. Kept out of `resolveRoute` so the browser lane never imports the db
+ * layer unless a view it actually wants asks for it.
+ */
+const DB_PLACEHOLDER = `$supportToken`
+
 /** Placeholder substitution against the seeded demo instance. */
-function resolveRoute(route: string, ctx: RecipeCtx): string {
+function resolveRoute(route: string, ctx: RecipeCtx, supportToken?: string): string {
   return route
     .replaceAll(`$teamSlug`, ctx.demo.teamSlug)
     .replaceAll(`$boardSlug`, ctx.demo.boardSlug)
     .replaceAll(`$inviteToken`, DEMO_INVITE_TOKEN)
+    .replaceAll(DB_PLACEHOLDER, supportToken ?? ``)
+}
+
+/**
+ * Mint the reporter magic link, once, and only when something wants it.
+ *
+ * DYNAMIC import on purpose: `lib/demo-ids.ts` pulls in `@/db/connection`, and a
+ * `--views board` run has no business opening a database connection (or failing
+ * because `DATABASE_URL` is not exported on the capture host). Returns
+ * `undefined` rather than throwing — the token is a credential the host may
+ * legitimately not be able to mint (no `BETTER_AUTH_SECRET`), and one skipped
+ * view is a better outcome than a failed lane.
+ */
+async function resolveSupportToken(): Promise<string | undefined> {
+  try {
+    const { resolveDemoIds } = await import(`./lib/demo-ids`)
+    const ids = await resolveDemoIds()
+    return ids.supportToken
+  } catch (err) {
+    console.warn(
+      `  could not resolve ${DB_PLACEHOLDER}: ${err instanceof Error ? err.message : String(err)}`
+    )
+    return undefined
+  }
 }
 
 interface Args {
@@ -176,9 +211,10 @@ async function captureView(
   page: Page,
   capture: WebCapture,
   ctx: RecipeCtx,
-  outPath: string
+  outPath: string,
+  supportToken?: string
 ): Promise<void> {
-  await page.goto(`${ctx.baseUrl}${resolveRoute(capture.route, ctx)}`)
+  await page.goto(`${ctx.baseUrl}${resolveRoute(capture.route, ctx, supportToken)}`)
 
   // Recipe FIRST, anchor after: most recipe-driven views anchor on text the
   // recipe itself reveals ("Create an account", "Priority", "@Composable"), and
@@ -201,6 +237,18 @@ async function main() {
 
   console.log(`base ${args.baseUrl}`)
   console.log(`out  ${args.out}`)
+
+  // One lookup for the whole run, and only when a wanted view needs it.
+  const wantsToken = FORM_FACTORS_ORDER.some((formFactor) =>
+    args.formFactors.includes(formFactor)
+      ? viewsFor(formFactor).some(
+          (view) =>
+            (!args.viewIds || args.viewIds.includes(view.id)) &&
+            (captureFor(view, formFactor) as WebCapture).route.includes(DB_PLACEHOLDER)
+        )
+      : false
+  )
+  const supportToken = wantsToken ? await resolveSupportToken() : undefined
 
   const browser = await chromium.launch()
   const results: Result[] = []
@@ -234,6 +282,16 @@ async function main() {
           const outPath = resolve(args.out, formFactor, `${view.id}.png`)
           const identity = identityFor(capture)
 
+          if (capture.route.includes(DB_PLACEHOLDER) && !supportToken) {
+            // Skipped, not failed: without the token the route 404s and the shot
+            // would be a "link expired" card filed under the view's name.
+            console.warn(
+              `  skip  ${view.id} — no ${DB_PLACEHOLDER} (re-seed, and export ` +
+                `BETTER_AUTH_SECRET so it can be minted)`
+            )
+            continue
+          }
+
           let page: Page
           let throwaway: BrowserContext | null = null
           if (identity === `anonymous`) {
@@ -256,7 +314,7 @@ async function main() {
           }
 
           try {
-            await captureView(page, capture, ctx, outPath)
+            await captureView(page, capture, ctx, outPath, supportToken)
             results.push({ formFactor, viewId: view.id, bytes: fileSize(outPath) })
             console.log(`  ok    ${view.id}`)
           } catch (err) {

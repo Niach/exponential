@@ -18,7 +18,7 @@ describe(`buildWidgetSnippet`, () => {
   it(`stubs the full public API surface including headless submit`, () => {
     const snippet = buildWidgetSnippet(`expw_abc123`, `https://example.com`)
     expect(snippet).toContain(
-      `["init","identify","setCustomData","setTheme","open","close","submit"]`
+      `["init","identify","setCustomData","setTheme","setLauncherHidden","open","close","submit"]`
     )
   })
 

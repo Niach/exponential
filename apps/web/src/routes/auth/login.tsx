@@ -1,7 +1,7 @@
 import * as React from "react"
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { authClient } from "@/lib/auth/client"
-import { getAuthConfig } from "@/lib/auth/config"
+import { type AuthConfig, getAuthConfig } from "@/lib/auth/config"
 import { captureOAuthResumeUrl } from "@/lib/auth/oauth-resume"
 import { withFirstTouchParams } from "@/lib/conversion/first-touch"
 import { sanitizeRedirectPath } from "@/lib/auth/safe-redirect"
@@ -18,10 +18,29 @@ import {
   useOAuthSignIn,
 } from "@/components/oauth-provider-buttons"
 
+// EXP-632: the server-fn RPC is the only thing standing between a visitor and
+// the login form, and it is also the call most exposed to a broken hop — a
+// proxy (or Node 26's unix-socket fetch) that strips the response headers makes
+// TanStack Start throw `expected content-type header to be set` instead of
+// returning, and the router renders an error boundary over the sole way into
+// the app. `/api/auth-config` is a plain route handler serving the SAME
+// buildAuthConfig() shape, so retrying there keeps login reachable.
+async function loadAuthConfig(): Promise<AuthConfig> {
+  try {
+    return await getAuthConfig()
+  } catch {
+    const res = await fetch(`/api/auth-config`)
+    if (!res.ok) {
+      throw new Error(`Could not load auth config (${res.status})`)
+    }
+    return (await res.json()) as AuthConfig
+  }
+}
+
 export const Route = createFileRoute(`/auth/login`)({
   component: LoginPage,
   ssr: false,
-  loader: () => getAuthConfig(),
+  loader: () => loadAuthConfig(),
   // Pass unknown params through — an in-flight OAuth authorize query
   // (client_id, redirect_uri, ...) must survive router normalization.
   validateSearch: (
