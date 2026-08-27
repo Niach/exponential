@@ -12,10 +12,14 @@
 //! The rules that make it not annoying:
 //!
 //! - **No backfill toasts.** A cold start streams the whole unread history
-//!   into the collection at once. The [`Gate`] arms on the shape's first
-//!   `up-to-date`, seeds a seen-id set from everything present and takes the
-//!   newest `created_at` as a SERVER-clock watermark; only unseen rows newer
-//!   than that can toast. Sign-out / a 409 resync drops the shape out of
+//!   into the collection at once. The [`Gate`] arms on the first observation
+//!   where the shape `is_ready` (a cold start's first `up-to-date`; on a warm
+//!   relaunch the persisted `is_live` makes that the sqlite hydrate itself),
+//!   seeds a seen-id set from everything present and takes the newest
+//!   `created_at` as a SERVER-clock watermark; only unseen rows newer than
+//!   that can toast. So a warm relaunch stays silent for what was cached and
+//!   surfaces what arrived while the app was closed (still unread) as one
+//!   coalesced bundle. Sign-out / a 409 resync drops the shape out of
 //!   `is_ready` and re-arms the gate, so the next hydrate is a backfill again.
 //! - **Coalesced.** A batch PR merge or a busy issue lands several rows
 //!   within seconds; rows arriving inside [`COALESCE_WINDOW`] collapse into
