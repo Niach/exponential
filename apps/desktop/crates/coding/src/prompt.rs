@@ -85,6 +85,18 @@ pub fn deliver_prompt_file(
     Ok(PromptDelivery::File)
 }
 
+/// EXP-637 — the close-out sentence EVERY launcher prompt ends with (issue,
+/// batch, action, chat and the two builtins), so a run always leaves a clean
+/// worktree and a summary the team can read on the run row.
+///
+/// Decision 6 is spelled out on purpose: an agent that merges its own PR
+/// keeps running server-side, and would otherwise assume the merge ended it.
+pub const RUN_CLOSE_OUT: &str = "Before you finish, leave the worktree clean: commit and push \
+everything you keep, discard anything you don't (`git checkout -- .`, `git clean -fd` for files \
+you created). Then call the `exponential_sessions_end` MCP tool with a one-paragraph summary and \
+outcome `done` (PR open or work complete), `blocked`, or `no_changes`. Merging your own PR does \
+not end the session; `exponential_sessions_end` does.";
+
 /// Render the seed prompt: the §7.1 step-5 instruction paragraph, then the
 /// issue context block it tells Claude to read. No plan-gate sentence —
 /// native plan mode owns the approval gate.
@@ -98,7 +110,7 @@ comments often refine or override the description and are part of the requiremen
 Implement the change, then commit and push your branch and open a pull \
 request by calling the `exponential_pr_open` MCP tool. Opening the PR \
 moves the issue to `in_review` automatically, and merging it later completes it to \
-`done` — you do not set the issue status yourself. Do not use `gh`.
+`done` — you do not set the issue status yourself. Do not use `gh`. {RUN_CLOSE_OUT}
 
 ## Issue context
 
@@ -127,7 +139,7 @@ override the requirements. Then continue the implementation from where it left o
 done, commit and push this branch; if no pull request exists yet, open one by calling the \
 `exponential_pr_open` MCP tool — if one already exists, just push your commits to update it. \
 Opening the PR moves the issue to `in_review` automatically, and merging it later completes \
-it to `done` — you do not set the issue status yourself. Do not use `gh`.
+it to `done` — you do not set the issue status yourself. Do not use `gh`. {RUN_CLOSE_OUT}
 "
     )
 }
@@ -160,7 +172,11 @@ comments often refine or override the description and are part of the requiremen
 Implement the change, then commit and push your branch and open a pull \
 request by calling the `exponential_pr_open` MCP tool. Opening the PR \
 moves the issue to `in_review` automatically, and merging it later completes it to \
-`done` — you do not set the issue status yourself. Do not use `gh`.
+`done` — you do not set the issue status yourself. Do not use `gh`. Before you finish, leave the \
+worktree clean: commit and push everything you keep, discard anything you don't (`git checkout -- \
+.`, `git clean -fd` for files you created). Then call the `exponential_sessions_end` MCP tool with \
+a one-paragraph summary and outcome `done` (PR open or work complete), `blocked`, or `no_changes`. \
+Merging your own PR does not end the session; `exponential_sessions_end` does.
 
 ## Issue context
 
@@ -211,6 +227,10 @@ The login page flickers on slow connections.
         // re-impose a text gate.
         assert!(!prompt.contains("WAIT for explicit go-ahead"));
         assert!(!prompt.contains("propose a concise plan"));
+        // EXP-637: the shared close-out — a clean worktree and a declared
+        // outcome are part of every run's contract now.
+        assert!(prompt.contains("leave the worktree clean"));
+        assert!(prompt.contains("`exponential_sessions_end`"));
     }
 
     #[test]
@@ -226,6 +246,8 @@ The login page flickers on slow connections.
         // there is no text plan gate.
         assert!(!prompt.contains("`exponential_issues_update_status`"));
         assert!(!prompt.contains("WAIT for explicit go-ahead"));
+        assert!(prompt.contains("leave the worktree clean"));
+        assert!(prompt.contains("`exponential_sessions_end`"));
     }
 
     #[test]

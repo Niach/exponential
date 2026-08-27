@@ -220,6 +220,7 @@ fn main() {
         }),
         worktrees: Arc::new(GitWorktrees),
         codex_sessions_root: None,
+        claude_projects_root: None,
         device_id: None,
         data_dir: data_dir.to_path_buf(),
     };

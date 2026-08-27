@@ -79,6 +79,13 @@ pub struct PrunePolicy {
     pub finished: HashSet<String>,
     /// Also delete landed prefix branches that have no worktree anymore.
     pub delete_stale_branches: bool,
+    /// EXP-637: the app data dir holding `runs.json`. When set, every RUN
+    /// branch this install recorded for the clone is nominated like a
+    /// `finished` issue — the run cleanup normally removes those worktrees
+    /// at exit, and this is the backstop for the ones it could not (a held
+    /// gate, a crash). Nomination is not permission: git still has to
+    /// confirm the branch landed, and dirty/ahead worktrees survive.
+    pub run_registry_dir: Option<std::path::PathBuf>,
 }
 
 /// Why a nominated worktree survived the pass.
@@ -357,6 +364,17 @@ fn prune_landed_locked(clone: &Path, policy: &PrunePolicy) -> PruneReport {
     let Ok(entries) = list_worktrees(clone) else {
         return report;
     };
+    // EXP-637: this install's own recorded run branches for THIS clone,
+    // nominated exactly like `finished` (git still decides).
+    let recorded_runs: HashSet<String> = policy
+        .run_registry_dir
+        .as_deref()
+        .map(|dir| {
+            crate::run_registry::branches_for_clone(dir, clone)
+                .into_iter()
+                .collect()
+        })
+        .unwrap_or_default();
     let default_branch = effective_default_branch(clone, policy.default_branch.as_deref());
     report.default_branch = default_branch.clone();
     let origin_ref = default_branch.as_deref().map(|branch| format!("origin/{branch}"));
@@ -391,6 +409,7 @@ fn prune_landed_locked(clone: &Path, policy: &PrunePolicy) -> PruneReport {
     let landed_verdict = |branch: &str| -> Option<Result<(), SkipReason>> {
         if !policy.merged.contains(branch)
             && !policy.finished.contains(branch)
+            && !recorded_runs.contains(branch)
             && !prefix_matched(branch)
         {
             return None;

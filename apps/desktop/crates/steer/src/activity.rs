@@ -57,7 +57,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 use regex::Regex;
@@ -1955,6 +1955,12 @@ struct SteerState {
     plan: Option<PendingPlan>,
     ask: Option<PendingAsk>,
     subagents: Subagents,
+    /// EXP-637: is the agent BETWEEN turns? Set by `Stop`/`SessionEnd`/
+    /// `Idle`, cleared by every dispatch/lifecycle edge. Feeds
+    /// [`TurnSignal`], which the graceful stop waits on so an agent that
+    /// just called `exponential_sessions_end` finishes writing its close-out
+    /// before anything tears the child down.
+    turn_idle: bool,
     attention: Option<Attention>,
     live: HashMap<String, LiveQuestion>,
     answered: HashSet<String>,
@@ -2099,6 +2105,9 @@ impl SteerState {
     /// while the main agent genuinely waits on an approval (that one still
     /// clears on main-transcript progress / `Stop`, as ever).
     fn note_agent_activity(&mut self) {
+        // Work is happening: whatever the last turn boundary said, we are
+        // mid-turn again (EXP-637).
+        self.turn_idle = false;
         if self.attention == Some(Attention::Idle) {
             self.attention = None;
         }
@@ -2394,7 +2403,11 @@ impl SteerState {
                     });
                 }
             }
-            HookEventKind::Idle { .. } => self.attention = Some(Attention::Idle),
+            HookEventKind::Idle { .. } => {
+                // Parked on the input box = between turns (EXP-637).
+                self.turn_idle = true;
+                self.attention = Some(Attention::Idle);
+            }
             // The turn ended: whatever the session was waiting on is over.
             // Besides the attention flag, retire any ask/plan still marked
             // pending — normally the transcript flush resolves them
@@ -2415,6 +2428,8 @@ impl SteerState {
                 if self.subagent_sweep != Some(SubagentSweep::SessionEnd) {
                     self.subagent_sweep = Some(sweep);
                 }
+                // EXP-637: the turn is over — the graceful stop may proceed.
+                self.turn_idle = true;
                 self.attention = None;
                 // The turn is over ⇒ no picker can be on the grid, whatever
                 // the (possibly scroll-stuck) watcher last saw (EXP-347).
@@ -3290,6 +3305,75 @@ pub struct EmitterConfig {
     /// (an OAuth sign-in would bind the HOST's machine and billing to the
     /// requester's Anthropic account) — narration only, no tappable flow.
     pub foreign_host: bool,
+    /// EXP-637: the shared turn-state signal the graceful stop waits on.
+    /// `None` = no graceful stop for this session (tests, hosts that tear
+    /// down immediately).
+    pub turn_signal: Option<Arc<TurnSignal>>,
+}
+
+/// EXP-637 — the "is the agent between turns?" signal, shared by the emitter
+/// (which flips it) and the graceful-stop path (which waits on it).
+///
+/// When the agent declares its run over via `exponential_sessions_end`, the
+/// server ends the row while the CLI is still mid-turn — writing its final
+/// message, flushing its transcript. Killing it right then truncates exactly
+/// the output the close-out is about, so the host waits for the next idle
+/// edge (bounded by a timeout) before tearing anything down.
+///
+/// Deliberately tiny and lock-free on the read path: the emitter thread
+/// touches it on every hook/event tick.
+#[derive(Debug, Default)]
+pub struct TurnSignal {
+    idle: AtomicBool,
+    waiters: Mutex<Vec<flume::Sender<()>>>,
+}
+
+impl TurnSignal {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn is_idle(&self) -> bool {
+        self.idle.load(Ordering::Relaxed)
+    }
+
+    /// Record the agent's turn state. A false→true edge wakes every waiter;
+    /// repeated `true`s are cheap no-ops.
+    pub fn set_idle(&self, idle: bool) {
+        let was = self.idle.swap(idle, Ordering::Relaxed);
+        if idle && !was {
+            self.wake();
+        }
+    }
+
+    /// A receiver that fires once the agent is between turns — IMMEDIATELY
+    /// when it already is, otherwise on the next false→true edge.
+    pub fn subscribe(&self) -> flume::Receiver<()> {
+        let (tx, rx) = flume::bounded(1);
+        if self.is_idle() {
+            let _ = tx.try_send(());
+            return rx;
+        }
+        match self.waiters.lock() {
+            Ok(mut waiters) => waiters.push(tx),
+            Err(poisoned) => poisoned.into_inner().push(tx),
+        }
+        // Re-check after registering: the edge may have fired in between.
+        if self.is_idle() {
+            self.wake();
+        }
+        rx
+    }
+
+    fn wake(&self) {
+        let waiters = match self.waiters.lock() {
+            Ok(mut waiters) => std::mem::take(&mut *waiters),
+            Err(poisoned) => std::mem::take(&mut *poisoned.into_inner()),
+        };
+        for waiter in waiters {
+            let _ = waiter.try_send(());
+        }
+    }
 }
 
 /// Start the public activity emitter on a dedicated OS thread. `active` is the
@@ -3864,6 +3948,12 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
             || steer.has_pending_question();
         let pending = picker_pending || steer.attention.is_some();
         needs_input.tick(pending, &config.on_needs_input);
+        // EXP-637: the graceful-stop signal — a parked picker still counts as
+        // between turns (nothing is being written), so `turn_idle` alone
+        // decides.
+        if let Some(signal) = &config.turn_signal {
+            signal.set_idle(steer.turn_idle);
+        }
         if let Some(steering) = &config.steering {
             // The publisher's Enter-cascade guard keys on an ASK picker only
             // (EXP-334): an ask digit selects-and-submits, so its trailing
@@ -4142,6 +4232,60 @@ pub(crate) fn truncate(s: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EXP-637: the graceful-stop signal. Already-idle subscribers fire
+    /// IMMEDIATELY (an agent that called `sessions_end` between turns must
+    /// not wait for a timeout), a busy one on the next false→true edge, and
+    /// repeated `true`s never re-fire a consumed waiter.
+    #[test]
+    fn turn_signal_fires_immediately_when_already_idle() {
+        let signal = TurnSignal::new();
+        assert!(!signal.is_idle());
+        signal.set_idle(true);
+        assert!(signal.is_idle());
+        let rx = signal.subscribe();
+        assert!(rx.try_recv().is_ok(), "an idle signal must fire at once");
+    }
+
+    #[test]
+    fn turn_signal_fires_on_the_next_idle_edge() {
+        let signal = TurnSignal::new();
+        let rx = signal.subscribe();
+        assert!(rx.try_recv().is_err(), "busy: nothing yet");
+        // Staying busy changes nothing.
+        signal.set_idle(false);
+        assert!(rx.try_recv().is_err());
+        signal.set_idle(true);
+        assert!(rx.try_recv().is_ok());
+    }
+
+    #[test]
+    fn turn_signal_wakes_every_waiter_once() {
+        let signal = TurnSignal::new();
+        let first = signal.subscribe();
+        let second = signal.subscribe();
+        signal.set_idle(true);
+        assert!(first.try_recv().is_ok());
+        assert!(second.try_recv().is_ok());
+        // The edge is consumed: a second `true` re-fires nothing on the old
+        // receivers, but a NEW subscriber still gets its immediate hit.
+        signal.set_idle(true);
+        assert!(first.try_recv().is_err());
+        assert!(signal.subscribe().try_recv().is_ok());
+    }
+
+    /// A busy→idle→busy cycle re-arms: the second turn's waiter must wait
+    /// for the SECOND boundary, not inherit the first.
+    #[test]
+    fn turn_signal_rearms_across_turns() {
+        let signal = TurnSignal::new();
+        signal.set_idle(true);
+        signal.set_idle(false);
+        let rx = signal.subscribe();
+        assert!(rx.try_recv().is_err());
+        signal.set_idle(true);
+        assert!(rx.try_recv().is_ok());
+    }
     use std::process::Command;
 
     #[test]

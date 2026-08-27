@@ -129,6 +129,10 @@ pub enum RemoteStartSubject {
         repo: Option<StartRepoGroup>,
         inputs: Vec<StartInput>,
     },
+    /// EXP-637: RESUME an ended action/chat run. The recorded run registry
+    /// answers everything else (agent, cwd, branch, options), so the frame
+    /// carries only the ended session's id.
+    Resume { session_id: String },
 }
 
 /// An inbound `start_session` (§8.3 #4): the subject plus the launch options
@@ -178,7 +182,26 @@ pub(crate) fn remote_start_from_frame(
     plan_mode: Option<bool>,
     skip_permissions: Option<bool>,
     resume: bool,
+    resume_session_id: Option<String>,
 ) -> Option<RemoteStart> {
+    // EXP-637: a resume is its OWN subject and excludes every other one —
+    // the recorded run supplies the rest.
+    if let Some(session_id) = resume_session_id {
+        if issue_id.is_some() || issue_ids.is_some() || action_id.is_some() {
+            return None;
+        }
+        return Some(RemoteStart {
+            subject: RemoteStartSubject::Resume { session_id },
+            started_by,
+            agent: None,
+            model: None,
+            effort: None,
+            ultracode: None,
+            plan_mode: None,
+            skip_permissions: None,
+            resume: false,
+        });
+    }
     let subject = match (issue_id, issue_ids, action_id) {
         (Some(issue_id), None, None) => RemoteStartSubject::Issue(issue_id),
         (None, Some(issue_ids), None) if !issue_ids.is_empty() => RemoteStartSubject::Batch {
@@ -511,10 +534,11 @@ async fn connect_and_listen(
                             plan_mode,
                             skip_permissions,
                             resume,
+                            resume_session_id,
                         }) => match remote_start_from_frame(
                             issue_id, issue_ids, action_id, action_name, team_id, repo, inputs,
                             started_by, agent, model, effort, ultracode, plan_mode,
-                            skip_permissions, resume,
+                            skip_permissions, resume, resume_session_id,
                         ) {
                             Some(start) => {
                                 log::info!("steer control: remote start_session ({:?})", start.subject);
@@ -581,6 +605,75 @@ mod tests {
         }
     }
 
+    /// EXP-637: a resume is its OWN subject. It excludes every other one,
+    /// and it never carries launch options (a resumed run keeps the agent
+    /// and options its record holds).
+    #[test]
+    fn remote_start_from_frame_maps_the_resume_subject() {
+        let start = remote_start_from_frame(
+            None,
+            None,
+            None,
+            None,
+            Some("ws-1".into()),
+            None,
+            None,
+            Some("user-2".into()),
+            Some("codex".into()),
+            Some("opus".into()),
+            None,
+            Some(true),
+            None,
+            Some(true),
+            false,
+            Some("sess-old".into()),
+        )
+        .expect("resume frame");
+        assert_eq!(
+            start.subject,
+            RemoteStartSubject::Resume {
+                session_id: "sess-old".into()
+            }
+        );
+        // The requester still rides (a shared-device resume is attributed).
+        assert_eq!(start.started_by.as_deref(), Some("user-2"));
+        // ... but nothing else does.
+        assert_eq!(start.agent, None);
+        assert_eq!(start.model, None);
+        assert_eq!(start.ultracode, None);
+        assert_eq!(start.skip_permissions, None);
+        assert!(!start.resume);
+
+        // A resume beside any other subject is malformed.
+        for (issue, ids, action) in [
+            (Some("issue-1".to_string()), None, None),
+            (None, Some(vec!["a".to_string()]), None),
+            (None, None, Some("act-1".to_string())),
+        ] {
+            assert_eq!(
+                remote_start_from_frame(
+                    issue,
+                    ids,
+                    action,
+                    Some("Groom".into()),
+                    Some("ws-1".into()),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    false,
+                    Some("sess-old".into()),
+                ),
+                None
+            );
+        }
+    }
+
     #[test]
     fn remote_start_from_frame_maps_the_subject_shapes() {
         // Issue-only → Issue, options carried through.
@@ -601,6 +694,7 @@ mod tests {
                 None,
                 Some(true),
                 false,
+                None,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Issue("issue-9".into()),
@@ -633,6 +727,7 @@ mod tests {
                 Some(false),
                 None,
                 false,
+                None,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Batch {
@@ -672,6 +767,7 @@ mod tests {
                 None,
                 None,
                 false,
+                None,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Issue("issue-9".into()),
@@ -707,6 +803,7 @@ mod tests {
                 None,
                 None,
                 false,
+                None,
             ),
             None
         );
@@ -714,7 +811,7 @@ mod tests {
         assert_eq!(
             remote_start_from_frame(
                 None, None, None, None, None, None, None, None, None, None, None, None, None,
-                None, false,
+                None, false, None,
             ),
             None
         );
@@ -736,6 +833,7 @@ mod tests {
                 None,
                 None,
                 false,
+                None,
             ),
             None
         );
@@ -757,6 +855,7 @@ mod tests {
                 None,
                 None,
                 false,
+                None,
             ),
             None
         );
@@ -778,6 +877,7 @@ mod tests {
                 None,
                 None,
                 false,
+                None,
             ),
             None
         );
@@ -803,6 +903,7 @@ mod tests {
                 None,
                 None,
                 false,
+                None,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Action {
@@ -840,6 +941,7 @@ mod tests {
                 None,
                 None,
                 false,
+                None,
             )
             .map(|start| start.subject),
             Some(RemoteStartSubject::Action {
@@ -889,6 +991,7 @@ mod tests {
                 None,
                 Some(true),
                 false,
+                None,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Action {
@@ -930,6 +1033,7 @@ mod tests {
                 None,
                 None,
                 false,
+                None,
             ),
             None
         );
@@ -951,6 +1055,7 @@ mod tests {
                 None,
                 None,
                 false,
+                None,
             ),
             None
         );
@@ -972,6 +1077,7 @@ mod tests {
                 None,
                 None,
                 false,
+                None,
             ),
             None
         );

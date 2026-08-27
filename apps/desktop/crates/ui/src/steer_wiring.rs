@@ -558,6 +558,9 @@ fn device_caps(advertisement: &coding::AgentAdvertisement) -> Vec<String> {
                 "automations",
                 // EXP-615: this build runs the hidden `builtin:chat` action.
                 "chat",
+                // EXP-637: this build can RESUME an ended action/chat run
+                // out of its own run registry.
+                "resume-run",
             ]
             .iter()
             .map(|cap| cap.to_string()),
@@ -629,6 +632,16 @@ fn handle_remote_start(start: steer::RemoteStart, cx: &mut App) {
             inputs,
             ..
         } => remote_action_start(action_id, team_id, repo, inputs, &start, cx),
+        // EXP-637: resume an ended action/chat run out of the local run
+        // registry — no repo/inputs/options ride the frame (the record has
+        // them), so this is the shortest arm of the four.
+        steer::RemoteStartSubject::Resume { session_id } => crate::action_run::resume_run(
+            session_id,
+            None,
+            true,
+            relay_origin(cx, start.started_by.clone()),
+            cx,
+        ),
     }
 }
 
@@ -1060,6 +1073,10 @@ struct PublisherEntry {
     /// §P7: the activity emitter's run flag (members-only activity channel);
     /// flipping it `false` stops the thread on teardown.
     activity_active: Arc<AtomicBool>,
+    /// EXP-637: the emitter's turn-state signal — the graceful stop waits on
+    /// it so an agent that just called `exponential_sessions_end` finishes
+    /// writing its close-out before anything tears the child down.
+    turn_signal: Arc<steer::TurnSignal>,
 }
 
 /// Session-keyed publisher handles — parallels `coding_flow::LocalSessions`
@@ -1091,9 +1108,13 @@ impl PublisherRegistry {
 enum SteerUiEvent {
     /// A surfaced publisher error (clock skew, repeated rejects — §8.7).
     Error(String),
-    /// End the session: a relay `kill` frame OR the own-row Electric kill
-    /// (§8.4/§8.8). Kills the child + stops the publisher; drains stop after.
+    /// End the session: a relay `kill` frame. Kills the child + stops the
+    /// publisher; drains stop after.
     Teardown,
+    /// EXP-637: the own-row Electric kill (§8.8) with the ended row's
+    /// close-out. Which teardown it gets is [`ended_policy`]'s call — an
+    /// AGENT-declared end is the run finishing itself, not a kill.
+    Ended(sync::kill_watch::EndedFacts),
 }
 
 /// The per-session facts the emitter needs off a `PreparedLaunch`, snapshotted
@@ -1263,6 +1284,9 @@ pub fn attach_publisher(
     // and redacts before sending. Best-effort: a relay-disabled instance just
     // drops the sends.
     let activity_active = Arc::new(AtomicBool::new(true));
+    // EXP-637: the emitter flips it on every turn boundary; the graceful
+    // stop waits on it before tearing an agent-ended run down.
+    let turn_signal = Arc::new(steer::TurnSignal::new());
     // EXP-214: forward the emitter's picker-pending flips to the synced
     // `coding_sessions.needs_input` column so every client can badge
     // "Needs input". Runs on the emitter thread (blocking HTTP is fine
@@ -1345,6 +1369,7 @@ pub fn attach_publisher(
             codex_originator,
             codex_resume_id,
             foreign_host,
+            turn_signal: Some(turn_signal.clone()),
         },
         handle.activity_sender(),
         activity_active.clone(),
@@ -1358,6 +1383,7 @@ pub fn attach_publisher(
             PublisherEntry {
                 handle,
                 activity_active,
+                turn_signal,
             },
         );
     });
@@ -1375,8 +1401,8 @@ pub fn attach_publisher(
             watch.watch(
                 session_id.to_string(),
                 own_user_id,
-                Box::new(move || {
-                    let _ = teardown_tx.send(SteerUiEvent::Teardown);
+                Box::new(move |facts| {
+                    let _ = teardown_tx.send(SteerUiEvent::Ended(facts));
                 }),
                 cx,
             );
@@ -1416,7 +1442,108 @@ fn apply_steer_event(
             teardown_session(session_id, manager, tab, cx);
             true
         }
+        SteerUiEvent::Ended(facts) => apply_ended(session_id, manager, tab, facts, cx),
     }
+}
+
+/// EXP-637 — what to do when a watched session's row flips to `ended`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum EndPolicy {
+    /// Tear the tab down at once — the pre-EXP-637 behavior for every kill.
+    CloseNow,
+    /// The agent declared its own run over on a machine nobody is watching
+    /// (an automation fired it): let the turn finish, then close the tab.
+    CloseAfterTurn,
+    /// The agent declared its own run over on a tab a PERSON opened: let the
+    /// turn finish, then keep the tab and show the ended strip (summary +
+    /// Resume). Closing it would throw away exactly what they asked for.
+    KeepStripAfterTurn,
+}
+
+/// The policy for one ended row. `automated` = the run was started by an
+/// automation (`coding_sessions.started_reason`), i.e. nobody is looking at
+/// the tab.
+pub(crate) fn ended_policy(ended_by: Option<&str>, automated: bool) -> EndPolicy {
+    if ended_by != Some(domain::contract::CODING_SESSION_ENDED_BY_AGENT) {
+        // A kill, a client end, a merge, the sweep — all of them mean "this
+        // run is over, now", exactly as before.
+        return EndPolicy::CloseNow;
+    }
+    if automated {
+        EndPolicy::CloseAfterTurn
+    } else {
+        EndPolicy::KeepStripAfterTurn
+    }
+}
+
+/// Apply an ended row's [`EndPolicy`]. Returns `true` when the per-session
+/// drain should stop (every policy ends the session one way or another).
+fn apply_ended(
+    session_id: &str,
+    manager: &WeakEntity<TerminalManager>,
+    tab: TabId,
+    facts: sync::kill_watch::EndedFacts,
+    cx: &mut App,
+) -> bool {
+    let automated = crate::coding_flow::LocalSessions::global_ref(cx)
+        .map(|sessions| sessions.read(cx).is_automated(session_id))
+        .unwrap_or(false);
+    let policy = ended_policy(facts.ended_by.as_deref(), automated);
+    log::info!("steer [{session_id}]: row ended ({:?}) → {policy:?}", facts.ended_by);
+    let signal = PublisherRegistry::global_ref(cx).and_then(|registry| {
+        registry
+            .read(cx)
+            .entries
+            .get(session_id)
+            .map(|entry| entry.turn_signal.clone())
+    });
+    match policy {
+        EndPolicy::CloseNow => {
+            teardown_session(session_id, manager, tab, cx);
+        }
+        EndPolicy::CloseAfterTurn => {
+            let session_id = session_id.to_string();
+            let manager = manager.clone();
+            crate::graceful_stop::after_turn(
+                &session_id.clone(),
+                signal,
+                move |cx| teardown_session(&session_id, &manager, tab, cx),
+                cx,
+            );
+        }
+        EndPolicy::KeepStripAfterTurn => {
+            // The strip goes up NOW (the run IS over server-side), while the
+            // child gets its turn to finish writing.
+            let resumable = crate::coding_flow::run_is_resumable(session_id, cx);
+            crate::ended_runs::EndedRuns::insert(
+                tab,
+                crate::ended_runs::EndedRun {
+                    session_id: session_id.to_string(),
+                    outcome: facts.outcome.clone(),
+                    summary: facts.summary.clone(),
+                    resumable,
+                    left_dirty: None,
+                },
+                cx,
+            );
+            // Detach the steer side immediately — the row is ended, so the
+            // publisher has nothing left to say — but KEEP the tab.
+            detach_publisher(session_id, Some("ended".to_string()), cx);
+            let session_id = session_id.to_string();
+            let manager = manager.clone();
+            crate::graceful_stop::after_turn(
+                &session_id.clone(),
+                signal,
+                move |cx| {
+                    if let Some(manager) = manager.upgrade() {
+                        manager.update(cx, |manager, cx| manager.kill_tab(tab, cx));
+                    }
+                },
+                cx,
+            );
+        }
+    }
+    true
 }
 
 /// End a published session (relay `kill` or own-row Electric kill, §8.4/§8.8):

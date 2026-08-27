@@ -608,8 +608,18 @@ impl TrunkSync {
     /// holding sync off for them parked the trunk stale indefinitely — and an
     /// ff under an interactive session is the same event as the manual pull
     /// it replaces.
+    /// EXP-637 narrowed it further: an action/chat run works in its OWN
+    /// worktree now, so only a tab whose cwd IS the clone ROOT can be
+    /// disturbed by an ff — a run worktree is a different tree entirely, and
+    /// holding sync off for it parked the trunk stale for nothing.
     pub(crate) fn repo_tasks_alive(&self, window: &Window, cx: &App) -> bool {
-        self.repo_tabs_alive(window, cx, |kind| matches!(kind, TabKind::Action(_)))
+        let Some(repo) = &self.repo else {
+            return false;
+        };
+        let clone = repo.clone.clone();
+        self.repo_tabs_alive_where(window, cx, |kind| matches!(kind, TabKind::Action(_)), move |cwd| {
+            cwd == clone
+        })
     }
 
     /// [`Self::repo_tasks_alive`] widened to promptless agent shells — NOT a
@@ -619,6 +629,32 @@ impl TrunkSync {
     pub(crate) fn repo_agents_alive(&self, window: &Window, cx: &App) -> bool {
         self.repo_tabs_alive(window, cx, |kind| {
             matches!(kind, TabKind::Action(_) | TabKind::AgentShell)
+        })
+    }
+
+    /// The pure half of [`Self::repo_tasks_alive`] (EXP-637), so the
+    /// "only the clone ROOT" rule is testable without a window: an action
+    /// tab in the clone root holds sync off; the same tab in one of the
+    /// clone's worktrees does not.
+    pub(crate) fn tab_holds_trunk_sync(clone: &Path, cwd: Option<&Path>) -> bool {
+        cwd == Some(clone)
+    }
+
+    /// [`Self::repo_tabs_alive`] with an explicit cwd predicate.
+    fn repo_tabs_alive_where(
+        &self,
+        window: &Window,
+        cx: &App,
+        kind_matches: impl Fn(&TabKind) -> bool,
+        cwd_matches: impl Fn(&Path) -> bool,
+    ) -> bool {
+        let Some(manager) = crate::coding_flow::window_terminal_manager(window, cx) else {
+            return false;
+        };
+        manager.read(cx).tabs().iter().any(|tab| {
+            kind_matches(&tab.kind)
+                && tab.is_running()
+                && tab.cwd.as_deref().is_some_and(&cwd_matches)
         })
     }
 
@@ -1305,6 +1341,32 @@ fn carry_prune_policy(issues_ready: bool, boards_ready: bool) -> bool {
 mod tests {
     use super::*;
     use coding::scm::{ConflictKind, ConflictState};
+
+    /// EXP-637: an action/chat run works in its OWN worktree now, so only a
+    /// tab sitting in the clone ROOT can be disturbed by an autopull ff.
+    /// Holding sync off for run worktrees parked the trunk stale for
+    /// nothing — and worse, indefinitely (a chat tab lives for hours).
+    #[test]
+    fn only_a_clone_root_tab_holds_trunk_sync_off() {
+        let clone = Path::new("/repos/acme/web");
+        assert!(TrunkSync::tab_holds_trunk_sync(clone, Some(clone)));
+        // A run worktree under the clone's `.worktrees` dir does NOT.
+        assert!(!TrunkSync::tab_holds_trunk_sync(
+            clone,
+            Some(Path::new("/repos/acme/web.worktrees/chat-1a2b3c4d"))
+        ));
+        // Nor a subdirectory of the clone (an agent that cd'd deeper).
+        assert!(!TrunkSync::tab_holds_trunk_sync(
+            clone,
+            Some(Path::new("/repos/acme/web/crates/ui"))
+        ));
+        // Nor an unrelated repo, nor a cwd-less tab.
+        assert!(!TrunkSync::tab_holds_trunk_sync(
+            clone,
+            Some(Path::new("/repos/other/repo"))
+        ));
+        assert!(!TrunkSync::tab_holds_trunk_sync(clone, None));
+    }
 
     fn trunk(branch: &str, ahead: u32, dirty: bool) -> TrunkState {
         TrunkState {

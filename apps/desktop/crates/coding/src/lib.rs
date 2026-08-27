@@ -60,6 +60,8 @@ pub mod prompt;
 pub mod prune;
 pub mod remote_admin;
 pub mod reaper;
+pub mod run_cleanup;
+pub mod run_registry;
 pub mod scm;
 pub mod settings;
 #[cfg(test)]
@@ -76,11 +78,13 @@ pub use argv::{
     HOOK_PORT_ENV, MCP_TOKEN_ENV, MCP_URL_ENV, OBSERVER_TOKEN_ENV, OBSERVER_URL_ENV,
 };
 pub use batch_launcher::{
-    batch_branch_name, new_batch_id, BatchIssueSpec, BatchLaunchRequest, RepoGroup,
+    action_run_branch, action_slug, batch_branch_name, chat_run_branch, new_batch_id, new_run_id,
+    BatchIssueSpec, BatchLaunchRequest, RepoGroup, CHAT_BRANCH_PREFIX, RUN_BRANCH_PREFIX,
 };
 pub use action_prompt::{
-    create_action_prompt, fix_pr_conflicts_prompt, render_action_prompt,
-    render_action_prompt_with_trigger, ActionInputValue, TriggerNote, TriggerNoteKind,
+    chat_prompt, create_action_prompt, fix_pr_conflicts_prompt, render_action_prompt,
+    render_action_prompt_full, render_action_prompt_with_trigger, render_run_resume_prompt,
+    ActionInputValue, TriggerNote, TriggerNoteKind, WorkspaceNote,
 };
 pub use batch_prompt::{render_batch_prompt, BatchPromptArgs};
 pub use clone_manager::{AutoSyncOutcome, CloneEvent};
@@ -109,9 +113,10 @@ pub use launcher::{
     prepare_with_hooks, ActionLaunchRequest, ActionRunKind,
     AgentShellLaunch, AgentShellRequest, CodingDeps, CodingError, DisabledReason,
     GitWorktrees, HookSetup, IssueSeed, IssueSeedFn, LaunchOrigin, LaunchOutcome, LaunchRequest,
-    ObserverSetup, SessionEndObserver,
+    ObserverSetup, ResumeRunRequest, SessionEndObserver,
     Prepared, PreparedAgentShell, PrepareRequest, PreparedLaunch, WorktreeProvider,
 };
+pub use run_cleanup::{remove_if_clean, CleanupOutcome, RunCleanup};
 pub use mcp_json::{
     remove_stale_legacy_mcp_json, render_mcp_json, write_mcp_json, MCP_JSON_FILE,
 };

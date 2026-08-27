@@ -240,6 +240,7 @@ fn main() {
             codex_originator: None,
             codex_resume_id: None,
             foreign_host: false,
+            turn_signal: None,
             pi_events: Some(pi_events),
         },
         handle.activity_sender(),

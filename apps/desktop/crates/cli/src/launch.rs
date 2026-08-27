@@ -104,6 +104,7 @@ pub fn coding_deps(ctx: &Ctx, seeds: HashMap<String, IssueSeed>, host: LaunchHos
         issue_seed: Arc::new(move |issue_id: &str| seeds.get(issue_id).cloned()),
         worktrees: Arc::new(GitWorktrees),
         codex_sessions_root: None,
+        claude_projects_root: None,
         // A relay-origin start still stamps the frame's own deviceId
         // (`attribution` prefers it) — this is only the fallback for starts
         // that name no device.
@@ -355,6 +356,9 @@ pub fn resolve_action_request(
     };
 
     Ok(ActionLaunchRequest {
+        // EXP-637: minted here, exactly like the desktop's action_run —
+        // it names the run's worktree branch and keys its `runs.json` record.
+        run_id: coding::new_run_id(),
         action_id: action.id.clone(),
         action_name: action.name.clone(),
         team_id: action.team_id.clone(),

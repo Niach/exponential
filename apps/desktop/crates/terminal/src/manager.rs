@@ -222,6 +222,22 @@ impl TerminalManager {
         cx.notify();
     }
 
+    /// EXP-637: kill a tab's child but KEEP the tab (and its scrollback).
+    /// An agent that ended its own run leaves an ended strip a person is
+    /// meant to read — closing the tab would throw away exactly that. The
+    /// normal exit path follows (`handle_exit` flips Running→Exited and fires
+    /// the exit hook), so the session bookkeeping is unchanged.
+    /// A no-op on an already-exited tab.
+    pub fn kill_tab(&mut self, id: TabId, cx: &mut Context<Self>) {
+        let Some(tab) = self.tabs.iter().find(|tab| tab.id == id) else {
+            return;
+        };
+        if !tab.is_running() {
+            return;
+        }
+        tab.view.update(cx, |view, _| view.session().borrow().kill());
+    }
+
     pub fn close_active(&mut self, cx: &mut Context<Self>) {
         if let Some(tab) = self.active_tab() {
             let id = tab.id;

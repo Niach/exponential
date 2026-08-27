@@ -242,6 +242,9 @@ fn watch_devices_shape(
 struct BeatSnapshot {
     trpc: Arc<api::TrpcClient>,
     device_id: String,
+    /// The app data dir — EXP-637's `runs.json` lives here, and the remote
+    /// prune command nominates its recorded run branches.
+    data_dir: PathBuf,
     settings_path: PathBuf,
     repos_root: PathBuf,
     branch_prefix: String,
@@ -256,9 +259,9 @@ fn snapshot_for(account_id: &str, cx: &mut App) -> Option<BeatSnapshot> {
         return None;
     }
     let trpc = Arc::new(queries::trpc_client(cx)?);
-    let auth = crate::session::AuthContext::global(cx);
-    let device_id = steer::persistent_device_id(&auth.data_dir);
-    let settings_path = coding::Settings::default_path(&auth.data_dir);
+    let data_dir = crate::session::AuthContext::global(cx).data_dir.clone();
+    let device_id = steer::persistent_device_id(&data_dir);
+    let settings_path = coding::Settings::default_path(&data_dir);
     let sessions = LocalSessions::global(cx);
     let sessions = sessions.read(cx);
     let held_branches: HashSet<String> =
@@ -268,6 +271,7 @@ fn snapshot_for(account_id: &str, cx: &mut App) -> Option<BeatSnapshot> {
     Some(BeatSnapshot {
         trpc,
         device_id,
+        data_dir,
         repos_root: settings.repos_root_path(),
         branch_prefix: settings.branch_prefix.clone(),
         settings_path,
@@ -467,6 +471,7 @@ fn push_defaults(
 pub(crate) fn push_local_defaults_if_changed(
     trpc: api::TrpcClient,
     settings_path: PathBuf,
+    data_dir: PathBuf,
     device_id: String,
     settings: coding::Settings,
 ) {
@@ -478,6 +483,7 @@ pub(crate) fn push_local_defaults_if_changed(
     let snapshot = BeatSnapshot {
         trpc: Arc::new(trpc),
         device_id,
+        data_dir: data_dir.clone(),
         settings_path,
         repos_root: settings.repos_root_path(),
         branch_prefix: settings.branch_prefix.clone(),
@@ -512,6 +518,9 @@ fn run_device_command(snapshot: &BeatSnapshot, command: &api::devices::PendingCo
                 &snapshot.branch_prefix,
                 snapshot.held_branches.clone(),
                 Vec::new(),
+                // EXP-637: nominate this install's own recorded run branches
+                // too (git still has to confirm they landed).
+                Some(snapshot.data_dir.clone()),
             );
             let mut removed = 0usize;
             let mut skipped = 0usize;

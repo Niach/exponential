@@ -201,8 +201,10 @@ fn assemble(
         })
         .unwrap_or_default();
     let mut prefixes = vec![prefix];
-    if !prefixes.contains(&BATCH_PREFIX.to_string()) {
-        prefixes.push(BATCH_PREFIX.to_string());
+    for hardcoded in [BATCH_PREFIX, coding::CHAT_BRANCH_PREFIX] {
+        if !prefixes.iter().any(|p| p == hardcoded) {
+            prefixes.push(hardcoded.to_string());
+        }
     }
     PrunePolicy {
         prefixes,
@@ -212,6 +214,10 @@ fn assemble(
         merged,
         finished,
         delete_stale_branches: true,
+        // EXP-637: the backstop for run worktrees the run cleanup could not
+        // remove at exit (a held gate, a crash). Nomination only — git still
+        // decides, and dirty/ahead worktrees survive.
+        run_registry_dir: crate::window_size::app_data_dir(),
     }
 }
 

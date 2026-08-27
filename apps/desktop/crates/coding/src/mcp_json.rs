@@ -68,13 +68,18 @@ struct McpServer<'a> {
 struct Headers<'a> {
     #[serde(rename = "Authorization")]
     authorization: String,
-    #[serde(skip)]
-    _marker: std::marker::PhantomData<&'a ()>,
+    /// EXP-637: the `coding_sessions` row this launch created — the server
+    /// resolves `exponential_sessions_end` (and the self-merge spare) from
+    /// it. Not a secret; absent entirely outside a launched session, which
+    /// keeps the pre-EXP-637 document byte-identical.
+    #[serde(rename = "X-Exp-Session-Id", skip_serializing_if = "Option::is_none")]
+    session_id: Option<&'a str>,
 }
 
 /// Render the exact file content (2-space pretty JSON + trailing newline).
-/// `base_url` tolerates a trailing slash.
-pub fn render_mcp_json(base_url: &str, personal_key: &str) -> String {
+/// `base_url` tolerates a trailing slash. `session_id` (EXP-637) adds the
+/// `X-Exp-Session-Id` header; `None` renders the legacy document unchanged.
+pub fn render_mcp_json(base_url: &str, personal_key: &str, session_id: Option<&str>) -> String {
     let origin = base_url.trim_end_matches('/');
     let file = McpFile {
         mcp_servers: McpServers {
@@ -83,7 +88,7 @@ pub fn render_mcp_json(base_url: &str, personal_key: &str) -> String {
                 url: format!("{origin}/api/mcp"),
                 headers: Headers {
                     authorization: format!("Bearer {personal_key}"),
-                    _marker: std::marker::PhantomData,
+                    session_id,
                 },
             },
         },
@@ -106,9 +111,10 @@ pub fn write_mcp_json(
     worktree: &Path,
     base_url: &str,
     personal_key: &str,
+    session_id: Option<&str>,
 ) -> io::Result<PathBuf> {
     let path = worktree.join(MCP_JSON_FILE);
-    let content = render_mcp_json(base_url, personal_key);
+    let content = render_mcp_json(base_url, personal_key, session_id);
     write_private(&path, &content)?;
     remove_stale_legacy_mcp_json(worktree);
     Ok(path)
@@ -182,15 +188,39 @@ mod tests {
     #[test]
     fn renders_exact_bytes() {
         assert_eq!(
-            render_mcp_json("https://app.exponential.at", "expu_rawkey123"),
+            render_mcp_json("https://app.exponential.at", "expu_rawkey123", None),
             EXPECTED
+        );
+    }
+
+    /// EXP-637: a launched session pins its row id in a THIRD header line —
+    /// the rest of the document is unchanged, so old readers keep working.
+    #[test]
+    fn renders_the_session_header_when_launched() {
+        let with_session =
+            render_mcp_json("https://app.exponential.at", "expu_rawkey123", Some("sess-1"));
+        assert_eq!(
+            with_session,
+            r#"{
+  "mcpServers": {
+    "exponential": {
+      "type": "http",
+      "url": "https://app.exponential.at/api/mcp",
+      "headers": {
+        "Authorization": "Bearer expu_rawkey123",
+        "X-Exp-Session-Id": "sess-1"
+      }
+    }
+  }
+}
+"#
         );
     }
 
     #[test]
     fn trailing_slash_on_base_url_is_normalized() {
         assert_eq!(
-            render_mcp_json("https://app.exponential.at/", "expu_rawkey123"),
+            render_mcp_json("https://app.exponential.at/", "expu_rawkey123", None),
             EXPECTED
         );
     }
@@ -208,12 +238,12 @@ mod tests {
         ));
         fs::create_dir_all(&dir).unwrap();
 
-        let path = write_mcp_json(&dir, "http://localhost:8321", "expu_first").unwrap();
+        let path = write_mcp_json(&dir, "http://localhost:8321", "expu_first", None).unwrap();
         assert_eq!(path, dir.join(".exp-mcp.json"));
         assert!(fs::read_to_string(&path).unwrap().contains("Bearer expu_first"));
 
         // Relaunch after a §7.2 Regenerate: the fresh key replaces the old.
-        write_mcp_json(&dir, "http://localhost:8321", "expu_second").unwrap();
+        write_mcp_json(&dir, "http://localhost:8321", "expu_second", None).unwrap();
         let content = fs::read_to_string(&path).unwrap();
         assert!(content.contains("Bearer expu_second"));
         assert!(!content.contains("expu_first"));
@@ -250,11 +280,11 @@ mod tests {
         let dir = temp_dir("legacy");
         fs::write(
             dir.join(LEGACY_MCP_JSON_FILE),
-            render_mcp_json("http://localhost:8321", "expu_stale"),
+            render_mcp_json("http://localhost:8321", "expu_stale", None),
         )
         .unwrap();
 
-        write_mcp_json(&dir, "http://localhost:8321", "expu_fresh").unwrap();
+        write_mcp_json(&dir, "http://localhost:8321", "expu_fresh", None).unwrap();
         assert!(!dir.join(LEGACY_MCP_JSON_FILE).exists(), "stale file must go");
         assert!(dir.join(MCP_JSON_FILE).exists());
 
@@ -273,7 +303,7 @@ mod tests {
         let garbled_dir = temp_dir("garbled");
         fs::write(garbled_dir.join(LEGACY_MCP_JSON_FILE), "{not json").unwrap();
 
-        write_mcp_json(&dir, "http://localhost:8321", "expu_fresh").unwrap();
+        write_mcp_json(&dir, "http://localhost:8321", "expu_fresh", None).unwrap();
         remove_stale_legacy_mcp_json(&garbled_dir);
 
         assert_eq!(

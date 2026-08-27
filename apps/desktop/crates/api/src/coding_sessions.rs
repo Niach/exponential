@@ -58,6 +58,16 @@ pub struct CodingSession {
     /// `coding_session_status`).
     #[serde(default)]
     pub status: Option<String>,
+    /// EXP-637 close-out — who ended the run (`agent`/`user`/`client`/
+    /// `merge`/`system`), the agent's declared `outcome`
+    /// (`done`/`blocked`/`no_changes`) and its one-paragraph `summary`.
+    /// All `None` on live rows and on rows written by pre-EXP-637 servers.
+    #[serde(default)]
+    pub ended_by: Option<String>,
+    #[serde(default)]
+    pub outcome: Option<String>,
+    #[serde(default)]
+    pub summary: Option<String>,
     #[serde(default)]
     pub started_at: Option<String>,
     #[serde(default)]
@@ -129,6 +139,14 @@ struct StartActionInput<'a> {
     started_by_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     device_id: Option<&'a str>,
+    /// EXP-637: the run branch this session works on (`exp/<slug>-<id8>` /
+    /// `exp/chat-<id8>`). The server refuses it beside an `issueId`; absent
+    /// on repo-less scratch runs, so old servers never see the field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    branch: Option<&'a str>,
+    /// EXP-637: the ended session this run resumes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    resumed_from_id: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -164,6 +182,10 @@ pub struct HeartbeatScope {
     /// EXP-583: the firing `automations` row, echoed for the same reason —
     /// a resurrected row keeps pointing at the automation that started it.
     pub automation_id: Option<String>,
+    /// EXP-637: the run branch, echoed so a resurrected row keeps pointing
+    /// at the worktree the agent is actually working in. `None` on issue
+    /// scopes (the server refuses it there) and on repo-less runs.
+    pub branch: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -188,6 +210,8 @@ struct HeartbeatInput<'a> {
     started_reason: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     automation_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    branch: Option<&'a str>,
 }
 
 #[derive(Deserialize)]
@@ -301,26 +325,39 @@ pub fn start_batch(
 /// automation-started run — `None` for every user start; EXP-583 pairs it
 /// with the firing `automation_id` (the server refuses one without the
 /// other).
-#[allow(clippy::too_many_arguments)] // one wire input, one call site
+/// EXP-637: the argument bag for [`start_action`] — the positional list
+/// outgrew readability once the run branch and the resume link joined it.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ActionStart<'a> {
+    pub action_id: &'a str,
+    pub team_id: Option<&'a str>,
+    pub started_reason: Option<&'a str>,
+    pub automation_id: Option<&'a str>,
+    pub device_label: Option<&'a str>,
+    /// The run's dedicated branch (EXP-637 worktree-per-run); `None` on
+    /// repo-less scratch runs.
+    pub branch: Option<&'a str>,
+    /// The ended session this run resumes; `None` on a fresh run.
+    pub resumed_from_id: Option<&'a str>,
+    pub attribution: Attribution<'a>,
+}
+
 pub fn start_action(
     trpc: &TrpcClient,
-    action_id: &str,
-    team_id: Option<&str>,
-    started_reason: Option<&str>,
-    automation_id: Option<&str>,
-    device_label: Option<&str>,
-    attribution: Attribution,
+    start: ActionStart<'_>,
 ) -> Result<CodingSession, ApiError> {
     let envelope: SessionEnvelope = trpc.mutation(
         "codingSessions.start",
         &StartActionInput {
-            action_id,
-            team_id,
-            started_reason,
-            automation_id,
-            device_label,
-            started_by_id: attribution.started_by_id,
-            device_id: attribution.device_id,
+            action_id: start.action_id,
+            team_id: start.team_id,
+            started_reason: start.started_reason,
+            automation_id: start.automation_id,
+            device_label: start.device_label,
+            started_by_id: start.attribution.started_by_id,
+            device_id: start.attribution.device_id,
+            branch: start.branch,
+            resumed_from_id: start.resumed_from_id,
         },
     )?;
     Ok(envelope.session)
@@ -384,6 +421,7 @@ pub fn heartbeat(
             device_id: scope.and_then(|scope| scope.device_id.as_deref()),
             started_reason: scope.and_then(|scope| scope.started_reason.as_deref()),
             automation_id: scope.and_then(|scope| scope.automation_id.as_deref()),
+            branch: scope.and_then(|scope| scope.branch.as_deref()),
         },
     )?;
     Ok(envelope.alive)
@@ -507,6 +545,7 @@ mod tests {
             device_id: Some("dev-1".to_string()),
             started_reason: None,
             automation_id: None,
+            branch: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -553,6 +592,7 @@ mod tests {
             device_id: None,
             started_reason: None,
             automation_id: None,
+            branch: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -573,6 +613,7 @@ mod tests {
             device_id: None,
             started_reason: None,
             automation_id: None,
+            branch: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -590,12 +631,11 @@ mod tests {
         );
         let session = start_action(
             &client(&base),
-            "act-1",
-            None,
-            None,
-            None,
-            Some("testbox"),
-            Attribution::default(),
+            ActionStart {
+                action_id: "act-1",
+                device_label: Some("testbox"),
+                ..ActionStart::default()
+            },
         )
         .unwrap();
         assert_eq!(session.id, "sess-a");
@@ -621,12 +661,12 @@ mod tests {
         );
         let session = start_action(
             &client(&base),
-            "builtin:create-action",
-            Some("ws-1"),
-            None,
-            None,
-            Some("testbox"),
-            Attribution::default(),
+            ActionStart {
+                action_id: "builtin:create-action",
+                team_id: Some("ws-1"),
+                device_label: Some("testbox"),
+                ..ActionStart::default()
+            },
         )
         .unwrap();
         assert_eq!(session.id, "sess-c");
@@ -652,12 +692,13 @@ mod tests {
         );
         start_action(
             &client(&base),
-            "act-1",
-            None,
-            Some("schedule"),
-            Some("auto-1"),
-            Some("testbox"),
-            Attribution::default(),
+            ActionStart {
+                action_id: "act-1",
+                started_reason: Some("schedule"),
+                automation_id: Some("auto-1"),
+                device_label: Some("testbox"),
+                ..ActionStart::default()
+            },
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -683,6 +724,7 @@ mod tests {
             device_id: None,
             started_reason: None,
             automation_id: None,
+            branch: None,
         };
         assert!(heartbeat(&client(&base), "sess-a", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -708,12 +750,83 @@ mod tests {
             device_id: None,
             started_reason: Some("schedule".to_string()),
             automation_id: Some("auto-1".to_string()),
+            branch: None,
         };
         assert!(heartbeat(&client(&base), "sess-a", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(
             r#"{"id":"sess-a","teamId":"ws-1","actionId":"act-1","actionName":"Code review","startedReason":"schedule","automationId":"auto-1"}"#
         ));
+    }
+
+    #[test]
+    fn start_action_posts_the_run_branch_and_resume_link() {
+        // EXP-637: worktree-per-run — the row records the branch the agent
+        // works on, and a resumed run points back at the ended session it
+        // continues. Both ride behind skip_serializing_if, so the wire above
+        // stays byte-identical for old servers.
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"session":{
+                "id":"sess-a","issueId":null,"teamId":"ws-1",
+                "actionId":"act-1","actionName":"Code review",
+                "userId":"user-1","status":"running"}}}}"#,
+        );
+        start_action(
+            &client(&base),
+            ActionStart {
+                action_id: "act-1",
+                device_label: Some("testbox"),
+                branch: Some("exp/code-review-1a2b3c4d"),
+                resumed_from_id: Some("sess-old"),
+                ..ActionStart::default()
+            },
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(
+            r#"{"actionId":"act-1","deviceLabel":"testbox","branch":"exp/code-review-1a2b3c4d","resumedFromId":"sess-old"}"#
+        ));
+    }
+
+    #[test]
+    fn heartbeat_posts_the_run_branch() {
+        // EXP-637: a swept run row resurrects still pointing at its worktree.
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"alive":true}}}"#);
+        let scope = HeartbeatScope {
+            issue_id: None,
+            team_id: Some("ws-1".to_string()),
+            action_id: Some("act-1".to_string()),
+            action_name: Some("Code review".to_string()),
+            device_label: None,
+            started_by_id: None,
+            device_id: None,
+            started_reason: None,
+            automation_id: None,
+            branch: Some("exp/chat-1a2b3c4d".to_string()),
+        };
+        assert!(heartbeat(&client(&base), "sess-a", Some(&scope)).unwrap());
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(
+            r#"{"id":"sess-a","teamId":"ws-1","actionId":"act-1","actionName":"Code review","branch":"exp/chat-1a2b3c4d"}"#
+        ));
+    }
+
+    #[test]
+    fn decodes_the_run_close_out() {
+        // EXP-637: `exponential_sessions_end` writes these; absent = None.
+        let session: CodingSession = serde_json::from_str(
+            r#"{"id":"sess-1","status":"ended","endedBy":"agent","outcome":"done","summary":"Shipped it."}"#,
+        )
+        .unwrap();
+        assert_eq!(session.ended_by.as_deref(), Some("agent"));
+        assert_eq!(session.outcome.as_deref(), Some("done"));
+        assert_eq!(session.summary.as_deref(), Some("Shipped it."));
+
+        let session: CodingSession = serde_json::from_str(r#"{"id":"sess-2"}"#).unwrap();
+        assert_eq!(session.ended_by, None);
+        assert_eq!(session.outcome, None);
+        assert_eq!(session.summary, None);
     }
 
     #[test]

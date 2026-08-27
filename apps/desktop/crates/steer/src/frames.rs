@@ -477,6 +477,12 @@ pub enum ServerFrame {
         /// `unwrap_or(false)`.
         #[serde(default)]
         resume: bool,
+        /// EXP-637: RESUME an ended action/chat run. The only subject key on
+        /// the frame when set — `teamId` rides along, and every launch
+        /// option is forbidden beside it (a resumed run keeps its recorded
+        /// agent and options). Absent on every pre-EXP-637 sender.
+        #[serde(default)]
+        resume_session_id: Option<String>,
     },
     /// EXP-481: fire-and-forget check-in nudge — the web server persisted
     /// new work for this device (a queued command, edited launch defaults);
@@ -1082,6 +1088,7 @@ mod tests {
                 plan_mode: None,
                 skip_permissions: None,
                 resume: false,
+                resume_session_id: None,
             }
         );
     }
@@ -1113,6 +1120,43 @@ mod tests {
         assert_eq!(ServerFrame::parse(r#"{"t":"telepathy"}"#), None);
     }
 
+    /// EXP-637: the resume frame — camelCase on the wire like every other
+    /// field, absent on every pre-EXP-637 sender.
+    #[test]
+    fn start_session_deserializes_resume_session_id() {
+        match ServerFrame::parse(
+            r#"{"t":"start_session","resumeSessionId":"sess-old","teamId":"ws-1"}"#,
+        )
+        .unwrap()
+        {
+            ServerFrame::StartSession {
+                resume_session_id,
+                team_id,
+                issue_id,
+                action_id,
+                ..
+            } => {
+                assert_eq!(resume_session_id.as_deref(), Some("sess-old"));
+                assert_eq!(team_id.as_deref(), Some("ws-1"));
+                assert_eq!(issue_id, None);
+                assert_eq!(action_id, None);
+            }
+            other => panic!("expected StartSession, got {other:?}"),
+        }
+        // Absent = None (an ordinary start).
+        match ServerFrame::parse(r#"{"t":"start_session","issueId":"issue-9"}"#).unwrap() {
+            ServerFrame::StartSession { resume_session_id, .. } => {
+                assert_eq!(resume_session_id, None)
+            }
+            other => panic!("expected StartSession, got {other:?}"),
+        }
+        // A malformed (non-string) value must not kill the socket.
+        assert_eq!(
+            ServerFrame::parse(r#"{"t":"start_session","resumeSessionId":42}"#),
+            None
+        );
+    }
+
     #[test]
     fn start_session_deserializes_started_by() {
         // EXP-432: a shared-device start carries the requesting teammate's
@@ -1138,6 +1182,7 @@ mod tests {
                 plan_mode: None,
                 skip_permissions: None,
                 resume: false,
+                resume_session_id: None,
             }
         );
     }
@@ -1167,6 +1212,7 @@ mod tests {
                 plan_mode: Some(false),
                 skip_permissions: Some(true),
                 resume: false,
+                resume_session_id: None,
             }
         );
     }
@@ -1199,6 +1245,7 @@ mod tests {
                 plan_mode: Some(false),
                 skip_permissions: None,
                 resume: false,
+                resume_session_id: None,
             }
         );
     }
@@ -1232,6 +1279,7 @@ mod tests {
                 plan_mode: None,
                 skip_permissions: None,
                 resume: false,
+                resume_session_id: None,
             }
         );
     }
@@ -1278,6 +1326,7 @@ mod tests {
                 plan_mode: None,
                 skip_permissions: Some(true),
                 resume: false,
+                resume_session_id: None,
             }
         );
     }
@@ -1311,6 +1360,7 @@ mod tests {
                 plan_mode: None,
                 skip_permissions: None,
                 resume: false,
+                resume_session_id: None,
             }
         );
     }
