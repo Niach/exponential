@@ -1,4 +1,4 @@
-// Clean reimplementation from the VT spec + alacritty_terminal (Apache-2.0). NOT derived from Zed's GPL terminal crates.
+// Clean reimplementation from the VT spec + rio-vt (MIT). NOT derived from Zed's GPL terminal crates.
 //! The child-output read loop (masterplan-v3 §6.4) — one blocking read thread.
 //!
 //! This module is greenfield: Zed's alacritty event loop keeps the byte stream
@@ -14,7 +14,7 @@
 use crate::emulator::TermHandle;
 use std::io::Read;
 use std::thread::JoinHandle;
-use vte::ansi::{Processor, StdSyncHandler};
+use rio_vt::performer::handler::Processor;
 
 /// Wake signals from the PTY threads to the foreground, drained by one
 /// `cx.spawn` task in the gpui layer (coalesce bursts: several queued
@@ -44,11 +44,9 @@ pub fn spawn_read_loop(
     std::thread::Builder::new()
         .name("pty-read".into())
         .spawn(move || {
-            // Turbofish REQUIRED: the `T: Timeout = StdSyncHandler` default
-            // type param does not participate in fn-call inference (E0283).
             // One long-lived Processor: an escape sequence can straddle a
             // read() boundary, so the partial-parse state must persist.
-            let mut processor = Processor::<StdSyncHandler>::new();
+            let mut processor = Processor::default();
             let mut buf = [0u8; 8192];
             loop {
                 match reader.read(&mut buf) {

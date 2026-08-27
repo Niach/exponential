@@ -1,4 +1,4 @@
-// Clean reimplementation from the VT spec + alacritty_terminal (Apache-2.0). NOT derived from Zed's GPL terminal crates.
+// Clean reimplementation from the VT spec + rio-vt (MIT). NOT derived from Zed's GPL terminal crates.
 //! §6.7 / §11.4 Phase-4 gate: a closing child fires the tab's one-shot
 //! [`terminal::ExitHook`] with the captured exit code.
 //!

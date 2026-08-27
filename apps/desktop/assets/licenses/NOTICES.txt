@@ -34,7 +34,7 @@ CONTENTS
 1. Open-source components
 ==============================================================================
 
-821 third-party components are distributed as part of this build. They are
+827 third-party components are distributed as part of this build. They are
 grouped below by the licence text that applies to them; each group reproduces
 that text once, in full, and lists every component it covers together with
 that component's own copyright notice.
@@ -48,7 +48,7 @@ section for the policy.
 MIT
 ------------------------------------------------------------------------------
 
-Applies to the following 86 components:
+Applies to the following 89 components:
 
   accesskit 0.24.1
     MIT elected from `MIT OR Apache-2.0`
@@ -137,6 +137,10 @@ Applies to the following 86 components:
     MIT elected from `MIT OR Apache-2.0`
   profiling-procmacros 1.0.18
     MIT elected from `MIT OR Apache-2.0`
+  rio-graphics 0.5.26
+  rio-unicode 0.5.26
+    MIT elected from `MIT OR Apache-2.0`
+  rio-vt 0.5.26
   rust-i18n-macro 4.2.1
   rust-i18n-support 4.2.1
   seahash 4.1.0
@@ -270,7 +274,7 @@ Applies to the following 85 components:
     MIT elected from `Apache-2.0 OR MIT`
   glow 0.17.0  [x86_64-unknown-linux-gnu]
     MIT elected from `MIT OR Apache-2.0 OR Zlib`
-  home 0.5.12
+  home 0.5.12  [x86_64-pc-windows-msvc]
     MIT elected from `MIT OR Apache-2.0`
   inventory 0.3.24
     MIT elected from `MIT OR Apache-2.0`
@@ -320,21 +324,19 @@ Applies to the following 85 components:
     MIT elected from `Apache-2.0 OR MIT`
   rustix 1.1.4
     MIT elected from `Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT`
-  rustix-openpty 0.2.0  [aarch64-apple-darwin, x86_64-unknown-linux-gnu]
-    MIT elected from `Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT`
   rustversion 1.0.22
     MIT elected from `MIT OR Apache-2.0`
   semver 1.0.28
     MIT elected from `MIT OR Apache-2.0`
-  serde 1.0.228
+  serde 1.0.229
     MIT elected from `MIT OR Apache-2.0`
   serde-saphyr 0.0.29
     MIT elected from `MIT OR Apache-2.0`
   serde_bytes 0.11.19  [x86_64-unknown-linux-gnu]
     MIT elected from `MIT OR Apache-2.0`
-  serde_core 1.0.228
+  serde_core 1.0.229
     MIT elected from `MIT OR Apache-2.0`
-  serde_derive 1.0.228
+  serde_derive 1.0.229
     MIT elected from `MIT OR Apache-2.0`
   serde_derive_internals 0.29.1
     MIT elected from `MIT OR Apache-2.0`
@@ -347,6 +349,8 @@ Applies to the following 85 components:
   smol_str 0.3.6
     MIT elected from `MIT OR Apache-2.0`
   syn 2.0.118
+    MIT elected from `MIT OR Apache-2.0`
+  syn 3.0.4
     MIT elected from `MIT OR Apache-2.0`
   thiserror 1.0.69
     MIT elected from `MIT OR Apache-2.0`
@@ -468,7 +472,7 @@ Applies to the following 40 components:
     MIT elected from `MIT OR Apache-2.0`
   windows-sys 0.52.0  [x86_64-pc-windows-msvc]
     MIT elected from `MIT OR Apache-2.0`
-  windows-sys 0.59.0  [x86_64-pc-windows-msvc]
+  windows-sys 0.59.0  [x86_64-pc-windows-msvc; build-time only, not linked]
     MIT elected from `MIT OR Apache-2.0`
   windows-sys 0.60.2  [x86_64-pc-windows-msvc]
     MIT elected from `MIT OR Apache-2.0`
@@ -784,96 +788,6 @@ Apache License
 
 
 ------------------------------------------------------------------------------
-MIT
-------------------------------------------------------------------------------
-
-Applies to the following 18 components:
-
-  backtrace 0.3.76
-    Copyright (c) 2014 Alex Crichton
-    MIT elected from `MIT OR Apache-2.0`
-  cc 1.2.65  [build-time only, not linked]
-    Copyright (c) 2014 Alex Crichton
-    MIT elected from `MIT OR Apache-2.0`
-  cfg-if 1.0.4
-    Copyright (c) 2014 Alex Crichton
-    MIT elected from `MIT OR Apache-2.0`
-  filetime 0.2.29
-    Copyright (c) 2014 Alex Crichton
-    MIT elected from `MIT/Apache-2.0`
-  find-msvc-tools 0.1.9  [build-time only, not linked]
-    Copyright (c) 2014 Alex Crichton
-    MIT elected from `MIT OR Apache-2.0`
-  jobserver 0.1.34  [build-time only, not linked]
-    Copyright (c) 2014 Alex Crichton
-    MIT elected from `MIT OR Apache-2.0`
-  miow 0.6.1  [x86_64-pc-windows-msvc]
-    Copyright (c) 2014 Alex Crichton
-    MIT elected from `MIT OR Apache-2.0`
-  openssl-probe 0.2.1  [x86_64-unknown-linux-gnu]
-    Copyright (c) 2014 Alex Crichton
-    MIT elected from `MIT OR Apache-2.0`
-  pkg-config 0.3.33  [build-time only, not linked]
-    Copyright (c) 2014 Alex Crichton
-    MIT elected from `MIT OR Apache-2.0`
-  rustc-demangle 0.1.27
-    Copyright (c) 2014 Alex Crichton
-    MIT elected from `MIT/Apache-2.0`
-  scoped-tls 1.0.1  [x86_64-unknown-linux-gnu]
-    Copyright (c) 2014 Alex Crichton
-    MIT elected from `MIT/Apache-2.0`
-  socket2 0.6.4
-    Copyright (c) 2014 Alex Crichton
-    MIT elected from `MIT OR Apache-2.0`
-  stacker 0.1.24
-    Copyright (c) 2014 Alex Crichton
-    MIT elected from `MIT OR Apache-2.0`
-  wait-timeout 0.2.1
-    Copyright (c) 2014 Alex Crichton
-    MIT elected from `MIT/Apache-2.0`
-  wasm-bindgen 0.2.126
-    Copyright (c) 2014 Alex Crichton
-    MIT elected from `MIT OR Apache-2.0`
-  wasm-bindgen-macro 0.2.126
-    Copyright (c) 2014 Alex Crichton
-    MIT elected from `MIT OR Apache-2.0`
-  wasm-bindgen-macro-support 0.2.126
-    Copyright (c) 2014 Alex Crichton
-    MIT elected from `MIT OR Apache-2.0`
-  wasm-bindgen-shared 0.2.126
-    Copyright (c) 2014 Alex Crichton
-    MIT elected from `MIT OR Apache-2.0`
-
-..............................................................................
-
-Copyright (c) 2014 Alex Crichton
-
-Permission is hereby granted, free of charge, to any
-person obtaining a copy of this software and associated
-documentation files (the "Software"), to deal in the
-Software without restriction, including without
-limitation the rights to use, copy, modify, merge,
-publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software
-is furnished to do so, subject to the following
-conditions:
-
-The above copyright notice and this permission notice
-shall be included in all copies or substantial portions
-of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
-ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
-TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
-SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
-IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-DEALINGS IN THE SOFTWARE.
-
-
-------------------------------------------------------------------------------
 Unicode-3.0
 ------------------------------------------------------------------------------
 
@@ -970,6 +884,93 @@ ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation a
 MIT
 ------------------------------------------------------------------------------
 
+Applies to the following 17 components:
+
+  backtrace 0.3.76
+    Copyright (c) 2014 Alex Crichton
+    MIT elected from `MIT OR Apache-2.0`
+  cc 1.2.65  [build-time only, not linked]
+    Copyright (c) 2014 Alex Crichton
+    MIT elected from `MIT OR Apache-2.0`
+  cfg-if 1.0.4
+    Copyright (c) 2014 Alex Crichton
+    MIT elected from `MIT OR Apache-2.0`
+  filetime 0.2.29
+    Copyright (c) 2014 Alex Crichton
+    MIT elected from `MIT/Apache-2.0`
+  find-msvc-tools 0.1.9  [build-time only, not linked]
+    Copyright (c) 2014 Alex Crichton
+    MIT elected from `MIT OR Apache-2.0`
+  jobserver 0.1.34  [build-time only, not linked]
+    Copyright (c) 2014 Alex Crichton
+    MIT elected from `MIT OR Apache-2.0`
+  openssl-probe 0.2.1  [x86_64-unknown-linux-gnu]
+    Copyright (c) 2014 Alex Crichton
+    MIT elected from `MIT OR Apache-2.0`
+  pkg-config 0.3.33  [build-time only, not linked]
+    Copyright (c) 2014 Alex Crichton
+    MIT elected from `MIT OR Apache-2.0`
+  rustc-demangle 0.1.27
+    Copyright (c) 2014 Alex Crichton
+    MIT elected from `MIT/Apache-2.0`
+  scoped-tls 1.0.1  [x86_64-unknown-linux-gnu]
+    Copyright (c) 2014 Alex Crichton
+    MIT elected from `MIT/Apache-2.0`
+  socket2 0.6.4
+    Copyright (c) 2014 Alex Crichton
+    MIT elected from `MIT OR Apache-2.0`
+  stacker 0.1.24
+    Copyright (c) 2014 Alex Crichton
+    MIT elected from `MIT OR Apache-2.0`
+  wait-timeout 0.2.1
+    Copyright (c) 2014 Alex Crichton
+    MIT elected from `MIT/Apache-2.0`
+  wasm-bindgen 0.2.126
+    Copyright (c) 2014 Alex Crichton
+    MIT elected from `MIT OR Apache-2.0`
+  wasm-bindgen-macro 0.2.126
+    Copyright (c) 2014 Alex Crichton
+    MIT elected from `MIT OR Apache-2.0`
+  wasm-bindgen-macro-support 0.2.126
+    Copyright (c) 2014 Alex Crichton
+    MIT elected from `MIT OR Apache-2.0`
+  wasm-bindgen-shared 0.2.126
+    Copyright (c) 2014 Alex Crichton
+    MIT elected from `MIT OR Apache-2.0`
+
+..............................................................................
+
+Copyright (c) 2014 Alex Crichton
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
 Applies to the following 16 components:
 
   bitflags 1.3.2
@@ -1014,7 +1015,7 @@ Applies to the following 16 components:
   regex 1.12.4
     Copyright (c) 2014 The Rust Project Developers
     MIT elected from `MIT OR Apache-2.0`
-  regex-automata 0.4.14
+  regex-automata 0.4.18
     Copyright (c) 2014 The Rust Project Developers
     MIT elected from `MIT OR Apache-2.0`
   regex-syntax 0.8.11
@@ -1187,6 +1188,68 @@ MIT
 
 Applies to the following 10 components:
 
+  aho-corasick 1.1.4
+    Copyright (c) 2015 Andrew Gallant
+    MIT elected from `Unlicense OR MIT`
+  byteorder 1.5.0
+    Copyright (c) 2015 Andrew Gallant
+    MIT elected from `Unlicense OR MIT`
+  byteorder-lite 0.1.0
+    Copyright (c) 2015 Andrew Gallant
+    MIT elected from `Unlicense OR MIT`
+  encoding_rs_io 0.1.8
+    Copyright (c) 2015 Andrew Gallant
+    MIT elected from `MIT OR Apache-2.0`
+  globset 0.4.18
+    Copyright (c) 2015 Andrew Gallant
+    MIT elected from `Unlicense OR MIT`
+  ignore 0.4.27
+    Copyright (c) 2015 Andrew Gallant
+    MIT elected from `Unlicense OR MIT`
+  memchr 2.8.3
+    Copyright (c) 2015 Andrew Gallant
+    MIT elected from `Unlicense OR MIT`
+  termcolor 1.4.1  [x86_64-unknown-linux-gnu]
+    Copyright (c) 2015 Andrew Gallant
+    MIT elected from `Unlicense OR MIT`
+  ucd-trie 0.1.7
+    Copyright (c) 2015 Andrew Gallant
+    MIT elected from `MIT OR Apache-2.0`
+  walkdir 2.5.0
+    Copyright (c) 2015 Andrew Gallant
+    MIT elected from `Unlicense/MIT`
+
+..............................................................................
+
+The MIT License (MIT)
+
+Copyright (c) 2015 Andrew Gallant
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following 10 components:
+
   gimli 0.32.3  [aarch64-apple-darwin, x86_64-unknown-linux-gnu]
     Copyright (c) 2015 The Rust Project Developers
     MIT elected from `MIT OR Apache-2.0`
@@ -1315,65 +1378,6 @@ MIT
 
 Applies to the following 9 components:
 
-  aho-corasick 1.1.4
-    Copyright (c) 2015 Andrew Gallant
-    MIT elected from `Unlicense OR MIT`
-  byteorder 1.5.0
-    Copyright (c) 2015 Andrew Gallant
-    MIT elected from `Unlicense OR MIT`
-  byteorder-lite 0.1.0
-    Copyright (c) 2015 Andrew Gallant
-    MIT elected from `Unlicense OR MIT`
-  encoding_rs_io 0.1.8
-    Copyright (c) 2015 Andrew Gallant
-    MIT elected from `MIT OR Apache-2.0`
-  globset 0.4.18
-    Copyright (c) 2015 Andrew Gallant
-    MIT elected from `Unlicense OR MIT`
-  ignore 0.4.27
-    Copyright (c) 2015 Andrew Gallant
-    MIT elected from `Unlicense OR MIT`
-  memchr 2.8.2
-    Copyright (c) 2015 Andrew Gallant
-    MIT elected from `Unlicense OR MIT`
-  termcolor 1.4.1  [x86_64-unknown-linux-gnu]
-    Copyright (c) 2015 Andrew Gallant
-    MIT elected from `Unlicense OR MIT`
-  walkdir 2.5.0
-    Copyright (c) 2015 Andrew Gallant
-    MIT elected from `Unlicense/MIT`
-
-..............................................................................
-
-The MIT License (MIT)
-
-Copyright (c) 2015 Andrew Gallant
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-
-
-------------------------------------------------------------------------------
-MIT
-------------------------------------------------------------------------------
-
-Applies to the following 9 components:
-
   futures 0.3.32
     Copyright (c) 2016 Alex Crichton
     Copyright (c) 2017 The Tokio Authors
@@ -1488,6 +1492,66 @@ FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
 COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following 8 components:
+
+  font-types 0.10.1
+    Copyright (c) 2019 Colin Rothfels
+    MIT elected from `MIT OR Apache-2.0`
+  font-types 0.11.3  [x86_64-unknown-linux-gnu]
+    Copyright (c) 2019 Colin Rothfels
+    MIT elected from `MIT OR Apache-2.0`
+  read-fonts 0.35.0
+    Copyright (c) 2019 Colin Rothfels
+    MIT elected from `MIT OR Apache-2.0`
+  read-fonts 0.37.0  [x86_64-unknown-linux-gnu]
+    Copyright (c) 2019 Colin Rothfels
+    MIT elected from `MIT OR Apache-2.0`
+  read-fonts 0.39.2  [x86_64-unknown-linux-gnu]
+    Copyright (c) 2019 Colin Rothfels
+    MIT elected from `MIT OR Apache-2.0`
+  skrifa 0.37.0
+    Copyright (c) 2019 Colin Rothfels
+    MIT elected from `MIT OR Apache-2.0`
+  skrifa 0.40.0  [x86_64-unknown-linux-gnu]
+    Copyright (c) 2019 Colin Rothfels
+    MIT elected from `MIT OR Apache-2.0`
+  skrifa 0.42.1  [x86_64-unknown-linux-gnu]
+    Copyright (c) 2019 Colin Rothfels
+    MIT elected from `MIT OR Apache-2.0`
+
+..............................................................................
+
+Copyright (c) 2019 Colin Rothfels
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
 
 
 ------------------------------------------------------------------------------
@@ -1781,57 +1845,6 @@ Applies to the following 5 components:
 ..............................................................................
 
 Copyright (c) 2016 The Rust Project Developers
-
-Permission is hereby granted, free of charge, to any
-person obtaining a copy of this software and associated
-documentation files (the "Software"), to deal in the
-Software without restriction, including without
-limitation the rights to use, copy, modify, merge,
-publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software
-is furnished to do so, subject to the following
-conditions:
-
-The above copyright notice and this permission notice
-shall be included in all copies or substantial portions
-of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
-ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
-TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
-SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
-IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-DEALINGS IN THE SOFTWARE.
-
-
-------------------------------------------------------------------------------
-MIT
-------------------------------------------------------------------------------
-
-Applies to the following 5 components:
-
-  font-types 0.11.3  [x86_64-unknown-linux-gnu]
-    Copyright (c) 2019 Colin Rothfels
-    MIT elected from `MIT OR Apache-2.0`
-  read-fonts 0.37.0  [x86_64-unknown-linux-gnu]
-    Copyright (c) 2019 Colin Rothfels
-    MIT elected from `MIT OR Apache-2.0`
-  read-fonts 0.39.2  [x86_64-unknown-linux-gnu]
-    Copyright (c) 2019 Colin Rothfels
-    MIT elected from `MIT OR Apache-2.0`
-  skrifa 0.40.0  [x86_64-unknown-linux-gnu]
-    Copyright (c) 2019 Colin Rothfels
-    MIT elected from `MIT OR Apache-2.0`
-  skrifa 0.42.1  [x86_64-unknown-linux-gnu]
-    Copyright (c) 2019 Colin Rothfels
-    MIT elected from `MIT OR Apache-2.0`
-
-..............................................................................
-
-Copyright (c) 2019 Colin Rothfels
 
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated
@@ -5428,48 +5441,6 @@ MIT
 
 Applies to the following 2 components:
 
-  signal-hook 0.4.4  [aarch64-apple-darwin, x86_64-unknown-linux-gnu]
-    Copyright (c) 2017 tokio-jsonrpc developers
-    MIT elected from `MIT OR Apache-2.0`
-  signal-hook-registry 1.4.8  [aarch64-apple-darwin, x86_64-unknown-linux-gnu]
-    Copyright (c) 2017 tokio-jsonrpc developers
-    MIT elected from `MIT OR Apache-2.0`
-
-..............................................................................
-
-Copyright (c) 2017 tokio-jsonrpc developers
-
-Permission is hereby granted, free of charge, to any
-person obtaining a copy of this software and associated
-documentation files (the "Software"), to deal in the
-Software without restriction, including without
-limitation the rights to use, copy, modify, merge,
-publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software
-is furnished to do so, subject to the following
-conditions:
-
-The above copyright notice and this permission notice
-shall be included in all copies or substantial portions
-of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
-ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
-TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
-SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
-IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-DEALINGS IN THE SOFTWARE.
-
-
-------------------------------------------------------------------------------
-MIT
-------------------------------------------------------------------------------
-
-Applies to the following 2 components:
-
   simplecss 0.2.2
     Copyright (c) 2018 Reizner Evgeniy
     MIT elected from `Apache-2.0 OR MIT`
@@ -5983,220 +5954,6 @@ the following restrictions:
     misrepresented as being the original software.
 
 3. This notice may not be removed or altered from any source distribution.
-
-
-------------------------------------------------------------------------------
-Apache-2.0
-------------------------------------------------------------------------------
-
-Applies to the following component:
-
-  alacritty_terminal 0.26.0
-    Copyright 2020 The Alacritty Project
-
-..............................................................................
-
-                              Apache License
-                        Version 2.0, January 2004
-                     http://www.apache.org/licenses/
-
-TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
-
-1. Definitions.
-
-   "License" shall mean the terms and conditions for use, reproduction,
-   and distribution as defined by Sections 1 through 9 of this document.
-
-   "Licensor" shall mean the copyright owner or entity authorized by
-   the copyright owner that is granting the License.
-
-   "Legal Entity" shall mean the union of the acting entity and all
-   other entities that control, are controlled by, or are under common
-   control with that entity. For the purposes of this definition,
-   "control" means (i) the power, direct or indirect, to cause the
-   direction or management of such entity, whether by contract or
-   otherwise, or (ii) ownership of fifty percent (50%) or more of the
-   outstanding shares, or (iii) beneficial ownership of such entity.
-
-   "You" (or "Your") shall mean an individual or Legal Entity
-   exercising permissions granted by this License.
-
-   "Source" form shall mean the preferred form for making modifications,
-   including but not limited to software source code, documentation
-   source, and configuration files.
-
-   "Object" form shall mean any form resulting from mechanical
-   transformation or translation of a Source form, including but
-   not limited to compiled object code, generated documentation,
-   and conversions to other media types.
-
-   "Work" shall mean the work of authorship, whether in Source or
-   Object form, made available under the License, as indicated by a
-   copyright notice that is included in or attached to the work
-   (an example is provided in the Appendix below).
-
-   "Derivative Works" shall mean any work, whether in Source or Object
-   form, that is based on (or derived from) the Work and for which the
-   editorial revisions, annotations, elaborations, or other modifications
-   represent, as a whole, an original work of authorship. For the purposes
-   of this License, Derivative Works shall not include works that remain
-   separable from, or merely link (or bind by name) to the interfaces of,
-   the Work and Derivative Works thereof.
-
-   "Contribution" shall mean any work of authorship, including
-   the original version of the Work and any modifications or additions
-   to that Work or Derivative Works thereof, that is intentionally
-   submitted to Licensor for inclusion in the Work by the copyright owner
-   or by an individual or Legal Entity authorized to submit on behalf of
-   the copyright owner. For the purposes of this definition, "submitted"
-   means any form of electronic, verbal, or written communication sent
-   to the Licensor or its representatives, including but not limited to
-   communication on electronic mailing lists, source code control systems,
-   and issue tracking systems that are managed by, or on behalf of, the
-   Licensor for the purpose of discussing and improving the Work, but
-   excluding communication that is conspicuously marked or otherwise
-   designated in writing by the copyright owner as "Not a Contribution."
-
-   "Contributor" shall mean Licensor and any individual or Legal Entity
-   on behalf of whom a Contribution has been received by Licensor and
-   subsequently incorporated within the Work.
-
-2. Grant of Copyright License. Subject to the terms and conditions of
-   this License, each Contributor hereby grants to You a perpetual,
-   worldwide, non-exclusive, no-charge, royalty-free, irrevocable
-   copyright license to reproduce, prepare Derivative Works of,
-   publicly display, publicly perform, sublicense, and distribute the
-   Work and such Derivative Works in Source or Object form.
-
-3. Grant of Patent License. Subject to the terms and conditions of
-   this License, each Contributor hereby grants to You a perpetual,
-   worldwide, non-exclusive, no-charge, royalty-free, irrevocable
-   (except as stated in this section) patent license to make, have made,
-   use, offer to sell, sell, import, and otherwise transfer the Work,
-   where such license applies only to those patent claims licensable
-   by such Contributor that are necessarily infringed by their
-   Contribution(s) alone or by combination of their Contribution(s)
-   with the Work to which such Contribution(s) was submitted. If You
-   institute patent litigation against any entity (including a
-   cross-claim or counterclaim in a lawsuit) alleging that the Work
-   or a Contribution incorporated within the Work constitutes direct
-   or contributory patent infringement, then any patent licenses
-   granted to You under this License for that Work shall terminate
-   as of the date such litigation is filed.
-
-4. Redistribution. You may reproduce and distribute copies of the
-   Work or Derivative Works thereof in any medium, with or without
-   modifications, and in Source or Object form, provided that You
-   meet the following conditions:
-
-   (a) You must give any other recipients of the Work or
-       Derivative Works a copy of this License; and
-
-   (b) You must cause any modified files to carry prominent notices
-       stating that You changed the files; and
-
-   (c) You must retain, in the Source form of any Derivative Works
-       that You distribute, all copyright, patent, trademark, and
-       attribution notices from the Source form of the Work,
-       excluding those notices that do not pertain to any part of
-       the Derivative Works; and
-
-   (d) If the Work includes a "NOTICE" text file as part of its
-       distribution, then any Derivative Works that You distribute must
-       include a readable copy of the attribution notices contained
-       within such NOTICE file, excluding those notices that do not
-       pertain to any part of the Derivative Works, in at least one
-       of the following places: within a NOTICE text file distributed
-       as part of the Derivative Works; within the Source form or
-       documentation, if provided along with the Derivative Works; or,
-       within a display generated by the Derivative Works, if and
-       wherever such third-party notices normally appear. The contents
-       of the NOTICE file are for informational purposes only and
-       do not modify the License. You may add Your own attribution
-       notices within Derivative Works that You distribute, alongside
-       or as an addendum to the NOTICE text from the Work, provided
-       that such additional attribution notices cannot be construed
-       as modifying the License.
-
-   You may add Your own copyright statement to Your modifications and
-   may provide additional or different license terms and conditions
-   for use, reproduction, or distribution of Your modifications, or
-   for any such Derivative Works as a whole, provided Your use,
-   reproduction, and distribution of the Work otherwise complies with
-   the conditions stated in this License.
-
-5. Submission of Contributions. Unless You explicitly state otherwise,
-   any Contribution intentionally submitted for inclusion in the Work
-   by You to the Licensor shall be under the terms and conditions of
-   this License, without any additional terms or conditions.
-   Notwithstanding the above, nothing herein shall supersede or modify
-   the terms of any separate license agreement you may have executed
-   with Licensor regarding such Contributions.
-
-6. Trademarks. This License does not grant permission to use the trade
-   names, trademarks, service marks, or product names of the Licensor,
-   except as required for reasonable and customary use in describing the
-   origin of the Work and reproducing the content of the NOTICE file.
-
-7. Disclaimer of Warranty. Unless required by applicable law or
-   agreed to in writing, Licensor provides the Work (and each
-   Contributor provides its Contributions) on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
-   implied, including, without limitation, any warranties or conditions
-   of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
-   PARTICULAR PURPOSE. You are solely responsible for determining the
-   appropriateness of using or redistributing the Work and assume any
-   risks associated with Your exercise of permissions under this License.
-
-8. Limitation of Liability. In no event and under no legal theory,
-   whether in tort (including negligence), contract, or otherwise,
-   unless required by applicable law (such as deliberate and grossly
-   negligent acts) or agreed to in writing, shall any Contributor be
-   liable to You for damages, including any direct, indirect, special,
-   incidental, or consequential damages of any character arising as a
-   result of this License or out of the use or inability to use the
-   Work (including but not limited to damages for loss of goodwill,
-   work stoppage, computer failure or malfunction, or any and all
-   other commercial damages or losses), even if such Contributor
-   has been advised of the possibility of such damages.
-
-9. Accepting Warranty or Additional Liability. While redistributing
-   the Work or Derivative Works thereof, You may choose to offer,
-   and charge a fee for, acceptance of support, warranty, indemnity,
-   or other liability obligations and/or rights consistent with this
-   License. However, in accepting such obligations, You may act only
-   on Your own behalf and on Your sole responsibility, not on behalf
-   of any other Contributor, and only if You agree to indemnify,
-   defend, and hold each Contributor harmless for any liability
-   incurred by, or claims asserted against, such Contributor by reason
-   of your accepting any such warranty or additional liability.
-
-END OF TERMS AND CONDITIONS
-
-APPENDIX: How to apply the Apache License to your work.
-
-   To apply the Apache License to your work, attach the following
-   boilerplate notice, with the fields enclosed by brackets "[]"
-   replaced with your own identifying information. (Don't include
-   the brackets!)  The text should be enclosed in the appropriate
-   comment syntax for the file format. We also recommend that a
-   file or class name and description of purpose be included on the
-   same "printed page" as the copyright notice for easier
-   identification within third-party archives.
-
-Copyright 2020 The Alacritty Project
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-   http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
 
 
 ------------------------------------------------------------------------------
@@ -9109,6 +8866,41 @@ MIT
 
 Applies to the following component:
 
+  base64 0.23.1
+    Copyright (c) 2025 Alice Maz, Marshall Pierce
+    MIT elected from `MIT OR Apache-2.0`
+
+..............................................................................
+
+The MIT License (MIT)
+
+Copyright (c) 2025 Alice Maz, Marshall Pierce
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following component:
+
   bit-set 0.9.1  [x86_64-unknown-linux-gnu]
     Copyright (c) 2026 The Rust Project Developers
     MIT elected from `Apache-2.0 OR MIT`
@@ -11856,7 +11648,7 @@ MIT
 
 Applies to the following component:
 
-  libc 0.2.186
+  libc 0.2.189
     MIT elected from `MIT OR Apache-2.0`
 
 ..............................................................................
@@ -13406,6 +13198,53 @@ MIT
 
 Applies to the following component:
 
+  rio-grapheme-width 0.5.26
+    Copyright (c) 2018-Present Wez Furlong
+    Copyright (c) 2023-Present Raphael Amorim
+
+..............................................................................
+
+MIT License
+
+This crate is a fork of `wezterm-char-props` from the WezTerm project,
+reduced to the emoji presentation and variation-sequence data tables
+that Rio needs for VS15/VS16 width handling. The data files
+(`emoji_presentation.rs`, `emoji_variation.rs`) and the `Presentation`
+API in `emoji.rs` are copied verbatim from WezTerm with only trivial
+edits (module paths, header comments).
+
+Upstream: https://github.com/wezterm/wezterm/tree/main/wezterm-char-props
+
+------------------------------------------------------------------------
+
+Copyright (c) 2018-Present Wez Furlong
+Copyright (c) 2023-Present Raphael Amorim
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following component:
+
   ropey 2.0.0-beta.1
     Copyright (c) 2023 Nathan Vegdahl
     MIT elected from `MIT OR Apache-2.0`
@@ -13795,6 +13634,45 @@ MIT
 
 Applies to the following component:
 
+  signal-hook-registry 1.4.8  [aarch64-apple-darwin, x86_64-unknown-linux-gnu]
+    Copyright (c) 2017 tokio-jsonrpc developers
+    MIT elected from `MIT OR Apache-2.0`
+
+..............................................................................
+
+Copyright (c) 2017 tokio-jsonrpc developers
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following component:
+
   simd-adler32 0.3.9
     Copyright (c) [2021] [Marvin Countryman]
 
@@ -13803,6 +13681,40 @@ Applies to the following component:
 MIT License
 
 Copyright (c) [2021] [Marvin Countryman]
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following component:
+
+  simdutf 0.7.0
+    Copyright (c) 2022 Nugine
+
+..............................................................................
+
+MIT License
+
+Copyright (c) 2022 Nugine
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -15210,45 +15122,6 @@ FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
 COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-
-------------------------------------------------------------------------------
-MIT
-------------------------------------------------------------------------------
-
-Applies to the following component:
-
-  vte 0.15.0
-    Copyright (c) 2016 Joe Wilm
-    MIT elected from `Apache-2.0 OR MIT`
-
-..............................................................................
-
-Copyright (c) 2016 Joe Wilm
-
-Permission is hereby granted, free of charge, to any
-person obtaining a copy of this software and associated
-documentation files (the "Software"), to deal in the
-Software without restriction, including without
-limitation the rights to use, copy, modify, merge,
-publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software
-is furnished to do so, subject to the following
-conditions:
-
-The above copyright notice and this permission notice
-shall be included in all copies or substantial portions
-of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
-ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
-TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
-SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
-IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-DEALINGS IN THE SOFTWARE.
 
 
 ------------------------------------------------------------------------------
@@ -16804,6 +16677,8 @@ Elections made in this build
     MIT elected from `MIT OR Apache-2.0`
   base64 0.22.1
     MIT elected from `MIT OR Apache-2.0`
+  base64 0.23.1
+    MIT elected from `MIT OR Apache-2.0`
   bit-set 0.8.0
     MIT elected from `Apache-2.0 OR MIT`
   bit-set 0.9.1
@@ -16980,6 +16855,8 @@ Elections made in this build
     MIT elected from `Apache-2.0/MIT`
   fnv 1.0.7
     MIT elected from `Apache-2.0 / MIT`
+  font-types 0.10.1
+    MIT elected from `MIT OR Apache-2.0`
   font-types 0.11.3
     MIT elected from `MIT OR Apache-2.0`
   foreign-types 0.5.0
@@ -17124,7 +17001,7 @@ Elections made in this build
     MIT elected from `Apache-2.0 OR MIT`
   leaky-cow 0.1.1
     MIT elected from `MIT / Apache-2.0`
-  libc 0.2.186
+  libc 0.2.189
     MIT elected from `MIT OR Apache-2.0`
   linebender_resource_handle 0.1.1
     MIT elected from `Apache-2.0 OR MIT`
@@ -17162,7 +17039,7 @@ Elections made in this build
     MIT elected from `MIT OR Apache-2.0`
   md-5 0.10.6
     MIT elected from `MIT OR Apache-2.0`
-  memchr 2.8.2
+  memchr 2.8.3
     MIT elected from `Unlicense OR MIT`
   memmap2 0.9.11
     MIT elected from `MIT OR Apache-2.0`
@@ -17174,8 +17051,6 @@ Elections made in this build
     MIT elected from `MIT/Apache-2.0`
   miniz_oxide 0.8.9
     MIT elected from `MIT OR Zlib OR Apache-2.0`
-  miow 0.6.1
-    MIT elected from `MIT OR Apache-2.0`
   moxcms 0.8.1
     BSD-3-Clause elected from `BSD-3-Clause OR Apache-2.0`
   naga 29.0.4
@@ -17348,6 +17223,8 @@ Elections made in this build
     MIT elected from `MIT OR Apache-2.0`
   rayon-core 1.13.0
     MIT elected from `MIT OR Apache-2.0`
+  read-fonts 0.35.0
+    MIT elected from `MIT OR Apache-2.0`
   read-fonts 0.37.0
     MIT elected from `MIT OR Apache-2.0`
   read-fonts 0.39.2
@@ -17358,7 +17235,7 @@ Elections made in this build
     MIT elected from `MIT OR Apache-2.0`
   regex 1.12.4
     MIT elected from `MIT OR Apache-2.0`
-  regex-automata 0.4.14
+  regex-automata 0.4.18
     MIT elected from `MIT OR Apache-2.0`
   regex-syntax 0.8.11
     MIT elected from `MIT OR Apache-2.0`
@@ -17370,6 +17247,8 @@ Elections made in this build
     MIT elected from `Apache-2.0 OR MIT`
   resvg 0.46.0
     MIT elected from `Apache-2.0 OR MIT`
+  rio-unicode 0.5.26
+    MIT elected from `MIT OR Apache-2.0`
   ropey 2.0.0-beta.1
     MIT elected from `MIT OR Apache-2.0`
   roxmltree 0.20.0
@@ -17385,8 +17264,6 @@ Elections made in this build
   rustc_version 0.4.1
     MIT elected from `MIT OR Apache-2.0`
   rustix 1.1.4
-    MIT elected from `Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT`
-  rustix-openpty 0.2.0
     MIT elected from `Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT`
   rustls 0.23.41
     MIT elected from `Apache-2.0 OR ISC OR MIT`
@@ -17414,15 +17291,15 @@ Elections made in this build
     Apache-2.0 elected from `Apache-2.0 OR GPL-2.0-only`
   semver 1.0.28
     MIT elected from `MIT OR Apache-2.0`
-  serde 1.0.228
+  serde 1.0.229
     MIT elected from `MIT OR Apache-2.0`
   serde-saphyr 0.0.29
     MIT elected from `MIT OR Apache-2.0`
   serde_bytes 0.11.19
     MIT elected from `MIT OR Apache-2.0`
-  serde_core 1.0.228
+  serde_core 1.0.229
     MIT elected from `MIT OR Apache-2.0`
-  serde_derive 1.0.228
+  serde_derive 1.0.229
     MIT elected from `MIT OR Apache-2.0`
   serde_derive_internals 0.29.1
     MIT elected from `MIT OR Apache-2.0`
@@ -17454,14 +17331,14 @@ Elections made in this build
     MIT elected from `MIT OR Apache-2.0`
   shlex 2.0.1
     MIT elected from `MIT OR Apache-2.0`
-  signal-hook 0.4.4
-    MIT elected from `MIT OR Apache-2.0`
   signal-hook-registry 1.4.8
     MIT elected from `MIT OR Apache-2.0`
   simplecss 0.2.2
     MIT elected from `Apache-2.0 OR MIT`
   siphasher 1.0.3
     MIT elected from `MIT/Apache-2.0`
+  skrifa 0.37.0
+    MIT elected from `MIT OR Apache-2.0`
   skrifa 0.40.0
     MIT elected from `MIT OR Apache-2.0`
   skrifa 0.42.1
@@ -17513,6 +17390,8 @@ Elections made in this build
   swash 0.2.9
     MIT elected from `Apache-2.0 OR MIT`
   syn 2.0.118
+    MIT elected from `MIT OR Apache-2.0`
+  syn 3.0.4
     MIT elected from `MIT OR Apache-2.0`
   sys-locale 0.3.2
     MIT elected from `MIT OR Apache-2.0`
@@ -17568,6 +17447,8 @@ Elections made in this build
     MIT elected from `MIT OR Apache-2.0`
   typenum 1.20.1
     MIT elected from `MIT OR Apache-2.0`
+  ucd-trie 0.1.7
+    MIT elected from `MIT OR Apache-2.0`
   unarray 0.1.4
     MIT elected from `MIT OR Apache-2.0`
   unicode-bidi 0.3.18
@@ -17616,8 +17497,6 @@ Elections made in this build
     MIT elected from `MIT/Apache-2.0`
   version_check 0.9.5
     MIT elected from `MIT/Apache-2.0`
-  vte 0.15.0
-    MIT elected from `Apache-2.0 OR MIT`
   wait-timeout 0.2.1
     MIT elected from `MIT/Apache-2.0`
   waker-fn 1.2.0

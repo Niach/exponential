@@ -1,4 +1,4 @@
-// Clean reimplementation from the VT spec + alacritty_terminal (Apache-2.0). NOT derived from Zed's GPL terminal crates.
+// Clean reimplementation from the VT spec + rio-vt (MIT). NOT derived from Zed's GPL terminal crates.
 //! One `Terminal` session = PTY + emulator + read loop + wait thread
 //! (masterplan-v3 §6.2's `Terminal`, gpui-free).
 //!
@@ -8,7 +8,7 @@
 //! tracks the title), then repaints. Headless tests drive the exact same
 //! surface.
 
-use crate::emulator::{Emulator, EmulatorSignal, TermHandle};
+use crate::emulator::{Emulator, EmulatorSignal, GraphicsUpdate, TermHandle};
 use crate::pty::{self, ChildExit, ExitSlot, Pty, SpawnSpec};
 use crate::read_loop::{spawn_read_loop, Wake};
 use std::sync::Arc;
@@ -87,6 +87,24 @@ impl Terminal {
         pty_result
     }
 
+    /// Cell pixel metrics (EXP-636): the paint side reports the real cell
+    /// size so CSI 14t/16t answer in pixels and sixel/kitty placements size
+    /// correctly. A no-op when unchanged.
+    pub fn set_cell_px(&mut self, width: u32, height: u32) {
+        self.emulator.set_cell_px(width, height);
+    }
+
+    /// Retain decoded image pixels for painting (EXP-636). Off by default so
+    /// the headless CLI parses image protocols without buffering pixels.
+    pub fn enable_graphics(&mut self) {
+        self.emulator.enable_graphics();
+    }
+
+    /// Image uploads/frees queued since the last call (paint-side cache feed).
+    pub fn take_graphics(&mut self) -> Vec<GraphicsUpdate> {
+        self.emulator.take_graphics()
+    }
+
     /// Drain pending emulator events (§6.6): reply-required answers are
     /// written back to the PTY, the tab title is tracked, and the outward
     /// signals are handed to the caller (repaint/bell/title for the gpui
@@ -109,7 +127,7 @@ impl Terminal {
         self.wake_rx.clone()
     }
 
-    /// Shared handle for painting (`renderable_content`) and tests.
+    /// Shared handle for painting (the grid snapshot) and tests.
     pub fn term(&self) -> TermHandle {
         self.emulator.term()
     }

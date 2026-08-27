@@ -1,4 +1,4 @@
-// Clean reimplementation from the VT spec + alacritty_terminal (Apache-2.0). NOT derived from Zed's GPL terminal crates.
+// Clean reimplementation from the VT spec + rio-vt (MIT). NOT derived from Zed's GPL terminal crates.
 //! `TerminalManager` — the JetBrains-style multi-tab model for the bottom
 //! dock (masterplan-v3 §6.13).
 //!

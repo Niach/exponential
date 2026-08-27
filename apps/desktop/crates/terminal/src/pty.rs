@@ -1,4 +1,4 @@
-// Clean reimplementation from the VT spec + alacritty_terminal (Apache-2.0). NOT derived from Zed's GPL terminal crates.
+// Clean reimplementation from the VT spec + rio-vt (MIT). NOT derived from Zed's GPL terminal crates.
 //! PTY ownership (masterplan-v3 §6.3) — **we hold the master**.
 //!
 //! portable-pty hands us the master directly, so the raw child output has

@@ -5371,13 +5371,12 @@ mod tests {
 
     /// Paint a screen into a live emulator (the grid the watchers read).
     fn paint(term: &TermHandle, rows: &[String]) {
-        let mut processor = vte::ansi::Processor::<vte::ansi::StdSyncHandler>::new();
         let mut bytes = b"\x1b[2J\x1b[H".to_vec();
         for row in rows {
             bytes.extend_from_slice(row.as_bytes());
             bytes.extend_from_slice(b"\r\n");
         }
-        processor.advance(&mut *term.lock(), &bytes);
+        terminal::advance_bytes(term, &bytes);
     }
 
     #[test]

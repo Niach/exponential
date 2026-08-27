@@ -61,9 +61,14 @@ gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", 
 # Lucide glyphs the option tables need are not in the bundled IconName set).
 gpui-component-macros = { git = "https://github.com/longbridge/gpui-component", rev = "da4f93696dc2b2b4d91bcc42412b9053a3d24de8" }
 
-alacritty_terminal = "0.26"                                            # UPSTREAM, Apache-2.0 — never Zed's GPL fork (resolves 0.26.0)
+# EXP-636: the emulator is rio-vt (MIT) — Rio's embeddable VT core, chosen for
+# its sixel/kitty/iTerm2 graphics pipeline (alacritty_terminal has none and its
+# maintainers declined it). `pty` (default) OFF: we own the PTY via portable-pty.
+# Pinned EXACTLY: the 0.5.x line changes public API between patch releases.
+rio-vt = { version = "=0.5.26", default-features = false, features = ["graphics"] }
+rio-graphics = { version = "=0.5.26", default-features = false }        # GraphicData/ColorType/texture keys the terminal crate names
+image = { version = "0.25", default-features = false }                 # RenderImage frames for inline images; already in the tree via gpui
 portable-pty = "0.9"                                                   # resolves 0.9.0
-vte = { version = "0.15", features = ["std", "ansi"] }                 # "std" is required for StdSyncHandler (§6.4)
 rusqlite = { version = "0.32", features = ["bundled", "serde_json"] }  # feature set matches §5.1
 # THE HTTP client for the whole desktop app (EXP-304). It replaced `ureq`
 # outright — one stack, not two. ureq is HTTP/1.1-only, which meant the 15

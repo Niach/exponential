@@ -1,12 +1,11 @@
-// Clean reimplementation from the VT spec + alacritty_terminal (Apache-2.0). NOT derived from Zed's GPL terminal crates.
+// Clean reimplementation from the VT spec + rio-vt (MIT). NOT derived from Zed's GPL terminal crates.
 //! Headless integration tests for the gpui-free terminal core (masterplan-v3
 //! §6.2 / §11.4 Phase-4 gate): real PTY, real children (`bash`, `sh`, `vim`),
 //! grid-level assertions — no window, no gpui.
 
-use alacritty_terminal::term::cell::Flags;
-use alacritty_terminal::term::TermMode;
 use std::time::{Duration, Instant};
-use terminal::{SpawnSpec, Terminal};
+use terminal::rio_vt::config::colors::{AnsiColor, NamedColor};
+use terminal::{SpawnSpec, Terminal, TermMode};
 
 // Generous: these tests spawn real children (`bash`, `vim`) and a full
 // `cargo test --team` runs them alongside every other binary — under
@@ -157,7 +156,7 @@ fn resize_mid_run_delivers_sigwinch_and_reflows() {
     assert_eq!(term.screen_lines().len(), 10);
 
     // §6.9/§6.10 guards: zero-size and no-op resizes are ignored, not passed
-    // to alacritty (which rejects zero grids) or the child (SIGWINCH storm).
+    // to the emulator (which rejects zero grids) or the child (SIGWINCH storm).
     term.resize(0, 10).expect("zero cols ignored");
     term.resize(40, 10).expect("no-op ignored");
     assert_eq!(term.size(), (40, 10));
@@ -175,30 +174,30 @@ fn cjk_and_emoji_occupy_wide_cells_without_smear() {
     );
 
     // Grid-level wide-cell contract (§6.9): each wide glyph owns its cell
-    // with WIDE_CHAR and the trailing cell is a WIDE_CHAR_SPACER.
+    // as a wide square and the trailing cell is a spacer.
     let handle = term.term();
     let guard = handle.lock();
-    let cells: Vec<(i32, usize, char, Flags)> = guard
-        .renderable_content()
-        .display_iter
-        .map(|cell| (cell.point.line.0, cell.point.column.0, cell.c, cell.flags))
+    let cells: Vec<(i32, usize, char, bool, bool)> = guard
+        .grid
+        .display_iter()
+        .map(|cell| {
+            let square = *cell.square;
+            (cell.pos.row.0, cell.pos.col.0, square.c(), square.is_wide(), square.is_spacer())
+        })
         .collect();
     drop(guard);
 
     for wide in ['你', '好', '🌍'] {
-        let (line, column, _, flags) = *cells
+        let (line, column, _, is_wide, _) = *cells
             .iter()
-            .find(|(_, _, c, _)| *c == wide)
+            .find(|(_, _, c, _, _)| *c == wide)
             .unwrap_or_else(|| panic!("{wide} not in grid"));
-        assert!(flags.contains(Flags::WIDE_CHAR), "{wide} missing WIDE_CHAR flag");
-        let (.., spacer_flags) = *cells
+        assert!(is_wide, "{wide} not flagged wide");
+        let (.., is_spacer) = *cells
             .iter()
-            .find(|(l, col, _, _)| *l == line && *col == column + 1)
+            .find(|(l, col, _, _, _)| *l == line && *col == column + 1)
             .unwrap_or_else(|| panic!("no cell after {wide}"));
-        assert!(
-            spacer_flags.contains(Flags::WIDE_CHAR_SPACER),
-            "cell after {wide} is not a WIDE_CHAR_SPACER"
-        );
+        assert!(is_spacer, "cell after {wide} is not a wide spacer");
     }
 
     // Spacer-skipped reconstruction reads back exactly (no smear/doubling).
@@ -285,11 +284,14 @@ fn claude_tui_renders_a_styled_grid_headlessly() {
         let handle = t.term();
         let guard = handle.lock();
         let count = guard
-            .renderable_content()
-            .display_iter
+            .grid
+            .display_iter()
             .filter(|cell| {
-                cell.c != ' '
-                    && cell.fg != vte::ansi::Color::Named(vte::ansi::NamedColor::Foreground)
+                let square = *cell.square;
+                let c = square.c();
+                c != ' '
+                    && c != '\0'
+                    && guard.grid.style_of(&square).fg != AnsiColor::Named(NamedColor::Foreground)
             })
             .count();
         drop(guard);
@@ -312,6 +314,27 @@ fn claude_tui_renders_a_styled_grid_headlessly() {
 }
 
 #[test]
+fn sixel_from_a_real_child_places_an_image() {
+    // EXP-636: an image protocol stream from a real child ends up as a
+    // placement in the emulator's graphics store. rio silently drops sixels
+    // when the cell pixel metrics are zero, so this also guards the
+    // `DEFAULT_CELL_PX` wiring end to end (the CLI path never sets real ones).
+    let mut term = Terminal::spawn(&bash_spec(), 80, 24).expect("spawn bash");
+    // A 6x6 solid red sixel: raster attributes, one palette entry, six full
+    // sixel columns. The newline after ST moves the cursor off the image row:
+    // sixels carry DEC semantics, so text written over them erases them.
+    term.write(b"printf '\\033Pq\"1;1;6;6#0;2;100;0;0#0~~~~~~\\033\\\\\\n'; echo sixel-'d'one\n");
+    assert!(
+        pump_until(&mut term, LONG, |t| output_line_contains(t, "sixel-done")),
+        "sixel command never finished:\n{}",
+        dump(&term)
+    );
+    let handle = term.term();
+    let placements = handle.lock().graphics.atlas_placements.len();
+    assert_eq!(placements, 1, "expected one sixel placement:\n{}", dump(&term));
+}
+
+#[test]
 fn vim_smoke_alt_screen_and_quit() {
     // Feasibility guard: skip (green) when vim isn't installed.
     if std::process::Command::new("vim").arg("--version").output().is_err() {
@@ -331,7 +354,7 @@ fn vim_smoke_alt_screen_and_quit() {
     let entered = pump_until(&mut term, LONG, |t| {
         let on_alt = {
             let handle = t.term();
-            let mode = *handle.lock().mode();
+            let mode = handle.lock().mode();
             mode.contains(TermMode::ALT_SCREEN)
         };
         on_alt && t.screen_lines().iter().any(|line| line.starts_with('~'))

@@ -1,4 +1,4 @@
-// Clean reimplementation from the VT spec + alacritty_terminal (Apache-2.0). NOT derived from Zed's GPL terminal crates.
+// Clean reimplementation from the VT spec + rio-vt (MIT). NOT derived from Zed's GPL terminal crates.
 //! One terminal tab (masterplan-v3 §6.13): `TerminalTab { id, kind, view,
 //! title, status }` — the JetBrains-model unit the [`crate::manager`] owns.
 //!

@@ -1117,10 +1117,9 @@ mod tests {
     }
 
     /// Feed raw bytes into an emulator term (the emulator-test `advance`
-    /// pattern) — turbofish REQUIRED for the `T: Timeout` default param.
+    /// pattern).
     fn advance(term: &terminal::TermHandle, bytes: &[u8]) {
-        let mut processor = vte::ansi::Processor::<vte::ansi::StdSyncHandler>::new();
-        processor.advance(&mut *term.lock(), bytes);
+        terminal::advance_bytes(term, bytes);
     }
 
     #[test]
