@@ -1096,6 +1096,59 @@ export const ReviewsTool: React.FC<{
           </div>
         </div>
       </div>
+      {/* Empty state once the last PR is merged — the desktop's
+          controls::empty_state (EXP-525): 48px primary/10 disc with the 24px
+          PR glyph, text_lg semibold title, text_sm muted description, gap_3,
+          px_6 py_12, centered, max-w 448. Cross-fades in as the card folds. */}
+      {collapse > 0 ? (
+        <div
+          style={{
+            position: `absolute`,
+            top: REVIEWS_HEADER_H,
+            left: 0,
+            right: 0,
+            display: `flex`,
+            justifyContent: `center`,
+            padding: `39px 19.5px`,
+            opacity: interpolate(collapse, [0.5, 1], [0, 1], CLAMP),
+            pointerEvents: `none`,
+          }}
+        >
+          <div
+            style={{
+              width: `100%`,
+              maxWidth: 448,
+              display: `flex`,
+              flexDirection: `column`,
+              alignItems: `center`,
+              gap: 9.75,
+              textAlign: `center`,
+            }}
+          >
+            <span
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: 999,
+                display: `flex`,
+                alignItems: `center`,
+                justifyContent: `center`,
+                backgroundColor: `rgba(229,229,229,0.1)`,
+                color: C.primary,
+              }}
+            >
+              <GitPullRequestIcon size={24} />
+            </span>
+            <span style={{ fontSize: 14.625, fontWeight: 600, color: C.text }}>
+              No open pull requests
+            </span>
+            <span style={{ fontSize: 11.375, color: C.muted, lineHeight: 1.4 }}>
+              Open pull requests in this team&apos;s repositories land here for
+              review.
+            </span>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
