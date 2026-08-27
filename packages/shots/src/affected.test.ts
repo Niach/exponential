@@ -295,6 +295,118 @@ describe(`fail-safe`, () => {
     expect(result.broad).toEqual([])
   })
 
+  test(`the terminal crate narrows to the terminal views, not the whole lane`, () => {
+    // EXP-652: the rio-vt migration rewrote 13 files under `crates/terminal/`
+    // and, because only `crates/ui/src` names screens, widened all 48 desktop
+    // views. Every pixel the crate draws is inside a terminal grid.
+    const result = affectedScope({
+      changedFiles: [
+        `apps/desktop/crates/terminal/src/element.rs`,
+        `apps/desktop/crates/terminal/src/emulator.rs`,
+        `apps/desktop/crates/terminal/Cargo.toml`,
+      ],
+      platforms: PLATFORMS,
+      includeMissing: false,
+    })
+    expect(result.broad).toEqual([])
+    expect(result.byPlatform.get(`desktop`)).toContain(`terminal`)
+    // Every view it claims renders a terminal grid; the board behind the dock
+    // is NOT one of them.
+    for (const viewId of result.byPlatform.get(`desktop`) ?? []) {
+      expect([`terminal`, `steering`]).toContain(viewId)
+    }
+    for (const platform of PLATFORMS) {
+      if (platform === `desktop`) continue
+      expect(result.byPlatform.get(platform)).toEqual([])
+    }
+  })
+
+  test(`the dock CHROME keeps widening — its collapsed strip is in every shot`, () => {
+    // The narrowing above stops at the crate boundary on purpose.
+    // `crates/ui/src/terminal_dock.rs` draws the 29px collapsed "Terminal"
+    // toggle strip that sits at the bottom of EVERY desktop view (look at the
+    // foot of `shots/board/desktop.webp`), plus the tab bar and the open/close
+    // slide. `_dock` is deliberately absent from DESKTOP_WRAPPER for exactly
+    // this reason, and this test is what stops someone adding it.
+    const result = affectedScope({
+      changedFiles: [`apps/desktop/crates/ui/src/terminal_dock.rs`],
+      platforms: [`desktop`],
+      includeMissing: false,
+    })
+    expect(result.byPlatform.get(`desktop`)).toHaveLength(viewsFor(`desktop`).length)
+    expect(result.broad.map((entry) => entry.path)).toEqual([
+      `apps/desktop/crates/ui/src/terminal_dock.rs`,
+    ])
+  })
+
+  test(`desktop paths that draw nothing are dropped, not widened`, () => {
+    const result = affectedScope({
+      changedFiles: [
+        // OS notification banners: drawn by the notification centre.
+        `apps/desktop/crates/ui/src/os_notifications.rs`,
+        // The scrubbed feed the OTHER clients render, off the relay.
+        `apps/desktop/crates/steer/src/activity.rs`,
+        `apps/desktop/crates/steer/src/codex_activity.rs`,
+        `apps/desktop/crates/steer/src/publisher.rs`,
+        // Cargo's own test convention — no `.test.` infix to match.
+        `apps/desktop/crates/terminal/tests/headless.rs`,
+        // Licence notices and the lockfile.
+        `apps/desktop/assets/licenses/NOTICES.txt`,
+        `apps/desktop/Cargo.lock`,
+      ],
+      platforms: PLATFORMS,
+      includeMissing: false,
+    })
+    for (const platform of PLATFORMS) expect(result.byPlatform.get(platform)).toEqual([])
+    expect(result.broad).toEqual([])
+    expect(result.ignored).toHaveLength(7)
+  })
+
+  test(`the steer crate keeps widening where it can be seen`, () => {
+    // Only the three feed/publisher files are dropped. `lib.rs` owns
+    // `persistent_device_id`, which decides which synced `devices` row the
+    // machine-settings view calls "this machine".
+    const result = affectedScope({
+      changedFiles: [`apps/desktop/crates/steer/src/lib.rs`],
+      platforms: [`desktop`],
+      includeMissing: false,
+    })
+    expect(result.ignored).toEqual([])
+    expect(result.byPlatform.get(`desktop`)).toHaveLength(viewsFor(`desktop`).length)
+  })
+
+  test(`the iOS reconnect policy draws nothing; its web/Android peers still do`, () => {
+    // EXP-652: pure policy (a phase plus two booleans in, an enum out), but it
+    // lives in ExpCore, so NATIVE_SHARED widened both simulator lanes.
+    const policy = affectedScope({
+      changedFiles: [`apps/ios/ExpCore/Sources/SteerReconnectPolicy.swift`],
+      platforms: PLATFORMS,
+      includeMissing: false,
+    })
+    for (const platform of PLATFORMS) expect(policy.byPlatform.get(platform)).toEqual([])
+    expect(policy.broad).toEqual([])
+
+    // Their peers hold user-visible phase `detail` strings next to the socket
+    // lifecycle, so they must NOT be ignored alongside it.
+    const android = affectedScope({
+      changedFiles: [
+        `apps/android/app/src/main/java/com/exponential/app/data/steer/SteerConnection.kt`,
+      ],
+      platforms: [`android`],
+      includeMissing: false,
+    })
+    expect(android.ignored).toEqual([])
+    expect(android.byPlatform.get(`android`)).toHaveLength(viewsFor(`android`).length)
+
+    const web = affectedScope({
+      changedFiles: [`apps/web/src/lib/steer-session-store.ts`],
+      platforms: [`web`],
+      includeMissing: false,
+    })
+    expect(web.ignored).toEqual([])
+    expect((web.byPlatform.get(`web`) ?? []).length).toBeGreaterThan(0)
+  })
+
   test(`a changed catalog entry is in scope on every platform that shoots it`, () => {
     const result = affectedScope({
       changedFiles: [`packages/view-catalog/views.json`],
