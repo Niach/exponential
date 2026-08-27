@@ -7,7 +7,7 @@
 //! [`MIN_SIZE`] — the floor below which page layouts break — which is also
 //! the `window_min_size` every shell window is opened with.
 
-use std::{path::PathBuf, sync::OnceLock};
+use std::{ffi::OsString, path::PathBuf, sync::OnceLock};
 
 use anyhow::{anyhow, Context as _, Result};
 use gpui::{px, size, App, Pixels, Size, Window};
@@ -35,8 +35,34 @@ struct SavedSize {
 /// The app-local data dir shared with the per-window layout files. macOS:
 /// `~/Library/Application Support/Exponential/…`; Linux:
 /// `~/.local/share/exponential/…`.
+///
+/// Honors the same DEV-ONLY `EXP_DATA_DIR` override as
+/// [`api::default_data_dir`] (EXP-650). It did not, and the two things this
+/// dir holds are exactly the ones a throwaway run must not share with the
+/// real install: the per-window `DockAreaState` and this file. A screenshot
+/// capture hands us a fresh `EXP_DATA_DIR` precisely so it starts from
+/// defaults, then opened the terminal dock at whatever height the developer
+/// had last dragged it to — and wrote its own height back over theirs on the
+/// way out. Anything keyed to a machine rather than to app state (the
+/// updater's check stamp) keeps its own path on purpose.
+///
+/// The historical path is returned verbatim when the override is unset, so
+/// existing installs keep their layouts.
 pub(crate) fn app_data_dir() -> Option<PathBuf> {
-    Some(dirs::data_local_dir()?.join(if cfg!(target_os = "macos") {
+    app_data_dir_in(std::env::var_os("EXP_DATA_DIR"), dirs::data_local_dir())
+}
+
+/// [`app_data_dir`] with its two inputs injected — the env override and the
+/// platform base — so the precedence is testable without touching the
+/// process environment (which no parallel test may do safely).
+fn app_data_dir_in(override_dir: Option<OsString>, base: Option<PathBuf>) -> Option<PathBuf> {
+    // An EMPTY value is not an override: `env -u` is awkward in shell scripts,
+    // so `EXP_DATA_DIR=` is how a wrapper says "use the real dir" (same rule
+    // as `api::default_data_dir`).
+    if let Some(dir) = override_dir.filter(|dir| !dir.is_empty()) {
+        return Some(PathBuf::from(dir));
+    }
+    Some(base?.join(if cfg!(target_os = "macos") {
         "Exponential"
     } else {
         "exponential"
@@ -367,6 +393,43 @@ mod tests {
         width: px(640.),
         height: px(480.),
     };
+
+    /// EXP-650: the override is the whole point of `EXP_DATA_DIR` — a capture
+    /// run that inherits the developer's `window-0.json` photographs their
+    /// terminal-dock height instead of the product default.
+    #[test]
+    fn exp_data_dir_overrides_the_app_data_dir() {
+        let base = Some(PathBuf::from("/home/someone/.local/share"));
+        assert_eq!(
+            app_data_dir_in(Some(OsString::from("/tmp/throwaway")), base),
+            Some(PathBuf::from("/tmp/throwaway"))
+        );
+    }
+
+    #[test]
+    fn without_the_override_the_historical_path_is_unchanged() {
+        let base = PathBuf::from("/home/someone/.local/share");
+        let leaf = if cfg!(target_os = "macos") { "Exponential" } else { "exponential" };
+        assert_eq!(
+            app_data_dir_in(None, Some(base.clone())),
+            Some(base.join(leaf))
+        );
+        // An empty value means "use the real dir", never the empty path.
+        assert_eq!(
+            app_data_dir_in(Some(OsString::new()), Some(base.clone())),
+            Some(base.join(leaf))
+        );
+    }
+
+    #[test]
+    fn no_platform_base_and_no_override_is_no_dir() {
+        assert_eq!(app_data_dir_in(None, None), None);
+        // …but an override stands on its own: it needs no platform base.
+        assert_eq!(
+            app_data_dir_in(Some(OsString::from("/tmp/x")), None),
+            Some(PathBuf::from("/tmp/x"))
+        );
+    }
 
     #[test]
     fn clamps_a_sub_floor_frame_up_to_the_floor() {
