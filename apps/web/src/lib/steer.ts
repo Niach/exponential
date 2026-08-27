@@ -289,7 +289,8 @@ export interface SteerStartRepo {
  * its own `actions.get` resolves; `repo` is absent for repo-less actions).
  * `inputs` (EXP-257) are the action's filled input values, fully resolved
  * server-side (display names included) so the desktop injects them into the
- * prompt with zero lookups. Exactly one form.
+ * prompt with zero lookups. Or (EXP-637) a resume of an ended run. Exactly
+ * one form.
  */
 export type SteerStartSubject =
   | { issueId: string }
@@ -300,6 +301,20 @@ export type SteerStartSubject =
       teamId: string
       repo?: SteerStartRepo
       inputs?: SteerStartInput[]
+    }
+  // EXP-637: resume an ENDED run. The device looks the run up in its own run
+  // registry (cwd, agent, options, native transcript id), so the frame only
+  // has to name it — the optional fields are display/routing hints the
+  // device uses before its registry lookup resolves, never the source of
+  // truth. `teamId` is required like every other subject so the relay can
+  // route without a DB read.
+  | {
+      resumeSessionId: string
+      teamId: string
+      issueId?: string
+      actionId?: string
+      actionName?: string
+      branch?: string
     }
 
 /**

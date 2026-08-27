@@ -1,14 +1,17 @@
 import { useEffect, useState, type ReactNode } from "react"
 import { Link } from "@tanstack/react-router"
-import { GitMerge, LoaderCircle } from "lucide-react"
+import { ChevronDown, GitMerge, LoaderCircle } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
 import type { AgentSessionRow } from "@/hooks/use-agents-data"
+import type { CodingSession, Issue } from "@/db/schema"
 import {
   sessionDisplayState,
   type SessionDisplayState,
 } from "@/components/issue-coding-rows"
+import { sessionOutcomeLabel } from "@/lib/coding-session-display"
 import { relativeTime } from "@/components/comment-rows/format"
 import { trpc } from "@/lib/trpc-client"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -286,6 +289,152 @@ export function SessionRow({
           </Link>
         )}
       </div>
+    </GlassRow>
+  )
+}
+
+// ── Ended runs (EXP-637) ─────────────────────────────────────────────────────
+// A run that closed itself through `exponential_sessions_end` carries the
+// agent's own account of it: an outcome and a one-paragraph summary. Decision
+// 5: the summary is NEVER inline. Collapsed shows name/title, the outcome
+// glyph + label and the time; expanding reveals the summary and Resume. Same
+// row on the Agents page's "Recent runs" and the Automations tab's "Recent
+// automated runs", and mirrored on desktop, iOS and Android.
+
+const OUTCOME_ICON = {
+  done: conceptIcon(`run-outcome-done`),
+  blocked: conceptIcon(`run-outcome-blocked`),
+  no_changes: conceptIcon(`run-outcome-no-changes`),
+}
+const OUTCOME_CLASS: Record<string, string> = {
+  done: `text-sky-400`,
+  blocked: `text-amber-400`,
+  no_changes: `text-muted-foreground`,
+}
+const ResumeIcon = conceptIcon(`run-resume`)
+
+function OutcomeBadge({ outcome }: { outcome: string | null }) {
+  const Icon =
+    outcome && outcome in OUTCOME_ICON
+      ? OUTCOME_ICON[outcome as keyof typeof OUTCOME_ICON]
+      : null
+  const className = (outcome && OUTCOME_CLASS[outcome]) ?? `text-muted-foreground`
+  return (
+    <span className={`flex shrink-0 items-center gap-1 font-medium ${className}`}>
+      {Icon && <Icon className="size-3.5" />}
+      {sessionOutcomeLabel(outcome)}
+    </span>
+  )
+}
+
+/** What an ended-run row needs — a structural subset of `AgentSessionRow`, so
+ * the Agents page hands its rows straight over while the Automations tab
+ * builds the three fields itself off the synced session + device rows. */
+export interface EndedRunRow {
+  session: CodingSession
+  issue?: Issue
+  /** EXP-637: the run's machine is online and advertises `resume-run`. */
+  canResume: boolean
+}
+
+export function EndedSessionRow({
+  row,
+  /** Overrides the title line — the Automations tab labels its rows by the
+   * action that fired, not by an issue that never existed. */
+  title,
+}: {
+  row: EndedRunRow
+  title?: string
+}) {
+  const { session, issue, canResume } = row
+  const [expanded, setExpanded] = useState(false)
+  const [resuming, setResuming] = useState(false)
+
+  const isAction = session.actionName != null
+  const kind = isAction ? `Action` : issue ? issue.identifier : `Batch`
+  const heading =
+    title ??
+    (isAction
+      ? session.actionName
+      : (issue?.title ?? `Batch session`))
+
+  // The resumed run arrives as a NEW row over Electric; the button only has
+  // to send the command, so it settles as soon as the relay accepted it.
+  const resume = async () => {
+    if (!session.deviceId) return
+    setResuming(true)
+    try {
+      await trpc.steer.startSession.mutate({
+        resumeSessionId: session.id,
+        deviceId: session.deviceId,
+      })
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : `Could not resume that run`)
+    } finally {
+      setResuming(false)
+    }
+  }
+
+  return (
+    <GlassRow
+      interactive
+      className="flex-col items-stretch gap-2"
+      onClick={() => setExpanded((open) => !open)}
+      data-testid={`ended-session-${session.id}`}
+    >
+      <div className="flex min-w-0 items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-1.5 text-sm">
+            <span className="shrink-0 font-mono text-xs text-muted-foreground">
+              {kind}
+            </span>
+            <span className="truncate font-medium">{heading}</span>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2 text-xs">
+          <OutcomeBadge outcome={session.outcome} />
+          <span className="text-muted-foreground">
+            {relativeTime(session.endedAt ?? session.startedAt)}
+          </span>
+          <ChevronDown
+            className={`size-4 text-muted-foreground transition-transform duration-fast ${expanded ? `rotate-180` : ``}`}
+            aria-hidden
+          />
+        </div>
+      </div>
+      {expanded && (
+        <div
+          className="flex flex-col gap-2 border-t border-glass-stroke pt-2"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {session.summary ? (
+            <p className="text-sm whitespace-pre-wrap text-muted-foreground">
+              {session.summary}
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              This run left no summary.
+            </p>
+          )}
+          {canResume && (
+            <div>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={resuming}
+                onClick={resume}
+              >
+                {resuming ? (
+                  <LoaderCircle className="animate-spin" />
+                ) : (
+                  <ResumeIcon />
+                )}
+                Resume
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
     </GlassRow>
   )
 }

@@ -208,6 +208,17 @@ export const codingSessionsRouter = router({
           // firing automation's row id rides along for per-automation history.
           startedReason: z.enum(startedReasonValues).optional(),
           automationId: z.string().uuid().optional(),
+          // EXP-637: every repo-backed action/chat run now gets its own
+          // worktree + branch (`exp/<slug>-<id8>`), so the row records the
+          // branch the same way a batch row does once its PR opens. Issue
+          // rows never carry it — the issue itself owns `exp/<IDENTIFIER>`.
+          branch: z.string().max(255).optional(),
+          // EXP-637: the ended run this one continues (desktop Resume or
+          // steer.startSession({ resumeSessionId })). History only.
+          resumedFromId: z.string().uuid().optional(),
+        })
+        .refine((value) => !(value.branch && value.issueId), {
+          message: `branch excludes issueId — an issue session's branch lives on the issue`,
         })
         .refine(
           (value) => {
@@ -263,6 +274,8 @@ export const codingSessionsRouter = router({
             userId: attribution.userId,
             hostUserId: attribution.hostUserId,
             ...device,
+            branch: input.branch ?? null,
+            resumedFromId: input.resumedFromId ?? null,
             status: `running`,
           })
           .returning()
@@ -316,6 +329,8 @@ export const codingSessionsRouter = router({
             userId: attribution.userId,
             hostUserId: attribution.hostUserId,
             ...device,
+            branch: input.branch ?? null,
+            resumedFromId: input.resumedFromId ?? null,
             status: `running`,
           })
           .returning()
@@ -349,6 +364,7 @@ export const codingSessionsRouter = router({
             userId: attribution.userId,
             hostUserId: attribution.hostUserId,
             ...device,
+            resumedFromId: input.resumedFromId ?? null,
             status: `running`,
           })
           .returning()
@@ -379,6 +395,8 @@ export const codingSessionsRouter = router({
           userId: attribution.userId,
           hostUserId: attribution.hostUserId,
           ...device,
+          branch: input.branch ?? null,
+          resumedFromId: input.resumedFromId ?? null,
           status: `running`,
         })
         .returning()
@@ -429,6 +447,13 @@ export const codingSessionsRouter = router({
           // hand-started session.
           startedReason: z.enum(startedReasonValues).optional(),
           automationId: z.string().uuid().optional(),
+          // EXP-637: run worktrees echo their branch so a swept row
+          // resurrects tied to the same branch (the desktop's own-branch
+          // guards and the unlinked-PR merge sweep both key off it).
+          branch: z.string().max(255).optional(),
+        })
+        .refine((value) => !(value.branch && value.issueId), {
+          message: `branch excludes issueId — an issue session's branch lives on the issue`,
         })
         .refine((value) => !(value.issueId && value.teamId), {
           message: `At most one of issueId/teamId`,
@@ -554,6 +579,7 @@ export const codingSessionsRouter = router({
               userId: attribution.userId,
               hostUserId: attribution.hostUserId,
               ...device,
+              branch: input.branch ?? null,
               // Batch/action rows have no issue to re-derive review state
               // from — a resurrected session degrades to `running` (badge
               // label only; rare suspend edge, never kills anything).
@@ -702,9 +728,19 @@ export const codingSessionsRouter = router({
         return { session: row }
       }
 
+      // EXP-637: this is the CLIENT end path — the agent process exited, the
+      // tab closed, or the app quit. `endedBy` records that, and the run
+      // carries no agent-written summary/outcome (only
+      // `exponential_sessions_end` writes those). needsInput is cleared so a
+      // row parked on a picker can't end amber.
       const [session] = await ctx.db
         .update(codingSessions)
-        .set({ status: `ended`, endedAt: new Date() })
+        .set({
+          status: `ended`,
+          endedAt: new Date(),
+          endedBy: `client`,
+          needsInput: false,
+        })
         .where(eq(codingSessions.id, input.id))
         .returning()
 

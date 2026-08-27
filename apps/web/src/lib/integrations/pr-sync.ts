@@ -645,17 +645,29 @@ export async function applyPrMergeState(opts: {
 // by issue_id — the desktop self-closes those when its branch's issues sync
 // a merged PR. Returns the ended row ids for the caller's POST-commit relay
 // kill.
+// EXP-637 decision 6: a session that merged its OWN PR (via the MCP
+// `exponential_pr_merge` tool with its session header) is spared — it ends
+// through `exponential_sessions_end` or its own exit instead, so an agent
+// that merges and then keeps working isn't killed by its own success. The
+// spare is a durable column, not an in-memory claim, so the webhook and the
+// outbound poller honour it too.
 export async function endLiveIssueSessionsInTx(
   tx: Tx,
   issueId: string
 ): Promise<string[]> {
   const ended = await tx
     .update(codingSessions)
-    .set({ status: `ended`, endedAt: new Date(), updatedAt: new Date() })
+    .set({
+      status: `ended`,
+      endedAt: new Date(),
+      endedBy: `merge`,
+      updatedAt: new Date(),
+    })
     .where(
       and(
         eq(codingSessions.issueId, issueId),
-        inArray(codingSessions.status, [`running`, `in_review`])
+        inArray(codingSessions.status, [`running`, `in_review`]),
+        eq(codingSessions.mergedOwnPr, false)
       )
     )
     .returning({ id: codingSessions.id })
@@ -684,11 +696,63 @@ export async function endMergedPrSessions(issueIds: string[]): Promise<void> {
     void txId
     const ended = await tx
       .update(codingSessions)
-      .set({ status: `ended`, endedAt: new Date(), updatedAt: new Date() })
+      .set({
+        status: `ended`,
+        endedAt: new Date(),
+        endedBy: `merge`,
+        updatedAt: new Date(),
+      })
       .where(
         and(
           inArray(codingSessions.issueId, issueIds),
-          inArray(codingSessions.status, [`running`, `in_review`])
+          inArray(codingSessions.status, [`running`, `in_review`]),
+          eq(codingSessions.mergedOwnPr, false)
+        )
+      )
+      .returning({ id: codingSessions.id })
+    return ended.map((s) => s.id)
+  })
+
+  await relayKillSessions(endedSessionIds)
+}
+
+// EXP-637/EXP-626: the issue-LESS counterpart. A chore PR opened with
+// `exponential_pr_open({ repositoryId, head })` links no issue, so nothing
+// above can find its session — the only handle is the branch recorded on the
+// row. When a merge webhook resolves to no issues at all, end the live
+// sessions of the teams that registered that repo and whose row sits on the
+// merged head branch. Same `merged_own_pr` spare as every other merge path:
+// the session that merged its own chore PR keeps running.
+export async function endSessionsOnMergedBranch(
+  repoFullName: string,
+  headBranch: string
+): Promise<void> {
+  if (!repoFullName || !headBranch) return
+  const teamRows = await db
+    .select({ teamId: repositories.teamId })
+    .from(repositories)
+    .where(eq(repositories.fullName, repoFullName))
+  const teamIds = [...new Set(teamRows.map((r) => r.teamId))]
+  if (teamIds.length === 0) return
+
+  const endedSessionIds = await db.transaction(async (tx) => {
+    const txId = await generateTxId(tx)
+    void txId
+    const ended = await tx
+      .update(codingSessions)
+      .set({
+        status: `ended`,
+        endedAt: new Date(),
+        endedBy: `merge`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          isNull(codingSessions.issueId),
+          eq(codingSessions.branch, headBranch),
+          inArray(codingSessions.teamId, teamIds),
+          inArray(codingSessions.status, [`running`, `in_review`]),
+          eq(codingSessions.mergedOwnPr, false)
         )
       )
       .returning({ id: codingSessions.id })

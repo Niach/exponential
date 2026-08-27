@@ -180,6 +180,10 @@ app.post(`/start`, async (c) => {
 
   // Explicit exactly-one on key presence: single issueId, the batch trio, or
   // the action subject — never more than one, never none.
+  // EXP-637 resume: the ONLY subject that may carry issueId/actionId
+  // alongside itself (they are display hints, not the subject), so it is
+  // checked before the exactly-one count.
+  const hasResume = body ? `resumeSessionId` in body : false
   const hasIssueId = body ? `issueId` in body : false
   const hasIssueIds = body ? `issueIds` in body : false
   const hasActionId = body ? `actionId` in body : false
@@ -187,7 +191,58 @@ app.post(`/start`, async (c) => {
     Boolean
   ).length
   let subject: StartSubject
-  if (subjectCount !== 1) {
+  if (hasResume) {
+    const resumeSessionId = asString(body?.resumeSessionId)
+    const teamId = asString(body?.teamId)
+    if (
+      !resumeSessionId ||
+      resumeSessionId.length > 128 ||
+      !teamId ||
+      teamId.length > 128 ||
+      hasIssueIds
+    ) {
+      return c.json({ error: `Bad request` }, 400)
+    }
+    // Same stance as repo/inputs: the hint keys are OPTIONAL, but a PRESENT
+    // key must parse — a mistyped field would drop the whole frame desktop
+    // side after /start already answered ok.
+    let issueId: string | undefined
+    if (body && `issueId` in body) {
+      issueId = asString(body.issueId)
+      if (!issueId || issueId.length > 128) {
+        return c.json({ error: `Bad request` }, 400)
+      }
+    }
+    let actionId: string | undefined
+    if (body && `actionId` in body) {
+      actionId = asString(body.actionId)
+      if (!actionId || actionId.length > 128) {
+        return c.json({ error: `Bad request` }, 400)
+      }
+    }
+    let actionName: string | undefined
+    if (body && `actionName` in body) {
+      actionName = asString(body.actionName)
+      if (!actionName || actionName.length > 255) {
+        return c.json({ error: `Bad request` }, 400)
+      }
+    }
+    let branch: string | undefined
+    if (body && `branch` in body) {
+      branch = asString(body.branch)
+      if (!branch || branch.length > 255) {
+        return c.json({ error: `Bad request` }, 400)
+      }
+    }
+    subject = {
+      resumeSessionId,
+      teamId,
+      ...(issueId ? { issueId } : {}),
+      ...(actionId ? { actionId } : {}),
+      ...(actionName ? { actionName } : {}),
+      ...(branch ? { branch } : {}),
+    }
+  } else if (subjectCount !== 1) {
     return c.json({ error: `Bad request` }, 400)
   } else if (hasIssueId) {
     const issueId = asString(body?.issueId)

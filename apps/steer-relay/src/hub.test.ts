@@ -184,6 +184,56 @@ describe(`device presence + remote start`, () => {
     })
   })
 
+  test(`startSession routes a resume subject and drops launch options (EXP-637)`, () => {
+    const hub = new Hub()
+    const desktop = new FakeSocket()
+    hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
+    hub.onMessage(desktop, JSON.stringify({ t: `online`, deviceId: `dev-1` }))
+
+    hub.startSession(
+      `owner`,
+      `dev-1`,
+      {
+        resumeSessionId: `sess-1`,
+        teamId: `team-1`,
+        actionId: `act-1`,
+        actionName: `Refresh screenshots`,
+        branch: `exp/refresh-screenshots-1a2b3c4d`,
+      },
+      // A resumed run keeps the options it was started with — the device
+      // reads them off its own run registry, so anything passed here must
+      // NOT reach the frame and contradict it. Only attribution survives.
+      { agent: `codex`, model: `gpt-5.4`, startedBy: `mate` }
+    )
+    expect(desktop.lastFrame(`start_session`)).toEqual({
+      t: `start_session`,
+      resumeSessionId: `sess-1`,
+      teamId: `team-1`,
+      actionId: `act-1`,
+      actionName: `Refresh screenshots`,
+      branch: `exp/refresh-screenshots-1a2b3c4d`,
+      startedBy: `mate`,
+    })
+
+    // Hints are optional: a bare resume names only the run and its team.
+    hub.startSession(`owner`, `dev-1`, {
+      resumeSessionId: `sess-2`,
+      teamId: `team-1`,
+    })
+    expect(desktop.lastFrame(`start_session`)).toEqual({
+      t: `start_session`,
+      resumeSessionId: `sess-2`,
+      teamId: `team-1`,
+    })
+
+    // Every other subject stays byte-identical.
+    hub.startSession(`owner`, `dev-1`, { issueId: `issue-9` })
+    expect(desktop.lastFrame(`start_session`)).toEqual({
+      t: `start_session`,
+      issueId: `issue-9`,
+    })
+  })
+
   test(`nudge delivers a check_in frame to the control socket (EXP-481)`, () => {
     const hub = new Hub()
     const desktop = new FakeSocket()

@@ -13,6 +13,7 @@ import {
   applyPrMergeState,
   applyPrOpenedState,
   applyPrReopenedState,
+  endSessionsOnMergedBranch,
   findIssueIdByBranch,
 } from "@/lib/integrations/pr-sync"
 import {
@@ -309,6 +310,15 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
       const githubActorUserId = await resolveAppUserForGithubActor(
         pr.merged_by ?? payload.sender
       )
+      // EXP-637/EXP-626: an issue-LESS chore PR (opened with
+      // `exponential_pr_open({ repositoryId, head })`) resolves to nothing
+      // above, so the branch on the coding_sessions row is the only handle
+      // on the run that opened it. End those rows here — except the session
+      // that merged its own PR, which lives on until sessions_end.
+      if (issueIds.length === 0 && repoFullName && headRef) {
+        await endSessionsOnMergedBranch(repoFullName, headRef)
+        return jsonResponse(200, { ok: true })
+      }
       for (const issueId of issueIds) {
         await applyPrMergeState({
           githubActorUserId,

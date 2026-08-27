@@ -37,7 +37,12 @@ export async function endForeignHostedSessions(
     void txId
     const ended = await tx
       .update(codingSessions)
-      .set({ status: `ended`, endedAt: new Date(), updatedAt: new Date() })
+      .set({
+        status: `ended`,
+        endedAt: new Date(),
+        endedBy: `system`,
+        updatedAt: new Date(),
+      })
       .where(
         and(
           eq(codingSessions.hostUserId, hostUserId),

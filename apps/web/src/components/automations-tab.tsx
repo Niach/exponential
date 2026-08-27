@@ -7,7 +7,12 @@ import {
   parseAutomationTrigger,
   triggerSummary,
 } from "@/lib/action-triggers"
-import { deviceIsOnline, type SteerDevice } from "@/lib/steer-devices"
+import {
+  deviceCanResumeRun,
+  deviceIsOnline,
+  type SteerDevice,
+} from "@/lib/steer-devices"
+import { EndedSessionRow } from "@/components/agent-session-row"
 import { getActionIcon } from "@/lib/board-icons"
 import {
   automationCollection,
@@ -282,6 +287,21 @@ export function AutomationsTab({
     [actions]
   )
 
+  // EXP-637: Resume relaunches the run on the machine that still holds its
+  // worktree — hide the button when that machine is offline or too old to
+  // resume, rather than failing after the click.
+  const resumableDeviceIds = useMemo(
+    () =>
+      new Set(
+        devices
+          .filter(
+            (device) => deviceIsOnline(device) && deviceCanResumeRun(device)
+          )
+          .map((device) => device.deviceId)
+      ),
+    [devices]
+  )
+
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<Automation | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Automation | null>(null)
@@ -370,20 +390,42 @@ export function AutomationsTab({
             </div>
           ) : (
             <div className="flex flex-col gap-2">
-              {automatedRuns.slice(0, 10).map((session) => (
-                <GlassRow key={session.id} className="gap-2 text-sm">
-                  <span className="min-w-0 flex-1 truncate">
-                    {session.actionName ??
+              {automatedRuns.slice(0, 10).map((session) =>
+                // EXP-637: an ENDED run has a close-out to expand into; a live
+                // one is still just a status line.
+                session.status === `ended` ? (
+                  <EndedSessionRow
+                    key={session.id}
+                    row={{
+                      session,
+                      canResume: Boolean(
+                        session.deviceId &&
+                          resumableDeviceIds.has(session.deviceId)
+                      ),
+                    }}
+                    title={
+                      session.actionName ??
                       (session.actionId
                         ? actionById.get(session.actionId)?.name
                         : null) ??
-                      `Action`}
-                  </span>
-                  <span className="shrink-0 text-xs text-muted-foreground">
-                    {`${sessionStatusLabel(session.status)} · ${relativeTime(session.createdAt)}`}
-                  </span>
-                </GlassRow>
-              ))}
+                      `Action`
+                    }
+                  />
+                ) : (
+                  <GlassRow key={session.id} className="gap-2 text-sm">
+                    <span className="min-w-0 flex-1 truncate">
+                      {session.actionName ??
+                        (session.actionId
+                          ? actionById.get(session.actionId)?.name
+                          : null) ??
+                        `Action`}
+                    </span>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {`${sessionStatusLabel(session.status)} · ${relativeTime(session.createdAt)}`}
+                    </span>
+                  </GlassRow>
+                )
+              )}
             </div>
           )}
         </div>

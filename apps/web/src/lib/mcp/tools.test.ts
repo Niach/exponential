@@ -20,6 +20,8 @@ const h = vi.hoisted(() => {
       add: vi.fn(),
       branchDiff: vi.fn(),
       forIssue: vi.fn(),
+      // EXP-626: the issue-less merge path.
+      mergePull: vi.fn(),
     },
     actions: {
       list: vi.fn(),
@@ -54,9 +56,20 @@ const h = vi.hoisted(() => {
     reject: (e: unknown) => unknown
   ) => Promise.resolve(dbRows.current).then(resolve, reject)
 
+  // EXP-637: pr_merge stamps the header session's merged_own_pr spare outside
+  // any transaction, right before the merge.
+  const dbUpdate = vi.fn(
+    (): {
+      set: (values: Record<string, unknown>) => {
+        where: (cond?: unknown) => Promise<unknown>
+      }
+    } => ({ set: () => ({ where: async () => undefined }) })
+  )
+
   const db = {
     select: vi.fn(() => queryBuilder),
     insert: vi.fn(() => ({ values: insertValues })),
+    update: dbUpdate,
     transaction: vi.fn(),
   }
 
@@ -158,7 +171,18 @@ vi.mock(`@/lib/integrations/notifications`, () => ({
 vi.mock(`@/lib/widget/agent-report`, () => ({
   createAgentBugReport: h.createAgentBugReport,
 }))
+// EXP-626/EXP-637: the issue-less PR path and the agent close-out.
+vi.mock(`@/lib/trpc/repositories`, () => ({
+  loadRepositoryForTeam: vi.fn(),
+}))
+vi.mock(`@/lib/coding-session-end`, () => ({ endSessionByAgent: vi.fn() }))
 
+import { loadRepositoryForTeam } from "@/lib/trpc/repositories"
+import { recordIssueEvent } from "@/lib/integrations/activity"
+import { applyPrLifecycleStatusInTx } from "@/lib/integrations/pr-sync"
+import { fireAndForgetPrNotify } from "@/lib/integrations/notifications"
+import { noteAgentIssueActivity } from "@/lib/integrations/pr-actor-claims"
+import { endSessionByAgent } from "@/lib/coding-session-end"
 import { createPullRequest } from "@/lib/integrations/github-pr"
 import { resolveRepoInstallationTokenInfo } from "@/lib/integrations/github-app"
 import { isInstallationLinkedToTeam } from "@/lib/trpc/integrations"
@@ -192,7 +216,12 @@ const USER: McpUser = {
   updatedAt: new Date(),
 } as unknown as McpUser
 
-function collectTools(user: McpUser = USER): Map<string, ToolHandler> {
+// EXP-637: `sessionId` is what `routes/api/mcp.ts` parsed off the launcher's
+// X-Exp-Session-Id header — null for every caller that is not a launched agent.
+function collectTools(
+  user: McpUser = USER,
+  sessionId: string | null = null
+): Map<string, ToolHandler> {
   const tools = new Map<string, ToolHandler>()
   const fakeServer = {
     registerTool: (name: string, _def: unknown, handler: ToolHandler) => {
@@ -205,7 +234,8 @@ function collectTools(user: McpUser = USER): Map<string, ToolHandler> {
     new Request(`https://x.test/api/mcp`, {
       headers: { "user-agent": `claude-code/test` },
     }),
-    FULL_ACCESS
+    FULL_ACCESS,
+    sessionId
   )
   return tools
 }
@@ -871,5 +901,282 @@ describe(`exponential_pr_open batch session flip`, () => {
     const { sql } = new PgDialect().sqlToQuery(flip!.where as never)
     expect(sql).toContain(`"issue_id" is null`)
     expect(sql).toContain(`"action_id" is null`)
+  })
+})
+
+// ── EXP-637: the session header ──────────────────────────────────────────────
+// The launcher injects X-Exp-Session-Id into the MCP config it writes, so
+// every tool call an agent makes names the run it is running inside. That is
+// how sessions_end closes out the right row and how pr_open parks the EXACT
+// row instead of guessing. The id is an identifier, never a credential:
+// ownership is re-checked per tool.
+const SESSION = `66666666-6666-4666-8666-666666666666`
+
+describe(`exponential_sessions_end`, () => {
+  it(`refuses outside a launched session, naming the missing header`, async () => {
+    const result = await collectTools(USER, null).get(
+      `exponential_sessions_end`
+    )!({ summary: `did the thing`, outcome: `done` })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`X-Exp-Session-Id`)
+    expect(endSessionByAgent).not.toHaveBeenCalled()
+  })
+
+  it(`closes the header session out with the summary and outcome`, async () => {
+    vi.mocked(endSessionByAgent).mockResolvedValue({
+      sessionId: SESSION,
+      status: `ended`,
+      outcome: `blocked`,
+      alreadyEnded: false,
+    })
+
+    const result = await collectTools(USER, SESSION).get(
+      `exponential_sessions_end`
+    )!({ summary: `Stuck on the migration.`, outcome: `blocked` })
+
+    expect(parseOk(result)).toEqual({
+      sessionId: SESSION,
+      status: `ended`,
+      outcome: `blocked`,
+      alreadyEnded: false,
+    })
+    expect(endSessionByAgent).toHaveBeenCalledWith(db, SESSION, `user-1`, {
+      summary: `Stuck on the migration.`,
+      outcome: `blocked`,
+    })
+  })
+
+  it(`surfaces a foreign session's refusal as a tool error`, async () => {
+    vi.mocked(endSessionByAgent).mockRejectedValue(forbidden())
+
+    const result = await collectTools(USER, SESSION).get(
+      `exponential_sessions_end`
+    )!({ summary: `s`, outcome: `done` })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`not allowed here`)
+  })
+})
+
+// ── EXP-626: a PR with no issue ──────────────────────────────────────────────
+describe(`exponential_pr_open — repositoryId path`, () => {
+  function armRepoPr(): Array<{ set: Record<string, unknown>; where: unknown }> {
+    const updates: Array<{ set: Record<string, unknown>; where: unknown }> = []
+    vi.mocked(loadRepositoryForTeam).mockResolvedValue({
+      id: REPO,
+      teamId: WS,
+      fullName: `acme/app`,
+      defaultBranch: `main`,
+    })
+    vi.mocked(resolveRepoInstallationTokenInfo).mockResolvedValue({
+      token: `tok`,
+      installationId: 42,
+    } as never)
+    vi.mocked(isInstallationLinkedToTeam).mockResolvedValue(true)
+    vi.mocked(createPullRequest).mockResolvedValue({
+      url: `https://github.com/acme/app/pull/9`,
+      number: 9,
+    } as never)
+    db.transaction.mockImplementation(async (fn: (tx: unknown) => unknown) =>
+      fn({
+        update: () => ({
+          set: (values: Record<string, unknown>) => ({
+            where: async (cond: unknown) => {
+              updates.push({ set: values, where: cond })
+            },
+          }),
+        }),
+      })
+    )
+    return updates
+  }
+
+  it(`opens the PR and links, moves and notifies NOTHING`, async () => {
+    armRepoPr()
+
+    const result = await collectTools(USER, null).get(`exponential_pr_open`)!({
+      repositoryId: REPO,
+      head: `exp/refresh-screenshots-1a2b3c4d`,
+      title: `Refresh screenshots`,
+    })
+
+    expect(parseOk(result)).toEqual({
+      url: `https://github.com/acme/app/pull/9`,
+      number: 9,
+    })
+    expect(createPullRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repo: `acme/app`,
+        head: `exp/refresh-screenshots-1a2b3c4d`,
+        base: `main`,
+      })
+    )
+    // No issue exists, so nothing may be recorded against one.
+    expect(recordIssueEvent).not.toHaveBeenCalled()
+    expect(applyPrLifecycleStatusInTx).not.toHaveBeenCalled()
+    expect(fireAndForgetPrNotify).not.toHaveBeenCalled()
+    expect(noteAgentIssueActivity).not.toHaveBeenCalled()
+    // And without a session header there is no row to park either — the
+    // batch heuristic must NOT run here (it would hit an unrelated run).
+    expect(db.transaction).not.toHaveBeenCalled()
+  })
+
+  it(`parks the EXACT header session in review, never a heuristic set`, async () => {
+    const updates = armRepoPr()
+    dbRows.current = [
+      {
+        id: SESSION,
+        teamId: WS,
+        status: `running`,
+        userId: `user-1`,
+        hostUserId: null,
+      },
+    ]
+
+    await collectTools(USER, SESSION).get(`exponential_pr_open`)!({
+      repositoryId: REPO,
+      head: `exp/chat-1a2b3c4d`,
+      title: `Chore`,
+    })
+
+    expect(updates).toHaveLength(1)
+    expect(updates[0]!.set).toMatchObject({
+      status: `in_review`,
+      branch: `exp/chat-1a2b3c4d`,
+      needsInput: false,
+    })
+    const { sql, params } = new PgDialect().sqlToQuery(
+      updates[0]!.where as never
+    )
+    expect(sql).toContain(`"id" =`)
+    expect(params).toContain(SESSION)
+    // Never the loose issue-less sweep.
+    expect(sql).not.toContain(`"issue_id" is null`)
+  })
+
+  it(`ignores a header naming somebody else's run`, async () => {
+    const updates = armRepoPr()
+    dbRows.current = [
+      {
+        id: SESSION,
+        teamId: WS,
+        status: `running`,
+        userId: `someone-else`,
+        hostUserId: null,
+      },
+    ]
+
+    await collectTools(USER, SESSION).get(`exponential_pr_open`)!({
+      repositoryId: REPO,
+      head: `exp/chat-1a2b3c4d`,
+      title: `Chore`,
+    })
+
+    expect(updates).toHaveLength(0)
+  })
+
+  it(`requires head, and refuses more than one subject`, async () => {
+    armRepoPr()
+    const prOpen = collectTools(USER, null).get(`exponential_pr_open`)!
+
+    const noHead = await prOpen({ repositoryId: REPO, title: `x` })
+    expect(noHead.isError).toBe(true)
+    expect(noHead.content[0].text).toContain(`'head' is required`)
+
+    const both = await prOpen({
+      repositoryId: REPO,
+      issueId: UUID,
+      head: `exp/x`,
+      title: `x`,
+    })
+    expect(both.isError).toBe(true)
+    expect(both.content[0].text).toContain(`exactly one`)
+    expect(createPullRequest).not.toHaveBeenCalled()
+  })
+})
+
+// ── EXP-626/EXP-637: merging without an issue, and surviving your own merge ──
+describe(`exponential_pr_merge — repository path and the self-merge spare`, () => {
+  it(`delegates a repositoryId + prNumber merge to repositories.mergePull`, async () => {
+    caller.repositories.mergePull.mockResolvedValue({ merged: true })
+
+    const result = await collectTools(USER, null).get(
+      `exponential_pr_merge`
+    )!({ repositoryId: REPO, prNumber: 9 })
+
+    expect(parseOk(result)).toEqual({
+      results: [{ repositoryId: REPO, prNumber: 9, merged: true }],
+    })
+    expect(caller.repositories.mergePull).toHaveBeenCalledWith({
+      repositoryId: REPO,
+      prNumber: 9,
+    })
+  })
+
+  it(`refuses repositoryId without prNumber, and a second subject`, async () => {
+    const prMerge = collectTools(USER, null).get(`exponential_pr_merge`)!
+
+    const half = await prMerge({ repositoryId: REPO })
+    expect(half.isError).toBe(true)
+    const both = await prMerge({ repositoryId: REPO, prNumber: 9, issueId: UUID })
+    expect(both.isError).toBe(true)
+    expect(caller.repositories.mergePull).not.toHaveBeenCalled()
+  })
+
+  it(`stamps merged_own_pr on the header session BEFORE merging (decision 6)`, async () => {
+    const updates: Array<{ set: Record<string, unknown>; where: unknown }> = []
+    db.update.mockImplementation(() => ({
+      set: (values: Record<string, unknown>) => ({
+        where: async (cond: unknown) => {
+          updates.push({ set: values, where: cond })
+        },
+      }),
+    }))
+    dbRows.current = [
+      {
+        id: SESSION,
+        teamId: WS,
+        status: `in_review`,
+        userId: `user-1`,
+        hostUserId: null,
+      },
+    ]
+    caller.repositories.mergePull.mockResolvedValue({ merged: true })
+
+    await collectTools(USER, SESSION).get(`exponential_pr_merge`)!({
+      repositoryId: REPO,
+      prNumber: 9,
+    })
+
+    expect(updates).toHaveLength(1)
+    expect(updates[0]!.set).toMatchObject({
+      mergedOwnPr: true,
+      // Back to `running`: the agent is still working, and the badge must
+      // not read "in review" after its own PR landed.
+      status: `running`,
+      needsInput: false,
+    })
+    const { params } = new PgDialect().sqlToQuery(updates[0]!.where as never)
+    expect(params).toContain(SESSION)
+  })
+
+  it(`stamps nothing without a header session`, async () => {
+    const updates: Array<{ set: Record<string, unknown> }> = []
+    db.update.mockImplementation(() => ({
+      set: (values: Record<string, unknown>) => ({
+        where: async () => {
+          updates.push({ set: values })
+        },
+      }),
+    }))
+    caller.repositories.mergePull.mockResolvedValue({ merged: true })
+
+    await collectTools(USER, null).get(`exponential_pr_merge`)!({
+      repositoryId: REPO,
+      prNumber: 9,
+    })
+
+    expect(updates).toHaveLength(0)
   })
 })

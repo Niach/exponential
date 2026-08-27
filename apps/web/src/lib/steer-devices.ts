@@ -162,6 +162,13 @@ export function deviceCanResume(device: SteerDevice): boolean {
   return (device.caps ?? []).includes(`resume`)
 }
 
+/** EXP-637: resuming an ENDED run (its worktree, its agent transcript) is a
+ * launch path of its own — distinct from EXP-481's `resume`, which resumes an
+ * issue's live worktree. Runs lists hide Resume on devices without it. */
+export function deviceCanResumeRun(device: SteerDevice): boolean {
+  return (device.caps ?? []).includes(`resume-run`)
+}
+
 /** EXP-481: whether a devices row reads "online" — `last_seen_at` within the
  * contract window of `now` (devices heartbeat ~30s; the window is three
  * missed beats). A negative age (server stamp ahead of the client clock)

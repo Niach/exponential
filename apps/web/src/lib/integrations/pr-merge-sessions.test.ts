@@ -10,6 +10,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const h = vi.hoisted(() => ({
   updates: [] as { set: Record<string, unknown>; where: unknown }[],
   returning: [] as { id: string }[],
+  // EXP-637: the repo→teams lookup endSessionsOnMergedBranch does first.
+  teamRows: [] as { teamId: string }[],
+  selectWheres: [] as unknown[],
   getSteerRelayConfig: vi.fn(),
   relayPostKill: vi.fn(async () => ({ delivered: true })),
 }))
@@ -32,6 +35,14 @@ function fakeTx() {
 vi.mock(`@/db/connection`, () => ({
   db: {
     transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(fakeTx()),
+    select: () => ({
+      from: () => ({
+        where: (where: unknown) => {
+          h.selectWheres.push(where)
+          return Promise.resolve(h.teamRows)
+        },
+      }),
+    }),
   },
 }))
 vi.mock(`@/lib/trpc`, () => ({ generateTxId: async () => `1` }))
@@ -43,6 +54,7 @@ vi.mock(`@/lib/steer`, () => ({
 import {
   endLiveIssueSessionsInTx,
   endMergedPrSessions,
+  endSessionsOnMergedBranch,
 } from "@/lib/integrations/pr-sync"
 
 const ISSUE = `11111111-1111-4111-8111-111111111111`
@@ -72,6 +84,8 @@ function whereShape(cond: unknown, out: unknown[] = []): unknown[] {
 beforeEach(() => {
   h.updates.length = 0
   h.returning = []
+  h.teamRows = []
+  h.selectWheres.length = 0
   vi.clearAllMocks()
   h.getSteerRelayConfig.mockReturnValue({ url: `ws://relay`, secret: `s` })
   h.relayPostKill.mockResolvedValue({ delivered: true })
@@ -91,14 +105,18 @@ describe(`endLiveIssueSessionsInTx`, () => {
     expect(h.updates[0]!.set).toMatchObject({
       status: `ended`,
       endedAt: expect.any(Date),
+      endedBy: `merge`,
       updatedAt: expect.any(Date),
     })
+    // EXP-637: the sweep spares the session that merged its own PR.
     expect(whereShape(h.updates[0]!.where)).toEqual([
       `col:issue_id`,
       ISSUE,
       `col:status`,
       `running`,
       `in_review`,
+      `col:merged_own_pr`,
+      false,
     ])
   })
 })
@@ -113,6 +131,7 @@ describe(`endMergedPrSessions`, () => {
     expect(h.updates[0]!.set).toMatchObject({
       status: `ended`,
       endedAt: expect.any(Date),
+      endedBy: `merge`,
       updatedAt: expect.any(Date),
     })
     expect(whereShape(h.updates[0]!.where)).toEqual([
@@ -122,6 +141,8 @@ describe(`endMergedPrSessions`, () => {
       `col:status`,
       `running`,
       `in_review`,
+      `col:merged_own_pr`,
+      false,
     ])
     expect(h.relayPostKill).toHaveBeenCalledTimes(2)
     expect(h.relayPostKill).toHaveBeenCalledWith(expect.anything(), `sess-1`)
@@ -140,5 +161,56 @@ describe(`endMergedPrSessions`, () => {
 
     expect(h.updates).toHaveLength(0)
     expect(h.relayPostKill).not.toHaveBeenCalled()
+  })
+})
+
+// EXP-637/EXP-626: an issue-LESS chore PR (opened with
+// `exponential_pr_open({ repositoryId, head })`) resolves to no issue at all,
+// so the branch recorded on the coding_sessions row is the only handle on the
+// run that opened it.
+describe(`endSessionsOnMergedBranch`, () => {
+  const BRANCH = `exp/refresh-screenshots-1a2b3c4d`
+
+  it(`ends issue-less rows on the merged branch in the repo's teams`, async () => {
+    h.teamRows = [{ teamId: `team-1` }, { teamId: `team-2` }, { teamId: `team-1` }]
+    h.returning = [{ id: `sess-1` }]
+
+    await endSessionsOnMergedBranch(`org/repo`, BRANCH)
+
+    expect(h.updates).toHaveLength(1)
+    expect(h.updates[0]!.set).toMatchObject({
+      status: `ended`,
+      endedAt: expect.any(Date),
+      endedBy: `merge`,
+      updatedAt: expect.any(Date),
+    })
+    // Duplicate team ids collapse; the spare and the issue-less shape are
+    // both part of the clause.
+    expect(whereShape(h.updates[0]!.where)).toEqual([
+      `col:issue_id`,
+      `col:branch`,
+      BRANCH,
+      `col:team_id`,
+      `team-1`,
+      `team-2`,
+      `col:status`,
+      `running`,
+      `in_review`,
+      `col:merged_own_pr`,
+      false,
+    ])
+    expect(h.relayPostKill).toHaveBeenCalledTimes(1)
+    expect(h.relayPostKill).toHaveBeenCalledWith(expect.anything(), `sess-1`)
+  })
+
+  it(`is a no-op when nothing registered the repo, or the inputs are blank`, async () => {
+    h.teamRows = []
+    await endSessionsOnMergedBranch(`org/repo`, BRANCH)
+    expect(h.updates).toHaveLength(0)
+
+    await endSessionsOnMergedBranch(``, BRANCH)
+    await endSessionsOnMergedBranch(`org/repo`, ``)
+    expect(h.selectWheres).toHaveLength(1)
+    expect(h.updates).toHaveLength(0)
   })
 })

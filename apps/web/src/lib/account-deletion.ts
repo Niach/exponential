@@ -175,6 +175,7 @@ export async function guardAndCleanupTeamsForUserDeletion(
     .set({
       status: `ended`,
       endedAt: new Date(),
+      endedBy: `system`,
       updatedAt: new Date(),
       userId: sql`${codingSessions.hostUserId}`,
     })
@@ -194,7 +195,12 @@ export async function guardAndCleanupTeamsForUserDeletion(
   // hygiene plus the trigger for the caller's best-effort relay kill.
   const hosted = await tx
     .update(codingSessions)
-    .set({ status: `ended`, endedAt: new Date(), updatedAt: new Date() })
+    .set({
+      status: `ended`,
+      endedAt: new Date(),
+      endedBy: `system`,
+      updatedAt: new Date(),
+    })
     .where(
       and(
         eq(codingSessions.hostUserId, userId),
