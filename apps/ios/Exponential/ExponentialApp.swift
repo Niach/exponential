@@ -39,7 +39,7 @@ struct ExponentialApp: App {
                         // (EXP-243) — and since EXP-621 they are app-scoped, so
                         // revival belongs here rather than in the one session
                         // screen that happens to be mounted.
-                        dependencies.steerSessions.reconnectAll()
+                        dependencies.steerSessions.reconnectAll(reason: "foreground")
                     default: break
                     }
                 }

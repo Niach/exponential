@@ -59,6 +59,18 @@ const RETAIN_GRACE_MS = 60_000
 /** A store whose session ENDED and lost its last subscriber lingers briefly
  *  so a quick re-open still shows the tail, then self-disposes. */
 const ENDED_GRACE_MS = 5_000
+/** EXP-625: the mint is a network round-trip with no deadline of its own.
+ *  A request issued as the tab suspended can hang forever, and the store
+ *  would sit on "Connecting…" with nothing to click. Bound it. */
+const MINT_TIMEOUT_MS = 20_000
+/** EXP-625: the relay ALWAYS answers a join (`activity_reset` + replay, or
+ *  `error no_such_session` then close 4001), so silence after the join means
+ *  a dead socket: one that opened but never delivers a frame. Close it so
+ *  the normal onclose path runs and the user gets a Reconnect affordance
+ *  instead of an eternal "Connecting…". */
+const JOIN_ACK_TIMEOUT_MS = 15_000
+/** What the mint race resolves to when the deadline wins (EXP-625). */
+const MINT_TIMED_OUT = Symbol(`mint-timed-out`)
 
 /** Equal jitter (half fixed, half random) — desynchronizes viewers that
  *  started waiting together while keeping a floor on the delay. */
@@ -270,8 +282,14 @@ export interface SteerSessionStore {
    *  live (or mid-dial) is left alone — that is what makes reopening a
    *  session instant. */
   connect(): void
-  /** Force a fresh dial (manual Reconnect button, device back online). */
+  /** Force a fresh dial (the manual Reconnect button). */
   reconnect(): void
+  /** EXP-625: a wakeup nudge (tab visible again, network back, the host
+   *  device came online). Acts on whether a dial is actually ALIVE, not on
+   *  the phase alone: it revives a closed or provably stuck store and cuts
+   *  short a `starting` backoff, and is a cheap no-op everywhere else, so
+   *  callers may fire it freely. */
+  kick(reason: string): void
   /** The synced row is the truth for "still running" inside the redial
    *  loops — the OWNING view feeds it; an unwatched store falls back to the
    *  relay's own signals plus the dock reaper. */
@@ -314,6 +332,12 @@ export function createSteerSessionStore(
   // the backoff; a live connection resets it so the next stall starts fast.
   let retries = 0
   let sessionStatus: CodingSession[`status`] | null = null
+  // EXP-625: dial liveness, so a wakeup can tell a dial that is merely young
+  // from one that is stuck. Both timers are generation-scoped.
+  let mintTimer: ReturnType<typeof setTimeout> | null = null
+  let joinAckTimer: ReturnType<typeof setTimeout> | null = null
+  let dialStartedAt = 0
+  let lastFrameAt = 0
 
   let phase: ViewerPhase = { kind: `idle` }
   let feed: FeedItem[] = []
@@ -367,6 +391,19 @@ export function createSteerSessionStore(
     if (retryTimer) {
       clearTimeout(retryTimer)
       retryTimer = null
+    }
+  }
+
+  /** EXP-625: drop both dial deadlines. Every path that abandons a dial
+   *  (a new dial, reconnect, dispose, the socket closing) goes through here. */
+  const clearDialTimers = () => {
+    if (mintTimer) {
+      clearTimeout(mintTimer)
+      mintTimer = null
+    }
+    if (joinAckTimer) {
+      clearTimeout(joinAckTimer)
+      joinAckTimer = null
     }
   }
 
@@ -543,6 +580,8 @@ export function createSteerSessionStore(
   const dial = async (retrying: boolean) => {
     if (disposed) return
     const gen = ++generation
+    clearDialTimers()
+    dialStartedAt = Date.now()
     // Hold the current phase steady across auto-retry redials — flipping
     // to `connecting` per attempt makes the header flicker on every redial
     // (and a silent slow-consumer redial must not flicker at all).
@@ -557,8 +596,34 @@ export function createSteerSessionStore(
     let detail: string | null = null
 
     try {
-      const minted = await deps.mintTicket(sessionId)
+      // EXP-625: race the mint against its deadline. The attached noop catch
+      // keeps a LATE rejection (after the deadline already won) from
+      // surfacing as an unhandled rejection. The race still sees it while
+      // it is the pending outcome.
+      const minting = deps.mintTicket(sessionId)
+      minting.catch(() => {})
+      const minted = await Promise.race([
+        minting,
+        new Promise<typeof MINT_TIMED_OUT>((resolve) => {
+          mintTimer = setTimeout(() => {
+            mintTimer = null
+            resolve(MINT_TIMED_OUT)
+          }, MINT_TIMEOUT_MS)
+        }),
+      ])
       if (disposed || gen !== generation) return
+      if (mintTimer) {
+        clearTimeout(mintTimer)
+        mintTimer = null
+      }
+      if (minted === MINT_TIMED_OUT) {
+        phase = {
+          kind: `closed`,
+          detail: `Couldn't get a viewer ticket in time.`,
+        }
+        commit()
+        return
+      }
       if (`disabled` in minted && minted.disabled) {
         phase = {
           kind: `closed`,
@@ -583,10 +648,25 @@ export function createSteerSessionStore(
         // (desktop still starting). The phase flips to live on the first
         // confirming server frame instead (the relay sends activity_reset
         // immediately on a successful join).
+        // EXP-625: the relay answers every join, so arm a deadline for that
+        // answer. A socket that opened but stays mute (a stale connection a
+        // suspended tab woke up with) is closed here, and the onclose path
+        // below turns it into an honest, retryable phase.
+        joinAckTimer = setTimeout(() => {
+          joinAckTimer = null
+          if (disposed || gen !== generation) return
+          sock.close()
+        }, JOIN_ACK_TIMEOUT_MS)
       }
       sock.onmessage = (event) => {
         if (disposed || gen !== generation || typeof event.data !== `string`)
           return
+        // Any frame at all proves the socket is alive (EXP-625).
+        lastFrameAt = Date.now()
+        if (joinAckTimer) {
+          clearTimeout(joinAckTimer)
+          joinAckTimer = null
+        }
         const frame = parseServerFrame(event.data)
         if (!frame) return
         switch (frame.t) {
@@ -632,6 +712,7 @@ export function createSteerSessionStore(
       }
       sock.onclose = (event) => {
         if (disposed || gen !== generation) return
+        clearDialTimers()
         ws = null
         connected = false
         if (sawEnd) {
@@ -765,12 +846,42 @@ export function createSteerSessionStore(
     reconnect() {
       if (disposed) return
       clearRetryTimer()
+      clearDialTimers()
       retries = 0
       generation++
       ws?.close()
       ws = null
       connected = false
       void dial(false)
+    },
+    kick(_reason) {
+      if (disposed) return
+      switch (phase.kind) {
+        case `closed`:
+          // An unexpected close stays terminal BY DESIGN until something
+          // says the world changed, and a wakeup is exactly that. A
+          // session the synced row calls ended is left alone.
+          if (sessionStatus !== `ended`) store.reconnect()
+          return
+        case `connecting`:
+          // Only a dial that is provably stuck: no frame since it started
+          // and already past the join deadline. A young dial is left to
+          // finish (or to hit its own deadline).
+          if (lastFrameAt >= dialStartedAt) return
+          if (Date.now() - dialStartedAt <= JOIN_ACK_TIMEOUT_MS) return
+          store.reconnect()
+          return
+        case `starting`:
+          // The desktop's publisher may well have arrived while we were
+          // away, so retry NOW instead of waiting out a 30s backoff step.
+          // The phase holds, so nothing flickers.
+          clearRetryTimer()
+          void dial(true)
+          return
+        default:
+          // `live`, `idle` and `ended` need nothing.
+          return
+      }
     },
     noteSessionStatus(status) {
       sessionStatus = status
@@ -866,6 +977,7 @@ export function createSteerSessionStore(
       if (disposed) return
       disposed = true
       clearRetryTimer()
+      clearDialTimers()
       cancelSelfDispose()
       if (reapTimer) clearTimeout(reapTimer)
       activityQueue.cancel()
@@ -905,15 +1017,45 @@ type RegistryStore = ReturnType<typeof createSteerSessionStore>
 
 const stores = new Map<string, RegistryStore>()
 
+// EXP-625: the wakeups. A backgrounded tab (or a phone whose browser froze
+// the page) comes back with sockets the OS quietly killed; nothing in the
+// store notices until someone clicks Reconnect. One listener pair for the
+// WHOLE registry (attached with the first store, removed when the last one
+// goes) nudges every retained store instead.
+function kickAll(reason: string) {
+  for (const store of stores.values()) store.kick(reason)
+}
+const onVisibilityChange = () => {
+  if (document.visibilityState === `visible`) kickAll(`visible`)
+}
+const onOnline = () => kickAll(`online`)
+let wakeupsAttached = false
+
+function attachWakeups() {
+  if (wakeupsAttached || typeof document === `undefined`) return
+  wakeupsAttached = true
+  document.addEventListener(`visibilitychange`, onVisibilityChange)
+  window.addEventListener(`online`, onOnline)
+}
+
+function detachWakeups() {
+  if (!wakeupsAttached) return
+  wakeupsAttached = false
+  document.removeEventListener(`visibilitychange`, onVisibilityChange)
+  window.removeEventListener(`online`, onOnline)
+}
+
 /** Get-or-create the store for a session (StrictMode-safe: repeated calls
  *  return the same instance; disposal is registry-owned, never unmount-owned). */
 export function acquireSteerSession(sessionId: string): SteerSessionStore {
   let store = stores.get(sessionId)
   if (!store) {
-    store = createSteerSessionStore(sessionId, defaultDeps, () =>
+    store = createSteerSessionStore(sessionId, defaultDeps, () => {
       stores.delete(sessionId)
-    )
+      if (stores.size === 0) detachWakeups()
+    })
     stores.set(sessionId, store)
+    attachWakeups()
   }
   return store
 }

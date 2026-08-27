@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
+  acquireSteerSession,
   createSteerSessionStore,
+  disposeAllSteerSessions,
   type SteerSessionStore,
 } from "@/lib/steer-session-store"
 import { FEED_CAP } from "@/lib/agent-feed"
@@ -209,6 +211,114 @@ describe(`slow-consumer eviction (4008)`, () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(sockets).toHaveLength(2)
     store.dispose()
+  })
+})
+
+// EXP-625: revival is driven by whether a dial is ALIVE, not by the phase
+// alone. A mute socket and a hung mint both used to strand the viewer on
+// "Connecting…" with nothing to click.
+describe(`stuck dials`, () => {
+  it(`closes a socket that opens but never answers the join`, async () => {
+    const { store, sockets } = makeStore()
+    store.connect()
+    await vi.advanceTimersByTimeAsync(0)
+    const socket = sockets[0]
+    socket.open()
+    expect(store.getSnapshot().phase.kind).toBe(`connecting`)
+    await vi.advanceTimersByTimeAsync(15_100)
+    expect(socket.closed).toBe(true)
+    // The store closes it; the browser then fires onclose as usual.
+    socket.serverClose(1006)
+    expect(store.getSnapshot().phase.kind).toBe(`closed`)
+    store.dispose()
+  })
+
+  it(`gives up on a mint that never resolves`, async () => {
+    const { store, sockets } = makeStore({
+      mint: () => new Promise<never>(() => {}),
+    })
+    store.connect()
+    await vi.advanceTimersByTimeAsync(19_000)
+    expect(store.getSnapshot().phase.kind).toBe(`connecting`)
+    await vi.advanceTimersByTimeAsync(1_500)
+    const { phase } = store.getSnapshot()
+    expect(phase.kind).toBe(`closed`)
+    expect(phase.kind === `closed` && phase.detail).toContain(`in time`)
+    expect(sockets).toHaveLength(0)
+    store.dispose()
+  })
+})
+
+describe(`kick (wakeup nudge)`, () => {
+  it(`redials a closed store whose session is still running`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.serverClose(1006)
+    expect(store.getSnapshot().phase.kind).toBe(`closed`)
+    store.kick(`visible`)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(sockets).toHaveLength(2)
+    store.dispose()
+  })
+
+  it(`leaves a closed store alone once the session ended`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    store.noteSessionStatus(`ended`)
+    socket.serverClose(1006)
+    store.kick(`visible`)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(sockets).toHaveLength(1)
+    store.dispose()
+  })
+
+  it(`is a no-op on a live store`, async () => {
+    const { store, sockets } = makeStore()
+    await goLive(store, sockets)
+    store.kick(`visible`)
+    store.kick(`online`)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(sockets).toHaveLength(1)
+    expect(store.getSnapshot().phase.kind).toBe(`live`)
+    store.dispose()
+  })
+
+  it(`retries a starting store immediately instead of waiting out the backoff`, async () => {
+    const { store, sockets } = makeStore()
+    store.connect()
+    await vi.advanceTimersByTimeAsync(0)
+    sockets[0].open()
+    sockets[0].frame({ t: `error`, code: `no_such_session` })
+    sockets[0].serverClose(4001)
+    expect(store.getSnapshot().phase.kind).toBe(`starting`)
+
+    store.kick(`visible`)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(sockets).toHaveLength(2)
+    // The pending backoff redial was cancelled, not merely beaten.
+    expect(store.getSnapshot().phase.kind).toBe(`starting`)
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(sockets).toHaveLength(2)
+    store.dispose()
+  })
+})
+
+describe(`registry wakeups`, () => {
+  it(`the visibilitychange listener kicks every retained store`, () => {
+    const store = acquireSteerSession(`wake-1`)
+    const kick = vi.spyOn(store, `kick`)
+    Object.defineProperty(document, `visibilityState`, {
+      configurable: true,
+      get: () => `visible`,
+    })
+    document.dispatchEvent(new Event(`visibilitychange`))
+    expect(kick).toHaveBeenCalledWith(`visible`)
+
+    // The pair is removed once the registry empties.
+    disposeAllSteerSessions()
+    kick.mockClear()
+    document.dispatchEvent(new Event(`visibilitychange`))
+    expect(kick).not.toHaveBeenCalled()
   })
 })
 

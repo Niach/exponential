@@ -225,12 +225,12 @@ fun AgentSessionScreen(
         }
     }
 
-    // Dials only when nothing is connected yet: since EXP-621 a return visit
-    // re-attaches to the running connection and its feed is already there.
-    // Returning from the BACKGROUND is no longer this screen's job either —
-    // the store revives every parked connection on ProcessLifecycleOwner's
-    // ON_START, alongside the shape loops.
-    LaunchedEffect(Unit) { viewModel.connectIfIdle() }
+    // Attaching revives the connection (EXP-625): since EXP-621 a return visit
+    // re-attaches to the running one and its feed is already there, but a dial
+    // loop that died while the screen was away is redialed here instead of
+    // leaving the screen on a spinner nothing could clear. Foreground and
+    // network revivals are the store's job, not this screen's.
+    LaunchedEffect(Unit) { viewModel.ensureConnected() }
     val sessionEnded = session?.status == DomainContract.codingSessionStatusEnded
     // A trailing question/plan means the session is blocked on a human — the
     // header flips to "Needs your input" so it never looks silently stuck.

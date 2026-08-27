@@ -16,12 +16,22 @@ private let logger = Logger(subsystem: "at.exponential", category: "NetworkPathW
 /// window is when shapes burn DNS/connect failures, and nothing used to wake
 /// them afterwards because no network had "returned".
 ///
+/// EXP-625: it also fans the same edge out to `onRegained`, which the steer
+/// viewers hang off. Their sockets die in exactly the gaps this watcher exists
+/// to notice, and until now nothing but foregrounding ever woke them, so a
+/// viewer that lost the network while on screen sat at "Connecting…" until the
+/// user backgrounded the app and came back.
+///
 /// `@unchecked Sendable` for the same reason PushTokenManager is: the class is
 /// held for the app's lifetime and handed to escaping callbacks. Its only
 /// mutable state is confined to `queue` — NWPathMonitor delivers every update
 /// there, serially — so there is nothing to synchronize.
 final class NetworkPathWatcher: @unchecked Sendable {
     private let syncManager: SyncManager
+    /// Anything else that should wake on the same edge, called with the same
+    /// reason string (EXP-625). Off the main actor, like every other callback
+    /// here, so the hook hops for itself.
+    var onRegained: (@Sendable (String) -> Void)?
     private let monitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "at.exponential.network-path")
     // Both confined to `queue`: only the path-update handler ever touches them.
@@ -49,6 +59,7 @@ final class NetworkPathWatcher: @unchecked Sendable {
             guard regained || pathChanged else { return }
             let reason = regained ? "network regained" : "network path changed"
             logger.info("\(reason) — restarting shape pipelines")
+            self.onRegained?(reason)
             let syncManager = self.syncManager
             Task {
                 // restartAllPipelines has its own 5s floor, so even a burst of
