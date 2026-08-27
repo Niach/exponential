@@ -63,8 +63,10 @@ final class SteerSessionStore {
             // Opening the screen is as good a reason to stop waiting out a
             // reconnect backoff as foregrounding the app: a model parked at the
             // 30s cap would otherwise show a stale feed under "Reconnecting…"
-            // for half a minute after the user asked for it.
-            entry.model.reconnectNow()
+            // for half a minute after the user asked for it. Since EXP-625 the
+            // kick also revives a model whose dial died mid-connect, which no
+            // phase-gated path could reach.
+            entry.model.kick("attach")
             return entry.model
         }
         let entry = Entry(model: make())
@@ -84,13 +86,14 @@ final class SteerSessionStore {
         reap()
     }
 
-    /// Foreground revival (EXP-243, now app-scoped): a suspension rarely leaves
-    /// a socket alive, so every retained session redials on the way back in
-    /// instead of waiting for its screen to be opened again.
-    func reconnectAll() {
+    /// Revive every retained session (EXP-243, now app-scoped): a suspension
+    /// rarely leaves a socket alive, so they redial on the way back in instead
+    /// of waiting for their screen to be opened again. Driven by foregrounding
+    /// and, since EXP-625, by the network coming back.
+    func reconnectAll(reason: String) {
         reap()
         for entry in entries.values {
-            entry.model.reconnectNow()
+            entry.model.kick(reason)
         }
     }
 

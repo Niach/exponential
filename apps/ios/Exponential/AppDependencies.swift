@@ -173,6 +173,14 @@ final class AppDependencies: @unchecked Sendable {
         // the active account's file before relaunching shapes, so writes never land
         // on the previous account's database.
         syncManager.start()
+        // The steer sockets die in the same gaps the shapes do (EXP-625), and
+        // nothing but foregrounding used to wake them, so a viewer that lost
+        // the network while on screen never came back on its own. Captured, not
+        // reached through `self`: this runs before init returns.
+        let steerSessions = self.steerSessions
+        networkPathWatcher.onRegained = { reason in
+            Task { @MainActor in steerSessions.reconnectAll(reason: reason) }
+        }
         // Watches for the offline → online edge and restarts the pipelines
         // there, so a recovered connection doesn't wait out a 30s backoff.
         networkPathWatcher.start()

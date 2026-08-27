@@ -1,9 +1,14 @@
 package com.exponential.app.data.steer
 
+import android.util.Log
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
+import com.exponential.app.data.db.accountDatabaseFlow
+import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.data.electric.SyncManager
 import io.ktor.client.HttpClient
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -12,9 +17,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+
+private const val TAG = "SteerConnectionStore"
 
 /// One live [SteerConnection] per coding session, held by the app rather than
 /// by a screen (EXP-621). The steer screen's ViewModel is nav-entry scoped, so
@@ -30,6 +38,7 @@ class SteerConnectionStore @Inject constructor(
     private val issueImagesApi: IssueImagesApi,
     private val client: HttpClient,
     private val json: Json,
+    private val syncManager: SyncManager,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val lock = Any()
@@ -40,6 +49,30 @@ class SteerConnectionStore @Inject constructor(
     // gate's shape, and the same 30s window.
     private var parkJob: Job? = null
 
+    /// Whether the process is foregrounded, as [setForeground] last said. The
+    /// sync-kick fan-out is gated on it: a push wakes a BACKGROUND process and
+    /// kicks the shapes, and reviving parked sockets from there would undo the
+    /// park the moment it happened (EXP-625).
+    private var foreground = false
+
+    init {
+        // Every reason the shapes have to suspect they're behind (app
+        // foreground, a network coming back, a DNS change, a push, a
+        // pull-to-refresh) is a reason to suspect the relay socket died the
+        // same way (EXP-625). The connection decides what that means for it;
+        // most kicks are no-ops on a healthy socket.
+        scope.launch {
+            syncManager.lastKickAt.drop(1).collect {
+                val live = synchronized(lock) {
+                    if (foreground) connections.values.toList() else emptyList()
+                }
+                if (live.isEmpty()) return@collect
+                Log.i(TAG, "sync-kick -> ${live.size} connection(s)")
+                live.forEach { it.kick("sync-kick") }
+            }
+        }
+    }
+
     /// Get (or open) the connection for a coding session and count the caller
     /// as attached. Every [acquire] must be paired with a [release].
     fun acquire(codingSessionId: String): SteerConnection {
@@ -47,12 +80,14 @@ class SteerConnectionStore @Inject constructor(
             val connection = connections.getOrPut(codingSessionId) {
                 SteerConnection(
                     codingSessionId = codingSessionId,
-                    auth = auth,
-                    holder = holder,
-                    steerApi = steerApi,
-                    issueImagesApi = issueImagesApi,
-                    client = client,
+                    transport = KtorSteerTransport(auth, steerApi, client),
+                    sessionFlow = accountDatabaseFlow(auth, holder)
+                        .scopedQuery<CodingSessionEntity?>(null) {
+                            it.codingSessionDao().observeById(codingSessionId)
+                        },
                     json = json,
+                    issueImagesApi = issueImagesApi,
+                    auth = auth,
                 )
             }
             connection.refCount += 1
@@ -88,6 +123,8 @@ class SteerConnectionStore @Inject constructor(
      */
     fun setForeground(foreground: Boolean) {
         synchronized(lock) {
+            this.foreground = foreground
+            Log.i(TAG, "foreground=$foreground (${connections.size} connection(s))")
             parkJob?.cancel()
             parkJob = if (foreground) {
                 // A session that ended while nobody was watching has nothing
@@ -123,6 +160,7 @@ class SteerConnectionStore @Inject constructor(
     private fun reapLocked() {
         val done = connections.filterValues { it.refCount == 0 && it.isFinished }
         done.forEach { (id, connection) ->
+            Log.i(TAG, "reap ${id.take(8)}")
             connection.close()
             connections.remove(id)
         }

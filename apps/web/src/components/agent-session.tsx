@@ -379,8 +379,11 @@ export function AgentSessionView({
   const pausedBody = `The agent is paused on that machine and continues when it comes back online.`
   // The `closed` phase (relay `bye publisher_lost`) does not redial on its
   // own — a viewer that watched the lid close would sit on "Disconnected"
-  // after the machine woke. Redial once the device flips back online so the
-  // stream resumes without a click (the `starting` loop already retries).
+  // after the machine woke. Nudge the store once the device flips back
+  // online so the stream resumes without a click. EXP-625: the nudge is
+  // `kick`, which decides for itself whether this store is actually stuck
+  // (it also shortcuts a `starting` backoff step); the phase test that used
+  // to live here moved inside it.
   const deviceOnline = device.online
   const wasOfflineRef = useRef(false)
   useEffect(() => {
@@ -390,9 +393,9 @@ export function AgentSessionView({
     }
     if (deviceOnline === true && wasOfflineRef.current) {
       wasOfflineRef.current = false
-      if (phase.kind === `closed` && !sessionEnded) store.reconnect()
+      store.kick(`device-online`)
     }
-  }, [deviceOnline, phase.kind, sessionEnded, store])
+  }, [deviceOnline, store])
 
   return (
     <div className="flex h-full min-h-0 flex-col">

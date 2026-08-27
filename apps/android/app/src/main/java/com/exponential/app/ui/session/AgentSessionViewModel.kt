@@ -155,9 +155,11 @@ class AgentSessionViewModel @Inject constructor(
     private val _killError = MutableStateFlow<String?>(null)
     val killError: StateFlow<String?> = _killError
 
-    /** Dial on first open. A no-op when the connection is already live —
-     *  which, since EXP-621, is the common case on a return visit. */
-    fun connectIfIdle() = connection.connectIfIdle()
+    /** Revive the connection on attach (EXP-625). A no-op when the socket is
+     *  healthy (which, since EXP-621, is the common case on a return visit),
+     *  but it redials a dial loop that died while the screen was away, which
+     *  no phase-gated entry could. */
+    fun ensureConnected() = connection.kick("screen-attach")
 
     fun setDraft(text: String) = connection.setDraft(text)
 

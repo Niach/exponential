@@ -30,7 +30,7 @@ CONTENTS
 1. Open-source components
 ==============================================================================
 
-184 third-party components are distributed as part of this build. They are
+189 third-party components are distributed as part of this build. They are
 grouped below by the licence text that applies to them; each group reproduces
 that text once, in full, and lists every component it covers together with
 that component's own copyright notice.
@@ -44,37 +44,38 @@ section for the policy.
 Apache-2.0
 ------------------------------------------------------------------------------
 
-Applies to the following 181 components:
+Applies to the following 186 components:
 
   androidx.activity:activity 1.12.4
   androidx.activity:activity-compose 1.12.4
   androidx.activity:activity-ktx 1.12.4
-  androidx.annotation:annotation 1.9.1
+  androidx.annotation:annotation 1.10.0
   androidx.annotation:annotation-experimental 1.4.1
-  androidx.appcompat:appcompat-resources 1.7.0
+  androidx.appcompat:appcompat-resources 1.7.1
   androidx.arch.core:core-common 2.2.0
   androidx.arch.core:core-runtime 2.2.0
   androidx.autofill:autofill 1.0.0
   androidx.browser:browser 1.8.0
   androidx.collection:collection 1.5.0
   androidx.collection:collection-ktx 1.5.0
-  androidx.compose.animation:animation 1.8.0
-  androidx.compose.animation:animation-core 1.8.0
-  androidx.compose.foundation:foundation 1.8.0
-  androidx.compose.foundation:foundation-layout 1.8.0
+  androidx.compose.animation:animation 1.11.2
+  androidx.compose.animation:animation-core 1.11.2
+  androidx.compose.foundation:foundation 1.11.2
+  androidx.compose.foundation:foundation-layout 1.11.2
   androidx.compose.material3:material3 1.3.1
   androidx.compose.material:material-icons-core 1.7.6
   androidx.compose.material:material-ripple 1.7.6
-  androidx.compose.runtime:runtime 1.9.2
-  androidx.compose.runtime:runtime-annotation 1.9.2
-  androidx.compose.runtime:runtime-saveable 1.9.2
-  androidx.compose.ui:ui 1.9.2
-  androidx.compose.ui:ui-geometry 1.9.2
-  androidx.compose.ui:ui-graphics 1.9.2
-  androidx.compose.ui:ui-text 1.9.2
-  androidx.compose.ui:ui-tooling-preview 1.9.2
-  androidx.compose.ui:ui-unit 1.9.2
-  androidx.compose.ui:ui-util 1.9.2
+  androidx.compose.runtime:runtime 1.11.2
+  androidx.compose.runtime:runtime-annotation 1.11.2
+  androidx.compose.runtime:runtime-retain 1.11.2
+  androidx.compose.runtime:runtime-saveable 1.11.2
+  androidx.compose.ui:ui 1.11.2
+  androidx.compose.ui:ui-geometry 1.11.2
+  androidx.compose.ui:ui-graphics 1.11.2
+  androidx.compose.ui:ui-text 1.11.2
+  androidx.compose.ui:ui-tooling-preview 1.11.2
+  androidx.compose.ui:ui-unit 1.11.2
+  androidx.compose.ui:ui-util 1.11.2
   androidx.compose:compose-bom 2024.12.01
   androidx.concurrent:concurrent-futures 1.1.0
   androidx.core:core 1.16.0
@@ -89,8 +90,9 @@ Applies to the following 181 components:
   androidx.datastore:datastore-preferences 1.1.1
   androidx.datastore:datastore-preferences-core 1.1.1
   androidx.documentfile:documentfile 1.0.0
+  androidx.dynamicanimation:dynamicanimation 1.0.0
   androidx.emoji2:emoji2 1.4.0
-  androidx.exifinterface:exifinterface 1.4.1
+  androidx.exifinterface:exifinterface 1.4.2
   androidx.fragment:fragment 1.5.1
   androidx.graphics:graphics-path 1.0.1
   androidx.hilt:hilt-navigation 1.2.0
@@ -124,18 +126,21 @@ Applies to the following 181 components:
   androidx.room:room-common 2.7.1
   androidx.room:room-ktx 2.7.1
   androidx.room:room-runtime 2.7.1
-  androidx.savedstate:savedstate 1.3.3
-  androidx.savedstate:savedstate-compose 1.3.3
-  androidx.savedstate:savedstate-ktx 1.3.3
+  androidx.savedstate:savedstate 1.4.0
+  androidx.savedstate:savedstate-compose 1.4.0
+  androidx.savedstate:savedstate-ktx 1.4.0
   androidx.security:security-crypto 1.1.0-alpha06
   androidx.sqlite:sqlite 2.5.0
   androidx.sqlite:sqlite-framework 2.5.0
-  androidx.startup:startup-runtime 1.1.1
+  androidx.startup:startup-runtime 1.2.0
   androidx.tracing:tracing 1.2.0
+  androidx.transition:transition 1.6.0
   androidx.vectordrawable:vectordrawable 1.1.0
   androidx.vectordrawable:vectordrawable-animated 1.1.0
   androidx.versionedparcelable:versionedparcelable 1.1.1
   androidx.viewpager:viewpager 1.0.0
+  androidx.window:window 1.5.0
+  androidx.window:window-core 1.5.0
   com.google.accompanist:accompanist-drawablepainter 0.37.3
   com.google.android.datatransport:transport-api 3.1.0
   com.google.android.datatransport:transport-backend-cct 3.1.9
@@ -143,10 +148,10 @@ Applies to the following 181 components:
   com.google.code.findbugs:jsr305 3.0.2
   com.google.code.gson:gson 2.8.9
   com.google.crypto.tink:tink-android 1.8.0
-  com.google.dagger:dagger 2.53.1
-  com.google.dagger:dagger-lint-aar 2.53.1
-  com.google.dagger:hilt-android 2.53.1
-  com.google.dagger:hilt-core 2.53.1
+  com.google.dagger:dagger 2.58
+  com.google.dagger:dagger-lint-aar 2.58
+  com.google.dagger:hilt-android 2.58
+  com.google.dagger:hilt-core 2.58
   com.google.errorprone:error_prone_annotations 2.26.0
   com.google.firebase:firebase-annotations 16.2.0
   com.google.firebase:firebase-bom 33.7.0
@@ -161,70 +166,70 @@ Applies to the following 181 components:
   com.google.firebase:firebase-installations-interop 17.1.1
   com.google.firebase:firebase-messaging 24.1.0
   com.google.guava:listenablefuture 1.0
-  com.squareup.okhttp3:okhttp 4.12.0
-  com.squareup.okhttp3:okhttp-sse 4.12.0
-  com.squareup.okio:okio 3.11.0
-  io.coil-kt.coil3:coil 3.2.0
-  io.coil-kt.coil3:coil-compose 3.2.0
-  io.coil-kt.coil3:coil-compose-core 3.2.0
-  io.coil-kt.coil3:coil-core 3.2.0
-  io.coil-kt.coil3:coil-network-core 3.2.0
-  io.coil-kt.coil3:coil-network-ktor3 3.2.0
-  io.ktor:ktor-client-auth 3.0.3
-  io.ktor:ktor-client-content-negotiation 3.0.3
-  io.ktor:ktor-client-core 3.1.0
-  io.ktor:ktor-client-logging 3.0.3
-  io.ktor:ktor-client-okhttp 3.0.3
-  io.ktor:ktor-client-websockets 3.0.3
-  io.ktor:ktor-events 3.1.0
-  io.ktor:ktor-http 3.1.0
-  io.ktor:ktor-http-cio 3.1.0
-  io.ktor:ktor-io 3.1.0
-  io.ktor:ktor-network 3.1.0
-  io.ktor:ktor-serialization 3.1.0
-  io.ktor:ktor-serialization-kotlinx 3.0.3
-  io.ktor:ktor-serialization-kotlinx-json 3.0.3
-  io.ktor:ktor-sse 3.1.0
-  io.ktor:ktor-utils 3.1.0
-  io.ktor:ktor-websocket-serialization 3.1.0
-  io.ktor:ktor-websockets 3.1.0
+  com.squareup.okhttp3:okhttp 5.3.2
+  com.squareup.okio:okio 3.17.0
+  io.coil-kt.coil3:coil 3.5.0
+  io.coil-kt.coil3:coil-compose 3.5.0
+  io.coil-kt.coil3:coil-compose-core 3.5.0
+  io.coil-kt.coil3:coil-core 3.5.0
+  io.coil-kt.coil3:coil-network-core 3.5.0
+  io.coil-kt.coil3:coil-network-ktor3 3.5.0
+  io.ktor:ktor-client-auth 3.5.2
+  io.ktor:ktor-client-content-negotiation 3.5.2
+  io.ktor:ktor-client-core 3.5.2
+  io.ktor:ktor-client-logging 3.5.2
+  io.ktor:ktor-client-okhttp 3.5.2
+  io.ktor:ktor-client-websockets 3.5.2
+  io.ktor:ktor-events 3.5.2
+  io.ktor:ktor-http 3.5.2
+  io.ktor:ktor-http-cio 3.5.2
+  io.ktor:ktor-io 3.5.2
+  io.ktor:ktor-network 3.5.2
+  io.ktor:ktor-serialization 3.5.2
+  io.ktor:ktor-serialization-kotlinx 3.5.2
+  io.ktor:ktor-serialization-kotlinx-json 3.5.2
+  io.ktor:ktor-sse 3.5.2
+  io.ktor:ktor-utils 3.5.2
+  io.ktor:ktor-websocket-serialization 3.5.2
+  io.ktor:ktor-websockets 3.5.2
   jakarta.inject:jakarta.inject-api 2.0.1
   javax.inject:javax.inject 1
-  org.jetbrains.androidx.lifecycle:lifecycle-common 2.8.4
-  org.jetbrains.androidx.lifecycle:lifecycle-runtime 2.8.4
-  org.jetbrains.androidx.lifecycle:lifecycle-runtime-compose 2.8.4
-  org.jetbrains.androidx.lifecycle:lifecycle-viewmodel 2.8.4
-  org.jetbrains.compose.animation:animation 1.8.0
-  org.jetbrains.compose.animation:animation-core 1.8.0
-  org.jetbrains.compose.annotation-internal:annotation 1.8.0
-  org.jetbrains.compose.collection-internal:collection 1.8.0
-  org.jetbrains.compose.foundation:foundation 1.8.0
-  org.jetbrains.compose.foundation:foundation-layout 1.8.0
-  org.jetbrains.compose.runtime:runtime 1.8.0
-  org.jetbrains.compose.runtime:runtime-saveable 1.8.0
-  org.jetbrains.compose.ui:ui 1.8.0
-  org.jetbrains.compose.ui:ui-geometry 1.8.0
-  org.jetbrains.compose.ui:ui-graphics 1.8.0
-  org.jetbrains.compose.ui:ui-text 1.8.0
-  org.jetbrains.compose.ui:ui-unit 1.8.0
-  org.jetbrains.compose.ui:ui-util 1.8.0
+  org.jetbrains.androidx.lifecycle:lifecycle-common 2.9.6
+  org.jetbrains.androidx.lifecycle:lifecycle-runtime 2.9.6
+  org.jetbrains.androidx.lifecycle:lifecycle-runtime-compose 2.9.6
+  org.jetbrains.androidx.lifecycle:lifecycle-viewmodel 2.9.6
+  org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-savedstate 2.9.6
+  org.jetbrains.androidx.savedstate:savedstate 1.3.6
+  org.jetbrains.androidx.savedstate:savedstate-compose 1.3.6
+  org.jetbrains.compose.animation:animation 1.11.1
+  org.jetbrains.compose.animation:animation-core 1.11.1
+  org.jetbrains.compose.foundation:foundation 1.11.1
+  org.jetbrains.compose.foundation:foundation-layout 1.11.1
+  org.jetbrains.compose.runtime:runtime 1.11.1
+  org.jetbrains.compose.runtime:runtime-saveable 1.11.1
+  org.jetbrains.compose.ui:ui 1.11.1
+  org.jetbrains.compose.ui:ui-geometry 1.11.1
+  org.jetbrains.compose.ui:ui-graphics 1.11.1
+  org.jetbrains.compose.ui:ui-text 1.11.1
+  org.jetbrains.compose.ui:ui-unit 1.11.1
+  org.jetbrains.compose.ui:ui-util 1.11.1
   org.jetbrains.kotlin:kotlin-android-extensions-runtime 1.9.22
   org.jetbrains.kotlin:kotlin-parcelize-runtime 1.9.22
-  org.jetbrains.kotlin:kotlin-stdlib 2.1.21
-  org.jetbrains.kotlin:kotlin-stdlib-common 2.1.21
+  org.jetbrains.kotlin:kotlin-stdlib 2.4.0
+  org.jetbrains.kotlin:kotlin-stdlib-common 2.4.0
   org.jetbrains.kotlin:kotlin-stdlib-jdk7 1.8.22
   org.jetbrains.kotlin:kotlin-stdlib-jdk8 1.8.22
-  org.jetbrains.kotlinx:kotlinx-coroutines-android 1.10.2
-  org.jetbrains.kotlinx:kotlinx-coroutines-bom 1.10.2
-  org.jetbrains.kotlinx:kotlinx-coroutines-core 1.10.2
-  org.jetbrains.kotlinx:kotlinx-coroutines-play-services 1.10.2
-  org.jetbrains.kotlinx:kotlinx-coroutines-slf4j 1.10.2
-  org.jetbrains.kotlinx:kotlinx-io-bytestring 0.6.0
-  org.jetbrains.kotlinx:kotlinx-io-core 0.6.0
-  org.jetbrains.kotlinx:kotlinx-serialization-bom 1.8.0
-  org.jetbrains.kotlinx:kotlinx-serialization-core 1.8.0
-  org.jetbrains.kotlinx:kotlinx-serialization-json 1.8.0
-  org.jetbrains.kotlinx:kotlinx-serialization-json-io 1.8.0
+  org.jetbrains.kotlinx:kotlinx-coroutines-android 1.11.0
+  org.jetbrains.kotlinx:kotlinx-coroutines-bom 1.11.0
+  org.jetbrains.kotlinx:kotlinx-coroutines-core 1.11.0
+  org.jetbrains.kotlinx:kotlinx-coroutines-play-services 1.11.0
+  org.jetbrains.kotlinx:kotlinx-coroutines-slf4j 1.11.0
+  org.jetbrains.kotlinx:kotlinx-io-bytestring 0.9.1
+  org.jetbrains.kotlinx:kotlinx-io-core 0.9.1
+  org.jetbrains.kotlinx:kotlinx-serialization-bom 1.11.0
+  org.jetbrains.kotlinx:kotlinx-serialization-core 1.11.0
+  org.jetbrains.kotlinx:kotlinx-serialization-json 1.11.0
+  org.jetbrains.kotlinx:kotlinx-serialization-json-io 1.11.0
   org.jetbrains:annotations 23.0.0
   org.jspecify:jspecify 1.0.0
 
@@ -335,7 +340,7 @@ MIT
 
 Applies to the following component:
 
-  org.slf4j:slf4j-api 2.0.16
+  org.slf4j:slf4j-api 2.0.18
     Copyright (c) 2004-2022 QOS.ch Sarl (Switzerland)
 
 ..............................................................................

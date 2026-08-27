@@ -1,15 +1,13 @@
 package com.exponential.app.data.steer
 
 import android.net.Uri
+import android.os.SystemClock
+import android.util.Log
 import com.exponential.app.data.api.IssueImagesApi
-import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.TrpcException
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.CodingSessionEntity
-import com.exponential.app.data.db.DatabaseHolder
-import com.exponential.app.data.db.accountDatabaseFlow
-import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.ActivityFeedState
 import com.exponential.app.domain.AgentPhase
 import com.exponential.app.domain.AnswerState
@@ -26,27 +24,31 @@ import com.exponential.app.domain.canonicalContentType
 import com.exponential.app.domain.failUnacknowledged
 import com.exponential.app.domain.lockAnswer
 import com.exponential.app.domain.locksCard
-import io.ktor.client.HttpClient
-import io.ktor.client.plugins.websocket.DefaultClientWebSocketSession
-import io.ktor.client.plugins.websocket.webSocketSession
 import io.ktor.http.HttpStatusCode
-import io.ktor.websocket.Frame
-import io.ktor.websocket.readText
 import kotlin.math.pow
 import kotlin.random.Random
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ChannelResult
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.onTimeout
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -62,18 +64,27 @@ import kotlinx.serialization.json.putJsonArray
 // joins with {"t":"join","channel":"activity"} and receives scrubbed
 // {t:'activity', event} frames (narration / tool headlines / questions /
 // subagents / worktree diffs). The PTY mirror is gone (EXP-249) — a stray
-// BINARY frame from an old desktop is ignored. Steering is message-shaped and
-// fully seamless (EXP-312 — no operator claim, no view/steer perm split; the
-// ticket mint is owner-only, so a live connection just steers): chunked input
-// + a separate \r; answers are semantic {t:'answer'} frames, with the
-// raw-keystroke path kept only for question cards published by pre-EXP-249
-// desktops (no wire id).
+// BINARY frame from an old desktop is dropped by the transport. Steering is
+// message-shaped and fully seamless (EXP-312 — no operator claim, no
+// view/steer perm split; the ticket mint is owner-only, so a live connection
+// just steers): chunked input + a separate \r; answers are semantic
+// {t:'answer'} frames, with the raw-keystroke path kept only for question
+// cards published by pre-EXP-249 desktops (no wire id).
 //
 // EXP-621: all of this lives in an app singleton keyed by coding session
 // ([SteerConnectionStore]), NOT in the screen's ViewModel — the socket, the
 // feed and the composer draft have to survive a back-navigation and a
 // rotation, so reopening a session re-attaches to what is already running
 // instead of replaying the whole log behind a "Connecting…" spinner.
+//
+// EXP-625: the dial loop is the connection's only source of truth about
+// whether it has a future. Every wait it takes is BOUNDED and interruptible,
+// nothing but our own cancellation may end it, and the single revival entry
+// [SteerConnection.kick] asks the loop (not the phase) what to do. A
+// connection stuck on "Connecting…" after a background trip was a loop that
+// had silently died under a phase no revival path would touch.
+
+private const val TAG = "SteerConnection"
 
 // Relay rejects input frames > 8 KiB; chunk pastes well under that.
 private const val INPUT_CHUNK_CHARS = 4096
@@ -86,19 +97,15 @@ private const val INPUT_CHUNK_CHARS = 4096
  *  web/iOS parity, move all three in lockstep. */
 private const val ANSWER_ACK_TIMEOUT_MS = 8_000L
 
-/** Redial cadence while the desktop's publisher socket is still starting. */
-private const val STARTING_RETRY_MS = 3_000L
-
-/** Auto-reconnect backoff after an unexpected drop (EXP-243): jittered
- *  exponential 3s→30s, mirroring the web viewer's starting retry — the jitter
- *  desyncs a herd of viewers all foregrounding at once. */
-private const val RECONNECT_BASE_MS = 3_000L
-private const val RECONNECT_MAX_MS = 30_000L
-
 /** Shown when the session's row no longer exists — a swept row (or one that
  *  left this client's sync scope) is over as far as any client can tell, and
  *  nothing about it is retryable. */
 private const val SESSION_GONE_DETAIL = "This session is no longer available."
+
+/** Shown when a dial gets no answer at all: the relay ALWAYS answers a join
+ *  (activity_reset + replay, or an error frame then close), so silence means a
+ *  dead socket, not a slow one. */
+private const val NO_ANSWER_DETAIL = "The live relay didn't answer."
 
 /** Echo-FIFO bounds (EXP-78): a mid-turn steered message can take a while to
  *  hit the transcript, but an unmatched echo must not swallow an identical
@@ -106,9 +113,28 @@ private const val SESSION_GONE_DETAIL = "This session is no longer available."
 private const val ECHO_CAP = 8
 private const val ECHO_TTL_MS = 300_000L
 
-/** A closed socket's close reason is already settled — this only guards
- *  against a dial that somehow left it pending. */
-private const val CLOSE_REASON_TIMEOUT_MS = 1_000L
+/**
+ * Every wait the dial loop takes (EXP-625). All of them are bounded: an
+ * unbounded one is how a viewer ends up parked on "Connecting…" forever.
+ *
+ * [joinAckMs] and [upgradeMs] exist because ktor's HttpTimeout does not cover
+ * a websocket upgrade or a socket that upgrades and then says nothing.
+ * [liveStaleMs] is how long a nominally-live socket may stay silent before a
+ * revival kick treats it as dead. There is no pong to probe with, so the
+ * probe is a silent redial.
+ */
+data class SteerTimings(
+    /** Redial cadence while the desktop's publisher socket is still starting. */
+    val startingRetryMs: Long = 3_000,
+    /** Auto-reconnect backoff after an unexpected drop (EXP-243): jittered
+     *  exponential 3s→30s, mirroring the web viewer's starting retry — the
+     *  jitter desyncs a herd of viewers all foregrounding at once. */
+    val reconnectBaseMs: Long = 3_000,
+    val reconnectMaxMs: Long = 30_000,
+    val joinAckMs: Long = 15_000,
+    val upgradeMs: Long = 20_000,
+    val liveStaleMs: Long = 45_000,
+)
 
 /**
  * One live viewer connection to a coding session's relay room.
@@ -118,18 +144,31 @@ private const val CLOSE_REASON_TIMEOUT_MS = 1_000L
  * here: the socket, the activity feed, the pending images and the composer
  * draft.
  */
-class SteerConnection(
+class SteerConnection internal constructor(
     val codingSessionId: String,
-    private val auth: AuthRepository,
-    holder: DatabaseHolder,
-    private val steerApi: SteerApi,
-    private val issueImagesApi: IssueImagesApi,
-    private val client: HttpClient,
+    private val transport: SteerTransport,
+    /** The synced coding_sessions row, already account-scoped by the store. */
+    sessionFlow: Flow<CodingSessionEntity?>,
     private val json: Json,
+    /** Only the image path needs these two. They default to null so the
+     *  dial-loop tests can build a connection without an Android-backed
+     *  account store: such a connection refuses image sends and behaves
+     *  identically in every other respect. */
+    private val issueImagesApi: IssueImagesApi? = null,
+    private val auth: AuthRepository? = null,
+    dispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
+    /** Monotonic clock (SystemClock.elapsedRealtime in production), injected
+     *  because the framework class returns a constant 0 in JVM tests. */
+    private val nowMs: () -> Long = { SystemClock.elapsedRealtime() },
+    private val timings: SteerTimings = SteerTimings(),
 ) {
 
     /** The connection's own lifetime — outlives every screen that attaches. */
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val scope = CoroutineScope(SupervisorJob() + dispatcher)
+
+    /** Log prefix: enough of the session id to follow one connection through
+     *  a log without dumping the whole id on every line. */
+    private val sid = codingSessionId.take(8)
 
     /** Screens currently attached (EXP-621). Read and written only under the
      *  store's lock, which is what decides when a connection may be reaped. */
@@ -139,9 +178,7 @@ class SteerConnection(
      *  EAGERLY: the redial loop reads it while no screen is subscribed, and a
      *  frozen row would keep it dialing a session that already finished. */
     val session: StateFlow<CodingSessionEntity?> =
-        accountDatabaseFlow(auth, holder).scopedQuery<CodingSessionEntity?>(null) {
-            it.codingSessionDao().observeById(codingSessionId)
-        }.stateIn(scope, SharingStarted.Eagerly, null)
+        sessionFlow.stateIn(scope, SharingStarted.Eagerly, null)
 
     private val _phase = MutableStateFlow<AgentPhase>(AgentPhase.Idle)
     val phase: StateFlow<AgentPhase> = _phase
@@ -189,8 +226,22 @@ class SteerConnection(
     /** Locally-echoed sent messages awaiting their transcript-derived
      *  `user_message` event (EXP-78 dedupe): text → sent-at millis. */
     private val recentEchoes = ArrayDeque<Pair<String, Long>>()
-    private var ws: DefaultClientWebSocketSession? = null
+    private var ws: SteerSocket? = null
     private var connectJob: Job? = null
+
+    /** Torn down for good by [close]: the scope is gone, so nothing may
+     *  pretend this connection can still be revived (EXP-625). */
+    private var closed = false
+
+    /** Monotonic stamp of the last frame received on the current socket, the
+     *  only liveness signal this engine offers (EXP-625: an outgoing Ping is
+     *  not a probe here, it is a self-inflicted 1011 close). */
+    private var lastFrameAtMs = 0L
+
+    /** Wake-ups for the loop's retry waits (EXP-625). CONFLATED, like the
+     *  shape loops' kicks: several kicks landing during one wait collapse into
+     *  the one thing the loop needs to know: redial now. */
+    private val wake = Channel<Unit>(Channel.CONFLATED)
 
     /** Consecutive failed reconnect dials — indexes the backoff curve; reset
      *  on a successful (live) connection and on an explicit connect(). */
@@ -204,38 +255,79 @@ class SteerConnection(
     /** Nothing left to dial: the store may reap an unreferenced connection in
      *  this state instead of holding its feed forever. */
     internal val isFinished: Boolean
-        get() = _phase.value.let { it is AgentPhase.Ended || (it is AgentPhase.Closed && !it.reconnecting) }
+        get() = closed ||
+            _phase.value.let { it is AgentPhase.Ended || (it is AgentPhase.Closed && !it.reconnecting) }
 
     fun setDraft(text: String) {
         _draft.value = text
     }
 
-    /** Auto-connect once when a screen attaches; drops after that
-     *  auto-reconnect (EXP-243). Also the revival path out of a background
-     *  park, which leaves the connection Idle with its feed intact. */
-    fun connectIfIdle() {
-        if (_phase.value == AgentPhase.Idle) connect()
+    /**
+     * The ONE revival entry (EXP-625): a screen attaching, the app coming
+     * back, a sync kick. What it does is decided by [steerRevivalAction] off
+     * the LOOP's liveness rather than the phase. The old phase-gated pair
+     * (connectIfIdle + reconnectNow) could not touch a connection whose dial
+     * had died while it read Connecting, which is exactly the state a
+     * backgrounded viewer came back to.
+     */
+    fun kick(reason: String) {
+        val dialActive = connectJob?.isActive == true
+        val stale = _connected.value && nowMs() - lastFrameAtMs > timings.liveStaleMs
+        val action = steerRevivalAction(
+            phase = _phase.value,
+            dialActive = dialActive,
+            finished = isFinished,
+            socketStale = stale,
+        )
+        Log.i(TAG, "[$sid] kick($reason) phase=${_phase.value} dial=$dialActive stale=$stale -> $action")
+        when (action) {
+            SteerRevivalAction.Dial -> connect()
+            SteerRevivalAction.WakeRetry -> wake.trySend(Unit)
+            SteerRevivalAction.RedialSilently -> connect(silent = true)
+            SteerRevivalAction.Nothing -> Unit
+        }
     }
 
-    fun connect() {
+    /**
+     * Start a fresh dial loop, replacing any running one.
+     *
+     * [silent] seeds the loop's silent flag so an externally-triggered redial
+     * reuses the 4008 mechanics: dial at once and hold the current phase, Live
+     * included. A liveness redial of a socket that turns out to be fine must
+     * not flash "Reconnecting…" at the user.
+     */
+    fun connect(silent: Boolean = false) {
+        if (closed) return
         connectJob?.cancel()
         reconnectAttempts = 0
+        Log.i(TAG, "[$sid] connect(silent=$silent)")
         connectJob = scope.launch {
-            // Set by a slow-consumer close (EXP-621): the next dial must not
-            // touch the phase, so the redial stays invisible.
-            var silent = false
+            val me = currentCoroutineContext()[Job]
+            // Set by a slow-consumer close (EXP-621) or by a silent revival:
+            // the next dial must not touch the phase.
+            var quiet = silent
+            var dials = 0
             while (isActive) {
-                val outcome = dialOnce(silent)
-                silent = false
+                // A dial must never take the loop down with it (EXP-625): the
+                // only throw that ends this loop is our own cancellation.
+                val outcome = try {
+                    dialOnce(quiet, ++dials)
+                } catch (t: Throwable) {
+                    ensureActive()
+                    Log.w(TAG, "[$sid] dial failed: ${t.message}")
+                    DialOutcome.Closed(t.message)
+                }
+                quiet = false
                 when (outcome) {
                     DialOutcome.RetryStarting -> {
                         // The desktop hasn't published the room yet. Keep
                         // redialing (fresh ticket each time) while the synced
                         // row still says running.
-                        _phase.value = AgentPhase.Starting
-                        delay(STARTING_RETRY_MS)
+                        setPhase(AgentPhase.Starting, "no_such_session")
+                        delayOrWake(timings.startingRetryMs)
+                        if (connectJob !== me) return@launch
                         if (sessionIsOver()) {
-                            _phase.value = AgentPhase.Ended()
+                            setPhase(AgentPhase.Ended(), "row ended")
                             return@launch
                         }
                     }
@@ -244,24 +336,25 @@ class SteerConnection(
                     // away: no delay, no attempt counted, and the phase is left
                     // exactly as it was — a busy agent must not flap the
                     // "Connection lost" banner every few seconds (EXP-621).
-                    DialOutcome.RedialNow -> silent = true
+                    DialOutcome.RedialNow -> quiet = true
                     is DialOutcome.Ended -> {
-                        _phase.value = AgentPhase.Ended(outcome.detail)
+                        setPhase(AgentPhase.Ended(outcome.detail), "ended")
                         return@launch
                     }
                     is DialOutcome.Closed -> {
                         if (!outcome.retryable) {
-                            _phase.value = AgentPhase.Closed(outcome.detail)
+                            setPhase(AgentPhase.Closed(outcome.detail), "terminal")
                             return@launch
                         }
                         // Never park on a dead socket behind a manual button
                         // (EXP-243) — auto-redial on backoff; the phase
                         // carries the reconnecting flag so the UI shows
                         // "Reconnecting…" instead of a Reconnect action.
-                        _phase.value = AgentPhase.Closed(outcome.detail, reconnecting = true)
-                        delay(reconnectDelayMs(reconnectAttempts++))
+                        setPhase(AgentPhase.Closed(outcome.detail, reconnecting = true), "drop")
+                        delayOrWake(reconnectDelayMs(reconnectAttempts++))
+                        if (connectJob !== me) return@launch
                         if (sessionIsOver()) {
-                            _phase.value = AgentPhase.Ended()
+                            setPhase(AgentPhase.Ended(), "row ended")
                             return@launch
                         }
                     }
@@ -270,52 +363,60 @@ class SteerConnection(
         }
     }
 
-    /** Foreground revival (EXP-243): skip any pending reconnect backoff and
-     *  redial immediately; while nominally live, ping-probe the socket so a
-     *  connection that died in the background surfaces (and auto-reconnects)
-     *  now instead of on the next failed read. */
-    fun reconnectNow() {
-        val p = _phase.value
-        if (p is AgentPhase.Closed && p.reconnecting) {
-            connect()
-        } else if (p == AgentPhase.Live) {
-            ws?.outgoing?.trySend(Frame.Ping(ByteArray(0)))
-        }
-    }
-
     /**
      * Background park (EXP-621): drop the socket, keep everything the user can
-     * see — feed, draft, pending images. A parked connection reads as Idle, so
-     * [resume] revives it through the ordinary first-open path; a finished one
-     * has nothing to park.
+     * see — feed, draft, pending images. A parked connection reads as Idle
+     * with no live loop, so [kick] revives it through the ordinary dial path;
+     * a finished one has nothing to park.
      */
     internal fun park() {
         if (isFinished) return
+        Log.i(TAG, "[$sid] park")
         connectJob?.cancel()
         connectJob = null
         runCatching { ws?.cancel() }
         ws = null
         _connected.value = false
-        _phase.value = AgentPhase.Idle
+        setPhase(AgentPhase.Idle, "park")
     }
 
-    /** Come back to the foreground: revive a parked connection, and kick a
-     *  live/backing-off one the way the screen used to on resume. */
-    internal fun resume() {
-        if (isFinished) return
-        connectIfIdle()
-        reconnectNow()
-    }
+    /** Come back to the foreground: whatever state the connection is in, ask
+     *  the revival policy what it needs. */
+    internal fun resume() = kick("foreground")
 
     /** Tear the connection down for good — sign-out, account switch, or the
      *  store reaping a finished session nothing is looking at. */
     internal fun close() {
+        val wasFinished = isFinished
+        closed = true
+        Log.i(TAG, "[$sid] close")
         connectJob?.cancel()
         connectJob = null
         runCatching { ws?.cancel() }
         ws = null
         _connected.value = false
+        // The phase is state a ViewModel still holding this connection reads;
+        // leaving it on Connecting behind a cancelled scope stranded the
+        // screen on a spinner nothing could clear (EXP-625).
+        if (!wasFinished) setPhase(AgentPhase.Closed(reconnecting = false), "close")
         scope.cancel()
+    }
+
+    /** Every phase write goes through here: one log line per transition is
+     *  what makes a wedged viewer diagnosable from a bug report (EXP-625). */
+    private fun setPhase(next: AgentPhase, why: String) {
+        val prev = _phase.value
+        if (prev == next) return
+        Log.i(TAG, "[$sid] phase $prev -> $next ($why)")
+        _phase.value = next
+    }
+
+    /** Wait [ms], or return early when [kick] wakes us. A token left over from
+     *  a kick that arrived while we were dialing is drained first: it has
+     *  already been served by the dial it asked for. */
+    private suspend fun delayOrWake(ms: Long): Boolean {
+        while (wake.tryReceive().isSuccess) { /* drain */ }
+        return withTimeoutOrNull(ms) { wake.receive() } != null
     }
 
     /**
@@ -339,8 +440,8 @@ class SteerConnection(
      *  exponential delay fixed, half random. */
     private fun reconnectDelayMs(attempt: Int): Long {
         val capped = minOf(
-            RECONNECT_MAX_MS.toDouble(),
-            RECONNECT_BASE_MS * 2.0.pow(attempt),
+            timings.reconnectMaxMs.toDouble(),
+            timings.reconnectBaseMs * 2.0.pow(attempt),
         )
         return (capped / 2 + Random.nextDouble() * (capped / 2)).toLong()
     }
@@ -355,15 +456,17 @@ class SteerConnection(
         data class Closed(val detail: String? = null, val retryable: Boolean = true) : DialOutcome
     }
 
-    private suspend fun dialOnce(silent: Boolean): DialOutcome {
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private suspend fun dialOnce(silent: Boolean, dial: Int): DialOutcome {
         // Hold the Starting / reconnecting-Closed phase steady across
         // auto-retry redials — flipping to Connecting per attempt made the
         // header flicker every ~3s while the desktop was still dialing its
         // publisher (and would flicker the reconnect banner the same way). A
-        // silent (4008) redial holds whatever phase it had, Live included.
+        // silent (4008 or liveness) redial holds whatever phase it had, Live
+        // included.
         val held = _phase.value
         if (!silent && held != AgentPhase.Starting && !(held is AgentPhase.Closed && held.reconnecting)) {
-            _phase.value = AgentPhase.Connecting
+            setPhase(AgentPhase.Connecting, "dial#$dial")
         }
 
         // `bye` / no_such_session must win over the generic close handler.
@@ -375,66 +478,110 @@ class SteerConnection(
         // The relay's close code, once the socket closed on its own.
         var closeCode: Int? = null
 
-        var socket: DefaultClientWebSocketSession? = null
+        var opened: SteerSocket? = null
         try {
-            val accountId = auth.activeAccountId.value
-                ?: throw IllegalStateException("No active account")
-            val minted = steerApi.mintViewerTicket(accountId, codingSessionId)
+            val minted = transport.mint(codingSessionId)
             if (!minted.isUsable) {
                 // Config state, not a transient failure — retrying can't help.
                 return DialOutcome.Closed("Live sessions are unavailable on this instance.", retryable = false)
             }
-            // The server-returned url is the full ws(s)://…/ws?ticket=… dial URL.
-            val opened = client.webSocketSession(urlString = minted.url!!)
-            socket = opened
-            ws = opened
+            Log.i(TAG, "[$sid] dial#$dial mint ok")
+            // The upgrade is BOUNDED (EXP-625): ktor's HttpTimeout skips
+            // websocket upgrades, so a socket that never completes its
+            // handshake would hold the loop here forever. withTimeoutOrNull,
+            // never withTimeout: the latter's throw IS a CancellationException
+            // and would read as "the loop was cancelled".
+            val startedAt = nowMs()
+            val socket = withTimeoutOrNull(timings.upgradeMs) {
+                // The server-returned url is the full ws(s)://…/ws?ticket=… dial URL.
+                transport.open(minted.url!!)
+            } ?: run {
+                Log.w(TAG, "[$sid] dial#$dial upgrade timeout")
+                return DialOutcome.Closed(NO_ANSWER_DETAIL)
+            }
+            opened = socket
+            if (!currentCoroutineContext().isActive) {
+                // Cancelled while the handshake was in flight: the socket we
+                // just got has no owner left.
+                runCatching { socket.cancel() }
+                throw CancellationException()
+            }
+            ws = socket
+            Log.i(TAG, "[$sid] dial#$dial upgrade ok in ${nowMs() - startedAt}ms")
             // The feed is NOT wiped here (EXP-249): the relay sends an explicit
             // {t:'activity_reset'} immediately before replaying the room's log,
             // so a dial that never reaches a replay leaves the visible history
             // alone. After a reconnect the replayed transcript event is the
             // ONLY copy of a sent message — no stale echo may swallow it.
             recentEchoes.clear()
-            opened.send(Frame.Text("""{"t":"join","channel":"activity"}"""))
+            socket.send("""{"t":"join","channel":"activity"}""")
             _connected.value = true
+            // Staleness is measured from the join, not from the previous
+            // socket's last frame, so a silent redial does not read stale
+            // the instant it opens.
+            lastFrameAtMs = nowMs()
             // NOT Live yet — the relay may answer the join with no_such_session
             // (desktop still starting). The phase flips to Live on the first
             // confirming server frame instead (the relay sends activity_reset
             // immediately on a successful join), so the Starting retry loop
             // never flashes the Live header/composer/empty state.
 
-            for (frame in opened.incoming) {
-                when (frame) {
-                    // The PTY mirror is gone (EXP-249); an old desktop's binary
-                    // output frames are silently dropped.
-                    is Frame.Binary -> Unit
-                    is Frame.Text -> {
-                        val result = handleControlFrame(frame.readText())
-                        if (result != null) {
-                            if (result.live && _phase.value != AgentPhase.Live) {
-                                _phase.value = AgentPhase.Live
-                                reconnectAttempts = 0
-                            }
-                            sawEnd = sawEnd || result.sawEnd
-                            result.detail?.let { detail = it }
-                            if (result.retryStarting) {
-                                retryStarting = true
-                                break
-                            }
-                        }
+            var awaitingJoinAck = true
+            while (true) {
+                val received = if (awaitingJoinAck) {
+                    // The relay ALWAYS answers a join (activity_reset plus a
+                    // replay, or an error frame), so silence here is a dead
+                    // socket (EXP-625). select, not withTimeoutOrNull around a
+                    // receive: the latter can lose a frame it raced.
+                    select<ChannelResult<String>?> {
+                        socket.incoming.onReceiveCatching { it }
+                        onTimeout(timings.joinAckMs) { null }
                     }
-                    else -> Unit
+                } else {
+                    socket.incoming.receiveCatching()
+                }
+                if (received == null) {
+                    Log.w(TAG, "[$sid] dial#$dial join-ack timeout")
+                    // Nothing to learn from a close reason that will never come.
+                    return DialOutcome.Closed(NO_ANSWER_DETAIL)
+                }
+                awaitingJoinAck = false
+                val text = received.getOrNull() ?: break
+                lastFrameAtMs = nowMs()
+                val result = handleControlFrame(text) ?: continue
+                if (result.live && _phase.value != AgentPhase.Live) {
+                    setPhase(AgentPhase.Live, "joined")
+                    reconnectAttempts = 0
+                }
+                sawEnd = sawEnd || result.sawEnd
+                result.detail?.let { detail = it }
+                if (result.retryStarting) {
+                    retryStarting = true
+                    break
                 }
             }
             // The incoming channel drained: the relay closed us and its close
             // code says why (EXP-621). A `break` above left the socket open —
             // there is no reason to wait on it.
             if (!retryStarting) {
-                closeCode = withTimeoutOrNull(CLOSE_REASON_TIMEOUT_MS) {
-                    opened.closeReason.await()
-                }?.code?.toInt()
+                closeCode = opened.closeCode()
+                Log.i(TAG, "[$sid] dial#$dial closed code=$closeCode")
+            } else {
+                Log.i(TAG, "[$sid] dial#$dial relay: no_such_session")
             }
         } catch (t: Throwable) {
-            if (t is CancellationException) throw t
+            // Only OUR cancellation ends the loop (EXP-625). ktor's OkHttp
+            // engine closes `outgoing` with a java.util.concurrent
+            // CancellationException when the relay hangs up first, and an
+            // awaited close reason on a cancelled call job does the same.
+            // Those are ordinary drops, and treating them as cancellation is
+            // what killed the dial coroutine silently, with the phase left
+            // wherever it stood.
+            if (t is CancellationException && !currentCoroutineContext().isActive) throw t
+            if (t is CancellationException) {
+                Log.w(TAG, "[$sid] dial#$dial foreign cancellation: ${t.message}")
+                if (detail == null) detail = "The live connection dropped."
+            }
             if (detail == null) {
                 detail = trpcErrorMessage(t, t.message ?: "Connection failed")
             }
@@ -452,9 +599,15 @@ class SteerConnection(
                 else -> null
             }
         } finally {
-            ws = null
-            _connected.value = false
-            runCatching { socket?.cancel() }
+            // Only the CURRENT socket's owner may clear the shared fields: a
+            // superseded dial unwinding late used to null out the socket its
+            // replacement had just installed, and flip `connected` false under
+            // a live connection (EXP-625).
+            if (ws === opened) {
+                ws = null
+                _connected.value = false
+            }
+            runCatching { opened?.cancel() }
         }
 
         terminal?.let { return it }
@@ -588,10 +741,10 @@ class SteerConnection(
                         put("t", "input")
                         put("data", chunk)
                     }
-                    socket.send(Frame.Text(json.encodeToString(JsonObject.serializer(), frame)))
+                    socket.send(json.encodeToString(JsonObject.serializer(), frame))
                     i += INPUT_CHUNK_CHARS
                 }
-                socket.send(Frame.Text("""{"t":"input","data":"\r"}"""))
+                socket.send("""{"t":"input","data":"\r"}""")
             }
         }
         return true
@@ -644,14 +797,15 @@ class SteerConnection(
         }
         scope.launch {
             val issueId = session.value?.issueId
-            if (ws == null || issueId == null) {
+            val uploads = issueImagesApi
+            if (ws == null || issueId == null || uploads == null) {
                 // Batch and action runs have no issue to attach to, and the
                 // composer hides the attach button for them — so this only
                 // guards a session that ended mid-compose.
                 _steerImageError.value = "Images can't be sent right now"
                 return@launch
             }
-            val accountId = auth.activeAccountId.value
+            val accountId = auth?.activeAccountId?.value
             if (accountId == null) {
                 _steerImageError.value = "You are signed out"
                 return@launch
@@ -662,7 +816,7 @@ class SteerConnection(
                 for ((index, image) in images.withIndex()) {
                     if (image.uploadedId != null) continue
                     val uploaded = try {
-                        issueImagesApi.upload(
+                        uploads.upload(
                             accountId,
                             issueId,
                             image.bytes,
@@ -722,7 +876,7 @@ class SteerConnection(
                     putJsonArray("keys") { keys.forEach { add(JsonPrimitive(it)) } }
                     if (text != null) put("text", text)
                 }
-                socket.send(Frame.Text(json.encodeToString(JsonObject.serializer(), frame)))
+                socket.send(json.encodeToString(JsonObject.serializer(), frame))
             }
         }
     }
@@ -745,7 +899,7 @@ class SteerConnection(
                     put("t", "input")
                     put("data", key)
                 }
-                socket.send(Frame.Text(json.encodeToString(JsonObject.serializer(), frame)))
+                socket.send(json.encodeToString(JsonObject.serializer(), frame))
             }
         }
     }

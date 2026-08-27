@@ -28,6 +28,18 @@ licenseReport {
     copyJsonReportToAssets = false
 }
 
+// Hilt's annotation processor parses @Metadata off every annotation it sees on an
+// @AndroidEntryPoint class — kotlin.OptIn among them — and hilt 2.58 pins
+// kotlin-metadata-jvm 2.2.20, which hard-refuses metadata newer than 2.3.0.
+// coil 3.5.0 floors kotlin-stdlib at 2.4.0, so those stdlib annotation classes
+// carry metadata 2.4.0 and Hilt aborts with "update the kotlin-metadata-jvm
+// library". Doing exactly that, pinned to the toolchain's own Kotlin version.
+// Drop this once Hilt ships a build that both reads 2.4 metadata and supports
+// AGP 8 (2.59+ requires AGP 9).
+configurations.configureEach {
+    resolutionStrategy.force("org.jetbrains.kotlin:kotlin-metadata-jvm:${libs.versions.kotlin.get()}")
+}
+
 // Release signing is fed by gradle properties or environment variables so CI can inject a
 // keystore without committing it. When RELEASE_STORE_FILE is absent (e.g. pre-keystore CI or
 // local dev) the release build stays UNSIGNED — assembleRelease keeps working, so the pipeline
@@ -135,9 +147,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
     buildFeatures {
         compose = true
         buildConfig = true
@@ -146,6 +155,15 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
+    }
+}
+
+// Kotlin 2.4 removed the `android { kotlinOptions { } }` shim; the jvmTarget now
+// lives in the KGP compilerOptions DSL and must stay in lockstep with the
+// compileOptions source/target above (17).
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
     }
 }
 

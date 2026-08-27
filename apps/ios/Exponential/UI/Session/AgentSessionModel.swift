@@ -1,6 +1,12 @@
 import ExpCore
 import Foundation
 import GRDB
+import os
+
+/// EXP-625: one line per lifecycle event (connect, dial, phase change, kick
+/// decision, join-ack timeout, close). Payloads never go in: the whole point of
+/// the activity channel is that it is scrubbed, and a log is not.
+private let logger = Logger(subsystem: "at.exponential", category: "AgentSessionModel")
 
 /// Viewer side of the steer relay's ACTIVITY channel (EXP-32 — the chat-style
 /// "Agent session" screen; apps/steer-relay/src/protocol.ts). Mints a viewer
@@ -33,7 +39,39 @@ final class AgentSessionModel {
         case closed(detail: String?, reconnecting: Bool)
     }
 
-    private(set) var phase: Phase = .idle
+    /// Log-only phase name (EXP-625). Detail strings stay out: they can quote a
+    /// server error, and this log is not scrubbed.
+    private static func describe(_ phase: Phase) -> String {
+        switch phase {
+        case .idle: return "idle"
+        case .connecting: return "connecting"
+        case .live: return "live"
+        case .starting: return "starting"
+        case .ended: return "ended"
+        case let .closed(_, reconnecting): return reconnecting ? "closed(reconnecting)" : "closed"
+        }
+    }
+
+    /// EXP-625: the phase as the pure revival rule sees it (ExpCore's
+    /// SteerReconnectPolicy.revive). A non-reconnecting close and `ended` are
+    /// both final: nothing is going to dial again.
+    private var phaseKind: SteerPhaseKind {
+        switch phase {
+        case .idle: return .idle
+        case .connecting: return .connecting
+        case .live: return .live
+        case .starting: return .starting
+        case .ended: return .final
+        case let .closed(_, reconnecting): return reconnecting ? .closedReconnecting : .final
+        }
+    }
+
+    private(set) var phase: Phase = .idle {
+        didSet {
+            guard oldValue != phase else { return }
+            logger.info("phase \(Self.describe(oldValue), privacy: .public) -> \(Self.describe(self.phase), privacy: .public)")
+        }
+    }
     /// The feed stays visible while disconnected (closed/ended states) and is
     /// cleared ONLY by the relay's `activity_reset` frame (EXP-249) — the relay
     /// sends one to every activity viewer immediately before its join replay,
@@ -215,6 +253,21 @@ final class AgentSessionModel {
     /// fired backoff retry, EXP-243) can't install a second socket or stomp
     /// the winner's phase.
     private var dialGeneration = 0
+    /// EXP-625: a dial is between its entry and its outcome (mint failure,
+    /// disabled ticket, first frame, or a close). Together with an armed
+    /// `retryTask` this is `dialActive`, the ONE thing a wake signal gates on:
+    /// the phase lies (a wedged mint sits at `.connecting` forever), a live
+    /// dial does not.
+    private var dialInFlight = false
+    /// When the current dial started, and when the last frame arrived on it.
+    /// `lastFrameAt == nil` means the relay has not answered this dial's join.
+    private var dialStartedAt: Date?
+    private var lastFrameAt: Date?
+    /// Fires if the relay never answers the join (EXP-625). The relay ALWAYS
+    /// answers one (activity_reset + replay, or no_such_session then a close),
+    /// so silence past the deadline means the socket is dead in a way no
+    /// receive callback will ever report.
+    private var joinAckTask: Task<Void, Never>?
     private var sessionObservationTask: Task<Void, Never>?
     /// EXP-549/550: the synced `devices` rows behind `hostDevice`, plus the
     /// clock that re-derives offline-ness (GRDB only re-fires on WRITES, and
@@ -260,6 +313,14 @@ final class AgentSessionModel {
     /// jitter desyncs a herd of viewers all foregrounding at once.
     private static let reconnectBaseSeconds: Double = 3
     private static let reconnectMaxSeconds: Double = 30
+    /// How long a dial waits for the relay's answer to its join before treating
+    /// the socket as dead (EXP-625). Generous: the join answer carries the full
+    /// activity replay, and a cold relay behind a slow network takes a moment.
+    private static let joinAckSeconds: Double = 15
+    /// A nominally live socket that has delivered nothing for this long is
+    /// suspect, so a wake signal redials it silently rather than trusting the
+    /// phase. An idle agent still produces frames well inside this window.
+    private static let liveStaleSeconds: Double = 45
     /// Shown when the session's row no longer exists — a swept row (or one
     /// that left this client's sync scope) is over as far as any client can
     /// tell, and nothing about it is retryable.
@@ -298,35 +359,82 @@ final class AgentSessionModel {
     }
 
     /// Dial (or re-dial, with a fresh ticket) the relay room.
-    func connect() {
-        guard phase != .connecting, phase != .live else { return }
+    ///
+    /// - Parameter force: dial even from `.connecting` (EXP-625). That phase
+    ///   used to be an unconditional early-return, which is exactly what made a
+    ///   wedged dial unrecoverable: a mint that never returns, or a socket the
+    ///   relay never answered, leaves the model at `.connecting` with nothing
+    ///   in flight and every revival path bouncing off the guard. `dial()`
+    ///   bumps `dialGeneration`, so a forced connect makes the wedged dial's
+    ///   callbacks inert. `.live` stays guarded: a live socket needs no dial.
+    func connect(force: Bool = false) {
+        if !force, phase == .connecting { return }
+        guard phase != .live else { return }
+        logger.info("connect force=\(force) phase=\(Self.describe(self.phase), privacy: .public)")
         stopped = false
         retryTask?.cancel()
+        retryTask = nil
         reconnectAttempts = 0
         resetDialState()
         phase = .connecting
         Task { await dial() }
     }
 
-    /// Foreground revival (EXP-243): the socket rarely survives app
-    /// suspension. Skip any pending reconnect backoff and redial now; while
-    /// nominally live, ping-probe the socket so a connection that died in the
-    /// background surfaces (and auto-reconnects) immediately instead of on
-    /// the next failed receive.
-    func reconnectNow() {
-        guard !stopped else { return }
-        if case .closed(_, true) = phase {
-            connect()
-        } else if phase == .live {
+    /// Every wake signal lands here (EXP-625): foregrounding, opening the
+    /// screen, and the network coming back. The decision is the pure rule in
+    /// ExpCore (SteerReconnectPolicy.revive) and it gates on whether a dial is
+    /// ACTUALLY alive, not on the phase. Phase-gating is what stranded viewers
+    /// on "Connecting…" after a background: the wedged states matched no branch
+    /// of the old `reconnectNow()`, so nothing left in the process could revive
+    /// them.
+    func kick(_ reason: String) {
+        let stale = phase == .live
+            && (lastFrameAt.map { Date().timeIntervalSince($0) > Self.liveStaleSeconds } ?? true)
+        let decision = SteerReconnectPolicy.revive(
+            phase: phaseKind,
+            dialActive: dialActive,
+            finished: stopped || isOver,
+            socketStale: stale
+        )
+        let phaseName = Self.describe(phase)
+        let decisionName = String(describing: decision)
+        logger.info(
+            "kick \(reason, privacy: .public) phase=\(phaseName, privacy: .public) dialActive=\(self.dialActive) decision=\(decisionName, privacy: .public)"
+        )
+        switch decision {
+        case .dial:
+            connect(force: true)
+        case .wakeRetry:
+            // A backoff or starting-retry wait is armed but the user is asking
+            // now. Dial immediately WITHOUT touching the phase, so `.starting`
+            // and the "Reconnecting…" banner hold steady across the redial.
+            retryTask?.cancel()
+            retryTask = nil
+            resetDialState()
+            Task { await dial() }
+        case .redialSilently:
+            redialNow()
+        case .nothing:
+            // Live and fresh: still ping-probe (EXP-243), because a socket the
+            // OS killed while suspended reports nothing until the next receive
+            // fails, which may never happen.
+            guard phase == .live else { return }
             task?.sendPing { [weak self] error in
                 guard error != nil else { return }
                 Task { @MainActor in
                     guard let self, self.connected else { return }
+                    logger.info("ping probe failed, treating the socket as closed")
                     self.disconnectSocket()
                     self.onSocketClosed()
                 }
             }
         }
+    }
+
+    /// A dial is in flight, or a retry wait is armed to start one. The one
+    /// thing `kick` gates on (EXP-625).
+    private var dialActive: Bool {
+        dialInFlight || (retryTask.map { !$0.isCancelled } ?? false)
     }
 
     /// Revive after a shutdown(): re-arm the session observation and redial
@@ -345,8 +453,14 @@ final class AgentSessionModel {
     /// session (over, evicted, or the account went away) — NOT when the screen
     /// merely goes off-view (EXP-621).
     func shutdown() {
+        logger.info("shutdown")
         stopped = true
         retryTask?.cancel()
+        retryTask = nil
+        joinAckTask?.cancel()
+        joinAckTask = nil
+        dialInFlight = false
+        lastFrameAt = nil
         cancelAnswerExpiries()
         sessionObservationTask?.cancel()
         sessionObservationTask = nil
@@ -614,11 +728,28 @@ final class AgentSessionModel {
     private func dial() async {
         dialGeneration += 1
         let generation = dialGeneration
+        // EXP-625: the retry slot has done its job. A finished-but-uncancelled
+        // task left sitting there reads as an armed wait forever, and `kick`
+        // would keep answering `wakeRetry` to a model with nothing pending.
+        retryTask = nil
+        // EXP-625: from here until this dial produces an outcome, a wake signal
+        // leaves it alone. Every exit below clears the flag, or a wedged dial
+        // would look alive forever and re-strand the model.
+        dialInFlight = true
+        dialStartedAt = Date()
+        lastFrameAt = nil
+        joinAckTask?.cancel()
+        joinAckTask = nil
         let ticket: SteerTicket
         do {
             ticket = try await steerApi.mintViewerTicket(accountId: accountId, codingSessionId: codingSessionId)
         } catch {
-            guard !stopped, generation == dialGeneration else { return }
+            guard !stopped, generation == dialGeneration else {
+                if generation == dialGeneration { dialInFlight = false }
+                return
+            }
+            dialInFlight = false
+            logger.info("dial mint failed code=\(error.trpcErrorCode ?? "none", privacy: .public)")
             switch error.trpcErrorCode {
             case "NOT_FOUND":
                 // The coding_sessions row is gone (stale rows get swept), so
@@ -642,12 +773,17 @@ final class AgentSessionModel {
             }
             return
         }
-        guard !stopped, generation == dialGeneration else { return }
+        guard !stopped, generation == dialGeneration else {
+            if generation == dialGeneration { dialInFlight = false }
+            return
+        }
         guard !ticket.isDisabled, let url = ticket.connectURL() else {
             // Config state, not a transient failure — retrying can't help.
+            dialInFlight = false
             phase = .closed(detail: "Live sessions are unavailable on this instance.", reconnecting: false)
             return
         }
+        logger.info("dial mint ok, opening socket")
         let t = URLSession.shared.webSocketTask(with: url)
         task = t
         connected = true
@@ -661,11 +797,32 @@ final class AgentSessionModel {
         // a sent message — it must render, so no stale echo may swallow it.
         recentEchoes = []
         sendText(#"{"t":"join","channel":"activity"}"#)
+        armJoinAckDeadline(generation: generation)
         // NOT live yet — the relay may answer the join with no_such_session
         // (the desktop is still starting). The phase flips on the first
         // confirming server frame instead (see markLive()), so the starting /
         // reconnect retry loops never flash the Live header + composer.
         receiveLoop()
+    }
+
+    /// EXP-625: bound the wait for the relay's answer to our join. The relay
+    /// ALWAYS answers one (apps/steer-relay/src/hub.ts: `activity_reset` plus
+    /// the replay, or `error no_such_session` followed by a 4001 close), so
+    /// silence past the deadline means a socket that opened and then died
+    /// without ever failing a receive. That is the shape of the wedge users hit
+    /// after a background, and nothing else in the model notices it.
+    private func armJoinAckDeadline(generation: Int) {
+        joinAckTask?.cancel()
+        joinAckTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.joinAckSeconds))
+            guard let self, !Task.isCancelled else { return }
+            guard generation == self.dialGeneration, self.connected, self.lastFrameAt == nil else {
+                return
+            }
+            logger.warning("join not answered within \(Self.joinAckSeconds)s, redialing")
+            self.disconnectSocket()
+            self.onSocketClosed()
+        }
     }
 
     private func receiveLoop() {
@@ -723,6 +880,17 @@ final class AgentSessionModel {
     /// live frame still lands within the same run-loop turn.
     private func enqueue(_ text: String) {
         guard !stopped, connected else { return }
+        // EXP-625: the first frame IS the join answer, so it ends this dial and
+        // disarms the deadline. Every frame restamps `lastFrameAt`, which is
+        // what a wake signal reads to tell a live socket from a quiet corpse.
+        if lastFrameAt == nil {
+            let elapsed = dialStartedAt.map { Date().timeIntervalSince($0) } ?? -1
+            logger.info("dial answered, first frame in \(elapsed, format: .fixed(precision: 1))s")
+            joinAckTask?.cancel()
+            joinAckTask = nil
+            dialInFlight = false
+        }
+        lastFrameAt = Date()
         pendingFrames.append(text)
         guard !flushScheduled else { return }
         flushScheduled = true
@@ -969,6 +1137,8 @@ final class AgentSessionModel {
 
     private func disconnectSocket() {
         connected = false
+        joinAckTask?.cancel()
+        joinAckTask = nil
         pendingFrames = []
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
@@ -979,7 +1149,11 @@ final class AgentSessionModel {
     ///   `no_such_session` frame, a failed foreground ping), which keeps their
     ///   pre-EXP-621 behavior.
     private func onSocketClosed(closeCode: Int? = nil) {
+        joinAckTask?.cancel()
+        joinAckTask = nil
+        dialInFlight = false
         guard !stopped else { return }
+        logger.info("socket closed code=\(closeCode ?? 0)")
         connected = false
         pendingFrames = []
         task = nil
@@ -1041,6 +1215,7 @@ final class AgentSessionModel {
             try? await Task.sleep(for: .seconds(Self.startingRetrySeconds))
             guard let self, !self.stopped, !Task.isCancelled else { return }
             if self.sessionEnded {
+                self.retryTask = nil
                 self.phase = .ended(detail: nil)
                 return
             }
@@ -1051,7 +1226,7 @@ final class AgentSessionModel {
 
     /// Auto-redial (fresh ticket) after an unexpected drop (EXP-243) — the
     /// phase stays `.closed(reconnecting: true)` across the wait and the dial
-    /// so the banner doesn't flicker; a foreground reconnectNow() cancels the
+    /// so the banner doesn't flicker; a foreground kick() cancels the
     /// wait and dials immediately.
     private func scheduleReconnect() {
         retryTask?.cancel()
@@ -1061,6 +1236,7 @@ final class AgentSessionModel {
             try? await Task.sleep(for: .seconds(delay))
             guard let self, !self.stopped, !Task.isCancelled else { return }
             if self.sessionEnded {
+                self.retryTask = nil
                 self.phase = .ended(detail: nil)
                 return
             }
