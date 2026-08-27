@@ -511,11 +511,17 @@ fn supervise(
     let result = api::coding_sessions::end(&ctx.trpc, &ctx.session_id);
     if registry::end_outcome_resolves(&result) {
         registry::remove(&ctx.data_dir, &ctx.session_id);
-    } else if let Err(err) = &result {
-        log::info!(
-            "end of coding session {} did not resolve ({err}) — kept for the next start's reconcile",
-            ctx.session_id
-        );
+    } else {
+        // Kept for the reconcile, but no longer LIVE: clearing the pid stops
+        // `exponential update` reading a stranded entry as a running agent
+        // and refusing to restart an idle daemon.
+        registry::mark_ended(&ctx.data_dir, &ctx.session_id);
+        if let Err(err) = &result {
+            log::info!(
+                "end of coding session {} did not resolve ({err}) — kept for the next start's reconcile",
+                ctx.session_id
+            );
+        }
     }
     let _ = done_tx.send(exit);
 }

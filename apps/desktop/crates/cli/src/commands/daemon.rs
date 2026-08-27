@@ -503,6 +503,13 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 synced_at.as_deref(),
             ) {
                 Ok(result) => {
+                    // EXP-641: a beat the server ACCEPTS means the gate is
+                    // gone (a rolled-back floor, or we already updated past
+                    // it) — clear it, or the daemon polls GitHub every 5 min
+                    // and logs "still gated" until its next exec.
+                    if gated.swap(false, Ordering::SeqCst) {
+                        log::info!("devices.heartbeat accepted again — the min-version gate lifted");
+                    }
                     // Row removed in the UI while we run, or an earlier
                     // register never landed (EXP-414) — re-register.
                     if !result.ok || !registered_ok {
@@ -874,6 +881,11 @@ fn reconcile_stale_sessions(ctx: &Ctx) {
             let result = api::coding_sessions::end(&trpc, &id);
             if registry::end_outcome_resolves(&result) {
                 registry::remove(&data_dir, &id);
+            } else {
+                // Still unresolved — keep it for the next reconcile, but an
+                // entry this daemon's pid once owned (exec_self keeps the
+                // pid) must not read as a live session (EXP-641).
+                registry::mark_ended(&data_dir, &id);
             }
         }
     });
