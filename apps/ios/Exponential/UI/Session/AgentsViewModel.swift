@@ -26,7 +26,25 @@ final class AgentsViewModel {
         var id: String { session.id }
     }
 
+    /// EXP-637: one finished run in "Recent runs" — an ended row the AGENT
+    /// closed out itself, so it carries a summary worth expanding to.
+    struct RecentRun: Identifiable {
+        let session: CodingSessionEntity
+        let issue: IssueEntity?
+        /// The host machine as it presents right now (the live devices row's
+        /// label, not the session's start-time snapshot).
+        let device: SessionDevicePresentation
+        /// Non-nil when a Resume would be accepted: the run's OWN machine,
+        /// online and advertising `resume-run`.
+        let resumeDevice: SteerDevice?
+        var id: String { session.id }
+    }
+
     var rows: [Row] = []
+
+    /// EXP-637: the caller's most recent agent-ended runs in the active team,
+    /// newest first, capped at 10 (web's `use-agents-data.ts` `recent`).
+    var recentRuns: [RecentRun] = []
 
     /// EXP-481: the machines list, composed from the synced `devices` shape
     /// (own rows + the active team's shared servers; online-ness derives from
@@ -56,6 +74,7 @@ final class AgentsViewModel {
     // propagate cancellation into unstructured inner loops, and the view
     // re-arms on every appear.
     private var sessionTask: Task<Void, Never>?
+    private var endedTask: Task<Void, Never>?
     private var issueTask: Task<Void, Never>?
     private var boardTask: Task<Void, Never>?
     private var livenessTask: Task<Void, Never>?
@@ -64,6 +83,10 @@ final class AgentsViewModel {
     private var userTask: Task<Void, Never>?
 
     private var sessions: [CodingSessionEntity] = []
+    // EXP-637: agent-ended rows, observed separately from the live ones — the
+    // live query filters on status and would otherwise have to carry them
+    // through every liveness rule that only makes sense for a running run.
+    private var endedSessions: [CodingSessionEntity] = []
     private var issues: [IssueEntity] = []
     // Observed so the Start-coding picker can resolve repo-backed boards
     // (EXP-156) and so the batch-PR resolution can scope issues to the
@@ -99,6 +122,26 @@ final class AgentsViewModel {
                 for try await sessions in sessionObservation.values(in: pool) {
                     self?.sessions = sessions
                     self?.rebuild()
+                }
+            } catch {}
+        }
+
+        // EXP-637: the finished runs behind "Recent runs" — only the ones the
+        // AGENT closed out itself (`exponential_sessions_end`), which are the
+        // rows carrying a summary and an outcome. A run killed from the phone,
+        // closed with its tab or ended by a merge has neither and would list
+        // as a bare "Ended".
+        let endedObservation = ValueObservation.tracking { db in
+            try CodingSessionEntity
+                .filter(Column("status") == DomainContract.codingSessionStatusEnded)
+                .filter(Column("ended_by") == DomainContract.codingSessionEndedByAgent)
+                .fetchAll(db)
+        }
+        endedTask = Task { [weak self] in
+            do {
+                for try await sessions in endedObservation.values(in: pool) {
+                    self?.endedSessions = sessions
+                    self?.rebuildRecent()
                 }
             } catch {}
         }
@@ -186,6 +229,8 @@ final class AgentsViewModel {
     func stopObserving() {
         sessionTask?.cancel()
         sessionTask = nil
+        endedTask?.cancel()
+        endedTask = nil
         issueTask?.cancel()
         issueTask = nil
         boardTask?.cancel()
@@ -211,6 +256,37 @@ final class AgentsViewModel {
             teamId: activeTeamId,
             userId: userId
         )
+        // EXP-637: the Resume affordance is gated on the run's machine being
+        // online and `resume-run`-capable, so a heartbeat repaints it too.
+        rebuildRecent()
+    }
+
+    /// EXP-637: the "Recent runs" list — own, active-team, agent-ended rows,
+    /// newest first, capped at 10. Ordered by when they ENDED (a long run that
+    /// started yesterday and finished a minute ago is the most recent one),
+    /// falling back to the start stamp for a row whose end never landed.
+    private func rebuildRecent() {
+        let issuesById = Dictionary(issues.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let deviceRows = deviceEntities ?? []
+        let startTargets = devices ?? []
+        recentRuns = endedSessions
+            .filter {
+                CodingSessionOwnership.isOwn($0, userId: userId, teamId: activeTeamId)
+            }
+            .sorted { ($0.endedAt ?? $0.startedAt) > ($1.endedAt ?? $1.startedAt) }
+            .prefix(10)
+            .map { session in
+                RecentRun(
+                    session: session,
+                    issue: session.issueId.flatMap { issuesById[$0] },
+                    device: SessionDevicePresentation.resolve(
+                        session: session, devices: deviceRows
+                    ),
+                    resumeDevice: RunResume.target(
+                        for: session, devices: startTargets, currentUserId: userId
+                    )
+                )
+            }
     }
 
     /// Candidate issues for the Agents-tab Start-coding sheet (EXP-156): every
@@ -300,5 +376,6 @@ final class AgentsViewModel {
                     )
                 )
             }
+        rebuildRecent()
     }
 }

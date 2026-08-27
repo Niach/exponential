@@ -64,6 +64,12 @@ struct AgentsView: View {
     // usually a conflict, so the failing row's caption offers the builtin
     // recovery run on any reachable machine.
     @State private var fixTarget: FixConflictsTarget?
+    // EXP-637 "Recent runs": which finished rows are expanded (the summary and
+    // the Resume pill live behind a tap — a list of paragraphs is unreadable),
+    // the pending Resume confirm, and the rows with a send in flight.
+    @State private var expandedRunIds: Set<String> = []
+    @State private var resumeTarget: ResumeTarget?
+    @State private var resumingIds: Set<String> = []
 
     /// The row a merge confirm is pending for. Only the ids are captured —
     /// the alert copy is fixed, and the row itself may re-sync underneath
@@ -80,6 +86,14 @@ struct AgentsView: View {
         let rowId: String
         let issueId: String
         var id: String { rowId }
+    }
+
+    /// The finished run a Resume confirm is pending for (EXP-637). Only the
+    /// ids are captured: the copy is fixed and the row may re-sync underneath.
+    private struct ResumeTarget: Identifiable {
+        let sessionId: String
+        let deviceId: String
+        var id: String { sessionId }
     }
 
     /// The machine a settings sheet is open for. EXP-490: the ID only — the
@@ -324,6 +338,12 @@ struct AgentsView: View {
                 } else {
                     ForEach(vm.rows) { sessionRow($0) }
                 }
+
+                // EXP-637: the runs the agent closed out itself. Absent
+                // entirely when there are none — an empty history is not news.
+                if !vm.recentRuns.isEmpty {
+                    recentRunsSection(vm)
+                }
             }
             .padding()
             // Its own node, NOT the ScrollView (that one owns the settings
@@ -378,6 +398,111 @@ struct AgentsView: View {
             Button("Remove", role: .destructive) { remove(device) }
         } message: { device in
             Text("Remove “\(deviceName(device))” from your machines? A machine with the daemon still running re-registers itself on its next heartbeat.")
+        }
+    }
+
+    // MARK: - Recent runs (EXP-637)
+
+    /// The caller's finished, agent-closed runs: collapsed to outcome + time,
+    /// expanding to the agent's summary and — on the machine that ran it — a
+    /// Resume. Its own node so the confirm alert doesn't stack onto one that
+    /// already presents something (SwiftUI drops those).
+    @ViewBuilder
+    private func recentRunsSection(_ vm: AgentsViewModel) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionHeader("Recent runs")
+            ForEach(vm.recentRuns) { run in
+                EndedRunRow(
+                    title: recentTitle(run),
+                    identifier: run.issue?.identifier,
+                    outcome: run.session.outcome,
+                    stateLabel: RunOutcomePresentation.label(run.session.outcome),
+                    byline: recentByline(run),
+                    summary: run.session.summary,
+                    expanded: expandedRunIds.contains(run.id),
+                    canResume: steerEnabled && run.resumeDevice != nil,
+                    resuming: resumingIds.contains(run.id),
+                    onToggle: { toggleRun(run.id) },
+                    onResume: {
+                        guard let device = run.resumeDevice else { return }
+                        resumeTarget = ResumeTarget(
+                            sessionId: run.session.id, deviceId: device.deviceId
+                        )
+                    }
+                )
+                .accessibilityIdentifier("recent-run-row")
+            }
+        }
+        .alert(
+            "Resume this run?",
+            isPresented: Binding(
+                get: { resumeTarget != nil },
+                set: { if !$0 { resumeTarget = nil } }
+            ),
+            presenting: resumeTarget
+        ) { target in
+            Button("Resume") { resume(target) }
+            Button("Cancel", role: .cancel) { resumeTarget = nil }
+        } message: { _ in
+            Text("Reopens the run on the machine that ran it, in the same worktree, and continues where the agent stopped.")
+        }
+    }
+
+    private func toggleRun(_ id: String) {
+        if expandedRunIds.contains(id) {
+            expandedRunIds.remove(id)
+        } else {
+            expandedRunIds.insert(id)
+        }
+    }
+
+    /// An issueless finished run names its action (EXP-253's snapshot) or reads
+    /// as a batch — the live rows' rule, on rows that no longer have a session.
+    private func recentTitle(_ run: AgentsViewModel.RecentRun) -> String {
+        if run.issue == nil, run.session.issueId == nil {
+            return run.session.actionName ?? "Batch run"
+        }
+        return run.issue?.title ?? "Untitled issue"
+    }
+
+    /// "ended 5m ago · macbook" — the live devices row's label, like the
+    /// running rows (a rename never rewrites the session's snapshot).
+    private func recentByline(_ run: AgentsViewModel.RecentRun) -> String {
+        let device = run.device.displayLabel
+        let ended = relativeDate(run.session.endedAt ?? run.session.startedAt)
+        return ended.isEmpty ? device : "ended \(ended) · \(device)"
+    }
+
+    /// Resume the finished run on its own machine (EXP-637). Like every other
+    /// remote start this is a COMMAND — the watcher waits for the new row the
+    /// desktop inserts (keyed on `resumed_from_id`) and pushes the live screen.
+    private func resume(_ target: ResumeTarget) {
+        resumeTarget = nil
+        resumingIds.insert(target.sessionId)
+        guard let device = (devices ?? []).first(where: { $0.deviceId == target.deviceId })
+        else {
+            resumingIds.remove(target.sessionId)
+            return
+        }
+        startWatcher.sending()
+        Task {
+            do {
+                try await deps.steerApi.resumeSession(
+                    accountId: accountId,
+                    sessionId: target.sessionId,
+                    deviceId: target.deviceId
+                )
+                startWatcher.begin(
+                    key: .resumed(fromId: target.sessionId),
+                    userId: deps.auth.userId,
+                    device: device,
+                    db: deps.db,
+                    accountId: accountId
+                )
+            } catch {
+                startWatcher.failed(error.localizedDescription)
+            }
+            resumingIds.remove(target.sessionId)
         }
     }
 

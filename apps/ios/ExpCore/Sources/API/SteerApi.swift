@@ -296,6 +296,12 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// the Chat tab filters such machines out instead of failing after submit.
     public var canChat: Bool { caps?.contains("chat") == true }
 
+    /// EXP-637: whether this machine can RESUME an ended run (relaunch the
+    /// agent in the run's own worktree, continuing its transcript). Strictly
+    /// cap-gated like actions — the server refuses `resumeSessionId` without
+    /// it, so a Resume affordance renders only when the machine advertises it.
+    public var canResumeRun: Bool { caps?.contains("resume-run") == true }
+
     /// EXP-530: whether this machine runs action automations locally (watches
     /// its own sync and fires schedule/event triggers). Trigger device pickers
     /// offer only these — an offline-but-capable machine stays pickable (its
@@ -443,6 +449,15 @@ private struct StartActionSessionInput: Encodable {
     let inputs: [String: String]?
 }
 
+/// Resume remote-start (EXP-637): the fourth `steer.startSession` subject —
+/// exactly one of issueId/issueIds/actionId/resumeSessionId is present. A
+/// resumed run keeps the ENDED row's recorded agent and options, so no launch
+/// option may ride along (the server rejects them).
+private struct ResumeSessionInput: Encodable {
+    let resumeSessionId: String
+    let deviceId: String
+}
+
 private struct StartSessionResult: Decodable {
     let ok: Bool
 }
@@ -583,6 +598,37 @@ public final class SteerApi: Sendable {
                     planMode: options.planMode,
                     skipPermissions: options.skipPermissions,
                     inputs: inputs
+                )
+            )
+        } catch let TrpcError.httpError(status, body) {
+            if let message = Self.trpcErrorMessage(fromBody: body) {
+                throw SteerStartError.rejected(message)
+            }
+            throw TrpcError.httpError(status, body)
+        }
+    }
+
+    /// Resume an ended run (EXP-637): route a `start_session` carrying the
+    /// ended session's id to the machine that ran it — the launcher relaunches
+    /// the pinned agent in the run's own worktree, continuing its transcript.
+    /// Owner-only server-side, and the target must be the run's OWN device,
+    /// online, advertising `resume-run` (`SteerDevice.canResumeRun`). No launch
+    /// options: a resumed run keeps the ones the ended row recorded. Same
+    /// PRECONDITION_FAILED → `SteerStartError.rejected` mapping as the other
+    /// forms, so the refusal reason ("That run lives on another machine") shows
+    /// verbatim.
+    public func resumeSession(
+        accountId: String,
+        sessionId: String,
+        deviceId: String
+    ) async throws {
+        do {
+            let _: StartSessionResult = try await trpc.mutation(
+                accountId: accountId,
+                path: "steer.startSession",
+                input: ResumeSessionInput(
+                    resumeSessionId: sessionId,
+                    deviceId: deviceId
                 )
             )
         } catch let TrpcError.httpError(status, body) {

@@ -374,6 +374,20 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
     // deleted automation leaves the history intact). NULL on user starts and
     // on pre-EXP-583 automated rows, which carry only `startedReason`.
     public let automationId: String?
+    // EXP-637: the agent's own close-out, written by the
+    // `exponential_sessions_end` MCP tool — a one-paragraph plain-GFM summary
+    // the runs lists show when a row is EXPANDED (never inline) and an
+    // `outcome` (`done`/`blocked`/`no_changes`). Both NULL on a run that
+    // ended any other way (kill switch, tab close, PR merge, sweep).
+    public let summary: String?
+    public let outcome: String?
+    // EXP-637: WHO ended the run (`agent`/`user`/`client`/`merge`/`system`).
+    // The runs lists show only agent-declared ends — those are the rows that
+    // carry a summary.
+    public let endedBy: String?
+    // EXP-637: the ended run this one resumed (FK SET NULL). Set by
+    // `steer.startSession({ resumeSessionId })`; the start watch keys on it.
+    public let resumedFromId: String?
     public let startedAt: String
     public let endedAt: String?
     public let createdAt: String
@@ -394,6 +408,10 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         actionName: String? = nil,
         startedReason: String? = nil,
         automationId: String? = nil,
+        summary: String? = nil,
+        outcome: String? = nil,
+        endedBy: String? = nil,
+        resumedFromId: String? = nil,
         startedAt: String,
         endedAt: String?,
         createdAt: String,
@@ -413,6 +431,10 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         self.actionName = actionName
         self.startedReason = startedReason
         self.automationId = automationId
+        self.summary = summary
+        self.outcome = outcome
+        self.endedBy = endedBy
+        self.resumedFromId = resumedFromId
         self.startedAt = startedAt
         self.endedAt = endedAt
         self.createdAt = createdAt
@@ -420,7 +442,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, status, branch
+        case id, status, branch, summary, outcome
         case issueId = "issue_id"
         case boardId = "board_id"
         case teamId = "team_id"
@@ -432,6 +454,8 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         case actionName = "action_name"
         case startedReason = "started_reason"
         case automationId = "automation_id"
+        case endedBy = "ended_by"
+        case resumedFromId = "resumed_from_id"
         case startedAt = "started_at"
         case endedAt = "ended_at"
         case createdAt = "created_at"
@@ -463,6 +487,11 @@ extension CodingSessionEntity: Codable {
         startedReason = try c.decodeIfPresent(String.self, forKey: .startedReason)
         // Pre-EXP-583 snapshots omit the key — decode permissively.
         automationId = try c.decodeIfPresent(String.self, forKey: .automationId)
+        // Pre-EXP-637 snapshots omit these four — decode permissively.
+        summary = try c.decodeIfPresent(String.self, forKey: .summary)
+        outcome = try c.decodeIfPresent(String.self, forKey: .outcome)
+        endedBy = try c.decodeIfPresent(String.self, forKey: .endedBy)
+        resumedFromId = try c.decodeIfPresent(String.self, forKey: .resumedFromId)
         startedAt = try c.decode(String.self, forKey: .startedAt)
         endedAt = try c.decodeIfPresent(String.self, forKey: .endedAt)
         createdAt = try c.decode(String.self, forKey: .createdAt)

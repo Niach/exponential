@@ -17,6 +17,11 @@ public enum StartedRunKey: Hashable, Sendable {
     /// Nothing narrower exists — a batch row is unmatchable by issue
     /// server-side too — so the userId + startedAt cut carries the identity.
     case batch
+    /// EXP-637: a RESUMED run — the desktop stamps the ended row's id on the
+    /// new one (`resumed_from_id`), which is the narrowest key any subject
+    /// has. The row's own kind (issue, batch, action) is whatever the ended
+    /// run was, so nothing else may be asserted here.
+    case resumed(fromId: String)
 
     /// The key for a Start-coding send: 1 id is a plain session, 2+ a batch.
     public static func forIssues(_ issueIds: [String]) -> StartedRunKey? {
@@ -60,6 +65,13 @@ public enum StartedRunMatch {
             return session.issueId == id && session.actionName == nil
         case .batch:
             return session.issueId == nil && session.actionName == nil
+        case let .resumed(fromId):
+            // EXP-637: the resume link is the identity — an ended run may be
+            // resumed more than once, and the cutoff above already excludes
+            // every earlier attempt. `startedReason` must be nil for the same
+            // reason the action key checks it: only a person resumes a run, so
+            // an automation-started row can never be this send.
+            return session.resumedFromId == fromId && session.startedReason == nil
         }
     }
 

@@ -29,6 +29,11 @@ struct ActionsListView: View {
     @State private var formTarget: AutomationFormTarget?
     /// Owner-only delete, confirmed first (destructive native actions do).
     @State private var pendingDelete: AutomationDto?
+    /// EXP-637: which finished runs are expanded (the close-out summary and
+    /// the Resume pill live behind a tap, never inline) and the pending
+    /// Resume confirm.
+    @State private var expandedRunIds: Set<String> = []
+    @State private var resumeTarget: ResumeTarget?
     /// EXP-530: Actions · Automations · Suggestions (the MyWorkView segment
     /// pattern — the choice survives relaunch via AppStorage).
     @AppStorage("actionsSegment") private var segmentRaw = Segment.actions.rawValue
@@ -48,6 +53,14 @@ struct ActionsListView: View {
         var description = ""
         var icon = ""
         var automation: AutomationTrigger?
+    }
+
+    /// The finished run a Resume confirm is pending for (EXP-637) — ids only,
+    /// so a row re-syncing underneath the alert can't stale it.
+    private struct ResumeTarget: Identifiable {
+        let sessionId: String
+        let deviceId: String
+        var id: String { sessionId }
     }
 
     private enum Segment: String, CaseIterable {
@@ -368,13 +381,54 @@ struct ActionsListView: View {
                         ForEach(vm.automations) { automationRow($0, vm: vm) }
                     }
                     if !vm.automationRuns.isEmpty {
-                        sectionLabel("Recent automated runs", count: vm.automationRuns.count)
-                            .padding(.top, 12)
-                        ForEach(vm.automationRuns) { automatedRunRow($0) }
+                        recentAutomatedRuns(vm)
                     }
                 }
                 .padding()
             }
+        }
+    }
+
+    /// EXP-637: the automated runs list, its own node so the Resume confirm
+    /// doesn't stack onto a node that already presents something.
+    @ViewBuilder
+    private func recentAutomatedRuns(_ vm: ActionsViewModel) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionLabel("Recent automated runs", count: vm.automationRuns.count)
+                .padding(.top, 12)
+            // EXP-637: a resume is a remote start like any other — the same
+            // "waiting for the desktop" caption reports it here too.
+            if let sentCaption = vm.startWatcher.sentCaption {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small).tint(.white)
+                    Text(sentCaption)
+                        .font(.caption2)
+                }
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                .padding(.horizontal, 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if let startError = vm.startWatcher.failure {
+                Text(startError)
+                    .font(.caption2)
+                    .foregroundStyle(DesignTokens.Semantic.red)
+                    .padding(.horizontal, 4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            ForEach(vm.automationRuns) { automatedRunRow($0, vm: vm) }
+        }
+        .alert(
+            "Resume this run?",
+            isPresented: Binding(
+                get: { resumeTarget != nil },
+                set: { if !$0 { resumeTarget = nil } }
+            ),
+            presenting: resumeTarget
+        ) { target in
+            Button("Resume") { resume(target, vm: vm) }
+            Button("Cancel", role: .cancel) { resumeTarget = nil }
+        } message: { _ in
+            Text("Reopens the run on the machine that ran it, in the same worktree, and continues where the agent stopped.")
         }
     }
 
@@ -524,31 +578,61 @@ struct ActionsListView: View {
     }
 
     /// One automation-started coding_sessions row (started_reason non-null):
-    /// action-name snapshot, status, relative start time. No "Automated"
-    /// badge (EXP-643) — the section header already says so.
-    private func automatedRunRow(_ session: CodingSessionEntity) -> some View {
-        HStack(spacing: 10) {
-            Text(session.actionName ?? "Action run")
-                .font(.caption)
-                .foregroundStyle(.white)
-                .lineLimit(1)
-
-            Spacer(minLength: 0)
-
-            Text(sessionStatusLabel(session.status))
-                .font(.caption2)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            let time = relativeDate(session.startedAt)
-            if !time.isEmpty {
-                Text(time)
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+    /// action-name snapshot, outcome glyph + label, relative time. No
+    /// "Automated" badge (EXP-643) — the section header already says so.
+    /// EXP-637: the SHARED expandable run row — a tap reveals the agent's
+    /// close-out summary and, on the machine that ran it, Resume. The summary
+    /// is never inline (decision 5), here or anywhere else.
+    private func automatedRunRow(_ session: CodingSessionEntity, vm: ActionsViewModel) -> some View {
+        let ended = session.status == DomainContract.codingSessionStatusEnded
+        let device = ended ? vm.resumeDevice(for: session) : nil
+        return EndedRunRow(
+            title: session.actionName ?? "Action run",
+            outcome: session.outcome,
+            stateLabel: ended
+                ? RunOutcomePresentation.label(session.outcome)
+                : sessionStatusLabel(session.status),
+            byline: runByline(session, ended: ended),
+            summary: session.summary,
+            expanded: expandedRunIds.contains(session.id),
+            canResume: steerEnabled && device != nil,
+            onToggle: { toggleRun(session.id) },
+            onResume: {
+                guard let device else { return }
+                resumeTarget = ResumeTarget(sessionId: session.id, deviceId: device.deviceId)
             }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .glassRow()
+        )
         .accessibilityIdentifier("automated-run-row")
+    }
+
+    /// "ended 5m ago" once the run finished, "started 5m ago" while it is
+    /// still going — the automated runs list has no machine column to add.
+    private func runByline(_ session: CodingSessionEntity, ended: Bool) -> String {
+        if ended {
+            let time = relativeDate(session.endedAt ?? session.startedAt)
+            return time.isEmpty ? "" : "ended \(time)"
+        }
+        let time = relativeDate(session.startedAt)
+        return time.isEmpty ? "" : "started \(time)"
+    }
+
+    private func toggleRun(_ id: String) {
+        if expandedRunIds.contains(id) {
+            expandedRunIds.remove(id)
+        } else {
+            expandedRunIds.insert(id)
+        }
+    }
+
+    /// Resume the run on its own machine (EXP-637). No local spinner: the
+    /// shared watcher's "waiting for the desktop" caption (rendered above the
+    /// list) already owns the wait, and it pushes the live screen on pickup.
+    private func resume(_ target: ResumeTarget, vm: ActionsViewModel) {
+        resumeTarget = nil
+        guard let session = vm.automationRuns.first(where: { $0.id == target.sessionId }),
+              let device = vm.allDevices.first(where: { $0.deviceId == target.deviceId })
+        else { return }
+        vm.resume(session: session, device: device, userId: deps.auth.userId)
     }
 
     private func sessionStatusLabel(_ status: String) -> String {

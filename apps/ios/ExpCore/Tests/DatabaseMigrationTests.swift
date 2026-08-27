@@ -38,7 +38,10 @@ import XCTest
 // automations became their own entity — the synced `automations` table, 19th
 // shape, + coding_sessions.automation_id) the nineteenth, and
 // v21_device_is_default (EXP-622: devices.is_default, the owner's default
-// machine every device picker prefills) the twentieth.
+// machine every device picker prefills) the twentieth, and
+// v22_coding_session_outcome (EXP-637: the agent's own close-out —
+// coding_sessions.summary/outcome/ended_by + resumed_from_id) the
+// twenty-first.
 // These tests pin the fresh-install schema and the
 // exact migration identifiers so a new incremental migration is a conscious
 // decision, not an accident.
@@ -85,7 +88,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v15_attachment_nullable_uploader", "v16_devices_worktrees",
              "v17_coding_session_branch", "v18_action_automations",
              "v19_coding_session_device_id", "v20_automations",
-             "v21_device_is_default"]
+             "v21_device_is_default", "v22_coding_session_outcome"]
         )
     }
 
@@ -106,7 +109,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v15_attachment_nullable_uploader", "v16_devices_worktrees",
              "v17_coding_session_branch", "v18_action_automations",
              "v19_coding_session_device_id", "v20_automations",
-             "v21_device_is_default"]
+             "v21_device_is_default", "v22_coding_session_outcome"]
         )
     }
 
@@ -155,7 +158,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v15_attachment_nullable_uploader", "v16_devices_worktrees",
              "v17_coding_session_branch", "v18_action_automations",
              "v19_coding_session_device_id", "v20_automations",
-             "v21_device_is_default"]
+             "v21_device_is_default", "v22_coding_session_outcome"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -224,7 +227,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v15_attachment_nullable_uploader", "v16_devices_worktrees",
              "v17_coding_session_branch", "v18_action_automations",
              "v19_coding_session_device_id", "v20_automations",
-             "v21_device_is_default"]
+             "v21_device_is_default", "v22_coding_session_outcome"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -607,6 +610,62 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertFalse(deviceIdColumn?.isNotNull ?? true)
         // The ALTER must force a refetch of the coding-sessions shape.
+        let offset = try pool.read { db in
+            try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT "handle", "offset", "needs_refetch", "is_live"
+                    FROM "electric_offsets" WHERE "shape" = 'coding-sessions'
+                    """
+            )
+        }
+        let handle: String? = offset?["handle"]
+        let offsetValue: String? = offset?["offset"]
+        let needsRefetch: Bool? = offset?["needs_refetch"]
+        let isLive: Bool? = offset?["is_live"]
+        XCTAssertEqual(handle, "")
+        XCTAssertEqual(offsetValue, "-1")
+        XCTAssertEqual(needsRefetch, true)
+        XCTAssertEqual(isLive, false)
+    }
+
+    // v22 (EXP-637 agent run close-outs): a store created before
+    // `coding_sessions.summary` / `outcome` / `ended_by` / `resumed_from_id`
+    // existed must gain all four via the guarded ALTERs and get the
+    // coding-sessions shape offset reset (the key has A DASH — the proxy route
+    // name, not the table name) so already-synced rows re-arrive carrying the
+    // agent's close-out.
+    func testCodingSessionOutcomeColumnsAddedToExistingStore() throws {
+        let pool = try makePool("session-outcome")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v21_device_is_default")
+        try pool.write { db in
+            // Hand-build the pre-v22 state: drop the columns today's v1 create
+            // already declares (that overlap is exactly what the guarded
+            // ALTERs have to tolerate) + a live offset row.
+            let sessionCols = Set(try db.columns(in: "coding_sessions").map(\.name))
+            for column in ["summary", "outcome", "ended_by", "resumed_from_id"]
+            where sessionCols.contains(column) {
+                try db.alter(table: "coding_sessions") { t in t.drop(column: column) }
+            }
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('coding-sessions', 'h', '0_0', 0, 1)
+                """)
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        let columns = try columnNames(pool, "coding_sessions")
+        for column in ["summary", "outcome", "ended_by", "resumed_from_id"] {
+            XCTAssertTrue(columns.contains(column), "missing \(column)")
+            let added = try pool.read { db in
+                try db.columns(in: "coding_sessions").first { $0.name == column }
+            }
+            // Every one of them is NULL on a run that ended any other way.
+            XCTAssertFalse(added?.isNotNull ?? true, "\(column) must be nullable")
+        }
+        // The ALTERs must force a refetch of the coding-sessions shape.
         let offset = try pool.read { db in
             try Row.fetchOne(
                 db,

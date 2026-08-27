@@ -398,6 +398,13 @@ public final class DatabaseManager: @unchecked Sendable {
                 // (server FK SET NULL keeps the snapshot label).
                 t.column("action_id", .text)
                 t.column("action_name", .text)
+                // EXP-637: the agent's own close-out (`exponential_sessions_end`
+                // writes summary + outcome), who ended the run, and the ended
+                // run this one resumed.
+                t.column("summary", .text)
+                t.column("outcome", .text)
+                t.column("ended_by", .text)
+                t.column("resumed_from_id", .text)
                 t.column("started_at", .text).notNull()
                 t.column("ended_at", .text)
                 t.column("created_at", .text).notNull()
@@ -1056,6 +1063,34 @@ public final class DatabaseManager: @unchecked Sendable {
                     UPDATE "electric_offsets"
                     SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
                     WHERE "shape" = 'devices'
+                    """)
+            }
+        }
+
+        // v22 (EXP-637 agent run close-outs): four columns ride along on the
+        // coding-sessions shape — `summary` + `outcome`, written by the agent's
+        // own `exponential_sessions_end` call, `ended_by` (which path ended the
+        // run) and `resumed_from_id` (the ended run a resume continues).
+        // Additive ALTERs guarded on column presence so fresh installs (which
+        // get them from the v1 create above) and migration-fixture DBs converge
+        // on the same schema, then the offset reset so already-synced rows
+        // re-arrive carrying them (the v17/v18/v19/v20 precedent).
+        migrator.registerMigration("v22_coding_session_outcome") { db in
+            guard try db.tableExists("coding_sessions") else { return }
+            let existing = Set(try db.columns(in: "coding_sessions").map(\.name))
+            for column in ["summary", "outcome", "ended_by", "resumed_from_id"]
+            where !existing.contains(column) {
+                try db.alter(table: "coding_sessions") { t in
+                    t.add(column: column, .text)
+                }
+            }
+            // NOTE: the shape key is 'coding-sessions' WITH A DASH (the proxy
+            // route name), not the SQLite table name.
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'coding-sessions'
                     """)
             }
         }
