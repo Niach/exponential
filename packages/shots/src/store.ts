@@ -78,6 +78,54 @@ export function toleranceFor(viewId: string, override?: number): number {
   return viewById(viewId)?.diffTolerance ?? STORE_DEFAULT_TOLERANCE
 }
 
+/** One written shot, as the run log reports it. */
+export interface ShotDiffReport {
+  viewId: string
+  platform: Platform
+  state: ShotState
+  changedRatio?: number
+  tolerance: number
+}
+
+/** The share of its tolerance above which a KEPT shot is flagged as a near miss. */
+export const NEAR_MISS_SHARE = 0.5
+
+/**
+ * The per-view lines of the diff-skip report (EXP-658).
+ *
+ * The tolerance exists to absorb the seed's drifting relative timestamps, but
+ * a redesigned chip or badge is about the same pixel area as a re-rendered
+ * "22 hr. ago" — so a real change CAN land under it and keep a stale shot with
+ * nothing in the log to say so. Every kept shot that differed at all is listed
+ * with its fraction against the tolerance, closest first, and one at or above
+ * `NEAR_MISS_SHARE` is marked, so a reviewer sees "0.0041 of 0.0050" instead of
+ * a silent `kept`. Updated shots list their fraction too, so the log shows how
+ * far each one moved. Identical keeps — the common case — print nothing.
+ */
+export function formatDiffReport(results: ShotDiffReport[]): string[] {
+  const share = (entry: ShotDiffReport): number => (entry.changedRatio ?? 0) / entry.tolerance
+  const updated = results
+    .filter((entry) => entry.state === `updated` && entry.changedRatio !== undefined)
+    .sort((a, b) => (b.changedRatio ?? 0) - (a.changedRatio ?? 0))
+  const kept = results
+    .filter((entry) => entry.state === `kept` && (entry.changedRatio ?? 0) > 0)
+    .sort((a, b) => share(b) - share(a))
+  const lines: string[] = []
+  for (const entry of updated) {
+    lines.push(
+      `  updated  ${`${entry.viewId}/${entry.platform}`.padEnd(32)}${entry.changedRatio!.toFixed(4)} (tolerance ${entry.tolerance.toFixed(4)})`
+    )
+  }
+  for (const entry of kept) {
+    const percent = Math.round(share(entry) * 100)
+    lines.push(
+      `  kept     ${`${entry.viewId}/${entry.platform}`.padEnd(32)}${entry.changedRatio!.toFixed(4)} of ${entry.tolerance.toFixed(4)} (${percent}%)` +
+        (share(entry) >= NEAR_MISS_SHARE ? `  ← near miss` : ``)
+    )
+  }
+  return lines
+}
+
 /**
  * Encode one raw capture and store it if it changed.
  *

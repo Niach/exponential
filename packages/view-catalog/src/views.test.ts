@@ -24,7 +24,6 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
 import { join, relative, resolve } from "node:path"
 import { z } from "zod"
 import {
-  DEFAULT_PLATFORMS,
   EXCLUDED_ROUTES,
   GROUPS,
   PLATFORMS,
@@ -79,6 +78,7 @@ const PINNED_RECIPES = [
   `openBoardBulkEdit`,
   `openBoardSwitcher`,
   `openIssuePropertiesMobile`,
+  `expandRecentRun`,
   `openMachineSettings`,
   `openAddServer`,
   `openActionCreate`,
@@ -108,7 +108,7 @@ const groupIds = [
   `getting-started`,
 ] as const
 
-const platformEnum = z.enum([`web`, `web-mobile`, `desktop`, `ios`, `ipad`, `android`])
+const platformEnum = z.enum([`web`, `web-mobile`, `desktop`, `ios`, `android`])
 
 const anchorSchema = z
   .strictObject({
@@ -161,7 +161,6 @@ const viewSchema = z.strictObject({
   web: webCaptureSchema.optional(),
   webMobile: z.union([z.literal(`inherit`), webCaptureSchema]).optional(),
   ios: nativeCaptureSchema.optional(),
-  ipad: nativeCaptureSchema.optional(),
   android: nativeCaptureSchema.optional(),
   desktop: desktopCaptureSchema.optional(),
   diffTolerance: z.number().gt(0).lt(1).optional(),
@@ -256,7 +255,7 @@ describe(`catalog shape`, () => {
     // round to. Every hole is annotated.
     const gaps: string[] = []
     for (const view of VIEWS) {
-      for (const platform of DEFAULT_PLATFORMS) {
+      for (const platform of PLATFORMS) {
         if (captureFor(view, platform) !== undefined) continue
         if (view.notes?.[platform]) continue
         gaps.push(`${view.id} · ${platform}`)
@@ -273,7 +272,7 @@ describe(`catalog shape`, () => {
   })
 
   test(`store-lane shot names are unique per platform`, () => {
-    for (const key of [`ios`, `ipad`, `android`] as const) {
+    for (const key of [`ios`, `android`] as const) {
       const names = VIEWS.map((view) => view[key]?.shot).filter(
         (name): name is string => Boolean(name)
       )
@@ -388,9 +387,6 @@ describe(`native suites match the manifest`, () => {
       if (view.ios?.lane === `store`) {
         expect(view.ios.shot).toMatch(/^\d{2}_[a-z0-9-]+$/)
       }
-      if (view.ipad?.lane === `store`) {
-        expect(view.ipad.shot).toMatch(/^\d{2}_[a-z0-9-]+$/)
-      }
       if (view.android?.lane === `store`) {
         expect(view.android.shot).toMatch(/^\d_[a-z0-9-]+$/)
       }
@@ -399,7 +395,7 @@ describe(`native suites match the manifest`, () => {
 
   test(`styleguide shot names are sg_-prefixed`, () => {
     for (const view of VIEWS) {
-      for (const key of [`ios`, `ipad`, `android`] as const) {
+      for (const key of [`ios`, `android`] as const) {
         const capture = view[key]
         if (capture?.lane === `styleguide`) {
           expect(capture.shot).toMatch(/^sg_[a-z0-9-]+$/)
@@ -408,22 +404,15 @@ describe(`native suites match the manifest`, () => {
     }
   })
 
-  test(`ipad mirrors an ios store shot, never a lane of its own`, () => {
-    // The tablet lane has no suite: the iOS store lane already runs on both
-    // simulators and writes `iPad…-<shot>.png` beside the iPhone file, and the
-    // importer picks it up by prefix. So an `ipad` entry that names anything
-    // other than its view's iOS STORE shot would silently import nothing —
-    // and a styleguide-lane `ipad` entry has no iPad simulator behind it at all.
-    const wrong: string[] = []
+  test(`no view declares a tablet capture`, () => {
+    // EXP-657: the iPad frames exist for the App Store only. The iOS Snapfile
+    // still runs the store set on both simulators, but the compositor reads
+    // those `iPad…-<shot>.png` files straight out of fastlane's output dir; the
+    // catalog, the store and the styleguide never hold a tablet lane.
     for (const view of VIEWS) {
-      if (!view.ipad) continue
-      if (view.ipad.lane !== `store`) wrong.push(`${view.id}: ipad lane is not \`store\``)
-      else if (view.ios?.lane !== `store`) wrong.push(`${view.id}: ipad without an ios store shot`)
-      else if (view.ipad.shot !== view.ios.shot) {
-        wrong.push(`${view.id}: ipad shot ${view.ipad.shot} ≠ ios shot ${view.ios.shot}`)
-      }
+      expect((view as unknown as Record<string, unknown>)[`ipad`]).toBeUndefined()
     }
-    expect(wrong).toEqual([])
+    expect(PLATFORMS).not.toContain(`ipad`)
   })
 })
 
@@ -609,8 +598,6 @@ describe(`store geometry`, () => {
     [`web-mobile`]: { w: 390, h: 844 },
     desktop: { w: 1440, h: 900 },
     ios: { w: 1320, h: 2868 },
-    // iPad Pro 13-inch, the Snapfile's tablet — portrait, 3:4.
-    ipad: { w: 2064, h: 2752 },
     android: { w: 1080, h: 2400 },
   }
 
@@ -638,7 +625,7 @@ describe(`store geometry`, () => {
   })
 
   test(`phones and tablets are portrait, browsers and the IDE landscape`, () => {
-    for (const platform of [`ios`, `ipad`, `android`, `web-mobile`] as const) {
+    for (const platform of [`ios`, `android`, `web-mobile`] as const) {
       expect(PLATFORM_FRAME[platform].h).toBeGreaterThan(
         PLATFORM_FRAME[platform].w
       )
@@ -694,14 +681,6 @@ describe(`api`, () => {
     )
     expect(own).toBeDefined()
     expect(captureFor(own!, `web-mobile`)).toBe(own!.webMobile as WebCapture)
-  })
-
-  test(`DEFAULT_PLATFORMS is every platform except the opt-in tablet lane`, () => {
-    expect([...DEFAULT_PLATFORMS]).toEqual(
-      PLATFORMS.filter((platform) => platform !== `ipad`)
-    )
-    expect(DEFAULT_PLATFORMS).not.toContain(`ipad`)
-    expect(PLATFORMS).toContain(`ipad`)
   })
 
   test(`the default tolerance is a sane fraction`, () => {

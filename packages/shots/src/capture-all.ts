@@ -29,7 +29,6 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
 import { join } from "node:path"
 import {
-  DEFAULT_PLATFORMS,
   PLATFORMS,
   captureFor,
   viewsFor,
@@ -47,7 +46,14 @@ import { fetchDemoIds, type DemoIds } from "./ids.ts"
 import { importNative, NATIVE_PLATFORMS } from "./import-native.ts"
 import { hasCommand, killChild, run, sleep, track, type Child } from "./lib/proc.ts"
 import { rawDir, repoRoot } from "./paths.ts"
-import { indexStore, storeShotPath, writeShot } from "./store.ts"
+import {
+  formatDiffReport,
+  indexStore,
+  storeShotPath,
+  toleranceFor,
+  writeShot,
+  type ShotDiffReport,
+} from "./store.ts"
 
 /** Through the Caddy h2 proxy — what the browser and the natives talk to. */
 const PROXY_URL = `https://localhost:3000`
@@ -109,7 +115,7 @@ function parseArgs(argv: string[]): Options {
     sinceIndex === -1 ? undefined : !sinceValue || sinceValue.startsWith(`--`) ? `auto` : sinceValue
 
   const requested = list(`platform`)
-  const platforms = (requested ?? [...DEFAULT_PLATFORMS]) as Platform[]
+  const platforms = (requested ?? [...PLATFORMS]) as Platform[]
   const unknown = platforms.filter((platform) => !PLATFORMS.includes(platform))
   if (unknown.length > 0) {
     throw new Error(`unknown platform(s): ${unknown.join(`, `)} (known: ${PLATFORMS.join(`, `)})`)
@@ -366,8 +372,7 @@ async function preflight(options: Options, scope: Scope): Promise<Check[]> {
     if (binaryDetail) checks.push({ label: `desktop app binary`, ok: true, detail: binaryDetail })
   }
 
-  // One simulator lane serves both frames — see `captureFastlane`.
-  if (laneViews(scope, `ios`, `ipad`).length > 0) {
+  if (laneViews(scope, `ios`).length > 0) {
     const ok = await hasCommand(`xcrun`)
     checks.push({
       label: `xcrun simctl`,
@@ -469,28 +474,17 @@ async function captureWeb(
   }
 }
 
-/**
- * The catalog platforms one fastlane directory photographs. `ipad` has no lane
- * of its own: the iOS Snapfile runs the store set on both simulators in one
- * pass and writes both into the same output dir.
- */
-function servedBy(platform: `ios` | `android`): Platform[] {
-  return platform === `ios` ? [`ios`, `ipad`] : [`android`]
-}
-
-/** The shot ids one fastlane lane still owes, deduped across served frames. */
+/** The shot ids one fastlane lane still owes. */
 function laneShotIds(
   scope: Scope,
   platform: `ios` | `android`,
   lane: NativeCapture[`lane`]
 ): string[] {
   const ids = new Set<string>()
-  for (const served of servedBy(platform)) {
-    for (const view of viewsFor(served)) {
-      if (!scope.get(served)?.has(view.id)) continue
-      const capture = captureFor(view, served) as NativeCapture | undefined
-      if (capture?.lane === lane) ids.add(capture.shot)
-    }
+  for (const view of viewsFor(platform)) {
+    if (!scope.get(platform)?.has(view.id)) continue
+    const capture = captureFor(view, platform) as NativeCapture | undefined
+    if (capture?.lane === lane) ids.add(capture.shot)
   }
   return [...ids]
 }
@@ -736,9 +730,14 @@ function emptyTally(): PlatformTally {
 async function writeStore(
   options: Options,
   scope: Scope
-): Promise<{ tallies: Map<Platform, PlatformTally>; failures: string[] }> {
+): Promise<{
+  tallies: Map<Platform, PlatformTally>
+  failures: string[]
+  reports: ShotDiffReport[]
+}> {
   const tallies = new Map<Platform, PlatformTally>()
   const failures: string[] = []
+  const reports: ShotDiffReport[] = []
 
   for (const platform of options.platforms) {
     const tally = emptyTally()
@@ -759,6 +758,13 @@ async function writeStore(
         tally[result.state]++
         tally.bytesBefore += before
         tally.bytesAfter += result.bytes
+        reports.push({
+          viewId: view.id,
+          platform,
+          state: result.state,
+          changedRatio: result.changedRatio,
+          tolerance: toleranceFor(view.id),
+        })
       } catch (error) {
         tally.failed++
         failures.push(
@@ -767,7 +773,7 @@ async function writeStore(
       }
     }
   }
-  return { tallies, failures }
+  return { tallies, failures, reports }
 }
 
 function existingBytes(viewId: string, platform: Platform): number {
@@ -860,6 +866,9 @@ async function main(): Promise<number> {
     }
     for (const entry of dedupeBroad(affected.broad)) {
       console.log(`  widened by ${entry.path} → ${entry.platforms.join(`, `)} (${entry.why})`)
+    }
+    for (const drop of affected.contentIgnored) {
+      console.log(`  dropped by content: ${drop.path} — ${drop.why}`)
     }
     // Nothing survived the diff: the merge that triggered this run cannot have
     // moved a pixel. Say so and stop BEFORE preflight — the whole point of
@@ -968,7 +977,7 @@ async function main(): Promise<number> {
       }
 
       for (const platform of [`ios`, `android`] as const) {
-        if (laneViews(scope, ...servedBy(platform)).length === 0) continue
+        if (laneViews(scope, platform).length === 0) continue
         try {
           await captureFastlane(platform, outcomes, scope, isScoped(options, scope))
         } catch (error) {
@@ -997,9 +1006,16 @@ async function main(): Promise<number> {
     }
 
     console.log(`\n── store ─────────────────────────────────────────────`)
-    const { tallies, failures } = await writeStore(options, scope)
+    const { tallies, failures, reports } = await writeStore(options, scope)
     const index = await indexStore({ prune: options.prune, dryRun: options.dryRun })
     const delta = printTable(tallies)
+    const diffLines = formatDiffReport(reports)
+    if (diffLines.length > 0) {
+      // EXP-658: a kept shot that differed is a decision, not a no-op — show
+      // how close it came so a real change absorbed by the tolerance is seen.
+      console.log(`\ndiff-skip detail (fraction of pixels changed; kept = under tolerance):`)
+      for (const line of diffLines) console.log(line)
+    }
     console.log(
       `\nindex.json: ${index.entries} entr${index.entries === 1 ? `y` : `ies`}, ${index.changed ? `rewritten` : `unchanged`}` +
         (index.orphans.length > 0

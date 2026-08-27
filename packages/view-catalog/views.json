@@ -321,10 +321,6 @@
         "shot": "01_board",
         "lane": "store"
       },
-      "ipad": {
-        "shot": "01_board",
-        "lane": "store"
-      },
       "android": {
         "shot": "1_board",
         "lane": "store"
@@ -398,10 +394,6 @@
         "shot": "02_issue-detail",
         "lane": "store"
       },
-      "ipad": {
-        "shot": "02_issue-detail",
-        "lane": "store"
-      },
       "android": {
         "shot": "2_issue-detail",
         "lane": "store"
@@ -418,6 +410,7 @@
       "group": "issues",
       "title": "Issue comments",
       "blurb": "The same issue scrolled to its activity feed: threaded comments, mentions and the composer.",
+      "diffTolerance": 0.001,
       "order": 4,
       "web": {
         "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-5",
@@ -677,10 +670,6 @@
         "shot": "07_inbox",
         "lane": "store"
       },
-      "ipad": {
-        "shot": "07_inbox",
-        "lane": "store"
-      },
       "android": {
         "shot": "7_inbox",
         "lane": "store"
@@ -780,10 +769,6 @@
         "shot": "06_actions",
         "lane": "store"
       },
-      "ipad": {
-        "shot": "06_actions",
-        "lane": "store"
-      },
       "android": {
         "shot": "6_actions",
         "lane": "store"
@@ -810,10 +795,6 @@
       },
       "webMobile": "inherit",
       "ios": {
-        "shot": "03_start-coding",
-        "lane": "store"
-      },
-      "ipad": {
         "shot": "03_start-coding",
         "lane": "store"
       },
@@ -925,10 +906,6 @@
         "shot": "04_steering",
         "lane": "store"
       },
-      "ipad": {
-        "shot": "04_steering",
-        "lane": "store"
-      },
       "android": {
         "shot": "4_steering",
         "lane": "store"
@@ -1010,6 +987,34 @@
       }
     },
     {
+      "id": "recent-runs",
+      "group": "coding",
+      "title": "Recent runs",
+      "blurb": "The EXP-637 close-out: a run the agent ended itself, expanded to its outcome glyph, the summary it wrote and the Resume button.",
+      "order": 9,
+      "web": {
+        "route": "/t/$teamSlug/agents",
+        "anchor": {
+          "text": "Triaged 4 failing specs",
+          "timeoutMs": 30000
+        },
+        "recipe": "expandRecentRun",
+        "settleMs": 1200
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_recent-runs",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_recent-runs",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "desktop": "The desktop Actions screen has no Recent runs section — only the Automations tab's \"Recent automated runs\", which automations-list photographs."
+      }
+    },
+    {
       "id": "reviews",
       "group": "reviews",
       "title": "Reviews",
@@ -1056,10 +1061,6 @@
       },
       "webMobile": "inherit",
       "ios": {
-        "shot": "05_review",
-        "lane": "store"
-      },
-      "ipad": {
         "shot": "05_review",
         "lane": "store"
       },
@@ -1289,10 +1290,6 @@
       },
       "webMobile": "inherit",
       "ios": {
-        "shot": "08_support",
-        "lane": "store"
-      },
-      "ipad": {
         "shot": "08_support",
         "lane": "store"
       },

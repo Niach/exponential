@@ -12,8 +12,7 @@ out of git") — the writer only rewrites a file when the image visibly changed
 ## The one command
 
 ```bash
-bun run shots                       # capture DEFAULT_PLATFORMS (web, web-mobile, desktop, ios, android)
-bun run shots -- --platform ipad    # the OPT-IN tablet lane: the 8 store views only
+bun run shots                       # capture every platform (web, web-mobile, desktop, ios, android)
 bun run shots -- --platform web,web-mobile,desktop   # what the automation runs unattended
 bun run shots -- --views board,issue-detail          # subset of views
 bun run shots -- --since auto        # only the views the diff since the last refresh can have moved
@@ -50,8 +49,7 @@ native lanes match a Swift/Kotlin file's basename minus its role suffix
 (`IssueDetailView` → `issue-detail`) against view ids and shot names, then its
 DIRECTORY against a view family (`UI/Support` → the support views), and widen
 the whole platform for shared code (ExpCore/ExpUI, themes, icons, the fastlane
-lanes). `ipad` always moves with `ios`: one simulator lane produces both frames.
-A changed `views.json` entry and a view with no stored image yet are always in
+lanes). A changed `views.json` entry and a view with no stored image yet are always in
 scope.
 
 Ask without capturing anything:
@@ -126,7 +124,6 @@ which is also how you find a rule that needs teaching (`IGNORED`, `BROAD`).
 | web-mobile | same, `--form-factor web-mobile` (390×844@3x, mobile layout)         |
 | desktop    | `packages/shots/src/capture-desktop.ts` — launches the gpui app per view via the `EXP_DEV_*` overrides and `screencapture`s the window; views marked `manual` in the catalog are skipped (fill them with `--manual <view-id>` while the wanted state is on screen) |
 | ios        | `cd apps/ios && bundle exec fastlane screenshots && bundle exec fastlane styleguide_screenshots` |
-| ipad       | no lane of its own — the iOS `screenshots` lane runs on both simulators and writes `iPad…-<shot>.png` beside the iPhone files; the importer picks them apart by prefix |
 | android    | `cd apps/android && bundle exec fastlane screenshots && bundle exec fastlane styleguide_screenshots` |
 
 Both native lanes take a `shots:<id,id,…>` option (`bundle exec fastlane
@@ -195,6 +192,16 @@ the changed fraction is within the view's `diffTolerance` (default 0.005 —
 absorbs the seed's relative timestamps). `index.json` is re-derived from disk
 with sorted keys and no timestamps, so it only changes when an image does.
 
+The tolerance cannot tell a re-rendered "22 hr. ago" from a redesigned chip of
+the same size, so a small real change CAN land as `kept` (EXP-658: it did, on
+`issue-comments/ios`). Two guards: every kept shot that differed at all is
+listed after the summary table with its fraction against the tolerance
+(`0.0041 of 0.0050 (82%)  ← near miss` at 50% and above), and views whose
+subject is a small element carry a tighter per-view `diffTolerance` in
+`views.json` (`issue-comments` is 0.001, `search` 0.0005). Read that block in
+the run log before trusting a `kept`; `--force` rewrites a shot the tolerance
+swallowed.
+
 `SCREENSHOT_FREEZE_NOW` (epoch ms or an ISO timestamp) pins the seed's clock so
 absolute dates and ordering stop moving between runs. It is opt-in and `bun run
 shots` never sets it: it does nothing for the relative labels each CLIENT renders
@@ -243,7 +250,8 @@ out empty is never started, and a diff that moved nothing at all ends the run in
 seconds. All FIVE lanes are in play — web, web-mobile, desktop, ios and android
 — not just the browser ones: the native suites take `shots:<ids>` subsets, so an
 iOS-only PR costs the two or three simulator shots it actually moved instead of
-forty. `ipad` stays out; it is opt-in and only the store slides need it.
+forty. There is no tablet lane: the iPad frames the App Store wants come out of
+the iOS `screenshots` lane and go straight to the ASO compositor, never here.
 
 A lane whose DEVICE is not available is skipped, not failed: no booted emulator
 means no android lane, no Xcode means no ios lane, and the run still refreshes

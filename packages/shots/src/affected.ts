@@ -35,18 +35,27 @@
  *                     an unmatched ui module — widens to every desktop view. The
  *                     win that matters is a web-only PR skipping the desktop
  *                     lane entirely.
- *   ios / ipad /      BY NAME, like desktop. A Swift/Kotlin file's basename
- *   android           minus its role suffix (`IssueDetailView` → `issue-detail`)
+ *   ios / android     BY NAME, like desktop. A Swift/Kotlin file's basename
+ *                     minus its role suffix (`IssueDetailView` → `issue-detail`)
  *                     is matched against view ids and shot names, and its
  *                     DIRECTORY against a view family (`UI/Support` → the two
- *                     support views). `NATIVE_SHARED` lists what can never
- *                     narrow — ExpCore/ExpUI, themes, icons, the fastlane lanes
- *                     — and widens the platform. `ipad` rides `ios`: one lane
- *                     photographs both frames.
+ *                     support views). `NATIVE_FAMILIES` names the shared code
+ *                     whose pixels all land in one family (the markdown editor
+ *                     and renderer → the views that host a body), and
+ *                     `NATIVE_SHARED` what can never narrow — ExpCore/ExpUI,
+ *                     themes, icons, the fastlane lanes — and widens the
+ *                     platform.
  *
  * Two inputs are read directly rather than inferred: `views.json` is diffed
  * ENTRY BY ENTRY against the base revision (an added or edited view is in scope
- * on every platform), and a view with no stored image yet is always in scope.
+ * on every platform), and a view with no stored image yet is always in scope —
+ * unless its capture is `drive: manual`, which no automated run can satisfy
+ * (EXP-647), so listing it would only be noise on every run forever.
+ *
+ * Two more rules read diff CONTENT rather than paths (`contentDropsSince`): a
+ * release bump that only moves version literals (EXP-649) and a Rust file whose
+ * every changed line sits inside its trailing `#[cfg(test)] mod tests` block
+ * (EXP-654) draw nothing and are dropped before the path rules run.
  */
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
 import { dirname, join } from "node:path"
@@ -80,6 +89,16 @@ const IGNORED: RegExp[] = [
   // so no `.test.` infix reaches the generic rule above and this merge's
   // `crates/terminal/tests/headless.rs` widened all 48 desktop views.
   /^apps\/desktop\/crates\/[^/]+\/tests\//,
+  // Cargo example binaries (`crates/steer/examples/exp611_plan_approval.rs`):
+  // standalone targets, never linked into the app (EXP-664).
+  /^apps\/desktop\/crates\/[^/]+\/examples\//,
+  // Pure plumbing in the ui crate (EXP-645): `lib.rs` is the module list plus
+  // re-exports and the `init` that registers panels, `window_hooks.rs` holds
+  // the host callbacks the app installs (open a window, notify it opened).
+  // Neither draws. `crates/app/src/main.rs` is deliberately NOT here — it loads
+  // the embedded fonts and runs `theme::init`, so a change there can move every
+  // pixel, and it keeps widening the lane.
+  /^apps\/desktop\/crates\/ui\/src\/(lib|window_hooks)\.rs$/,
   // The CLI is gpui-free by construction; the styleguide site READS the store.
   /^apps\/desktop\/crates\/cli\//,
   // The scrubbed activity feed and the relay publisher. The desktop is the
@@ -105,6 +124,10 @@ const IGNORED: RegExp[] = [
   // the manifest too — and that still widens. A lockfile-only churn does not.
   /^apps\/desktop\/Cargo\.lock$/,
   /^apps\/(marketing|push-relay|steer-relay|styleguide)\//,
+  // Generated drizzle output: migration DDL and its meta snapshots (EXP-664).
+  // The schema change it comes from arrives separately via
+  // `packages/db-schema/src/schema.ts`, which stays a shared-package widen.
+  /^apps\/web\/src\/db\/out\//,
   // The capture pipeline itself, and packages no client renders.
   /^packages\/(shots|tsconfig|steer-ticket|electric-protocol|widget)\//,
   // Licence bookkeeping: the generated inventories, the curated overrides and
@@ -189,19 +212,31 @@ const BROAD: { test: RegExp; platforms: readonly Platform[]; why: string }[] = [
 ]
 
 /**
- * Desktop CRATES that narrow to a view family, in match order.
+ * The views that render a markdown body or host the editor — the blast radius
+ * of the markdown editor/renderer family on every client (EXP-657). A generous
+ * superset on purpose: `board`/`board-*`/`search` are in because issue rows
+ * strip markdown for their preview line through the same helpers, `steering`
+ * because the agent's question renders as markdown, and the support thread
+ * and action editor because the web renders GFM there even where the natives
+ * do not yet. Being too tight here silently commits a stale shot; being too
+ * wide costs a handful of extra captures.
+ */
+const MARKDOWN_VIEWS = /^(issue-|board$|board-|search$|steering$|support-thread$|action-editor$|action-create$)/
+
+/**
+ * Desktop PATHS that narrow to a view family, in match order.
  *
  * [`desktopMatches`] reads module names under `crates/ui/src` — the only crate
  * that names screens. Everything else in `apps/desktop/` falls through to
  * SOURCE_ROOTS and widens all 48 desktop views, which is why a 13-file rewrite
- * inside one crate re-shot the entire lane. These are the crates whose pixels
- * all land in the same small set of views.
+ * inside one crate re-shot the entire lane. These are the crates and modules
+ * whose pixels all land in the same small set of views.
  *
  * Generous supersets, like [`NATIVE_DIRS`]: over-capturing inside a family
  * costs one extra app launch, a family that is too tight silently commits a
  * stale shot.
  */
-const DESKTOP_CRATES: { test: RegExp; views: RegExp; why: string }[] = [
+const DESKTOP_FAMILIES: { test: RegExp; views: RegExp; why: string }[] = [
   {
     // The emulator, its gpui element, the PTY, keys/mouse/selection and the
     // tab plumbing: every pixel this crate draws is inside a terminal grid.
@@ -213,6 +248,38 @@ const DESKTOP_CRATES: { test: RegExp; views: RegExp; why: string }[] = [
     test: /^apps\/desktop\/crates\/terminal\//,
     views: /^(terminal|steering)$/,
     why: `the terminal grid`,
+  },
+  {
+    // The markdown parser/serializer, the WYSIWYG editor, its toolbar and
+    // image handling, and the vendored editor crate underneath them. Every
+    // pixel lands in a view that shows a description, a comment or a body —
+    // never in settings or the machines list (EXP-657: two consecutive PRs
+    // lived entirely in these directories and each re-shot all 48 views).
+    test: /^apps\/desktop\/crates\/(ui\/src\/(markdown|wysiwyg)\/|gpui-markdown-editor\/)/,
+    views: MARKDOWN_VIEWS,
+    why: `the markdown editor and renderer`,
+  },
+]
+
+/**
+ * Native shared code whose pixels all land in ONE view family, consulted before
+ * [`NATIVE_SHARED`] widens the platform. The name-based attribution cannot see
+ * these: `MarkdownEditor.swift` names no view, and the ExpUI editor model and
+ * ref/chip helpers sit directly in `ExpUI/Sources` with no `markdown` path
+ * segment for [`NATIVE_DIRS`] to catch.
+ */
+const NATIVE_FAMILIES: { test: RegExp; platforms: readonly Platform[]; views: RegExp; why: string }[] = [
+  {
+    test: /^apps\/ios\/(Exponential\/UI\/Markdown\/|ExpUI\/Sources\/(Markdown[A-Za-z]*|IssueRefs|IssueEditorModel|MentionRefs)\.swift$)/,
+    platforms: [`ios`],
+    views: MARKDOWN_VIEWS,
+    why: `the markdown editor and renderer`,
+  },
+  {
+    test: /^apps\/android\/app\/src\/main\/java\/com\/exponential\/app\/ui\/markdown\//,
+    platforms: [`android`],
+    views: MARKDOWN_VIEWS,
+    why: `the markdown editor and renderer`,
   },
 ]
 
@@ -226,12 +293,12 @@ const DESKTOP_CRATES: { test: RegExp; views: RegExp; why: string }[] = [
  */
 const NATIVE_SHARED: { test: RegExp; platforms: readonly Platform[]; why: string }[] = [
   {
-    test: /^apps\/ios\/(ExpCore|ExpUI|Tuist|Project\.swift|Exponential\/(Data|Notifications|Assets\.xcassets|Resources)\/|Exponential\/UI\/(Components|Markdown|Navigation)\/|ExponentialUITests\/|fastlane\/|scripts\/)/,
-    platforms: [`ios`, `ipad`],
+    test: /^apps\/ios\/(ExpCore|ExpUI|Tuist|Project\.swift|Exponential\/(Data|Notifications|Assets\.xcassets|Resources)\/|Exponential\/UI\/(Components|Navigation)\/|ExponentialUITests\/|fastlane\/|scripts\/)/,
+    platforms: [`ios`],
     why: `shared iOS code the whole app renders through`,
   },
   {
-    test: /^apps\/android\/(gradle|build\.gradle|settings\.gradle|fastlane\/|app\/src\/androidTest\/|app\/src\/main\/res\/|app\/src\/main\/java\/com\/exponential\/app\/(data|domain|navigation|App[A-Za-z]*\.kt|MainActivity\.kt)|app\/src\/main\/java\/com\/exponential\/app\/ui\/(components|theme|icons|emoji|markdown)\/)/,
+    test: /^apps\/android\/(gradle|build\.gradle|settings\.gradle|fastlane\/|app\/src\/androidTest\/|app\/src\/main\/res\/|app\/src\/main\/java\/com\/exponential\/app\/(data|domain|navigation|App[A-Za-z]*\.kt|MainActivity\.kt)|app\/src\/main\/java\/com\/exponential\/app\/ui\/(components|theme|icons|emoji)\/)/,
     platforms: [`android`],
     why: `shared Android code the whole app renders through`,
   },
@@ -241,10 +308,15 @@ const NATIVE_SHARED: { test: RegExp; platforms: readonly Platform[]; why: string
 const SOURCE_ROOTS: { test: RegExp; platforms: readonly Platform[] }[] = [
   { test: /^apps\/web\//, platforms: [`web`, `web-mobile`] },
   { test: /^apps\/desktop\//, platforms: [`desktop`] },
-  // One simulator lane produces both frames, so an unmapped iOS file moves both.
-  { test: /^apps\/ios\//, platforms: [`ios`, `ipad`] },
+  { test: /^apps\/ios\//, platforms: [`ios`] },
   { test: /^apps\/android\//, platforms: [`android`] },
 ]
+
+/** A changed path whose DIFF proved it draws nothing — see `contentDropsSince`. */
+export interface ContentDrop {
+  path: RepoPath
+  why: string
+}
 
 export interface AffectedScope {
   /** View ids per platform, in catalog order. An empty array = skip the lane. */
@@ -253,8 +325,10 @@ export interface AffectedScope {
   reasons: Map<string, string[]>
   /** Changed paths that widened to whole platforms. */
   broad: { path: RepoPath; platforms: Platform[]; why: string }[]
-  /** Changed paths the rules deliberately dropped. */
+  /** Changed paths the rules deliberately dropped (content drops included). */
   ignored: RepoPath[]
+  /** The subset of `ignored` that a content check dropped, with its reason. */
+  contentIgnored: ContentDrop[]
   /** Every changed path considered. */
   changed: RepoPath[]
 }
@@ -267,6 +341,11 @@ export interface AffectedOptions {
   catalogChanges?: string[]
   /** Also pull in views with no stored image yet. Default true. */
   includeMissing?: boolean
+  /**
+   * Paths a content-level check (`contentDropsSince`) proved draw nothing.
+   * They are reported as ignored instead of running through the path rules.
+   */
+  contentIgnored?: ContentDrop[]
 }
 
 /* ------------------------------------------------------------------- the map */
@@ -286,6 +365,8 @@ export function affectedScope(options: AffectedOptions): AffectedScope {
   const reasons = new Map<string, string[]>()
   const broad: AffectedScope[`broad`] = []
   const ignored: RepoPath[] = []
+  const contentIgnored: ContentDrop[] = []
+  const contentDrops = new Map((options.contentIgnored ?? []).map((drop) => [drop.path, drop]))
 
   const note = (viewId: string, why: string): void => {
     const list = reasons.get(viewId) ?? []
@@ -318,6 +399,12 @@ export function affectedScope(options: AffectedOptions): AffectedScope {
 
   for (const path of options.changedFiles) {
     if (path === CATALOG_FILE) continue // handled entry by entry above
+    const drop = contentDrops.get(path)
+    if (drop) {
+      ignored.push(path)
+      contentIgnored.push(drop)
+      continue
+    }
     if (IGNORED.some((rule) => rule.test(path))) {
       ignored.push(path)
       continue
@@ -369,26 +456,32 @@ export function affectedScope(options: AffectedOptions): AffectedScope {
     }
 
     if (!attributed && hits.has(`desktop`)) {
-      const crate = DESKTOP_CRATES.find((rule) => rule.test.test(path))
-      if (crate) {
+      const family = DESKTOP_FAMILIES.find((rule) => rule.test.test(path))
+      if (family) {
         for (const view of viewsFor(`desktop`)) {
-          if (crate.views.test(view.id)) add(view.id, `desktop`, `${path}: draws ${crate.why}`)
+          if (family.views.test(view.id)) add(view.id, `desktop`, `${path}: draws ${family.why}`)
         }
         attributed = true
       }
     }
 
     if (!attributed && /^apps\/(ios|android)\//.test(path)) {
+      const family = NATIVE_FAMILIES.find((rule) => rule.test.test(path))
+      if (family) {
+        for (const platform of family.platforms) {
+          if (!hits.has(platform)) continue
+          for (const view of viewsFor(platform)) {
+            if (family.views.test(view.id)) add(view.id, platform, `${path}: draws ${family.why}`)
+          }
+        }
+        continue
+      }
       const shared = NATIVE_SHARED.find((rule) => rule.test.test(path))
       if (shared) {
         widen(path, shared.platforms, shared.why)
         continue
       }
-      // `ipad` is not a lane of its own — whatever the iOS file names, it names
-      // on both frames, so the two are attributed together.
-      const natives: Platform[] = path.startsWith(`apps/ios/`)
-        ? [`ios`, `ipad`]
-        : [`android`]
+      const natives: Platform[] = path.startsWith(`apps/ios/`) ? [`ios`] : [`android`]
       for (const platform of natives) {
         if (!hits.has(platform)) continue
         const viewIds = nativeMatches(path, platform)
@@ -432,6 +525,7 @@ export function affectedScope(options: AffectedOptions): AffectedScope {
   if (includeMissing) {
     for (const platform of platforms) {
       for (const view of viewsFor(platform)) {
+        if (!automatable(view, platform)) continue
         if (existsSync(storeShotPath(view.id, platform))) continue
         add(view.id, platform, `no stored shot yet`)
       }
@@ -448,12 +542,31 @@ export function affectedScope(options: AffectedOptions): AffectedScope {
         .filter((id) => set.has(id))
     )
   }
-  return { byPlatform, reasons, broad, ignored, changed: [...options.changedFiles] }
+  return {
+    byPlatform,
+    reasons,
+    broad,
+    ignored,
+    contentIgnored,
+    changed: [...options.changedFiles],
+  }
 }
 
 /** Does the catalog claim a shot for this pair? */
 function captured(viewId: string, platform: Platform): boolean {
   return viewsFor(platform).some((view) => view.id === viewId)
+}
+
+/**
+ * Can an unattended run produce this pair at all? A `drive: manual` desktop
+ * view (the steering host terminal) is captured by hand with `--manual`, so
+ * the missing-image rule must not keep listing it (EXP-647): it would sit in
+ * every scope forever and cost the same "drop it" judgement on every run. A
+ * diff that names it still attributes to it — the log then says so.
+ */
+function automatable(view: View, platform: Platform): boolean {
+  if (platform === `desktop`) return view.desktop?.drive.kind !== `manual`
+  return true
 }
 
 function recipeOf(view: View): string | undefined {
@@ -573,7 +686,7 @@ export function nativeStem(path: RepoPath): string | undefined {
  */
 function nativeTokens(view: View): string[] {
   const tokens = new Set<string>([view.id])
-  for (const capture of [view.ios, view.ipad, view.android]) {
+  for (const capture of [view.ios, view.android]) {
     if (!capture) continue
     tokens.add(capture.shot.replace(/^(sg_|\d+_)/, ``))
   }
@@ -835,6 +948,142 @@ function routeMatches(pattern: string, route: string): boolean {
   return a.every((segment, index) => segment.startsWith(`$`) || segment === b[index])
 }
 
+/* ------------------------------------------------------------ diff content */
+
+/**
+ * The release-bump files and the ONLY lines a bump may move in them (EXP-649).
+ *
+ * Every release lands the same four files, and each one widened a whole native
+ * lane: `build.gradle.kts` carries dependency versions, `Project.swift` targets
+ * and resources, `Cargo.toml` gpui itself — so none of them can be IGNORED by
+ * path. They are diffed by CONTENT instead: when every changed line on both
+ * sides matches one of these patterns the path is dropped, otherwise it widens
+ * exactly as before. No catalog view photographs a version string (the only
+ * surface that renders one is iOS `AboutView`, which has no catalog entry).
+ * `Cargo.lock` is not here — EXP-652 ignores it outright, because every
+ * dependency the desktop draws through is pinned in the manifest.
+ */
+const VERSION_LITERALS: { path: RepoPath; lines: RegExp[] }[] = [
+  {
+    path: `apps/android/app/build.gradle.kts`,
+    lines: [/^\s*versionCode = \d+$/, /^\s*versionName = "[^"]*"$/],
+  },
+  {
+    path: `apps/ios/Project.swift`,
+    lines: [/^let appMarketingVersion = "[^"]*"$/, /^let appBuildVersion = "\d+"$/],
+  },
+  {
+    // The `[workspace.package]` line; every dependency in that manifest is
+    // written as `name = { version = … }` or `name = "…"`, never bare.
+    path: `apps/desktop/Cargo.toml`,
+    lines: [/^version = "[^"]*"$/],
+  },
+]
+
+/**
+ * Did `path` change ONLY in its version literals between `before` and `after`?
+ * A bump never adds or removes a line, so a line-count change is an instant no.
+ */
+export function versionOnlyChange(path: RepoPath, before: string, after: string): boolean {
+  const rule = VERSION_LITERALS.find((entry) => entry.path === path)
+  if (!rule) return false
+  const a = before.split(`\n`)
+  const b = after.split(`\n`)
+  if (a.length !== b.length) return false
+  let changed = 0
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] === b[i]) continue
+    changed++
+    const literal = rule.lines.some((line) => line.test(a[i]!) && line.test(b[i]!))
+    if (!literal) return false
+  }
+  return changed > 0
+}
+
+/** One `@@ -a,b +c,d @@` header of a unified diff. */
+export interface Hunk {
+  oldStart: number
+  oldCount: number
+  newStart: number
+  newCount: number
+}
+
+/** The hunk headers of a unified diff (`-U0` or otherwise). */
+export function parseUnifiedHunks(diff: string): Hunk[] {
+  const hunks: Hunk[] = []
+  for (const match of diff.matchAll(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm)) {
+    hunks.push({
+      oldStart: Number(match[1]),
+      oldCount: match[2] === undefined ? 1 : Number(match[2]),
+      newStart: Number(match[3]),
+      newCount: match[4] === undefined ? 1 : Number(match[4]),
+    })
+  }
+  return hunks
+}
+
+const CFG_TEST_RE = /^\s*#\[cfg\(test\)\]\s*$/
+const MOD_OPEN_RE = /^\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+\w+\s*\{/
+const ATTRIBUTE_RE = /^\s*#\[/
+
+/**
+ * The 1-based line where a Rust file's trailing `#[cfg(test)] mod tests { … }`
+ * begins, or `undefined` when the file has no such tail or the shape is at all
+ * ambiguous (EXP-654).
+ *
+ * Conservative by construction: the LAST `#[cfg(test)]` must be followed (past
+ * blank lines and further attributes) by a `mod … {` line, and a brace count
+ * from that line — string and char literals and `//` comments stripped — must
+ * reach zero exactly on the file's last non-blank line, so the module really is
+ * the tail and nothing that renders sits after it. Anything else keeps the path.
+ */
+export function inlineTestRegion(source: string): number | undefined {
+  const lines = source.split(`\n`)
+  let marker = -1
+  for (let i = 0; i < lines.length; i++) {
+    if (CFG_TEST_RE.test(lines[i]!)) marker = i
+  }
+  if (marker === -1) return undefined
+  let open = marker + 1
+  while (open < lines.length && (lines[open]!.trim() === `` || ATTRIBUTE_RE.test(lines[open]!))) {
+    open++
+  }
+  if (open >= lines.length || !MOD_OPEN_RE.test(lines[open]!)) return undefined
+  let last = lines.length - 1
+  while (last >= 0 && lines[last]!.trim() === ``) last--
+  let depth = 0
+  for (let i = open; i <= last; i++) {
+    const code = lines[i]!
+      .replace(/"(?:\\.|[^"\\])*"/g, `""`)
+      .replace(/'(?:\\.|[^'\\])'/g, `''`)
+      .replace(/\/\/.*$/, ``)
+    for (const char of code) {
+      if (char === `{`) depth++
+      else if (char === `}`) depth--
+    }
+    if (depth === 0 && i < last) return undefined // the module closed early
+    if (depth < 0) return undefined
+  }
+  if (depth !== 0) return undefined
+  return marker + 1
+}
+
+/**
+ * Does every hunk fall inside the inline test module on the side it touches?
+ * The marker line itself counts as inside — editing the attribute is still a
+ * test-only change. A side with changed lines but no region keeps the path.
+ */
+export function rustInlineTestOnly(before: string, after: string, hunks: Hunk[]): boolean {
+  if (hunks.length === 0) return false
+  const oldRegion = inlineTestRegion(before)
+  const newRegion = inlineTestRegion(after)
+  for (const hunk of hunks) {
+    if (hunk.newCount > 0 && (newRegion === undefined || hunk.newStart < newRegion)) return false
+    if (hunk.oldCount > 0 && (oldRegion === undefined || hunk.oldStart < oldRegion)) return false
+  }
+  return true
+}
+
 /* ---------------------------------------------------------------------- git */
 
 /** The last commit that touched the store — the automation's natural baseline. */
@@ -893,6 +1142,61 @@ export async function catalogChangesSince(ref: string): Promise<string[]> {
     .map((view) => view.id)
 }
 
+/** `git show ref:path`, or undefined when the base revision has no such file. */
+async function blobAt(ref: string, path: RepoPath): Promise<string | undefined> {
+  const result = await run({
+    cmd: [`git`, `show`, `${ref}:${path}`],
+    cwd: repoRoot(),
+    timeoutMs: 60_000,
+  })
+  return result.code === 0 ? result.stdout : undefined
+}
+
+/** The working-tree text, or undefined when the path was deleted. */
+function workingText(path: RepoPath): string | undefined {
+  try {
+    return readFileSync(join(repoRoot(), path), `utf8`)
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * The paths among `changedFiles` whose diff since `ref` proves they draw
+ * nothing: a version-only release bump (EXP-649) or a Rust file changed only
+ * inside its trailing `#[cfg(test)]` module (EXP-654). Every check fails
+ * CLOSED — a missing base blob, a deleted file, an odd shape — because the
+ * fallback for anything unexplained is the widen, never the drop.
+ */
+export async function contentDropsSince(
+  ref: string,
+  changedFiles: RepoPath[]
+): Promise<ContentDrop[]> {
+  const drops: ContentDrop[] = []
+  for (const path of changedFiles) {
+    if (IGNORED.some((rule) => rule.test(path))) continue // already dropped by path
+    const versioned = VERSION_LITERALS.some((entry) => entry.path === path)
+    const rust = /^apps\/desktop\/.*\.rs$/.test(path)
+    if (!versioned && !rust) continue
+    const [before, after] = [await blobAt(ref, path), workingText(path)]
+    if (before === undefined || after === undefined) continue
+    if (versioned) {
+      if (versionOnlyChange(path, before, after)) drops.push({ path, why: `version-only bump` })
+      continue
+    }
+    const diff = await run({
+      cmd: [`git`, `diff`, `-U0`, `--no-renames`, ref, `--`, path],
+      cwd: repoRoot(),
+      timeoutMs: 60_000,
+    })
+    if (diff.code !== 0) continue
+    if (rustInlineTestOnly(before, after, parseUnifiedHunks(diff.stdout))) {
+      drops.push({ path, why: `only its inline #[cfg(test)] module changed` })
+    }
+  }
+  return drops
+}
+
 /** Everything the CLI does, so `capture-all` can reuse it in-process. */
 export async function scopeSince(
   ref: string,
@@ -902,7 +1206,8 @@ export async function scopeSince(
     changedSince(ref),
     catalogChangesSince(ref),
   ])
-  return affectedScope({ changedFiles, platforms, catalogChanges })
+  const contentIgnored = await contentDropsSince(ref, changedFiles)
+  return affectedScope({ changedFiles, platforms, catalogChanges, contentIgnored })
 }
 
 /* ---------------------------------------------------------------------- main */
@@ -941,6 +1246,7 @@ async function main(): Promise<number> {
             platforms: entry.platforms,
             why: entry.why,
           })),
+          contentIgnored: scope.contentIgnored,
         },
         undefined,
         2
@@ -964,6 +1270,10 @@ async function main(): Promise<number> {
     for (const entry of widened) {
       console.log(`  ${entry.path} → ${entry.platforms.join(`, `)} (${entry.why})`)
     }
+  }
+  if (scope.contentIgnored.length > 0) {
+    console.log(`\ndropped by content:`)
+    for (const drop of scope.contentIgnored) console.log(`  ${drop.path} — ${drop.why}`)
   }
   return 0
 }

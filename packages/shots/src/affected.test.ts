@@ -8,8 +8,14 @@
  * pinning a view count that any product change would move.
  */
 import { describe, expect, test } from "bun:test"
-import { PLATFORMS, viewsFor } from "@exp/view-catalog"
-import { affectedScope } from "./affected.ts"
+import { PLATFORMS, viewById, viewsFor } from "@exp/view-catalog"
+import {
+  affectedScope,
+  inlineTestRegion,
+  parseUnifiedHunks,
+  rustInlineTestOnly,
+  versionOnlyChange,
+} from "./affected.ts"
 
 const WEB_LANES = [`web`, `web-mobile`, `desktop`] as const
 
@@ -125,6 +131,36 @@ describe(`desktop attribution`, () => {
     expect(views(result, `desktop`)).toHaveLength(viewsFor(`desktop`).length)
   })
 
+  test(`the markdown modules narrow to the views that show a body`, () => {
+    // EXP-657: `markdown/editor.rs` names no view, so it fell through to the
+    // whole-lane widen for a diff that can only move a description or comment.
+    const result = scope(
+      `apps/desktop/crates/ui/src/markdown/editor.rs`,
+      `apps/desktop/crates/ui/src/wysiwyg/toolbar.rs`,
+      `apps/desktop/crates/gpui-markdown-editor/src/lib.rs`
+    )
+    expect(result.broad).toEqual([])
+    expect(views(result, `desktop`)).toContain(`issue-detail`)
+    expect(views(result, `desktop`)).toContain(`issue-create`)
+    expect(views(result, `desktop`)).not.toContain(`settings-general`)
+    expect(views(result, `web`)).toEqual([])
+  })
+
+  test(`ui-crate plumbing draws nothing; the app entry point still widens`, () => {
+    // EXP-645: `lib.rs` is the module list, `window_hooks.rs` the host
+    // callbacks — both widened all 48 views for a `mod` line. `main.rs` loads
+    // fonts and runs theme::init, so it keeps widening on purpose.
+    const plumbing = scope(
+      `apps/desktop/crates/ui/src/lib.rs`,
+      `apps/desktop/crates/ui/src/window_hooks.rs`
+    )
+    expect(views(plumbing, `desktop`)).toEqual([])
+    expect(plumbing.ignored).toHaveLength(2)
+
+    const entry = scope(`apps/desktop/crates/app/src/main.rs`)
+    expect(views(entry, `desktop`)).toHaveLength(viewsFor(`desktop`).length)
+  })
+
   test(`a bare directory segment never becomes a family prefix`, () => {
     // Otherwise `settings/account.rs` would claim all thirteen settings views.
     const result = scope(`apps/desktop/crates/ui/src/settings/account.rs`)
@@ -133,7 +169,7 @@ describe(`desktop attribution`, () => {
 })
 
 describe(`native attribution`, () => {
-  const NATIVE = [`ios`, `ipad`, `android`] as const
+  const NATIVE = [`ios`, `android`] as const
 
   function nativeScope(...changedFiles: string[]) {
     return affectedScope({ changedFiles, platforms: NATIVE, includeMissing: false })
@@ -149,8 +185,6 @@ describe(`native attribution`, () => {
   test(`a screen file narrows to the view it is named after`, () => {
     const result = nativeScope(`apps/ios/Exponential/UI/Issue/IssueDetailView.swift`)
     expect(nativeViews(result, `ios`)).toEqual([`issue-detail`])
-    // The iPad frame comes out of the SAME lane, so it moves with it.
-    expect(nativeViews(result, `ipad`)).toEqual([`issue-detail`])
     expect(nativeViews(result, `android`)).toEqual([])
   })
 
@@ -183,7 +217,6 @@ describe(`native attribution`, () => {
     ]) {
       const result = nativeScope(path)
       expect(nativeViews(result, `ios`)).toHaveLength(viewsFor(`ios`).length)
-      expect(nativeViews(result, `ipad`)).toHaveLength(viewsFor(`ipad`).length)
       expect(nativeViews(result, `android`)).toEqual([])
     }
     for (const path of [
@@ -195,6 +228,41 @@ describe(`native attribution`, () => {
       expect(nativeViews(result, `android`)).toHaveLength(viewsFor(`android`).length)
       expect(nativeViews(result, `ios`)).toEqual([])
     }
+  })
+
+  test(`the markdown family narrows to the views that show a body`, () => {
+    // EXP-657: EXP-653 and EXP-655 both lived entirely in the editor/renderer
+    // files and each widened every native lane to 100%. Their pixels land in
+    // the views that render a description, a comment or a body — not in the
+    // settings screens.
+    const ios = nativeScope(
+      `apps/ios/Exponential/UI/Markdown/MarkdownEditor.swift`,
+      `apps/ios/ExpUI/Sources/IssueEditorModel.swift`,
+      `apps/ios/ExpUI/Sources/MarkdownChips.swift`,
+      `apps/ios/ExpUI/Sources/IssueRefs.swift`
+    )
+    expect(ios.broad).toEqual([])
+    expect(nativeViews(ios, `ios`)).toContain(`issue-detail`)
+    expect(nativeViews(ios, `ios`)).toContain(`issue-create`)
+    expect(nativeViews(ios, `ios`)).not.toContain(`settings-root`)
+    expect(nativeViews(ios, `android`)).toEqual([])
+
+    const android = nativeScope(
+      `apps/android/app/src/main/java/com/exponential/app/ui/markdown/IssueRefChips.kt`,
+      `apps/android/app/src/main/java/com/exponential/app/ui/markdown/MarkdownView.kt`
+    )
+    expect(android.broad).toEqual([])
+    expect(nativeViews(android, `android`)).toContain(`issue-detail`)
+    expect(nativeViews(android, `android`)).not.toContain(`settings-root`)
+    expect(nativeViews(android, `ios`)).toEqual([])
+
+    // The family rule is exact about its files: the rest of ExpUI and the
+    // shared components still widen.
+    const shared = nativeScope(
+      `apps/ios/ExpUI/Sources/GlassSheet.swift`,
+      `apps/ios/Exponential/UI/Components/AppIcon.swift`
+    )
+    expect(nativeViews(shared, `ios`)).toHaveLength(viewsFor(`ios`).length)
   })
 
   test(`an unmapped native file still widens — never silently drops`, () => {
@@ -362,6 +430,26 @@ describe(`fail-safe`, () => {
     expect(result.ignored).toHaveLength(7)
   })
 
+  test(`generated migrations and cargo examples are dropped, not widened`, () => {
+    // EXP-664: drizzle output widened both web lanes for migration DDL, and
+    // the steer crate's example binaries widened the desktop lane for targets
+    // the app never links.
+    const result = affectedScope({
+      changedFiles: [
+        `apps/web/src/db/out/0087_fantastic_morbius.sql`,
+        `apps/web/src/db/out/meta/0087_snapshot.json`,
+        `apps/web/src/db/out/meta/_journal.json`,
+        `apps/desktop/crates/steer/examples/exp611_plan_approval.rs`,
+        `apps/desktop/crates/coding/tests/dry_run.rs`,
+      ],
+      platforms: PLATFORMS,
+      includeMissing: false,
+    })
+    for (const platform of PLATFORMS) expect(result.byPlatform.get(platform)).toEqual([])
+    expect(result.broad).toEqual([])
+    expect(result.ignored).toHaveLength(5)
+  })
+
   test(`the steer crate keeps widening where it can be seen`, () => {
     // Only the three feed/publisher files are dropped. `lib.rs` owns
     // `persistent_device_id`, which decides which synced `devices` row the
@@ -425,6 +513,22 @@ describe(`fail-safe`, () => {
     }
   })
 
+  test(`a manual-drive view is never pulled in by the missing-image rule`, () => {
+    // EXP-647: `steering` on the desktop is `drive: manual` (the app IS the
+    // session host; there is no dock to open), so no automated run can ever
+    // store it — and it was listed on every refresh, forever.
+    expect(viewById(`steering`)?.desktop?.drive.kind).toBe(`manual`)
+    const result = affectedScope({ changedFiles: [], platforms: [`desktop`] })
+    expect(result.byPlatform.get(`desktop`)).not.toContain(`steering`)
+    // A diff that names it still attributes to it — only the missing rule skips.
+    const named = affectedScope({
+      changedFiles: [`apps/desktop/crates/terminal/src/element.rs`],
+      platforms: [`desktop`],
+      includeMissing: false,
+    })
+    expect(named.byPlatform.get(`desktop`)).toContain(`steering`)
+  })
+
   test(`a view with no stored shot is always in scope`, () => {
     const withMissing = affectedScope({ changedFiles: [], platforms: [`ios`] })
     const withoutMissing = affectedScope({
@@ -435,5 +539,120 @@ describe(`fail-safe`, () => {
     expect(withoutMissing.byPlatform.get(`ios`)).toEqual([])
     // Whatever the store currently holds, "missing" can only ever ADD.
     expect((withMissing.byPlatform.get(`ios`) ?? []).length).toBeGreaterThanOrEqual(0)
+  })
+})
+
+describe(`content drops`, () => {
+  test(`a path a content check dropped is reported as ignored, not widened`, () => {
+    const result = affectedScope({
+      changedFiles: [`apps/ios/Project.swift`, `apps/desktop/crates/ui/src/sidebar.rs`],
+      platforms: PLATFORMS,
+      includeMissing: false,
+      contentIgnored: [{ path: `apps/ios/Project.swift`, why: `version-only bump` }],
+    })
+    expect(result.ignored).toEqual([`apps/ios/Project.swift`])
+    expect(result.contentIgnored).toEqual([{ path: `apps/ios/Project.swift`, why: `version-only bump` }])
+    expect(result.byPlatform.get(`ios`)).toEqual([])
+    // The other path still takes the normal route.
+    expect(result.byPlatform.get(`desktop`)).toHaveLength(viewsFor(`desktop`).length)
+  })
+
+  describe(`version-only bumps (EXP-649)`, () => {
+    const gradle = (code: number, name: string, extra = `implementation("a:b:1.0")`) =>
+      [`android {`, `    defaultConfig {`, `        versionCode = ${code}`, `        versionName = "${name}"`, `    }`, `    ${extra}`, `}`, ``].join(`\n`)
+
+    test(`a gradle bump that moves only the version lines is dropped`, () => {
+      expect(
+        versionOnlyChange(`apps/android/app/build.gradle.kts`, gradle(101, `0.14.18`), gradle(102, `0.14.19`))
+      ).toBe(true)
+    })
+
+    test(`a gradle bump next to a dependency change is kept`, () => {
+      expect(
+        versionOnlyChange(
+          `apps/android/app/build.gradle.kts`,
+          gradle(101, `0.14.18`),
+          gradle(102, `0.14.19`, `implementation("a:b:2.0")`)
+        )
+      ).toBe(false)
+    })
+
+    test(`Project.swift and Cargo.toml bumps are dropped`, () => {
+      const swift = (marketing: string, build: string) =>
+        `import ProjectDescription\nlet appMarketingVersion = "${marketing}"\nlet appBuildVersion = "${build}"\nlet project = Project(name: "Exponential")\n`
+      expect(versionOnlyChange(`apps/ios/Project.swift`, swift(`0.14.15`, `110`), swift(`0.14.16`, `112`))).toBe(true)
+      const cargo = (v: string) => `[workspace]\nmembers = ["crates/*"]\n\n[workspace.package]\nedition = "2021"\nversion = "${v}"\n\n[workspace.dependencies]\ngpui = { git = "https://github.com/zed-industries/zed", rev = "abc" }\n`
+      expect(versionOnlyChange(`apps/desktop/Cargo.toml`, cargo(`0.14.23`), cargo(`0.14.24`))).toBe(true)
+    })
+
+    test(`a line-count change, an unchanged file and an unknown path are never version-only`, () => {
+      const swift = `let appMarketingVersion = "0.14.15"\nlet appBuildVersion = "110"\n`
+      expect(versionOnlyChange(`apps/ios/Project.swift`, swift, `${swift}let extra = 1\n`)).toBe(false)
+      expect(versionOnlyChange(`apps/ios/Project.swift`, swift, swift)).toBe(false)
+      expect(versionOnlyChange(`apps/desktop/Cargo.lock`, `version = "1"`, `version = "2"`)).toBe(false)
+    })
+  })
+
+  describe(`Rust inline tests (EXP-654)`, () => {
+    const PROD = [`use gpui::App;`, ``, `pub fn render() -> u32 {`, `    1`, `}`, ``].join(`\n`)
+    const TESTS = (body: string) =>
+      [`#[cfg(test)]`, `mod tests {`, `    use super::*;`, ``, `    #[test]`, `    fn renders() {`, `        ${body}`, `    }`, `}`, ``].join(`\n`)
+    const FILE = (body = `assert_eq!(render(), 1);`) => `${PROD}${TESTS(body)}`
+
+    test(`the region starts at the last cfg(test) that opens the trailing module`, () => {
+      // 5 production lines, so the marker is line 6.
+      expect(inlineTestRegion(FILE())).toBe(6)
+      // A `#[cfg(test)] use` at the top does not move it.
+      expect(inlineTestRegion(`#[cfg(test)]\nuse std::fmt;\n${FILE()}`)).toBe(8)
+      // Braces inside strings and comments do not break the count.
+      expect(inlineTestRegion(FILE(`assert_eq!(format!("{{"), "{"); // }`))).toBe(6)
+    })
+
+    test(`no marker, an external tests module, or code after the module is ambiguous`, () => {
+      expect(inlineTestRegion(PROD)).toBeUndefined()
+      expect(inlineTestRegion(`${PROD}#[cfg(test)]\nmod tests;\n`)).toBeUndefined()
+      expect(inlineTestRegion(`${FILE()}\npub fn later() {}\n`)).toBeUndefined()
+    })
+
+    test(`hunk headers parse with and without counts`, () => {
+      expect(parseUnifiedHunks(`@@ -12 +12 @@\n-a\n+b\n@@ -20,0 +21,3 @@\n+x\n@@ -30,2 +33,0 @@\n-y\n-z\n`)).toEqual([
+        { oldStart: 12, oldCount: 1, newStart: 12, newCount: 1 },
+        { oldStart: 20, oldCount: 0, newStart: 21, newCount: 3 },
+        { oldStart: 30, oldCount: 2, newStart: 33, newCount: 0 },
+      ])
+    })
+
+    test(`an edit confined to the inline test module is dropped`, () => {
+      const before = FILE(`assert_eq!(render(), 1);`)
+      const after = FILE(`assert_eq!(render(), 2);`)
+      // Line 12 is the assertion on both sides.
+      expect(rustInlineTestOnly(before, after, [{ oldStart: 12, oldCount: 1, newStart: 12, newCount: 1 }])).toBe(true)
+    })
+
+    test(`a mixed diff — production and test lines — is kept`, () => {
+      const hunks = [
+        { oldStart: 4, oldCount: 1, newStart: 4, newCount: 1 },
+        { oldStart: 12, oldCount: 1, newStart: 12, newCount: 1 },
+      ]
+      expect(rustInlineTestOnly(FILE(), FILE(`assert!(true);`), hunks)).toBe(false)
+    })
+
+    test(`a file with no marker is kept; a newly added trailing module is test-only`, () => {
+      expect(rustInlineTestOnly(PROD, PROD, [{ oldStart: 4, oldCount: 1, newStart: 4, newCount: 1 }])).toBe(false)
+      expect(rustInlineTestOnly(PROD, FILE(), [{ oldStart: 5, oldCount: 0, newStart: 6, newCount: 9 }])).toBe(true)
+      expect(rustInlineTestOnly(PROD, PROD, [])).toBe(false)
+    })
+
+    test(`a deletion-only hunk inside the old file's test module is dropped`, () => {
+      const before = FILE()
+      const after = `${PROD}${[`#[cfg(test)]`, `mod tests {`, `    use super::*;`, `}`, ``].join(`\n`)}`
+      // Lines 9-13 of the old file (the blank, the attribute and the fn) go.
+      expect(rustInlineTestOnly(before, after, [{ oldStart: 9, oldCount: 5, newStart: 8, newCount: 0 }])).toBe(true)
+    })
+
+    test(`an insertion just above the marker is production code`, () => {
+      const after = `${PROD}pub fn later() {}\n${TESTS(`assert_eq!(render(), 1);`)}`
+      expect(rustInlineTestOnly(FILE(), after, [{ oldStart: 5, oldCount: 0, newStart: 6, newCount: 1 }])).toBe(false)
+    })
   })
 })

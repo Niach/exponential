@@ -16,7 +16,6 @@ import type { Dirent } from "node:fs"
 import path from "node:path"
 
 import {
-  DEFAULT_PLATFORMS,
   GROUPS,
   PLATFORMS,
   PLATFORM_FRAME,
@@ -64,8 +63,7 @@ export interface GalleryData {
   /**
    * `manual` is broken out of `missing` because the two mean opposite things to
    * a reviewer: `missing` is work the pipeline still owes, `manual` is work only
-   * a human can do (`--manual <view-id>` over a live session). `na` counts only
-   * `DEFAULT_PLATFORMS`, so the opt-in iPad lane does not read as forty gaps.
+   * a human can do (`--manual <view-id>` over a live session).
    */
   counts: { ok: number; missing: number; manual: number; na: number }
 }
@@ -232,7 +230,7 @@ export function readGallery(dir = storeDir()): GalleryData {
       if (shot.state === `ok`) counts.ok += 1
       else if (shot.state === `missing`) counts.missing += 1
       else if (shot.state === `manual`) counts.manual += 1
-      else if (DEFAULT_PLATFORMS.includes(shot.platform)) counts.na += 1
+      else counts.na += 1
     }
   }
 

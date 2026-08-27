@@ -99,13 +99,6 @@
         "bytes": 37684,
         "sha256": "29a29d44433a0dace113c9b6e7afad8c1636abf8e27028a7ec281933f7a4b7d9"
       },
-      "ipad": {
-        "file": "shots/actions-mobile/ipad.webp",
-        "width": 1350,
-        "height": 1800,
-        "bytes": 28480,
-        "sha256": "d2e6d7806e2c91b8739090007c97fba0d9602a741a58f3823530041433efb4b6"
-      },
       "web-mobile": {
         "file": "shots/actions-mobile/web-mobile.webp",
         "width": 832,
@@ -255,13 +248,6 @@
         "height": 1800,
         "bytes": 58068,
         "sha256": "a4743735c4964e8afd87ca34a1d146e8b49feb28ee36fe95c0006009d94a80f2"
-      },
-      "ipad": {
-        "file": "shots/board/ipad.webp",
-        "width": 1350,
-        "height": 1800,
-        "bytes": 71394,
-        "sha256": "b7d112f6e88e026b4deeac9a5c747d73499d4c3a605021b22c5ad72c3c1fcdb5"
       },
       "web": {
         "file": "shots/board/web.webp",
@@ -459,13 +445,6 @@
         "bytes": 36266,
         "sha256": "20677a9272ecbc41f17238e063cea09024b35580c8c732ef3392b6375ff075dd"
       },
-      "ipad": {
-        "file": "shots/inbox/ipad.webp",
-        "width": 1350,
-        "height": 1800,
-        "bytes": 30786,
-        "sha256": "787a28c9e349a76ae26cd022d053059e9199d47bc2a74c6945fc6f0d315466f6"
-      },
       "web": {
         "file": "shots/inbox/web.webp",
         "width": 1800,
@@ -599,13 +578,6 @@
         "height": 1800,
         "bytes": 79392,
         "sha256": "3dca36761b360d06904a8a86e04f91f8dd45574cc0e2b8a07d3b071992f18f34"
-      },
-      "ipad": {
-        "file": "shots/issue-detail/ipad.webp",
-        "width": 1350,
-        "height": 1800,
-        "bytes": 83770,
-        "sha256": "483f9a582348bdaa774b21a8eaa0efac71197714ed7455af3457ded6c6053ac8"
       },
       "web": {
         "file": "shots/issue-detail/web.webp",
@@ -823,13 +795,6 @@
         "height": 1800,
         "bytes": 95828,
         "sha256": "ec0b428a8620d48395af9baf5da10838e247c5b5f49077649dac79a67d494e62"
-      },
-      "ipad": {
-        "file": "shots/review-diff/ipad.webp",
-        "width": 1350,
-        "height": 1800,
-        "bytes": 108662,
-        "sha256": "9e911ede549bb05bf4d93b0259ba64376744e08d32adb91f4668f35ba3c6f4c1"
       },
       "web": {
         "file": "shots/review-diff/web.webp",
@@ -1318,13 +1283,6 @@
         "bytes": 50720,
         "sha256": "bfa996c14fd88232e360b7cd1d82508e4e5dd02d03fbb32769ce2c7894a3ff47"
       },
-      "ipad": {
-        "file": "shots/start-coding/ipad.webp",
-        "width": 1350,
-        "height": 1800,
-        "bytes": 48862,
-        "sha256": "c22c0ea40c07617d2132c0b2f8fc69de24a42645fe14bf93b9b1963ba8d3728f"
-      },
       "web": {
         "file": "shots/start-coding/web.webp",
         "width": 1800,
@@ -1429,13 +1387,6 @@
         "bytes": 100166,
         "sha256": "a83da76b1a534cc26dd102468e92938c51abcc01a76a62b1ed9c4b32a2d7c9ad"
       },
-      "ipad": {
-        "file": "shots/steering/ipad.webp",
-        "width": 1350,
-        "height": 1800,
-        "bytes": 104998,
-        "sha256": "d1851b79eba956202aeb5456e16cfb0eec0558dbd77222f949220b925408bdb1"
-      },
       "web": {
         "file": "shots/steering/web.webp",
         "width": 1800,
@@ -1472,13 +1423,6 @@
         "height": 1800,
         "bytes": 46086,
         "sha256": "382ee0af1b4d48b5ee3529303a630dbde1a5c599938e256d6061af754320c8fa"
-      },
-      "ipad": {
-        "file": "shots/support-inbox/ipad.webp",
-        "width": 1350,
-        "height": 1800,
-        "bytes": 39678,
-        "sha256": "3e338f1f7d4e6df764b98e008f842deecadfd1d609c032696ab1b404face1939"
       },
       "web": {
         "file": "shots/support-inbox/web.webp",
