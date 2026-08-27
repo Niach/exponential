@@ -28,9 +28,11 @@
  *   desktop           COARSE. Rust has no import graph here, so a file under
  *                     `crates/ui/src` is matched by NAME against each view's id
  *                     and drive value (`issue_detail.rs` → `issue-detail`,
- *                     `settings/general.rs` → `settings-general`). Everything
- *                     else under `apps/desktop` — shell, theme, sync, an
- *                     unmatched ui module — widens to every desktop view. The
+ *                     `settings/general.rs` → `settings-general`), and its
+ *                     wrapper-stripped path as a family prefix
+ *                     (`start_coding_dialog.rs` → the three start-coding tabs).
+ *                     Everything else under `apps/desktop` — shell, theme, sync,
+ *                     an unmatched ui module — widens to every desktop view. The
  *                     win that matters is a web-only PR skipping the desktop
  *                     lane entirely.
  *   ios / ipad /      BY NAME, like desktop. A Swift/Kotlin file's basename
@@ -67,11 +69,26 @@ const IGNORED: RegExp[] = [
   /^apps\/web\/(tests|e2e)\//,
   /^apps\/web\/src\/test\//,
   /(^|\/)__tests__\//,
+  // Native unit tests. They carry no `.test.` infix — the convention is a
+  // `Tests` suffix (`SteerReconnectPolicyTests.swift`) or a test source set
+  // (`app/src/test/`) — so the rule above misses them and an ExpCore test file
+  // widened both iOS lanes. A test renders nothing, on any platform.
+  /(^|\/)[A-Za-z0-9_]+Tests?\.(swift|kt)$/,
+  /^apps\/android\/app\/src\/test\//,
+  /^apps\/ios\/[^/]+\/Tests\//,
   // The CLI is gpui-free by construction; the styleguide site READS the store.
   /^apps\/desktop\/crates\/cli\//,
   /^apps\/(marketing|push-relay|steer-relay|styleguide)\//,
   // The capture pipeline itself, and packages no client renders.
   /^packages\/(shots|tsconfig|steer-ticket|electric-protocol|widget)\//,
+  // Licence bookkeeping: the generated inventories, the curated overrides and
+  // the notice texts. NO catalog view photographs a licence surface — `/about`
+  // is an excludedRoute, `NOTICES.txt` is ignored above, and the desktop's
+  // settings/about.rs has no view either. Without this rule an Android
+  // dependency bump rewrites `inventory/android.json`, which matches no
+  // SOURCE_ROOT and therefore widened EVERY lane on EVERY platform — the single
+  // biggest source of pointless captures the automation ever hit.
+  /^packages\/licenses\//,
   /^packages\/view-catalog\/(src|package\.json|tsconfig\.json)/,
   /^(docs|selfhost|shots)\//,
   /^\.github\//,
@@ -393,15 +410,40 @@ function desktopTokens(view: View): string[] {
   return [...tokens]
 }
 
+/**
+ * WRAPPER suffixes a desktop module carries on top of the thing it draws —
+ * `notifications_prefs` is the notifications pane, `start_coding_dialog` is the
+ * start-coding surface. Stripping one yields the view family the file belongs to.
+ *
+ * `_list`, `_row`, `_card` and `_view` are deliberately NOT here: they name
+ * distinct components reused across screens, not wrappers. `issue_list.rs` is
+ * pulled in by `board.rs`, `search_sheet.rs` and `sidebar.rs`, so narrowing it
+ * to the issue views would silently commit a stale board shot — exactly the
+ * asymmetry this module refuses to trade away.
+ */
+const DESKTOP_WRAPPER = /_(prefs|pane|section|dialog|popover|sheet)$/
+
 /** Views a `crates/ui/src/**.rs` path names. Empty = widen to the whole lane. */
 function desktopMatches(path: RepoPath): string[] {
   const match = path.match(/^apps\/desktop\/crates\/ui\/src\/(.+)\.rs$/)
   if (!match) return []
   const segments = match[1]!.split(`/`).filter((segment) => segment !== `mod`)
   const candidates = new Set([...segments, segments.join(`_`)])
-  return VIEWS.filter(
-    (view) => view.desktop && desktopTokens(view).some((token) => candidates.has(token))
-  ).map((view) => view.id)
+  // The wrapper-stripped FULL path, matched as a family PREFIX so a file that
+  // draws a tabbed surface claims every tab: `start_coding_dialog.rs` renders
+  // start-coding, -actions and -chat, and matching only the exact stem would
+  // drop two of them. Bare segments never get the prefix treatment — that would
+  // turn `settings/account.rs` into all thirteen settings views.
+  const stem = segments
+    .map((segment) => segment.replace(DESKTOP_WRAPPER, ``))
+    .filter(Boolean)
+    .join(`_`)
+  return VIEWS.filter((view) => {
+    if (!view.desktop) return false
+    const tokens = desktopTokens(view)
+    if (tokens.some((token) => candidates.has(token))) return true
+    return stem !== `` && tokens.some((token) => token === stem || token.startsWith(`${stem}_`))
+  }).map((view) => view.id)
 }
 
 /* ------------------------------------------------------------- native by name */
