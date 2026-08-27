@@ -1,5 +1,6 @@
 package com.exponential.app
 
+import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasTestTag
@@ -41,10 +42,11 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_sign-in · sg_board-switcher · sg_board-filters · sg_board-empty ·
  *   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
  *   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
- *   sg_start-coding-actions · sg_start-coding-chat · sg_machine-settings ·
- *   sg_action-create · sg_automations-list · sg_automations ·
- *   sg_action-suggestions · sg_reviews · sg_support-thread ·
- *   sg_settings-root · sg_settings-team · sg_settings-account · sg_onboarding
+ *   sg_recent-runs · sg_start-coding-actions · sg_start-coding-chat ·
+ *   sg_machine-settings · sg_action-create · sg_automations-list ·
+ *   sg_automations · sg_action-suggestions · sg_reviews ·
+ *   sg_support-thread · sg_settings-root · sg_settings-team ·
+ *   sg_settings-account · sg_onboarding
  *
  * EXP-642 reshuffled the front of the set: the old `sg_instance-picker` shot IS
  * the cloud chooser a first-run user meets, so it took over the `sg_sign-in`
@@ -119,6 +121,10 @@ class StyleguideScreenshotsTest {
 
         // One of the three seeded team actions, listed on the Actions segment.
         private const val SEEDED_ACTION_NAME = "Nightly test triage"
+
+        // The close-out the seed's freshest agent-ended run carries (EXP-637) —
+        // only the EXPANDED row shows it, so it is the post-tap gate.
+        private const val RECENT_RUN_SUMMARY = "Triaged 4 failing specs"
 
         // The device `bun run screenshots:desktop` registers for the demo user.
         private const val DEMO_DEVICE_NAME = "Alex's MacBook Pro"
@@ -322,6 +328,28 @@ class StyleguideScreenshotsTest {
         flow.settle()
         flow.screenshot("sg_agents")
 
+        // --- Recent runs: the EXP-637 close-out. The seed's two action runs
+        // end with ended_by='agent' + an outcome + the agent's summary, the
+        // trio the section gates on. Collapsed, a row shows only the outcome,
+        // so the shot is taken EXPANDED — the summary plus the Resume pill the
+        // stub device's `resume-run` cap enables. The section sits below the
+        // machines in the lazy list, hence the scroll before the tap.
+        flow.waitFor(hasTestTag("ended-run-row"), SYNC_TIMEOUT)
+        val endedRun = composeRule.onAllNodes(hasTestTag("ended-run-row")).onFirst()
+        endedRun.performScrollTo()
+        endedRun.performClick()
+        flow.waitFor(hasText(RECENT_RUN_SUMMARY, substring = true), SYNC_TIMEOUT)
+        flow.settle()
+        flow.screenshot("sg_recent-runs")
+        // Collapse again and scroll the machines back into frame — the
+        // start-coding step below taps a machine row's play glyph.
+        endedRun.performClick()
+        flow.waitForGone(hasText(RECENT_RUN_SUMMARY, substring = true), NAV_TIMEOUT)
+        composeRule.onAllNodes(hasText(DEMO_DEVICE_NAME, substring = true))
+            .onFirst()
+            .performScrollTo()
+        flow.settle()
+
         // --- Start coding, Actions + Chat tabs: the machine row's play glyph
         // opens the unified launch sheet. The tabs carry testTags because
         // "Actions" and "Chat" also read as ordinary nodes elsewhere in the
@@ -346,7 +374,12 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasTestTag("device-settings-sheet"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_machine-settings")
-        composeRule.onAllNodes(hasText("Done")).onFirst().performClick()
+        // Scoped to the sheet: since EXP-663 the Recent runs list below the
+        // machines carries a "Done" outcome label that sits earlier in the
+        // tree, and an unscoped onFirst() clicked that instead of the button.
+        composeRule
+            .onNode(hasText("Done") and hasAnyAncestor(hasTestTag("device-settings-sheet")))
+            .performClick()
         flow.waitForGone(hasTestTag("device-settings-sheet"), NAV_TIMEOUT)
         flow.settle(longer = true)
 

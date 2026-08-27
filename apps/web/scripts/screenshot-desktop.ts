@@ -52,7 +52,17 @@ import {
 // >1 agent so the sheet renders its agent pill strip; the caps are the ones a
 // real desktop advertises (see crates/ui/src/steer_wiring.rs).
 const AGENTS = [`claude`, `codex`, `pi`]
-const CAPS = [`actions`, `action-inputs`, `fix-conflicts`, `chat`, `automations`]
+// `resume-run` (EXP-637) is advertised by every real desktop and is what makes
+// the seed's ended runs resumable — without it "Recent runs" renders, but the
+// Resume button never does (EXP-663).
+const CAPS = [
+  `actions`,
+  `action-inputs`,
+  `fix-conflicts`,
+  `chat`,
+  `automations`,
+  `resume-run`,
+]
 
 // Under the relay's 90s publisher-idle timeout (hub.ts PUBLISHER_IDLE_TIMEOUT_MS).
 const KEEPALIVE_MS = 30_000

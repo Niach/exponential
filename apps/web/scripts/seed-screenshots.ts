@@ -1060,6 +1060,11 @@ async function main() {
   // snapshot (actions are server-only, clients can't join), `started_reason`
   // for the run-history filter and `automation_id` for the per-row last-run
   // lookup. Ended, so they never join the live agents list.
+  //
+  // EXP-663: both rows are a full EXP-637 close-out — `ended_by: 'agent'` plus
+  // an outcome and the summary the agent wrote. That trio is what every
+  // client's "Recent runs" section gates on, and the two outcomes differ on
+  // purpose so a capture photographs both the done tint and the blocked glyph.
   await db.insert(codingSessions).values([
     {
       teamId: ws.id,
@@ -1071,6 +1076,9 @@ async function main() {
       deviceId: DEMO_DEVICE_ID,
       deviceLabel: DEMO_DEVICE_LABEL,
       status: `ended`,
+      endedBy: `agent`,
+      outcome: `done`,
+      summary: `Triaged 4 failing specs: 3 flaky (retry added), 1 real regression filed as APP-31.`,
       startedAt: hoursAgo(9),
       endedAt: hoursAgo(8),
     },
@@ -1084,6 +1092,9 @@ async function main() {
       deviceId: DEMO_DEVICE_ID,
       deviceLabel: DEMO_DEVICE_LABEL,
       status: `ended`,
+      endedBy: `agent`,
+      outcome: `blocked`,
+      summary: `Bumped 12 packages; react-day-picker 9.x needs a manual API migration in due-date-picker.tsx before this can merge.`,
       startedAt: hoursAgo(33),
       endedAt: hoursAgo(32),
     },

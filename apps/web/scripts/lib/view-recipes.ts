@@ -450,6 +450,36 @@ async function recipeOpenAddServer(page: Page): Promise<void> {
   await page.getByText(/EXP_INSTANCE=/).first().waitFor({ timeout: 15_000 })
 }
 
+/**
+ * Expand the freshest "Recent runs" entry so the shot shows the EXP-637
+ * close-out — the summary the agent wrote plus the Resume button — instead of
+ * the collapsed one-liner. The section only renders for runs the AGENT ended
+ * (`ended_by = 'agent'` with an outcome and a summary), so an empty section is
+ * a stale seed, not a flake. The rows are newest-ended first, hence `.first()`
+ * and the seeded triage summary as the post-state.
+ */
+async function recipeExpandRecentRun(page: Page): Promise<void> {
+  await page
+    .getByText(`Recent runs`, { exact: true })
+    .filter({ visible: true })
+    .first()
+    .waitFor({ timeout: 30_000 })
+  const row = page.locator(`[data-testid^="ended-session-"]`)
+  if (!(await appears(row, 15_000))) {
+    throw new Error(
+      `no "Recent runs" row — the section needs a session the agent closed ` +
+        `out itself (ended_by 'agent' + outcome + summary): re-seed with ` +
+        `bun run seed:screenshots`
+    )
+  }
+  await row.first().click()
+  await page
+    .getByText(`Triaged 4 failing specs`)
+    .filter({ visible: true })
+    .first()
+    .waitFor({ timeout: 15_000 })
+}
+
 // ---------------------------------------------------------------- actions
 
 /** Open the editor for the seeded "Update dependencies" action (owner-only). */
@@ -611,6 +641,7 @@ export const RECIPES: Record<string, Recipe> = {
   openFirstThread: recipeOpenFirstThread,
   openMachineSettings: recipeOpenMachineSettings,
   openAddServer: recipeOpenAddServer,
+  expandRecentRun: recipeExpandRecentRun,
   openActionEditor: recipeOpenActionEditor,
   openActionCreate: recipeOpenActionCreate,
   openAutomationsTab: recipeOpenAutomationsTab,
