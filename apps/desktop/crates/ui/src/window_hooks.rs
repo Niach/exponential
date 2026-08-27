@@ -32,3 +32,27 @@ pub(crate) fn notify_window_opened(cx: &App) {
         (hook.0)();
     }
 }
+
+/// EXP-638: "open a shell window" — the OS-notification click path needs
+/// one when every shell window is closed (macOS keeps the app alive in the
+/// dock; a click on a banner must still land somewhere). The host owns
+/// `open_shell_window` (per-window layout slots, cascade, platform chrome),
+/// so `ui` calls back into it exactly like the window-opened hook above.
+struct OpenShellWindowHook(Rc<dyn Fn(&mut App)>);
+
+impl Global for OpenShellWindowHook {}
+
+/// Install the host's "open a shell window" callback. Called once from `app`.
+pub fn set_open_shell_window_hook(f: impl Fn(&mut App) + 'static, cx: &mut App) {
+    cx.set_global(OpenShellWindowHook(Rc::new(f)));
+}
+
+/// Ask the host for a new shell window. `false` when no hook is installed
+/// (headless/test harnesses) — the caller then simply has nowhere to route.
+pub(crate) fn request_shell_window(cx: &mut App) -> bool {
+    let Some(hook) = cx.try_global::<OpenShellWindowHook>().map(|hook| hook.0.clone()) else {
+        return false;
+    };
+    (hook)(cx);
+    true
+}

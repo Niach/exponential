@@ -128,6 +128,14 @@ fn main() {
         #[cfg(target_os = "macos")]
         menus::install_menubar(cx);
 
+        // EXP-638: the process identity OS notifications post under. Windows
+        // needs it (an unpackaged exe has no AppUserModelID; gpui sets the
+        // process AUMID and registers its display name so toasts show
+        // without a Start-menu shortcut), Linux takes the app name for the
+        // XDG notification, macOS reads the bundle itself (no-op). Must
+        // precede the first window and the first notification.
+        cx.set_app_identity(channel::APP_ID, channel::APP_NAME);
+
         // ---- Auth + sync globals (§5.7 / §5.8) -----------------------------
         // The AuthStore hydrates remembered accounts + tokens (0600-file
         // store); its unauthorized handler is wired into the sync manager so a
@@ -161,6 +169,14 @@ fn main() {
         // dials the per-account control socket). A no-op-friendly install:
         // when the relay is unconfigured the whole subsystem stays silent.
         ui::steer_wiring::install(cx);
+
+        // EXP-638: OS notifications off the synced `notifications` shape —
+        // observes the store's collection (needs `Store::open` above) and
+        // reads the per-machine switch through the coding hub (needs the
+        // `AuthContext` global). A toast clicked with every shell window
+        // closed asks this hook for a fresh one to land in.
+        ui::set_open_shell_window_hook(windows::open_shell_window, cx);
+        ui::os_notifications::install(cx);
 
         // Session bootstrap: the EXP_DEV_SERVER/EXP_DEV_TOKEN dev override
         // (headless verification, dev-only) or a warm-start resume of the

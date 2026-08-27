@@ -359,8 +359,9 @@ GITHUB_APP_CLIENT_SECRET=<oauth client secret>
             </p>
             <p>
               Self-hosted users still get in-app notifications in every client,
-              including the desktop app, plus the email digest. Only mobile
-              push is cloud-only.
+              plus the email digest, and the desktop app raises real system
+              notifications on macOS, Windows and Linux straight off its sync,
+              with no relay involved. Only mobile push is cloud-only.
             </p>
 
             <h3>Why a self-hosted relay can&apos;t serve the store apps</h3>

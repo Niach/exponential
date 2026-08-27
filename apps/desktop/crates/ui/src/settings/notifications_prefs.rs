@@ -2,7 +2,13 @@
 //!
 //! Web parity: `routes/_authenticated/account/notifications.tsx` — a master
 //! email `Switch`, the eight per-type rows (labels + hints verbatim), the
-//! delivery cadence select and (EXP-369) the daily send-time hour. Email is
+//! delivery cadence select and (EXP-369) the daily send-time hour.
+//! **Desktop-only, no web counterpart:** the "Desktop notifications" row
+//! above the email group (EXP-638) — the per-MACHINE switch for real OS
+//! notifications, persisted in the local settings.json
+//! (`Settings::os_notifications`), never synced; the web card
+//! (`components/account/email-notifications-card.tsx`) has nothing to
+//! mirror it. The per-type switches below gate it too. Email is
 //! the catch-up channel: nothing is emailed per-event — still-unread
 //! notifications are bundled into one digest, so the server's `digestValues`
 //! are `off` = Hourly digest / `daily` = Daily digest at the account's own
@@ -41,6 +47,7 @@ use domain::contract::{
     NOTIFICATION_TYPE_PR_OPENED, NOTIFICATION_TYPE_SUPPORT_REPLY,
 };
 
+use crate::coding_flow::CodingHub;
 use crate::queries;
 
 use super::{section, error_notice, spawn_trpc};
@@ -204,7 +211,22 @@ impl NotificationsPrefsPane {
         );
     }
 
+    /// EXP-638: flip the per-machine OS-notification switch (local
+    /// settings.json via the coding hub's ui-prefs save — no doctor rerun).
+    fn set_os_notifications(&mut self, enabled: bool, cx: &mut gpui::Context<Self>) {
+        let hub = CodingHub::global(cx);
+        let mut settings = hub.read(cx).settings.clone();
+        if settings.os_notifications == enabled {
+            return;
+        }
+        settings.os_notifications = enabled;
+        CodingHub::save_ui_prefs(&hub, settings, cx);
+        cx.notify();
+    }
+
     fn toggle_type(&mut self, kind: &'static str, next: bool, cx: &mut gpui::Context<Self>) {
+        // EXP-638: the OS-notification gate caches these; refetch next time.
+        crate::os_notifications::invalidate_type_prefs(cx);
         self.apply(
             |prefs| {
                 prefs.type_prefs.insert(kind.to_string(), next);
@@ -253,6 +275,25 @@ impl Render for NotificationsPrefsPane {
             Load::Ready(prefs) => (prefs.transport_configured, prefs.email_enabled, true),
             _ => (false, false, false),
         };
+
+        // EXP-638: the per-machine OS-notification switch — its own section
+        // above the email group (desktop-only; see the module doc).
+        let os_notifications = CodingHub::global(cx).read(cx).settings.os_notifications;
+        let desktop = section(cx).child(super::pref_row(
+            div()
+                .text_sm()
+                .font_weight(FontWeight::SEMIBOLD)
+                .child("Desktop notifications"),
+            "Show a system notification on this computer when something new lands in \
+             your inbox. This machine only; the per-type switches below apply to it too.",
+            Switch::new("os-notifications")
+                .checked(os_notifications)
+                .on_click(cx.listener(|this, checked: &bool, _, cx| {
+                    this.set_os_notifications(*checked, cx);
+                })),
+            true,
+            cx,
+        ));
 
         // EXP-282: section header — title/description + the master switch.
         // EXP-285: the shared `pref_row` shape — capped hint measure,
@@ -433,6 +474,6 @@ impl Render for NotificationsPrefsPane {
             }
         }
 
-        v_flex().child(body)
+        v_flex().gap_6().child(desktop).child(body)
     }
 }

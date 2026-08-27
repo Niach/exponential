@@ -77,6 +77,7 @@ mod native_dialog;
 mod navigation;
 mod oauth;
 mod onboarding;
+pub mod os_notifications;
 mod pickers;
 mod pr_diff;
 mod pr_merge;
@@ -121,7 +122,7 @@ pub use session::{
 };
 pub use session_registry::install_end_observer as install_session_end_observer;
 pub use shell::Shell;
-pub use window_hooks::set_window_opened_hook;
+pub use window_hooks::{set_open_shell_window_hook, set_window_opened_hook};
 
 use gpui::{App, AppContext as _};
 use gpui_component::dock::register_panel;

@@ -432,10 +432,10 @@ pub struct InboxGroup {
 }
 
 /// One synthetic Support card (EXP-180): issue-less `support_reply`
-/// notifications, ONE group per ticket team. Desktop has no push channel,
-/// so these synced rows are its only passive helpdesk signal — dropping
-/// them made a reporter reply invisible unless the Support tool happened to
-/// be open. Click marks the group read and opens the team's Support tool.
+/// notifications, ONE group per ticket team. These synced rows are the
+/// desktop's passive helpdesk signal (EXP-638 raises them as OS
+/// notifications too) — dropping them made a reporter reply invisible
+/// unless the Support tool happened to be open. Click marks the group read and opens the team's Support tool.
 pub struct SupportInboxGroup {
     /// The ticket team — `None` for the ONE generic group collecting rows
     /// from before the synced `team_id` column existed plus rows whose team
