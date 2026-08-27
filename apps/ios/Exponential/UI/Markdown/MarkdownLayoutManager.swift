@@ -120,8 +120,12 @@ final class MarkdownLayoutManager: NSLayoutManager {
                 + self.location(forGlyphAt: hashGlyphs.location).y
             let centerY = baseline - font.capHeight / 2
             let side = Self.statusIconSize
+            // Left-anchored, not centred: the `#` cell is kerned wider than the
+            // glyph (EXP-655), and that surplus to the RIGHT of the icon is the
+            // gap that keeps it off the identifier. The -1 keeps the art inside
+            // the capsule's 2pt inset.
             image.draw(in: CGRect(
-                x: cell.midX - side / 2,
+                x: cell.minX - 1,
                 y: centerY - side / 2,
                 width: side,
                 height: side

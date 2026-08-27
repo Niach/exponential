@@ -211,6 +211,9 @@ public enum MarkdownChipDecorator {
         out[.markdownMention] = nil
         out[.attachment] = nil
         out[.backgroundColor] = nil
+        // The status glyph's cell gap must not ride along into typed text
+        // (EXP-655).
+        out[.kern] = nil
         out[.foregroundColor] = base ?? MarkdownStyle.textColor
         return out
     }
@@ -242,6 +245,55 @@ public enum MarkdownChipDecorator {
             return NSRange(location: attachmentIndex, length: 1)
         }
         return NSRange(location: tokenRange.location, length: location - tokenRange.location)
+    }
+
+    /// The caret position `proposed` collapses to, so a chip behaves like one
+    /// atom to the caret as well as to backspace (EXP-655). A collapsed caret
+    /// may rest before the `#`, at the seam between identifier and title only
+    /// when the decorator put it there, or after the whole atom — never
+    /// strictly inside `#IDENTIFIER`.
+    ///
+    /// [previous] is the last collapsed caret: an adjacent one gives the
+    /// direction of travel, anything else is a tap and falls out the nearer
+    /// side. [allowSeam] is set for programmatic moves (the post-decoration
+    /// caret sits at the seam on purpose, so typing keeps extending the token).
+    public static func snappedCaret(
+        in text: NSAttributedString,
+        proposed: Int,
+        previous: Int?,
+        allowSeam: Bool
+    ) -> Int {
+        guard proposed > 0, proposed < text.length else { return proposed }
+        var run = NSRange(location: 0, length: 0)
+        guard text.attribute(
+            .markdownIssueRef,
+            at: proposed,
+            longestEffectiveRange: &run,
+            in: NSRange(location: 0, length: text.length)
+        ) != nil else { return proposed }
+        // A caret AT the run's start is outside the pill (the char before it is
+        // not part of the token); only a caret with token text on both sides is
+        // inside.
+        guard run.location < proposed else { return proposed }
+        let atomEnd = NSMaxRange(run)
+        // The display-only title attachment is not part of the identifier, so
+        // the seam in front of it is a legal programmatic resting place.
+        var tokenEnd = atomEnd
+        text.enumerateAttribute(.markdownIssueRefTitle, in: run, options: []) { value, range, stop in
+            if value != nil {
+                tokenEnd = range.location
+                stop.pointee = true
+            }
+        }
+        let inside = proposed < tokenEnd || (proposed == tokenEnd && !allowSeam)
+        guard inside else { return proposed }
+        // Only a one-character step carries a direction (arrow keys, the
+        // system's caret nudges): a tap can land anywhere and must fall out
+        // the nearer side, whatever the caret did before.
+        if let previous, abs(proposed - previous) == 1 {
+            return previous < proposed ? atomEnd : run.location
+        }
+        return proposed - run.location <= tokenEnd - proposed ? run.location : atomEnd
     }
 
     // MARK: - Passes
@@ -288,6 +340,12 @@ public enum MarkdownChipDecorator {
             // foreground it hid the `#` behind, which the base-color restore
             // below undoes over the whole range (EXP-423).
             mutable.removeAttribute(.markdownIssueRefStatus, range: range)
+            // And the `#` cell's kerned gap (EXP-655). REQUIRED for
+            // idempotence: a leftover `.kern` splits the token into two
+            // attribute runs, `IssueRefs.decorate`'s one-run guard then refuses
+            // to re-chip, and the pass would report `changed` on every
+            // keystroke.
+            mutable.removeAttribute(.kern, range: range)
             mutable.removeAttribute(.markdownMention, range: range)
             mutable.removeAttribute(.backgroundColor, range: range)
             mutable.addAttribute(.foregroundColor, value: base ?? MarkdownStyle.textColor, range: range)

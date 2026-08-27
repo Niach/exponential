@@ -200,6 +200,9 @@ struct IssueDetailView: View {
                             // EXP-327: the description editor is the ONE attach
                             // affordance; non-image picks land in the Files
                             // section below.
+                            // EXP-655 (Android parity): a tappable band below
+                            // the description focuses its end.
+                            minHeight: 200,
                             onAttachFile: vm.permissions.isModerator
                                 ? { url in vm.uploadFile(from: url) }
                                 : nil

@@ -5,6 +5,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 
 /**
@@ -70,4 +71,9 @@ object MdStyle {
     val chipCornerRadius = 5.dp
     val chipPadX = 2.dp
     val chipIconSize = 13.dp
+    // The status glyph sits in the hidden `#` cell, LEFT-anchored; this extra
+    // advance on that one character is what keeps the identifier clear of the
+    // 13dp art (EXP-655) — a monospace `#` alone is ~0.6em, narrower than the
+    // icon. Relative so headings scale it with their font.
+    val chipHashLetterSpacing = 0.45.em
 }

@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,6 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -103,10 +105,11 @@ fun MarkdownEditor(
         model.onEdit = { currentOnChange(model.currentMarkdown()) }
     }
 
-    // Load external markdown only when it actually differs from what we derive,
-    // so the user's own keystrokes (which already emitted this value) never reload.
+    // Load external markdown only — never an echo of the user's own keystrokes,
+    // including a STALE one the model has already moved past (EXP-655; see
+    // EditorModel.reconcileHostMarkdown).
     LaunchedEffect(markdown) {
-        if (model.currentMarkdown() != markdown) {
+        if (model.reconcileHostMarkdown(markdown)) {
             model.load(markdown)
             // load() clears pendingImages, so re-seed preview bytes for any draft
             // images carried in via [initialPendingImages] (shared content).
@@ -148,24 +151,39 @@ fun MarkdownEditor(
         }
     }
 
-    Column(
+    Box(
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = minHeight),
     ) {
-        val rows = model.rows
-        val soleEmptyId = rows.singleOrNull()?.let { (it as? EditorRow.TextRun)?.takeIf { p -> p.text.isEmpty() }?.id }
-        rows.forEach { row ->
-            key(row.id) {
-                when (row) {
-                    is EditorRow.TextRun -> BlockTextField(
-                        model = model,
-                        row = row,
-                        placeholder = if (row.id == soleEmptyId) placeholder else null,
-                        mentionMembers = mentionMembers,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    is EditorRow.Image -> BlockImageEditView(model = model, row = row)
+        // The empty band below (and beside) the rows — the fields are
+        // content-height, so a tap there used to fall through to the
+        // screen's tap-outside catcher and dismiss the keyboard. Behind the
+        // rows, it only receives what no field claims, and puts the caret at
+        // the very end of the document (EXP-655). Consuming the tap keeps
+        // the catcher out of it.
+        Box(
+            Modifier
+                .matchParentSize()
+                .pointerInput(model) {
+                    detectTapGestures(onTap = { model.focusEnd() })
+                },
+        )
+        Column(modifier = Modifier.fillMaxWidth()) {
+            val rows = model.rows
+            val soleEmptyId = rows.singleOrNull()?.let { (it as? EditorRow.TextRun)?.takeIf { p -> p.text.isEmpty() }?.id }
+            rows.forEach { row ->
+                key(row.id) {
+                    when (row) {
+                        is EditorRow.TextRun -> BlockTextField(
+                            model = model,
+                            row = row,
+                            placeholder = if (row.id == soleEmptyId) placeholder else null,
+                            mentionMembers = mentionMembers,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        is EditorRow.Image -> BlockImageEditView(model = model, row = row)
+                    }
                 }
             }
         }

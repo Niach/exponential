@@ -212,10 +212,13 @@ final class IssueRefChipTests: XCTestCase {
         attrs[.markdownIssueRef] = "issue-id"
         attrs[.markdownChipBaseColor] = MarkdownStyle.blockquoteTextColor
         attrs[.foregroundColor] = MarkdownStyle.linkColor
+        attrs[.kern] = MarkdownStyle.chipStatusIconGap
         let clean = MarkdownChipDecorator.sanitizedTypingAttributes(attrs)
         XCTAssertNil(clean[.markdownChip])
         XCTAssertNil(clean[.markdownIssueRef])
         XCTAssertNil(clean[.markdownChipBaseColor])
+        // The status glyph's cell gap must not ride into typed text (EXP-655).
+        XCTAssertNil(clean[.kern])
         XCTAssertEqual(clean[.foregroundColor] as? PlatformColor, MarkdownStyle.blockquoteTextColor)
         // Untouched attributes survive, so lists / headings keep working.
         XCTAssertNotNil(clean[.paragraphStyle])
@@ -355,6 +358,13 @@ final class IssueRefChipTests: XCTestCase {
             result.attributed.attribute(.foregroundColor, at: hash + 1, effectiveRange: nil) as? PlatformColor,
             MarkdownStyle.chipTokenColor
         )
+        // EXP-655: that one cell is kerned wider so the glyph clears the
+        // identifier — advance only, still no character moves.
+        XCTAssertEqual(
+            result.attributed.attribute(.kern, at: hash, effectiveRange: nil) as? CGFloat,
+            MarkdownStyle.chipStatusIconGap
+        )
+        XCTAssertNil(result.attributed.attribute(.kern, at: hash + 1, effectiveRange: nil))
         XCTAssertEqual(markdown(of: result.attributed), "Fixes #EXP-42 today")
     }
 
@@ -403,6 +413,9 @@ final class IssueRefChipTests: XCTestCase {
             plain.attribute(.foregroundColor, at: hash, effectiveRange: nil) as? PlatformColor,
             MarkdownStyle.textColor
         )
+        // And the glyph's kerned cell (EXP-655) — a leftover would split the
+        // token's attribute run and block the next decoration pass.
+        XCTAssertNil(plain.attribute(.kern, at: hash, effectiveRange: nil))
     }
 
     func testTheDisplayPathHidesTheHashToo() {
@@ -416,6 +429,11 @@ final class IssueRefChipTests: XCTestCase {
             decorated.attribute(.foregroundColor, at: hash, effectiveRange: nil) as? PlatformColor,
             PlatformColor.clear
         )
+        XCTAssertEqual(
+            decorated.attribute(.kern, at: hash, effectiveRange: nil) as? CGFloat,
+            MarkdownStyle.chipStatusIconGap
+        )
+        XCTAssertNil(decorated.attribute(.kern, at: hash + 1, effectiveRange: nil))
         XCTAssertNotNil(decorated.attribute(.markdownIssueRefStatus, at: hash, effectiveRange: nil))
     }
 
@@ -437,5 +455,80 @@ final class IssueRefChipTests: XCTestCase {
     func testASelectionSpanningTheTokenKeepsItsLength() {
         let result = decorate("Fixes #EXP-42 today", selection: NSRange(location: 0, length: 19))
         XCTAssertEqual(result.selection, NSRange(location: 0, length: 20))
+    }
+
+    // MARK: - Caret snapping (EXP-655)
+
+    /// `"Fixes #EXP-42 today"` decorates to token 6..<13, title attachment at
+    /// 13, atom end 14 — the same geometry `testTheChipDeletesAsOneAtom` pins.
+    private func snap(
+        _ chipped: NSAttributedString, _ proposed: Int, previous: Int? = nil, allowSeam: Bool = false
+    ) -> Int {
+        MarkdownChipDecorator.snappedCaret(
+            in: chipped, proposed: proposed, previous: previous, allowSeam: allowSeam)
+    }
+
+    func testACaretMovingRightLeavesTheChipOnItsFarSide() {
+        let chipped = decorate("Fixes #EXP-42 today").attributed
+        XCTAssertEqual(snap(chipped, 7, previous: 6), 14)
+    }
+
+    func testACaretMovingLeftLeavesTheChipOnItsNearSide() {
+        let chipped = decorate("Fixes #EXP-42 today").attributed
+        XCTAssertEqual(snap(chipped, 12, previous: 13), 6)
+        XCTAssertEqual(snap(chipped, 13, previous: 14), 6)
+    }
+
+    /// A tap has no direction of travel — wherever the caret was before, it
+    /// falls out the nearer edge; only a one-character step is a move.
+    func testACaretWithoutADirectionFallsOutTheNearerEdge() {
+        let chipped = decorate("Fixes #EXP-42 today").attributed
+        XCTAssertEqual(snap(chipped, 7), 6)
+        XCTAssertEqual(snap(chipped, 12), 14)
+        XCTAssertEqual(snap(chipped, 12, previous: 0), 14)
+        XCTAssertEqual(snap(chipped, 7, previous: 19), 6)
+    }
+
+    /// The seam between identifier and title is visually inside the pill, so it
+    /// is legal only for the programmatic caret the decorator parks there (which
+    /// is what keeps typing extending the token).
+    func testTheSeamIsLegalOnlyForProgrammaticMoves() {
+        let chipped = decorate("Fixes #EXP-42 today").attributed
+        XCTAssertEqual(snap(chipped, 13, allowSeam: true), 13)
+        XCTAssertEqual(snap(chipped, 13, previous: 14), 6)
+        XCTAssertEqual(snap(chipped, 13, previous: 6), 14)
+    }
+
+    func testLegalCaretPositionsAreNeverMoved() {
+        let chipped = decorate("Fixes #EXP-42 today").attributed
+        for position in [0, 3, 6, 14] {
+            XCTAssertEqual(snap(chipped, position, previous: 0), position, "position \(position)")
+        }
+    }
+
+    func testAnUnresolvedTokenIsPlainTextForTheCaretToo() {
+        let plain = decorate("Fixes #EXP-99 today").attributed
+        XCTAssertEqual(snap(plain, 7, previous: 6), 7)
+        XCTAssertEqual(snap(plain, 12, previous: 13), 12)
+    }
+
+    /// With no title there is no seam: the atom ends where the token does.
+    func testATitlelessChipSnapsToItsTokenEnds() {
+        let noTitles: (String) -> String? = { _ in nil }
+        let chipped = decorate("Fixes #EXP-42 today", titles: noTitles).attributed
+        XCTAssertEqual(chipped.string, "Fixes #EXP-42 today")
+        XCTAssertEqual(snap(chipped, 7, previous: 6), 13)
+        XCTAssertEqual(snap(chipped, 12, previous: 13), 6)
+        XCTAssertEqual(snap(chipped, 13, previous: 6), 13)
+    }
+
+    /// The hidden `#` splits the token's color run — `longestEffectiveRange` on
+    /// `.markdownIssueRef` must still report the start, or the caret would snap
+    /// to the identifier instead of in front of the pill.
+    func testAStatusChipSnapsPastItsHiddenHash() {
+        let chipped = decorate("Fixes #EXP-42 today", statuses: statuses).attributed
+        XCTAssertEqual(snap(chipped, 7, previous: 6), 14)
+        XCTAssertEqual(snap(chipped, 12, previous: 13), 6)
+        XCTAssertEqual(snap(chipped, 6, previous: 5), 6)
     }
 }

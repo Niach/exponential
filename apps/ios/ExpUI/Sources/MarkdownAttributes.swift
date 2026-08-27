@@ -39,6 +39,9 @@ public enum MarkdownStyle {
     /// Issue chips are rounded RECTS (web 6px / desktop 4 / Android 5dp);
     /// mention pills stay fully round on every platform.
     public static let chipCornerRadius: CGFloat = 5
+    /// Extra advance kerned onto a status chip's hidden `#` so the painted
+    /// glyph clears the identifier next to it (EXP-655).
+    public static let chipStatusIconGap: CGFloat = 6
     public nonisolated(unsafe) static let blockquoteTextColor = PlatformColor.white.withAlphaComponent(0.6)
     public nonisolated(unsafe) static let blockquoteBarColor = PlatformColor.white.withAlphaComponent(0.25)
     public nonisolated(unsafe) static let placeholderColor = PlatformColor.white.withAlphaComponent(0.3)

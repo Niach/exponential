@@ -77,7 +77,7 @@ internal fun Modifier.drawIssueRefChips(
             runCatching {
                 drawChip(chip, result, radius, padX, hairline)
                 val painter = painters[chip.iconName]
-                if (painter != null) drawChipIcon(chip, result, painter, iconSide)
+                if (painter != null) drawChipIcon(chip, result, painter, iconSide, hairline)
             }
         }
     }
@@ -129,17 +129,23 @@ private fun DrawScope.drawChip(
     }
 }
 
-/** The status glyph, centered in the (transparent) `#` cell. */
+/**
+ * The status glyph, LEFT-anchored in the (transparent) `#` cell: the cell is
+ * letter-spaced wider than the art ([MdStyle.chipHashLetterSpacing]), and the
+ * surplus to the icon's right is the icon↔identifier gap (EXP-655). [inset]
+ * keeps the art inside the pill's hairline.
+ */
 private fun DrawScope.drawChipIcon(
     chip: IssueRefChipSpec,
     result: TextLayoutResult,
     painter: VectorPainter,
     side: Float,
+    inset: Float,
 ) {
     val length = result.layoutInput.text.length
     if (length == 0) return
     val cell = result.getBoundingBox(chip.tokenStart.coerceIn(0, length - 1))
-    translate(left = cell.center.x - side / 2, top = cell.center.y - side / 2) {
+    translate(left = cell.left + inset, top = cell.center.y - side / 2) {
         with(painter) {
             draw(size = Size(side, side), colorFilter = chip.color?.let { ColorFilter.tint(it) })
         }

@@ -740,6 +740,30 @@ public final class IssueEditorModel {
         notifyEdit()
     }
 
+    /// EXP-655 (Android parity): a tap on the empty band below the last block
+    /// focuses the last text block with the caret at the very end. The revision
+    /// bump is load-bearing — `desiredSelection` is not observed by the view
+    /// body, so nothing would make `updateUIView` consume it otherwise.
+    public func focusEnd() {
+        let id: UUID
+        let location: Int
+        if let last = blocks.last, case let .text(lastId, content) = last {
+            id = lastId
+            location = content.length
+        } else {
+            // Defensive: `ContentBlock.normalize` already guarantees a trailing
+            // text block after an image.
+            let appended = UUID()
+            blocks.append(.text(id: appended, attributedContent: NSAttributedString()))
+            id = appended
+            location = 0
+        }
+        bumpRevision(id)
+        focusedBlockId = id
+        desiredSelection = (id, location)
+        selection = (id, NSRange(location: location, length: 0))
+    }
+
     // MARK: - Image insertion
 
     public func insertImage(data: Data, filename: String, contentType: String, width: Int?, height: Int?) {

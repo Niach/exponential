@@ -185,11 +185,13 @@ public enum IssueRefs {
                 // construction (EXP-423). Deliberate divergence — web and the
                 // desktop editor keep their `#` visible next to the icon, for
                 // edit affordance and offset-map safety.
+                let hashRange = NSRange(location: match.range.location, length: 1)
+                target.addAttribute(.foregroundColor, value: PlatformColor.clear, range: hashRange)
+                // Widen that one cell so the 13pt glyph painted in it no longer
+                // crowds the identifier (EXP-655). Kerning is advance-only, so
+                // still no character moves.
                 target.addAttribute(
-                    .foregroundColor,
-                    value: PlatformColor.clear,
-                    range: NSRange(location: match.range.location, length: 1),
-                )
+                    .kern, value: MarkdownStyle.chipStatusIconGap, range: hashRange)
             }
             mutable = target
         }
@@ -265,12 +267,12 @@ public enum IssueRefs {
                 )
             }
             if status != nil {
-                // Same hidden `#` as the editable path (EXP-423).
+                // Same hidden `#` (EXP-423) and the same kerned gap under the
+                // glyph (EXP-655) as the editable path.
+                let hashRange = NSRange(location: 0, length: 1)
+                piece.addAttribute(.foregroundColor, value: PlatformColor.clear, range: hashRange)
                 piece.addAttribute(
-                    .foregroundColor,
-                    value: PlatformColor.clear,
-                    range: NSRange(location: 0, length: 1),
-                )
+                    .kern, value: MarkdownStyle.chipStatusIconGap, range: hashRange)
             }
             let target = mutable ?? NSMutableAttributedString(attributedString: attributed)
             target.replaceCharacters(in: match.range, with: piece)

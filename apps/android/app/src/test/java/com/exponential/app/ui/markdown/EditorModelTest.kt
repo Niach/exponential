@@ -565,4 +565,73 @@ class EditorModelTest {
         m.toggleMark(id, range, InlineKind.Link, "")
         assertEquals("see docs now", m.currentMarkdown())
     }
+    // --- host reload rule (EXP-655) -------------------------------------------
+
+    private fun emitting(markdown: String): Pair<EditorModel, MutableList<String>> {
+        val seen = mutableListOf<String>()
+        val m = model(markdown)
+        m.onEdit = { seen.add(m.currentMarkdown()) }
+        return m to seen
+    }
+
+    @Test
+    fun anEchoOfTheModelsOwnOutputNeverReloads() {
+        val (m, seen) = emitting("Hello")
+        m.updateRun(run(m).id, "Hello!", 6)
+        assertFalse(m.reconcileHostMarkdown(seen.last()))
+    }
+
+    /** The race: the effect keyed on an OLDER echo runs after a newer keystroke. */
+    @Test
+    fun aStaleEchoTheModelHasMovedPastNeverReloads() {
+        val (m, seen) = emitting("Hello")
+        m.updateRun(run(m).id, "Hello!", 6)
+        m.updateRun(run(m).id, "Hello!!", 7)
+        assertEquals(2, seen.size)
+        assertFalse(m.reconcileHostMarkdown(seen[0]))
+        assertFalse(m.reconcileHostMarkdown(seen[1]))
+        assertEquals("Hello!!", m.currentMarkdown())
+    }
+
+    @Test
+    fun aValueTheModelNeverEmittedReloads() {
+        val (m, _) = emitting("Hello")
+        m.updateRun(run(m).id, "Hello!", 6)
+        assertTrue(m.reconcileHostMarkdown("Someone else"))
+    }
+
+    /** History is cleared once the host caught up, so an old value coming back from remote is real. */
+    @Test
+    fun anOldEmissionReturningAfterTheHostCaughtUpReloads() {
+        val (m, seen) = emitting("Hello")
+        m.updateRun(run(m).id, "Hello!", 6)
+        val old = seen.last()
+        m.updateRun(run(m).id, "Hello!!", 7)
+        assertFalse(m.reconcileHostMarkdown(seen.last())) // caught up
+        assertTrue(m.reconcileHostMarkdown(old))
+    }
+
+    // --- focusEnd (EXP-655) -------------------------------------------------------
+
+    @Test
+    fun focusEndLandsOnTheLastRunAtItsEnd() {
+        val m = model("Hello\n\nWorld")
+        val last = runs(m).last()
+        m.focusEnd()
+        assertEquals(last.id, m.focusedRowId)
+        assertEquals(last.text.length, m.consumeDesiredSelection(last.id))
+    }
+
+    @Test
+    fun focusEndAfterATrailingImageUsesTheNormalizedEmptyRun() {
+        val m = model("text\n\n![a](https://x/a.png)")
+        val last = m.rows.last()
+        assertTrue(last is EditorRow.TextRun)
+        val before = m.revision(last.id)
+        m.focusEnd()
+        assertEquals(last.id, m.focusedRowId)
+        assertEquals(0, m.consumeDesiredSelection(last.id))
+        assertTrue(m.revision(last.id) > before)
+        assertFalse(m.isDirty)
+    }
 }

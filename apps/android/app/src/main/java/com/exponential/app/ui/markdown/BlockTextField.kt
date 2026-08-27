@@ -74,11 +74,11 @@ import com.exponential.app.ui.theme.resolvedStatusColor
 // In-progress mention `@query` at the caret (after start-of-text or whitespace —
 // '\n' counts as whitespace, so line starts inside the multi-line run trigger
 // too); the query stops at whitespace. Mirrors apps/web/src/components/mention-textarea.tsx.
-private val MENTION_AT_CARET = Regex("(?:^|\\s)@([A-Za-z0-9._%+-]*)$")
+internal val MENTION_AT_CARET = Regex("(?:^|\\s)@([A-Za-z0-9._%+-]*)$")
 
 // In-progress issue reference `#query` at the caret — same shape as the web
 // ISSUE_REF_AT_CARET (mention-textarea.tsx / editor-autocomplete.ts).
-private val ISSUE_REF_AT_CARET = Regex("(?:^|\\s)#([A-Za-z0-9-]*)$")
+internal val ISSUE_REF_AT_CARET = Regex("(?:^|\\s)#([A-Za-z0-9-]*)$")
 
 // How many emoji the `:shortcode` typeahead offers (EXP-551) — the picker
 // sheet's cap is larger; this menu is a keyboard-adjacent shortlist.
@@ -175,18 +175,24 @@ fun BlockTextField(
             emptyList()
         }
 
-    fun insertMention(member: MentionMember) {
-        val caret = value.selection.start
-        val q = mentionQuery ?: return
-        val start = caret - q.length - 1
-        if (start < 0) return
-        val newText =
-            value.text.substring(0, start) + "@" + member.email + " " + value.text.substring(caret)
-        val newCaret = start + member.email.length + 2
+    // Every pick splices against the LIVE value, re-matching the trigger at
+    // the caret (EXP-655): the menu is a Popup — its rows (and the closures
+    // they hold) can lag the field by a composition, so a caret that advanced
+    // past the query the row was composed with used to keep the typed `#`
+    // and land `##EXP-552`. One snapshot for both ends of the replaced range
+    // (mention-textarea.tsx / IssueEditorModel.applyIssueRef parity).
+    fun commitToken(spliced: Pair<String, Int>?) {
+        val (newText, newCaret) = spliced ?: return
         value = TextFieldValue(newText, TextRange(newCaret))
         model.updateRun(row.id, newText, newCaret)
         model.updateSelection(row.id, newCaret..newCaret)
         armed = false
+    }
+
+    fun insertMention(member: MentionMember) {
+        commitToken(
+            spliceTriggerToken(value.text, value.selection.start, MENTION_AT_CARET, "@" + member.email + " "),
+        )
     }
 
     // #issue-ref autocomplete (masterplan §5e): detect an in-progress `#query`
@@ -205,17 +211,9 @@ fun BlockTextField(
         else emptyList()
 
     fun insertIssueRef(target: IssueRefTarget) {
-        val caret = value.selection.start
-        val q = refQuery ?: return
-        val start = caret - q.length - 1
-        if (start < 0) return
-        val newText =
-            value.text.substring(0, start) + "#" + target.identifier + " " + value.text.substring(caret)
-        val newCaret = start + target.identifier.length + 2
-        value = TextFieldValue(newText, TextRange(newCaret))
-        model.updateRun(row.id, newText, newCaret)
-        model.updateSelection(row.id, newCaret..newCaret)
-        armed = false
+        commitToken(
+            spliceTriggerToken(value.text, value.selection.start, ISSUE_REF_AT_CARET, "#" + target.identifier + " "),
+        )
     }
 
     // `:shortcode` emoji typeahead (EXP-551): the same trigger shape as `@`/`#`,
@@ -236,19 +234,10 @@ fun BlockTextField(
         }
 
     fun insertEmoji(record: EmojiRecord, trailingSpace: Boolean) {
-        val match = emojiMatch ?: return
-        val caret = value.selection.start
-        val start = caret - match.length
-        if (start < 0) return
-        val unicode = record.unicode
-        val inserted = if (trailingSpace) unicode + " " else unicode
-        val newText = value.text.substring(0, start) + inserted + value.text.substring(caret)
-        val newCaret = start + inserted.length
-        value = TextFieldValue(newText, TextRange(newCaret))
-        model.updateRun(row.id, newText, newCaret)
-        model.updateSelection(row.id, newCaret..newCaret)
+        val inserted = if (trailingSpace) record.unicode + " " else record.unicode
+        val spliced = spliceEmojiToken(value.text, value.selection.start, inserted) ?: return
+        commitToken(spliced)
         emojiPrefs.pushRecent(record.unicode)
-        armed = false
     }
 
     val marks = row.marks
@@ -318,7 +307,9 @@ fun BlockTextField(
         // the layout lags `value` by up to a frame while typing fast, so coerce
         // against the laid-out text and fall back to the row bottom for that
         // one frame rather than crash.
-        val offset = chipTransform.originalToTransformed(value.selection.start)
+        // Caret semantics (after a chip's title at its token end) — the rect
+        // must sit where the field draws the caret.
+        val offset = chipTransform.caretToDisplay(value.selection.start)
             .coerceIn(0, layout.layoutInput.text.length)
         runCatching { layout.getCursorRect(offset) }.getOrNull()
     }
@@ -359,7 +350,14 @@ fun BlockTextField(
 
     BasicTextField(
         value = value,
-        onValueChange = { new ->
+        onValueChange = { raw ->
+            // A chip is ONE thing (EXP-655): a caret moved INTO a resolved
+            // `#IDENTIFIER` (arrow keys, the IME's cursor control) skips to
+            // the edge it was heading for, and a backspace at the chip's
+            // right edge removes the whole token — iOS's chipAtomRange and
+            // the IDE's EXP-547 caret rules. Chips come from the transform
+            // of the PREVIOUS value, i.e. the text the edit was made against.
+            val new = atomizeChipEdit(value, raw, chipTransform.chips)
             // Only a real document change may open the menu (web parity).
             if (new.text != value.text) armed = true
             value = new
@@ -489,16 +487,18 @@ fun BlockTextField(
                                 issueRefs.onOpen(chip.target)
                             }
                         }
-                        // EXP-608: a tap on an EMPTY line must land the caret ON
-                        // that line. Empty lines render as a lone zero-width
-                        // space (the '\n' substitution in ChipVisualTransformation),
-                        // and platform hit-testing resolves a tap past a
-                        // zero-width glyph — to the offset AFTER it, which
-                        // belongs to the NEXT paragraph. Untouched, the caret
-                        // landed one line below and an empty first line could
-                        // never take the caret at all. Intercept those taps
+                        // EXP-608/EXP-655: a tap past the END of a line must
+                        // land the caret on THAT line. Every non-final '\n'
+                        // renders as a zero-width space (the substitution in
+                        // ChipVisualTransformation), and platform hit-testing
+                        // resolves a tap past a zero-width glyph to the offset
+                        // AFTER it, which belongs to the NEXT paragraph.
+                        // Untouched, a tap in the free half of a short line
+                        // (or anywhere on an empty one) put the caret one
+                        // line below, and an empty first line could never
+                        // take the caret at all. Intercept those taps
                         // (Initial pass, same preemption as the chip handler)
-                        // and place the caret at the line start ourselves.
+                        // and place the caret at the line end ourselves.
                         .pointerInput(chipTransform) {
                             awaitEachGesture {
                                 val down = awaitFirstDown(
@@ -514,10 +514,14 @@ fun BlockTextField(
                                     return@awaitEachGesture
                                 }
                                 val line = layout.getLineForVerticalPosition(down.position.y)
-                                val target = emptyDisplayLineStart(
+                                val hit = runCatching {
+                                    layout.getOffsetForPosition(down.position)
+                                }.getOrNull() ?: return@awaitEachGesture
+                                val target = tapCaretOnLine(
                                     display.text,
                                     layout.getLineStart(line),
                                     layout.getLineEnd(line),
+                                    hit,
                                 ) ?: return@awaitEachGesture
                                 down.consume()
                                 val up = waitForUpOrCancellation(PointerEventPass.Initial)
@@ -554,16 +558,93 @@ fun BlockTextField(
 }
 
 /**
- * The display offset a tap on a laid-out line should place the caret at when
- * that line is an EMPTY source line — rendered as a lone zero-width space by
- * the '\n' substitution in [ChipVisualTransformation] — or null for every
- * other line (EXP-608). A real trailing empty line (kept as an actual '\n',
- * EXP-567) has `lineEnd == lineStart` and correctly returns null: default hit
- * testing already handles it.
+ * Replace the trigger token before [caret] — re-matched by [trigger] against
+ * the LIVE [text], never a captured query — with [replacement]. Returns the
+ * new text and caret, or null when no token ends at the caret (the menu was
+ * stale; the tap is a no-op rather than a mangled splice). [trigger]'s group 1
+ * is the query right after the one-character trigger, so the trigger itself
+ * sits one before it (EXP-655).
  */
-internal fun emptyDisplayLineStart(displayText: String, lineStart: Int, lineEnd: Int): Int? =
-    if (lineEnd == lineStart + 1 && displayText.getOrNull(lineStart) == '\u200B') lineStart
-    else null
+internal fun spliceTriggerToken(
+    text: String,
+    caret: Int,
+    trigger: Regex,
+    replacement: String,
+): Pair<String, Int>? {
+    val at = caret.coerceIn(0, text.length)
+    val query = trigger.find(text.take(at))?.groups?.get(1) ?: return null
+    val start = query.range.first - 1
+    if (start < 0) return null
+    return (text.substring(0, start) + replacement + text.substring(at)) to (start + replacement.length)
+}
+
+/** The `:shortcode` twin of [spliceTriggerToken] (EXP-551 token shape). */
+internal fun spliceEmojiToken(text: String, caret: Int, replacement: String): Pair<String, Int>? {
+    val at = caret.coerceIn(0, text.length)
+    val match = matchEmojiToken(text.take(at)) ?: return null
+    val start = at - match.length
+    if (start < 0) return null
+    return (text.substring(0, start) + replacement + text.substring(at)) to (start + replacement.length)
+}
+
+/**
+ * The display offset a tap on a laid-out display line `[lineStart, lineEnd)`
+ * should place the caret at, given the offset [hit] platform hit-testing
+ * resolved the tap to — or null to leave the tap to default handling.
+ *
+ * Non-final '\n's render as a zero-width space at the END of their line (the
+ * substitution in [ChipVisualTransformation]), and a hit past that glyph
+ * resolves to the offset AFTER it, which is the NEXT line's start: clamp it
+ * onto the zero-width space, i.e. this line's end (EXP-655; an empty line —
+ * EXP-608 — is the case where that end is also the start). The last line has
+ * no stand-in and a real trailing '\n' (EXP-567) has `lineEnd == lineStart`;
+ * both correctly return null, default hit testing handles them.
+ */
+internal fun tapCaretOnLine(displayText: String, lineStart: Int, lineEnd: Int, hit: Int): Int? {
+    if (lineEnd <= lineStart || displayText.getOrNull(lineEnd - 1) != '\u200B') return null
+    val empty = lineEnd == lineStart + 1
+    return if (empty || hit >= lineEnd) lineEnd - 1 else null
+}
+
+/**
+ * Chips are one thing (EXP-655). For a pure caret move that lands STRICTLY
+ * inside a resolved `#IDENTIFIER`, the caret skips to the edge it was heading
+ * for; for a one-character backspace at a chip's right edge, the whole token
+ * goes (iOS `chipAtomRange` parity). Every other edit passes through as-is.
+ * [chips] are the previous value's — the text [new] was derived from.
+ */
+internal fun atomizeChipEdit(
+    old: TextFieldValue,
+    new: TextFieldValue,
+    chips: List<IssueChipTransform.Chip>,
+): TextFieldValue {
+    if (chips.isEmpty()) return new
+    if (new.text == old.text) {
+        if (!new.selection.collapsed) return new
+        val snapped = snapCaretOutOfChips(chips, old.selection.start, new.selection.start)
+        return if (snapped == new.selection.start) new else new.copy(selection = TextRange(snapped))
+    }
+    val oldCaret = old.selection.start
+    val isBackspace = old.selection.collapsed && new.selection.collapsed &&
+        oldCaret > 0 && new.selection.start == oldCaret - 1 &&
+        new.text.length == old.text.length - 1 &&
+        new.text == old.text.removeRange(oldCaret - 1, oldCaret)
+    if (!isBackspace) return new
+    val chip = chips.firstOrNull { it.sourceEnd == oldCaret } ?: return new
+    return TextFieldValue(
+        old.text.removeRange(chip.sourceStart, chip.sourceEnd),
+        TextRange(chip.sourceStart),
+    )
+}
+
+/**
+ * [newCaret], unless it lies strictly inside a chip — then that chip's edge
+ * in the direction of travel from [oldCaret].
+ */
+internal fun snapCaretOutOfChips(chips: List<IssueChipTransform.Chip>, oldCaret: Int, newCaret: Int): Int {
+    val chip = chips.firstOrNull { newCaret > it.sourceStart && newCaret < it.sourceEnd } ?: return newCaret
+    return if (newCaret > oldCaret) chip.sourceEnd else chip.sourceStart
+}
 
 @Composable
 private fun AutocompleteMenu(

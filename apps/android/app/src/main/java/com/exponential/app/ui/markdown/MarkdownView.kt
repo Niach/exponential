@@ -444,8 +444,14 @@ internal fun annotateLine(
             val status = target.resolvedStatus
             if (status != null && chipStart < chipEnd) {
                 // The status glyph is painted over the `#`; hiding it costs one
-                // transparent character span and zero offset-map changes.
-                addStyle(SpanStyle(color = Color.Transparent), chipStart, chipStart + 1)
+                // transparent character span and zero offset-map changes. The
+                // letter spacing widens that cell into the icon↔identifier gap
+                // (EXP-655, same as the editor's addChipStyles).
+                addStyle(
+                    SpanStyle(color = Color.Transparent, letterSpacing = MdStyle.chipHashLetterSpacing),
+                    chipStart,
+                    chipStart + 1,
+                )
             }
             chipSpecs.add(
                 IssueRefChipSpec(
