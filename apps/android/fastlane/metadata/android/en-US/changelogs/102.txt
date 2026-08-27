@@ -1,0 +1,1 @@
+Live coding sessions stay connected through network changes and app switches, a calmer Actions list, plus fixes.

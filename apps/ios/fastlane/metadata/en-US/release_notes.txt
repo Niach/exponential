@@ -1,5 +1,7 @@
 Everything since 0.14.0:
 
+- Live coding sessions stay connected through network changes and app switches, and recover on their own when they drop
+- Toggles and the Actions list got a cleaner look
 - Start a chat with an agent straight from the Agents tab
 - Pick a default machine and every Start coding dialog preselects it
 - Live sessions keep streaming while you move around the app, and steering drafts survive reconnects

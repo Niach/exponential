@@ -25,12 +25,22 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-steadier-live-sessions`,
+    date: `2026-08-27`,
+    title: `Steadier live sessions`,
+    summary: `Live coding sessions on web, iOS and Android now ride out network changes and app switches, the CLI daemon heals itself when it falls behind, and the feedback widget can hide its launcher on demand.`,
+    body: `- **Sessions that stay up**: the web, iOS and Android session views reconnect on their own after a network change, a backgrounded app or a dropped socket, with capped, jittered retries instead of a spinner that never ends.
+- **No stranded sessions**: a desktop that is told it is too old still ends its coding sessions cleanly instead of leaving them marked as running, and the CLI daemon updates itself immediately when it hits that gate (\`exponential update\` now restarts a running daemon too).
+- **Widget**: a new \`setLauncherHidden()\` call hides the launcher while your own UI covers its corner, the edge tab is slimmer, and the docs cover the whole runtime API.
+- **Polish**: a calmer Actions list on every client, refreshed product demos in the docs, and the desktop notifications that shipped alongside (see the entry below).`,
+  },
+  {
     id: `2026-08-desktop-os-notifications`,
     date: `2026-08-27`,
     title: `Desktop notifications`,
     summary: `The desktop app now raises real system notifications when something lands in your inbox, on macOS, Windows and Linux, self-hosted included.`,
     body: `- **Real notifications**: assignments, comments, mentions, status changes, PR activity and support replies show up in your system's notification center the moment they happen. Clicking one opens the issue, the team's Support inbox, or your Inbox.
-- **Quiet when it should be**: nothing fires for the history that syncs at launch, a burst of related events collapses into one notification, and an issue you are already looking at stays silent.
+- **Quiet when it should be**: nothing fires for the history that syncs at first sign-in, what arrived while the app was closed shows up once as a single bundle, a burst of related events collapses into one notification, and an issue you are already looking at stays silent.
 - **Your rules apply**: the per-type switches in Account, Notifications decide what may notify at all, and a new "Desktop notifications" toggle above them turns it off for one machine.
 - **Works self-hosted**: this is the first push-like channel that needs no cloud service, since it rides the same sync the inbox uses.`,
   },
