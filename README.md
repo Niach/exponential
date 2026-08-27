@@ -8,15 +8,13 @@
 **The next generation dev platform for teams.** Issues, customer feedback, and coding agents in one realtime tracker. Agents run on your own machines, on your own subscription. Web, macOS, Linux, Windows, iOS, Android.
 
 <p align="center">
-  <img src="./docs/images/desktop.webp" alt="Exponential desktop app on macOS" width="100%">
-</p>
-<p align="center">
-  <img src="./docs/images/ios.webp" alt="Exponential on iPhone" width="260">
+  <img src="./docs/images/hero.webp" alt="The Exponential board on desktop, with the Start coding screen on iPhone" width="100%">
 </p>
 
 - **Cloud**: [app.exponential.at](https://app.exponential.at/?ref=github), free for up to three people
 - **Self-host**: one `docker compose`, no seat caps, no licence gate
 - **Desktop app**: [exponential.at/download](https://exponential.at/download/?ref=github)
+- **Mobile apps**: [App Store](https://apps.apple.com/app/exponential-vibecode-together/id6788189402) · [Google Play](https://play.google.com/store/apps/details?id=at.exponential)
 
 ## What you get
 
