@@ -19,3 +19,11 @@ export function trpcErrorMessage(error: unknown, fallback: string): string {
   }
   return fallback
 }
+
+/** The server's TRPCError code (`FORBIDDEN`, `NOT_FOUND`, …) when the error is
+ *  a tRPC one; undefined for network failures and anything else. */
+export function trpcErrorCode(error: unknown): string | undefined {
+  if (!(error instanceof TRPCClientError)) return undefined
+  const code = (error.data as { code?: unknown } | undefined)?.code
+  return typeof code === `string` ? code : undefined
+}

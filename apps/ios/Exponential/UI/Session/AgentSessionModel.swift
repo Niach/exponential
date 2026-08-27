@@ -319,7 +319,10 @@ final class AgentSessionModel {
     private static let joinAckSeconds: Double = 15
     /// A nominally live socket that has delivered nothing for this long is
     /// suspect, so a wake signal redials it silently rather than trusting the
-    /// phase. An idle agent still produces frames well inside this window.
+    /// phase. The relay sends every joined viewer a `keepalive` frame every
+    /// 15s (EXP-648), so this is three missed ticks: an agent parked on a
+    /// question or a plan approval produces no frames of its own, and must
+    /// not read as a dead socket.
     private static let liveStaleSeconds: Double = 45
     /// Shown when the session's row no longer exists — a swept row (or one
     /// that left this client's sync scope) is over as far as any client can
@@ -952,6 +955,11 @@ final class AgentSessionModel {
             // gone).
             markLive()
             resetFeed()
+        case "keepalive":
+            // The relay's liveness beat to joined viewers (EXP-648). Already
+            // counted: `enqueue` stamped `lastFrameAt` before this ran. Never
+            // a phase change, never a feed change.
+            break
         case "bye":
             let outcome = obj["outcome"] as? String
             if outcome == "publisher_lost" {

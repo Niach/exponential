@@ -6,6 +6,7 @@ import {
   type SteerSessionStore,
 } from "@/lib/steer-session-store"
 import { FEED_CAP } from "@/lib/agent-feed"
+import { TRPCClientError } from "@trpc/client"
 
 // The store never reaches the real client in tests — every store gets fake
 // deps — but the module imports it at load, so keep the import inert.
@@ -467,5 +468,163 @@ describe(`registry lifecycle`, () => {
     store._scheduleReap()
     await vi.advanceTimersByTimeAsync(61_000)
     expect(disposed.current).toBe(true)
+  })
+})
+
+// EXP-648: the relay ticks a `keepalive` to every joined viewer every 15s, so
+// a live socket that has been mute for three of them is dead (an OS-killed
+// connection under a suspended tab that never delivered a close frame) —
+// NOT an agent parked on a question or plan approval. Mirrors the mobile
+// viewers' 45s window.
+describe(`live staleness (EXP-648)`, () => {
+  it(`keepalive frames keep a live socket fresh — a kick stays a no-op`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    await vi.advanceTimersByTimeAsync(40_000)
+    socket.frame({ t: `keepalive` })
+    await vi.advanceTimersByTimeAsync(40_000)
+    // 80s since the join answer, 40s since the beat: fresh.
+    store.kick(`visible`)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(sockets).toHaveLength(1)
+    expect(store.getSnapshot().phase.kind).toBe(`live`)
+    expect(store.getSnapshot().connected).toBe(true)
+    expect(store.getSnapshot().feed).toHaveLength(0)
+    store.dispose()
+  })
+
+  it(`redials silently once a live socket has been mute past the stale window`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({ t: `activity`, event: { kind: `narration`, text: `working` } })
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(store.getSnapshot().feed).toHaveLength(1)
+
+    await vi.advanceTimersByTimeAsync(45_100)
+    store.kick(`visible`)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(sockets).toHaveLength(2)
+    // The dead socket is CLOSED (never a duplicate viewer at the relay), the
+    // phase holds so nothing flashes "Disconnected", the feed is retained.
+    expect(sockets[0].closed).toBe(true)
+    expect(store.getSnapshot().phase.kind).toBe(`live`)
+    expect(store.getSnapshot().feed).toHaveLength(1)
+
+    // The dead socket's late close is inert (generation gate).
+    sockets[0].serverClose(1006)
+    expect(store.getSnapshot().phase.kind).toBe(`live`)
+    expect(sockets).toHaveLength(2)
+
+    sockets[1].open()
+    sockets[1].frame({ t: `activity_reset` })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.getSnapshot().phase.kind).toBe(`live`)
+    expect(store.getSnapshot().connected).toBe(true)
+    store.dispose()
+  })
+
+  it(`a second kick during the silent redial does not double-dial`, async () => {
+    const { store, sockets } = makeStore()
+    await goLive(store, sockets)
+    await vi.advanceTimersByTimeAsync(45_100)
+    store.kick(`visible`)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(sockets).toHaveLength(2)
+
+    // visible + online fire back to back: the young redial is left alone.
+    store.kick(`online`)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(sockets).toHaveLength(2)
+    // Opened + joined but not answered yet: still a young dial.
+    sockets[1].open()
+    store.kick(`device-online`)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(sockets).toHaveLength(2)
+
+    // A redial the relay never answers is itself retried after the window.
+    await vi.advanceTimersByTimeAsync(45_100)
+    store.kick(`visible`)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(sockets).toHaveLength(3)
+    expect(sockets[1].closed).toBe(true)
+    store.dispose()
+  })
+})
+
+// EXP-648: a "no" a retry cannot turn into a "yes" must not cost one mint per
+// visibilitychange/online event per retained store.
+describe(`terminal closes (EXP-648)`, () => {
+  function trpcError(code: string, message: string) {
+    return new TRPCClientError(message, {
+      result: {
+        error: { message, code: -32003, data: { code, httpStatus: 403 } },
+      },
+    })
+  }
+
+  it(`a disabled instance is left alone by kicks but not by Reconnect`, async () => {
+    const mint = vi.fn(() => Promise.resolve({ disabled: true as const }))
+    const { store, sockets } = makeStore({ mint })
+    store.connect()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.getSnapshot().phase.kind).toBe(`closed`)
+    store.kick(`visible`)
+    store.kick(`online`)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(mint).toHaveBeenCalledTimes(1)
+    expect(sockets).toHaveLength(0)
+    // The user asking is different from the tab merely waking up.
+    store.reconnect()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(mint).toHaveBeenCalledTimes(2)
+    store.dispose()
+  })
+
+  it.each([`FORBIDDEN`, `NOT_FOUND`])(
+    `a mint refused with %s is terminal`,
+    async (code) => {
+      const mint = vi.fn(() => Promise.reject(trpcError(code, `Nope`)))
+      const { store } = makeStore({ mint })
+      store.connect()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(store.getSnapshot().phase).toMatchObject({
+        kind: `closed`,
+        detail: `Nope`,
+      })
+      store.kick(`visible`)
+      store.kick(`online`)
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(mint).toHaveBeenCalledTimes(1)
+      store.reconnect()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mint).toHaveBeenCalledTimes(2)
+      store.dispose()
+    }
+  )
+
+  it(`a mint that failed transiently stays retryable`, async () => {
+    const mint = vi.fn(() => Promise.reject(new Error(`fetch failed`)))
+    const { store } = makeStore({ mint })
+    store.connect()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.getSnapshot().phase.kind).toBe(`closed`)
+    store.kick(`visible`)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(mint).toHaveBeenCalledTimes(2)
+    store.dispose()
+  })
+
+  it(`a 4003 close is terminal; other codes stay retryable`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.serverClose(4003)
+    expect(store.getSnapshot().phase.kind).toBe(`closed`)
+    store.kick(`visible`)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(sockets).toHaveLength(1)
+    store.reconnect()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(sockets).toHaveLength(2)
+    store.dispose()
   })
 })

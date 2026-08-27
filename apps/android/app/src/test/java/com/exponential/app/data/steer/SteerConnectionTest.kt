@@ -264,6 +264,60 @@ class SteerConnectionTest {
         }
     }
 
+    // EXP-648: the relay ticks a keepalive to every joined viewer, so a quiet
+    // agent (parked on a question or a plan approval) no longer reads as a
+    // dead socket, and a kick does not throw a healthy socket away for a
+    // mint + activity_reset + full replay.
+    @Test
+    fun aKeepaliveFrameKeepsALiveSocketFresh() = runBlocking {
+        val transport = FakeTransport()
+        val connection = connection(transport)
+        try {
+            connection.connect()
+            val socket = transport.awaitOpen()
+            socket.emit("""{"t":"activity_reset"}""")
+            waitUntil("the live phase") { connection.phase.value == AgentPhase.Live }
+            // Well past liveStaleMs in total, never past it between beats.
+            repeat(4) {
+                delay(fastTimings.liveStaleMs / 2)
+                socket.emit("""{"t":"keepalive"}""")
+            }
+            connection.kick("foreground")
+            assertNull(withTimeoutOrNull(300) { transport.opens.receive() })
+            assertEquals(AgentPhase.Live, connection.phase.value)
+            assertTrue(connection.connected.value)
+            assertFalse(socket.cancelled)
+        } finally {
+            connection.close()
+        }
+    }
+
+    @Test
+    fun aMuteLiveSocketIsRedialedSilentlyOnKick() = runBlocking {
+        val transport = FakeTransport()
+        val connection = connection(transport)
+        try {
+            connection.connect()
+            val first = transport.awaitOpen()
+            first.emit("""{"t":"activity_reset"}""")
+            waitUntil("the live phase") { connection.phase.value == AgentPhase.Live }
+
+            delay(fastTimings.liveStaleMs + 100)
+            connection.kick("foreground")
+            val second = transport.awaitOpen()
+            // A probe of a socket that may turn out fine must not flash
+            // "Reconnecting…": the phase holds Live across the redial.
+            assertEquals(AgentPhase.Live, connection.phase.value)
+            assertTrue(first.cancelled)
+
+            second.emit("""{"t":"activity_reset"}""")
+            waitUntil("the redial to connect") { connection.connected.value }
+            assertEquals(AgentPhase.Live, connection.phase.value)
+        } finally {
+            connection.close()
+        }
+    }
+
     @Test
     fun closeIsFinalAndAKickCannotReviveIt() = runBlocking {
         val transport = FakeTransport()

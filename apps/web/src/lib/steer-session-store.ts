@@ -1,5 +1,5 @@
 import { trpc } from "@/lib/trpc-client"
-import { trpcErrorMessage } from "@/lib/trpc-error"
+import { trpcErrorCode, trpcErrorMessage } from "@/lib/trpc-error"
 import {
   ackAnswer,
   answerKey,
@@ -52,6 +52,12 @@ const STARTING_RETRY_MAX_MS = 30_000
  *  eviction, not an ending: the session is still live, so the store redials
  *  silently instead of stranding the user on "Disconnected". */
 const CLOSE_SLOW_CONSUMER = 4008
+/** The relay refused the ticket (CLOSE_UNAUTHORIZED). A retry mints the same
+ *  "no" forever, so this close is terminal (the mobile viewers agree). Today
+ *  the relay refuses a bad ticket at the HTTP upgrade instead (401, which a
+ *  browser reports as 1006 — rightly retryable, every redial mints a fresh
+ *  ticket), so this is protocol completeness rather than a hot path. */
+const CLOSE_UNAUTHORIZED = 4003
 /** A disposal grace once a store is neither kept by the dock's reaper nor
  *  subscribed — long enough to survive transient empty live-query results
  *  and dock remounts, which must never kill a background socket. */
@@ -69,6 +75,14 @@ const MINT_TIMEOUT_MS = 20_000
  *  the normal onclose path runs and the user gets a Reconnect affordance
  *  instead of an eternal "Connecting…". */
 const JOIN_ACK_TIMEOUT_MS = 15_000
+/** EXP-648: the relay sends every joined viewer a `keepalive` frame every
+ *  15s (apps/steer-relay/src/hub.ts), so three of those missing on a
+ *  nominally live socket means the socket is dead — one the OS killed under
+ *  a suspended tab without ever delivering a close frame — not that the
+ *  agent is quiet (an agent parked on a question or plan approval sends
+ *  nothing for minutes). A wakeup kick redials such a socket silently under
+ *  the `live` phase. Mirrors Android `liveStaleMs` / iOS `liveStaleSeconds`. */
+const LIVE_STALE_MS = 45_000
 /** What the mint race resolves to when the deadline wins (EXP-625). */
 const MINT_TIMED_OUT = Symbol(`mint-timed-out`)
 
@@ -152,6 +166,9 @@ type ServerFrame =
   // Protocol v2: "clear your feed now" — sent before every join replay and
   // whenever the desktop re-publishes its full history.
   | { t: `activity_reset` }
+  // EXP-648: the relay's liveness beat to joined viewers. Carries nothing;
+  // its only effect is the `lastFrameAt` stamp taken above the switch.
+  | { t: `keepalive` }
   | { t: `bye`; outcome?: string }
   | { t: `error`; code: string; message?: string }
   | { t: string }
@@ -180,7 +197,12 @@ export type ViewerPhase =
   // The session ended (relay `bye`, or the room was never live).
   | { kind: `ended`; detail?: string }
   // Unexpected socket loss — offer a manual Reconnect (fresh ticket).
-  | { kind: `closed`; detail?: string }
+  // `terminal` (EXP-648) marks a "no" a retry cannot turn into a "yes":
+  // steering disabled on the instance, a mint refused for ownership or a
+  // gone row, a ticket the relay rejected. The wakeup kicks leave those
+  // alone instead of re-minting on every tab switch; the explicit Reconnect
+  // button still tries.
+  | { kind: `closed`; detail?: string; terminal?: boolean }
 
 export type FeedItem =
   | { id: number; kind: `narration`; text: string }
@@ -642,6 +664,7 @@ export function createSteerSessionStore(
         phase = {
           kind: `closed`,
           detail: `Live steering is unavailable on this instance.`,
+          terminal: true,
         }
         commit()
         return
@@ -690,6 +713,11 @@ export function createSteerSessionStore(
             if (markLive()) commit()
             return
           }
+          case `keepalive`:
+            // EXP-648: already counted by the `lastFrameAt` stamp above.
+            // Never a phase change and never a commit — it must not touch
+            // the feed or re-render anything.
+            return
           case `activity_reset`: {
             activityQueue.enqueue({ t: `reset` })
             if (markLive()) commit()
@@ -760,14 +788,24 @@ export function createSteerSessionStore(
           scheduleRedial()
           return
         }
-        phase = { kind: `closed`, detail: detail ?? undefined }
+        phase = {
+          kind: `closed`,
+          detail: detail ?? undefined,
+          terminal: event.code === CLOSE_UNAUTHORIZED,
+        }
         commit()
       }
     } catch (error) {
       if (disposed || gen !== generation) return
+      // A mint refused for ownership (FORBIDDEN) or for a row that is gone
+      // (NOT_FOUND) is terminal: it stays `closed` rather than `ended` — a
+      // reaped row is disposed by the registry's retention sweep anyway.
+      // Everything else (a network failure, a 5xx) is worth a retry.
+      const code = trpcErrorCode(error)
       phase = {
         kind: `closed`,
         detail: trpcErrorMessage(error, `Couldn't get a viewer ticket`),
+        terminal: code === `FORBIDDEN` || code === `NOT_FOUND`,
       }
       commit()
     }
@@ -870,11 +908,15 @@ export function createSteerSessionStore(
     },
     kick(_reason) {
       if (disposed) return
-      switch (phase.kind) {
+      const current = phase
+      switch (current.kind) {
         case `closed`:
           // An unexpected close stays terminal BY DESIGN until something
           // says the world changed, and a wakeup is exactly that. A
-          // session the synced row calls ended is left alone.
+          // session the synced row calls ended is left alone, and so is a
+          // close no retry can fix (EXP-648, see ViewerPhase) — that used to
+          // cost one mint per visibility/online event per retained store.
+          if (current.terminal) return
           if (sessionStatus !== `ended`) store.reconnect()
           return
         case `connecting`:
@@ -892,8 +934,22 @@ export function createSteerSessionStore(
           clearRetryTimer()
           void dial(true)
           return
+        case `live`:
+          // EXP-648: live on paper over a socket that has said nothing for
+          // longer than three relay keepalives is dead — redial under the
+          // `live` phase (the 4008 mechanics) so a socket that turns out
+          // fine never flashes "Disconnected". Silence is measured from the
+          // LATER of the last frame and the current dial's start: a young
+          // in-flight redial (visible + online firing back to back) is left
+          // to finish or hit its own deadline, while a redial whose socket
+          // never opened still self-heals after the window.
+          if (Date.now() - Math.max(lastFrameAt, dialStartedAt) <= LIVE_STALE_MS)
+            return
+          clearRetryTimer()
+          void dial(true)
+          return
         default:
-          // `live`, `idle` and `ended` need nothing.
+          // `idle` and `ended` need nothing.
           return
       }
     },
