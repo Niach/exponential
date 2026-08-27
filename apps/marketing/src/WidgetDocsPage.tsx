@@ -20,12 +20,13 @@ const SECTIONS: DocsSectionType[] = [
 const WIDGET_SNIPPET =
   `<script>
   // Exponential feedback widget. Full docs — init options, identify,
-  // setCustomData, setTheme (dark/light/auto), labels, headless submit:
+  // setCustomData, setTheme (dark/light/auto), setLauncherHidden, labels,
+  // headless submit:
   // https://exponential.at/docs/widget/
   (function (w, d, u) {
     if (w.ExponentialWidget) return;
     var q = [], api = { q: q };
-    ["init","identify","setCustomData","setTheme","open","close","submit"].forEach(function (m) {
+    ["init","identify","setCustomData","setTheme","setLauncherHidden","open","close","submit"].forEach(function (m) {
       api[m] = function () { q.push([m, [].slice.call(arguments)]); };
     });
     w.ExponentialWidget = api;
@@ -115,6 +116,11 @@ ExponentialWidget.setCustomData({
 // Hook the widget to your site's dark/light toggle — launcher
 // and panel restyle live. "auto" follows the visitor's system.
 ExponentialWidget.setTheme("light");
+
+// Hide the launcher while your own UI covers its corner (a bottom
+// sheet, a mobile action bar). Only the button goes away: an open
+// panel keeps rendering and open()/close()/submit() keep working.
+ExponentialWidget.setLauncherHidden(true);
 
 // Open / close the panel programmatically. Wire your own
 // "Report a bug" menu item to open().
