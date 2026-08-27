@@ -1205,8 +1205,9 @@ fn last_run_label(session: &domain::rows::CodingSession) -> String {
     }
 }
 
-/// One "Recent automated runs" row: the action's name snapshot, an "Automated"
-/// badge, and the run's status + age.
+/// One "Recent automated runs" row: the action's name snapshot and the run's
+/// status + age. No "Automated" badge (EXP-643) — the list header already says
+/// so on every client.
 fn render_run_row(session: &domain::rows::CodingSession, cx: &App) -> gpui::AnyElement {
     let theme = cx.theme();
     let muted = theme.muted_foreground;
@@ -1220,8 +1221,6 @@ fn render_run_row(session: &domain::rows::CodingSession, cx: &App) -> gpui::AnyE
     let when = run_started_at(session)
         .map(|at| crate::comments::relative_time(at, chrono::Utc::now().timestamp()))
         .unwrap_or_default();
-    // `schedule` / `event` — why it fired.
-    let reason = session.started_reason.clone().unwrap_or_default();
     crate::surface::glass_row_card()
         .flex()
         .w_full()
@@ -1243,22 +1242,6 @@ fn render_run_row(session: &domain::rows::CodingSession, cx: &App) -> gpui::AnyE
                 .truncate()
                 .text_color(theme.foreground)
                 .child(SharedString::from(name)),
-        )
-        .child(
-            div()
-                .flex_shrink_0()
-                .px_1p5()
-                .py_0p5()
-                .rounded(px(theme::tokens::radius::SM))
-                .border_1()
-                .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-                .text_xs()
-                .text_color(muted)
-                .child(SharedString::from(if reason.is_empty() {
-                    "Automated".to_string()
-                } else {
-                    format!("Automated · {reason}")
-                })),
         )
         .child(
             div()

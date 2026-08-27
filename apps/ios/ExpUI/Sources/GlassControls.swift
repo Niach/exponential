@@ -209,6 +209,62 @@ public struct GlassOAuthButton<Icon: View>: View {
     }
 }
 
+// MARK: - Toggle
+
+/// The ONE switch (EXP-643): Android `Switch` parity under the dark M3 scheme
+/// — an on switch is a `primaryForeground` (near-black) thumb on a `primary`
+/// (near-white) track. The system `.switch` style can only tint the TRACK and
+/// always paints a white thumb, so tinting it `primary` gave white-on-white
+/// with no contrast. Off is the glass fill + hairline with a muted thumb.
+/// Geometry matches UISwitch (51×31, 27pt thumb). Applied app-wide from the
+/// root (`.toggleStyle(.glass)`), so `Toggle` call sites stay stock; a hidden
+/// label host adds `.fixedSize()` to keep the toggle from claiming row width.
+public struct GlassToggleStyle: ToggleStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.motion) private var motion
+
+    public init() {}
+
+    public func makeBody(configuration: Configuration) -> some View {
+        Button {
+            withAnimation(motion.fast) {
+                configuration.isOn.toggle()
+            }
+        } label: {
+            HStack(spacing: 8) {
+                configuration.label
+                Spacer(minLength: 0)
+                track(isOn: configuration.isOn)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .opacity(isEnabled ? 1 : 0.4)
+        .accessibilityAddTraits(.isToggle)
+        .accessibilityValue(configuration.isOn ? "On" : "Off")
+    }
+
+    private func track(isOn: Bool) -> some View {
+        Capsule()
+            .fill(isOn ? DesignTokens.Palette.primary : Color.white.opacity(0.08))
+            .overlay(
+                Capsule()
+                    .stroke(Color.white.opacity(isOn ? 0 : 0.15), lineWidth: 0.5)
+            )
+            .overlay(alignment: isOn ? .trailing : .leading) {
+                Circle()
+                    .fill(isOn ? DesignTokens.Palette.primaryForeground : Zinc._400)
+                    .frame(width: 27, height: 27)
+                    .padding(2)
+            }
+            .frame(width: 51, height: 31)
+    }
+}
+
+extension ToggleStyle where Self == GlassToggleStyle {
+    public static var glass: GlassToggleStyle { GlassToggleStyle() }
+}
+
 // MARK: - Circle icon button
 
 /// A drawn glass circle around a single glyph (Android CircleIconButton:

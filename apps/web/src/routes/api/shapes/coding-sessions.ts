@@ -11,7 +11,7 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // `action_id`/`action_name` were appended for EXP-253, `branch` for EXP-545
 // (the batch↔PR linkage: stamped by the MCP pr_open batch flip so clients tie
 // a batch row's Merge shortcut to its OWN PR), `started_reason` for EXP-530, `automation_id` for EXP-583
-// (the "Automated" badge + Automations run history), `device_id` for
+// (the Automations run history + per-row last run), `device_id` for
 // EXP-549/550 (the hosting machine's steer deviceId — clients join the synced
 // devices row for the renamed label and its online-ness) — each a ONE-TIME
 // shape-identity rotation (benign: small table, full resync; land in one

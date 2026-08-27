@@ -157,7 +157,7 @@ pub struct HeartbeatScope {
     pub started_by_id: Option<String>,
     pub device_id: Option<String>,
     /// EXP-530: the automation reason (`schedule`/`event`) echoed so a swept
-    /// row resurrects with its "Automated" badge instead of looking
+    /// row resurrects inside the Automations run history instead of looking
     /// hand-started. `None` for every user-started run (and for issue/batch
     /// scopes, which never automate).
     pub started_reason: Option<String>,

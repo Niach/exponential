@@ -266,7 +266,7 @@ data class CodingSessionEntity(
     @ColumnInfo(name = "action_id") @SerialName("action_id") @JsonNames("actionId") val actionId: String? = null,
     @ColumnInfo(name = "action_name") @SerialName("action_name") @JsonNames("actionName") val actionName: String? = null,
     // EXP-530: why an automation started this run (`schedule` | `event`);
-    // NULL on every user-started session. Powers the "Automated" badge and
+    // NULL on every user-started session. Powers the automated-run list and
     // keeps automation rows out of the post-send start watch (StartedRunMatch).
     @ColumnInfo(name = "started_reason") @SerialName("started_reason") @JsonNames("startedReason") val startedReason: String? = null,
     // EXP-583: the automations row that fired this run (FK SET NULL), NULL on

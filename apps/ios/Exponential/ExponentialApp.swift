@@ -21,6 +21,9 @@ struct ExponentialApp: App {
             AppNavigator()
                 .environment(dependencies)
                 .preferredColorScheme(.dark)
+                // EXP-643: every Toggle in the tree (sheets included) renders
+                // the black-on-white glass switch instead of the system one.
+                .toggleStyle(.glass)
                 // A suspension leaves every shape long-poll either parked on
                 // escalated backoff (up to 30s) or holding a socket that won't
                 // fail until the 90s request timeout, so a returning user can
