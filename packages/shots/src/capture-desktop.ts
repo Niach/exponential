@@ -76,6 +76,17 @@ export const WINDOW_SIZE = `1440x900`
  */
 export const DEVICE_HOSTNAME = `Alex's Mac mini`
 /**
+ * The prompt the dev shell renders in the `terminal` view. `HOSTNAME` above is
+ * not enough: the shell is a real login shell on a real PTY, so `%m` in the
+ * user's own prompt resolves through `gethostname(2)` and ignores the env var
+ * — the committed shot carried `<developer>@<their-macbook>` verbatim, the
+ * same class of leak as the username-free `--repos-root` rule in
+ * `shots/README.md`. Pinning it also makes the frame deterministic: whatever a
+ * developer's `.zshrc` does (git status in the prompt, a greeting, a theme)
+ * would otherwise land in the store.
+ */
+export const SHELL_PROMPT = `alex@mac %1~ %# `
+/**
  * Quiet time AFTER the app signalled ready — the last frame of layout, not a
  * sync wait. It used to be 6s of blind sleep with the catalog pushing some
  * views to 2.5s on top; the ready handshake below replaced all of that, so the
@@ -390,6 +401,9 @@ export async function captureDesktop(
   // Signed-out views get their OWN dirs — see `signedOut`. Tracked so an abort
   // cannot leave them behind.
   const scratchDirs: string[] = []
+  // One `ZDOTDIR` per run, cleaned up with the data dirs below.
+  const zdotdir = makeShellRcDir()
+  scratchDirs.push(zdotdir)
 
   let token = await mintSessionToken(baseUrl)
   if (!(await sessionValid(baseUrl, token))) {
@@ -458,6 +472,8 @@ export async function captureDesktop(
         // The view's own `env` layers on top: a drive says WHERE the app opens,
         // these say what else is already open when it gets there.
         driveVars: resolved.env,
+        zdotdir,
+        shellCwd: options.reposRoot,
         anchorDelayMs: desktop.anchorDelayMs ?? DEFAULT_ANCHOR_DELAY_MS,
         signedOut,
         onboarding,
@@ -497,6 +513,31 @@ function makeDataDir(reposRoot?: string): string {
   return dir
 }
 
+/**
+ * A throwaway `ZDOTDIR` holding one `.zshrc` that pins [`SHELL_PROMPT`].
+ *
+ * zsh reads `$ZDOTDIR/.zshrc` instead of `~/.zshrc`, which is the only hook
+ * that reaches an interactive login shell's prompt from outside — `PS1` in the
+ * environment is overwritten by whatever rc file runs next. Nothing else is
+ * configured on purpose: the point is a shell that looks the same on every
+ * machine. macOS-only, like the whole desktop lane; a non-zsh `$SHELL` simply
+ * ignores it and keeps its own prompt.
+ */
+function makeShellRcDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), `exp-shots-zdotdir-`))
+  writeFileSync(
+    join(dir, `.zshrc`),
+    [
+      `# Written by packages/shots — the committed screenshot store must not`,
+      `# carry a developer's account name, hostname or prompt theme.`,
+      `PROMPT=${JSON.stringify(SHELL_PROMPT)}`,
+      `RPROMPT=''`,
+      ``,
+    ].join(`\n`)
+  )
+  return dir
+}
+
 interface CaptureOneOptions {
   viewId: string
   binary: string
@@ -506,6 +547,13 @@ interface CaptureOneOptions {
   teamId: string
   dataDir: string
   driveVars: Record<string, string>
+  /** Throwaway `ZDOTDIR` pinning the dev shell's prompt — [`makeShellRcDir`]. */
+  zdotdir: string
+  /**
+   * Where `EXP_DEV_OPEN_SHELL`'s shell starts. The tab is titled after this
+   * directory's name, so `$HOME` (the default) would name the developer.
+   */
+  shellCwd?: string
   anchorDelayMs: number
   /**
    * Launch with NO injected session, on a throwaway data dir — the only way to
@@ -556,6 +604,8 @@ async function captureOne(options: CaptureOneOptions): Promise<string> {
           EXP_DEV_READY_FILE: readyFile,
           EXP_WINDOW_SIZE: WINDOW_SIZE,
           HOSTNAME: DEVICE_HOSTNAME,
+          ZDOTDIR: options.zdotdir,
+          ...(options.shellCwd ? { EXP_DEV_SHELL_CWD: options.shellCwd } : {}),
           ...options.driveVars,
         } as Record<string, string>,
         // Never `pipe` without a reader: a chatty gpui build (wgpu warnings,
