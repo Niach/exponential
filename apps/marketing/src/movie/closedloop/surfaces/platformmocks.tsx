@@ -115,14 +115,49 @@ export const MacBook: React.FC<{ screenW: number; children: React.ReactNode }> =
 }
 
 // ── Shared board fixture slices (post-story: EXP-151 shipped, EXP-149 live) ──
-type LineupRow = { id: string; title: string; priority: string; assignee?: string }
+type LineupRow = {
+  id: string
+  title: string
+  priority: string
+  assignee?: string
+  label?: { name: string; dot: string }
+  due?: string
+}
 const boardRow = (id: string): LineupRow => {
   const row = CL_BOARD.find((r) => r.id === id)
   if (!row) throw new Error(`platforms: no board row ${id}`)
-  return { id: row.id, title: row.title, priority: row.priority, assignee: row.assignee }
+  return {
+    id: row.id,
+    title: row.title,
+    priority: row.priority,
+    assignee: row.assignee,
+    label: row.label,
+    due: row.due,
+  }
 }
-type LineupSection = { name: string; status: "in_progress" | "todo" | "done"; tint: string; count: number; rows: LineupRow[] }
+type LineupSection = {
+  name: string
+  status: "backlog" | "in_progress" | "todo" | "done"
+  tint: string
+  count: number
+  rows: LineupRow[]
+}
+// Contract displayOrder — the same grouping the desktop and mobile lists use.
 export const LINEUP_SECTIONS: LineupSection[] = [
+  {
+    name: "Backlog",
+    status: "backlog",
+    tint: C.tintBacklog,
+    count: 2,
+    rows: [boardRow("EXP-146")],
+  },
+  {
+    name: "Todo",
+    status: "todo",
+    tint: C.tintTodo,
+    count: 1,
+    rows: [boardRow("EXP-150")],
+  },
   {
     name: "In Progress",
     status: "in_progress",
@@ -130,13 +165,12 @@ export const LINEUP_SECTIONS: LineupSection[] = [
     count: 2,
     rows: [boardRow("EXP-148"), boardRow("EXP-149")],
   },
-  { name: "Todo", status: "todo", tint: C.tintTodo, count: 1, rows: [boardRow("EXP-150")] },
   {
     name: "Done",
     status: "done",
     tint: C.tintDone,
     count: 3,
-    rows: [boardRow(NEW_ISSUE_ID), boardRow("EXP-144"), boardRow("EXP-147")],
+    rows: [boardRow(NEW_ISSUE_ID), boardRow("EXP-144")],
   },
 ]
 
@@ -147,26 +181,48 @@ const Glyph: React.FC<{ size: number; sw?: number; children: React.ReactNode }> 
   </svg>
 )
 
-// Status icon per group (real-app vocabulary: hourglass / open circle / check).
-const StatusGlyph: React.FC<{ status: LineupSection["status"]; size: number }> = ({ status, size }) => {
+// Status icon per group — icons.json status-*: circle-dashed / circle /
+// progress-2-4 (the pie clock) / circle-check.
+const StatusGlyph: React.FC<{
+  status: LineupSection["status"]
+  size: number
+}> = ({ status, size }) => {
+  if (status === "backlog")
+    return (
+      <span style={{ color: C.statusBacklog, display: "flex" }}>
+        <Glyph size={size} sw={2}>
+          <circle cx="12" cy="12" r="9" strokeDasharray="3.6 3.4" />
+        </Glyph>
+      </span>
+    )
   if (status === "in_progress")
     return (
       <span style={{ color: C.statusInProgress, display: "flex" }}>
-        <Glyph size={size} sw={2}>
-          <path d="M6 3h12" />
-          <path d="M6 21h12" />
-          <path d="M7 3v4l5 5-5 5v4" />
-          <path d="M17 3v4l-5 5 5 5v4" />
-        </Glyph>
+        <svg
+          width={size}
+          height={size}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          style={{ display: "block", flexShrink: 0 }}
+        >
+          <circle cx="12" cy="12" r="10" />
+          <path
+            d="M12 12 L12 6 A6 6 0 0 1 12 18 Z"
+            fill="currentColor"
+            stroke="none"
+          />
+        </svg>
       </span>
     )
   if (status === "done")
     return (
       <span style={{ color: C.statusDone, display: "flex" }}>
-        <svg width={size} height={size} viewBox="0 0 24 24" style={{ display: "block" }}>
-          <circle cx="12" cy="12" r="10" fill="currentColor" />
-          <path d="M8 12.5 11 15.5 16.5 9" fill="none" stroke={C.canvas} strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
+        <Glyph size={size} sw={2}>
+          <circle cx="12" cy="12" r="9" />
+          <path d="m8.5 12 2.5 2.5 5-5" />
+        </Glyph>
       </span>
     )
   return (
@@ -225,13 +281,144 @@ const Avatar: React.FC<{ size: number; text: string }> = ({ size, text }) => (
 )
 
 // ── The web app inside a browser window ──────────────────────────────────────
-export const WEB = { w: 560, chrome: 34, viewport: 348, sidebar: 148 } as const
+// EXP-471: matched to shots/board/web.webp — the sidebar opens with the team
+// switcher plus the round search + compose buttons, the nav is Inbox / Reviews
+// / Agents / Support with count badges, a "Boards" group carries the colored
+// board glyphs, and Getting started + the user row are pinned at the bottom.
+// The list header holds ONLY the ghost Filter button, and the agent dock bar
+// rides along the viewport's bottom edge.
+export const WEB = { w: 560, chrome: 34, viewport: 348, sidebar: 156 } as const
 
-const WebNavRow: React.FC<{ icon: React.ReactNode; label: string }> = ({ icon, label }) => (
-  <div style={{ display: "flex", alignItems: "center", gap: 8, height: 26, padding: "0 10px", borderRadius: 6, color: C.muted }}>
+const WEB_NAV: { label: string; badge?: string; icon: React.ReactNode }[] = [
+  {
+    label: "Inbox",
+    badge: "2",
+    icon: (
+      <Glyph size={13}>
+        <path d="M22 12h-6l-2 3h-4l-2-3H2" />
+        <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+      </Glyph>
+    ),
+  },
+  {
+    label: "Reviews",
+    badge: "1",
+    icon: (
+      <Glyph size={13}>
+        <circle cx="18" cy="18" r="3" />
+        <circle cx="6" cy="6" r="3" />
+        <path d="M13 6h3a2 2 0 0 1 2 2v7" />
+        <path d="M6 9v12" />
+      </Glyph>
+    ),
+  },
+  {
+    label: "Agents",
+    icon: (
+      <Glyph size={13} sw={1.7}>
+        <path d="M12 8V4H8" />
+        <rect x="4" y="8" width="16" height="12" rx="2" />
+        <path d="M2 14h2" />
+        <path d="M20 14h2" />
+        <path d="M15 13v2" />
+        <path d="M9 13v2" />
+      </Glyph>
+    ),
+  },
+  {
+    label: "Support",
+    icon: (
+      <Glyph size={13}>
+        <circle cx="12" cy="12" r="10" />
+        <circle cx="12" cy="12" r="4" />
+        <path d="m4.9 4.9 4.2 4.2" />
+        <path d="m14.9 14.9 4.2 4.2" />
+        <path d="m14.9 9.1 4.2-4.2" />
+        <path d="m4.9 19.1 4.2-4.2" />
+      </Glyph>
+    ),
+  },
+]
+
+const WebNavRow: React.FC<{
+  icon: React.ReactNode
+  label: string
+  badge?: string
+}> = ({ icon, label, badge }) => (
+  <div
+    style={{
+      display: "flex",
+      alignItems: "center",
+      gap: 9,
+      height: 25,
+      padding: "0 9px",
+      borderRadius: 7,
+      color: C.muted,
+    }}
+  >
     {icon}
-    <span style={{ fontSize: 12 }}>{label}</span>
+    <span style={{ flex: 1, fontSize: 12 }}>{label}</span>
+    {badge ? (
+      <span style={{ fontSize: 10.5, color: C.dim }}>{badge}</span>
+    ) : null}
   </div>
+)
+
+const WEB_BOARDS: { name: string; color: string; glyph: React.ReactNode }[] = [
+  {
+    name: CL.project,
+    color: "#818cf8",
+    glyph: (
+      <Glyph size={12} sw={2.2}>
+        <path d="m16 18 6-6-6-6" />
+        <path d="m8 6-6 6 6 6" />
+      </Glyph>
+    ),
+  },
+  {
+    name: "Launch Marketing",
+    color: "#f59e0b",
+    glyph: (
+      <Glyph size={12} sw={2}>
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <path d="M8 7v7" />
+        <path d="M12 7v4" />
+        <path d="M16 7v9" />
+      </Glyph>
+    ),
+  },
+  {
+    name: "Product Feedback",
+    color: "#22c55e",
+    glyph: (
+      <Glyph size={12} sw={2}>
+        <path d="m3 11 18-5v12L3 14v-3z" />
+        <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
+      </Glyph>
+    ),
+  },
+]
+
+const RoundButton: React.FC<{ children: React.ReactNode; solid?: boolean }> = ({
+  children,
+  solid,
+}) => (
+  <span
+    style={{
+      width: 20,
+      height: 20,
+      flexShrink: 0,
+      borderRadius: 999,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: solid ? "rgba(255,255,255,0.14)" : "transparent",
+      border: solid ? "1px solid rgba(255,255,255,0.14)" : "none",
+      color: solid ? C.text : C.muted,
+    }}
+  >
+    {children}
+  </span>
 )
 
 export const WebBrowserMock: React.FC = () => (
@@ -259,7 +446,15 @@ export const WebBrowserMock: React.FC = () => (
     >
       <span style={{ display: "flex", gap: 6, paddingLeft: 12 }}>
         {["#f65f57", "#fbbc2e", "#28c840"].map((tone) => (
-          <span key={tone} style={{ width: 10, height: 10, borderRadius: 999, backgroundColor: tone }} />
+          <span
+            key={tone}
+            style={{
+              width: 10,
+              height: 10,
+              borderRadius: 999,
+              backgroundColor: tone,
+            }}
+          />
         ))}
       </span>
       <span
@@ -289,15 +484,35 @@ export const WebBrowserMock: React.FC = () => (
     {/* the web app */}
     <div style={{ display: "flex", height: WEB.viewport }}>
       {/* sidebar */}
-      <div style={{ width: WEB.sidebar, flexShrink: 0, borderRight: `1px solid ${C.strokeCard}`, padding: "10px 6px", boxSizing: "border-box" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "0 10px", marginBottom: 10 }}>
+      <div
+        style={{
+          width: WEB.sidebar,
+          flexShrink: 0,
+          borderRight: `1px solid ${C.strokeCard}`,
+          padding: "9px 6px 8px",
+          boxSizing: "border-box",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        {/* team switcher + search + compose */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "0 6px",
+            marginBottom: 9,
+          }}
+        >
           <span
             style={{
               width: 18,
               height: 18,
-              borderRadius: 5,
-              backgroundColor: "rgba(255,255,255,0.15)",
-              color: "#ffffff",
+              flexShrink: 0,
+              borderRadius: 6,
+              backgroundColor: "#ededed",
+              color: "#18181b",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -307,107 +522,289 @@ export const WebBrowserMock: React.FC = () => (
           >
             A
           </span>
-          <span style={{ fontSize: 12, fontWeight: 600, color: C.text, whiteSpace: "nowrap" }}>{CL.project}</span>
-          <span style={{ color: C.dim, display: "flex" }}>
+          <span
+            style={{
+              flex: 1,
+              minWidth: 0,
+              fontSize: 12,
+              fontWeight: 600,
+              color: C.text,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            Acme
+          </span>
+          <span style={{ color: C.dim, display: "flex", flexShrink: 0 }}>
             <Glyph size={9} sw={2.4}>
               <path d="m7 15 5 5 5-5" />
               <path d="m7 9 5-5 5 5" />
             </Glyph>
           </span>
-        </div>
-        <WebNavRow
-          icon={
-            <Glyph size={13}>
+          <RoundButton>
+            <Glyph size={12}>
               <circle cx="11" cy="11" r="8" />
               <path d="m21 21-4.3-4.3" />
             </Glyph>
-          }
-          label="Search"
-        />
+          </RoundButton>
+          <RoundButton solid>
+            <Glyph size={11} sw={2}>
+              <path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+              <path d="M18.4 2.6a2 2 0 0 1 3 3L12 15l-4 1 1-4Z" />
+            </Glyph>
+          </RoundButton>
+        </div>
+        {WEB_NAV.map((row) => (
+          <WebNavRow
+            key={row.label}
+            icon={row.icon}
+            label={row.label}
+            badge={row.badge}
+          />
+        ))}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            margin: "10px 9px 4px",
+            color: C.dim,
+          }}
+        >
+          <span style={{ flex: 1, fontSize: 10.5, fontWeight: 500 }}>
+            Boards
+          </span>
+          <Glyph size={10} sw={2.2}>
+            <path d="M5 12h14" />
+            <path d="M12 5v14" />
+          </Glyph>
+        </div>
+        {WEB_BOARDS.map((b, i) => (
+          <div
+            key={b.name}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 9,
+              height: 25,
+              padding: "0 9px",
+              borderRadius: 7,
+              backgroundColor: i === 0 ? C.fillActive : "transparent",
+            }}
+          >
+            <span style={{ color: b.color, display: "flex" }}>{b.glyph}</span>
+            <span
+              style={{
+                fontSize: 12,
+                color: i === 0 ? C.text : C.muted,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {b.name}
+            </span>
+          </div>
+        ))}
+        <div style={{ flex: 1 }} />
         <WebNavRow
           icon={
-            <Glyph size={13}>
-              <path d="M22 12h-6l-2 3h-4l-2-3H2" />
-              <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+            <Glyph size={13} sw={1.7}>
+              <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
+              <path d="M20 3v4" />
+              <path d="M22 5h-4" />
             </Glyph>
           }
-          label="Inbox"
+          label="Getting started"
         />
-        <WebNavRow
-          icon={
-            <Glyph size={13}>
-              <circle cx="18" cy="18" r="3" />
-              <circle cx="6" cy="6" r="3" />
-              <path d="M13 6h3a2 2 0 0 1 2 2v7" />
-              <path d="M6 9v12" />
-            </Glyph>
-          }
-          label="Reviews"
-        />
-        <WebNavRow
-          icon={
-            <Glyph size={13}>
-              <circle cx="12" cy="12" r="10" />
-              <circle cx="12" cy="12" r="4" />
-              <path d="m4.9 4.9 4.2 4.2" />
-              <path d="m14.9 14.9 4.2 4.2" />
-              <path d="m14.9 9.1 4.2-4.2" />
-              <path d="m4.9 19.1 4.2-4.2" />
-            </Glyph>
-          }
-          label="Support"
-        />
-        <div style={{ margin: "12px 10px 5px", fontSize: 9.5, fontWeight: 600, letterSpacing: 0.6, textTransform: "uppercase", color: C.dim }}>Boards</div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, height: 26, padding: "0 10px", borderRadius: 6, backgroundColor: C.fillActive }}>
-          <span style={{ width: 8, height: 8, borderRadius: 3, backgroundColor: CL.projectColor, flexShrink: 0 }} />
-          <span style={{ fontSize: 12, color: C.text }}>{CL.project}</span>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            height: 25,
+            padding: "0 9px",
+            color: C.muted,
+          }}
+        >
+          <Avatar size={17} text={CL.initials} />
+          <span
+            style={{ flex: 1, fontSize: 12, fontWeight: 500, color: C.text }}
+          >
+            {CL.user.split(" ")[0]}
+          </span>
+          <Glyph size={11} sw={1.7}>
+            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+            <circle cx="12" cy="12" r="3" />
+          </Glyph>
         </div>
       </div>
 
-      {/* main — grouped issue list */}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", height: 36, padding: "0 12px", gap: 8 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>All Issues</span>
-          <span style={{ marginLeft: "auto", fontSize: 11.5, color: C.muted }}>Filter</span>
-          <span
-            style={{
-              height: 22,
-              padding: "0 9px",
-              borderRadius: 6,
-              backgroundColor: C.primary,
-              color: C.primaryFg,
-              fontSize: 11,
-              fontWeight: 600,
-              display: "flex",
-              alignItems: "center",
-              gap: 4,
-            }}
-          >
-            + New Issue
-          </span>
+      {/* main — grouped issue list + the agent dock bar */}
+      <div
+        style={{
+          flex: 1,
+          minWidth: 0,
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        <div
+          style={{
+            flex: "none",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            height: 34,
+            padding: "0 12px",
+            gap: 5,
+            color: C.muted,
+            fontSize: 11.5,
+          }}
+        >
+          <Glyph size={11} sw={1.8}>
+            <path d="M3 6h18" />
+            <path d="M7 12h10" />
+            <path d="M11 18h4" />
+          </Glyph>
+          Filter
         </div>
-        {LINEUP_SECTIONS.map((section) => (
-          <div key={section.name}>
-            <div style={{ display: "flex", alignItems: "center", gap: 7, height: 25, padding: "0 12px", backgroundColor: section.tint }}>
-              <StatusGlyph status={section.status} size={11} />
-              <span style={{ fontSize: 11.5, fontWeight: 600, color: C.text }}>{section.name}</span>
-              <span style={{ fontSize: 11, color: C.dim }}>{section.count}</span>
-            </div>
-            {section.rows.map((row) => (
-              <div key={row.id} style={{ display: "flex", alignItems: "center", gap: 8, height: 30, padding: "0 12px", borderBottom: `1px solid ${C.strokeRow}` }}>
-                <PriorityGlyph priority={row.priority} size={11} />
-                <span style={{ fontFamily: MONO_FONT, fontSize: 10, color: C.dim, width: 48, flexShrink: 0 }}>{row.id}</span>
+        <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+          {LINEUP_SECTIONS.map((section) => (
+            <div key={section.name}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  height: 24,
+                  padding: "0 11px",
+                  backgroundColor: section.tint,
+                }}
+              >
+                <span style={{ color: C.dim, display: "flex" }}>
+                  <Glyph size={9} sw={2.4}>
+                    <path d="m6 9 6 6 6-6" />
+                  </Glyph>
+                </span>
                 <StatusGlyph status={section.status} size={11} />
-                <span style={{ fontSize: 12, color: C.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{row.title}</span>
-                {row.assignee ? (
-                  <span style={{ marginLeft: "auto" }}>
-                    <Avatar size={16} text={row.assignee} />
-                  </span>
-                ) : null}
+                <span
+                  style={{ fontSize: 11.5, fontWeight: 600, color: C.text }}
+                >
+                  {section.name}
+                </span>
+                <span style={{ fontSize: 10.5, color: C.muted }}>
+                  {section.count}
+                </span>
               </div>
-            ))}
-          </div>
-        ))}
+              {section.rows.map((row) => (
+                <div
+                  key={row.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 7,
+                    height: 28,
+                    padding: "0 11px 0 20px",
+                    borderBottom: `1px solid ${C.strokeRow}`,
+                  }}
+                >
+                  <PriorityGlyph priority={row.priority} size={11} />
+                  <span
+                    style={{
+                      fontFamily: MONO_FONT,
+                      fontSize: 9.5,
+                      color: C.dim,
+                      width: 46,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {row.id}
+                  </span>
+                  <StatusGlyph status={section.status} size={11} />
+                  <span
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      fontSize: 11.5,
+                      color: C.text,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {row.title}
+                  </span>
+                  {row.label ? (
+                    <span
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 4,
+                        flexShrink: 0,
+                        fontSize: 10.5,
+                        color: C.muted,
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: 5,
+                          height: 5,
+                          borderRadius: 999,
+                          backgroundColor: row.label.dot,
+                        }}
+                      />
+                      {row.label.name.charAt(0).toUpperCase() +
+                        row.label.name.slice(1)}
+                    </span>
+                  ) : null}
+                  {row.assignee ? <Avatar size={15} text={row.assignee} /> : null}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+        {/* agent dock bar — the live sessions strip */}
+        <div
+          style={{
+            flex: "none",
+            height: 24,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "0 10px",
+            borderTop: `1px solid ${C.strokeRow}`,
+          }}
+        >
+          {[NEW_ISSUE_ID, "EXP-149"].map((id) => (
+            <span
+              key={id}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                height: 16,
+                padding: "0 7px",
+                borderRadius: 999,
+                backgroundColor: C.fillRow,
+                fontSize: 9.5,
+                color: C.muted,
+                whiteSpace: "nowrap",
+              }}
+            >
+              <span
+                style={{
+                  width: 5,
+                  height: 5,
+                  borderRadius: 999,
+                  backgroundColor: C.green,
+                }}
+              />
+              <span style={{ color: C.text, fontWeight: 600 }}>{id}</span>
+              {`· ${CL.user.split(" ")[0]}'s MacBook Pro`}
+            </span>
+          ))}
+        </div>
       </div>
     </div>
   </div>

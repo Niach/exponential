@@ -51,9 +51,9 @@
   position: static;
 }
 
-/* ── The real mobile Start-coding sheet (mss-*) ──
-   Fixed-px phone canvas; ONE uniform gap between the grouped cards (the
-   EXP-211 contract) — only the top bar sits slightly apart. */
+/* ── The mobile Start-coding sheet wrappers ──
+   The sheet itself (mss-*, a 414pt iOS canvas scaled by one transform)
+   lives in styles/mobile.css. */
 .aw-sheet {
   font-family: var(--font-ui);
   text-align: left;
@@ -66,183 +66,14 @@
   gap: 12px;
 }
 
-.mss-phone {
-  width: 252px;
-  border: 1px solid var(--border);
-  border-radius: 26px;
-  background: #0d0d10;
-  padding: 12px 11px 15px;
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-  font-size: 11.5px;
-  line-height: 1.35;
-  color: var(--fg);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
-}
-
-.mss-topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 3px;
-}
-
-.mss-pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 5px 12px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--fg-muted);
-  font-size: 11px;
-  font-weight: 500;
-}
-
-.mss-pill.is-start {
-  position: relative;
-  color: var(--fg);
-  font-weight: 600;
-}
-
-.mss-label {
-  padding-left: 6px;
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--fg-muted);
-  margin-bottom: -5px;
-}
-
-.mss-card {
-  background: rgba(255, 255, 255, 0.055);
-  border-radius: 15px;
-  padding: 0 10px;
-}
-
-.mss-card > * + * {
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.mss-search {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 2px;
-  color: var(--fg-dim);
-}
-
-.mss-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px 2px;
-}
-
-.mss-issue {
-  justify-content: flex-start;
-  gap: 6px;
-}
-
-.mss-checkoff {
-  width: 13px;
-  height: 13px;
-  border-radius: 999px;
-  border: 1.5px solid var(--fg-dim);
-  flex: none;
-}
-
-.mss-checkon {
-  color: #fafafa;
-  flex: none;
-}
-
-.mss-id {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--fg-muted);
-  flex: none;
-}
-
-.mss-issue svg {
-  flex: none;
-}
-
-.mss-title {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.mss-value {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--fg-muted);
-}
-
-.mss-chips {
-  display: flex;
-  justify-content: center;
-  gap: 6px;
-}
-
-.mss-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 5px 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--fg-muted);
-  font-size: 10.5px;
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.mss-chip.is-active {
-  background: #e5e5e5;
-  color: #171717;
-}
-
-/* iOS switch */
-.mss-toggle {
-  position: relative;
-  width: 34px;
-  height: 20px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.16);
-  flex: none;
-}
-
-.mss-toggle::after {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-  border-radius: 999px;
-  background: #fff;
-}
-
-.mss-toggle.is-on {
-  background: #34c759;
-}
-
-.mss-toggle.is-on::after {
-  left: auto;
-  right: 2px;
-}
-
-/* Armed beat: pulse ring on the Start-coding pill. */
+/* Armed beat: pulse ring on the Start-coding pill. The pill lives on the
+   sheet's scaled-down 414pt canvas, so these lengths are iOS points too. */
 .aw-stage.is-armed .mss-pill.is-start::after {
   content: "";
   position: absolute;
-  inset: -4px;
+  inset: -6px;
   border-radius: 999px;
-  border: 1.5px solid var(--fg);
+  border: 2px solid var(--fg);
   opacity: 0;
   animation: aw-pulse 0.9s ease-out 2;
 }

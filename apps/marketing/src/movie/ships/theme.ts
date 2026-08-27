@@ -120,8 +120,9 @@ export const R = {
 
 // Desktop window metrics (window-local px) — the POST-EXP-253/282 shell:
 // no top bar (tabs are glass chips in the 34px titlebar row), ONE expanded
-// labelled rail (164), the issue-list tool window at 520, the detail
-// properties sidebar at 192 (surface.rs DETAIL_SIDEBAR_WIDTH).
+// labelled rail (164), the issue-list tool window at 520. The detail pane has
+// no properties sidebar since EXP-471 — its properties are the pill bar under
+// the title (shots/issue-detail/desktop.webp).
 export const WIN = {
   w: 1568,
   h: 980,
@@ -131,7 +132,6 @@ export const WIN = {
   titleBar: 34,
   rail: 164, // expanded labelled rail (sidebar.rs RAIL_EXPANDED_W)
   sidebar: 520, // issue-list tool window (sidebar.rs DEFAULT_DOCK_WIDTH)
-  propsPanel: 192,
   row: 28, // board row height
   dockExpanded: 240,
   dockStrip: 29,

@@ -1,7 +1,7 @@
 /* ─── Web-app demo fixtures — ONLY what the web chrome adds ───
    Issues, inbox items, reviews and issue bodies come from the single fixture
    universe in ../ide/data (dogfood: Exponential building Exponential). */
-import { PROJECT, type Issue } from "../ide/data"
+import { PROJECT, type Issue, type IssueStatus } from "../ide/data"
 
 /* The issue the collab scene's widget report files onto the board
    (EXP-602) — mirrors Mara's support thread below: a fresh widget report,
@@ -25,21 +25,48 @@ export type DemoProject = {
   icon: DemoProjectIcon
 }
 
+/* The dogfood board carries a repository, so it draws the `ui-repository`
+   glyph like every repo-backed board in the app. */
 export const WEB_PROJECTS: DemoProject[] = [
-  { name: PROJECT.name, slug: `exponential`, color: PROJECT.color, icon: `code` },
+  { name: PROJECT.name, slug: `exponential`, color: `#6366f1`, icon: `code` },
   { name: `Mobile Apps`, slug: `mobile-apps`, color: `#f97316`, icon: `kanban` },
   { name: `Feedback`, slug: `feedback`, color: `#22c55e`, icon: `megaphone` },
 ]
 
-/* The demo user (matches the assignee fixture DS in ide/data). */
+export const WEB_BOARD = WEB_PROJECTS[0]
+
+/* Group order — the app lists groups by the status rows' contract
+   displayOrder (backlog → todo → started → completed), NOT by the IDE's
+   activity-first order. */
+export const WEB_GROUP_ORDER: IssueStatus[] = [
+  `backlog`,
+  `todo`,
+  `in_progress`,
+  `in_review`,
+  `done`,
+]
+
+/* The demo user (matches the assignee fixture DS in ide/data). The sidebar
+   footer shows the FIRST name only (EXP-311). */
 export const WEB_USER = {
   name: `Danny Strähhuber`,
+  firstName: `Danny`,
   initials: `DS`,
   email: `danny@exponential.at`,
 }
 
-/* Running coding sessions — feeds the Agents nav green dot. */
-export const AGENTS_RUNNING = 1
+export const WEB_DEVICE = `Danny's MacBook Pro`
+
+/* Live coding sessions — the agent dock strip along the bottom of the main
+   pane, and the Agents nav count. */
+export type AgentSession = { issueId: string; device: string }
+
+export const AGENT_SESSIONS: AgentSession[] = [
+  { issueId: `EXP-8`, device: WEB_DEVICE },
+  { issueId: `EXP-11`, device: WEB_DEVICE },
+]
+
+export const AGENTS_RUNNING = AGENT_SESSIONS.length
 
 /* ─── Support (helpdesk) threads — server-only tables in the real app,
    so the demo carries its own conversation fixtures. Mirrors the real

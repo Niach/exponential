@@ -122,12 +122,7 @@ const MacScreenFrozen: React.FC = () => {
           userName={CL.user}
           userInitial={CL.initials}
         />
-        <SidebarPane
-          title="All Issues"
-          actions={<BoardActions />}
-          pills
-          bottomInset={dockH}
-        >
+        <SidebarPane actions={<BoardActions />} bottomInset={dockH}>
           <BoardTool
             frame={FROZEN}
             rows={CL_BOARD}
@@ -138,7 +133,6 @@ const MacScreenFrozen: React.FC = () => {
             }}
             selectedId={NEW_ISSUE_ID}
             prDotId={{ id: NEW_ISSUE_ID, at: 0 }}
-            showLabels={false}
           />
         </SidebarPane>
         <div

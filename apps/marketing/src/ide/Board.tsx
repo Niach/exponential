@@ -1,20 +1,18 @@
-/* ─── All Issues board panel: filter bar, pills, tinted status groups, 28px rows ─── */
-import {
-  FILTER_STATUSES,
-  GROUP_ORDER,
-  ISSUES,
-  type FilterTab,
-  type Issue,
-} from "./data"
+/* ─── The board tool window (520px): the right-aligned Filter trigger over a
+   grouped 28px-row virtual list. Grid = 24px priority · 72px identifier ·
+   24px status · 1fr title · labels · assignee · due (issue_list.rs). ─── */
+import { GROUP_ORDER, ISSUES, type IssueStatus, type Issue } from "./data"
 import { useIde } from "./state"
 import { Avatar, LabelChip, PriorityIcon, StatusIcon } from "./bits"
-import { IcCalDays, IcChevDown, IcChevRight, IcListFilter, IcPlus } from "./icons"
+import { IcCalDays, IcChevDown, IcChevRight, IcListFilter } from "./icons"
 
-const PILLS: { id: FilterTab; label: string }[] = [
-  { id: `all`, label: `All Issues` },
-  { id: `active`, label: `Active` },
-  { id: `backlog`, label: `Backlog` },
-]
+/* Contract display order (backlog · unstarted · started · completed), the
+   order the real list groups in — `GROUP_ORDER` keeps the web fixture's. */
+const DESKTOP_ORDER: IssueStatus[] = [`backlog`, `todo`, `in_progress`, `in_review`, `done`]
+
+const GROUPS = DESKTOP_ORDER.map(
+  (status) => GROUP_ORDER.find((g) => g.status === status) ?? { status, label: status },
+)
 
 export function IssueRow({ issue }: { issue: Issue }) {
   const { openIssue, interactive, active } = useIde()
@@ -24,65 +22,43 @@ export function IssueRow({ issue }: { issue: Issue }) {
       className={`ide-row${interactive ? ` is-click` : ``}${isOpen ? ` is-open` : ``}`}
       onClick={interactive ? () => openIssue(issue.id) : undefined}
     >
+      <span className="ide-row-sel" />
       <span className="ide-row-cell">
-        <PriorityIcon priority={issue.priority} />
+        <PriorityIcon priority={issue.priority} size={10} />
       </span>
       <span className="ide-row-id">{issue.id}</span>
       <span className="ide-row-cell">
-        <StatusIcon status={issue.status} />
+        <StatusIcon status={issue.status} size={10} />
       </span>
       <span className="ide-row-title">{issue.title}</span>
-      <span className="ide-row-meta">
+      <span className="ide-row-labels">
         {issue.labels?.map((l) => <LabelChip key={l.name} label={l} />)}
-        <Avatar person={issue.assignee} />
-        {issue.due ? (
-          <span className="ide-due">
-            <IcCalDays size={12} />
-            {issue.due}
-          </span>
-        ) : (
-          <span className="ide-due is-unset">
-            <IcCalDays size={12} />
-          </span>
-        )}
       </span>
+      <span className="ide-row-assignee">
+        <Avatar person={issue.assignee} />
+      </span>
+      {issue.due ? (
+        <span className="ide-due">
+          <IcCalDays size={10} />
+          {issue.due}
+        </span>
+      ) : null}
     </div>
   )
 }
 
 export function BoardPanel() {
-  const { filter, setFilter, collapsedGroups, toggleGroup, interactive } = useIde()
-  const visibleStatuses = FILTER_STATUSES[filter]
+  const { collapsedGroups, toggleGroup, interactive } = useIde()
   return (
     <div className="ide-board">
-      <div className="ide-board-top">
-        <div className="ide-board-titlerow">
-          <span className="ide-board-title">All Issues</span>
-          <div className="ide-board-actions">
-            <button className="ide-ghost ide-icbtn" type="button" title="Filter">
-              <IcListFilter size={14} />
-            </button>
-            <button className="ide-newissue" type="button">
-              <IcPlus size={12} />
-              New Issue
-            </button>
-          </div>
-        </div>
-        <div className="ide-board-pills">
-          {PILLS.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              className={`ide-pill${filter === p.id ? ` is-active` : ``}${interactive ? ` is-click` : ``}`}
-              onClick={interactive ? () => setFilter(p.id) : undefined}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
+      <div className="ide-filterbar">
+        <button className="ide-filterbtn" type="button">
+          <IcListFilter size={10} />
+          Filter
+        </button>
       </div>
       <div className="ide-board-list">
-        {GROUP_ORDER.filter((g) => visibleStatuses.includes(g.status)).map((g) => {
+        {GROUPS.map((g) => {
           const issues = ISSUES.filter((i) => i.status === g.status)
           if (issues.length === 0) return null
           const isCollapsed = collapsedGroups.has(g.status)
@@ -92,12 +68,14 @@ export function BoardPanel() {
                 className={`ide-group ide-group-${g.status}${interactive ? ` is-click` : ``}`}
                 onClick={interactive ? () => toggleGroup(g.status) : undefined}
               >
-                {isCollapsed ? (
-                  <IcChevRight size={14} className="ide-c-muted" />
-                ) : (
-                  <IcChevDown size={14} className="ide-c-muted" />
-                )}
-                <StatusIcon status={g.status} />
+                <span className="ide-group-chev">
+                  {isCollapsed ? (
+                    <IcChevRight size={10} className="ide-c-muted" />
+                  ) : (
+                    <IcChevDown size={10} className="ide-c-muted" />
+                  )}
+                </span>
+                <StatusIcon status={g.status} size={10} />
                 <span className="ide-group-label">{g.label}</span>
                 <span className="ide-group-count">{issues.length}</span>
               </div>

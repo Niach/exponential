@@ -6,28 +6,30 @@ import {
   IcCircle,
   IcCircleCheck,
   IcCircleDashed,
-  IcGitPullRequest,
   IcMinus,
+  IcProgress24,
+  IcProgress34,
   IcSigHigh,
   IcSigLow,
   IcSigMed,
-  IcTimer,
   IcUser,
 } from "./icons"
 
 export function StatusIcon({ status, size = 14 }: { status: IssueStatus; size?: number }) {
   switch (status) {
+    /* EXP-314 category glyphs: backlog dashed ring, unstarted plain ring,
+       started = the positional pie clock, completed = check. Colors are the
+       contract's `issueStatusDefaults` hexes. */
     case `backlog`:
-      return <IcCircleDashed size={size} className="ide-c-muted" />
+      return <IcCircleDashed size={size} style={{ color: `#a1a1aa` }} />
     case `todo`:
-      return <IcCircle size={size} className="ide-c-fg" />
+      return <IcCircle size={size} style={{ color: `#fafafa` }} />
     case `in_progress`:
-      return <IcTimer size={size} className="ide-c-yellow" />
+      return <IcProgress24 size={size} style={{ color: `#eab308` }} />
     case `in_review`:
-      /* Green PR glyph — set when a PR opens for the issue */
-      return <IcGitPullRequest size={size} className="ide-c-green" />
+      return <IcProgress34 size={size} style={{ color: `#22c55e` }} />
     case `done`:
-      return <IcCircleCheck size={size} className="ide-c-blue" />
+      return <IcCircleCheck size={size} style={{ color: `#3b82f6` }} />
   }
 }
 
@@ -46,6 +48,16 @@ export function PriorityIcon({ priority, size = 14 }: { priority: IssuePriority;
   }
 }
 
+/* gpui_component's Avatar hue-hashes the display name when no profile image
+   has landed — the same stable per-person tint web/iOS/Android paint. */
+const avatarHue = (name: string): number => {
+  let hash = 0
+  for (let i = 0; i < name.length; i += 1) {
+    hash = (hash * 31 + name.charCodeAt(i)) >>> 0
+  }
+  return hash % 360
+}
+
 export function Avatar({ person, size = 16 }: { person?: Assignee; size?: number }) {
   if (!person) {
     return (
@@ -58,7 +70,12 @@ export function Avatar({ person, size = 16 }: { person?: Assignee; size?: number
     <span
       className="ide-avatar"
       title={person.name}
-      style={{ width: size, height: size, fontSize: Math.round(size * 0.45) }}
+      style={{
+        width: size,
+        height: size,
+        fontSize: Math.max(Math.round(size * 0.44), 7),
+        background: `hsl(${avatarHue(person.name)} 48% 42%)`,
+      }}
     >
       {person.initials}
     </span>

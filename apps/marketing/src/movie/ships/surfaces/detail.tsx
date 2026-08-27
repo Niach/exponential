@@ -1,60 +1,56 @@
-// surfaces/detail.tsx — IssueDetailPane: the issue-detail center pane (title,
-// markdown toolbar + description, activity, composer) + the 192px properties panel
-// (surface.rs DETAIL_SIDEBAR_WIDTH; Start coding lives HERE under AGENT, like the app).
-// EXP-388 matched it to the post-EXP-277 desktop: the Details/Changes header row is
-// GONE — the switcher / subscribe cluster lives in the properties panel's toolbar row,
-// and the coding-now pill sits inside the AGENT group.
-// Pixel truth (EXP-359 glass): the real-app reference screenshot — transparent panes
-// on the page gradient, hairline strokes, glass composer card, BOARD chip. All frames
-// are composition-global; the assembler passes `frame` down (no useCurrentFrame here).
+// surfaces/detail.tsx — IssueDetailPane: the issue-detail center pane.
+// EXP-471 rebuilt it against shots/issue-detail/desktop.webp — the post-EXP-282
+// desktop detail has NO properties sidebar and NO rich-text toolbar:
+//   · a pager row ("9 / 17" + prev/next) with copy-link · subscribe · delete right
+//   · the big title
+//   · ONE bordered PROPERTIES PILL BAR (status · priority · assignee · label ·
+//     due · board) with the light "▷ Start coding" pill at its trailing end
+//   · the green-outlined "<user> coding now · <device>" banner while a session runs
+//   · the markdown description, then the emoji / image / attach affordance row
+//   · a full-bleed hairline, "Activity (n)", the event rows + comments, and the
+//     "Leave a reply..." composer.
+// Pixel truth: the committed store shot (1440×900 @1.25) — pane-local Ys were
+// transcribed off it. All frames are composition-global; the assembler passes
+// `frame` down (no useCurrentFrame here).
 //
-// Coordinates: the pane lays out in PANE-LOCAL px. The assembler is expected to place it
-// at window-local (684, 34) — right of the expanded rail + tool window, under the 34px
-// titlebar. Default size 884×917 (dock collapsed). See DETAIL_ANCHORS for the
-// cursor-target positions of every clickable element (pane-local).
+// Coordinates: the pane lays out in PANE-LOCAL px. The assembler places it at
+// window-local (684, 34) — right of the expanded rail + tool window, under the
+// 34px titlebar. Default size 884×917 (dock collapsed).
 
 import React from "react"
 import { interpolate, spring } from "remotion"
 import { C, EASE, POP, UI_FONT, WIN } from "../theme"
 import { BOARD, HERO, IDENTITY, LABELS } from "../fixtures"
 import type { IssueStatus, Priority } from "../fixtures"
-import { riseIn } from "../rig"
 
 const CLAMP = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const
 const CLAMP_EASE = { ...CLAMP, easing: EASE } as const
 
 // Contract-sanctioned literals for this surface (matched on the ref shot).
 const DESC_FG = "#d4d4d4" // body paragraph color per contract
-const GREEN_BORDER = "rgba(34,197,94,0.4)" // coding-now pill border
+const GREEN_BORDER = "rgba(34,197,94,0.4)" // coding-now banner border
+const PRIMARY_BG = "#ededed" // the light Start coding / New Issue pill
+const PRIMARY_FG = "#18181b"
 
 // ── Layout constants (pane-local) ────────────────────────────────────────────
-const PAD_X = 16
-const PROPS_W = WIN.propsPanel // 192
 const DEFAULT_W = WIN.w - WIN.rail - WIN.sidebar // 884
 const DEFAULT_H = WIN.h - WIN.titleBar - WIN.dockStrip // 917
-const COL_W = 640 // centered content column (incl. its 16px side padding)
-
-// Properties-panel group pitch (pane-local Ys, toolbar row 30 + ~64/group).
-const PROPS_X = DEFAULT_W - PROPS_W / 2
-
-// Pane-local anchor points for the cursor rig (details state, defaults).
-// Window-local = anchor + (684, 34) when the pane sits under the titlebar.
-export const DETAIL_ANCHORS = {
-  title: { x: 224, y: 48 },
-  composerInput: { x: 300, y: 406 },
-  composerSend: { x: 590, y: 422 },
-  propsStatus: { x: PROPS_X, y: 105 },
-  propsPriority: { x: PROPS_X, y: 169 },
-  propsLabels: { x: PROPS_X, y: 233 },
-  propsDueDate: { x: PROPS_X, y: 297 },
-  propsProject: { x: PROPS_X + 10, y: 361 },
-  // Start coding — the AGENT row in the properties panel (like the app).
-  startCoding: { x: PROPS_X, y: 442 },
-} as const
+// The app left-aligns the detail content at 28px. MAX_COL caps the header
+// block (pager · title · properties bar) and PROSE_W the running text, so the
+// description and activity never run under the phone the clips float over the
+// window's right edge.
+const MAX_COL = 760
+const PROSE_W = 600
+const PAD_X = 28
 
 // ── Tiny inline icons (lucide-like, stroke currentColor) ─────────────────────
 type IconProps = { size?: number; sw?: number; style?: React.CSSProperties }
-const Svg: React.FC<IconProps & { children: React.ReactNode }> = ({ size = 14, sw = 2, style, children }) => (
+const Svg: React.FC<IconProps & { children: React.ReactNode }> = ({
+  size = 14,
+  sw = 2,
+  style,
+  children,
+}) => (
   <svg
     width={size}
     height={size}
@@ -88,6 +84,13 @@ const IcBell: React.FC<IconProps> = (p) => (
     <path d="M13.7 21a2 2 0 0 1-3.4 0" />
   </Svg>
 )
+const IcTrash: React.FC<IconProps> = (p) => (
+  <Svg {...p} sw={1.8}>
+    <path d="M3 6h18" />
+    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+    <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+  </Svg>
+)
 const IcChevronUp: React.FC<IconProps> = (p) => (
   <Svg {...p}>
     <path d="m6 15 6-6 6 6" />
@@ -99,13 +102,13 @@ const IcChevronDown: React.FC<IconProps> = (p) => (
   </Svg>
 )
 const IcTag: React.FC<IconProps> = (p) => (
-  <Svg {...p}>
+  <Svg {...p} sw={1.8}>
     <path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z" />
-    <circle cx="7.5" cy="7.5" r="0.6" />
+    <circle cx="7.5" cy="7.5" r="0.8" />
   </Svg>
 )
 const IcCalendarDays: React.FC<IconProps> = (p) => (
-  <Svg {...p}>
+  <Svg {...p} sw={1.7}>
     <path d="M8 2v4" />
     <path d="M16 2v4" />
     <rect x="3" y="4" width="18" height="18" rx="2" />
@@ -117,10 +120,11 @@ const IcCalendarDays: React.FC<IconProps> = (p) => (
     <path d="M12 18h.01" />
   </Svg>
 )
-const IcSend: React.FC<IconProps> = (p) => (
-  <Svg {...p}>
-    <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
-    <path d="m21.854 2.147-10.94 10.939" />
+const IcCircleUser: React.FC<IconProps> = (p) => (
+  <Svg {...p} sw={1.8}>
+    <circle cx="12" cy="12" r="10" />
+    <circle cx="12" cy="10" r="3" />
+    <path d="M6.2 19.4a6.5 6.5 0 0 1 11.6 0" />
   </Svg>
 )
 const IcGitPr: React.FC<IconProps> = (p) => (
@@ -131,20 +135,12 @@ const IcGitPr: React.FC<IconProps> = (p) => (
     <path d="M6 9v12" />
   </Svg>
 )
-const IcEllipsis: React.FC<IconProps> = (p) => (
-  <Svg {...p}>
-    <circle cx="5" cy="12" r="0.8" fill="currentColor" />
-    <circle cx="12" cy="12" r="0.8" fill="currentColor" />
-    <circle cx="19" cy="12" r="0.8" fill="currentColor" />
-  </Svg>
-)
 const IcCircleDot: React.FC<IconProps> = (p) => (
   <Svg {...p}>
     <circle cx="12" cy="12" r="9" />
     <circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none" />
   </Svg>
 )
-// Markdown toolbar glyphs
 const IcCode: React.FC<IconProps> = (p) => (
   <Svg {...p}>
     <path d="m16 18 6-6-6-6" />
@@ -152,44 +148,17 @@ const IcCode: React.FC<IconProps> = (p) => (
   </Svg>
 )
 const IcLink: React.FC<IconProps> = (p) => (
-  <Svg {...p}>
+  <Svg {...p} sw={1.8}>
     <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
     <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
   </Svg>
 )
-const IcQuote: React.FC<IconProps> = (p) => (
+const IcSmile: React.FC<IconProps> = (p) => (
   <Svg {...p} sw={1.7}>
-    <path d="M16 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1a2 2 0 0 1-2 2 1 1 0 0 0-1 1v2a1 1 0 0 0 1 1 6 6 0 0 0 6-6V5a2 2 0 0 0-2-2z" />
-    <path d="M5 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1a2 2 0 0 1-2 2 1 1 0 0 0-1 1v2a1 1 0 0 0 1 1 6 6 0 0 0 6-6V5a2 2 0 0 0-2-2z" />
-  </Svg>
-)
-const IcList: React.FC<IconProps> = (p) => (
-  <Svg {...p}>
-    <path d="M3 6h.01" />
-    <path d="M8 6h13" />
-    <path d="M3 12h.01" />
-    <path d="M8 12h13" />
-    <path d="M3 18h.01" />
-    <path d="M8 18h13" />
-  </Svg>
-)
-const IcListOrdered: React.FC<IconProps> = (p) => (
-  <Svg {...p} sw={1.7}>
-    <path d="M10 6h11" />
-    <path d="M10 12h11" />
-    <path d="M10 18h11" />
-    <path d="M4 6h1v4" />
-    <path d="M4 10h2" />
-    <path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1" />
-  </Svg>
-)
-const IcListChecks: React.FC<IconProps> = (p) => (
-  <Svg {...p}>
-    <path d="m3 7 2 2 4-4" />
-    <path d="m3 17 2 2 4-4" />
-    <path d="M13 6h8" />
-    <path d="M13 12h8" />
-    <path d="M13 18h8" />
+    <circle cx="12" cy="12" r="10" />
+    <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+    <path d="M9 9h.01" />
+    <path d="M15 9h.01" />
   </Svg>
 )
 const IcImage: React.FC<IconProps> = (p) => (
@@ -199,13 +168,29 @@ const IcImage: React.FC<IconProps> = (p) => (
     <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
   </Svg>
 )
-// Priority: signal-high (three ascending bars + baseline dot)
-const IcSignalHigh: React.FC<IconProps> = (p) => (
+const IcPaperclip: React.FC<IconProps> = (p) => (
+  <Svg {...p} sw={1.7}>
+    <path d="M13.234 20.252 21 12.3a3.8 3.8 0 0 0-5.373-5.374l-9.02 9.148a5.7 5.7 0 0 0 8.06 8.06l8.535-8.535" />
+  </Svg>
+)
+// Priority: signal-low / -medium / -high (baseline dot + ascending bars) and
+// triangle-alert for urgent (icons.json priority-*).
+const IcSignal: React.FC<IconProps & { bars: 1 | 2 | 3 }> = ({ bars, ...p }) => (
   <Svg {...p}>
-    <path d="M4 20h.01" />
-    <path d="M8.5 20v-5" />
-    <path d="M13 20v-9" />
-    <path d="M17.5 20V6" />
+    <path d="M2 20h.01" />
+    <path d="M7 20v-4" />
+    {bars >= 2 ? <path d="M12 20v-8" /> : null}
+    {bars >= 3 ? <path d="M17 20V8" /> : null}
+  </Svg>
+)
+const IcSignalLow: React.FC<IconProps> = (p) => <IcSignal {...p} bars={1} />
+const IcSignalMedium: React.FC<IconProps> = (p) => <IcSignal {...p} bars={2} />
+const IcSignalHigh: React.FC<IconProps> = (p) => <IcSignal {...p} bars={3} />
+const IcTriangleAlert: React.FC<IconProps> = (p) => (
+  <Svg {...p}>
+    <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 20h16a2 2 0 0 0 1.73-2Z" />
+    <path d="M12 9v4" />
+    <path d="M12 17h.01" />
   </Svg>
 )
 const IcMinus: React.FC<IconProps> = (p) => (
@@ -242,165 +227,81 @@ const IcCircleCheck: React.FC<IconProps> = (p) => (
   </Svg>
 )
 
-const STATUS_META: Record<IssueStatus, { label: string; color: string; Icon: React.FC<IconProps> }> = {
+const STATUS_META: Record<
+  IssueStatus,
+  { label: string; color: string; Icon: React.FC<IconProps> }
+> = {
   backlog: { label: "Backlog", color: C.statusBacklog, Icon: IcCircleDashed },
   todo: { label: "Todo", color: C.statusTodo, Icon: IcCircle },
-  in_progress: { label: "In Progress", color: C.statusInProgress, Icon: IcPieClock },
+  in_progress: {
+    label: "In Progress",
+    color: C.statusInProgress,
+    Icon: IcPieClock,
+  },
   done: { label: "Done", color: C.statusDone, Icon: IcCircleCheck },
 }
-const PRIO_META: Record<Priority, { label: string; color: string; Icon: React.FC<IconProps> }> = {
+const PRIO_META: Record<
+  Priority,
+  { label: string; color: string; Icon: React.FC<IconProps> }
+> = {
   none: { label: "No priority", color: C.muted, Icon: IcMinus },
-  urgent: { label: "Urgent", color: C.prioUrgent, Icon: IcSignalHigh },
+  urgent: { label: "Urgent", color: C.prioUrgent, Icon: IcTriangleAlert },
   high: { label: "High", color: C.prioHigh, Icon: IcSignalHigh },
-  medium: { label: "Medium", color: C.prioMedium, Icon: IcSignalHigh },
-  low: { label: "Low", color: C.prioLow, Icon: IcSignalHigh },
+  medium: { label: "Medium", color: C.prioMedium, Icon: IcSignalMedium },
+  low: { label: "Low", color: C.prioLow, Icon: IcSignalLow },
 }
-
-// ── Markdown toolbar ─────────────────────────────────────────────────────────
-const LetterGlyph: React.FC<{ main: string; sub?: string; italic?: boolean; strike?: boolean }> = ({
-  main,
-  sub,
-  italic,
-  strike,
-}) => (
-  <span
-    style={{
-      fontFamily: UI_FONT,
-      fontSize: 12.5,
-      fontWeight: 600,
-      fontStyle: italic ? "italic" : undefined,
-      textDecoration: strike ? "line-through" : undefined,
-      lineHeight: 1,
-      display: "flex",
-      alignItems: "baseline",
-    }}
-  >
-    {main}
-    {sub === undefined ? null : <span style={{ fontSize: 8.5, fontWeight: 600, translate: "0px 1px" }}>{sub}</span>}
-  </span>
-)
-
-const TOOLBAR_GROUPS: React.ReactNode[][] = [
-  [<LetterGlyph key="h1" main="H" sub="1" />, <LetterGlyph key="h2" main="H" sub="2" />, <LetterGlyph key="h3" main="H" sub="3" />],
-  [
-    <LetterGlyph key="b" main="B" />,
-    <LetterGlyph key="i" main="I" italic />,
-    <LetterGlyph key="s" main="S" strike />,
-    <IcCode key="c" size={14} />,
-  ],
-  [<IcLink key="l" size={13} />, <IcQuote key="q" size={13} />],
-  [<IcList key="ul" size={14} />, <IcListOrdered key="ol" size={14} />, <IcListChecks key="tl" size={14} />],
-  [<LetterGlyph key="tx" main="T" sub="x" />],
-  [<IcImage key="img" size={14} />],
-]
-
-const MarkdownToolbar: React.FC = () => (
-  <div
-    style={{
-      height: 34,
-      display: "flex",
-      alignItems: "center",
-      padding: "0 8px",
-      borderBottom: `1px solid ${C.strokeRow}`,
-      color: C.muted,
-    }}
-  >
-    {TOOLBAR_GROUPS.map((group, gi) => (
-      <React.Fragment key={gi}>
-        {gi > 0 ? <div style={{ width: 1, height: 16, backgroundColor: C.strokeSection, margin: "0 5px" }} /> : null}
-        {group.map((glyph, bi) => (
-          <div
-            key={bi}
-            style={{ width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 5 }}
-          >
-            {glyph}
-          </div>
-        ))}
-      </React.Fragment>
-    ))}
-  </div>
-)
 
 // ── Small shared bits ─────────────────────────────────────────────────────────
 const popIn = (frame: number, at: number | undefined) =>
-  at === undefined || frame < at ? 0 : spring({ frame: frame - at, fps: 30, config: POP })
-
-const LabelPill: React.FC<{ name: string; dot: string }> = ({ name, dot }) => (
-  <div
-    style={{
-      display: "inline-flex",
-      alignItems: "center",
-      gap: 6,
-      height: 20,
-      padding: "0 8px",
-      borderRadius: 999,
-      border: `1px solid ${C.strokeCard}`,
-    }}
-  >
-    <div style={{ width: 6, height: 6, borderRadius: 999, backgroundColor: dot }} />
-    <span style={{ fontSize: 12, color: C.muted }}>{name}</span>
-  </div>
-)
+  at === undefined || frame < at
+    ? 0
+    : spring({ frame: frame - at, fps: 30, config: POP })
 
 const activityIconFor = (text: string): React.FC<IconProps> => {
   if (text.includes("label")) return IcTag
-  if (text.includes("pull request")) return IcGitPr
+  if (text.includes("pull request") || text.includes("PR")) return IcGitPr
   return IcCircleDot
 }
 
-// ── Properties panel ─────────────────────────────────────────────────────────
-const PropGroup: React.FC<{
-  label: string
-  frame: number
-  staggerAt?: number
-  index: number
+// One property in the pill bar: a colored glyph + its value.
+const Prop: React.FC<{
+  Icon: React.FC<IconProps>
+  color?: string
   children: React.ReactNode
-}> = ({ label, frame, staggerAt, index, children }) => {
-  const anim = staggerAt === undefined ? { opacity: 1, translate: "0px 0px" } : riseIn(frame, staggerAt + index * 4, 9, 8)
-  return (
-    <div style={{ display: "flex", flexDirection: "column", ...anim }}>
-      <div
-        style={{
-          height: 16,
-          fontSize: 11,
-          fontWeight: 500,
-          letterSpacing: 0.5,
-          textTransform: "uppercase",
-          color: C.muted,
-          marginBottom: 6,
-          display: "flex",
-          alignItems: "center",
-        }}
-      >
-        {label}
-      </div>
+}> = ({ Icon, color = C.muted, children }) => (
+  <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+    <Icon size={14} style={{ color }} />
+    <span
+      style={{
+        fontSize: 12.5,
+        color: C.text,
+        whiteSpace: "nowrap",
+      }}
+    >
       {children}
-    </div>
-  )
-}
-
-const PropValue: React.FC<{ icon: React.ReactNode; children: React.ReactNode; muted?: boolean }> = ({
-  icon,
-  children,
-  muted,
-}) => (
-  <div style={{ height: 22, display: "flex", alignItems: "center", gap: 8 }}>
-    {icon}
-    <span style={{ fontSize: 13, color: muted ? C.muted : C.text }}>{children}</span>
+    </span>
   </div>
 )
 
-// Issue content shown by the pane. Everything defaults to the ships HERO
-// fixture so existing callers render exactly as before.
+// ── Issue content shown by the pane ──────────────────────────────────────────
+export type DetailComment = {
+  actor: string
+  initials: string
+  time: string
+  body: string
+}
+
 export type DetailIssueContent = {
   id: string
   title: string
   descriptionParas: readonly string[]
   switcher: string
   activity: readonly { actor: string; text: string }[]
-  imagesMeta?: string // "0 images" meta row text
-  pr?: number // default PR-chip label number
+  comments?: readonly DetailComment[]
+  imagesMeta?: string // legacy field — the current detail has no images meta row
+  pr?: number
   label?: { name: string; dot: string }
+  assigneeName?: string
   due?: string
   project?: string
   projectColor?: string
@@ -412,211 +313,29 @@ const HERO_ISSUE: DetailIssueContent = {
   descriptionParas: HERO.descriptionParas,
   switcher: HERO.switcher,
   activity: HERO.activity,
-  imagesMeta: "0 images",
   pr: HERO.pr,
   label: LABELS.bug,
+  assigneeName: IDENTITY.user,
   due: BOARD.find((r) => r.id === HERO.id)?.due ?? "Jul 15",
   project: IDENTITY.project,
   projectColor: IDENTITY.projectColor,
 }
 
-// The panel's first row (post-EXP-277 desktop): switcher + prev/next on the
-// left, copy-link · subscribe bell · actions menu on the right.
-const PropsToolbar: React.FC<{ switcher: string }> = ({ switcher }) => (
-  <div
-    style={{
-      height: 22,
-      display: "flex",
-      alignItems: "center",
-      gap: 4,
-      color: C.muted,
-    }}
-  >
-    <span style={{ fontSize: 12, color: C.muted }}>{switcher}</span>
-    <div style={{ width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <IcChevronUp size={12} />
-    </div>
-    <div style={{ width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <IcChevronDown size={12} />
-    </div>
-    <div style={{ flex: 1 }} />
-    <div style={{ width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <IcLink size={12} />
-    </div>
-    <div style={{ width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <IcBell size={12} />
-    </div>
-    <div style={{ width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <IcEllipsis size={14} />
-    </div>
-  </div>
-)
-
-const PropsPanel: React.FC<{
-  frame: number
-  staggerAt?: number
-  status: IssueStatus
-  priority: Priority
-  issue: DetailIssueContent
-  codingActive?: boolean
-  codingPillT?: number // coding-now pill pop/out 0→1 (Agent group)
-  hoverT?: number // Start-coding row hover wash 0→1
-}> = ({
-  frame,
-  staggerAt,
-  status,
-  priority,
-  issue,
-  codingActive,
-  codingPillT = 0,
-  hoverT = 0,
-}) => {
-  const st = STATUS_META[status]
-  const pr = PRIO_META[priority]
-  const due = issue.due
-  const label = issue.label
-  // Keep the stagger rhythm stable regardless of which optional groups render.
-  let index = 1
-  const nextIndex = () => {
-    index += 1
-    return index
-  }
-  return (
-    <div
-      style={{
-        width: PROPS_W,
-        boxSizing: "border-box",
-        flexShrink: 0,
-        borderLeft: `1px solid ${C.strokeRow}`,
-        padding: "14px 12px 18px",
-        display: "flex",
-        flexDirection: "column",
-        gap: 20,
-      }}
-    >
-      <PropsToolbar switcher={issue.switcher} />
-      <PropGroup label="Status" frame={frame} staggerAt={staggerAt} index={0}>
-        <PropValue icon={<st.Icon size={14} style={{ color: st.color }} />}>{st.label}</PropValue>
-      </PropGroup>
-      <PropGroup label="Priority" frame={frame} staggerAt={staggerAt} index={1}>
-        <PropValue icon={<pr.Icon size={14} style={{ color: pr.color }} />}>{pr.label}</PropValue>
-      </PropGroup>
-      {label !== undefined ? (
-        <PropGroup label="Labels" frame={frame} staggerAt={staggerAt} index={nextIndex()}>
-          <div style={{ height: 22, display: "flex", alignItems: "center" }}>
-            <LabelPill name={label.name} dot={label.dot} />
-          </div>
-        </PropGroup>
-      ) : null}
-      <PropGroup label="Due date" frame={frame} staggerAt={staggerAt} index={nextIndex()}>
-        {due !== undefined ? (
-          <PropValue icon={<IcCalendarDays size={14} style={{ color: C.muted }} />}>{due}</PropValue>
-        ) : (
-          <PropValue icon={<IcCalendarDays size={14} style={{ color: C.muted }} />} muted>
-            Add due date
-          </PropValue>
-        )}
-      </PropGroup>
-      <PropGroup label="Board" frame={frame} staggerAt={staggerAt} index={nextIndex()}>
-        <div style={{ height: 22, display: "flex", alignItems: "center" }}>
-          <div
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 8,
-              height: 24,
-              padding: "0 10px",
-              borderRadius: 8,
-              backgroundColor: C.fillCard,
-              border: `1px solid ${C.strokeCard}`,
-            }}
-          >
-            <div style={{ width: 8, height: 8, borderRadius: 999, backgroundColor: issue.projectColor ?? IDENTITY.projectColor }} />
-            <span style={{ fontSize: 12, color: C.text }}>{issue.project ?? IDENTITY.project}</span>
-          </div>
-        </div>
-      </PropGroup>
-      <PropGroup label="Agent" frame={frame} staggerAt={staggerAt} index={nextIndex()}>
-        {/* the coding-now pill lives INSIDE the Agent group (like the app) */}
-        {codingPillT > 0.01 ? (
-          <div
-            style={{
-              height: 24,
-              boxSizing: "border-box",
-              marginBottom: 8,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 7,
-              borderRadius: 999,
-              border: `1px solid ${GREEN_BORDER}`,
-              opacity: codingPillT,
-              scale: String(0.9 + 0.1 * codingPillT),
-            }}
-          >
-            <span style={{ width: 6, height: 6, borderRadius: 999, backgroundColor: C.green }} />
-            <span
-              style={{
-                fontSize: 11.5,
-                color: C.text,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}
-            >
-              {`Coding now · ${IDENTITY.device}`}
-            </span>
-          </div>
-        ) : null}
-        <div
-          style={{
-            height: 30,
-            boxSizing: "border-box",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 6,
-            borderRadius: 10,
-            border: `1px solid ${C.strokeCard}`,
-            backgroundColor:
-              hoverT > 0
-                ? `rgba(255,255,255,${0.06 + 0.06 * hoverT})`
-                : C.fillCard,
-          }}
-        >
-          {codingActive ? (
-            <>
-              <IcCircleX size={13} style={{ color: C.destructive }} />
-              <span style={{ fontSize: 12.5, fontWeight: 500, color: C.text }}>Stop</span>
-            </>
-          ) : (
-            <>
-              <IcPlay size={13} sw={1.8} style={{ color: C.green, opacity: 0.85 + 0.15 * hoverT }} />
-              <span style={{ fontSize: 12.5, fontWeight: 500, color: C.text, whiteSpace: "nowrap" }}>Start coding</span>
-            </>
-          )}
-        </div>
-      </PropGroup>
-    </div>
-  )
-}
-
 // ── The pane ──────────────────────────────────────────────────────────────────
 export type IssueDetailPaneProps = {
   frame: number
-  /** Springs the coding-now pill into the AGENT group; Start coding → Stop while active. */
+  /** Springs the coding-now banner in; Start coding → Stop while active. */
   codingNow?: { at: number; out?: number }
-  /** Properties panel groups stagger-fade in (4f stagger, 8px rise). */
-  staggerAt?: number
-  /** Whole pane slides in from the right 46px + fades over 20f (S4 entrance). */
+  /** Whole pane slides in from the right 46px + fades over 20f. */
   slideInAt?: number
-  /** Hover highlight window on the Start coding button (cursor choreography). */
-  startHover?: { at: number; out?: number }
   /** Properties STATUS value (board truth changes over the film). */
   status?: IssueStatus
   priority?: Priority
   /** Issue content (title/description/activity/properties). Default: the ships HERO. */
   issue?: DetailIssueContent
+  /** Who is coding, for the banner (defaults to the issue's assignee). */
+  codingUser?: string
+  codingDevice?: string
   width?: number
   height?: number
 }
@@ -624,40 +343,54 @@ export type IssueDetailPaneProps = {
 export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
   frame,
   codingNow,
-  staggerAt,
   slideInAt,
-  startHover,
   status = "todo",
   priority = "high",
   issue = HERO_ISSUE,
+  codingUser,
+  codingDevice = IDENTITY.device,
   width = DEFAULT_W,
   height = DEFAULT_H,
 }) => {
-  // Entrance slide (S4).
   const slide =
     slideInAt === undefined
       ? { opacity: 1, translate: "0px 0px" }
       : {
-          opacity: interpolate(frame, [slideInAt, slideInAt + 20], [0, 1], CLAMP_EASE),
-          translate: `${interpolate(frame, [slideInAt, slideInAt + 20], [46, 0], CLAMP_EASE)}px 0px`,
+          opacity: interpolate(
+            frame,
+            [slideInAt, slideInAt + 20],
+            [0, 1],
+            CLAMP_EASE
+          ),
+          translate: `${interpolate(
+            frame,
+            [slideInAt, slideInAt + 20],
+            [46, 0],
+            CLAMP_EASE
+          )}px 0px`,
         }
 
-  // Coding-now pill (Agent group) + Start coding → Stop swap.
+  // Coding-now banner + Start coding → Stop swap.
   const pillPop = popIn(frame, codingNow?.at)
   const pillOut =
-    codingNow?.out === undefined ? 1 : interpolate(frame, [codingNow.out, codingNow.out + 8], [1, 0], CLAMP)
-  const codingPillT = Math.min(1, pillPop) * pillOut
+    codingNow?.out === undefined
+      ? 1
+      : interpolate(frame, [codingNow.out, codingNow.out + 8], [1, 0], CLAMP)
+  const bannerT = Math.min(1, pillPop) * pillOut
   const codingActive =
-    codingNow !== undefined && frame >= codingNow.at && (codingNow.out === undefined || frame < codingNow.out + 4)
+    codingNow !== undefined &&
+    frame >= codingNow.at &&
+    (codingNow.out === undefined || frame < codingNow.out + 4)
 
-  // Start-coding hover highlight.
-  const hoverIn = startHover === undefined ? 0 : interpolate(frame, [startHover.at, startHover.at + 6], [0, 1], CLAMP)
-  const hoverOut =
-    startHover?.out === undefined ? 1 : interpolate(frame, [startHover.out, startHover.out + 6], [1, 0], CLAMP)
-  const hoverT = hoverIn * hoverOut
-
-  const leftColW = width - PROPS_W
-  const colMargin = Math.max(0, (leftColW - COL_W) / 2)
+  const st = STATUS_META[status]
+  const pr = PRIO_META[priority]
+  const colW = Math.min(MAX_COL, width - 2 * PAD_X)
+  const col: React.CSSProperties = { marginLeft: PAD_X, width: colW }
+  const prose: React.CSSProperties = {
+    marginLeft: PAD_X,
+    width: Math.min(PROSE_W, colW),
+  }
+  const bannerH = 24
 
   return (
     <div
@@ -674,108 +407,303 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
         translate: slide.translate,
       }}
     >
-      {/* ── Body: left column + properties panel (no header row — EXP-277) ── */}
-      {
+      <div style={{ ...col, paddingTop: 4 }}>
+        {/* pager row: "N / M" + prev/next · copy-link · subscribe · delete */}
         <div
           style={{
-            position: "absolute",
-            left: 0,
-            top: 0,
-            width,
-            height,
+            height: 20,
             display: "flex",
+            alignItems: "center",
+            gap: 2,
+            color: C.muted,
           }}
         >
-          {/* left column */}
-          <div style={{ width: leftColW, flexShrink: 0, overflow: "hidden" }}>
-            {/* centered content column */}
-            <div style={{ marginLeft: colMargin, width: COL_W, padding: `0 ${PAD_X}px` }}>
-              <div style={{ paddingTop: 22, height: 28, fontSize: 20, fontWeight: 600, letterSpacing: -0.2, lineHeight: "28px", boxSizing: "content-box" }}>
-                {issue.title}
-              </div>
-              {/* editor: toolbar + description — no box in the glass app; the
-                  toolbar's own hairline separates it from the text */}
-              <div style={{ marginTop: 12, height: 166, overflow: "hidden" }}>
-                <MarkdownToolbar />
-                <div style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
-                  {issue.descriptionParas.map((para) => (
-                    <p key={para.slice(0, 24)} style={{ margin: 0, fontSize: 13.5, lineHeight: 1.6, color: DESC_FG }}>
-                      {para}
-                    </p>
-                  ))}
-                </div>
-              </div>
-              <div style={{ marginTop: 8, height: 16, fontSize: 12, color: C.muted, textAlign: "right" }}>{issue.imagesMeta ?? "0 images"}</div>
+          <span style={{ fontSize: 12, marginRight: 4 }}>{issue.switcher}</span>
+          <div
+            style={{
+              width: 18,
+              height: 18,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <IcChevronUp size={13} sw={1.8} />
+          </div>
+          <div
+            style={{
+              width: 18,
+              height: 18,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <IcChevronDown size={13} sw={1.8} />
+          </div>
+          <div style={{ flex: 1 }} />
+          {[IcLink, IcBell, IcTrash].map((Icon, i) => (
+            <div
+              key={i}
+              style={{
+                width: 20,
+                height: 20,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Icon size={13} />
             </div>
-            {/* full-bleed divider */}
-            <div style={{ marginTop: 14, borderTop: `1px solid ${C.strokeRow}` }} />
-            {/* activity + composer (re-centered) */}
-            <div style={{ marginLeft: colMargin, width: COL_W, padding: `14px ${PAD_X}px 0` }}>
-              <div style={{ height: 16, fontSize: 12, fontWeight: 500, color: C.muted }}>
-                {`Activity (${issue.activity.length})`}
+          ))}
+        </div>
+
+        {/* title */}
+        <div
+          style={{
+            marginTop: 16,
+            height: 30,
+            fontSize: 23,
+            fontWeight: 700,
+            letterSpacing: -0.3,
+            lineHeight: "30px",
+          }}
+        >
+          {issue.title}
+        </div>
+
+        {/* the properties pill bar */}
+        <div
+          style={{
+            marginTop: 10,
+            height: 40,
+            boxSizing: "border-box",
+            display: "flex",
+            alignItems: "center",
+            gap: 22,
+            padding: "0 7px 0 14px",
+            borderRadius: 12,
+            border: `1px solid ${C.strokeCard}`,
+          }}
+        >
+          <Prop Icon={st.Icon} color={st.color}>
+            {st.label}
+          </Prop>
+          <Prop Icon={pr.Icon} color={pr.color}>
+            {pr.label}
+          </Prop>
+          <Prop Icon={IcCircleUser}>{issue.assigneeName ?? "Unassigned"}</Prop>
+          {issue.label ? (
+            <Prop Icon={IcTag}>
+              {issue.label.name.charAt(0).toUpperCase() +
+                issue.label.name.slice(1)}
+            </Prop>
+          ) : null}
+          {issue.due ? <Prop Icon={IcCalendarDays}>{issue.due}</Prop> : null}
+          <Prop Icon={IcCode} color={issue.projectColor ?? "#818cf8"}>
+            {issue.project ?? IDENTITY.project}
+          </Prop>
+          <div style={{ flex: 1 }} />
+          <div
+            style={{
+              height: 26,
+              flex: "none",
+              boxSizing: "border-box",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "0 14px",
+              borderRadius: 999,
+              backgroundColor: codingActive ? C.fillCard : PRIMARY_BG,
+              border: codingActive ? `1px solid ${C.strokeCard}` : undefined,
+              color: codingActive ? C.text : PRIMARY_FG,
+              fontSize: 12.5,
+              fontWeight: 600,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {codingActive ? (
+              <>
+                <IcCircleX size={13} style={{ color: C.destructive }} />
+                Stop
+              </>
+            ) : (
+              <>
+                <IcPlay size={12} sw={1.8} />
+                Start coding
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* the green coding-now banner (springs in with the session) */}
+        {bannerT > 0.01 ? (
+          <div
+            style={{
+              marginTop: 10,
+              height: bannerH,
+              boxSizing: "border-box",
+              display: "flex",
+              alignItems: "center",
+              gap: 9,
+              padding: "0 12px",
+              borderRadius: 8,
+              border: `1px solid ${GREEN_BORDER}`,
+              opacity: bannerT,
+            }}
+          >
+            <span
+              style={{
+                width: 6,
+                height: 6,
+                flex: "none",
+                borderRadius: 999,
+                backgroundColor: C.green,
+              }}
+            />
+            <span style={{ fontSize: 12, color: C.text, whiteSpace: "nowrap" }}>
+              {`${codingUser ?? issue.assigneeName ?? IDENTITY.user} coding now · ${codingDevice}`}
+            </span>
+          </div>
+        ) : null}
+
+      </div>
+
+      {/* description + the emoji / image / attach affordances */}
+      <div style={prose}>
+        <div
+          style={{
+            marginTop: bannerT > 0.01 ? 14 : 14 + bannerH + 10,
+            display: "flex",
+            flexDirection: "column",
+            gap: 12,
+          }}
+        >
+          {issue.descriptionParas.map((para) => (
+            <p
+              key={para.slice(0, 24)}
+              style={{
+                margin: 0,
+                fontSize: 13.5,
+                lineHeight: 1.55,
+                color: DESC_FG,
+              }}
+            >
+              {para}
+            </p>
+          ))}
+        </div>
+
+        {/* emoji / image / attach affordances under the description */}
+        <div
+          style={{
+            marginTop: 18,
+            height: 24,
+            display: "flex",
+            alignItems: "center",
+            gap: 14,
+            color: C.muted,
+          }}
+        >
+          <IcSmile size={16} />
+          <IcImage size={16} />
+          <IcPaperclip size={16} />
+        </div>
+      </div>
+
+      {/* full-bleed hairline */}
+      <div style={{ marginTop: 12, borderTop: `1px solid ${C.strokeRow}` }} />
+
+      {/* activity + composer */}
+      <div style={{ ...prose, paddingTop: 16 }}>
+        <div style={{ height: 18, fontSize: 13, fontWeight: 600, color: C.text }}>
+          {`Activity (${issue.activity.length + (issue.comments?.length ?? 0)})`}
+        </div>
+        <div style={{ marginTop: 10, display: "flex", flexDirection: "column" }}>
+          {issue.activity.map((item) => {
+            const Icon = activityIconFor(item.text)
+            return (
+              <div
+                key={item.text}
+                style={{
+                  height: 26,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                }}
+              >
+                <Icon size={13} style={{ color: C.muted }} />
+                <span style={{ fontSize: 12.5, color: C.muted }}>
+                  <span style={{ fontWeight: 600, color: C.text }}>
+                    {item.actor}
+                  </span>
+                  {` ${item.text}`}
+                </span>
               </div>
-              <div style={{ marginTop: 8, display: "flex", flexDirection: "column" }}>
-                {issue.activity.map((item) => {
-                  const Icon = activityIconFor(item.text)
-                  return (
-                    <div key={item.text} style={{ height: 24, display: "flex", alignItems: "center", gap: 9 }}>
-                      <Icon size={13} style={{ color: C.muted }} />
-                      <span style={{ fontSize: 12.5, color: C.muted }}>
-                        <span style={{ fontWeight: 600, color: C.text }}>{item.actor}</span>
-                        {` ${item.text}`}
-                      </span>
-                    </div>
-                  )
-                })}
+            )
+          })}
+        </div>
+        {(issue.comments ?? []).map((c) => (
+          <div
+            key={c.actor + c.time}
+            style={{ marginTop: 14, display: "flex", gap: 10 }}
+          >
+            <span
+              style={{
+                width: 24,
+                height: 24,
+                flex: "none",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                borderRadius: 999,
+                backgroundColor: "rgba(234,179,8,0.22)",
+                color: "#facc15",
+                fontSize: 10,
+                fontWeight: 600,
+              }}
+            >
+              {c.initials}
+            </span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div
+                style={{ display: "flex", alignItems: "center", gap: 8, height: 16 }}
+              >
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: C.text }}>
+                  {c.actor}
+                </span>
+                <span style={{ fontSize: 11.5, color: C.muted }}>{c.time}</span>
               </div>
-              {/* composer */}
-              <div style={{ marginTop: 12, display: "flex", alignItems: "flex-end", gap: 8 }}>
-                <div
-                  style={{
-                    flex: 1,
-                    height: 58,
-                    boxSizing: "border-box",
-                    border: `1px solid ${C.strokeStrong}`,
-                    borderRadius: 12,
-                    backgroundColor: C.fillSection,
-                    padding: "10px 12px",
-                    fontSize: 13,
-                    color: C.muted,
-                  }}
-                >
-                  Leave a reply...
-                </div>
-                <div
-                  style={{
-                    width: 26,
-                    height: 26,
-                    borderRadius: 8,
-                    backgroundColor: C.fillCard,
-                    border: `1px solid ${C.strokeCard}`,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    color: C.muted,
-                  }}
-                >
-                  <IcSend size={13} sw={1.7} />
-                </div>
-              </div>
+              <p
+                style={{
+                  margin: "5px 0 0",
+                  fontSize: 13,
+                  lineHeight: 1.5,
+                  color: DESC_FG,
+                }}
+              >
+                {c.body}
+              </p>
             </div>
           </div>
-          {/* properties panel */}
-          <PropsPanel
-            frame={frame}
-            staggerAt={staggerAt}
-            status={status}
-            priority={priority}
-            issue={issue}
-            codingActive={codingActive}
-            codingPillT={codingPillT}
-            hoverT={hoverT}
-          />
+        ))}
+        {/* composer */}
+        <div
+          style={{
+            marginTop: 18,
+            height: 46,
+            boxSizing: "border-box",
+            border: `1px solid ${C.strokeStrong}`,
+            borderRadius: 12,
+            backgroundColor: C.fillSection,
+            padding: "13px 14px",
+            fontSize: 13,
+            color: C.muted,
+          }}
+        >
+          Leave a reply...
         </div>
-      }
+      </div>
     </div>
   )
 }

@@ -1,40 +1,66 @@
-/* ─── 44px left icon rail with active-tool accent bar ─── */
-import { REVIEWS } from "./data"
+/* ─── The labelled left rail (EXP-282/285/525) — 164px, glass wash, full
+   window height. Order: titlebar strip (traffic lights + collapse toggle) ·
+   Search · divider · Inbox / Reviews / Actions / Support · divider · Boards
+   group · divider · Files / Source Control · Getting started · account row. ─── */
+import type { ReactNode } from "react"
+import { PROJECT, REVIEWS } from "./data"
 import { useIde } from "./state"
 import {
-  IcCircleUser,
+  IcBot,
+  IcCode,
   IcFolder,
   IcGitMerge,
   IcGitPullRequest,
   IcInbox,
-  IcListTodo,
+  IcLifeBuoy,
+  IcMegaphone,
+  IcPanelLeftClose,
+  IcPlus,
+  IcKanban,
   IcSearch,
   IcSettings,
+  IcSparkles,
+  IcAlert,
   type IdeIcon,
 } from "./icons"
 
-function RailBtn({
+/* The rail's board group. The active board is the fixture project; the two
+   companions exist so the group reads like the real team sidebar. */
+export type RailBoard = { name: string; color: string; Icon: IdeIcon }
+
+export const BOARDS: RailBoard[] = [
+  { name: PROJECT.name, color: `#6366f1`, Icon: IcCode },
+  /* Same companions as webui/data.ts WEB_PROJECTS — one team across the demos. */
+  { name: `Mobile Apps`, color: `#f97316`, Icon: IcKanban },
+  { name: `Feedback`, color: `#22c55e`, Icon: IcMegaphone },
+]
+
+export const ACTIVE_BOARD = BOARDS[0]
+
+function RailRow({
   Icon,
-  title,
+  label,
   active,
-  dot,
+  tint,
+  badge,
   onClick,
 }: {
   Icon: IdeIcon
-  title: string
+  label: string
   active?: boolean
-  dot?: boolean
+  tint?: string
+  badge?: ReactNode
   onClick?: () => void
 }) {
   return (
     <button
-      className={`ide-rail-btn${active ? ` is-active` : ``}${onClick ? ` is-click` : ``}`}
+      className={`ide-railrow${active ? ` is-active` : ``}${onClick ? ` is-click` : ``}`}
       type="button"
-      title={title}
       onClick={onClick}
     >
-      <Icon size={16} />
-      {dot ? <span className="ide-rail-dot" /> : null}
+      <Icon size={10} style={tint ? { color: tint } : undefined} />
+      <span className="ide-railrow-label">{label}</span>
+      {badge}
     </button>
   )
 }
@@ -45,49 +71,76 @@ export function Rail() {
   const openReviews = REVIEWS.filter((r) => !goneReviews.has(r.issueId)).length
   return (
     <div className="ide-rail">
-      <RailBtn Icon={IcSearch} title="Search" />
+      <div className="ide-rail-strip">
+        <span className="ide-lights">
+          <i style={{ background: `#ff5f57` }} />
+          <i style={{ background: `#febc2e` }} />
+          <i style={{ background: `#28c840` }} />
+        </span>
+        <div className="ide-flex1" />
+        <span className="ide-rail-toggle">
+          <IcPanelLeftClose size={12} />
+        </span>
+      </div>
+      <RailRow Icon={IcSearch} label="Search" />
       <div className="ide-rail-div" />
-      <RailBtn
+      <RailRow
         Icon={IcInbox}
-        title="Inbox"
+        label="Inbox"
         active={tool === `inbox`}
         onClick={on(() => setTool(`inbox`))}
       />
-      <RailBtn
-        Icon={IcCircleUser}
-        title="My Issues"
-        active={tool === `my-issues`}
-        onClick={on(() => setTool(`my-issues`))}
-      />
-      <RailBtn
-        Icon={IcListTodo}
-        title="All Issues"
-        active={tool === `issues`}
-        onClick={on(() => setTool(`issues`))}
-      />
-      <RailBtn
+      <RailRow
         Icon={IcGitPullRequest}
-        title="Reviews"
+        label="Reviews"
         active={tool === `reviews`}
-        dot={openReviews > 0}
+        badge={openReviews > 0 ? <span className="ide-rail-dot" /> : undefined}
         onClick={on(() => setTool(`reviews`))}
       />
+      <RailRow Icon={IcBot} label="Actions" />
+      <RailRow Icon={IcLifeBuoy} label="Support" />
       <div className="ide-rail-div" />
-      <RailBtn
+      <div className="ide-rail-grouphead">
+        <span>Boards</span>
+        <span className="ide-rail-plus">
+          <IcPlus size={10} />
+        </span>
+      </div>
+      {BOARDS.map((board, i) => (
+        <RailRow
+          key={board.name}
+          Icon={board.Icon}
+          label={board.name}
+          tint={board.color}
+          active={i === 0 && tool === `issues`}
+          onClick={i === 0 ? on(() => setTool(`issues`)) : undefined}
+        />
+      ))}
+      <div className="ide-rail-div" />
+      <RailRow
         Icon={IcFolder}
-        title="Files"
+        label="Files"
         active={tool === `files`}
         onClick={on(() => setTool(`files`))}
       />
-      <RailBtn
+      <RailRow
         Icon={IcGitMerge}
-        title="Source Control"
+        label="Source Control"
         active={tool === `source-control`}
+        badge={<IcAlert size={10} className="ide-c-yellow" />}
         onClick={on(openSourceControl)}
       />
       <div className="ide-rail-spacer" />
-      <RailBtn Icon={IcSettings} title="Settings" />
-      <RailBtn Icon={IcCircleUser} title="Account" />
+      <RailRow Icon={IcSparkles} label="Getting started" />
+      <div className="ide-rail-account">
+        <span className="ide-railrow is-account">
+          <span className="ide-avatar ide-avatar-me">DS</span>
+          <span className="ide-railrow-label">Danny</span>
+        </span>
+        <span className="ide-rail-gear">
+          <IcSettings size={11} />
+        </span>
+      </div>
     </div>
   )
 }

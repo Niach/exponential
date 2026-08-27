@@ -401,6 +401,14 @@
   color: #a3a3a3;
 }
 
+/* Mirrors .exp-success-link — the filed identifier is the accent link. */
+.cw-success-link {
+  color: #e5e5e5;
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .cw-powered {
   padding: 7px 16px;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
@@ -527,8 +535,9 @@
   min-width: 0;
 }
 
-/* HelpdeskChatDemo sizes its .web-root inline (desktop 460px with the
-   rail, phones 560px chat-only) — no height override here. */
+/* HelpdeskChatDemo sizes its .web-root inline (desktop 700px with the rail,
+   phones 760px chat-only — EXP-471 grew both when the recreation moved to the
+   app's real 18.5px rem grid) — no height override here. */
 .co-helpsup {
   flex: 1;
   min-width: 0;

@@ -45,10 +45,10 @@ export function TerminalDock() {
         type="button"
         onClick={interactive ? () => setDockOpen(true) : undefined}
       >
-        <IcSquareTerminal size={14} />
-        <span>{`Terminal (${tabCount})`}</span>
+        <IcSquareTerminal size={10} />
+        <span>{coding === `idle` ? `Terminal` : `Terminal (${tabCount})`}</span>
         <div className="ide-flex1" />
-        <IcChevUp size={14} />
+        <IcChevUp size={10} />
       </button>
     )
   }
@@ -68,10 +68,9 @@ export function TerminalDock() {
           type="button"
           onClick={interactive ? () => setDockTab(`shell`) : undefined}
         >
-          <span className="ide-dock-star">✳</span>
           {SHELL_TAB_TITLE}
           <span className="ide-dock-x" aria-hidden>
-            <IcX size={10} />
+            <IcX size={9} />
           </span>
         </button>
         {coding !== `idle` && (
@@ -80,27 +79,26 @@ export function TerminalDock() {
             type="button"
             onClick={interactive ? () => setDockTab(`claude`) : undefined}
           >
-            <span className="ide-dock-star">✳</span>
             {codingTarget?.kind === `batch`
               ? batchTabTitle(codingTarget.issueIds.length)
               : claudeTabTitle(codingTarget?.id ?? ``)}
             {coding === `ended` && <span className="ide-exitbadge">0</span>}
             <span className="ide-dock-x" aria-hidden>
-              <IcX size={10} />
+              <IcX size={9} />
             </span>
           </button>
         )}
+        <span className="ide-icbtn" title="New shell">
+          <IcPlus size={11} />
+        </span>
         <div className="ide-flex1" />
-        <button className="ide-ghost ide-icbtn" type="button" title="New shell">
-          <IcPlus size={12} />
-        </button>
         <button
-          className={`ide-ghost ide-icbtn${interactive ? ` is-click` : ``}`}
+          className={`ide-icbtn${interactive ? ` is-click` : ``}`}
           type="button"
           title="Hide terminal"
           onClick={interactive ? () => setDockOpen(false) : undefined}
         >
-          <IcChevDown size={14} />
+          <IcChevDown size={11} />
         </button>
       </div>
       {claudeVisible ? (

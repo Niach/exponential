@@ -914,3 +914,260 @@ button.mob-backbtn {
     animation: none;
   }
 }
+
+/* ─── Start-coding sheet (mss-*) — the iOS recreation (EXP-471) ───
+   Traced off shots/start-coding/ios.webp, the captured
+   apps/ios/.../Session/StartCodingSheet. EVERY length here is an iOS POINT:
+   `.mss-screen` is the phone's own 414pt-wide canvas and `.mss-phone` scales
+   the whole thing down with ONE transform, so the recreation stays
+   measurable against the store shot (17pt body, 15pt subheadline, 12pt mono
+   identifiers, 49pt form rows, cards inset 18.5pt) instead of drifting into
+   hand-tuned marketing px. Change `--mss-scale` to resize; never the values
+   below. Fills are the app's own glass tokens: white .05 form rows, white
+   .10 capsule containers, white .12 selected segments. */
+
+.mss-phone {
+  --mss-scale: 0.66;
+  width: calc(414px * var(--mss-scale));
+  height: calc(759px * var(--mss-scale));
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  user-select: none;
+}
+
+.mss-screen {
+  width: 414px;
+  height: 759px;
+  transform: scale(var(--mss-scale));
+  transform-origin: top left;
+  /* AppBackground: the zinc-950 → zinc-900 page gradient. */
+  background: linear-gradient(180deg, #0e0e11 0%, #1a1a1c 100%);
+  color: #fff;
+  font-family: var(--font-ui);
+  font-size: 17px;
+  line-height: 1;
+  /* Inter runs ~9% wider than SF Pro at the same cap height; the tracking
+     brings the recreation's line lengths back onto the phone's. */
+  letter-spacing: -0.035em;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Top bar: Cancel + Start coding, no title (EXP-211) ── */
+.mss-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 19px 18.5px 0;
+}
+
+.mss-pill {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 39.5px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.07);
+  color: #fff;
+  font-size: 17px;
+}
+
+.mss-pill.is-start {
+  font-weight: 600;
+}
+
+/* ── Glass segmented capsules: the Issues|Actions|Chat tabs and the agent
+      strip are the SAME control (GlassSegmentedControl). ── */
+.mss-seg {
+  display: flex;
+  gap: 4px;
+  height: 38.5px;
+  margin: 48.5px 18.5px 0;
+  padding: 4px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.mss-seg.is-agents {
+  margin-top: 16.5px;
+}
+
+.mss-segbtn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 999px;
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.85);
+  white-space: nowrap;
+}
+
+.mss-segbtn.is-active {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-weight: 600;
+}
+
+.mss-segbtn svg {
+  flex: none;
+}
+
+/* ── Section header + grouped cards ── */
+.mss-header {
+  height: 22px;
+  margin: 24.5px 0 0 39px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 22px;
+  letter-spacing: -0.015em;
+  color: rgba(255, 255, 255, 0.66);
+}
+
+.mss-card {
+  margin: 10px 18.5px 0;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.mss-card + .mss-card {
+  margin-top: 11px;
+}
+
+.mss-seg + .mss-card {
+  margin-top: 16.5px;
+}
+
+.mss-sep {
+  height: 1px;
+  margin: 0 19.5px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.mss-row {
+  display: flex;
+  align-items: center;
+  height: 49px;
+  padding-left: 19.5px;
+}
+
+.mss-rowlabel {
+  flex: 1;
+}
+
+.mss-row.is-picker {
+  padding-right: 19.5px;
+}
+
+.mss-row.is-toggle {
+  padding-right: 17px;
+}
+
+.mss-value {
+  color: rgba(255, 255, 255, 0.82);
+  white-space: nowrap;
+}
+
+.mss-chev {
+  margin-left: 8.5px;
+  color: rgba(255, 255, 255, 0.5);
+  flex: none;
+}
+
+/* iOS 26 switch: a wide capsule knob riding a light track. */
+.mss-toggle {
+  position: relative;
+  width: 60.5px;
+  height: 27px;
+  border-radius: 999px;
+  background: #64636a;
+  flex: none;
+}
+
+.mss-toggle::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 2.25px;
+  width: 34.5px;
+  height: 22.5px;
+  border-radius: 999px;
+  background: #fff;
+}
+
+/* ── Issue picker: inline search + checkbox rows ── */
+.mss-search {
+  display: flex;
+  align-items: center;
+  gap: 8.5px;
+  height: 49px;
+  padding: 0 18.5px;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.mss-search svg {
+  flex: none;
+}
+
+.mss-list {
+  padding: 12.5px 0;
+}
+
+.mss-irow {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  margin: 0 18.5px;
+  border-radius: 8px;
+  font-size: 15px;
+}
+
+/* Selection must be unmissable (EXP-241): glyph swap plus a tinted row. */
+.mss-irow.is-checked {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.mss-check {
+  flex: none;
+}
+
+.mss-glyph {
+  flex: none;
+}
+
+.mss-prio {
+  margin-left: 9px;
+}
+
+.mss-id {
+  width: 60px;
+  margin-left: 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: -0.02em;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.mss-status {
+  margin-left: 4.5px;
+}
+
+.mss-title {
+  margin-left: 9px;
+  padding-right: 2px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Narrow phones: the 273px sheet would crowd a 320px viewport's gutters. */
+@media (max-width: 379px) {
+  .mss-phone {
+    --mss-scale: 0.58;
+  }
+}

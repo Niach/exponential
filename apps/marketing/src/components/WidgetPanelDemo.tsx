@@ -8,6 +8,8 @@
    inside an inert, aria-hidden stage. Plays the GIVE-FEEDBACK path
    (EXP-602): captured screenshot, title + details, filed as an issue. */
 
+import { WIDGET_FILED_ISSUE } from "../webui/data"
+
 const svgProps = {
   viewBox: `0 0 24 24`,
   fill: `none`,
@@ -77,7 +79,8 @@ export function WidgetPanelDemo({
           </span>
           <span className={`cw-success-title`}>Thanks for the report!</span>
           <span className={`cw-success-sub`}>
-            Your feedback has been sent.
+            Filed as{` `}
+            <span className={`cw-success-link`}>{WIDGET_FILED_ISSUE.id}</span>.
           </span>
         </div>
       ) : (
@@ -155,7 +158,7 @@ export function WidgetPanelDemo({
                 </div>
               </div>
               <div className={`cw-field`}>
-                <span className={`cw-label`}>Email</span>
+                <span className={`cw-label`}>Email (optional)</span>
                 <div className={`cw-input`}>
                   {emailFilled ? (
                     `mara@heliolabs.io`

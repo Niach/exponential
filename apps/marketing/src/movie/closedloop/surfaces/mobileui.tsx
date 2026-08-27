@@ -364,12 +364,15 @@ export type PhoneBoardRow = {
   status: MobileStatus
   labelDot?: string
   assignee?: string
+  due?: string
 }
 
+// Contract displayOrder (issueStatusDefaults) — the same order the desktop and
+// web lists group by: backlog → unstarted → started → completed.
 const SECTION_ORDER: { status: MobileStatus; name: string }[] = [
-  { status: "in_progress", name: "In Progress" },
-  { status: "todo", name: "Todo" },
   { status: "backlog", name: "Backlog" },
+  { status: "todo", name: "Todo" },
+  { status: "in_progress", name: "In Progress" },
   { status: "done", name: "Done" },
 ]
 
@@ -467,6 +470,12 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({
           gap: 6,
         }}
       >
+        <span style={{ color: "#818cf8", display: "flex" }}>
+          <Glyph size={15} sw={2}>
+            <path d="m16 18 6-6-6-6" />
+            <path d="m8 6-6 6 6 6" />
+          </Glyph>
+        </span>
         <span style={{ fontSize: 16, fontWeight: 600, color: C.text }}>
           {boardName}
         </span>
@@ -559,7 +568,7 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({
             style={{
               position: "absolute",
               left: 12,
-              right: 12,
+              right: 34,
               top: pos.y,
               height: ROW_H,
               boxSizing: "border-box",
@@ -609,6 +618,27 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({
                 }}
               />
             ) : null}
+            {data.due ? (
+              <span
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 3,
+                  flexShrink: 0,
+                  fontSize: 10.5,
+                  color: C.muted,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <Glyph size={11} sw={1.7}>
+                  <path d="M8 2v4" />
+                  <path d="M16 2v4" />
+                  <rect x="3" y="4" width="18" height="18" rx="2" />
+                  <path d="M3 10h18" />
+                </Glyph>
+                {data.due}
+              </span>
+            ) : null}
             {data.assignee ? (
               <span
                 style={{
@@ -628,8 +658,16 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({
                 {data.assignee.slice(0, 1)}
               </span>
             ) : null}
-            <span style={{ color: C.dim, display: "flex" }}>
-              <Glyph size={11} sw={2.2}>
+            {/* the disclosure chevron rides the GUTTER, outside the row card */}
+            <span
+              style={{
+                position: "absolute",
+                right: -22,
+                color: C.dim,
+                display: "flex",
+              }}
+            >
+              <Glyph size={13} sw={2.2}>
                 <path d="m9 18 6-6-6-6" />
               </Glyph>
             </span>
@@ -651,20 +689,28 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({
 }
 
 // ── The issue detail screen (IssueDetailView twin) ───────────────────────────
+/** One activity row: a status change wears its status glyph, anything else a
+ *  plain rail dot (CommentThreadView's gutter markers). */
+export type ActivityRow = { text: string; status?: MobileStatus }
+
 export type IssueScreenProps = {
   frame: number
   identifier: string
   title: string
-  origin?: string // "Feedback widget" origin chip next to the identifier pill
+  origin?: string // "Feedback widget" provenance chip above the title
   status: MobileStatus
   statusLabel: string
   priorityLabel: string
+  /** Assignee chip (avatar + display name) — hidden on solo teams, like the app. */
+  assignee?: { name: string; initials: string }
+  /** Due-date chip ("Jul 19") — rendered only when the issue carries one. */
+  due?: string
   labelChip?: { name: string; dot: string }
   description: string
   /** Coding/PR status rows (hairline rows, not a box); ready → merged at mergedAt. */
   pr?: { number: number; device: string; user: string; mergedAt?: number }
-  /** Activity timeline lines under the rail dots (e.g. "… created the issue · 1 hr ago"). */
-  activity?: readonly string[]
+  /** Activity timeline rows on the gutter rail (e.g. "… created the issue · 1 hr ago"). */
+  activity?: readonly ActivityRow[]
   /** Press flash on the play circle (the icon-only start button). */
   playPressAt?: number
   /** Replaces the play glyph with a pulsing green dot (session live). */
@@ -679,6 +725,8 @@ export const IssueScreen: React.FC<IssueScreenProps> = ({
   status,
   statusLabel,
   priorityLabel,
+  assignee,
+  due,
   labelChip,
   description,
   pr,
@@ -723,7 +771,8 @@ export const IssueScreen: React.FC<IssueScreenProps> = ({
 
   return (
     <div style={{ position: "absolute", inset: 0, fontFamily: UI_FONT }}>
-      {/* nav bar: circular glass back button · "Issue" · circular … menu */}
+      {/* nav bar: circular glass back button · the IDENTIFIER · circular … menu
+          (EXP-568 made the identifier the title and dropped the old chip) */}
       <div
         style={{
           position: "absolute",
@@ -763,7 +812,7 @@ export const IssueScreen: React.FC<IssueScreenProps> = ({
             color: C.text,
           }}
         >
-          Issue
+          {identifier}
         </span>
         <span
           style={{
@@ -786,7 +835,7 @@ export const IssueScreen: React.FC<IssueScreenProps> = ({
         </span>
       </div>
 
-      {/* scrolling column: identifier pill → title → chip box → description
+      {/* scrolling column: origin chip → title → chip box → description
           → coding/PR card (flow layout — chips may wrap like the real app) */}
       <div
         style={{
@@ -800,47 +849,28 @@ export const IssueScreen: React.FC<IssueScreenProps> = ({
           alignItems: "flex-start",
         }}
       >
-        <div style={{ display: "flex", gap: 6 }}>
+        {origin ? (
           <span
             style={{
               height: 22,
               display: "inline-flex",
               alignItems: "center",
+              gap: 5,
               padding: "0 9px",
               borderRadius: 999,
               backgroundColor: C.fillCard,
               border: `1px solid rgba(255,255,255,0.08)`,
-              fontFamily: MONO_FONT,
               fontSize: 10.5,
-              fontWeight: 500,
               color: C.muted,
             }}
           >
-            {identifier}
+            <Glyph size={10} sw={2}>
+              <path d="m3 11 18-5v12L3 14v-3z" />
+              <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
+            </Glyph>
+            {origin}
           </span>
-          {origin ? (
-            <span
-              style={{
-                height: 22,
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 5,
-                padding: "0 9px",
-                borderRadius: 999,
-                backgroundColor: C.fillCard,
-                border: `1px solid rgba(255,255,255,0.08)`,
-                fontSize: 10.5,
-                color: C.muted,
-              }}
-            >
-              <Glyph size={10} sw={2}>
-                <path d="m3 11 18-5v12L3 14v-3z" />
-                <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
-              </Glyph>
-              {origin}
-            </span>
-          ) : null}
-        </div>
+        ) : null}
 
         {/* title */}
         <div
@@ -885,6 +915,47 @@ export const IssueScreen: React.FC<IssueScreenProps> = ({
             </>,
             "priority"
           )}
+          {assignee
+            ? chip(
+                <>
+                  <span
+                    style={{
+                      width: 16,
+                      height: 16,
+                      borderRadius: 999,
+                      backgroundColor: C.fillActive,
+                      color: C.muted,
+                      fontSize: 7.5,
+                      fontWeight: 600,
+                      letterSpacing: 0.2,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    {assignee.initials}
+                  </span>
+                  {assignee.name}
+                </>,
+                "assignee"
+              )
+            : null}
+          {due
+            ? chip(
+                <>
+                  <span style={{ color: C.muted, display: "flex" }}>
+                    <Glyph size={12} sw={1.9}>
+                      <path d="M8 2v4" />
+                      <path d="M16 2v4" />
+                      <rect x="3" y="4" width="18" height="18" rx="2" />
+                      <path d="M3 10h18" />
+                    </Glyph>
+                  </span>
+                  <span style={{ color: C.muted }}>{due}</span>
+                </>,
+                "due"
+              )
+            : null}
           {labelChip
             ? chip(
                 <>
@@ -915,18 +986,12 @@ export const IssueScreen: React.FC<IssueScreenProps> = ({
           {description}
         </div>
 
-        {/* coding session status — a plain hairline row */}
+        {/* coding session status — a bare row, no box (AgentPrCard) */}
         {pr ? (
-          <div
-            style={{
-              alignSelf: "stretch",
-              borderTop: `1px solid rgba(255,255,255,0.08)`,
-              borderBottom: `1px solid rgba(255,255,255,0.08)`,
-            }}
-          >
+          <div style={{ alignSelf: "stretch" }}>
             <div
               style={{
-                height: 38,
+                height: 24,
                 display: "flex",
                 alignItems: "center",
                 gap: 8,
@@ -1021,42 +1086,95 @@ export const IssueScreen: React.FC<IssueScreenProps> = ({
           </div>
         ) : null}
 
-        {/* activity timeline */}
+        {/* activity timeline — CommentThreadView's gutter rail: a hairline
+            running through the markers, a status glyph where a row IS a status
+            change, a plain dot otherwise. The full-bleed rule above it is the
+            section split the app draws under the description block. */}
         {activity && activity.length > 0 ? (
-          <div
-            style={{
-              alignSelf: "stretch",
-              display: "flex",
-              flexDirection: "column",
-              gap: 10,
-            }}
-          >
-            <div style={{ fontSize: 13, fontWeight: 600, color: C.muted }}>
-              Activity
-            </div>
-            {activity.map((line) => (
+          <>
+            <div
+              style={{
+                alignSelf: "stretch",
+                height: 1,
+                marginLeft: -16,
+                marginRight: -16,
+                backgroundColor: "rgba(255,255,255,0.08)",
+              }}
+            />
+            <div style={{ alignSelf: "stretch" }}>
               <div
-                key={line}
-                style={{ display: "flex", alignItems: "flex-start", gap: 9 }}
+                style={{
+                  fontSize: 14,
+                  fontWeight: 600,
+                  color: C.text,
+                  marginBottom: 10,
+                }}
               >
-                <span
-                  style={{
-                    width: 6,
-                    height: 6,
-                    marginTop: 4,
-                    borderRadius: 999,
-                    backgroundColor: "rgba(255,255,255,0.25)",
-                    flexShrink: 0,
-                  }}
-                />
-                <span
-                  style={{ fontSize: 11.5, lineHeight: 1.5, color: C.muted }}
-                >
-                  {line}
-                </span>
+                Activity
               </div>
-            ))}
-          </div>
+              <div>
+                {activity.map((row, i) => (
+                  <div
+                    key={row.text}
+                    style={{
+                      position: "relative",
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: 9,
+                      paddingBottom: 8,
+                    }}
+                  >
+                    {/* the rail segment: this row's marker centre down to the
+                        NEXT one, so it never dangles past the last marker */}
+                    {i < activity.length - 1 ? (
+                      <span
+                        style={{
+                          position: "absolute",
+                          left: 6.5,
+                          top: 9,
+                          bottom: -9,
+                          width: 1,
+                          backgroundColor: "rgba(255,255,255,0.12)",
+                        }}
+                      />
+                    ) : null}
+                    <span
+                      style={{
+                        width: 14,
+                        height: 18,
+                        flexShrink: 0,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      {row.status ? (
+                        <MStatusIcon status={row.status} size={12} />
+                      ) : (
+                        <span
+                          style={{
+                            width: 6,
+                            height: 6,
+                            borderRadius: 999,
+                            backgroundColor: "rgba(255,255,255,0.32)",
+                          }}
+                        />
+                      )}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 11.5,
+                        lineHeight: "18px",
+                        color: C.muted,
+                      }}
+                    >
+                      {row.text}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
         ) : null}
       </div>
 

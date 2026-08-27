@@ -10,7 +10,7 @@
 
 import React from "react"
 import { interpolate, spring } from "remotion"
-import { C, EASE, MONO_FONT, POP, UI_FONT, WIN } from "../theme"
+import { C, EASE, MONO_FONT, POP, R, UI_FONT, WIN } from "../theme"
 import {
   REVIEW_ROW,
   type BoardRow,
@@ -24,11 +24,26 @@ const CLAMP = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const
 // Avatar recipe sampled from the desktop-hero-board-issue reference screenshot (the DS circles):
 // dark fuchsia fill ≈ #3d0f3a, brighter fuchsia ring, bright fuchsia initials.
 // (Deliberately local — the shared theme has no fuchsia token; matched to the ref.)
-const AVATAR_BG = `rgba(192,38,211,0.28)`
-const AVATAR_RING = `rgba(217,70,239,0.55)`
-const AVATAR_FG = `#e879f9`
+// The app tints each member's circle from their identity; the reference board
+// shows blue / amber / green / emerald side by side, so the film derives the
+// accent from the initials instead of painting everyone fuchsia.
+const AVATAR_ACCENTS = [
+  { bg: `rgba(59,130,246,0.30)`, fg: `#93c5fd` },
+  { bg: `rgba(245,158,11,0.30)`, fg: `#fcd34d` },
+  { bg: `rgba(34,197,94,0.30)`, fg: `#86efac` },
+  { bg: `rgba(217,70,239,0.28)`, fg: `#e879f9` },
+  { bg: `rgba(20,184,166,0.30)`, fg: `#5eead4` },
+] as const
+
+const avatarAccent = (initials: string) => {
+  let h = 0
+  for (const ch of initials) h = (h * 31 + ch.charCodeAt(0)) % 997
+  return AVATAR_ACCENTS[h % AVATAR_ACCENTS.length]
+}
 
 const ROW_H = WIN.row // 28
+// The list pane's own header strip (the Filter row) — pane content starts here.
+export const HEADER_H = 44
 
 // ── Tiny inline icons (lucide-style, stroke currentColor) ────────────────────
 const svgProps = (size: number, strokeWidth = 1.6) =>
@@ -120,13 +135,6 @@ const ListFilterIcon: React.FC<{ size?: number }> = ({ size = 13 }) => (
     <path d="M3 6h18" />
     <path d="M7 12h10" />
     <path d="M11 18h4" />
-  </svg>
-)
-
-const PlusIcon: React.FC<{ size?: number }> = ({ size = 12 }) => (
-  <svg {...svgProps(size, 2)}>
-    <path d="M5 12h14" />
-    <path d="M12 5v14" />
   </svg>
 )
 
@@ -249,6 +257,7 @@ export const Avatar: React.FC<{ initials?: string; size?: number }> = ({
       </span>
     )
   }
+  const accent = avatarAccent(initials)
   return (
     <span
       style={{
@@ -259,9 +268,8 @@ export const Avatar: React.FC<{ initials?: string; size?: number }> = ({
         alignItems: `center`,
         justifyContent: `center`,
         borderRadius: 999,
-        backgroundColor: AVATAR_BG,
-        border: `1px solid ${AVATAR_RING}`,
-        color: AVATAR_FG,
+        backgroundColor: accent.bg,
+        color: accent.fg,
         fontFamily: UI_FONT,
         fontSize: Math.round(size * 0.42),
         fontWeight: 600,
@@ -282,17 +290,13 @@ export const LabelChip: React.FC<{ name: string; dot: string }> = ({
     style={{
       display: `inline-flex`,
       alignItems: `center`,
-      gap: 4,
-      height: 17,
-      padding: `0 6px`,
+      gap: 5,
       flex: `none`,
-      borderRadius: 999,
-      border: `1px solid ${C.strokeCard}`,
       fontFamily: UI_FONT,
-      fontSize: 11,
+      fontSize: 12,
       color: C.muted,
       whiteSpace: `nowrap`,
-      maxWidth: 64,
+      maxWidth: 92,
       overflow: `hidden`,
     }}
   >
@@ -305,144 +309,96 @@ export const LabelChip: React.FC<{ name: string; dot: string }> = ({
         backgroundColor: dot,
       }}
     />
-    <span style={{ overflow: `hidden`, textOverflow: `ellipsis` }}>{name}</span>
+    <span style={{ overflow: `hidden`, textOverflow: `ellipsis` }}>
+      {name.charAt(0).toUpperCase() + name.slice(1)}
+    </span>
   </span>
 )
 
 // ── SidebarPane — the 520px tool-window chassis ──────────────────────────────
 // EXP-359 glass: the whole pane is transparent over the page gradient; a
 // STROKE_ROW hairline marks the boundary to the center (surface.rs idiom).
-// `pills` renders the board's filter pill row (true → the default three pills).
+// The board pane has NO title row and NO tab strip (EXP-282) — just the ghost
+// Filter button in a 44px header strip.
 
-export type SidebarPills = { labels: string[]; activeIndex?: number } | boolean
-
-// The board header's right cluster ("≡ Filter" ghost + primary "+ New Issue").
+// The board header's right cluster. Post-EXP-282 the list pane header carries
+// ONE ghost "Filter" button — the primary "+ New Issue" moved to the titlebar
+// and the All Issues / Active / Backlog tab strip is gone (shots/board/desktop).
 export const BoardActions: React.FC = () => (
-  <div style={{ display: `flex`, alignItems: `center`, gap: 8 }}>
-    <span
-      style={{
-        display: `inline-flex`,
-        alignItems: `center`,
-        gap: 4,
-        color: C.muted,
-        fontFamily: UI_FONT,
-        fontSize: 12,
-      }}
-    >
-      <ListFilterIcon size={13} />
-      Filter
-    </span>
-    <span
-      style={{
-        display: `inline-flex`,
-        alignItems: `center`,
-        gap: 4,
-        height: 26,
-        padding: `0 9px`,
-        borderRadius: 8,
-        backgroundColor: C.primary,
-        color: C.primaryFg,
-        fontFamily: UI_FONT,
-        fontSize: 12,
-        fontWeight: 500,
-        whiteSpace: `nowrap`,
-      }}
-    >
-      <PlusIcon size={11} />
-      New Issue
-    </span>
+  <div
+    style={{
+      display: `inline-flex`,
+      alignItems: `center`,
+      gap: 5,
+      height: 22,
+      padding: `0 8px`,
+      borderRadius: 8,
+      color: C.muted,
+      fontFamily: UI_FONT,
+      fontSize: 12,
+    }}
+  >
+    <ListFilterIcon size={13} />
+    Filter
   </div>
 )
 
 export const SidebarPane: React.FC<{
   children: React.ReactNode
-  title: string
+  title?: string // legacy label for non-board tools (Reviews); the board pane has none
   actions?: React.ReactNode
-  pills?: SidebarPills
   bottomInset?: number // px kept free at the window bottom (animated dock height); default the collapsed strip
-}> = ({ children, title, actions, pills, bottomInset = WIN.dockStrip }) => {
-  const pillSpec =
-    pills === true
-      ? { labels: [`All Issues`, `Active`, `Backlog`], activeIndex: 0 }
-      : pills === false || pills === undefined
-        ? undefined
-        : { labels: pills.labels, activeIndex: pills.activeIndex ?? 0 }
-  return (
-    <div
-      style={{
-        position: `absolute`,
-        left: WIN.rail,
-        top: WIN.titleBar,
-        width: WIN.sidebar,
-        height: WIN.h - WIN.titleBar - bottomInset,
-        borderRight: `1px solid ${C.strokeRow}`,
-        display: `flex`,
-        flexDirection: `column`,
-        fontFamily: UI_FONT,
-        overflow: `hidden`,
-      }}
-    >
+}> = ({ children, title, actions, bottomInset = WIN.dockStrip }) => (
+  <div
+    style={{
+      position: `absolute`,
+      left: WIN.rail,
+      top: WIN.titleBar,
+      width: WIN.sidebar,
+      height: WIN.h - WIN.titleBar - bottomInset,
+      borderRight: `1px solid ${C.strokeRow}`,
+      display: `flex`,
+      flexDirection: `column`,
+      fontFamily: UI_FONT,
+      overflow: `hidden`,
+    }}
+  >
+    {/* The header strip only exists for panes that put something in it — the
+        tool windows that draw their own 30px `tool_header` (Reviews) start at
+        the pane's top edge instead. */}
+    {title || actions ? (
       <div
         style={{
           flex: `none`,
-          height: 40,
-          padding: `0 12px`,
+          height: HEADER_H,
+          padding: `0 14px`,
           display: `flex`,
           alignItems: `center`,
           justifyContent: `space-between`,
         }}
       >
-        <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
-          {title}
-        </span>
+        {title ? (
+          <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
+            {title}
+          </span>
+        ) : (
+          <span />
+        )}
         {actions ?? null}
       </div>
-      {pillSpec ? (
-        <div
-          style={{
-            flex: `none`,
-            display: `flex`,
-            gap: 4,
-            padding: `0 12px 8px`,
-          }}
-        >
-          {pillSpec.labels.map((label, i) => {
-            const active = i === pillSpec.activeIndex
-            return (
-              <span
-                key={label}
-                style={{
-                  height: 22,
-                  padding: `0 10px`,
-                  display: `inline-flex`,
-                  alignItems: `center`,
-                  borderRadius: 999,
-                  backgroundColor: active ? C.fillActive : `transparent`,
-                  color: active ? C.text : C.muted,
-                  fontSize: 12,
-                  fontWeight: active ? 500 : 400,
-                  whiteSpace: `nowrap`,
-                }}
-              >
-                {label}
-              </span>
-            )
-          })}
-        </div>
-      ) : null}
-      <div style={{ flex: 1, minHeight: 0, position: `relative` }}>
-        {children}
-      </div>
-    </div>
-  )
-}
+    ) : null}
+    <div style={{ flex: 1, minHeight: 0, position: `relative` }}>{children}</div>
+  </div>
+)
 
 // ── BoardTool — grouped issue list ────────────────────────────────────────────
 
+// Contract displayOrder (issueStatusDefaults): backlog → unstarted → started
+// → completed. The app groups the board in exactly this order.
 const GROUPS: { status: IssueStatus; label: string; tint: string }[] = [
-  { status: `in_progress`, label: `In Progress`, tint: C.tintInProgress },
-  { status: `todo`, label: `Todo`, tint: C.tintTodo },
   { status: `backlog`, label: `Backlog`, tint: C.tintBacklog },
+  { status: `todo`, label: `Todo`, tint: C.tintTodo },
+  { status: `in_progress`, label: `In Progress`, tint: C.tintInProgress },
   { status: `done`, label: `Done`, tint: C.tintDone },
 ]
 
@@ -594,20 +550,29 @@ export const BoardTool: React.FC<{
           height: ROW_H,
           display: `flex`,
           alignItems: `center`,
-          gap: 6,
-          padding: `0 10px`,
+          gap: 5,
+          padding: `0 11px`,
           backgroundColor: g.tint,
           ...enter(placedB.index),
         }}
       >
-        <span style={{ color: C.dim, display: `flex` }}>
+        <span style={{ color: C.dim, display: `flex`, marginRight: 1 }}>
           <ChevronDownIcon size={12} />
         </span>
         <StatusIcon status={g.status} size={13} />
-        <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
+        <span
+          style={{
+            fontSize: 13,
+            fontWeight: 600,
+            color: C.text,
+            marginLeft: 1,
+          }}
+        >
           {g.label}
         </span>
-        <span style={{ fontSize: 11, color: C.muted }}>{count}</span>
+        <span style={{ fontSize: 11.5, color: C.muted, marginLeft: 1 }}>
+          {count}
+        </span>
       </div>
     )
 
@@ -669,7 +634,7 @@ export const BoardTool: React.FC<{
             display: `flex`,
             alignItems: `center`,
             gap: 6,
-            padding: `0 10px`,
+            padding: `0 11px 0 24px`,
             backgroundColor: selected
               ? C.fillActive
               : inFlight
@@ -723,13 +688,13 @@ export const BoardTool: React.FC<{
           </span>
           <span
             style={{
-              width: 52,
+              width: 68,
               flex: `none`,
               display: `flex`,
               alignItems: `center`,
               gap: 3,
               fontFamily: MONO_FONT,
-              fontSize: 11,
+              fontSize: 11.5,
               color: C.muted,
               whiteSpace: `nowrap`,
               position: `relative`,
@@ -785,11 +750,16 @@ export const BoardTool: React.FC<{
               style={{
                 flex: `none`,
                 display: `flex`,
+                alignItems: `center`,
+                gap: 4,
                 color: C.muted,
+                fontSize: 12,
+                whiteSpace: `nowrap`,
                 position: `relative`,
               }}
             >
               <CalendarGlyph size={13} />
+              {row.due}
             </span>
           ) : null}
         </div>
@@ -812,13 +782,26 @@ export const BoardTool: React.FC<{
 }
 
 // ── ReviewsTool — open-PR list with the two-stage merge button ────────────────
+// EXP-471 pixel truth: shots/reviews/desktop.webp + desktop
+// crates/ui/src/sidebar.rs `render_reviews_tool` / `review_row` (EXP-642).
+// The pane is a 30px tool header (git-pull-request glyph + muted "Reviews"),
+// then a p-2 list: one board group row (dot + name + count) over GAPPED glass
+// row CARDS — one per open PR. Card line 1 is the green PR glyph, the mono
+// identifier, the title, a ghost `×` (close without merging) and the outlined
+// capsule Merge button (web `sm`: h-8 px-3 rounded-full, merge glyph + label);
+// line 2 is the mono `#N · branch` at pl-5. The card whose diff is open in the
+// center wears the ACTIVE fill.
 
 export type MergeState = `rest` | `confirm` | `merging` | `gone`
 
+// Web `sm` button metrics (controls.rs web_sm: h-8, px-3, capsule) — widths are
+// the measured label boxes plus the 12px paddings, so the morph is a real
+// width interpolation between the three labels.
+const MERGE_H = 28
 const MERGE_W: Record<Exclude<MergeState, `gone`>, number> = {
-  rest: 54,
-  confirm: 104,
-  merging: 88,
+  rest: 74, // ⑂ + "Merge"
+  confirm: 134, // "Confirm merge" (danger, no glyph)
+  merging: 106, // spinner + "Merging…"
 }
 const MERGE_PREV: Record<
   Exclude<MergeState, `gone`>,
@@ -833,6 +816,37 @@ const MERGE_LABEL: Record<Exclude<MergeState, `gone`>, string> = {
   confirm: `Confirm merge`,
   merging: `Merging…`,
 }
+
+// Reviews pane geometry (window-local, used by the segments' cursor keys):
+// 30px tool header, an 8px list inset, the group row, then the card.
+export const REVIEWS_HEADER_H = 30
+const LIST_PAD = 8
+const GROUP_H = 22
+const CARD_GAP = 8
+const CARD_PAD_X = 12
+const CARD_PAD_Y = 10
+const CARD_SUB_H = 15
+// 1px stroke + padding + line 1 (the button box) + 2px gap + the sub line.
+const CARD_H = 2 * (1 + CARD_PAD_Y) + MERGE_H + 2 + CARD_SUB_H
+// The card's top edge, measured from the pane's own top (below the titlebar).
+const CARD_TOP = REVIEWS_HEADER_H + LIST_PAD + GROUP_H + CARD_GAP
+
+// lucide git-merge — the glyph the Merge button carries (registry PR_MERGED).
+const GitMergeIcon: React.FC<{ size?: number }> = ({ size = 13 }) => (
+  <svg {...svgProps(size, 2)}>
+    <circle cx="18" cy="18" r="3" />
+    <circle cx="6" cy="6" r="3" />
+    <path d="M6 21V9a9 9 0 0 0 9 9" />
+  </svg>
+)
+
+// lucide x — the quiet reject affordance (close the PR without merging).
+const XIcon: React.FC<{ size?: number }> = ({ size = 13 }) => (
+  <svg {...svgProps(size, 2)}>
+    <path d="M18 6 6 18" />
+    <path d="m6 6 12 12" />
+  </svg>
+)
 
 const Spinner: React.FC<{ frame: number; size?: number }> = ({
   frame,
@@ -878,7 +892,6 @@ export const ReviewsTool: React.FC<{
 }) => {
   const collapse =
     mergeState === `gone` ? 1 : Math.min(1, Math.max(0, rowFade ?? 0))
-  const ROW_FULL = 48
 
   let button: React.ReactNode = null
   if (mergeState !== `gone`) {
@@ -906,13 +919,13 @@ export const ReviewsTool: React.FC<{
       <span
         style={{
           width,
-          height: 22,
+          height: MERGE_H,
           flex: `none`,
           display: `inline-flex`,
           alignItems: `center`,
           justifyContent: `center`,
-          gap: 5,
-          borderRadius: 8,
+          gap: 6,
+          borderRadius: 999,
           border: `1px solid ${danger ? `rgba(255,100,103,${0.35 + 0.35 * dangerO})` : C.strokeStrong}`,
           backgroundColor:
             hover && mergeState === `rest` ? C.fillActive : `transparent`,
@@ -925,6 +938,7 @@ export const ReviewsTool: React.FC<{
         }}
       >
         {mergeState === `merging` ? <Spinner frame={frame} /> : null}
+        {mergeState === `rest` ? <GitMergeIcon size={13} /> : null}
         {MERGE_LABEL[mergeState]}
       </span>
     )
@@ -939,86 +953,217 @@ export const ReviewsTool: React.FC<{
         overflow: `hidden`,
       }}
     >
-      {/* group header: project dot + name */}
+      {/* tool header: git-pull-request glyph + the muted tool name */}
       <div
         style={{
-          height: ROW_H,
+          height: REVIEWS_HEADER_H,
           display: `flex`,
           alignItems: `center`,
-          gap: 8,
+          gap: 6,
           padding: `0 12px`,
+          color: `rgba(250,250,250,0.7)`,
         }}
       >
-        <span
-          style={{
-            width: 8,
-            height: 8,
-            flex: `none`,
-            borderRadius: 999,
-            backgroundColor: C.neutral,
-          }}
-        />
-        <span style={{ fontSize: 12, fontWeight: 600, color: C.muted }}>
-          {project}
-        </span>
+        <GitPullRequestIcon size={13} />
+        <span style={{ fontSize: 12, fontWeight: 500 }}>Reviews</span>
       </div>
-      {/* the one PR row (collapses via rowFade / "gone") */}
       <div
         style={{
-          height: ROW_FULL * (1 - collapse),
-          opacity: 1 - collapse,
-          overflow: `hidden`,
+          padding: LIST_PAD,
+          display: `flex`,
+          flexDirection: `column`,
+          gap: CARD_GAP,
         }}
       >
-        <div style={{ margin: `0 8px`, padding: `5px 6px`, borderRadius: 6 }}>
-          <div style={{ display: `flex`, alignItems: `center`, gap: 6 }}>
-            <span style={{ color: C.green, display: `flex`, flex: `none` }}>
-              <GitPullRequestIcon size={14} />
-            </span>
-            <span
+        {/* group header: board dot + name + open-PR count. It goes with the
+            last card — the real list renders no empty groups. */}
+        <div
+          style={{
+            height: GROUP_H,
+            display: `flex`,
+            alignItems: `center`,
+            gap: 6,
+            padding: `0 4px`,
+            opacity: 1 - collapse,
+          }}
+        >
+          <span
+            style={{
+              width: 8,
+              height: 8,
+              flex: `none`,
+              borderRadius: 999,
+              backgroundColor: C.neutral,
+            }}
+          />
+          <span
+            style={{
+              fontSize: 13,
+              fontWeight: 500,
+              color: `rgba(250,250,250,0.7)`,
+            }}
+          >
+            {project}
+          </span>
+          <span style={{ fontSize: 11, color: `rgba(250,250,250,0.5)` }}>1</span>
+        </div>
+        {/* the one PR card (collapses via rowFade / "gone") */}
+        <div
+          style={{
+            height: CARD_H * (1 - collapse),
+            opacity: 1 - collapse,
+            overflow: `hidden`,
+          }}
+        >
+          <div
+            style={{
+              height: CARD_H,
+              boxSizing: `border-box`,
+              padding: `${CARD_PAD_Y}px ${CARD_PAD_X}px`,
+              borderRadius: R.row,
+              border: `1px solid ${C.strokeRow}`,
+              // this PR's diff is the open center screen — the active fill
+              backgroundColor: C.fillActive,
+            }}
+          >
+            <div
               style={{
-                fontFamily: MONO_FONT,
-                fontSize: 12,
-                color: C.muted,
-                flex: `none`,
+                height: MERGE_H,
+                display: `flex`,
+                alignItems: `center`,
+                gap: 6,
               }}
             >
-              {row.id}
-            </span>
-            <span
+              <span style={{ color: C.green, display: `flex`, flex: `none` }}>
+                <GitPullRequestIcon size={13} />
+              </span>
+              <span
+                style={{
+                  fontFamily: MONO_FONT,
+                  fontSize: 12,
+                  color: C.muted,
+                  flex: `none`,
+                }}
+              >
+                {row.id}
+              </span>
+              <span
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  fontSize: 13,
+                  fontWeight: 500,
+                  color: C.text,
+                  whiteSpace: `nowrap`,
+                  overflow: `hidden`,
+                  textOverflow: `ellipsis`,
+                }}
+              >
+                {row.title}
+              </span>
+              <span
+                style={{
+                  width: 22,
+                  height: 22,
+                  flex: `none`,
+                  display: `inline-flex`,
+                  alignItems: `center`,
+                  justifyContent: `center`,
+                  borderRadius: 999,
+                  color: C.muted,
+                }}
+              >
+                <XIcon size={13} />
+              </span>
+              {button}
+            </div>
+            <div
               style={{
-                flex: 1,
-                minWidth: 0,
-                fontSize: 13,
-                color: C.text,
+                height: CARD_SUB_H,
+                paddingLeft: 20,
+                marginTop: 2,
+                fontFamily: MONO_FONT,
+                fontSize: 11,
+                lineHeight: `${CARD_SUB_H}px`,
+                color: C.muted,
                 whiteSpace: `nowrap`,
                 overflow: `hidden`,
                 textOverflow: `ellipsis`,
               }}
             >
-              {row.title}
-            </span>
-            {button}
-          </div>
-          <div
-            style={{
-              paddingLeft: 20,
-              marginTop: 2,
-              fontFamily: MONO_FONT,
-              fontSize: 11,
-              color: C.muted,
-              whiteSpace: `nowrap`,
-              overflow: `hidden`,
-              textOverflow: `ellipsis`,
-            }}
-          >
-            {row.sub}
+              {row.sub}
+            </div>
           </div>
         </div>
       </div>
+      {/* Empty state once the last PR is merged — the desktop's
+          controls::empty_state (EXP-525): 48px primary/10 disc with the 24px
+          PR glyph, text_lg semibold title, text_sm muted description, gap_3,
+          px_6 py_12, centered, max-w 448. Cross-fades in as the card folds. */}
+      {collapse > 0 ? (
+        <div
+          style={{
+            position: `absolute`,
+            top: REVIEWS_HEADER_H,
+            left: 0,
+            right: 0,
+            display: `flex`,
+            justifyContent: `center`,
+            padding: `39px 19.5px`,
+            opacity: interpolate(collapse, [0.5, 1], [0, 1], CLAMP),
+            pointerEvents: `none`,
+          }}
+        >
+          <div
+            style={{
+              width: `100%`,
+              maxWidth: 448,
+              display: `flex`,
+              flexDirection: `column`,
+              alignItems: `center`,
+              gap: 9.75,
+              textAlign: `center`,
+            }}
+          >
+            <span
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: 999,
+                display: `flex`,
+                alignItems: `center`,
+                justifyContent: `center`,
+                backgroundColor: `rgba(229,229,229,0.1)`,
+                color: C.primary,
+              }}
+            >
+              <GitPullRequestIcon size={24} />
+            </span>
+            <span style={{ fontSize: 14.625, fontWeight: 600, color: C.text }}>
+              No open pull requests
+            </span>
+            <span style={{ fontSize: 11.375, color: C.muted, lineHeight: 1.4 }}>
+              Open pull requests in this team&apos;s repositories land here for
+              review.
+            </span>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
+
+// The Merge button's center in WINDOW-LOCAL coordinates (the space the
+// segments' cursor keys live in) — the cursor has to land ON the button, so
+// the number is derived from the card metrics instead of eyeballed.
+// `CONTENT_TOP` is the pane's top (the titlebar's height); the pane's right
+// edge is the rail + the sidebar width.
+export const reviewsMergeCenter = (
+  state: Exclude<MergeState, `gone`> = `rest`
+): { x: number; y: number } => ({
+  x: WIN.rail + WIN.sidebar - LIST_PAD - 1 - CARD_PAD_X - MERGE_W[state] / 2,
+  y: WIN.titleBar + CARD_TOP + 1 + CARD_PAD_Y + MERGE_H / 2,
+})
 
 // ── ActionsTool (the Actions rail surface, EXP-385: merge → deploy) ──────────
 // The saved-runbook list; one row's Run button morphs Run → Running… with the
