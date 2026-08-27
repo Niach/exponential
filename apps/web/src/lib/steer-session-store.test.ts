@@ -301,6 +301,39 @@ describe(`kick (wakeup nudge)`, () => {
     expect(sockets).toHaveLength(2)
     store.dispose()
   })
+
+  it(`closes the in-flight dial's socket instead of leaking a duplicate viewer`, async () => {
+    const { store, sockets } = makeStore()
+    store.connect()
+    await vi.advanceTimersByTimeAsync(0)
+    sockets[0].open()
+    sockets[0].frame({ t: `error`, code: `no_such_session` })
+    sockets[0].serverClose(4001)
+    expect(store.getSnapshot().phase.kind).toBe(`starting`)
+
+    // The backoff redial lands and its socket opens + joins, but the relay
+    // has not answered the join yet — the dial is still in flight.
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(sockets).toHaveLength(2)
+    sockets[1].open()
+    expect(store.getSnapshot().connected).toBe(true)
+
+    store.kick(`visible`)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(sockets).toHaveLength(3)
+    // The abandoned socket is CLOSED, not merely ignored: an open one stays
+    // joined at the relay as a second viewer.
+    expect(sockets[1].closed).toBe(true)
+    expect(sockets[2].closed).toBe(false)
+
+    // The successor is the only live socket — it joins and goes live.
+    sockets[2].open()
+    sockets[2].frame({ t: `activity_reset` })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.getSnapshot().phase.kind).toBe(`live`)
+    expect(store.getSnapshot().connected).toBe(true)
+    store.dispose()
+  })
 })
 
 describe(`registry wakeups`, () => {

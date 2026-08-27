@@ -581,6 +581,20 @@ export function createSteerSessionStore(
     if (disposed) return
     const gen = ++generation
     clearDialTimers()
+    // A superseded socket's HANDLERS are inert (the generation gate), but the
+    // socket is not: left open it stays joined at the relay as a duplicate
+    // viewer until the room closes. Every dial abandons its predecessor, so
+    // the close belongs here — that makes every caller safe, `kick`'s
+    // `starting` retry (which dials straight over an in-flight dial) included.
+    if (ws) {
+      ws.close()
+      ws = null
+      if (connected) {
+        connected = false
+        // Dim the composer honestly for the gap; the phase itself holds.
+        commit()
+      }
+    }
     dialStartedAt = Date.now()
     // Hold the current phase steady across auto-retry redials — flipping
     // to `connecting` per attempt makes the header flicker on every redial
