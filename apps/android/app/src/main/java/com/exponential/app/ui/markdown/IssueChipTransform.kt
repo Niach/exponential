@@ -33,8 +33,11 @@ import com.exponential.app.ui.markdown.model.ParagraphAttrs
  * token.
  *
  * The injection is a pure SUFFIX at the token's end — never a replacement — so
- * offsets inside the token stay linear and the caret can sit between `#EXP`
- * and `-238` exactly as before. `@email` mentions are deliberately NOT
+ * offsets inside the token stay linear. The chip is still ONE thing to the
+ * caret (EXP-655, the IDE's EXP-547 rules): [caretToDisplay] renders a caret
+ * at the token end AFTER the title, [transformedToOriginal] snaps a tap
+ * inside the pill to its nearer edge, and [BlockTextField] skips a caret
+ * moved into the token. `@email` mentions are deliberately NOT
  * substituted here (web's `mention-pill-extension.ts`: "hiding characters
  * under an active caret makes editing hazardous"); the read renderer
  * [MentionDisplay] still swaps in member names.
@@ -66,31 +69,47 @@ internal class IssueChipTransform private constructor(
     val isIdentity: Boolean get() = chips.isEmpty()
 
     /**
-     * Source → display. Strictly `<` at a chip's `sourceEnd`, so an offset AT
-     * the token end maps BEFORE that chip's title: typing there extends the
-     * token (the caret is visually right after `238`), and a selection ending
-     * at the token end highlights the token without the title.
+     * Source → display, RANGE semantics: strictly `<` at a chip's `sourceEnd`,
+     * so a range ending AT the token end stops BEFORE that chip's title — a
+     * bold mark or a line style over the token never bleeds into the
+     * injected title. Caret positions go through [caretToDisplay].
      */
-    fun originalToTransformed(offset: Int): Int {
+    fun originalToTransformed(offset: Int): Int = toDisplay(offset, inclusive = false)
+
+    /**
+     * Source → display, CARET semantics (EXP-655): a caret AT the token end
+     * renders AFTER the chip's title, i.e. right of the whole pill, never
+     * between the identifier and its title (the IDE's EXP-547 rule). Typing
+     * there still extends the token in the source.
+     */
+    fun caretToDisplay(offset: Int): Int = toDisplay(offset, inclusive = true)
+
+    private fun toDisplay(offset: Int, inclusive: Boolean): Int {
         val p = offset.coerceIn(0, source.length)
         var delta = 0
         for (chip in chips) {
-            if (chip.sourceEnd < p) delta += chip.injectedLength else break
+            val counts = if (inclusive) chip.sourceEnd <= p else chip.sourceEnd < p
+            if (counts) delta += chip.injectedLength else break
         }
         return (p + delta).coerceIn(0, display.length)
     }
 
     /**
-     * Display → source. Anything landing inside an injected title snaps to the
-     * token end, so tapping the title puts the caret right after the
-     * identifier instead of somewhere that does not exist in the source.
+     * Display → source. Anything landing INSIDE a chip snaps to its nearer
+     * edge (EXP-655): a tap on the first half of the identifier puts the caret
+     * before the `#`, on its second half or anywhere in the injected title
+     * right after the identifier — never somewhere inside the pill, and never
+     * at a display position that does not exist in the source.
      */
     fun transformedToOriginal(offset: Int): Int {
         val q = offset.coerceIn(0, display.length)
         var delta = 0
         for (chip in chips) {
-            if (q <= chip.displayTokenEnd) return (q - delta).coerceIn(0, source.length)
-            if (q <= chip.displayEnd) return chip.sourceEnd
+            if (q <= chip.displayStart) return (q - delta).coerceIn(0, source.length)
+            if (q <= chip.displayEnd) {
+                val nearStart = q - chip.displayStart <= chip.displayTokenEnd - q
+                return if (nearStart) chip.sourceStart else chip.sourceEnd
+            }
             delta += chip.injectedLength
         }
         return (q - delta).coerceIn(0, source.length)
@@ -103,8 +122,9 @@ internal class IssueChipTransform private constructor(
      * relative to the text Compose hands it.
      */
     val offsetMapping: OffsetMapping = object : OffsetMapping {
+        // The field maps CARETS (and selection ends) through this one.
         override fun originalToTransformed(offset: Int): Int =
-            this@IssueChipTransform.originalToTransformed(offset)
+            this@IssueChipTransform.caretToDisplay(offset)
 
         override fun transformedToOriginal(offset: Int): Int =
             this@IssueChipTransform.transformedToOriginal(offset)
@@ -313,8 +333,11 @@ internal class ChipVisualTransformation(
                 chip.displayTokenEnd,
             )
             if (chip.target.resolvedStatus != null) {
+                // The extra letter spacing widens the hidden `#` cell so the
+                // glyph painted at its left edge clears the identifier
+                // (EXP-655) — an advance change, so no character moves.
                 builder.addStyle(
-                    SpanStyle(color = Color.Transparent),
+                    SpanStyle(color = Color.Transparent, letterSpacing = MdStyle.chipHashLetterSpacing),
                     chip.displayStart,
                     (chip.displayStart + 1).coerceAtMost(chip.displayTokenEnd),
                 )

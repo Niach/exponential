@@ -38,6 +38,11 @@ struct MarkdownEditor: View {
     /// instead of filling it — a chat bubble must hug a one-line message
     /// rather than stretch across the feed (EXP-440).
     var hugsContentWidth: Bool = false
+    /// EXP-655: editable hosts (issue detail, the create sheet) pass 200
+    /// (Android's `minHeight = 200.dp`), and the empty band below the content
+    /// focuses the end of the description. Comment composers keep their own
+    /// bounded scroller, so they leave this nil and stay hugging.
+    var minHeight: CGFloat? = nil
     /// EXP-327: non-nil adds a "Files" entry to the toolbar's image button and
     /// receives the NON-image picks. Images picked there are appended to the
     /// description here instead, so the host never sees them — which is why
@@ -113,6 +118,23 @@ struct MarkdownEditor: View {
                 }
                 .padding(.horizontal, isReadOnly ? 0 : 8)
                 .padding(.top, isReadOnly ? 0 : 12)
+                // EXP-655: the tap catcher sits IN FRONT of the host's own
+                // endEditing background (IssueDetailView puts one on the outer
+                // content) and BEHIND the UIKit text views, so only dead space
+                // below the last block ever reaches it. Kept conditional so
+                // read-only / hugging callers are untouched.
+                .frame(
+                    maxWidth: minHeight == nil ? nil : .infinity,
+                    minHeight: minHeight,
+                    alignment: .top
+                )
+                .background {
+                    if minHeight != nil, !isReadOnly {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture { model.focusEnd() }
+                    }
+                }
         }
         .sheet(isPresented: $showEmojiPicker, onDismiss: refocusAfterEmojiPicker) {
             EmojiPickerSheet(preferences: emojiPreferences) { unicode in
@@ -319,23 +341,62 @@ private final class EditorTextView: UITextView {
     }
 
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
-        let point = gesture.location(in: self)
-        let charIndex = layoutManager.characterIndex(for: point, in: textContainer, fractionOfDistanceBetweenInsertionPoints: nil)
+        // Container coordinates: every layout-manager geometry call is relative
+        // to the text container's origin, which the raw view point ignores.
+        let raw = gesture.location(in: self)
+        let point = CGPoint(x: raw.x - textContainerInset.left, y: raw.y - textContainerInset.top)
+        let glyphIndex = layoutManager.glyphIndex(for: point, in: textContainer)
+        guard glyphIndex < layoutManager.numberOfGlyphs else { return }
+        let charIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
         guard charIndex < textStorage.length else { return }
         // Issue-ref pill: navigate to the referenced issue (render-only
-        // decoration applied by IssueEditorModel.load).
-        if let issueId = textStorage.attributes(at: charIndex, effectiveRange: nil)[.markdownIssueRef] as? String {
+        // decoration applied by IssueEditorModel.load). `glyphIndex(for:)` is
+        // NEAREST-glyph, so a tap in the empty space right of a line ending in
+        // a chip resolved to the chip and navigated instead of placing the
+        // caret (EXP-655) — only navigate when the tap really lands on the
+        // pill. Returning instead lets UITextView's own recognizer (they run
+        // simultaneously) place the caret.
+        var refRange = NSRange(location: 0, length: 0)
+        if let issueId = textStorage.attribute(
+            .markdownIssueRef,
+            at: charIndex,
+            longestEffectiveRange: &refRange,
+            in: NSRange(location: 0, length: textStorage.length)
+        ) as? String {
+            guard hitTestGlyphs(point, charRange: refRange, glyphIndex: glyphIndex, slack: 2) else {
+                return
+            }
             onIssueRefTap?(issueId)
             return
         }
         guard !isReadOnlyRendering else { return }
         let char = (textStorage.string as NSString).substring(with: NSRange(location: charIndex, length: 1))
         if char == "\u{2610}" || char == "\u{2611}" {
+            let box = NSRange(location: charIndex, length: 1)
+            guard hitTestGlyphs(point, charRange: box, glyphIndex: glyphIndex, slack: 4) else { return }
             let replacement = char == "\u{2610}" ? "\u{2611}" : "\u{2610}"
             let attrs = textStorage.attributes(at: charIndex, effectiveRange: nil)
-            textStorage.replaceCharacters(in: NSRange(location: charIndex, length: 1), with: NSAttributedString(string: replacement, attributes: attrs))
+            textStorage.replaceCharacters(in: box, with: NSAttributedString(string: replacement, attributes: attrs))
             delegate?.textViewDidChange?(self)
         }
+    }
+
+    /// True when `point` (container coordinates) lies within `slack` of the
+    /// glyphs `charRange` paints on the line fragment that holds `glyphIndex` —
+    /// a wrapped run must not be hit-tested against its other lines' art.
+    private func hitTestGlyphs(
+        _ point: CGPoint,
+        charRange: NSRange,
+        glyphIndex: Int,
+        slack: CGFloat
+    ) -> Bool {
+        var lineGlyphs = NSRange(location: 0, length: 0)
+        _ = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: &lineGlyphs)
+        let glyphs = layoutManager.glyphRange(forCharacterRange: charRange, actualCharacterRange: nil)
+        let onThisLine = NSIntersectionRange(glyphs, lineGlyphs)
+        guard onThisLine.length > 0 else { return false }
+        let rect = layoutManager.boundingRect(forGlyphRange: onThisLine, in: textContainer)
+        return rect.insetBy(dx: -slack, dy: -slack).contains(point)
     }
 
     override func deleteBackward() {
@@ -537,6 +598,12 @@ private struct BlockTextEditor: UIViewRepresentable {
 
         private var isProgrammaticChange = false
         private var placeholderLabel: UILabel?
+        /// Re-entrancy guard: assigning `selectedRange` fires this delegate
+        /// method again.
+        private var isSnappingCaret = false
+        /// Last collapsed caret, which gives the snap its direction of travel
+        /// (nil after a ranged selection).
+        private var lastCollapsedCaret: Int?
 
         func beginProgrammaticChange() { isProgrammaticChange = true }
         func endProgrammaticChange() { isProgrammaticChange = false }
@@ -694,6 +761,28 @@ private struct BlockTextEditor: UIViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ tv: UITextView) {
+            // A chip is one atom for the caret too (EXP-655): the caret rests
+            // before the `#` or after the whole pill, never between its
+            // characters. `allowSeam` is the programmatic case — the caret
+            // applyChips / a revision re-apply / consumeDesiredSelection leaves
+            // between token and title is deliberate, so typing keeps extending
+            // the token; any USER caret (a tap on the title, arrow keys) snaps
+            // out of the pill.
+            if !isSnappingCaret, tv.isEditable, tv.markedTextRange == nil,
+               tv.selectedRange.length == 0 {
+                let snapped = MarkdownChipDecorator.snappedCaret(
+                    in: tv.textStorage,
+                    proposed: tv.selectedRange.location,
+                    previous: lastCollapsedCaret,
+                    allowSeam: isProgrammaticChange
+                )
+                if snapped != tv.selectedRange.location {
+                    isSnappingCaret = true
+                    tv.selectedRange = NSRange(location: snapped, length: 0)
+                    isSnappingCaret = false
+                }
+            }
+            lastCollapsedCaret = tv.selectedRange.length == 0 ? tv.selectedRange.location : nil
             if !isProgrammaticChange, let model, let blockId {
                 model.updateSelection(blockId: blockId, range: tv.selectedRange)
             }

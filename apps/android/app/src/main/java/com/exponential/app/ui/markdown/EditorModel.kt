@@ -895,6 +895,57 @@ class EditorModel {
     }
 
     private fun notifyEdit() {
+        emitted.addLast(currentMarkdown())
+        while (emitted.size > EMITTED_HISTORY) emitted.removeFirst()
         onEdit?.invoke()
+    }
+
+    /**
+     * Everything [onEdit] handed the host since the host last caught up —
+     * the host echoes each value straight back as the editor's `markdown`
+     * input, and an echo must never reload the editor (EXP-655).
+     */
+    private val emitted = ArrayDeque<String>()
+
+    /**
+     * Whether the host's `markdown` input should be loaded (true) or is an
+     * echo of this model's own output (false) — [MarkdownEditor]'s rule for
+     * its `LaunchedEffect(markdown)`.
+     *
+     * The effect body runs as a later main-looper message, and an IME
+     * commit can land in between: the model has already moved on to `md2`
+     * when the effect keyed on `md1` runs, so a plain `currentMarkdown() !=
+     * markdown` reloaded the editor with its OWN previous output — every row
+     * rebuilt with a fresh id, caret to the end, focus lost, blank lines
+     * collapsed by the round-trip — the "jumps while typing" of EXP-655. Any
+     * value this model emitted since the host last caught up is such an
+     * echo; a newer one is already on its way.
+     */
+    fun reconcileHostMarkdown(markdown: String): Boolean {
+        if (markdown == currentMarkdown()) {
+            emitted.clear()
+            return false
+        }
+        if (emitted.contains(markdown)) return false
+        emitted.clear()
+        return true
+    }
+
+    /**
+     * Focus the very end of the document — a tap on the editor's empty band
+     * below the last line (EXP-655). [EditorRows.normalize] guarantees the
+     * last row is a text run (an empty one after a trailing image), so there
+     * is always a line to land on and Enter always opens a new one.
+     */
+    fun focusEnd() {
+        val last = rows.lastOrNull { it is EditorRow.TextRun } as? EditorRow.TextRun ?: return
+        setFocused(last.id)
+        desiredSelection = last.id to last.text.length
+        // The field consumes desiredSelection on its revision effect.
+        bump(last.id)
+    }
+
+    private companion object {
+        const val EMITTED_HISTORY = 32
     }
 }

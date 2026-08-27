@@ -200,18 +200,36 @@ class IssueChipTransformTest {
         }
     }
 
+    /**
+     * Every source offset outside a chip's identifier survives the round
+     * trip. Offsets STRICTLY inside one do not — by design (EXP-655): a
+     * display position inside the pill snaps to an edge, see
+     * [offsetsStrictlyInsideATokenSnapToTheNearerEdge].
+     */
     @Test
-    fun roundTripIsLosslessForEverySourceOffset() {
+    fun roundTripIsLosslessForEverySourceOffsetOutsideAToken() {
         for (source in corpus) {
             val t = build(source, handler = corpusHandler())
             for (o in 0..source.length) {
+                if (t.chips.any { o > it.sourceStart && o < it.sourceEnd }) continue
                 assertEquals(
                     "$source: round trip at $o",
                     o,
-                    t.transformedToOriginal(t.originalToTransformed(o)),
+                    t.transformedToOriginal(t.caretToDisplay(o)),
                 )
             }
         }
+    }
+
+    @Test
+    fun offsetsStrictlyInsideATokenSnapToTheNearerEdge() {
+        // "see #EXP-238 now" — the token spans [4, 12); its midpoint is 8.
+        val t = build("see #EXP-238 now")
+        val chip = t.chips.single()
+        assertEquals(4, t.transformedToOriginal(chip.displayStart))
+        for (q in chip.displayStart + 1..8) assertEquals("t2o($q)", 4, t.transformedToOriginal(q))
+        for (q in 9 until chip.displayTokenEnd) assertEquals("t2o($q)", 12, t.transformedToOriginal(q))
+        assertEquals(12, t.transformedToOriginal(chip.displayTokenEnd))
     }
 
     @Test
@@ -221,11 +239,27 @@ class IssueChipTransformTest {
         for (o in 0..12) assertEquals(o, t.originalToTransformed(o))
     }
 
+    /** Caret semantics (EXP-655 / IDE EXP-547): right of the whole pill. */
     @Test
-    fun caretAtTheTokenEndRendersBeforeTheTitle() {
+    fun caretAtTheTokenEndRendersAfterTheTitle() {
+        val t = build("see #EXP-238 now")
+        val chip = t.chips.single()
+        assertEquals(chip.displayEnd, t.caretToDisplay(chip.sourceEnd))
+        assertEquals(chip.displayEnd + 1, t.caretToDisplay(chip.sourceEnd + 1))
+    }
+
+    /** Range semantics: a range ending at the token end stops before the title. */
+    @Test
+    fun rangeEndAtTheTokenEndStopsBeforeTheTitle() {
         val t = build("see #EXP-238 now")
         val chip = t.chips.single()
         assertEquals(chip.displayTokenEnd, t.originalToTransformed(chip.sourceEnd))
+    }
+
+    @Test
+    fun caretOffsetsInsideTheTokenStayLinear() {
+        val t = build("see #EXP-238 now")
+        for (o in 0..11) assertEquals(o, t.caretToDisplay(o))
     }
 
     @Test
