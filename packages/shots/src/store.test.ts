@@ -9,7 +9,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import sharp from "sharp"
-import { indexStore, writeShot } from "./store.ts"
+import { NEAR_MISS_SHARE, formatDiffReport, indexStore, writeShot } from "./store.ts"
 import { storeShotPath } from "./paths.ts"
 
 let dir: string
@@ -116,5 +116,31 @@ describe(`indexStore`, () => {
     const pruned = await indexStore({ prune: true })
     expect(pruned.pruned).toHaveLength(1)
     expect(() => readFileSync(join(dir, `bogus-view`, `web.webp`))).toThrow()
+  })
+})
+
+describe(`formatDiffReport`, () => {
+  test(`lists moved and near-miss shots, closest to the tolerance first, and nothing identical`, () => {
+    // EXP-658: the issue-comments chip change sat under the default tolerance
+    // and was kept without a word in the log. The report makes that visible.
+    const lines = formatDiffReport([
+      { viewId: `board`, platform: `web`, state: `kept`, changedRatio: 0, tolerance: 0.005 },
+      { viewId: `inbox`, platform: `web`, state: `kept`, changedRatio: 0.0005, tolerance: 0.005 },
+      { viewId: `issue-comments`, platform: `ios`, state: `kept`, changedRatio: 0.0041, tolerance: 0.005 },
+      { viewId: `issue-detail`, platform: `web`, state: `updated`, changedRatio: 0.0312, tolerance: 0.005 },
+      { viewId: `search`, platform: `web`, state: `new`, tolerance: 0.0005 },
+      { viewId: `terminal`, platform: `desktop`, state: `updated`, tolerance: 0.005 }, // forced: no compare
+    ])
+    expect(lines).toHaveLength(3)
+    expect(lines[0]).toContain(`updated  issue-detail/web`)
+    expect(lines[0]).toContain(`0.0312`)
+    expect(lines[1]).toContain(`kept     issue-comments/ios`)
+    expect(lines[1]).toContain(`0.0041 of 0.0050 (82%)`)
+    expect(lines[1]).toContain(`near miss`)
+    expect(lines[2]).toContain(`inbox/web`)
+    expect(lines[2]).toContain(`(10%)`)
+    expect(lines[2]).not.toContain(`near miss`)
+    expect(NEAR_MISS_SHARE).toBeGreaterThan(0)
+    expect(NEAR_MISS_SHARE).toBeLessThan(1)
   })
 })

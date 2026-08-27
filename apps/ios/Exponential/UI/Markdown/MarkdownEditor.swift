@@ -38,10 +38,13 @@ struct MarkdownEditor: View {
     /// instead of filling it — a chat bubble must hug a one-line message
     /// rather than stretch across the feed (EXP-440).
     var hugsContentWidth: Bool = false
-    /// EXP-655: editable hosts (issue detail, the create sheet) pass 200
-    /// (Android's `minHeight = 200.dp`), and the empty band below the content
-    /// focuses the end of the description. Comment composers keep their own
-    /// bounded scroller, so they leave this nil and stay hugging.
+    /// EXP-655: issue detail passes 200 (Android's `minHeight = 200.dp`), and
+    /// the empty band below the content focuses the end of the description.
+    /// The create sheet deliberately leaves this nil (EXP-659): its title is
+    /// auto-focused, so the keyboard is up from the first frame and a 200pt
+    /// band hid the rows below the description on an iPhone. Comment composers
+    /// keep their own bounded scroller, so they leave this nil and stay hugging
+    /// too.
     var minHeight: CGFloat? = nil
     /// EXP-327: non-nil adds a "Files" entry to the toolbar's image button and
     /// receives the NON-image picks. Images picked there are appended to the

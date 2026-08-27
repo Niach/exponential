@@ -113,9 +113,13 @@ struct CreateIssueSheet: View {
                             // EXP-327: the same attach menu as issue detail —
                             // images go into the description, other files
                             // become drafts uploaded once the issue exists.
-                            // EXP-655 (Android parity): a tappable band below
-                            // the description focuses its end.
-                            minHeight: 200,
+                            // No `minHeight` here (EXP-659): the editor hugs its
+                            // content. Issue detail keeps the 200pt focus-end
+                            // band (EXP-655); on this sheet the title is
+                            // auto-focused, so the keyboard is up from the first
+                            // frame and a 200pt band pushed the properties card,
+                            // Labels and "Create more" under it on an iPhone. A
+                            // short or empty description is its own tap target.
                             onAttachFile: { url in ingestDraftFile(url) }
                         )
 

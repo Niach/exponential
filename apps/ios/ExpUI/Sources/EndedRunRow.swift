@@ -61,6 +61,9 @@ public struct EndedRunRow: View {
                 header
             }
             .buttonStyle(.plain)
+            // The collapsed row is what the styleguide capture taps to reach
+            // the summary + Resume state (EXP-663); same tag as Android's.
+            .accessibilityIdentifier("ended-run-row")
 
             if expanded {
                 if let summary, !summary.isEmpty {

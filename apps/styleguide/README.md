@@ -1,8 +1,8 @@
 # @exp/styleguide
 
 The gallery for the cross-platform screenshot store (EXP-566): every view in
-`@exp/view-catalog`, with its web / web-mobile / desktop / iOS / Android / iPad
-shots side by side, so a board on one platform can be compared with the same
+`@exp/view-catalog`, with its web / web-mobile / desktop / iOS / Android shots
+side by side, so a board on one platform can be compared with the same
 board on the others.
 
 Zero runtime dependencies. The output is ONE self-contained HTML file plus a

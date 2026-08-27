@@ -40,15 +40,15 @@ import catalogJson from "../views.json"
 /**
  * Every surface the store holds an image for.
  *
- * `ipad` is OPT-IN (`--platform ipad`), never part of a default run: the tablet
- * layout is the iPhone one widened, so capturing all ~50 views on it would
- * double the native runtime to document nothing new. What it IS worth holding
- * is the eight App Store slides, which Apple demands in a 13" slot anyway — the
- * store lane already photographs them, so the catalog names them here and the
- * importer picks the iPad-prefixed files out of the same fastlane output.
- * `DEFAULT_PLATFORMS` is therefore `PLATFORMS` minus this one.
+ * There is deliberately NO tablet platform (EXP-657): the iPad layout is the
+ * iPhone one widened, so a styleguide column for it would document nothing new
+ * at twice the native runtime. The eight iPad frames Apple demands in a 13"
+ * slot are an App Store concern only — the iOS Snapfile still runs the store
+ * set on both simulators, and the ASO compositor
+ * (`apps/marketing/scripts/store/raw-store.ts`) reads the `iPad…-<shot>.png`
+ * files straight out of fastlane's output. They never enter this store.
  */
-export type Platform = `web` | `web-mobile` | `desktop` | `ios` | `ipad` | `android`
+export type Platform = `web` | `web-mobile` | `desktop` | `ios` | `android`
 
 /** Group ids, kept in sync with `views.json`'s `groups`. */
 export type GroupId =
@@ -185,8 +185,6 @@ export interface View {
   /** `inherit` = the same capture as `web`, shot at the phone viewport. */
   webMobile?: `inherit` | WebCapture
   ios?: NativeCapture
-  /** Opt-in tablet lane — see `Platform`. Same `shot` id as `ios`. */
-  ipad?: NativeCapture
   android?: NativeCapture
   desktop?: DesktopCapture
   /** Per-view override of `STORE_DEFAULT_TOLERANCE`. */
@@ -213,18 +211,8 @@ export const PLATFORMS: readonly Platform[] = [
   `web-mobile`,
   `desktop`,
   `ios`,
-  `ipad`,
   `android`,
 ]
-
-/**
- * What a normal run captures: every platform except the opt-in tablet lane.
- * `bun run shots --platform ipad` is the only way to reach `ipad`, and the
- * styleguide only renders an iPad column for the views that declare one.
- */
-export const DEFAULT_PLATFORMS: readonly Platform[] = PLATFORMS.filter(
-  (platform) => platform !== `ipad`
-)
 
 export const GROUPS: readonly Group[] = catalog.groups
 export const VIEWS: readonly View[] = catalog.views
@@ -245,7 +233,6 @@ export const STORE_DEFAULT_TOLERANCE = 0.005
  *   web-mobile   390×844  @3x  → 1170×2532 →  832×1800
  *   desktop     1440×900  @2x  → 2880×1800 → 1800×1125
  *   ios         iPhone 17 Pro Max 1320×2868 → 828×1800
- *   ipad        iPad Pro 13"      2064×2752 → 1350×1800
  *   android     1080×2400                   → 810×1800
  */
 export const PLATFORM_FRAME: Record<Platform, { w: number; h: number }> = {
@@ -253,7 +240,6 @@ export const PLATFORM_FRAME: Record<Platform, { w: number; h: number }> = {
   [`web-mobile`]: { w: 832, h: 1800 },
   desktop: { w: 1800, h: 1125 },
   ios: { w: 828, h: 1800 },
-  ipad: { w: 1350, h: 1800 },
   android: { w: 810, h: 1800 },
 }
 
@@ -298,8 +284,6 @@ export function captureFor(
       return view.desktop
     case `ios`:
       return view.ios
-    case `ipad`:
-      return view.ipad
     case `android`:
       return view.android
   }
