@@ -347,6 +347,13 @@ export type ServerFrame =
   | { t: `error`; code: string; message?: string }
   | { t: `activity`; event: ActivityEvent } // relay → activity audience (authenticated members only)
   | { t: `activity_reset` } // relay → activity audience: drop everything rendered so far
+  // EXP-648: relay → activity audience every VIEWER_KEEPALIVE_INTERVAL_MS so
+  // a viewer can tell a quiet socket from a dead one (an agent parked on a
+  // question or plan approval sends nothing for minutes, and the desktop's
+  // 30s ping is a WS control frame that never reaches viewers). Carries
+  // nothing, never changes a viewer's phase, and is only ever sent to a
+  // socket whose join has already been answered.
+  | { t: `keepalive` }
 
 // ── Close codes ───────────────────────────────────────────────────────────────
 

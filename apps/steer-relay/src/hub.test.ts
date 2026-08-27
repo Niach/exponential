@@ -1298,3 +1298,119 @@ describe(`stats counters (EXP-553)`, () => {
     hub.destroy()
   })
 })
+
+// EXP-648: an agent parked on a question or plan approval sends nothing for
+// minutes, and the desktop's 30s ping is a WS control frame Bun never hands
+// to `message`, so viewers used to hear NOTHING from a healthy socket and
+// redialed it (mint + activity_reset + full replay) on every wake past 45s.
+// The relay now ticks a `keepalive` to every joined viewer.
+describe(`viewer keepalive (EXP-648)`, () => {
+  function tick(hub: Hub) {
+    ;(hub as unknown as { sendViewerKeepalives: () => void }).sendViewerKeepalives()
+  }
+
+  test(`a joined viewer gets one per tick; publisher and control sockets get none`, () => {
+    const hub = new Hub()
+    const desktop = new FakeSocket()
+    hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
+    hub.onMessage(
+      desktop,
+      JSON.stringify({ t: `online`, deviceId: `dev-1`, deviceLabel: `Mac` })
+    )
+    const pub = connectPublisher(hub)
+    const member = connectMember(hub)
+    expect(member.framesOf(`keepalive`)).toHaveLength(0)
+
+    tick(hub)
+    tick(hub)
+    expect(member.framesOf(`keepalive`)).toHaveLength(2)
+    expect(member.frames().at(-1)).toEqual({ t: `keepalive` })
+    expect(pub.framesOf(`keepalive`)).toHaveLength(0)
+    expect(desktop.framesOf(`keepalive`)).toHaveLength(0)
+    hub.destroy()
+  })
+
+  test(`a keepalive is never a socket's first frame — unjoined viewers get none`, () => {
+    const hub = new Hub()
+    connectPublisher(hub)
+    // Upgraded, ticket-valid, but the join has not been sent yet: every
+    // client disarms its join-ack deadline on the FIRST frame, so a
+    // keepalive here would let a mute join hang forever.
+    const lurker = new FakeSocket()
+    hub.onOpen(lurker, claims({ role: `viewer`, sessionId: `sess-1` }))
+    tick(hub)
+    expect(lurker.sent).toHaveLength(0)
+
+    // Joining answers with activity_reset first; keepalives follow it.
+    hub.onMessage(lurker, JSON.stringify({ t: `join`, channel: `activity` }))
+    tick(hub)
+    expect(lurker.frames().map((f) => f.t)).toEqual([`activity_reset`, `keepalive`])
+    hub.destroy()
+  })
+
+  test(`a saturated viewer is skipped, not evicted, and no activity counter moves`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const member = connectMember(hub)
+    activity(hub, pub, { kind: `narration`, text: `working` })
+    const before = hub.counters()
+
+    member.buffered = 10 * 1024 * 1024
+    tick(hub)
+    expect(member.closed).toBeNull()
+    expect(member.framesOf(`keepalive`)).toHaveLength(0)
+    expect(hub.counters()).toEqual(before)
+
+    // Drained: the next tick reaches it again.
+    member.buffered = 0
+    tick(hub)
+    expect(member.framesOf(`keepalive`)).toHaveLength(1)
+    hub.destroy()
+  })
+
+  test(`viewers of a room whose publisher dropped (grace window) still get one`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const member = connectMember(hub)
+    hub.onClose(pub)
+    // Grace window: the room stays, viewers hear nothing until it expires.
+    expect(room(hub).publisher).toBeNull()
+    expect(member.framesOf(`bye`)).toHaveLength(0)
+    expect(member.closed).toBeNull()
+
+    tick(hub)
+    // The frame vouches for the SOCKET: a redial here would only replay the
+    // same log while the desktop reconnects.
+    expect(member.framesOf(`keepalive`)).toHaveLength(1)
+    hub.destroy()
+  })
+
+  test(`the tick is a real interval that destroy() stops`, () => {
+    const timers: { fn: () => void; ms: number }[] = []
+    const cleared: unknown[] = []
+    const realSet = globalThis.setInterval
+    const realClear = globalThis.clearInterval
+    globalThis.setInterval = ((fn: () => void, ms: number) => {
+      timers.push({ fn, ms })
+      return timers.length as unknown as ReturnType<typeof setInterval>
+    }) as typeof setInterval
+    globalThis.clearInterval = ((id: unknown) => {
+      cleared.push(id)
+    }) as typeof clearInterval
+    try {
+      const hub = new Hub()
+      connectPublisher(hub)
+      const member = connectMember(hub)
+      const keepalive = timers.find((t) => t.ms === 15_000)
+      expect(keepalive).toBeDefined()
+      keepalive!.fn()
+      expect(member.framesOf(`keepalive`)).toHaveLength(1)
+      hub.destroy()
+      // Both the idle detector and the keepalive tick are cleared.
+      expect(cleared).toHaveLength(timers.length)
+    } finally {
+      globalThis.setInterval = realSet
+      globalThis.clearInterval = realClear
+    }
+  })
+})

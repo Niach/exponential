@@ -120,10 +120,21 @@ const PUBLISHER_GRACE_MS = 60_000
 // where a dropped connection sits undetected and UIs retry `no_such_session`.
 const PUBLISHER_IDLE_TIMEOUT_MS = 90_000
 const PUBLISHER_IDLE_CHECK_INTERVAL_MS = 30_000
+// EXP-648: viewers (web/iOS/Android) redial a nominally live socket that has
+// been silent for 45s — three of these ticks — because nothing else tells
+// them a quiet socket from a dead one: the desktop's 30s ping is a WS control
+// frame Bun hands to `ping`, never to `message`, so while an agent waits on a
+// question or plan approval the relay used to send viewers NOTHING, and every
+// foreground/push/network kick cost a mint + activity_reset + full replay.
+// Same 3-missed-ticks ratio as the publisher's 30s ping / 90s idle window.
+const VIEWER_KEEPALIVE_INTERVAL_MS = 15_000
 
 function frame(msg: ServerFrame): string {
   return JSON.stringify(msg)
 }
+
+/** Serialized once: every tick fans the same bytes to every joined viewer. */
+const KEEPALIVE_FRAME = frame({ t: `keepalive` })
 
 export class Hub {
   private conns = new Map<RelaySocket, Conn>()
@@ -133,6 +144,8 @@ export class Hub {
   private rooms = new Map<string, Room>()
   /** REV2-X: Periodic check for idle publishers. */
   private idleCheckInterval: ReturnType<typeof setInterval>
+  /** EXP-648: the viewer keepalive tick. */
+  private keepaliveInterval: ReturnType<typeof setInterval>
 
   // EXP-553: monotonic counters for the admin performance page — exposed via
   // counters() on the secret-gated /stats endpoint (stats() stays gauges-only
@@ -148,11 +161,15 @@ export class Hub {
     this.idleCheckInterval = setInterval(() => {
       this.checkIdlePublishers()
     }, PUBLISHER_IDLE_CHECK_INTERVAL_MS)
+    this.keepaliveInterval = setInterval(() => {
+      this.sendViewerKeepalives()
+    }, VIEWER_KEEPALIVE_INTERVAL_MS)
   }
 
-  /** REV2-X: Stop the idle check interval (for clean shutdown/tests). */
+  /** Stop the periodic ticks (for clean shutdown/tests). */
   destroy() {
     clearInterval(this.idleCheckInterval)
+    clearInterval(this.keepaliveInterval)
   }
 
   // ── Socket lifecycle (called from the Bun ws handlers) ────────────────────
@@ -623,6 +640,24 @@ export class Hub {
           CLOSE_PUBLISHER_IDLE,
           `publisher_idle_${Math.floor(idleMs / 1000)}s`
         )
+      }
+    }
+  }
+
+  /** EXP-648: one `keepalive` frame to every JOINED viewer. Only
+   *  activityMembers, never publishers or control sockets — and membership
+   *  is granted synchronously before the join's `activity_reset` + replay go
+   *  out, so a keepalive can never be a socket's first frame (every client
+   *  disarms its join-ack deadline on the first frame, whatever it is).
+   *  Rooms whose publisher dropped (grace window) still get one: the frame
+   *  vouches for the SOCKET, and a redial there would replay the same log.
+   *  A saturated socket is skipped, not evicted — eviction is the activity
+   *  fan-out's call, and none of the activity counters move here. */
+  private sendViewerKeepalives() {
+    for (const room of this.rooms.values()) {
+      for (const member of room.activityMembers.keys()) {
+        if (member.sock.bufferedAmount() > VIEWER_HIGH_WATER) continue
+        member.sock.send(KEEPALIVE_FRAME)
       }
     }
   }

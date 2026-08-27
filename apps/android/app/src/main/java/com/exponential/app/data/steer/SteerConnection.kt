@@ -121,7 +121,10 @@ private const val ECHO_TTL_MS = 300_000L
  * a websocket upgrade or a socket that upgrades and then says nothing.
  * [liveStaleMs] is how long a nominally-live socket may stay silent before a
  * revival kick treats it as dead. There is no pong to probe with, so the
- * probe is a silent redial.
+ * probe is a silent redial. The relay sends every joined viewer a
+ * `keepalive` frame every 15s (EXP-648), so 45s is three missed ticks: a
+ * quiet agent (parked on a question or a plan approval) no longer reads as
+ * a dead socket.
  */
 data class SteerTimings(
     /** Redial cadence while the desktop's publisher socket is still starting. */
@@ -133,6 +136,7 @@ data class SteerTimings(
     val reconnectMaxMs: Long = 30_000,
     val joinAckMs: Long = 15_000,
     val upgradeMs: Long = 20_000,
+    /** 3x the relay's viewer keepalive interval (apps/steer-relay/src/hub.ts). */
     val liveStaleMs: Long = 45_000,
 )
 
@@ -650,6 +654,10 @@ class SteerConnection internal constructor(
                 resetActivity()
                 FrameResult(live = true)
             }
+            // The relay's liveness beat to joined viewers (EXP-648). Already
+            // counted: the receive loop stamped lastFrameAtMs before handing
+            // the frame here. Never a phase change, never a feed change.
+            "keepalive" -> null
             "bye" -> {
                 val outcome = (obj["outcome"] as? JsonPrimitive)?.contentOrNull
                 if (outcome == "publisher_lost") {
