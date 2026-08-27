@@ -1,4 +1,4 @@
-// Clean reimplementation from the VT spec + alacritty_terminal (Apache-2.0). NOT derived from Zed's GPL terminal crates.
+// Clean reimplementation from the VT spec + rio-vt (MIT). NOT derived from Zed's GPL terminal crates.
 //! `to_esc_str` — gpui [`Keystroke`] → terminal escape bytes (masterplan-v3
 //! §6.8).
 //!
@@ -28,7 +28,7 @@
 //! keypad table is emitted (documented gap, same visible behavior as a
 //! terminal with the keypad in numeric mode).
 
-use alacritty_terminal::term::TermMode;
+use crate::emulator::TermMode;
 use gpui::Keystroke;
 use std::borrow::Cow;
 

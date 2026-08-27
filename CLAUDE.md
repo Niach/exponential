@@ -17,7 +17,7 @@ apps/
 ├── ios/        # SwiftUI (Tuist + GRDB; ExpCore/ExpUI)
 ├── android/    # Kotlin / Jetpack Compose
 ├── styleguide/ # Static shot-gallery site (reads shots/ + @exp/view-catalog)
-└── desktop/    # Rust IDE (gpui + gpui-component + alacritty_terminal; embedded coding sessions)
+└── desktop/    # Rust IDE (gpui + gpui-component + rio-vt; embedded coding sessions)
                 # + crates/cli: the headless `exponential` CLI/daemon (EXP-403) — gpui-free via the
                 # default-on `gpui` cargo feature on terminal/coding; own cli-v* release train
 packages/

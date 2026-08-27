@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-inline-terminal-images`,
+    date: `2026-08-27`,
+    title: `Inline images in the desktop terminal`,
+    summary: `The IDE terminal now renders sixel, kitty and iTerm2 inline images in place, so previews from tools like chafa, img2sixel and kitten icat show up right in the grid.`,
+    body: `- **Inline images**: sixel, kitty graphics protocol and iTerm2 inline images render inside the terminal grid, scroll with the scrollback, survive a switch into and out of full-screen programs, and clear with the screen.
+- **Pixel-aware replies**: programs that ask the terminal for its pixel size now get real cell metrics, so image tools size their output correctly instead of guessing.
+- **Terminal core**: the emulator moved from alacritty_terminal to rio-vt, the VT core behind the Rio terminal, which is what brings the graphics support. Key handling, mouse reporting, selection and live steering behave exactly as before.`,
+  },
+  {
     id: `2026-08-steadier-live-sessions`,
     date: `2026-08-27`,
     title: `Steadier live sessions`,

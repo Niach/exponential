@@ -1,4 +1,4 @@
-// Clean reimplementation from the VT spec + alacritty_terminal (Apache-2.0). NOT derived from Zed's GPL terminal crates.
+// Clean reimplementation from the VT spec + rio-vt (MIT). NOT derived from Zed's GPL terminal crates.
 //! Mouse handling (masterplan-v3 §6.8's mouse subsection): pixel → grid-cell
 //! mapping for local selection, and **mouse-mode reporting** to the child
 //! when a TUI requests it (`vim`, `htop`).
@@ -20,8 +20,8 @@
 //! wheel up/down = 64/65; modifiers add shift=4, alt(meta)=8, ctrl=16; motion
 //! adds 32.
 
-use alacritty_terminal::index::{Column, Line, Point, Side};
-use alacritty_terminal::term::TermMode;
+use crate::emulator::TermMode;
+use rio_vt::crosswords::pos::{Column, Line, Pos, Side};
 use gpui::{Modifiers, MouseButton, Pixels, Point as PixelPoint};
 
 /// What kind of mouse transition is being reported.
@@ -44,8 +44,8 @@ pub struct ViewportCell {
 /// Map a window-space pixel position onto the grid.
 ///
 /// Returns the viewport cell (clamped into the grid), the equivalent
-/// *buffer*-coordinate [`Point`] (viewport row shifted by the scrollback
-/// `display_offset` — what `alacritty_terminal::selection` expects), and the
+/// *buffer*-coordinate [`Pos`] (viewport row shifted by the scrollback
+/// `display_offset` — what `rio_vt::selection` expects), and the
 /// [`Side`] of the cell the pixel landed in (selection anchors care).
 pub fn grid_cell(
     position: PixelPoint<Pixels>,
@@ -55,7 +55,7 @@ pub fn grid_cell(
     cols: usize,
     rows: usize,
     display_offset: usize,
-) -> (ViewportCell, Point, Side) {
+) -> (ViewportCell, Pos, Side) {
     let cols = cols.max(1);
     let rows = rows.max(1);
 
@@ -74,7 +74,7 @@ pub fn grid_cell(
         Side::Left
     };
 
-    let point = Point::new(Line(row as i32 - display_offset as i32), Column(col));
+    let point = Pos::new(Line(row as i32 - display_offset as i32), Column(col));
     (ViewportCell { col, row }, point, side)
 }
 
@@ -233,7 +233,7 @@ mod tests {
         let origin = point(px(10.0), px(20.0));
         let (vc, p, side) = grid_cell(point(px(10.0), px(20.0)), origin, px(8.0), px(16.0), 80, 24, 0);
         assert_eq!((vc.col, vc.row), (0, 0));
-        assert_eq!(p, Point::new(Line(0), Column(0)));
+        assert_eq!(p, Pos::new(Line(0), Column(0)));
         assert_eq!(side, Side::Left);
 
         // Right half of cell 2, row 1.
@@ -253,7 +253,7 @@ mod tests {
         let origin = point(px(0.0), px(0.0));
         // Scrolled back 5 lines: viewport row 2 is buffer line -3.
         let (_, p, _) = grid_cell(point(px(4.0), px(40.0)), origin, px(8.0), px(16.0), 80, 24, 5);
-        assert_eq!(p, Point::new(Line(-3), Column(0)));
+        assert_eq!(p, Pos::new(Line(-3), Column(0)));
     }
 
     #[test]

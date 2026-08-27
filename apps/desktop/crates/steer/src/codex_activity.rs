@@ -1444,13 +1444,12 @@ mod tests {
     }
 
     fn paint(term: &TermHandle, rows: &[&str]) {
-        let mut processor = vte::ansi::Processor::<vte::ansi::StdSyncHandler>::new();
         let mut bytes = b"\x1b[2J\x1b[H".to_vec();
         for row in rows {
             bytes.extend_from_slice(row.as_bytes());
             bytes.extend_from_slice(b"\r\n");
         }
-        processor.advance(&mut *term.lock(), &bytes);
+        terminal::advance_bytes(term, &bytes);
     }
 
     /// The exec approval overlay (codex-cli 0.144.5 render snapshot).

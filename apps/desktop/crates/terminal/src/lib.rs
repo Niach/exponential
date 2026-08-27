@@ -1,9 +1,9 @@
-// Clean reimplementation from the VT spec + alacritty_terminal (Apache-2.0). NOT derived from Zed's GPL terminal crates.
+// Clean reimplementation from the VT spec + rio-vt (MIT). NOT derived from Zed's GPL terminal crates.
 //! `terminal` — the embedded terminal (masterplan-v3 §3.1 / §06).
 //!
 //! Phase 4 lands: `pty.rs` (portable-pty master), `emulator.rs`
-//! (alacritty_terminal `Term` + vte `Processor`), `read_loop.rs` (the steer
-//! tee), `session.rs` (one `Terminal` = pty + emulator + read loop + writer),
+//! (rio-vt `Crosswords` + its `Processor`, EXP-636), `read_loop.rs` (the
+//! single reader), `session.rs` (one `Terminal` = pty + emulator + read loop + writer),
 //! `keys.rs` (clean reimplementation of `to_esc_str`), `mouse.rs`,
 //! `element.rs` (the gpui grid Element), `tab.rs` + `manager.rs`
 //! (JetBrains-style multi-tab), `steer.rs` (publisher glue).
@@ -18,8 +18,9 @@
 //! (`element`/`manager`/`tab`'s view types/`keys`/`mouse`) so the headless
 //! `exponential` CLI can consume the core without pulling gpui.
 //!
-//! Licensing boundary (§3.8): alacritty_terminal UPSTREAM (Apache-2.0) only —
-//! never Zed's GPL `terminal`/`terminal_view` code.
+//! Licensing boundary (§3.8): the emulator core is rio-vt (MIT, EXP-636;
+//! before that upstream alacritty_terminal, Apache-2.0) — never Zed's GPL
+//! `terminal`/`terminal_view` code.
 
 #[cfg(feature = "gpui")]
 pub mod element;
@@ -39,8 +40,9 @@ pub mod tab;
 #[cfg(feature = "gpui")]
 pub use element::{init, GridGeometry, TerminalElement, TerminalView, TerminalViewEvent};
 pub use emulator::{
-    bracketed_paste_enabled, display_offset, grid_size, screen_lines, scroll_to_bottom,
-    scroll_up, Emulator, EmulatorSignal, EventProxy, GridSize, TermHandle,
+    advance_bytes, bracketed_paste_enabled, display_offset, grid_size, screen_lines,
+    scroll_to_bottom, scroll_up, Emulator, EmulatorSignal, EventProxy, GraphicsUpdate, Term,
+    TermHandle, TermMode, DEFAULT_CELL_PX,
 };
 #[cfg(feature = "gpui")]
 pub use keys::to_esc_str;
@@ -52,6 +54,10 @@ pub use pty::{
 };
 pub use read_loop::{spawn_read_loop, Wake};
 pub use session::Terminal;
+// The emulator crates, re-exported so integration tests and dependants name
+// grid types through this crate instead of pinning their own copies.
+pub use rio_graphics;
+pub use rio_vt;
 #[cfg(feature = "gpui")]
 pub use tab::{ExitHook, TerminalTab};
 pub use tab::{TabId, TabKind, TabStatus};

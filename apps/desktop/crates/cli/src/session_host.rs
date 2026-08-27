@@ -151,6 +151,8 @@ pub fn launch(
 
     // --- PTY + emulator + read loop + wait thread (session.rs, plus the
     // interactive stdout tee the desktop never needs) -----------------------
+    // Graphics stay disabled here (EXP-636): image protocols are parsed so
+    // the grid stays consistent, but no pixels are ever retained headlessly.
     let emulator = Emulator::new(cols, rows);
     let mut pty = match pty::open(&spawn, cols.max(1), rows.max(1)) {
         Ok(pty) => pty,

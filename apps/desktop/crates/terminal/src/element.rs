@@ -1,4 +1,4 @@
-// Clean reimplementation from the VT spec + alacritty_terminal (Apache-2.0). NOT derived from Zed's GPL terminal crates.
+// Clean reimplementation from the VT spec + rio-vt (MIT). NOT derived from Zed's GPL terminal crates.
 //! The gpui grid element (masterplan-v3 §6.9) + the `TerminalView` entity
 //! that owns a [`Terminal`] session on the foreground.
 //!
@@ -6,7 +6,7 @@
 //! tree) with the three-phase `request_layout → prepaint → paint` lifecycle,
 //! doing all its own painting. Zed's GPL `terminal_element.rs` was studied
 //! for *approach only* (§0.7's licensing boundary); everything here is
-//! written against the alacritty grid API + the gpui `Element` trait.
+//! written against the rio-vt grid API + the gpui `Element` trait.
 //!
 //! Responsibilities (§6.9/§6.10 + this step's task list):
 //! - cell metrics from the window text system (mono advance of `m`, line
@@ -23,34 +23,42 @@
 //! - cursor block/beam/underline (+ hollow block when unfocused, blink via
 //!   the view's blink task), selection bands + clipboard copy, wheel
 //!   scrollback through the grid display offset, mouse-mode reporting, IME
-//!   input, and the 0-height collapsed-dock guard.
+//!   input, and the 0-height collapsed-dock guard;
+//! - inline images (EXP-636): sixel/iTerm2 and kitty placements from the
+//!   emulator's graphics store, resolved against this frame's cell stride
+//!   and painted as textured quads under (sixel, kitty `z < 0`) or over
+//!   (kitty `z >= 0`) the text, clipped to the element.
 
-use crate::emulator::{EmulatorSignal, EventProxy};
+use crate::emulator::{EmulatorSignal, GraphicsUpdate, Term, TermMode};
 use crate::keys;
 use crate::mouse::{self, MouseEventKind, ViewportCell};
 use crate::pty::ChildExit;
 use crate::session::Terminal;
-use alacritty_terminal::grid::Scroll;
-use alacritty_terminal::index::Point as GridPoint;
-use alacritty_terminal::selection::{Selection, SelectionRange, SelectionType};
-use alacritty_terminal::term::cell::Flags;
-use alacritty_terminal::term::{Term, TermMode};
 use gpui::{
-    div, fill, outline, point, px, relative, App, BorderStyle, Bounds, ClipboardItem, Context,
-    CursorStyle as GpuiCursorStyle, DispatchPhase, Element, ElementId, Entity, EventEmitter,
-    FocusHandle, Focusable, Font, FontStyle, FontWeight, GlobalElementId, Hitbox, HitboxBehavior,
-    Hsla, InputHandler, InspectorElementId, InteractiveElement, IntoElement, KeyBinding,
-    KeyDownEvent, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, NoAction,
-    ParentElement, Pixels,
-    Point as PixelPoint, Render, ScrollWheelEvent, ShapedLine, SharedString, StrikethroughStyle,
-    Style, Styled, Task, TextAlign, TextRun, UTF16Selection, UnderlineStyle, Window,
+    div, fill, outline, point, px, relative, App, BorderStyle, Bounds, ClipboardItem, ContentMask,
+    Context, Corners, CursorStyle as GpuiCursorStyle, DispatchPhase, Element, ElementId, Entity,
+    EventEmitter, FocusHandle, Focusable, Font, FontStyle, FontWeight, GlobalElementId, Hitbox,
+    HitboxBehavior, Hsla, InputHandler, InspectorElementId, InteractiveElement, IntoElement,
+    KeyBinding, KeyDownEvent, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
+    NoAction, ParentElement, Pixels, Point as PixelPoint, Render, RenderImage, ScrollWheelEvent,
+    ShapedLine, SharedString, StrikethroughStyle, Style, Styled, Task, TextAlign, TextRun,
+    UTF16Selection, UnderlineStyle, Window,
 };
+use rio_graphics::{kitty_image_key, ColorType, GraphicData};
+use rio_vt::ansi::graphics::{atlas_overlay_geometry, kitty_overlay_geometry, OverlayViewport};
+use rio_vt::ansi::CursorShape;
+use rio_vt::config::colors::{AnsiColor, ColorRgb, NamedColor};
+use rio_vt::crosswords::grid::Scroll;
+use rio_vt::crosswords::pos::{Pos, Side};
+use rio_vt::crosswords::style::StyleFlags;
+use rio_vt::selection::{Selection, SelectionRange, SelectionType};
 use std::cell::{Cell as StdCell, RefCell};
+use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use theme::terminal::{terminal_palette, TerminalPalette, FONT_FAMILY, FONT_SIZE, LINE_HEIGHT};
-use vte::ansi::{Color as AnsiColor, CursorShape, NamedColor, Rgb};
 
 /// Grid inset so the first column/row is not glued to the panel edge. Small
 /// and constant — it participates in the cell math AND the mouse mapping.
@@ -115,12 +123,17 @@ pub struct TerminalView {
     /// Written by the element during paint; read by the IME handler for the
     /// candidate-window position (`bounds_for_range`).
     cursor_bounds: Rc<StdCell<Option<Bounds<Pixels>>>>,
+    /// Uploaded inline-image textures keyed by rio's texture key (EXP-636);
+    /// fed from the wake drain, read by the element in prepaint.
+    images: Rc<RefCell<ImageCache>>,
     _wake_task: Task<()>,
     _blink_task: Task<()>,
 }
 
 impl TerminalView {
-    pub fn new(session: Terminal, cx: &mut Context<Self>) -> Self {
+    pub fn new(mut session: Terminal, cx: &mut Context<Self>) -> Self {
+        // This view paints, so the emulator may retain decoded image pixels.
+        session.enable_graphics();
         let wake_rx = session.wake_rx();
         let session = Rc::new(RefCell::new(session));
 
@@ -163,6 +176,7 @@ impl TerminalView {
             scroll_accum: 0.0,
             last_motion_cell: None,
             cursor_bounds: Rc::new(StdCell::new(None)),
+            images: Rc::new(RefCell::new(ImageCache::default())),
             _wake_task: wake_task,
             _blink_task: blink_task,
         }
@@ -196,7 +210,7 @@ impl TerminalView {
 
     fn term_mode(&self) -> TermMode {
         let term = self.session.borrow().term();
-        let mode = *term.lock().mode();
+        let mode = term.lock().mode();
         mode
     }
 
@@ -204,6 +218,9 @@ impl TerminalView {
         // Pump answers the §6.6 reply-required events into the PTY writer
         // and hands back the user-facing signals.
         let signals = self.session.borrow_mut().pump();
+        for update in self.session.borrow_mut().take_graphics() {
+            self.images.borrow_mut().apply(update);
+        }
         for signal in signals {
             match signal {
                 EmulatorSignal::Title(title) => {
@@ -235,8 +252,8 @@ impl TerminalView {
         }
         let blinking = self.exit.is_none() && {
             let term = self.session.borrow().term();
-            let style = term.lock().cursor_style();
-            style.blinking
+            let blinking = term.lock().blinking_cursor;
+            blinking
         };
         if blinking {
             self.blink_visible = !self.blink_visible;
@@ -286,7 +303,7 @@ impl TerminalView {
             let term = session.term();
             let mut term = term.lock();
             term.selection = None;
-            if term.grid().display_offset() != 0 {
+            if term.display_offset() != 0 {
                 term.scroll_display(Scroll::Bottom);
             }
         }
@@ -521,6 +538,7 @@ impl Render for TerminalView {
                 cursor_blink_show: self.blink_visible,
                 ime_marked: self.ime_marked.clone(),
                 cursor_bounds_slot: self.cursor_bounds.clone(),
+                images: self.images.clone(),
             })
     }
 }
@@ -560,7 +578,7 @@ pub struct GridGeometry {
 }
 
 impl GridGeometry {
-    fn hit(&self, position: PixelPoint<Pixels>) -> (ViewportCell, GridPoint, alacritty_terminal::index::Side) {
+    fn hit(&self, position: PixelPoint<Pixels>) -> (ViewportCell, Pos, Side) {
         mouse::grid_cell(
             position,
             self.origin,
@@ -655,6 +673,19 @@ impl CellSpec {
     }
 }
 
+/// One inline image placement resolved against this frame's geometry.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ImagePlacement {
+    /// rio texture key (`kitty_image_key` / `atlas_image_key`).
+    key: u64,
+    bounds: Bounds<Pixels>,
+    /// Normalised (u0, v0, u1, v1) crop of the source texture.
+    source_rect: [f32; 4],
+    /// Kitty `z >= 0` paints over the text; sixel/iTerm2 (DEC semantics)
+    /// and negative kitty z paint under it.
+    above_text: bool,
+}
+
 struct ContentSnapshot {
     display_offset: usize,
     selection: Option<SelectionRange>,
@@ -662,49 +693,66 @@ struct ContentSnapshot {
     /// Viewport (col, row), shape, wide flag, and the glyph under the cursor
     /// (for block inversion). `None` when hidden or scrolled off-screen.
     cursor: Option<(usize, usize, CursorShape, bool, char)>,
+    images: Vec<ImagePlacement>,
+    /// Kitty images the paint cache has no texture for yet — transmitted
+    /// before this view existed, or brought back by an alt-screen swap.
+    /// (Sixel pixels only ever travel through `UpdateGraphics`, so a missing
+    /// atlas key simply stays unpainted.)
+    missing_images: Vec<(u64, GraphicData)>,
 }
 
 /// Copy the visible grid out of the emulator — called under the `FairMutex`,
 /// kept cheap (no shaping, no allocation beyond the cell vec) so the read
-/// thread is never starved (§6.11).
+/// thread is never starved (§6.11). `cached` answers whether the paint side
+/// already holds a texture for a key.
 fn snapshot_content(
-    term: &Term<EventProxy>,
+    term: &Term,
     palette: &TerminalPalette,
+    geometry: &GridGeometry,
     rows: usize,
+    cached: &dyn Fn(u64) -> bool,
 ) -> ContentSnapshot {
-    let content = term.renderable_content();
-    let display_offset = content.display_offset;
-    let selection = content.selection;
-    let cursor_point = content.cursor.point;
-    let cursor_shape = content.cursor.shape;
+    let display_offset = term.display_offset();
+    let selection = term.selection.as_ref().and_then(|selection| selection.to_range(term));
+    let cursor_state = term.cursor();
+    let cursor_point = cursor_state.pos;
+    let cursor_shape = cursor_state.content;
 
     let mut cells = Vec::new();
     let mut cursor_char = ' ';
     let mut cursor_wide = false;
 
-    for indexed in content.display_iter {
-        let cell = indexed.cell;
-        let flags = cell.flags;
+    for indexed in term.grid.display_iter() {
+        let square = *indexed.square;
         // Trailing half of a double-width glyph — never emit a glyph or
         // advance for it (§6.9); the base cell carries width 2.
-        if flags.contains(Flags::WIDE_CHAR_SPACER) {
+        if square.is_spacer() {
             continue;
         }
-        let Some(row) = viewport_row(indexed.point.line.0, display_offset, rows) else {
+        let Some(row) = viewport_row(indexed.pos.row.0, display_offset, rows) else {
             continue;
         };
-        if indexed.point == cursor_point {
-            cursor_char = cell.c;
-            cursor_wide = flags.contains(Flags::WIDE_CHAR);
+        // rio's empty square reads back as NUL; normalise to a space BEFORE
+        // `has_ink` (NUL is not whitespace, so every blank cell would
+        // otherwise shape a glyph run).
+        let base = match square.c() {
+            '\0' => ' ',
+            c => c,
+        };
+        if indexed.pos == cursor_point {
+            cursor_char = base;
+            cursor_wide = square.is_wide();
         }
 
-        let inverse = flags.contains(Flags::INVERSE);
-        let mut fg = resolve_color(&cell.fg, term, palette);
-        let mut bg = resolve_color(&cell.bg, term, palette);
+        let style = term.grid.style_of(&square);
+        let flags = style.flags;
+        let inverse = flags.contains(StyleFlags::INVERSE);
+        let mut fg = resolve_color(&style.fg, term, palette);
+        let mut bg = resolve_color(&style.bg, term, palette);
         if inverse {
             std::mem::swap(&mut fg, &mut bg);
         }
-        if flags.intersects(Flags::DIM) {
+        if flags.contains(StyleFlags::DIM) {
             fg = Hsla {
                 l: fg.l * (2.0 / 3.0),
                 ..fg
@@ -713,29 +761,28 @@ fn snapshot_content(
         let bg = (bg != palette.background).then_some(bg);
 
         // A wrapped wide char leaves a blank leading spacer at line end.
-        let leading_spacer = flags.contains(Flags::LEADING_WIDE_CHAR_SPACER);
+        let leading_spacer = square.is_leading_spacer();
 
         let mut text = String::new();
         if !leading_spacer {
-            text.push(cell.c);
-            if let Some(marks) = cell.zerowidth() {
-                text.extend(marks);
-            }
+            text.push(base);
+            // Zero-width/combining marks folded onto the base cell.
+            text.extend(term.grid.cell_text(indexed.pos).skip(1));
         }
 
         let spec = CellSpec {
             row,
-            col: indexed.point.column.0,
-            width: if flags.contains(Flags::WIDE_CHAR) { 2 } else { 1 },
+            col: indexed.pos.col.0,
+            width: if square.is_wide() { 2 } else { 1 },
             text,
             fg,
             bg,
-            bold: flags.intersects(Flags::BOLD),
-            italic: flags.contains(Flags::ITALIC),
-            underline: flags.intersects(Flags::ALL_UNDERLINES),
-            undercurl: flags.contains(Flags::UNDERCURL),
-            strikethrough: flags.contains(Flags::STRIKEOUT),
-            hidden: flags.contains(Flags::HIDDEN) || leading_spacer,
+            bold: flags.contains(StyleFlags::BOLD),
+            italic: flags.contains(StyleFlags::ITALIC),
+            underline: flags.intersects(StyleFlags::ALL_UNDERLINES),
+            undercurl: flags.contains(StyleFlags::UNDERCURL),
+            strikethrough: flags.contains(StyleFlags::STRIKEOUT),
+            hidden: flags.contains(StyleFlags::HIDDEN) || leading_spacer,
         };
         // Blank default-background cells with no decorations draw nothing.
         if spec.bg.is_none() && !spec.has_ink() {
@@ -747,16 +794,176 @@ fn snapshot_content(
     let cursor = if cursor_shape == CursorShape::Hidden {
         None
     } else {
-        viewport_row(cursor_point.line.0, display_offset, rows)
-            .map(|row| (cursor_point.column.0, row, cursor_shape, cursor_wide, cursor_char))
+        viewport_row(cursor_point.row.0, display_offset, rows)
+            .map(|row| (cursor_point.col.0, row, cursor_shape, cursor_wide, cursor_char))
     };
+
+    // -- Inline images (EXP-636): geometry is resolved per frame against the
+    //    SAME cell stride the text paints with, so images and glyphs stay in
+    //    lockstep through scroll, resize and retransmit.
+    let viewport = OverlayViewport {
+        cell_width: f32::from(geometry.cell_width),
+        cell_height: f32::from(geometry.line_height),
+        origin_x: f32::from(geometry.origin.x),
+        origin_y: f32::from(geometry.origin.y),
+        history_size: term.history_size() as i64,
+        display_offset: display_offset as i64,
+        screen_lines: rows as i64,
+    };
+    let mut images = Vec::new();
+    let mut missing_images: Vec<(u64, GraphicData)> = Vec::new();
+    for placement in term.graphics.kitty_placements.values() {
+        let Some(image) = term.graphics.kitty_images.get(&placement.image_id) else {
+            continue;
+        };
+        let Some(overlay) = kitty_overlay_geometry(
+            placement,
+            image.data.width,
+            image.data.height,
+            &viewport,
+        ) else {
+            continue;
+        };
+        let key = kitty_image_key(placement.image_id);
+        if !cached(key) && !missing_images.iter().any(|(k, _)| *k == key) {
+            missing_images.push((key, image.data.clone()));
+        }
+        images.push(ImagePlacement {
+            key,
+            bounds: overlay_bounds(overlay.x, overlay.y, overlay.width, overlay.height),
+            source_rect: overlay.source_rect,
+            above_text: placement.z_index >= 0,
+        });
+    }
+    for placement in &term.graphics.atlas_placements {
+        let Some(overlay) = atlas_overlay_geometry(placement, &viewport) else {
+            continue;
+        };
+        images.push(ImagePlacement {
+            key: placement.image_key,
+            bounds: overlay_bounds(overlay.x, overlay.y, overlay.width, overlay.height),
+            source_rect: overlay.source_rect,
+            above_text: false,
+        });
+    }
 
     ContentSnapshot {
         display_offset,
         selection,
         cells,
         cursor,
+        images,
+        missing_images,
     }
+}
+
+fn overlay_bounds(x: f32, y: f32, width: f32, height: f32) -> Bounds<Pixels> {
+    Bounds::new(point(px(x), px(y)), gpui::size(px(width), px(height)))
+}
+
+// ---------------------------------------------------------------------------
+// Inline-image textures (EXP-636)
+// ---------------------------------------------------------------------------
+
+/// Decoded image → a gpui frame. gpui's sprite pipeline expects straight-alpha
+/// **BGRA** (the same byte swap `gpui::img` applies to decoded PNGs), so RGB
+/// is expanded and the channels swapped here, once, at upload.
+pub(crate) fn graphic_to_frame(data: &GraphicData) -> Option<image::Frame> {
+    let (width, height) = (data.width as u32, data.height as u32);
+    let mut pixels: Vec<u8> = match data.color_type {
+        ColorType::Rgba => data.pixels.clone(),
+        ColorType::Rgb => data
+            .pixels
+            .chunks_exact(3)
+            .flat_map(|p| [p[0], p[1], p[2], 255])
+            .collect(),
+    };
+    if pixels.len() != data.width * data.height * 4 {
+        return None;
+    }
+    for pixel in pixels.chunks_exact_mut(4) {
+        pixel.swap(0, 2);
+    }
+    Some(image::Frame::new(image::RgbaImage::from_raw(width, height, pixels)?))
+}
+
+/// The paint side's texture store, keyed by rio texture key. Fed by
+/// [`GraphicsUpdate`]s (uploads + frees) and by kitty images the snapshot
+/// found missing; sized by rio's own image budget plus one BGRA copy each.
+#[derive(Default)]
+pub(crate) struct ImageCache {
+    images: HashMap<u64, Arc<RenderImage>>,
+}
+
+impl ImageCache {
+    pub(crate) fn apply(&mut self, update: GraphicsUpdate) {
+        for key in update.removed {
+            self.images.remove(&key);
+        }
+        for (key, data) in &update.images {
+            self.insert(*key, data);
+        }
+    }
+
+    pub(crate) fn insert(&mut self, key: u64, data: &GraphicData) {
+        let Some(frame) = graphic_to_frame(data) else {
+            log::debug!("terminal image {key}: unexpected pixel buffer, skipped");
+            return;
+        };
+        self.images.insert(key, Arc::new(RenderImage::new(vec![frame])));
+    }
+
+    pub(crate) fn contains(&self, key: u64) -> bool {
+        self.images.contains_key(&key)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
+        self.images.len()
+    }
+
+    pub(crate) fn get(&self, key: u64) -> Option<Arc<RenderImage>> {
+        self.images.get(&key).cloned()
+    }
+}
+
+/// The quad the FULL texture would occupy so that `bounds` shows exactly its
+/// normalised `source_rect` (u0, v0, u1, v1): gpui's `paint_image` scales the
+/// texture into `image_bounds` and renders `bounds ∩ image_bounds`, which is
+/// a source sub-rect without any pixel copies.
+pub(crate) fn full_image_bounds(bounds: Bounds<Pixels>, [u0, v0, u1, v1]: [f32; 4]) -> Bounds<Pixels> {
+    let du = (u1 - u0).max(f32::EPSILON);
+    let dv = (v1 - v0).max(f32::EPSILON);
+    let width = f32::from(bounds.size.width) / du;
+    let height = f32::from(bounds.size.height) / dv;
+    let x = f32::from(bounds.origin.x) - u0 * width;
+    let y = f32::from(bounds.origin.y) - v0 * height;
+    Bounds::new(point(px(x), px(y)), gpui::size(px(width), px(height)))
+}
+
+/// One resolved image quad: (visible bounds, full-texture bounds, texture).
+type ImageQuad = (Bounds<Pixels>, Bounds<Pixels>, Arc<RenderImage>);
+
+/// Paint one image layer, clipped to the element (partially visible
+/// placements keep their full quad and the mask clips them).
+fn paint_images(window: &mut Window, clip: Bounds<Pixels>, images: &[ImageQuad]) {
+    if images.is_empty() {
+        return;
+    }
+    window.with_content_mask(Some(ContentMask { bounds: clip }), |window| {
+        for (bounds, image_bounds, image) in images {
+            if let Err(error) = window.paint_image(
+                *bounds,
+                *image_bounds,
+                Corners::default(),
+                image.clone(),
+                0,
+                false,
+            ) {
+                log::debug!("terminal inline image paint failed: {error}");
+            }
+        }
+    });
 }
 
 /// Buffer line (scrollback-relative) → viewport row, `None` off-screen.
@@ -767,19 +974,19 @@ pub(crate) fn viewport_row(line: i32, display_offset: usize, rows: usize) -> Opt
 
 /// Resolve an ANSI color through the runtime color table (OSC 4/10/11
 /// overrides) then the theme palette (§6.8's table).
-fn resolve_color(color: &AnsiColor, term: &Term<EventProxy>, palette: &TerminalPalette) -> Hsla {
+fn resolve_color(color: &AnsiColor, term: &Term, palette: &TerminalPalette) -> Hsla {
     match color {
         AnsiColor::Spec(rgb) => rgb_to_hsla(*rgb),
         AnsiColor::Named(named) => {
             if let Some(rgb) = term.colors()[*named as usize] {
-                return rgb_to_hsla(rgb);
+                return rgb_to_hsla(ColorRgb::from_color_arr(rgb));
             }
             named_color(*named, palette)
         }
         AnsiColor::Indexed(index) => {
             let index = *index as usize;
             if let Some(rgb) = term.colors()[index] {
-                return rgb_to_hsla(rgb);
+                return rgb_to_hsla(ColorRgb::from_color_arr(rgb));
             }
             indexed_color(index, palette)
         }
@@ -793,7 +1000,7 @@ pub(crate) fn named_color(named: NamedColor, palette: &TerminalPalette) -> Hsla 
         NamedColor::Foreground => palette.foreground,
         NamedColor::Background => palette.background,
         NamedColor::Cursor => palette.cursor,
-        NamedColor::BrightForeground => palette.bright_foreground,
+        NamedColor::LightForeground => palette.bright_foreground,
         NamedColor::DimForeground => palette.dim_foreground,
         _ if index < 16 => palette.ansi(index),
         // Dim black..dim white sit at a fixed offset in the enum.
@@ -818,7 +1025,7 @@ pub(crate) fn indexed_color(index: usize, palette: &TerminalPalette) -> Hsla {
                     (55 + 40 * n) as u8
                 }
             };
-            rgb_to_hsla(Rgb {
+            rgb_to_hsla(ColorRgb {
                 r: channel(i / 36),
                 g: channel((i / 6) % 6),
                 b: channel(i % 6),
@@ -826,13 +1033,13 @@ pub(crate) fn indexed_color(index: usize, palette: &TerminalPalette) -> Hsla {
         }
         232..=255 => {
             let v = (8 + 10 * (index - 232)) as u8;
-            rgb_to_hsla(Rgb { r: v, g: v, b: v })
+            rgb_to_hsla(ColorRgb { r: v, g: v, b: v })
         }
         _ => palette.foreground,
     }
 }
 
-fn rgb_to_hsla(rgb: Rgb) -> Hsla {
+fn rgb_to_hsla(rgb: ColorRgb) -> Hsla {
     gpui::Rgba {
         r: rgb.r as f32 / 255.0,
         g: rgb.g as f32 / 255.0,
@@ -975,16 +1182,16 @@ pub(crate) fn selection_row_spans(
     }
     for row in 0..rows {
         let line = row as i32 - display_offset as i32;
-        if line < selection.start.line.0 || line > selection.end.line.0 {
+        if line < selection.start.row.0 || line > selection.end.row.0 {
             continue;
         }
-        let start = if selection.is_block || line == selection.start.line.0 {
-            selection.start.column.0
+        let start = if selection.is_block || line == selection.start.row.0 {
+            selection.start.col.0
         } else {
             0
         };
-        let end = if selection.is_block || line == selection.end.line.0 {
-            selection.end.column.0
+        let end = if selection.is_block || line == selection.end.row.0 {
+            selection.end.col.0
         } else {
             cols - 1
         };
@@ -1010,6 +1217,7 @@ pub struct TerminalElement {
     cursor_blink_show: bool,
     ime_marked: Option<String>,
     cursor_bounds_slot: Rc<StdCell<Option<Bounds<Pixels>>>>,
+    images: Rc<RefCell<ImageCache>>,
 }
 
 struct CursorLayout {
@@ -1026,9 +1234,15 @@ struct CursorLayout {
 pub struct TerminalLayout {
     hitbox: Hitbox,
     geometry: GridGeometry,
+    /// Element bounds — the clip for inline images.
+    clip: Bounds<Pixels>,
     bg_quads: Vec<(Bounds<Pixels>, Hsla)>,
     selection_quads: Vec<Bounds<Pixels>>,
+    /// Sixel/iTerm2 + kitty `z < 0`: under the text.
+    images_below: Vec<ImageQuad>,
     text_runs: Vec<(PixelPoint<Pixels>, ShapedLine)>,
+    /// Kitty `z >= 0`: over the text, under the cursor and IME.
+    images_above: Vec<ImageQuad>,
     cursor: Option<CursorLayout>,
     ime: Option<(Bounds<Pixels>, PixelPoint<Pixels>, ShapedLine)>,
 }
@@ -1138,9 +1352,12 @@ impl Element for TerminalElement {
             return TerminalLayout {
                 hitbox,
                 geometry,
+                clip: bounds,
                 bg_quads: Vec::new(),
                 selection_quads: Vec::new(),
+                images_below: Vec::new(),
                 text_runs: Vec::new(),
+                images_above: Vec::new(),
                 cursor: None,
                 ime: None,
             };
@@ -1150,6 +1367,12 @@ impl Element for TerminalElement {
         //    on integer cell change (Terminal::resize dedupes) ---------------
         {
             let mut session = self.session.borrow_mut();
+            // EXP-636: real cell metrics first — they feed the CSI 14t pixel
+            // reply and rio's image placement math.
+            session.set_cell_px(
+                f32::from(cell_width).round().max(1.0) as u32,
+                f32::from(line_height).round().max(1.0) as u32,
+            );
             if let Err(error) = session.resize(cols as u16, rows as u16) {
                 log::warn!("terminal resize to {cols}x{rows}: {error}");
             }
@@ -1157,11 +1380,30 @@ impl Element for TerminalElement {
 
         // -- Snapshot the grid under the FairMutex (held briefly, §6.11) ----
         let snapshot = {
+            let images = self.images.borrow();
             let term = self.session.borrow().term();
             let term = term.lock();
-            snapshot_content(&term, &self.palette, rows)
+            snapshot_content(&term, &self.palette, &geometry, rows, &|key| images.contains(key))
         };
         geometry.display_offset = snapshot.display_offset;
+
+        // -- Inline images: upload late arrivals, resolve textures per layer --
+        let (images_below, images_above) = {
+            let mut cache = self.images.borrow_mut();
+            for (key, data) in &snapshot.missing_images {
+                cache.insert(*key, data);
+            }
+            let mut below = Vec::new();
+            let mut above = Vec::new();
+            for placement in &snapshot.images {
+                if let Some(image) = cache.get(placement.key) {
+                    let layer = if placement.above_text { &mut above } else { &mut below };
+                    let image_bounds = full_image_bounds(placement.bounds, placement.source_rect);
+                    layer.push((placement.bounds, image_bounds, image));
+                }
+            }
+            (below, above)
+        };
 
         // -- Batched draw lists (§6.9) --------------------------------------
         let bg_quads = merge_bg_runs(&snapshot.cells)
@@ -1274,9 +1516,12 @@ impl Element for TerminalElement {
         TerminalLayout {
             hitbox,
             geometry,
+            clip: bounds,
             bg_quads,
             selection_quads,
+            images_below,
             text_runs,
+            images_above,
             cursor,
             ime,
         }
@@ -1307,9 +1552,11 @@ impl Element for TerminalElement {
         for selection_bounds in &layout.selection_quads {
             window.paint_quad(fill(*selection_bounds, palette.selection));
         }
+        paint_images(window, layout.clip, &layout.images_below);
         for (origin, line) in &layout.text_runs {
             let _ = line.paint(*origin, line_height, TextAlign::default(), None, window, cx);
         }
+        paint_images(window, layout.clip, &layout.images_above);
 
         // Cursor: filled when focused & blink-visible, hollow when unfocused.
         let mut cursor_pixel_bounds = None;
@@ -1321,13 +1568,6 @@ impl Element for TerminalElement {
                 // Unfocused terminal: hollow the block — always the full
                 // cell, whatever shape the child asked for (§6.9).
                 _ if !self.focused => {
-                    window.paint_quad(outline(
-                        cursor.cell_bounds,
-                        palette.cursor,
-                        BorderStyle::Solid,
-                    ));
-                }
-                CursorShape::HollowBlock => {
                     window.paint_quad(outline(
                         cursor.cell_bounds,
                         palette.cursor,
@@ -1526,8 +1766,34 @@ impl InputHandler for TerminalInputHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alacritty_terminal::index::{Column, Line};
+    use crate::emulator::Emulator;
     use gpui::{KeyContext, Keymap, Keystroke};
+    use rio_vt::crosswords::pos::{Column, Line};
+
+    /// 20×4 grid at the origin with 8×16 cells — the geometry the snapshot
+    /// tests resolve images against.
+    fn test_geometry() -> GridGeometry {
+        GridGeometry {
+            origin: point(px(0.0), px(0.0)),
+            cell_width: px(8.0),
+            line_height: px(16.0),
+            cols: 20,
+            rows: 4,
+            display_offset: 0,
+        }
+    }
+
+    fn snapshot(emulator: &Emulator) -> ContentSnapshot {
+        let palette = terminal_palette();
+        let term = emulator.term();
+        let term = term.lock();
+        snapshot_content(&term, &palette, &test_geometry(), 4, &|_| false)
+    }
+
+    /// The 2×2 opaque red kitty image from the emulator tests, placed over
+    /// 4 columns × 2 rows at the cursor.
+    const KITTY_RED_4X2_CELLS: &[u8] =
+        b"\x1b_Gf=32,s=2,v=2,a=T,i=1,c=4,r=2;/wAA//8AAP//AAD//wAA/w==\x1b\\";
 
     gpui::actions!(terminal_element_tests, [FakeRootTab, FakeRootTabPrev]);
 
@@ -1768,8 +2034,8 @@ mod tests {
     #[test]
     fn selection_spans_single_and_multi_row() {
         let sel = SelectionRange::new(
-            GridPoint::new(Line(0), Column(2)),
-            GridPoint::new(Line(2), Column(4)),
+            Pos::new(Line(0), Column(2)),
+            Pos::new(Line(2), Column(4)),
             false,
         );
         let spans = selection_row_spans(&sel, 0, 10, 24);
@@ -1780,8 +2046,8 @@ mod tests {
         );
 
         let block = SelectionRange::new(
-            GridPoint::new(Line(1), Column(2)),
-            GridPoint::new(Line(3), Column(5)),
+            Pos::new(Line(1), Column(2)),
+            Pos::new(Line(3), Column(5)),
             true,
         );
         let spans = selection_row_spans(&block, 0, 10, 24);
@@ -1792,8 +2058,8 @@ mod tests {
     fn selection_spans_respect_display_offset() {
         // Selection on buffer line 0 while scrolled back 3 → viewport row 3.
         let sel = SelectionRange::new(
-            GridPoint::new(Line(0), Column(0)),
-            GridPoint::new(Line(0), Column(2)),
+            Pos::new(Line(0), Column(0)),
+            Pos::new(Line(0), Column(2)),
             false,
         );
         let spans = selection_row_spans(&sel, 3, 10, 24);
@@ -1827,7 +2093,7 @@ mod tests {
         assert_eq!(named_color(NamedColor::Background, &palette), palette.background);
         assert_eq!(named_color(NamedColor::Cursor, &palette), palette.cursor);
         assert_eq!(named_color(NamedColor::Red, &palette), palette.ansi(1));
-        assert_eq!(named_color(NamedColor::BrightBlue, &palette), palette.ansi(12));
+        assert_eq!(named_color(NamedColor::LightBlue, &palette), palette.ansi(12));
         assert_eq!(named_color(NamedColor::DimRed, &palette), palette.dim[1]);
     }
 
@@ -1835,20 +2101,10 @@ mod tests {
     fn snapshot_skips_wide_spacers_and_resolves_colors() {
         // Integration-ish: feed the emulator CJK + colored text and check
         // the snapshot the element would lay out (no Window involved).
-        use crate::emulator::Emulator;
-        use vte::ansi::{Processor, StdSyncHandler};
-
         let emulator = Emulator::new(20, 4);
-        {
-            let term = emulator.term();
-            let mut term = term.lock();
-            let mut processor = Processor::<StdSyncHandler>::new();
-            processor.advance(&mut *term, b"\x1b[31mred\x1b[0m \xe4\xbd\xa0a");
-        }
+        emulator.advance_bytes(b"\x1b[31mred\x1b[0m \xe4\xbd\xa0a");
         let palette = terminal_palette();
-        let term = emulator.term();
-        let term = term.lock();
-        let snapshot = snapshot_content(&term, &palette, 4);
+        let snapshot = snapshot(&emulator);
 
         let runs = batch_glyph_runs(&snapshot.cells);
         // "red" (colored) / "你" (wide, isolated) / "a" (after the spacer).
@@ -1869,20 +2125,10 @@ mod tests {
 
     #[test]
     fn snapshot_inverse_swaps_colors() {
-        use crate::emulator::Emulator;
-        use vte::ansi::{Processor, StdSyncHandler};
-
         let emulator = Emulator::new(20, 4);
-        {
-            let term = emulator.term();
-            let mut term = term.lock();
-            let mut processor = Processor::<StdSyncHandler>::new();
-            processor.advance(&mut *term, b"\x1b[7mX");
-        }
+        emulator.advance_bytes(b"\x1b[7mX");
         let palette = terminal_palette();
-        let term = emulator.term();
-        let term = term.lock();
-        let snapshot = snapshot_content(&term, &palette, 4);
+        let snapshot = snapshot(&emulator);
         let cell = snapshot
             .cells
             .iter()
@@ -1890,5 +2136,66 @@ mod tests {
             .expect("inverse cell present");
         assert_eq!(cell.fg, palette.background);
         assert_eq!(cell.bg, Some(palette.foreground));
+    }
+
+    #[test]
+    fn snapshot_blank_cells_emit_no_specs() {
+        // rio's empty squares are NUL, not spaces: without the normalisation
+        // every blank cell would count as ink and shape a glyph run.
+        let emulator = Emulator::new(20, 4);
+        emulator.advance_bytes(b"\x1b[4Ga");
+        let snapshot = snapshot(&emulator);
+        assert_eq!(snapshot.cells.len(), 1, "cells: {:?}", snapshot.cells);
+        assert_eq!((snapshot.cells[0].col, snapshot.cells[0].text.as_str()), (3, "a"));
+        let (.., ch) = snapshot.cursor.expect("cursor visible");
+        assert_eq!(ch, ' ', "cursor over an empty square reads as a space");
+    }
+
+    #[test]
+    fn kitty_placement_yields_cell_aligned_bounds() {
+        let mut emulator = Emulator::new(20, 4);
+        emulator.enable_graphics();
+        emulator.advance_bytes(KITTY_RED_4X2_CELLS);
+        let snapshot = snapshot(&emulator);
+        assert_eq!(snapshot.images.len(), 1, "images: {:?}", snapshot.images);
+        let image = &snapshot.images[0];
+        assert_eq!(image.key, kitty_image_key(1));
+        assert!(image.above_text, "kitty z=0 paints over text");
+        assert_eq!(image.bounds.origin, point(px(0.0), px(0.0)));
+        assert_eq!(image.bounds.size, gpui::size(px(32.0), px(32.0)), "4 cols × 2 rows of 8×16");
+        // Nothing cached yet → the snapshot hands the pixels over for upload.
+        assert_eq!(snapshot.missing_images.len(), 1);
+        assert_eq!(snapshot.missing_images[0].0, kitty_image_key(1));
+    }
+
+    #[test]
+    fn image_cache_uploads_bgra_frames_and_frees_on_remove() {
+        let mut emulator = Emulator::new(20, 4);
+        emulator.enable_graphics();
+        emulator.advance_bytes(KITTY_RED_4X2_CELLS);
+        emulator.drain_events(&mut |_| {});
+        let mut cache = ImageCache::default();
+        for update in emulator.take_graphics() {
+            cache.apply(update);
+        }
+        assert!(cache.contains(kitty_image_key(1)));
+        let full = cache.get(kitty_image_key(1)).expect("full texture");
+        let bytes = full.as_bytes(0).expect("frame 0");
+        assert_eq!(bytes.len(), 2 * 2 * 4);
+        assert_eq!(&bytes[..4], &[0, 0, 255, 255], "red arrives as BGRA");
+        cache.apply(GraphicsUpdate { images: Vec::new(), removed: vec![kitty_image_key(1)] });
+        assert_eq!(cache.len(), 0);
+    }
+
+    #[test]
+    fn full_image_bounds_inverts_the_source_crop() {
+        // The visible quad shows the right half of the texture: the full
+        // texture quad is twice as wide and starts one quad-width to the left.
+        let visible = Bounds::new(point(px(100.0), px(50.0)), gpui::size(px(40.0), px(20.0)));
+        let full = full_image_bounds(visible, [0.5, 0.0, 1.0, 1.0]);
+        assert_eq!(full.origin, point(px(60.0), px(50.0)));
+        assert_eq!(full.size, gpui::size(px(80.0), px(20.0)));
+        // An uncropped placement is its own texture quad.
+        assert_eq!(full_image_bounds(visible, [0.0, 0.0, 1.0, 1.0]), visible);
     }
 }
