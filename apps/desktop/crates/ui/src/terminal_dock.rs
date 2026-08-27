@@ -369,10 +369,19 @@ impl TerminalDockPanel {
         // expanded dock) is demonstrable headlessly/in CI without
         // synthesizing a `+` click. Dev-only — never document for users.
         // Runs AFTER the subscription so TabOpened expands the dock.
+        //
+        // `EXP_DEV_SHELL_CWD` overrides the shell's cwd (EXP-651): the default
+        // is `$HOME`, and a shell tab is TITLED after its cwd's directory name
+        // — which put the capturing developer's account name in the committed
+        // `terminal` shot. The capture lane points it at the same username-free
+        // repos root the Tools and Worktrees panes already render verbatim.
         if std::env::var("EXP_DEV_OPEN_SHELL").is_ok_and(|value| value == "1") {
             let shell_override = crate::coding_flow::terminal_shell_override(cx);
+            let cwd = std::env::var_os("EXP_DEV_SHELL_CWD")
+                .filter(|dir| !dir.is_empty())
+                .map(std::path::PathBuf::from);
             manager.update(cx, |manager, cx| {
-                if let Err(error) = manager.open_shell(None, shell_override, cx) {
+                if let Err(error) = manager.open_shell(cwd, shell_override, cx) {
                     log::warn!("terminal dock: EXP_DEV_OPEN_SHELL spawn failed: {error:#}");
                 }
             });

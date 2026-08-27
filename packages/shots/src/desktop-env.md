@@ -57,6 +57,7 @@ under the launcher.
 | `EXP_DEV_SEARCH_QUERY` | free text | **New.** Open the search palette with this query already typed and its results resolved. Pairs with `EXP_DEV_DIALOG=search`. |
 | `EXP_DEV_ACTIONS_TAB` | `automations` \| `suggestions` | The Actions screen's active tab. |
 | `EXP_DEV_OPEN_SHELL` | `1` | Open the terminal dock. |
+| `EXP_DEV_SHELL_CWD` | absolute path | Where that shell starts. Default `$HOME`, whose directory name becomes the tab title — i.e. the developer's account name. The lane sets it to `--repos-root` so the store stays username-free (EXP-651). |
 
 ## The ready handshake
 
