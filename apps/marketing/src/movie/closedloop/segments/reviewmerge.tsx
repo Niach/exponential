@@ -22,6 +22,7 @@ import {
 import {
   ReviewsTool,
   SidebarPane,
+  reviewsMergeCenter,
   type MergeState,
 } from "../../ships/surfaces/board"
 import {
@@ -97,8 +98,10 @@ const CAMERA_KEYS_PT: CamKey[] = shotKeys([
 ])
 
 // ── Cursor ────────────────────────────────────────────────────────────────────
-const MERGE_BTN = { x: 641, y: 118 }
-const CONFIRM_BTN = { x: 618, y: 118 }
+// Derived from the Reviews card metrics (EXP-471 restyle) so the pointer keeps
+// landing on the capsule as it morphs Merge → Confirm merge.
+const MERGE_BTN = reviewsMergeCenter(`rest`)
+const CONFIRM_BTN = reviewsMergeCenter(`confirm`)
 
 const CURSOR_KEYS: CursorKey[] = [
   { f: 74, x: 900, y: 400 },
@@ -173,7 +176,7 @@ export const ReviewMergeSegment: React.FC<SegmentProps> = ({
             />
 
             {/* sidebar: reviews — the merge runs on the row */}
-            <SidebarPane title="Reviews" bottomInset={dockH}>
+            <SidebarPane bottomInset={dockH}>
               <ReviewsTool
                 frame={frame}
                 mergeState={mergeState}

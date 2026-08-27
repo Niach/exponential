@@ -10,7 +10,7 @@
 
 import React from "react"
 import { interpolate, spring } from "remotion"
-import { C, EASE, MONO_FONT, POP, UI_FONT, WIN } from "../theme"
+import { C, EASE, MONO_FONT, POP, R, UI_FONT, WIN } from "../theme"
 import {
   REVIEW_ROW,
   type BoardRow,
@@ -363,25 +363,30 @@ export const SidebarPane: React.FC<{
       overflow: `hidden`,
     }}
   >
-    <div
-      style={{
-        flex: `none`,
-        height: HEADER_H,
-        padding: `0 14px`,
-        display: `flex`,
-        alignItems: `center`,
-        justifyContent: `space-between`,
-      }}
-    >
-      {title ? (
-        <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
-          {title}
-        </span>
-      ) : (
-        <span />
-      )}
-      {actions ?? null}
-    </div>
+    {/* The header strip only exists for panes that put something in it — the
+        tool windows that draw their own 30px `tool_header` (Reviews) start at
+        the pane's top edge instead. */}
+    {title || actions ? (
+      <div
+        style={{
+          flex: `none`,
+          height: HEADER_H,
+          padding: `0 14px`,
+          display: `flex`,
+          alignItems: `center`,
+          justifyContent: `space-between`,
+        }}
+      >
+        {title ? (
+          <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
+            {title}
+          </span>
+        ) : (
+          <span />
+        )}
+        {actions ?? null}
+      </div>
+    ) : null}
     <div style={{ flex: 1, minHeight: 0, position: `relative` }}>{children}</div>
   </div>
 )
@@ -777,13 +782,26 @@ export const BoardTool: React.FC<{
 }
 
 // ── ReviewsTool — open-PR list with the two-stage merge button ────────────────
+// EXP-471 pixel truth: shots/reviews/desktop.webp + desktop
+// crates/ui/src/sidebar.rs `render_reviews_tool` / `review_row` (EXP-642).
+// The pane is a 30px tool header (git-pull-request glyph + muted "Reviews"),
+// then a p-2 list: one board group row (dot + name + count) over GAPPED glass
+// row CARDS — one per open PR. Card line 1 is the green PR glyph, the mono
+// identifier, the title, a ghost `×` (close without merging) and the outlined
+// capsule Merge button (web `sm`: h-8 px-3 rounded-full, merge glyph + label);
+// line 2 is the mono `#N · branch` at pl-5. The card whose diff is open in the
+// center wears the ACTIVE fill.
 
 export type MergeState = `rest` | `confirm` | `merging` | `gone`
 
+// Web `sm` button metrics (controls.rs web_sm: h-8, px-3, capsule) — widths are
+// the measured label boxes plus the 12px paddings, so the morph is a real
+// width interpolation between the three labels.
+const MERGE_H = 28
 const MERGE_W: Record<Exclude<MergeState, `gone`>, number> = {
-  rest: 54,
-  confirm: 104,
-  merging: 88,
+  rest: 74, // ⑂ + "Merge"
+  confirm: 134, // "Confirm merge" (danger, no glyph)
+  merging: 106, // spinner + "Merging…"
 }
 const MERGE_PREV: Record<
   Exclude<MergeState, `gone`>,
@@ -798,6 +816,37 @@ const MERGE_LABEL: Record<Exclude<MergeState, `gone`>, string> = {
   confirm: `Confirm merge`,
   merging: `Merging…`,
 }
+
+// Reviews pane geometry (window-local, used by the segments' cursor keys):
+// 30px tool header, an 8px list inset, the group row, then the card.
+export const REVIEWS_HEADER_H = 30
+const LIST_PAD = 8
+const GROUP_H = 22
+const CARD_GAP = 8
+const CARD_PAD_X = 12
+const CARD_PAD_Y = 10
+const CARD_SUB_H = 15
+// 1px stroke + padding + line 1 (the button box) + 2px gap + the sub line.
+const CARD_H = 2 * (1 + CARD_PAD_Y) + MERGE_H + 2 + CARD_SUB_H
+// The card's top edge, measured from the pane's own top (below the titlebar).
+const CARD_TOP = REVIEWS_HEADER_H + LIST_PAD + GROUP_H + CARD_GAP
+
+// lucide git-merge — the glyph the Merge button carries (registry PR_MERGED).
+const GitMergeIcon: React.FC<{ size?: number }> = ({ size = 13 }) => (
+  <svg {...svgProps(size, 2)}>
+    <circle cx="18" cy="18" r="3" />
+    <circle cx="6" cy="6" r="3" />
+    <path d="M6 21V9a9 9 0 0 0 9 9" />
+  </svg>
+)
+
+// lucide x — the quiet reject affordance (close the PR without merging).
+const XIcon: React.FC<{ size?: number }> = ({ size = 13 }) => (
+  <svg {...svgProps(size, 2)}>
+    <path d="M18 6 6 18" />
+    <path d="m6 6 12 12" />
+  </svg>
+)
 
 const Spinner: React.FC<{ frame: number; size?: number }> = ({
   frame,
@@ -843,7 +892,6 @@ export const ReviewsTool: React.FC<{
 }) => {
   const collapse =
     mergeState === `gone` ? 1 : Math.min(1, Math.max(0, rowFade ?? 0))
-  const ROW_FULL = 48
 
   let button: React.ReactNode = null
   if (mergeState !== `gone`) {
@@ -871,13 +919,13 @@ export const ReviewsTool: React.FC<{
       <span
         style={{
           width,
-          height: 22,
+          height: MERGE_H,
           flex: `none`,
           display: `inline-flex`,
           alignItems: `center`,
           justifyContent: `center`,
-          gap: 5,
-          borderRadius: 8,
+          gap: 6,
+          borderRadius: 999,
           border: `1px solid ${danger ? `rgba(255,100,103,${0.35 + 0.35 * dangerO})` : C.strokeStrong}`,
           backgroundColor:
             hover && mergeState === `rest` ? C.fillActive : `transparent`,
@@ -890,6 +938,7 @@ export const ReviewsTool: React.FC<{
         }}
       >
         {mergeState === `merging` ? <Spinner frame={frame} /> : null}
+        {mergeState === `rest` ? <GitMergeIcon size={13} /> : null}
         {MERGE_LABEL[mergeState]}
       </span>
     )
@@ -904,86 +953,164 @@ export const ReviewsTool: React.FC<{
         overflow: `hidden`,
       }}
     >
-      {/* group header: project dot + name */}
+      {/* tool header: git-pull-request glyph + the muted tool name */}
       <div
         style={{
-          height: ROW_H,
+          height: REVIEWS_HEADER_H,
           display: `flex`,
           alignItems: `center`,
-          gap: 8,
+          gap: 6,
           padding: `0 12px`,
+          color: `rgba(250,250,250,0.7)`,
         }}
       >
-        <span
-          style={{
-            width: 8,
-            height: 8,
-            flex: `none`,
-            borderRadius: 999,
-            backgroundColor: C.neutral,
-          }}
-        />
-        <span style={{ fontSize: 12, fontWeight: 600, color: C.muted }}>
-          {project}
-        </span>
+        <GitPullRequestIcon size={13} />
+        <span style={{ fontSize: 12, fontWeight: 500 }}>Reviews</span>
       </div>
-      {/* the one PR row (collapses via rowFade / "gone") */}
       <div
         style={{
-          height: ROW_FULL * (1 - collapse),
-          opacity: 1 - collapse,
-          overflow: `hidden`,
+          padding: LIST_PAD,
+          display: `flex`,
+          flexDirection: `column`,
+          gap: CARD_GAP,
         }}
       >
-        <div style={{ margin: `0 8px`, padding: `5px 6px`, borderRadius: 6 }}>
-          <div style={{ display: `flex`, alignItems: `center`, gap: 6 }}>
-            <span style={{ color: C.green, display: `flex`, flex: `none` }}>
-              <GitPullRequestIcon size={14} />
-            </span>
-            <span
+        {/* group header: board dot + name + open-PR count. It goes with the
+            last card — the real list renders no empty groups. */}
+        <div
+          style={{
+            height: GROUP_H,
+            display: `flex`,
+            alignItems: `center`,
+            gap: 6,
+            padding: `0 4px`,
+            opacity: 1 - collapse,
+          }}
+        >
+          <span
+            style={{
+              width: 8,
+              height: 8,
+              flex: `none`,
+              borderRadius: 999,
+              backgroundColor: C.neutral,
+            }}
+          />
+          <span
+            style={{
+              fontSize: 13,
+              fontWeight: 500,
+              color: `rgba(250,250,250,0.7)`,
+            }}
+          >
+            {project}
+          </span>
+          <span style={{ fontSize: 11, color: `rgba(250,250,250,0.5)` }}>1</span>
+        </div>
+        {/* the one PR card (collapses via rowFade / "gone") */}
+        <div
+          style={{
+            height: CARD_H * (1 - collapse),
+            opacity: 1 - collapse,
+            overflow: `hidden`,
+          }}
+        >
+          <div
+            style={{
+              height: CARD_H,
+              boxSizing: `border-box`,
+              padding: `${CARD_PAD_Y}px ${CARD_PAD_X}px`,
+              borderRadius: R.row,
+              border: `1px solid ${C.strokeRow}`,
+              // this PR's diff is the open center screen — the active fill
+              backgroundColor: C.fillActive,
+            }}
+          >
+            <div
               style={{
-                fontFamily: MONO_FONT,
-                fontSize: 12,
-                color: C.muted,
-                flex: `none`,
+                height: MERGE_H,
+                display: `flex`,
+                alignItems: `center`,
+                gap: 6,
               }}
             >
-              {row.id}
-            </span>
-            <span
+              <span style={{ color: C.green, display: `flex`, flex: `none` }}>
+                <GitPullRequestIcon size={13} />
+              </span>
+              <span
+                style={{
+                  fontFamily: MONO_FONT,
+                  fontSize: 12,
+                  color: C.muted,
+                  flex: `none`,
+                }}
+              >
+                {row.id}
+              </span>
+              <span
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  fontSize: 13,
+                  fontWeight: 500,
+                  color: C.text,
+                  whiteSpace: `nowrap`,
+                  overflow: `hidden`,
+                  textOverflow: `ellipsis`,
+                }}
+              >
+                {row.title}
+              </span>
+              <span
+                style={{
+                  width: 22,
+                  height: 22,
+                  flex: `none`,
+                  display: `inline-flex`,
+                  alignItems: `center`,
+                  justifyContent: `center`,
+                  borderRadius: 999,
+                  color: C.muted,
+                }}
+              >
+                <XIcon size={13} />
+              </span>
+              {button}
+            </div>
+            <div
               style={{
-                flex: 1,
-                minWidth: 0,
-                fontSize: 13,
-                color: C.text,
+                height: CARD_SUB_H,
+                paddingLeft: 20,
+                marginTop: 2,
+                fontFamily: MONO_FONT,
+                fontSize: 11,
+                lineHeight: `${CARD_SUB_H}px`,
+                color: C.muted,
                 whiteSpace: `nowrap`,
                 overflow: `hidden`,
                 textOverflow: `ellipsis`,
               }}
             >
-              {row.title}
-            </span>
-            {button}
-          </div>
-          <div
-            style={{
-              paddingLeft: 20,
-              marginTop: 2,
-              fontFamily: MONO_FONT,
-              fontSize: 11,
-              color: C.muted,
-              whiteSpace: `nowrap`,
-              overflow: `hidden`,
-              textOverflow: `ellipsis`,
-            }}
-          >
-            {row.sub}
+              {row.sub}
+            </div>
           </div>
         </div>
       </div>
     </div>
   )
 }
+
+// The Merge button's center in WINDOW-LOCAL coordinates (the space the
+// segments' cursor keys live in) — the cursor has to land ON the button, so
+// the number is derived from the card metrics instead of eyeballed.
+// `CONTENT_TOP` is the pane's top (the titlebar's height); the pane's right
+// edge is the rail + the sidebar width.
+export const reviewsMergeCenter = (
+  state: Exclude<MergeState, `gone`> = `rest`
+): { x: number; y: number } => ({
+  x: WIN.rail + WIN.sidebar - LIST_PAD - 1 - CARD_PAD_X - MERGE_W[state] / 2,
+  y: WIN.titleBar + CARD_TOP + 1 + CARD_PAD_Y + MERGE_H / 2,
+})
 
 // ── ActionsTool (the Actions rail surface, EXP-385: merge → deploy) ──────────
 // The saved-runbook list; one row's Run button morphs Run → Running… with the

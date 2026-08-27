@@ -401,6 +401,14 @@
   color: #a3a3a3;
 }
 
+/* Mirrors .exp-success-link — the filed identifier is the accent link. */
+.cw-success-link {
+  color: #e5e5e5;
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .cw-powered {
   padding: 7px 16px;
   border-top: 1px solid rgba(255, 255, 255, 0.1);

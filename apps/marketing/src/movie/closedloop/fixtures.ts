@@ -91,7 +91,8 @@ export const REPORT = {
   send: "Send feedback",
   sending: "Sending…",
   successTitle: "Thanks for the report!",
-  successSub: "Tracked as EXP-151",
+  successSub: "Filed as ",
+  successId: "EXP-151",
   poweredBy: "Powered by Exponential",
 } as const
 

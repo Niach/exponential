@@ -7,7 +7,7 @@
 
 import React from "react"
 import { interpolate, spring } from "remotion"
-import { EASE, MONO_FONT, SETTLE, UI_FONT, WIN } from "../../ships/theme"
+import { EASE, SETTLE, UI_FONT, WIN } from "../../ships/theme"
 import { typed, useBlink } from "../../ships/rig"
 import { REPORT } from "../fixtures"
 import { CheckoutPage, PAGE_H, SITE_ANCHORS } from "./sitemock"
@@ -351,7 +351,14 @@ export const WidgetPanel: React.FC<WidgetPanelProps> = ({
             <CheckDraw size={20} stroke={W.success} drawT={interpolate(frame, [successAt + 2, successAt + 12], [0, 1], EASED)} />
           </div>
           <div style={{ fontSize: 14, fontWeight: 600, color: W.fg }}>{REPORT.successTitle}</div>
-          <div style={{ fontSize: 12.5, color: W.muted, fontFamily: MONO_FONT }}>{REPORT.successSub}</div>
+          {/* Real widget copy: "Filed as <identifier>." with the identifier as the accent link. */}
+          <div style={{ fontSize: 12.5, color: W.muted }}>
+            {REPORT.successSub}
+            <span style={{ color: W.accent, fontWeight: 500, textDecoration: `underline`, textUnderlineOffset: 2 }}>
+              {REPORT.successId}
+            </span>
+            .
+          </div>
         </div>
       ) : null}
 
