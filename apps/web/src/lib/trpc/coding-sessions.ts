@@ -425,7 +425,8 @@ export const codingSessionsRouter = router({
           startedById: z.string().min(1).max(128).optional(),
           deviceId: z.string().min(1).max(128).optional(),
           // EXP-530: automated runs echo their reason so a swept row
-          // resurrects with its "Automated" badge intact.
+          // resurrects inside the Automations run history, not as a
+          // hand-started session.
           startedReason: z.enum(startedReasonValues).optional(),
           automationId: z.string().uuid().optional(),
         })

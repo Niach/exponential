@@ -709,7 +709,8 @@ private fun formatRunTime(epochMs: Long): String =
     DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(epochMs))
 
 // One automation-started coding_sessions row (started_reason non-null):
-// "Automated" badge, action-name snapshot, status, relative start time.
+// action-name snapshot, status, relative start time. No "Automated" badge
+// (EXP-643) — the section header already says so.
 @Composable
 private fun AutomatedRunRow(session: CodingSessionEntity) {
     Row(
@@ -721,26 +722,6 @@ private fun AutomatedRunRow(session: CodingSessionEntity) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            modifier = Modifier
-                .clip(CircleShape)
-                .background(Color.White.copy(alpha = 0.08f))
-                .padding(horizontal = 8.dp, vertical = 3.dp),
-        ) {
-            Icon(
-                ExpIcons.actionAutomation,
-                contentDescription = null,
-                modifier = Modifier.size(10.dp),
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-            )
-            Text(
-                "Automated",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-            )
-        }
         Text(
             session.actionName ?: "Action run",
             style = MaterialTheme.typography.bodySmall,

@@ -1058,7 +1058,7 @@ async function main() {
   // and each row's "last run" line — say something other than "Nothing has
   // fired yet." Action-scoped sessions carry the action id plus a display-name
   // snapshot (actions are server-only, clients can't join), `started_reason`
-  // for the "Automated" badge and `automation_id` for the per-row last-run
+  // for the run-history filter and `automation_id` for the per-row last-run
   // lookup. Ended, so they never join the live agents list.
   await db.insert(codingSessions).values([
     {

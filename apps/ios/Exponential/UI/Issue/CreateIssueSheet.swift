@@ -231,7 +231,6 @@ struct CreateIssueSheet: View {
                                 .font(.subheadline)
                                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         }
-                        .tint(DesignTokens.Palette.primary)
                         .padding(.horizontal, 4)
 
                         if let error {

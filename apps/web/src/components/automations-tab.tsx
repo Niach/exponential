@@ -22,7 +22,6 @@ import {
   REQUIRED_INPUTS_HINT,
 } from "@/components/automation-dialog"
 import { AGENT_LABELS } from "@/components/launch-dialog/launch-options-pane"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -48,7 +47,6 @@ import { Switch } from "@/components/ui/switch"
 // the device-side automation hosts, so the list is exactly "what fired by
 // itself".
 
-const AutomationIcon = conceptIcon(`action-automation`)
 // EXP-615: `action-create` is the sparkle of the agent-authored "New action"
 // flow — a New-automation button is the automation concept (desktop's
 // New-automation button already draws it).
@@ -374,13 +372,6 @@ export function AutomationsTab({
             <div className="flex flex-col gap-2">
               {automatedRuns.slice(0, 10).map((session) => (
                 <GlassRow key={session.id} className="gap-2 text-sm">
-                  <Badge
-                    variant="outline"
-                    className="shrink-0 gap-1 text-[0.625rem]"
-                  >
-                    <AutomationIcon className="h-3 w-3" />
-                    Automated
-                  </Badge>
                   <span className="min-w-0 flex-1 truncate">
                     {session.actionName ??
                       (session.actionId

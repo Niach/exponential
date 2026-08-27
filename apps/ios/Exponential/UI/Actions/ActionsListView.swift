@@ -471,7 +471,7 @@ struct ActionsListView: View {
                 set: { vm.setAutomationEnabled(automation, enabled: $0) }
             ))
             .labelsHidden()
-            .tint(DesignTokens.Palette.primary)
+            .fixedSize()
             .disabled(!vm.permissions.isOwner || busy)
             .accessibilityLabel("Automation enabled")
 
@@ -524,19 +524,10 @@ struct ActionsListView: View {
     }
 
     /// One automation-started coding_sessions row (started_reason non-null):
-    /// "Automated" badge, action-name snapshot, status, relative start time.
+    /// action-name snapshot, status, relative start time. No "Automated"
+    /// badge (EXP-643) — the section header already says so.
     private func automatedRunRow(_ session: CodingSessionEntity) -> some View {
         HStack(spacing: 10) {
-            HStack(spacing: 4) {
-                AppIcon(AppIcons.actionAutomation, size: 10)
-                Text("Automated")
-                    .font(.caption2.weight(.semibold))
-            }
-            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(Color.white.opacity(0.08), in: Capsule())
-
             Text(session.actionName ?? "Action run")
                 .font(.caption)
                 .foregroundStyle(.white)
