@@ -37,6 +37,20 @@ pub fn default_codex_sessions_root() -> Option<PathBuf> {
 /// fan-out; the scan early-exits on the first match and skips unreadable or
 /// malformed files (never an error — resume degrades, it doesn't block).
 pub fn find_latest_codex_session_id(sessions_root: &Path, worktree: &Path) -> Option<String> {
+    find_codex_session_id(sessions_root, worktree, None)
+}
+
+/// EXP-637: [`find_latest_codex_session_id`] narrowed to a specific
+/// ORIGINATOR — the per-session value the launcher stamps into codex's
+/// rollout metas ([`crate::argv::CODEX_ORIGINATOR_ENV`]). A run worktree can
+/// host several codex conversations (the run itself, then a resume, then a
+/// shell), so a resume must reopen the one that BELONGS to the recorded run,
+/// not merely the newest for the cwd. `None` originator = the cwd-only match.
+pub fn find_codex_session_id(
+    sessions_root: &Path,
+    worktree: &Path,
+    originator: Option<&str>,
+) -> Option<String> {
     let mut rollouts: Vec<(String, PathBuf)> = Vec::new();
     collect_rollouts(sessions_root, 0, &mut rollouts);
     rollouts.sort_by(|a, b| b.0.cmp(&a.0));
@@ -44,15 +58,30 @@ pub fn find_latest_codex_session_id(sessions_root: &Path, worktree: &Path) -> Op
     // raw worktree path or its canonical form (macOS `/tmp` → `/private/tmp`).
     let canonical = std::fs::canonicalize(worktree).ok();
     for (_, path) in rollouts {
-        let Some((cwd, id)) = read_session_meta(&path) else {
+        let Some(meta) = read_session_meta(&path) else {
             continue;
         };
-        let cwd = Path::new(&cwd);
-        if cwd == worktree || Some(cwd) == canonical.as_deref() {
-            return Some(id);
+        let cwd = Path::new(&meta.cwd);
+        if cwd != worktree && Some(cwd) != canonical.as_deref() {
+            continue;
         }
+        if let Some(wanted) = originator {
+            if meta.originator.as_deref() != Some(wanted) {
+                continue;
+            }
+        }
+        return Some(meta.id);
     }
     None
+}
+
+/// One rollout's first-line session meta.
+struct SessionMeta {
+    cwd: String,
+    id: String,
+    /// The `CODEX_INTERNAL_ORIGINATOR_OVERRIDE` this spawn carried, when the
+    /// build records it. `None` on builds that don't.
+    originator: Option<String>,
 }
 
 /// Recursive `rollout-*.jsonl` sweep (bounded depth — the layout is
@@ -81,7 +110,7 @@ fn collect_rollouts(dir: &Path, depth: usize, out: &mut Vec<(String, PathBuf)>) 
 
 /// First-line session meta → `(cwd, session id)`. Lenient by design: the
 /// payload nesting is current codex; a flat legacy shape still resolves.
-fn read_session_meta(path: &Path) -> Option<(String, String)> {
+fn read_session_meta(path: &Path) -> Option<SessionMeta> {
     let file = std::fs::File::open(path).ok()?;
     let mut line = String::new();
     BufReader::new(file).read_line(&mut line).ok()?;
@@ -93,7 +122,11 @@ fn read_session_meta(path: &Path) -> Option<(String, String)> {
         .or_else(|| meta.get("session_id"))?
         .as_str()?
         .to_string();
-    Some((cwd, id))
+    let originator = meta
+        .get("originator")
+        .and_then(|value| value.as_str())
+        .map(str::to_string);
+    Some(SessionMeta { cwd, id, originator })
 }
 
 #[cfg(test)]

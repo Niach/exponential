@@ -16,6 +16,7 @@ final class StartedRunMatchTests: XCTestCase {
         issueId: String? = nil,
         actionName: String? = nil,
         startedReason: String? = nil,
+        resumedFromId: String? = nil,
         userId: String = "user-1",
         startedAt: String = "2026-07-17T11:59:30Z"
     ) -> CodingSessionEntity {
@@ -28,6 +29,7 @@ final class StartedRunMatchTests: XCTestCase {
             status: "running",
             actionName: actionName,
             startedReason: startedReason,
+            resumedFromId: resumedFromId,
             startedAt: startedAt,
             endedAt: nil,
             createdAt: startedAt,
@@ -84,6 +86,60 @@ final class StartedRunMatchTests: XCTestCase {
                 .action(name: "Fix merge conflicts")
             )
         )
+    }
+
+    // EXP-637: a resume is keyed on the ENDED run's id, which the desktop
+    // stamps as `resumed_from_id` on the fresh row. The row's own kind is
+    // whatever the ended run was, so nothing else may be asserted.
+    func testResumedRunMatchesOnTheResumeLink() {
+        XCTAssertTrue(
+            matches(session(resumedFromId: "sess-old"), .resumed(fromId: "sess-old"))
+        )
+        XCTAssertTrue(
+            matches(
+                session(issueId: "issue-1", resumedFromId: "sess-old"),
+                .resumed(fromId: "sess-old")
+            )
+        )
+        XCTAssertTrue(
+            matches(
+                session(actionName: "Refresh screenshots", resumedFromId: "sess-old"),
+                .resumed(fromId: "sess-old")
+            )
+        )
+        XCTAssertFalse(matches(session(resumedFromId: "other"), .resumed(fromId: "sess-old")))
+        // A fresh run started alongside the resume carries no link at all.
+        XCTAssertFalse(matches(session(), .resumed(fromId: "sess-old")))
+    }
+
+    // Only a person resumes a run, so an automation-started row can never be
+    // this send (the same rule the action key already applies).
+    func testResumedRunIgnoresAutomationStartedRows() {
+        XCTAssertFalse(
+            matches(
+                session(startedReason: "schedule", resumedFromId: "sess-old"),
+                .resumed(fromId: "sess-old")
+            )
+        )
+    }
+
+    func testResumedRunIgnoresTeammatesAndOldRows() {
+        XCTAssertFalse(
+            matches(session(resumedFromId: "sess-old", userId: "user-2"), .resumed(fromId: "sess-old"))
+        )
+        // An earlier resume of the SAME ended run is outside the cutoff.
+        XCTAssertFalse(
+            matches(
+                session(resumedFromId: "sess-old", startedAt: "2026-07-17T11:00:00Z"),
+                .resumed(fromId: "sess-old")
+            )
+        )
+    }
+
+    func testOtherKeysIgnoreAResumedRow() {
+        // A resumed batch row still satisfies `.batch` — the resume link is an
+        // ADDITIONAL key, not an exclusion on the existing ones.
+        XCTAssertTrue(matches(session(resumedFromId: "sess-old"), .batch))
     }
 
     func testIssueRunIgnoresAnActionRunOnTheSameIssue() {

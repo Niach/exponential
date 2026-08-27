@@ -41,9 +41,43 @@ use gpui::{App, AppContext as _, Context, Entity};
 #[cfg(feature = "gpui")]
 use crate::collections::{Collection, Store};
 
-/// One-shot teardown callback, invoked on the gpui foreground.
+/// EXP-637 — what the ended row SAYS, handed to the teardown callback.
+/// `ended_by == "agent"` means the agent itself declared the run over
+/// (`exponential_sessions_end`), which the host answers with a graceful stop
+/// and an ended strip instead of an immediate kill; every other value is the
+/// pre-EXP-637 "tear it down now".
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct EndedFacts {
+    pub ended_by: Option<String>,
+    pub outcome: Option<String>,
+    pub summary: Option<String>,
+}
+
+impl EndedFacts {
+    /// Did the AGENT end this run itself?
+    pub fn by_agent(&self) -> bool {
+        self.ended_by.as_deref() == Some(domain::contract::CODING_SESSION_ENDED_BY_AGENT)
+    }
+}
+
+/// The close-out an ended row carries. A row that never reached the server's
+/// EXP-637 columns (an old server, a pre-migration row) reads as all-`None`,
+/// which every consumer treats as the legacy "just ended".
+pub fn ended_facts(row: Option<&CodingSession>) -> EndedFacts {
+    match row {
+        Some(row) => EndedFacts {
+            ended_by: row.ended_by.clone(),
+            outcome: row.outcome.clone(),
+            summary: row.summary.clone(),
+        },
+        None => EndedFacts::default(),
+    }
+}
+
+/// One-shot teardown callback, invoked on the gpui foreground. EXP-637 hands
+/// it the ended row's close-out so the host can pick its teardown policy.
 #[cfg(feature = "gpui")]
-pub type OnSessionEnded = Box<dyn FnOnce() + 'static>;
+pub type OnSessionEnded = Box<dyn FnOnce(EndedFacts) + 'static>;
 
 /// The `running → ended` transition test, shared by the sweep and the
 /// register-time race check. `None` status (absent/partial row) is NOT ended.
@@ -127,7 +161,7 @@ impl KillWatch {
         );
         if already_ended {
             log::info!("kill-watch: session {session_id} already ended at register");
-            on_ended();
+            on_ended(ended_facts(self.sessions.read(cx).get(&session_id)));
             return;
         }
         self.watched.insert(
@@ -165,9 +199,13 @@ impl KillWatch {
             .map(|(id, _)| id.clone())
             .collect();
         for session_id in fired {
+            let facts = ended_facts(collection.get(session_id.as_str()));
             if let Some(watched) = self.watched.remove(&session_id) {
-                log::info!("kill-watch: session {session_id} ended remotely — aborting");
-                (watched.on_ended)();
+                log::info!(
+                    "kill-watch: session {session_id} ended remotely (by {:?}) — aborting",
+                    facts.ended_by
+                );
+                (watched.on_ended)(facts);
             }
         }
     }
@@ -208,6 +246,38 @@ mod tests {
         // Partial row without a status: not ended.
         let bare: CodingSession = serde_json::from_value(json!({"id": "sess-1"})).unwrap();
         assert!(!session_row_is_ended(Some(&bare)));
+    }
+
+    /// EXP-637: the close-out the ended row carries. A row from before the
+    /// columns existed reads as all-`None` — the legacy "just ended".
+    #[test]
+    fn ended_facts_read_the_close_out_or_degrade_to_none() {
+        let row: CodingSession = serde_json::from_value(json!({
+            "id": "sess-1",
+            "status": "ended",
+            "ended_by": "agent",
+            "outcome": "done",
+            "summary": "Opened the PR.",
+        }))
+        .unwrap();
+        let facts = ended_facts(Some(&row));
+        assert!(facts.by_agent());
+        assert_eq!(facts.outcome.as_deref(), Some("done"));
+        assert_eq!(facts.summary.as_deref(), Some("Opened the PR."));
+
+        // A user kill is NOT the agent's own close-out.
+        let killed: CodingSession = serde_json::from_value(json!({
+            "id": "sess-1",
+            "status": "ended",
+            "ended_by": "user",
+        }))
+        .unwrap();
+        assert!(!ended_facts(Some(&killed)).by_agent());
+
+        // Legacy / absent rows.
+        assert_eq!(ended_facts(Some(&session("ended"))), EndedFacts::default());
+        assert_eq!(ended_facts(None), EndedFacts::default());
+        assert!(!EndedFacts::default().by_agent());
     }
 
     #[test]

@@ -686,6 +686,35 @@ export const codingSessions = pgTable(
     // issue-scoped sessions (the issue row carries the branch), on action
     // rows, and on batch rows whose PR isn't open yet.
     branch: varchar(`branch`, { length: 255 }),
+    // EXP-637 close-out (all synced): the agent's own account of the run,
+    // written ONCE by the `exponential_sessions_end` MCP tool (the calling
+    // session is identified by the launcher-injected `X-Exp-Session-Id`
+    // header). `summary` is plain GFM text ≤ MAX_CODING_SESSION_SUMMARY,
+    // `outcome` is codingSessionOutcomeValues. Both stay NULL on every other
+    // end path, and an already-ended row never has them overwritten.
+    summary: text(`summary`),
+    outcome: varchar(`outcome`, { length: 16 }),
+    // Who ended the run (codingSessionEndedByValues, documented varchar):
+    // `agent` (sessions_end) · `user` (steer.killSession) · `client`
+    // (codingSessions.end — agent exit, tab close, quit) · `merge` (the PR
+    // merge paths) · `system` (the stale sweep, account deletion). NULL on
+    // rows ended by pre-EXP-637 servers.
+    endedBy: varchar(`ended_by`, { length: 16 }),
+    // The ended run this one resumes (steer.startSession({ resumeSessionId })
+    // or the desktop's Resume). SET NULL so purging an old run keeps the
+    // resumed row; clients use it to match a resume they just requested.
+    resumedFromId: uuid(`resumed_from_id`).references(
+      (): AnyPgColumn => codingSessions.id,
+      { onDelete: `set null` }
+    ),
+    // SERVER-ONLY (never in the shape allowlist, like host_user_id): the
+    // session merged the PR it opened, via the MCP `exponential_pr_merge`
+    // tool with its own session header. Every merge-driven end skips flagged
+    // rows (EXP-637 decision 6) — a session that merges its own PR ends only
+    // through `exponential_sessions_end` or its own exit, never through the
+    // merge it just performed (webhook and poller spare it too, which is why
+    // this is a durable column and not an in-memory claim).
+    mergedOwnPr: boolean(`merged_own_pr`).notNull().default(false),
     // Desktop-written attention flag (EXP-214): the agent is parked on a
     // plan-approval or AskUserQuestion picker and waits for a human. Composes
     // with running/in_review (which stay server-owned) instead of being a

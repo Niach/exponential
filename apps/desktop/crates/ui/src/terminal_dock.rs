@@ -59,7 +59,7 @@ use gpui_component::{
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
 };
 use gpui::Task;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use terminal::{TabId, TabKind, TerminalManager, TerminalManagerEvent, TerminalView};
@@ -305,6 +305,10 @@ pub struct TerminalDockPanel {
     /// a progress line; cleared when the tab opens or the attempt fails (the
     /// cards come back).
     pending_launch: Option<SharedString>,
+    /// EXP-637: tabs whose ended strip currently shows its full summary.
+    /// Collapsed is the default (decision 5) and the state is per-window and
+    /// deliberately unpersisted — it is a glance, not a preference.
+    expanded_summaries: HashSet<TabId>,
     /// EXP-523: the open/close slide, `None` at rest. See [`DockSlide`].
     dock_slide: Option<DockSlide>,
     /// Dropping the task cancels the slide — same cancellation semantics as
@@ -429,6 +433,7 @@ impl TerminalDockPanel {
             agent_shell_holds: HashMap::new(),
             chips_slot_width: None,
             pending_launch: None,
+            expanded_summaries: HashSet::new(),
             dock_slide: None,
             _dock_slide_task: None,
             _subscription: subscription,
@@ -1749,6 +1754,89 @@ pub(crate) fn exit_strip(code: i32, cx: &App) -> impl IntoElement {
         )))
 }
 
+/// EXP-637 — the "the agent ended this run" strip, shown INSTEAD of
+/// [`exit_strip`] under a tab whose agent called `exponential_sessions_end`.
+/// It is the whole point of keeping a human-started run's tab open: the
+/// outcome, the agent's own summary, and a Resume button.
+///
+/// The summary is COLLAPSED by default (decision 5) behind a "Show summary"
+/// toggle — a paragraph of prose under every finished tab would bury the
+/// scrollback the person actually came back to read. `expanded` is the
+/// caller's per-tab state; `on_toggle`/`on_resume` are its listeners.
+pub(crate) fn ended_strip(
+    run: &crate::ended_runs::EndedRun,
+    expanded: bool,
+    on_toggle: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+    on_resume: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+    cx: &App,
+) -> impl IntoElement {
+    let outcome = run.outcome.as_deref();
+    let color = crate::run_outcome::outcome_color(outcome, cx);
+    let header = h_flex()
+        .gap_2()
+        .items_center()
+        .text_xs()
+        .text_color(cx.theme().muted_foreground)
+        .child(div().size(px(6.)).rounded_full().bg(color))
+        .child(
+            Icon::new(crate::run_outcome::outcome_icon(outcome))
+                .size_3()
+                .text_color(color),
+        )
+        .child(SharedString::from(format!(
+            "Ended · {}",
+            run.outcome_label()
+        )))
+        .when_some(run.summary.clone(), |this, _| {
+            this.child(
+                Button::new("ended-summary-toggle")
+                    .ghost()
+                    .xsmall()
+                    .label(if expanded { "Hide summary" } else { "Show summary" })
+                    .on_click(on_toggle),
+            )
+        })
+        // Decision 7: the run left tracked changes behind. Amber, and it
+        // names the branch — that worktree also shows as dirty in Worktrees.
+        .when_some(run.left_dirty.clone(), |this, branch| {
+            this.child(
+                div()
+                    .text_color(cx.theme().warning)
+                    .child(SharedString::from(format!(
+                        "left uncommitted changes on {branch}"
+                    ))),
+            )
+        })
+        .child(div().flex_1())
+        .when(run.resumable, |this| {
+            this.child(
+                Button::new("ended-resume")
+                    .ghost()
+                    .xsmall()
+                    .icon(Icon::new(registry::RUN_RESUME).size_3())
+                    .label("Resume")
+                    .on_click(on_resume),
+            )
+        });
+    v_flex()
+        .px_3()
+        .py_1()
+        .gap_1()
+        .border_t_1()
+        .border_color(cx.theme().border)
+        .child(header)
+        .when(expanded, |this| {
+            this.when_some(run.summary.clone(), |this, summary| {
+                this.child(
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(SharedString::from(summary)),
+                )
+            })
+        })
+}
+
 /// Per-tab render snapshot (cloned out so the manager borrow ends before the
 /// listeners borrow `cx`). One entry per VISIBLE tab — undocked tabs are
 /// filtered out, so `manager_ix` keeps the strip position → manager index
@@ -2046,6 +2134,10 @@ impl Render for TerminalDockPanel {
                 active.and_then(|tab| tab.exit_code()),
             )
         };
+        // EXP-637: the active tab's ended-run close-out, if its agent
+        // declared one.
+        let active_ended = active_id
+            .and_then(|tab| crate::ended_runs::EndedRuns::get(tab, cx).map(|run| (tab, run)));
         let tab_count = self.manager.read(cx).len();
 
         let outer = div()
@@ -2104,8 +2196,45 @@ impl Render for TerminalDockPanel {
                     // grid element itself guards the 0-height collapsed case
                     // (§6.9).
                     .child(div().flex_1().min_h_0().child(active_view))
-                    .when_some(active_exit, |this, code| {
-                        this.child(exit_strip(code, cx))
+                    // EXP-637: the ended strip WINS over the exit strip —
+                    // "the agent finished and here is what it did" is the
+                    // useful thing to say; the exit code is noise next to it.
+                    .map(|this| match active_ended {
+                        Some((tab, run)) => {
+                            let expanded = self.expanded_summaries.contains(&tab);
+                            let resume_session = run.session_id.clone();
+                            let window_handle = window.window_handle();
+                            this.child(ended_strip(
+                                &run,
+                                expanded,
+                                cx.listener(move |this, _, _, cx| {
+                                    if !this.expanded_summaries.insert(tab) {
+                                        this.expanded_summaries.remove(&tab);
+                                    }
+                                    cx.notify();
+                                }),
+                                cx.listener(move |this, _, _, cx| {
+                                    // Close the finished tab first: the
+                                    // resume opens its own tab in the same
+                                    // worktree, and two tabs for one run
+                                    // would just confuse the strip.
+                                    this.manager.update(cx, |manager, cx| {
+                                        manager.close_tab(tab, cx)
+                                    });
+                                    crate::action_run::resume_run(
+                                        resume_session.clone(),
+                                        Some(window_handle),
+                                        false,
+                                        coding::LaunchOrigin::Local,
+                                        cx,
+                                    );
+                                }),
+                                cx,
+                            ))
+                        }
+                        None => this.when_some(active_exit, |this, code| {
+                            this.child(exit_strip(code, cx))
+                        }),
                     }),
             ),
         )

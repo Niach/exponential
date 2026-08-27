@@ -247,6 +247,11 @@ export const steerRouter = router({
           // Single-issue starts only; gated below on the device's persisted
           // `resume` cap.
           resume: z.boolean().optional(),
+          // EXP-637: relaunch an ENDED run in its own worktree, continuing
+          // the agent's transcript where it stopped. A subject of its own —
+          // the device's run registry already holds the agent, options and
+          // cwd, so naming any of them here would just contradict it.
+          resumeSessionId: z.string().uuid().optional(),
         })
         .refine(
           (value) =>
@@ -254,10 +259,40 @@ export const steerRouter = router({
               Boolean(value.issueId),
               Boolean(value.issueIds?.length),
               Boolean(value.actionId),
+              Boolean(value.resumeSessionId),
             ].filter(Boolean).length === 1,
-          { message: `Exactly one of issueId/issueIds/actionId is required` }
+          {
+            message: `Exactly one of issueId/issueIds/actionId/resumeSessionId is required`,
+          }
         )
         .superRefine((value, ctx) => {
+          // EXP-637: a resumed run keeps its recorded agent and options —
+          // everything the run registry pinned at first launch. Accepting a
+          // contradicting option here would silently lose either the option
+          // or the resume.
+          if (value.resumeSessionId) {
+            const conflicting = (
+              [
+                `resume`,
+                `inputs`,
+                `teamId`,
+                `agent`,
+                `model`,
+                `effort`,
+                `ultracode`,
+                `planMode`,
+                `skipPermissions`,
+              ] as const
+            ).filter((key) => value[key] !== undefined)
+            for (const key of conflicting) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: [key],
+                message: `a resumed run keeps its recorded agent and options`,
+              })
+            }
+            return
+          }
           const builtin =
             value.actionId !== undefined && isBuiltinActionId(value.actionId)
           if (builtin && !value.teamId) {
@@ -421,6 +456,66 @@ export const steerRouter = router({
           },
           shared: true,
         }
+      }
+
+      // EXP-637: resume an ended run. Owner-ONLY (a live session is visible
+      // and steerable only by its owner since EXP-312, and a resume restarts
+      // one) and pinned to the machine that holds the worktree — the run
+      // registry, the cwd and the agent transcript all live there, so there
+      // is nothing to resume anywhere else.
+      if (input.resumeSessionId) {
+        const session = await loadCodingSession(input.resumeSessionId)
+        if (session.userId !== userId) {
+          throw new TRPCError({
+            code: `FORBIDDEN`,
+            message: `Only the session owner can resume it`,
+          })
+        }
+        if (session.status !== `ended`) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `That run is still live`,
+          })
+        }
+        if (!session.deviceId || session.deviceId !== input.deviceId) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `That run lives on another machine`,
+          })
+        }
+        const { ownerId, device, shared } = await resolveTargetDevice(
+          session.teamId!
+        )
+        if (!device.caps.includes(`resume-run`)) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `That device can't resume runs yet. Update it.`,
+          })
+        }
+        const result = await relayPostStart(config, {
+          userId: ownerId,
+          deviceId: input.deviceId,
+          ...(shared ? { startedBy: userId } : {}),
+          resumeSessionId: session.id,
+          teamId: session.teamId!,
+          ...(session.issueId ? { issueId: session.issueId } : {}),
+          ...(session.actionId ? { actionId: session.actionId } : {}),
+          ...(session.actionName ? { actionName: session.actionName } : {}),
+          ...(session.branch ? { branch: session.branch } : {}),
+        })
+        if (!result.ok) {
+          if (result.status === 404) {
+            throw new TRPCError({
+              code: `PRECONDITION_FAILED`,
+              message: result.reason,
+            })
+          }
+          throw new TRPCError({
+            code: `INTERNAL_SERVER_ERROR`,
+            message: `Steer relay error (${result.status})`,
+          })
+        }
+        return { ok: true as const }
       }
 
       // Action run (EXP-253/EXP-257): resolve the action (a DB row, or the
@@ -869,7 +964,11 @@ export const steerRouter = router({
           const txid = await generateTxId(tx)
           const [updated] = await tx
             .update(codingSessions)
-            .set({ status: `ended`, endedAt: new Date() })
+            .set({
+              status: `ended`,
+              endedAt: new Date(),
+              endedBy: `user`,
+            })
             .where(eq(codingSessions.id, input.codingSessionId))
             .returning()
           return { session: updated, txid }

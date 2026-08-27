@@ -186,6 +186,12 @@
   "codingSessionStatus": {
     "values": ["running", "in_review", "ended"]
   },
+  "codingSessionOutcome": {
+    "values": ["done", "blocked", "no_changes"]
+  },
+  "codingSessionEndedBy": {
+    "values": ["agent", "user", "client", "merge", "system"]
+  },
   "codingSession": {
     "staleHours": 2
   },

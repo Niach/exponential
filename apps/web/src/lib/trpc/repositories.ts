@@ -327,6 +327,7 @@ async function loadRepository(repositoryId: string) {
       installationId: repositories.installationId,
       inaccessibleAt: repositories.inaccessibleAt,
       sharedByUserId: repositories.sharedByUserId,
+      archivedAt: repositories.archivedAt,
     })
     .from(repositories)
     .where(eq(repositories.id, repositoryId))
@@ -335,6 +336,33 @@ async function loadRepository(repositoryId: string) {
     throw new TRPCError({ code: `NOT_FOUND`, message: `Repository not found` })
   }
   return repo
+}
+
+// EXP-626: the repo-by-id lookup the issue-LESS `exponential_pr_open` path
+// needs — the same row `mergePull` loads, minus archived repos (a chore PR
+// must never be opened against a repo the team retired), with the EFFECTIVE
+// default branch already resolved so the caller can use it as the PR base.
+// Authorization stays with the caller (membership + scope + link-gate); this
+// only resolves the row.
+export async function loadRepositoryForTeam(repositoryId: string): Promise<{
+  id: string
+  teamId: string
+  fullName: string
+  defaultBranch: string
+}> {
+  const repo = await loadRepository(repositoryId)
+  if (repo.archivedAt) {
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: `${repo.fullName} is archived for this team. Restore it in team settings → Repositories.`,
+    })
+  }
+  return {
+    id: repo.id,
+    teamId: repo.teamId,
+    fullName: repo.fullName,
+    defaultBranch: effectiveDefaultBranch(repo),
+  }
 }
 
 // The Reviews queue's "everything else" source: open PRs listed live from
@@ -554,10 +582,13 @@ export const repositoriesRouter = router({
       // EXP-494: even an "unlinked" PR's `closed` webhook can resolve an
       // issue via the branch parse — claim the initiator so that fan-out is
       // attributed to (and excludes) the merging member instead of going out
-      // anonymously. Web-UI only, so never agent-mediated.
+      // anonymously.
       claimPrMerge(repo.fullName, input.prNumber, {
         userId: ctx.session.user.id,
-        viaAgent: false,
+        // EXP-626: reachable from the MCP `exponential_pr_merge` tool now
+        // (a chore PR with no issue), so the claim records agent-mediation
+        // the same way issues.mergePr does.
+        viaAgent: ctx.viaMcp === true,
       })
       try {
         await mergePullRequest({

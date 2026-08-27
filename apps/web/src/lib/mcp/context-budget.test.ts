@@ -3,9 +3,20 @@ import { existsSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { z } from "zod"
 
-// EXP-353: the serialized MCP tool definitions land verbatim in every MCP
-// client's context window, and Claude Code warns above ~25k. Keep the surface
-// lean: uuid params use the compact `uuidString` (never z.uuid()'s 155-char
+// EXP-353/EXP-637: what the MCP tool surface costs an agent's context window.
+//
+// History: until EXP-637 every client loaded EVERY tool definition verbatim,
+// so the whole surface shared one ~24.6k ceiling and each new tool was paid
+// for by trimming another. That is over. Claude Code defers MCP tools behind
+// tool search by default (only names + the server `instructions` load at
+// session start, `_meta["anthropic/alwaysLoad"]` opts a tool back in), Codex
+// does the same on gpt-5.4+, and the pi bridge mirrors the split through pi's
+// dynamic tool loading off the same flag.
+//
+// So the budget that matters is the ALWAYS-LOADED set, which is what a coding
+// run needs on its first turn, plus the instructions. The whole surface still
+// gets a loose ceiling so nobody ships a novella, and per-tool stays tight:
+// uuid params use the compact `uuidString` (never z.uuid()'s 155-char
 // pattern), icon params never inline the 60-name enum, descriptions stay
 // terse. Same story for CLAUDE.md — Claude Code warns above 40k chars.
 
@@ -57,11 +68,14 @@ vi.stubEnv(`CLOUD_INSTANCE`, `true`)
 
 import { registerExponentialTools } from "@/lib/mcp/tools"
 import { FULL_ACCESS } from "@/lib/mcp/scope"
+import { ALWAYS_LOAD_TOOLS } from "@/lib/mcp/always-load"
+import { MCP_SERVER_INSTRUCTIONS } from "@/lib/mcp/instructions"
 import type { McpUser } from "@/lib/mcp/server"
 
 type ToolDef = {
   description?: string
   inputSchema?: Record<string, z.ZodType>
+  _meta?: Record<string, unknown>
 }
 
 function serializeToolDefs() {
@@ -77,6 +91,7 @@ function serializeToolDefs() {
           io: `input`,
           target: `draft-7`,
         }),
+        ...(def._meta ? { _meta: def._meta } : {}),
       })
     },
   }
@@ -89,25 +104,61 @@ function serializeToolDefs() {
   return defs
 }
 
-it(`keeps the serialized MCP tool context within budget`, () => {
+it(`keeps the always-loaded MCP tool set exactly ALWAYS_LOAD_TOOLS`, () => {
   const defs = serializeToolDefs()
   // Guard the CLOUD_INSTANCE stub above: if the cloud-only tool ever stops
   // registering here, the budget silently under-measures.
   expect(defs.some((def) => def.name === `exponential_report_bug`)).toBe(true)
-  const total = JSON.stringify(defs).length
-  // 23.2k as of EXP-353; 24.6k as of EXP-530 (the ceiling was deliberately
-  // raised once for the trigger shape doc — an agent authoring an automation
-  // needs the field vocabulary in-context); 24.4k as of EXP-562 (the
-  // actions_create/update prose stopped restating what the emitted inputs
-  // schema already carries, and the ceiling was LOWERED to lock the gain).
-  // If this trips, trim schemas/descriptions — do not raise the ceiling
-  // again: Claude Code's large-MCP-context warning is ~25k and the remaining
-  // headroom IS the budget.
-  expect(total).toBeLessThan(24_600)
+  // Every listed tool actually registers, and nothing else carries the flag —
+  // adding `_meta` to a tool is adding it to EVERY session's context, so it
+  // has to be a deliberate edit of always-load.ts.
+  const flagged = defs
+    .filter(
+      (def) =>
+        (def._meta as Record<string, unknown> | undefined)?.[
+          `anthropic/alwaysLoad`
+        ] === true
+    )
+    .map((def) => def.name)
+  expect([...flagged].sort()).toEqual([...ALWAYS_LOAD_TOOLS].sort())
+  // exponential_report_bug is deliberately NOT always-loaded: an agent that
+  // needs it searches for it.
+  expect(flagged).not.toContain(`exponential_report_bug`)
+})
+
+it(`keeps the serialized MCP tool context within budget`, () => {
+  const defs = serializeToolDefs()
+  const alwaysLoaded = defs.filter((def) =>
+    (ALWAYS_LOAD_TOOLS as readonly string[]).includes(def.name as string)
+  )
+  // What EVERY session pays, on every turn. Keep it lean — a tool added here
+  // is a tool every agent carries whether it needs it or not.
+  expect(JSON.stringify(alwaysLoaded).length).toBeLessThan(10_000)
+  // The deferred remainder is fetched on demand, so the whole surface only
+  // needs a sanity ceiling (it was 24.6k when everything loaded eagerly).
+  expect(JSON.stringify(defs).length).toBeLessThan(60_000)
   for (const def of defs) {
-    // No single tool may reintroduce a fat inline enum or a novella.
+    // No single tool may reintroduce a fat inline enum or a novella — a
+    // searched-for definition still lands verbatim in the window.
     expect(JSON.stringify(def).length, `${def.name}`).toBeLessThan(1_800)
   }
+})
+
+// EXP-637: the server instructions are the ONLY guidance a deferred-tool
+// client sees up front. Codex reads the first 512 chars, Claude Code
+// truncates the whole string at 2KB — so the first paragraph has to stand on
+// its own and name the way in.
+it(`keeps the MCP server instructions self-contained and in budget`, () => {
+  expect(MCP_SERVER_INSTRUCTIONS.length).toBeLessThan(2_000)
+  const opening = MCP_SERVER_INSTRUCTIONS.slice(0, 512)
+  expect(opening).toContain(`exponential_pr_open`)
+  expect(opening).toContain(`exponential_sessions_end`)
+  expect(opening).toContain(`Search for exponential_*`)
+  // The first paragraph must fit that window whole — a sentence cut in half
+  // at 512 is worse than no sentence.
+  expect(MCP_SERVER_INSTRUCTIONS.split(`\n\n`)[0].length).toBeLessThanOrEqual(
+    512
+  )
 })
 
 it(`keeps CLAUDE.md under Claude Code's 40k-char performance warning`, () => {

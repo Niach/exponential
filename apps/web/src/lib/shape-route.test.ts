@@ -529,6 +529,53 @@ describe(`shape column + trash contracts`, () => {
     )
   })
 
+  // EXP-637: the close-out columns are synced, but `merged_own_pr` is
+  // server-only — it exists so the merge-driven end paths can spare the
+  // session that merged its own PR, and no client acts on it.
+  it(`pins the coding-sessions columns and keeps the server-only ones out`, async () => {
+    const originUrl = new URL(`https://electric.example/v1/shape`)
+    resolveSession.mockResolvedValue({ user: { id: `user-1` } })
+    prepareElectricUrl.mockReturnValue(originUrl)
+    membership.getUserTeamIds.mockResolvedValue([`w-2`, `w-1`])
+
+    await shapeHandler(codingSessionsRoute)({
+      request: new Request(
+        `https://example.com/api/shapes/coding-sessions?columns=merged_own_pr`,
+        { headers: { authorization: `Bearer t` } }
+      ),
+    })
+
+    const columns = originUrl.searchParams.get(`columns`)?.split(`,`) ?? []
+    expect(columns).toEqual([
+      `id`,
+      `issue_id`,
+      `team_id`,
+      `board_id`,
+      `action_id`,
+      `action_name`,
+      `started_reason`,
+      `automation_id`,
+      `user_id`,
+      `device_label`,
+      `device_id`,
+      `status`,
+      `branch`,
+      `summary`,
+      `outcome`,
+      `ended_by`,
+      `resumed_from_id`,
+      `needs_input`,
+      `started_at`,
+      `ended_at`,
+      `created_at`,
+      `updated_at`,
+    ])
+    expect(columns).not.toContain(`merged_own_pr`)
+    expect(columns).not.toContain(`host_user_id`)
+    expect(columns).not.toContain(`board_deleted_at`)
+    expect(columns).not.toContain(`board_archived_at`)
+  })
+
   it(`pins the issue-statuses columns and scopes members by team`, async () => {
     const originUrl = new URL(`https://electric.example/v1/shape`)
     resolveSession.mockResolvedValue({ user: { id: `user-1` } })

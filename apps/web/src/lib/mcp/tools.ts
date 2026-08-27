@@ -84,7 +84,11 @@ import { escapeLikePattern } from "@/lib/like-pattern"
 import { buildRuntimeConfig } from "@/lib/runtime-config"
 import { createAgentBugReport } from "@/lib/widget/agent-report"
 import { TokenBucketLimiter } from "@/lib/widget/rate-limit"
+import { loadRepositoryForTeam } from "@/lib/trpc/repositories"
+import { endSessionByAgent } from "@/lib/coding-session-end"
+import { codingSessionOutcomeValues } from "@exp/db-schema/domain"
 import { err, ok } from "./helpers"
+import { ALWAYS_LOAD_META } from "./always-load"
 import type { McpUser } from "./server"
 import {
   assertFullAccess,
@@ -221,8 +225,94 @@ export function registerExponentialTools(
   server: McpServer,
   user: McpUser,
   request: Request,
-  access: McpAccess
+  access: McpAccess,
+  // EXP-637: the coding_sessions row this MCP request runs inside, parsed
+  // from the launcher-injected X-Exp-Session-Id header. Null for every caller
+  // that is not a launched agent.
+  sessionId: string | null = null
 ) {
+  // The header session, but only when it is really THIS caller's run — owner
+  // or host (EXP-432: a shared-device run is requester-owned while the
+  // hosting daemon's key authenticates the agent). A foreign or vanished id
+  // resolves to null and every caller degrades to its pre-EXP-637 behaviour;
+  // the header is an identifier, never a credential.
+  async function loadCallerSession(): Promise<{
+    id: string
+    teamId: string | null
+    status: string
+  } | null> {
+    if (!sessionId) return null
+    const [row] = await db
+      .select({
+        id: codingSessions.id,
+        teamId: codingSessions.teamId,
+        status: codingSessions.status,
+        userId: codingSessions.userId,
+        hostUserId: codingSessions.hostUserId,
+      })
+      .from(codingSessions)
+      .where(eq(codingSessions.id, sessionId))
+      .limit(1)
+    if (!row) return null
+    if (row.userId !== user.id && row.hostUserId !== user.id) return null
+    return { id: row.id, teamId: row.teamId, status: row.status }
+  }
+
+  // Park the run that just opened a PR in `in_review` and stamp the PR's head
+  // branch on it (EXP-545: the row↔PR linkage clients tie their Merge
+  // shortcut to). With the session header this hits the EXACT row; without it
+  // (a pre-EXP-637 launcher) the batch path falls back to the historical
+  // heuristic — the caller's issue-less, action-less running rows in the
+  // affected teams, which two concurrent batch runs by the same user in one
+  // team cannot tell apart. `needsInput` resets with the flip like the
+  // per-issue path (EXP-531).
+  async function parkSessionInReview(
+    tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+    opts: {
+      callerSessionId: string | null
+      teamIds: string[]
+      headBranch: string
+      fallbackBatchFlip: boolean
+    }
+  ): Promise<void> {
+    const set = {
+      status: `in_review` as const,
+      branch: opts.headBranch,
+      needsInput: false,
+      updatedAt: new Date(),
+    }
+    if (opts.callerSessionId) {
+      await tx
+        .update(codingSessions)
+        .set(set)
+        .where(
+          and(
+            eq(codingSessions.id, opts.callerSessionId),
+            eq(codingSessions.status, `running`)
+          )
+        )
+      return
+    }
+    if (!opts.fallbackBatchFlip || opts.teamIds.length === 0) return
+    await tx
+      .update(codingSessions)
+      .set(set)
+      .where(
+        and(
+          or(
+            eq(codingSessions.userId, user.id),
+            eq(codingSessions.hostUserId, user.id)
+          ),
+          inArray(codingSessions.teamId, opts.teamIds),
+          isNull(codingSessions.issueId),
+          // Action runs are issue-less too, and one may well be running
+          // alongside the batch — never flip or stamp those.
+          isNull(codingSessions.actionId),
+          eq(codingSessions.status, `running`)
+        )
+      )
+  }
+
   // -----------------------------------------------------------------------
   // Teams
   // -----------------------------------------------------------------------
@@ -533,6 +623,7 @@ export function registerExponentialTools(
     `exponential_issues_get`,
     {
       description: `Get a single issue by UUID or identifier (e.g. "MET-12"), including its label ids and latest comments (newest first, capped at 50; commentsLimit overrides).`,
+      _meta: ALWAYS_LOAD_META,
       inputSchema: {
         id: z.string().min(1),
         commentsLimit: z.number().int().min(0).max(200).optional(),
@@ -896,6 +987,7 @@ export function registerExponentialTools(
     `exponential_comments_list`,
     {
       description: `List comments on an issue (oldest first) by UUID or human identifier (e.g. "MET-12"). Rows include their linked attachments. The MCP user must have access to the issue's team.`,
+      _meta: ALWAYS_LOAD_META,
       inputSchema: {
         issueId: z.string().min(1),
         limit: z.number().int().min(1).max(200).default(100),
@@ -952,6 +1044,7 @@ export function registerExponentialTools(
     `exponential_comments_create`,
     {
       description: `Post a regular comment on an issue (by UUID or human identifier, e.g. "MET-12") authored by the MCP user. Body is plain text.`,
+      _meta: ALWAYS_LOAD_META,
       inputSchema: {
         issueId: z.string().min(1),
         bodyText: z.string().min(1).max(10_000),
@@ -984,6 +1077,7 @@ export function registerExponentialTools(
     `exponential_issues_update_status`,
     {
       description: `Set an issue's status during a coding session (UUID or identifier). Only 'in_progress' (started working) and 'done' (work merged) are allowed. Never set 'in_review' yourself. Both exponential_pr_open and PR merges move issues to the team's configured statuses automatically.`,
+      _meta: ALWAYS_LOAD_META,
       inputSchema: {
         issueId: z.string().min(1),
         status: z.enum([`in_progress`, `done`]),
@@ -1067,25 +1161,98 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_open`,
     {
-      description: `Open a GitHub PR on the linked repository via the GitHub App (no 'gh' or token) and link it to the issue(s). Pass EXACTLY ONE of 'issueId' or 'issueIds' (batch: ONE combined PR for all listed issues, same repo; 'head' then REQUIRED, e.g. 'exp/batch-<id>'). Single issue: 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>'; 'base' to the repo default branch. Linked issues record prUrl/prNumber/prState/branch and move to the team's PR-open status (default 'in_review'); merging later moves them to the PR-merge status (default 'done'). Accepts UUIDs or identifiers ("MET-12").`,
+      description: `Open a GitHub PR on the linked repository via the GitHub App (no 'gh' or token) and link it to the issue(s). Pass EXACTLY ONE of 'issueId', 'issueIds' (batch: ONE combined PR for all listed issues, same repo; 'head' then REQUIRED, e.g. 'exp/batch-<id>'), or 'repositoryId' + 'head' for a PR with no issue (nothing is linked or moved). Single issue: 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>'; 'base' to the repo default branch. Linked issues record prUrl/prNumber/prState/branch and move to the team's PR-open status (default 'in_review'); merging later moves them to the PR-merge status (default 'done'). Accepts UUIDs or identifiers ("MET-12").`,
+      _meta: ALWAYS_LOAD_META,
       inputSchema: {
         issueId: z.string().min(1).optional(),
         issueIds: z.array(z.string().min(1)).min(1).max(30).optional(),
+        repositoryId: uuidString.optional(),
         title: z.string().min(1).max(255),
         body: z.string().max(60_000).optional(),
         head: z.string().max(255).optional(),
         base: z.string().max(255).optional(),
       },
     },
-    async ({ issueId, issueIds, title, body, head, base }) => {
+    async ({ issueId, issueIds, repositoryId, title, body, head, base }) => {
       try {
-        if (Boolean(issueId) === Boolean(issueIds?.length)) {
-          throw new Error(`Provide exactly one of issueId or issueIds`)
-        }
-        if (issueIds?.length && !head) {
+        const subjects = [
+          Boolean(issueId),
+          Boolean(issueIds?.length),
+          Boolean(repositoryId),
+        ].filter(Boolean).length
+        if (subjects !== 1) {
           throw new Error(
-            `'head' is required with issueIds. Pass the pushed batch branch.`
+            `Provide exactly one of issueId, issueIds or repositoryId`
           )
+        }
+        if ((issueIds?.length || repositoryId) && !head) {
+          throw new Error(
+            `'head' is required with issueIds or repositoryId. Pass the pushed branch.`
+          )
+        }
+
+        // EXP-626: the issue-LESS chore PR. Nothing is linked and nothing
+        // moves — no issue events, no PR-open status flip, no notifications,
+        // no agent-activity note (there is no issue to note against). The
+        // only side effect beyond the PR itself is parking the CALLING
+        // session in `in_review`, and that needs the session header — there
+        // is no batch heuristic to fall back on here.
+        if (repositoryId) {
+          const repo = await loadRepositoryForTeam(repositoryId)
+          assertTeamFullyGranted(access, repo.teamId)
+          await resolveTeamAccess(user.id, repo.teamId)
+
+          const resolvedRepo = await resolveRepoInstallationTokenInfo(
+            repo.fullName
+          )
+          if (!resolvedRepo) {
+            throw new Error(
+              `The Exponential GitHub App is not installed on ${repo.fullName}.`
+            )
+          }
+          if (
+            !(await isInstallationLinkedToTeam(
+              repo.teamId,
+              resolvedRepo.installationId
+            ))
+          ) {
+            throw new Error(
+              `${repo.fullName} resolves to a GitHub account that isn't connected to this team. Reconnect it in team settings → Repositories.`
+            )
+          }
+
+          claimPrOpen(repo.fullName, head!, {
+            userId: user.id,
+            viaAgent: true,
+          })
+          let createdPr: Awaited<ReturnType<typeof createPullRequest>>
+          try {
+            createdPr = await createPullRequest({
+              repo: repo.fullName,
+              head: head!,
+              base: base ?? repo.defaultBranch,
+              title,
+              body: body ?? ``,
+              token: resolvedRepo.token,
+            })
+          } catch (e) {
+            releasePrOpenClaim(repo.fullName, head!)
+            throw e
+          }
+
+          const callerSession = await loadCallerSession()
+          if (callerSession) {
+            await db.transaction(async (tx) => {
+              await parkSessionInReview(tx, {
+                callerSessionId: callerSession.id,
+                teamIds: [repo.teamId],
+                headBranch: head!,
+                fallbackBatchFlip: false,
+              })
+            })
+          }
+
+          return ok({ url: createdPr.url, number: createdPr.number })
         }
 
         // Resolve + authorize every issue; a batch must land in ONE repo.
@@ -1189,6 +1356,7 @@ export function registerExponentialTools(
           throw e
         }
 
+        const callerSession = await loadCallerSession()
         await db.transaction(async (tx) => {
           for (const id of ids) {
             const [current] = await tx
@@ -1231,46 +1399,18 @@ export function registerExponentialTools(
 
           // Batch sessions carry no issue linkage (issue_id NULL), so the
           // per-issue session flip inside applyPrLifecycleStatusInTx misses
-          // them — flip the CALLER's running batch session(s) in the
-          // affected team(s) instead (EXP-194). The flip itself stays loose,
-          // like batch runs themselves: two concurrent batch runs by the
-          // same user in one team both flip on either's PR — running rows
-          // are indistinguishable. But the flip STAMPS the PR's head branch
-          // onto the row (EXP-545), creating the batch↔PR linkage clients
-          // use to tie the row's Merge shortcut to ITS OWN PR — without it,
-          // "the team's sole open batch PR" could target a teammate's PR
-          // once this session's own PR closed unmerged. The caller matches
-          // as owner OR host (EXP-432): on a shared server device the agent
-          // authenticates with the daemon owner's key while the batch row is
-          // requester-owned.
+          // them — park the CALLER's batch session instead (EXP-194), with
+          // the PR's head branch stamped on it (EXP-545: the row↔PR linkage
+          // clients tie their Merge shortcut to). Since EXP-637 the session
+          // header names the exact row; only a pre-EXP-637 launcher still
+          // takes the loose heuristic parkSessionInReview falls back to.
           if (issueIds?.length) {
-            await tx
-              .update(codingSessions)
-              // needsInput resets with the flip, like the per-issue path
-              // (EXP-531).
-              .set({
-                status: `in_review`,
-                branch: headBranch,
-                needsInput: false,
-                updatedAt: new Date(),
-              })
-              .where(
-                and(
-                  or(
-                    eq(codingSessions.userId, user.id),
-                    eq(codingSessions.hostUserId, user.id)
-                  ),
-                  inArray(codingSessions.teamId, [
-                    ...new Set(teamIdByIssue.values()),
-                  ]),
-                  isNull(codingSessions.issueId),
-                  // Action runs are issue-less too, and one may well be
-                  // running alongside the batch — never flip or stamp those
-                  // (schema: `branch` is NULL on action rows).
-                  isNull(codingSessions.actionId),
-                  eq(codingSessions.status, `running`)
-                )
-              )
+            await parkSessionInReview(tx, {
+              callerSessionId: callerSession?.id ?? null,
+              teamIds: [...new Set(teamIdByIssue.values())],
+              headBranch,
+              fallbackBatchFlip: true,
+            })
           }
         })
 
@@ -1296,16 +1436,66 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_merge`,
     {
-      description: `Squash-merge linked open PRs via the GitHub App (no 'gh' or token). Pass EXACTLY ONE of 'issueId' or 'issueIds' (one merge per distinct prUrl, so issues sharing a batch PR merge once). Linked issues flip to prState='merged' and move to the team's PR-merge status (default 'done'); live coding sessions on them end. Merges run sequentially with per-PR results; one unmergeable PR never blocks the rest. A merge rejected for a stale base: fix with exponential_pr_retarget first. Idempotent for already-merged PRs.`,
+      description: `Squash-merge open PRs via the GitHub App (no 'gh' or token). Pass EXACTLY ONE of 'issueId', 'issueIds' (one merge per distinct prUrl, so issues sharing a batch PR merge once), or 'repositoryId' + 'prNumber' for a PR with no issue. Linked issues flip to prState='merged' and move to the team's PR-merge status (default 'done'); live coding sessions on them end, except YOUR OWN session, which keeps running until exponential_sessions_end. Merges run sequentially with per-PR results; one unmergeable PR never blocks the rest. A merge rejected for a stale base: fix with exponential_pr_retarget first. Idempotent for already-merged PRs.`,
+      _meta: ALWAYS_LOAD_META,
       inputSchema: {
         issueId: z.string().min(1).optional(),
         issueIds: z.array(z.string().min(1)).min(1).max(30).optional(),
+        repositoryId: uuidString.optional(),
+        prNumber: z.number().int().positive().optional(),
       },
     },
-    async ({ issueId, issueIds }) => {
+    async ({ issueId, issueIds, repositoryId, prNumber }) => {
       try {
-        if (Boolean(issueId) === Boolean(issueIds?.length)) {
-          throw new Error(`Provide exactly one of issueId or issueIds`)
+        const subjects = [
+          Boolean(issueId),
+          Boolean(issueIds?.length),
+          Boolean(repositoryId) || prNumber !== undefined,
+        ].filter(Boolean).length
+        if (subjects !== 1) {
+          throw new Error(
+            `Provide exactly one of issueId, issueIds or repositoryId + prNumber`
+          )
+        }
+        if (Boolean(repositoryId) !== (prNumber !== undefined)) {
+          throw new Error(`repositoryId and prNumber must be passed together`)
+        }
+
+        // EXP-637 decision 6: a session that merges the PR it opened must
+        // survive its own merge. Stamp the durable spare BEFORE the merge, so
+        // every merge-driven end (this call's own in-tx sweep, GitHub's
+        // webhook, the outbound poller) skips the row. It ends later through
+        // exponential_sessions_end or its own exit. `running` is restored so
+        // the badge reads "coding" again instead of staying parked in review.
+        const callerSession = await loadCallerSession()
+        if (callerSession && callerSession.status !== `ended`) {
+          await db
+            .update(codingSessions)
+            .set({
+              mergedOwnPr: true,
+              status: `running`,
+              needsInput: false,
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(codingSessions.id, callerSession.id),
+                inArray(codingSessions.status, [`running`, `in_review`])
+              )
+            )
+        }
+
+        // EXP-626: the issue-LESS chore PR. repositories.mergePull owns the
+        // guards (membership, App config, installation link-gate) and the
+        // merge itself; there is no issue row to sync.
+        if (repositoryId) {
+          await caller(user, request).repositories.mergePull({
+            repositoryId,
+            prNumber: prNumber!,
+          })
+          return ok({
+            results: [{ repositoryId, prNumber: prNumber!, merged: true }],
+          })
         }
 
         // Resolve + authorize every issue up front — a scope/membership
@@ -1383,6 +1573,7 @@ export function registerExponentialTools(
     `exponential_pr_retarget`,
     {
       description: `Change the base branch of an issue's open PR via the GitHub App. Use it when a merge is rejected because the base is stale (e.g. stacked on an already-merged parent PR). Omit 'base' for the repo's default branch. Then rebase onto the new base, push with --force-with-lease, and call exponential_pr_merge.`,
+      _meta: ALWAYS_LOAD_META,
       inputSchema: {
         issueId: z.string().min(1),
         base: z.string().min(1).max(255).optional(),
@@ -1403,6 +1594,43 @@ export function registerExponentialTools(
         })
         noteAgentIssueActivity(id, user.id)
         return ok({ retargeted: true, base: result.base })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // -----------------------------------------------------------------------
+  // Sessions (EXP-637)
+  // -----------------------------------------------------------------------
+
+  server.registerTool(
+    `exponential_sessions_end`,
+    {
+      description: `End your coding session with a close-out the team sees on the run: a one-paragraph 'summary' of what you did and an 'outcome' of 'done' (PR open or work complete), 'blocked' (you stopped and a human is needed) or 'no_changes' (nothing needed changing). Leave the worktree clean first, then call this LAST, after exponential_pr_open. Merging your own PR does not end the session; this does. Works only inside a session started by the Exponential launcher.`,
+      _meta: ALWAYS_LOAD_META,
+      inputSchema: {
+        summary: z.string().min(1).max(4_000),
+        outcome: z.enum(codingSessionOutcomeValues),
+      },
+    },
+    async ({ summary, outcome }) => {
+      try {
+        if (!sessionId) {
+          return err(
+            new Error(
+              `No coding session: exponential_sessions_end only works inside a session started by the Exponential launcher (missing X-Exp-Session-Id).`
+            )
+          )
+        }
+        // Ownership is enforced inside endSessionByAgent (owner or host),
+        // which also makes a repeated call idempotent instead of blanking an
+        // earlier close-out.
+        const result = await endSessionByAgent(db, sessionId, user.id, {
+          summary,
+          outcome,
+        })
+        return ok(result)
       } catch (e) {
         return err(e)
       }
@@ -1767,6 +1995,7 @@ export function registerExponentialTools(
     `exponential_actions_create`,
     {
       description: `Create a team action (owner only). body = the markdown prompt an agent runs locally; repositoryId targets that repo's trunk clone; icon = a curated icon name; inputs = run-dialog fields injected into the prompt.`,
+      _meta: ALWAYS_LOAD_META,
       inputSchema: {
         teamId: uuidString,
         name: z.string().min(1).max(255),

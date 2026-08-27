@@ -121,6 +121,9 @@ pub struct ActionsView {
     repos_key: Option<String>,
     /// Bumped per fetch — a stale response checks it before landing.
     repos_seq: u64,
+    /// EXP-637: run rows whose summary is expanded (decision 5 — collapsed
+    /// by default). Per-view and unpersisted; keyed by session row id.
+    expanded_runs: std::collections::HashSet<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -168,6 +171,7 @@ impl ActionsView {
             repos: None,
             repos_key: None,
             repos_seq: 0,
+            expanded_runs: std::collections::HashSet::new(),
             _subscriptions: subscriptions,
         }
     }
@@ -724,7 +728,35 @@ impl ActionsView {
             );
         }
         for session in runs.iter().take(RECENT_RUNS_CAP) {
-            recent = recent.child(render_run_row(session, cx));
+            let session_id = session.id.clone();
+            let expanded = self.expanded_runs.contains(&session_id);
+            // EXP-637: only a run this machine recorded can be resumed here
+            // (the workspace is local) — a run from another device shows its
+            // summary and nothing else.
+            let resumable = crate::coding_flow::run_is_resumable_ref(&session_id, cx);
+            let toggle_id = session_id.clone();
+            let resume_id = session_id.clone();
+            recent = recent.child(render_run_row(
+                session,
+                expanded,
+                resumable,
+                cx.listener(move |this: &mut Self, _, _, cx| {
+                    if !this.expanded_runs.insert(toggle_id.clone()) {
+                        this.expanded_runs.remove(&toggle_id);
+                    }
+                    cx.notify();
+                }),
+                move |_, window, cx| {
+                    crate::action_run::resume_run(
+                        resume_id.clone(),
+                        Some(window.window_handle()),
+                        false,
+                        coding::LaunchOrigin::Local,
+                        cx,
+                    );
+                },
+                cx,
+            ));
         }
         body = body.child(recent);
         body.into_any_element()
@@ -1195,7 +1227,15 @@ fn run_started_at(session: &domain::rows::CodingSession) -> Option<&str> {
 
 /// "Last run ended, 2 hours ago" — the status word plus when it started.
 fn last_run_label(session: &domain::rows::CodingSession) -> String {
-    let status = session.status.clone().unwrap_or_else(|| "unknown".to_string());
+    // EXP-637: a finished run says what it ACHIEVED ("Done" / "Blocked" /
+    // "No changes"), not merely that its status is `ended`.
+    let status = match session.status.as_deref() {
+        Some(domain::contract::CODING_SESSION_STATUS_ENDED) => {
+            crate::run_outcome::outcome_label(session.outcome.as_deref()).to_string()
+        }
+        Some(status) => status.to_string(),
+        None => "unknown".to_string(),
+    };
     match run_started_at(session) {
         Some(at) => {
             let when = crate::comments::relative_time(at, chrono::Utc::now().timestamp());
@@ -1208,7 +1248,18 @@ fn last_run_label(session: &domain::rows::CodingSession) -> String {
 /// One "Recent automated runs" row: the action's name snapshot and the run's
 /// status + age. No "Automated" badge (EXP-643) — the list header already says
 /// so on every client.
-fn render_run_row(session: &domain::rows::CodingSession, cx: &App) -> gpui::AnyElement {
+/// EXP-637: the row is EXPANDABLE (decision 5) — collapsed it is
+/// `action name · outcome glyph + label · relative time`; expanded it adds
+/// the agent's full summary and, when the run registry still holds its
+/// workspace, a Resume button. Same rule in every runs list on every client.
+fn render_run_row(
+    session: &domain::rows::CodingSession,
+    expanded: bool,
+    resumable: bool,
+    on_toggle: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+    on_resume: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+    cx: &App,
+) -> gpui::AnyElement {
     let theme = cx.theme();
     let muted = theme.muted_foreground;
     let name = session
@@ -1217,23 +1268,35 @@ fn render_run_row(session: &domain::rows::CodingSession, cx: &App) -> gpui::AnyE
         // The snapshot survives the action's deletion; only a pre-EXP-253 row
         // could lack it.
         .unwrap_or_else(|| "Action".to_string());
-    let status = session.status.clone().unwrap_or_else(|| "unknown".to_string());
+    let ended = session.status.as_deref() == Some(domain::contract::CODING_SESSION_STATUS_ENDED);
+    let outcome = session.outcome.as_deref();
+    let status = if ended {
+        crate::run_outcome::outcome_label(outcome).to_string()
+    } else {
+        session.status.clone().unwrap_or_else(|| "unknown".to_string())
+    };
     let when = run_started_at(session)
         .map(|at| crate::comments::relative_time(at, chrono::Utc::now().timestamp()))
         .unwrap_or_default();
-    crate::surface::glass_row_card()
+    let summary = session.summary.clone().filter(|text| !text.trim().is_empty());
+    let has_detail = summary.is_some() || (ended && resumable);
+    let glyph = if ended {
+        crate::run_outcome::outcome_icon(outcome)
+    } else {
+        registry::ACTION_AUTOMATION
+    };
+    let glyph_color = if ended {
+        crate::run_outcome::outcome_color(outcome, cx)
+    } else {
+        muted
+    };
+    let header = div()
         .flex()
         .w_full()
         .min_w_0()
         .items_center()
         .gap_2()
-        .px_3()
-        .py_2p5()
-        .child(
-            Icon::from(registry::ACTION_AUTOMATION)
-                .xsmall()
-                .text_color(muted),
-        )
+        .child(Icon::from(glyph).xsmall().text_color(glyph_color))
         .child(
             div()
                 .flex_1()
@@ -1250,6 +1313,55 @@ fn render_run_row(session: &domain::rows::CodingSession, cx: &App) -> gpui::AnyE
                 .text_color(muted)
                 .child(SharedString::from(format!("{status} · {when}"))),
         )
+        .when(has_detail, |this| {
+            this.child(
+                Button::new(SharedString::from(format!("run-toggle-{}", session.id)))
+                    .ghost()
+                    .xsmall()
+                    .icon(
+                        Icon::from(if expanded {
+                            registry::UI_CHEVRON_UP
+                        } else {
+                            registry::UI_CHEVRON_DOWN
+                        })
+                        .xsmall(),
+                    )
+                    .on_click(on_toggle),
+            )
+        });
+    crate::surface::glass_row_card()
+        .flex()
+        .flex_col()
+        .w_full()
+        .min_w_0()
+        .gap_2()
+        .px_3()
+        .py_2p5()
+        .child(header)
+        .when(expanded, |this| {
+            this.when_some(summary, |this, summary| {
+                this.child(
+                    div()
+                        .w_full()
+                        .min_w_0()
+                        .text_xs()
+                        .text_color(muted)
+                        .child(SharedString::from(summary)),
+                )
+            })
+            .when(ended && resumable, |this| {
+                this.child(
+                    div().flex().w_full().child(
+                        Button::new(SharedString::from(format!("run-resume-{}", session.id)))
+                            .ghost()
+                            .xsmall()
+                            .icon(Icon::from(registry::RUN_RESUME).xsmall())
+                            .label("Resume")
+                            .on_click(on_resume),
+                    ),
+                )
+            })
+        })
         .into_any_element()
 }
 

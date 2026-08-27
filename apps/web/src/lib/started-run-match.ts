@@ -17,6 +17,10 @@ export type StartedRunKey =
    * Nothing narrower exists — a batch row is unmatchable by issue server-side
    * too — so the userId + startedAt cut carries the identity. */
   | { kind: `batch` }
+  /** EXP-637: a resumed run — the desktop stamps `resumed_from_id` with the
+   * ended run's id. `startedReason` must be NULL: an automation firing the
+   * same action moments later is a different run, not this resume. */
+  | { kind: `resumed`; fromId: string }
 
 /** Clock-skew slack on the desktop-written `started_at`. */
 export const STARTED_RUN_SKEW_MS = 120_000
@@ -40,6 +44,9 @@ export interface StartedRunCandidate {
   actionName: string | null
   userId: string
   startedAt: Date | string
+  /** EXP-637; absent on rows from a pre-EXP-637 server. */
+  resumedFromId?: string | null
+  startedReason?: string | null
 }
 
 export function matchesStartedRun(
@@ -60,6 +67,10 @@ export function matchesStartedRun(
       return session.issueId === key.issueId && session.actionName == null
     case `batch`:
       return session.issueId == null && session.actionName == null
+    case `resumed`:
+      return (
+        session.resumedFromId === key.fromId && session.startedReason == null
+      )
   }
 }
 

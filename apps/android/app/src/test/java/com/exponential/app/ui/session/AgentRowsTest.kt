@@ -25,6 +25,9 @@ class AgentRowsTest {
         status: String = "running",
         branch: String? = null,
         updatedAt: String = "2026-07-17T11:30:00Z",
+        endedBy: String? = null,
+        endedAt: String? = null,
+        startedAt: String = "2026-07-17T09:00:00Z",
     ) = CodingSessionEntity(
         id = id,
         issueId = issueId,
@@ -32,9 +35,31 @@ class AgentRowsTest {
         userId = userId,
         status = status,
         branch = branch,
-        startedAt = "2026-07-17T09:00:00Z",
-        createdAt = "2026-07-17T09:00:00Z",
+        endedBy = endedBy,
+        endedAt = endedAt,
+        startedAt = startedAt,
+        createdAt = startedAt,
         updatedAt = updatedAt,
+    )
+
+    // An ENDED run the agent closed out itself — what "Recent runs" lists.
+    private fun endedRun(
+        id: String,
+        userId: String = "me",
+        teamId: String = "team-1",
+        issueId: String? = null,
+        endedBy: String? = "agent",
+        endedAt: String? = "2026-07-17T11:00:00Z",
+        startedAt: String = "2026-07-17T09:00:00Z",
+    ) = session(
+        id = id,
+        userId = userId,
+        issueId = issueId,
+        teamId = teamId,
+        status = "ended",
+        endedBy = endedBy,
+        endedAt = endedAt,
+        startedAt = startedAt,
     )
 
     private fun issue(
@@ -312,5 +337,100 @@ class AgentRowsTest {
             teamId = "team-1",
         )
         assertNull(resolveBatchPrIssue(reps, "exp/batch-abcd1234"))
+    }
+
+    // ── EXP-637: the "Recent runs" list ────────────────────────────────────
+
+    @Test
+    fun `lists only the caller's own agent-closed runs in this team`() {
+        val rows = recentRunRows(
+            sessions = listOf(
+                endedRun("mine"),
+                endedRun("theirs", userId = "teammate"),
+                endedRun("elsewhere", teamId = "team-2"),
+                // Killed, merged or swept — not a report the agent wrote.
+                endedRun("killed", endedBy = "user"),
+                endedRun("merged", endedBy = "merge"),
+                // Pre-EXP-637 rows carry no ended_by at all.
+                endedRun("legacy", endedBy = null),
+            ),
+            issues = emptyList(),
+            currentUserId = "me",
+            teamId = "team-1",
+        )
+        assertEquals(listOf("mine"), rows.map { it.session.id })
+    }
+
+    @Test
+    fun `a still-live run is never a recent run`() {
+        val rows = recentRunRows(
+            sessions = listOf(
+                session("running", userId = "me", endedBy = "agent"),
+                endedRun("done"),
+            ),
+            issues = emptyList(),
+            currentUserId = "me",
+            teamId = "team-1",
+        )
+        assertEquals(listOf("done"), rows.map { it.session.id })
+    }
+
+    @Test
+    fun `newest first by when the run ended, falling back to its start`() {
+        val rows = recentRunRows(
+            sessions = listOf(
+                endedRun("middle", endedAt = "2026-07-17T10:00:00Z"),
+                endedRun("newest", endedAt = "2026-07-17T11:00:00Z"),
+                // Swept before it ever stamped ended_at — orders off its start.
+                endedRun("oldest", endedAt = null, startedAt = "2026-07-17T08:00:00Z"),
+            ),
+            issues = emptyList(),
+            currentUserId = "me",
+            teamId = "team-1",
+        )
+        assertEquals(listOf("newest", "middle", "oldest"), rows.map { it.session.id })
+    }
+
+    @Test
+    fun `caps the list, keeping the newest`() {
+        val rows = recentRunRows(
+            sessions = (1..25).map {
+                endedRun("run-$it", endedAt = "2026-07-17T%02d:00:00Z".format(it % 24))
+            },
+            issues = emptyList(),
+            currentUserId = "me",
+            teamId = "team-1",
+            limit = 3,
+        )
+        assertEquals(3, rows.size)
+        assertEquals("2026-07-17T23:00:00Z", rows.first().session.endedAt)
+    }
+
+    @Test
+    fun `signed out or no team selected lists nothing`() {
+        val sessions = listOf(endedRun("mine"))
+        assertEquals(
+            emptyList<RecentRunRow>(),
+            recentRunRows(sessions, emptyList(), currentUserId = null, teamId = "team-1"),
+        )
+        assertEquals(
+            emptyList<RecentRunRow>(),
+            recentRunRows(sessions, emptyList(), currentUserId = "me", teamId = null),
+        )
+    }
+
+    @Test
+    fun `an issue-scoped run joins its issue, an action run has none`() {
+        val rows = recentRunRows(
+            sessions = listOf(
+                endedRun("issue-run", issueId = "issue-1", endedAt = "2026-07-17T11:00:00Z"),
+                endedRun("action-run", endedAt = "2026-07-17T10:00:00Z"),
+            ),
+            issues = listOf(issue("issue-1")),
+            currentUserId = "me",
+            teamId = "team-1",
+        )
+        assertEquals("EXP-1", rows.first().issue?.identifier)
+        assertNull(rows.last().issue)
     }
 }

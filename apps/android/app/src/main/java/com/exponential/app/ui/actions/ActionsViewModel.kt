@@ -21,8 +21,10 @@ import com.exponential.app.domain.AutomationTrigger
 import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.RunResumeTarget
 import com.exponential.app.domain.StartedRunKey
 import com.exponential.app.domain.StartedRunMatch
+import com.exponential.app.domain.resumeTargetFor
 import com.exponential.app.domain.stableDeviceOrder
 import com.exponential.app.domain.toSteerDevice
 import com.exponential.app.ui.issue.StartIssueOption
@@ -164,6 +166,25 @@ class ActionsViewModel @Inject constructor(
     val automationRuns: StateFlow<List<CodingSessionEntity>> = teamSessions
         .map { rows -> rows.filter { it.startedReason != null }.take(10) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * EXP-637: where a Resume would go for each listed automated run, keyed by
+     * session id. Only the caller's OWN ended runs whose machine is still
+     * online and advertises `resume-run` resolve — everything else simply
+     * shows no Resume.
+     */
+    val runResumeTargets: StateFlow<Map<String, RunResumeTarget>> = combine(
+        automationRuns,
+        syncedDevices,
+        auth.userId,
+    ) { runs, devices, userId ->
+        runs.mapNotNull { resumeTargetFor(it, devices, userId) }.associateBy { it.sessionId }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    // Session ids with a resume in flight — the row swaps its Resume pill for
+    // a spinner until the desktop's new row lands (or the watch gives up).
+    private val _resuming = MutableStateFlow<Set<String>>(emptySet())
+    val resuming: StateFlow<Set<String>> = _resuming
 
     /** The newest run each automation produced — the rows' "Last run" line.
      * Keyed by `automation_id`, which only automated runs carry. */
@@ -469,14 +490,42 @@ class ActionsViewModel @Inject constructor(
     }
 
     /**
+     * EXP-637: continue an ENDED run on the machine that ran it — the agent
+     * picks up in the same workspace with its own transcript. A resumed run
+     * keeps its recorded agent and options, so nothing else rides along; the
+     * desktop's new row is matched by its `resumed_from_id`.
+     */
+    fun resumeRun(target: RunResumeTarget) {
+        if (target.sessionId in _resuming.value) return
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            _resuming.value = _resuming.value + target.sessionId
+            _runState.value = ActionRunState.Sending
+            try {
+                steerApi.resumeSession(accountId, target.sessionId, target.deviceId)
+                awaitStartedRun(StartedRunKey.Resumed(target.sessionId), target.deviceLabel)
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _runState.value = ActionRunState.Failed(
+                    trpcErrorMessage(t, "The run could not be resumed"),
+                )
+            } finally {
+                _resuming.value = _resuming.value - target.sessionId
+            }
+        }
+    }
+
+    /**
      * Hold the "waiting for the desktop" caption until the run's synced
      * coding_sessions row appears (then hand it to the screen's navigation),
      * or until the deadline passes. A start the desktop REFUSED — conflicted
      * worktree, failed doctor — would otherwise leave the caption up forever
      * (EXP-536); the desktop holds the reason, so say where to look.
      */
-    private suspend fun awaitStartedRun(key: StartedRunKey, device: SteerDevice) {
-        val label = device.deviceLabel.ifBlank { device.deviceId }
+    private suspend fun awaitStartedRun(key: StartedRunKey, device: SteerDevice) =
+        awaitStartedRun(key, device.deviceLabel.ifBlank { device.deviceId })
+
+    private suspend fun awaitStartedRun(key: StartedRunKey, label: String) {
         _runState.value = ActionRunState.Sent(label)
         val userId = auth.userId.value
         val sessionId = if (userId == null) {

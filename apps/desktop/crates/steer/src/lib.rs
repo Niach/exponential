@@ -69,7 +69,7 @@ pub use control_channel::{
 };
 pub use activity::{
     spawn_emitter as spawn_activity_emitter, AnswerLink, EmitterConfig, Redactor, RemoteAnswer,
-    Steering,
+    Steering, TurnSignal,
 };
 pub use frames::{
     ActivityEvent, ClientFrame, QuestionOption, ServerFrame, StartInput, StartRepoGroup,

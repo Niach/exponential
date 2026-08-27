@@ -245,9 +245,15 @@ pub fn conservative_prune_policy(
     branch_prefix: &str,
     keep: HashSet<String>,
     busy_paths: Vec<PathBuf>,
+    run_registry_dir: Option<PathBuf>,
 ) -> PrunePolicy {
-    let mut prefixes = vec!["exp/batch-".to_string()];
-    if !branch_prefix.is_empty() && branch_prefix != "exp/batch-" {
+    let mut prefixes = vec![
+        "exp/batch-".to_string(),
+        // EXP-637: chat runs live under their own lowercase namespace, which
+        // a custom user prefix would otherwise leave unswept.
+        crate::batch_launcher::CHAT_BRANCH_PREFIX.to_string(),
+    ];
+    if !branch_prefix.is_empty() && !prefixes.iter().any(|p| p == branch_prefix) {
         prefixes.push(branch_prefix.to_string());
     }
     PrunePolicy {
@@ -260,6 +266,7 @@ pub fn conservative_prune_policy(
         merged: HashSet::new(),
         finished: HashSet::new(),
         delete_stale_branches: true,
+        run_registry_dir,
     }
 }
 
@@ -472,7 +479,7 @@ mod tests {
     #[test]
     fn conservative_policy_is_git_truth_only() {
         let keep: HashSet<String> = ["exp/EXP-9".to_string()].into();
-        let policy = conservative_prune_policy("exp/", keep.clone(), vec![PathBuf::from("/x")]);
+        let policy = conservative_prune_policy("exp/", keep.clone(), vec![PathBuf::from("/x")], None);
         assert!(policy.prefixes.contains(&"exp/".to_string()));
         assert!(policy.prefixes.contains(&"exp/batch-".to_string()));
         assert_eq!(policy.default_branch, None, "resolved per clone, never fabricated");

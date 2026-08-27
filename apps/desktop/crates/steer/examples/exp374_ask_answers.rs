@@ -222,6 +222,7 @@ fn main() {
             codex_originator: None,
             codex_resume_id: None,
             foreign_host: false,
+            turn_signal: None,
             pi_events: None,
         },
         handle.activity_sender(),

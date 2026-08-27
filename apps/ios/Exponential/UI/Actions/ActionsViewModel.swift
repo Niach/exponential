@@ -303,6 +303,39 @@ final class ActionsViewModel {
         }
     }
 
+    /// EXP-637: the machine a Resume of this run would go to, or nil when the
+    /// send would be refused (not ours, still live, no stamped machine, that
+    /// machine offline or without the `resume-run` cap).
+    func resumeDevice(for session: CodingSessionEntity) -> SteerDevice? {
+        RunResume.target(for: session, devices: allDevices, currentUserId: auth.userId)
+    }
+
+    /// Resume an ended run on the machine that ran it (EXP-637). A resumed run
+    /// keeps the ended row's recorded agent and options, so nothing but the
+    /// two ids is sent; the desktop inserts a fresh row stamped
+    /// `resumed_from_id`, which the shared watcher recognizes and pushes.
+    func resume(session: CodingSessionEntity, device: SteerDevice, userId: String?) {
+        startWatcher.sending()
+        Task {
+            do {
+                try await steerApi.resumeSession(
+                    accountId: accountId,
+                    sessionId: session.id,
+                    deviceId: device.deviceId
+                )
+                startWatcher.begin(
+                    key: .resumed(fromId: session.id),
+                    userId: userId,
+                    device: device,
+                    db: db,
+                    accountId: accountId
+                )
+            } catch {
+                startWatcher.failed(error.localizedDescription)
+            }
+        }
+    }
+
     /// One-shot rebuild of `startCandidates` from the synced store — the
     /// same eligibility as the Agents-tab picker (repo-backed boards, open
     /// issues, no merged PR), scoped to the loaded team.

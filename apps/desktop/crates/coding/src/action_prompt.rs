@@ -48,6 +48,20 @@ impl TriggerNote {
     }
 }
 
+/// EXP-637: the run's dedicated worktree, rendered as the prompt's
+/// `## Workspace` section. Every repo-backed action/chat run gets its own
+/// branch cut from `origin/<default_branch>` now (decision 1), so the prompt
+/// must say where the agent is, how work leaves the worktree (a PR opened
+/// with `repositoryId` + `head` — EXP-626 unlinked PRs), and that a dirty
+/// worktree is never acceptable. `None` = a repo-less scratch run.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkspaceNote {
+    pub branch: String,
+    pub default_branch: String,
+    /// The team `repositories` row id — the `exponential_pr_open` argument.
+    pub repository_id: String,
+}
+
 /// Collapse owner-/server-provided text onto one line so a crafted label or
 /// display can never fake extra prompt sections or list entries.
 fn single_line(text: &str) -> String {
@@ -69,6 +83,20 @@ pub fn render_action_prompt_with_trigger(
     body: &str,
     inputs: &[ActionInputValue],
     trigger: Option<&TriggerNote>,
+) -> String {
+    render_action_prompt_full(name, body, inputs, trigger, None)
+}
+
+/// The full renderer (EXP-637): [`render_action_prompt_with_trigger`] plus
+/// the optional `## Workspace` section a repo-backed run carries (its own
+/// worktree + branch). `workspace: None` renders byte-identically to the
+/// pre-EXP-637 prompt, which the two wrappers above rely on.
+pub fn render_action_prompt_full(
+    name: &str,
+    body: &str,
+    inputs: &[ActionInputValue],
+    trigger: Option<&TriggerNote>,
+    workspace: Option<&WorkspaceNote>,
 ) -> String {
     let inputs_section = if inputs.is_empty() {
         String::new()
@@ -116,12 +144,47 @@ changed:\n\n",
             section
         }
     };
+    let workspace_section = match workspace {
+        None => String::new(),
+        Some(note) => format!(
+            "## Workspace\n\nYou work on branch `{branch}` in a dedicated worktree cut from \
+`origin/{default}`. If you change files: commit, `git push -u origin {branch}`, then open a pull \
+request with the `exponential_pr_open` MCP tool (`repositoryId: \"{id}\"`, `head: \"{branch}\"`). \
+If nothing needs to change, leave the tree clean and report `no_changes`. Never leave the \
+worktree dirty. Never force-push; do not use `gh`.\n\n",
+            branch = note.branch,
+            default = note.default_branch,
+            id = note.repository_id,
+        ),
+    };
+    let close_out = crate::prompt::RUN_CLOSE_OUT;
     format!(
         "You are running the team action \"{name}\" for this user. Follow the \
 instructions below exactly. The exponential MCP tools are available for issue, \
-board, label, and comment operations. When you finish, summarize what you did \
-(and anything you deliberately skipped) as your final message.\n\n{inputs_section}{trigger_section}---\n\n{body}"
+board, label, and comment operations. \
+{close_out}\n\n{inputs_section}{trigger_section}{workspace_section}---\n\n{body}"
     )
+}
+
+/// EXP-615/EXP-637: the chat run's seed prompt. The user's words ride LAST
+/// and VERBATIM (this is the "open a terminal tab on the repo" shape —
+/// anything we wrap around it is words the user did not write), preceded by
+/// a two-line preamble: where the run lives, and how it ends.
+pub fn chat_prompt(user_prompt: &str, workspace: Option<&WorkspaceNote>) -> String {
+    let mut preamble = String::new();
+    if let Some(note) = workspace {
+        preamble.push_str(&format!(
+            "You work on branch `{branch}` in a dedicated worktree cut from `origin/{default}`. \
+If you change files: commit, `git push -u origin {branch}`, then open a pull request with the \
+`exponential_pr_open` MCP tool (`repositoryId: \"{id}\"`, `head: \"{branch}\"`). Never leave the \
+worktree dirty; never force-push; do not use `gh`.\n",
+            branch = note.branch,
+            default = note.default_branch,
+            id = note.repository_id,
+        ));
+    }
+    preamble.push_str("End the session by calling `exponential_sessions_end`.\n");
+    format!("{preamble}\n---\n\n{user_prompt}")
 }
 
 /// Prompt for the builtin "Create action" run (EXP-257 — the successor of
@@ -189,7 +252,8 @@ action naturally varies per run (a free-text scope, a target repository or board
 otherwise omit the field. `exponential_actions_create` also accepts an optional \
 `trigger` field: when the description contains an \"Automation —\" block, pass that \
 block's JSON as `trigger` verbatim; otherwise omit `trigger`. Do not commit, push, \
-or change any files — only call the MCP tools."
+or change any files — only call the MCP tools. After the action is created, call \
+`exponential_sessions_end` with outcome `done`."
     )
 }
 
@@ -221,8 +285,40 @@ rejected because the base branch is stale, merged, or closed, call the \
 onto the repository's default branch), rebase onto the new base, push again with \
 `--force-with-lease`, and retry the merge. If the conflicts \
 cannot be resolved safely, do NOT push or merge: stop and summarize what blocks the \
-rebase instead."
+rebase instead. Finally call `exponential_sessions_end` (`done` after the merge, `blocked` \
+if you stopped)."
     )
+}
+
+/// EXP-637 — the RESUME fallback prompt: a run is being resumed but its
+/// agent's native transcript is gone (pruned, another agent, a machine that
+/// never recorded one), so a FRESH session is spawned in the same workspace
+/// and told to pick the work back up. Mirrors
+/// [`crate::prompt::render_resume_prompt`]'s shape for issue sessions.
+pub fn render_run_resume_prompt(record: &crate::run_registry::RunRecord) -> String {
+    let name = single_line(&record.action_name);
+    let mut prompt = format!(
+        "You are RESUMING the run \"{name}\" — an earlier session already worked here and its \
+conversation could not be recovered, so start by INSPECTING what it left behind."
+    );
+    match (&record.branch, &record.base_branch) {
+        (Some(branch), Some(base)) => prompt.push_str(&format!(
+            " You are on branch `{branch}` in its worktree: run `git status` and \
+`git log origin/{base}..HEAD` to see what was already done."
+        )),
+        _ => prompt.push_str(" Run `git status` to see what was already done."),
+    }
+    if !record.inputs.is_empty() {
+        prompt.push_str("\n\n## Inputs\n\nThe original run received these values:\n\n");
+        for input in &record.inputs {
+            let value = single_line(input.display.as_deref().unwrap_or(&input.value));
+            prompt.push_str(&format!("- {}: {value}\n", single_line(&input.key)));
+        }
+    }
+    prompt.push_str("\n\nContinue from where it left off. ");
+    prompt.push_str(crate::prompt::RUN_CLOSE_OUT);
+    prompt.push('\n');
+    prompt
 }
 
 /// The read-only prompt an action-detail screen shows for a BUILTIN
@@ -262,26 +358,86 @@ mod tests {
         assert!(prompt.contains("team action \"Code review\""));
         // The body rides verbatim after the divider — never rewritten.
         assert!(prompt.ends_with("---\n\n# Review\nScan the repo."));
-        // The preamble asks for a closing summary.
-        assert!(prompt.contains("summarize what you did"));
+        // EXP-637: the preamble's last sentence IS the shared close-out.
+        assert!(prompt.contains("leave the worktree clean"));
+        assert!(prompt.contains("`exponential_sessions_end`"));
+        // No workspace note without a repo-backed run.
+        assert!(!prompt.contains("## Workspace"));
     }
 
     #[test]
-    fn empty_inputs_stay_byte_identical_to_the_legacy_prompt() {
-        // EXP-257 compat lock: an input-less action's prompt must not move a
-        // byte.
+    fn empty_inputs_render_the_exact_preamble() {
+        // EXP-257 compat lock, EXP-637 refresh: an input-less action's prompt
+        // is the preamble (ending in the shared close-out) + the raw body,
+        // and nothing else.
         assert_eq!(
             render_action_prompt("Code review", "# Review\nScan the repo.", &[]),
-            "You are running the team action \"Code review\" for this user. Follow the \
+            format!(
+                "You are running the team action \"Code review\" for this user. Follow the \
 instructions below exactly. The exponential MCP tools are available for issue, \
-board, label, and comment operations. When you finish, summarize what you did \
-(and anything you deliberately skipped) as your final message.\n\n---\n\n# Review\nScan the repo."
+board, label, and comment operations. {}\n\n---\n\n# Review\nScan the repo.",
+                crate::prompt::RUN_CLOSE_OUT
+            )
         );
-        // EXP-530 structural proof: the trigger-aware renderer with None IS
-        // the legacy prompt — user-started runs can't drift.
+        // EXP-530/EXP-637 structural proof: the trigger-aware and full
+        // renderers with None arguments ARE the plain prompt — user-started,
+        // repo-less runs can't drift.
         assert_eq!(
             render_action_prompt_with_trigger("Code review", "# Review\nScan the repo.", &[], None),
             render_action_prompt("Code review", "# Review\nScan the repo.", &[])
+        );
+        assert_eq!(
+            render_action_prompt_full("Code review", "# Review\nScan the repo.", &[], None, None),
+            render_action_prompt("Code review", "# Review\nScan the repo.", &[])
+        );
+    }
+
+    /// EXP-637: a repo-backed run is told where it lives and how work leaves
+    /// the worktree — including the issue-LESS `pr_open` shape (EXP-626).
+    #[test]
+    fn workspace_section_names_the_branch_and_the_unlinked_pr_call() {
+        let workspace = WorkspaceNote {
+            branch: "exp/code-review-1a2b3c4d".to_string(),
+            default_branch: "main".to_string(),
+            repository_id: "repo-1".to_string(),
+        };
+        let prompt = render_action_prompt_full(
+            "Code review",
+            "# Review",
+            &[],
+            None,
+            Some(&workspace),
+        );
+        assert!(prompt.contains("## Workspace"));
+        assert!(prompt.contains("branch `exp/code-review-1a2b3c4d` in a dedicated worktree"));
+        assert!(prompt.contains("cut from `origin/main`"));
+        assert!(prompt.contains("`repositoryId: \"repo-1\"`"));
+        assert!(prompt.contains("`head: \"exp/code-review-1a2b3c4d\"`"));
+        assert!(prompt.contains("report `no_changes`"));
+        assert!(prompt.contains("Never force-push; do not use `gh`."));
+        // The section sits between the trigger block and the divider, and the
+        // body still rides last and verbatim.
+        assert!(prompt.ends_with("---\n\n# Review"));
+    }
+
+    /// EXP-615/EXP-637: the chat prompt is two preamble lines, a divider,
+    /// then the user's own words — byte-for-byte, LAST.
+    #[test]
+    fn chat_prompt_puts_the_users_words_last_and_verbatim() {
+        let workspace = WorkspaceNote {
+            branch: "exp/chat-1a2b3c4d".to_string(),
+            default_branch: "main".to_string(),
+            repository_id: "repo-1".to_string(),
+        };
+        let prompt = chat_prompt("what does trunk_sync do?", Some(&workspace));
+        assert!(prompt.starts_with("You work on branch `exp/chat-1a2b3c4d`"));
+        assert!(prompt.contains("End the session by calling `exponential_sessions_end`."));
+        assert!(prompt.ends_with("---\n\nwhat does trunk_sync do?"));
+        // No workspace = just the close-out line.
+        let bare = chat_prompt("hi", None);
+        assert_eq!(
+            bare,
+            "End the session by calling `exponential_sessions_end`.\n\n---\n\nhi"
         );
     }
 
@@ -519,7 +675,8 @@ free-text scope, a target repository or board); otherwise omit the field. \
 `exponential_actions_create` also accepts an optional `trigger` field: when the \
 description contains an \"Automation —\" block, pass that block's JSON as `trigger` \
 verbatim; otherwise omit `trigger`. Do not commit, push, or change any files — only \
-call the MCP tools."
+call the MCP tools. After the action is created, call `exponential_sessions_end` with \
+outcome `done`."
         );
     }
 
@@ -563,7 +720,8 @@ rejected because the base branch is stale, merged, or closed, call the \
 onto the repository's default branch), rebase onto the new base, push again with \
 `--force-with-lease`, and retry the merge. If the conflicts \
 cannot be resolved safely, do NOT push or merge: stop and summarize what blocks the \
-rebase instead."
+rebase instead. Finally call `exponential_sessions_end` (`done` after the merge, `blocked` \
+if you stopped)."
         );
         // The worktree prompt DOES push (Claude owns the PR branch) and then
         // merges through the server rails — never `gh`, never a raw API call.

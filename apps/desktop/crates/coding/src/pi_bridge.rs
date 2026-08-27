@@ -50,6 +50,10 @@ export default async function (pi: any) {
       authorization: `Bearer ${token}`,
     }
     if (sessionId) headers["mcp-session-id"] = sessionId
+    // EXP-637: the run's coding_sessions row, so exponential_sessions_end
+    // (and the self-merge spare) resolve the caller. Not a secret.
+    const runSession = process.env.EXP_MCP_SESSION_ID
+    if (runSession) headers["x-exp-session-id"] = runSession
     const body: Record<string, unknown> = { jsonrpc: "2.0", method }
     if (params !== undefined) body.params = params
     const notification = method.startsWith("notifications/")
@@ -86,7 +90,8 @@ export default async function (pi: any) {
   })
   await rpc("notifications/initialized")
   const listed = await rpc("tools/list")
-  for (const tool of listed?.tools ?? []) {
+  const tools = listed?.tools ?? []
+  for (const tool of tools) {
     pi.registerTool({
       name: tool.name,
       label: tool.name,
@@ -105,6 +110,62 @@ export default async function (pi: any) {
       },
     })
   }
+
+  // EXP-637 — tool search. The whole exponential_* surface is far more
+  // context than a run needs up front, so only the CORE set (the server's
+  // per-tool `_meta["anthropic/alwaysLoad"]`, the same flag Claude Code and
+  // codex honor natively) stays active; everything else is discovered on
+  // demand through exponential_search_tools. Every call is wrapped: a pi
+  // build without get/setActiveTools degrades OPEN — all tools active, which
+  // is exactly the pre-EXP-637 behavior.
+  const core = tools
+    .filter((tool: any) => tool?._meta?.["anthropic/alwaysLoad"] === true)
+    .map((tool: any) => tool.name)
+  const SEARCH_TOOL = "exponential_search_tools"
+  pi.registerTool({
+    name: SEARCH_TOOL,
+    label: SEARCH_TOOL,
+    description:
+      "Search the Exponential MCP tools by keyword and ACTIVATE the matches for this " +
+      "session. Use it before any operation the currently loaded exponential_* tools " +
+      "do not cover (boards, labels, members, attachments, notifications, actions, " +
+      "automations, repositories, invites, teams).",
+    parameters: {
+      type: "object",
+      properties: { query: { type: "string", description: "Keywords, e.g. \"labels\"." } },
+      required: ["query"],
+    },
+    async execute(_toolCallId: string, params: any) {
+      const terms = String(params?.query ?? "")
+        .toLowerCase()
+        .split(/\s+/)
+        .filter(Boolean)
+      const matches = tools.filter((tool: any) => {
+        const haystack = `${tool.name} ${tool.description ?? ""}`.toLowerCase()
+        return terms.length === 0 || terms.some((term: string) => haystack.includes(term))
+      })
+      try {
+        const active = pi.getActiveTools?.() ?? []
+        pi.setActiveTools?.([...new Set([...active, ...matches.map((t: any) => t.name)])])
+      } catch {}
+      const text = matches.length
+        ? matches.map((t: any) => `${t.name} — ${t.description ?? ""}`.trim()).join("\n")
+        : "No matching Exponential tools."
+      return { content: [{ type: "text", text }], details: {} }
+    },
+  })
+  const activateCore = () => {
+    try {
+      const active = pi.getActiveTools?.()
+      if (!active || !pi.setActiveTools) return
+      const foreign = active.filter((name: string) => !name.startsWith("exponential_"))
+      pi.setActiveTools([...new Set([...foreign, ...core, SEARCH_TOOL])])
+    } catch {}
+  }
+  try {
+    pi.on?.("session_start", activateCore)
+  } catch {}
+  activateCore()
 }
 "#;
 
@@ -318,6 +379,9 @@ export default function (pi: any) {
   const readOnlySuffixes = ["_list", "_get", "_pr_files", "_branch_diff"]
   const blockedWhilePlanning = (name: string): boolean => {
     if (name === "write" || name === "edit") return true
+    // EXP-637: tool SEARCH is read-only discovery — planning needs it to
+    // reach the deferred exponential_* surface at all.
+    if (name === "exponential_search_tools") return false
     if (name.startsWith("exponential_")) {
       return !readOnlySuffixes.some((suffix) => name.endsWith(suffix))
     }
@@ -474,6 +538,28 @@ mod tests {
         }
     }
 
+    /// EXP-637: the bridge defers the full exponential_* surface behind a
+    /// search tool (pi's documented dynamic tool loading) and identifies the
+    /// run to the server. Still zero-import, still secret-free.
+    #[test]
+    fn bridge_defers_tools_behind_search_and_sends_the_session_header() {
+        assert!(PI_BRIDGE_SOURCE.contains("exponential_search_tools"));
+        assert!(PI_BRIDGE_SOURCE.contains(r#"anthropic/alwaysLoad"#));
+        assert!(PI_BRIDGE_SOURCE.contains("setActiveTools"));
+        assert!(PI_BRIDGE_SOURCE.contains("getActiveTools"));
+        assert!(PI_BRIDGE_SOURCE.contains(r#"pi.on?.("session_start""#));
+        // The session header (env-carried, never interpolated into the file).
+        assert!(PI_BRIDGE_SOURCE.contains("EXP_MCP_SESSION_ID"));
+        assert!(PI_BRIDGE_SOURCE.contains("x-exp-session-id"));
+        // The file stays byte-stable, import-free and secret-free.
+        assert!(!PI_BRIDGE_SOURCE.contains("import "));
+        assert!(!PI_BRIDGE_SOURCE.contains("console."));
+        assert!(!PI_BRIDGE_SOURCE.contains("expu_"));
+        // Degrading OPEN matters more than deferring: every registry call is
+        // wrapped, so a pi without the API keeps all tools active.
+        assert!(PI_BRIDGE_SOURCE.contains("} catch {}"));
+    }
+
     #[test]
     fn observer_is_static_env_configured_importless_and_stdout_free() {
         // Same contract as the MCP bridge: env-configured, zero imports.
@@ -531,6 +617,8 @@ mod tests {
         assert!(PI_PLAN_SOURCE.contains(r#""plan_resolved""#));
         assert!(PI_PLAN_SOURCE.contains(r#"pi.on("before_agent_start""#));
         assert!(PI_PLAN_SOURCE.contains(r#"pi.on("tool_call""#));
+        // EXP-637: tool search is read-only discovery — never blocked.
+        assert!(PI_PLAN_SOURCE.contains(r#"if (name === "exponential_search_tools") return false"#));
         // Rejection terminates the turn so the user can give feedback.
         assert!(PI_PLAN_SOURCE.contains("terminate: true"));
         // Bash stays available (prompt discipline only) — the hard block is

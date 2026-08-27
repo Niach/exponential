@@ -26,7 +26,7 @@ use crate::queries;
 use api::actions::{is_builtin_action_id, BUILTIN_CHAT_ID, BUILTIN_FIX_CONFLICTS_ID};
 use coding::{
     ActionInputValue, ActionLaunchRequest, ActionRunKind, LaunchOptions, LaunchOrigin, Prepared,
-    PrepareRequest,
+    PrepareRequest, ResumeRunRequest,
 };
 
 /// The resolved `pr` input target of a fix-conflicts run (EXP-259), read
@@ -462,6 +462,10 @@ team settings → Repositories.";
             }
             let request = ActionLaunchRequest {
                 action_id: action.id.clone(),
+                // EXP-637: minted here, client-side, exactly like a batch id
+                // — it names this run's worktree branch and keys its
+                // `runs.json` record.
+                run_id: coding::new_run_id(),
                 action_name: action.name.clone(),
                 team_id: action.team_id.clone(),
                 body: action.body.clone(),
@@ -524,6 +528,104 @@ fn take_over_branch(branch: &str, window: gpui::AnyWindowHandle, cx: &mut App) -
             true
         }
     }
+}
+
+/// EXP-637 — RESUME an ended action/chat run. The run registry holds
+/// everything the relaunch needs (agent, workspace, branch, options), so this
+/// entry point takes only the ended session's id and the usual launch
+/// context. A missing record or a reclaimed workspace surfaces as a notice —
+/// never a silent no-op, because the user just pressed a Resume button.
+pub(crate) fn resume_run(
+    session_id: String,
+    target: Option<gpui::AnyWindowHandle>,
+    activate_app: bool,
+    origin: LaunchOrigin,
+    cx: &mut App,
+) {
+    // The same duplicate-frame claim the action path takes (EXP-505): a
+    // retried relay resume must not relaunch the run twice.
+    let Some(reservation) = crate::steer_wiring::action_start_reservations()
+        .claim(format!("resume:{session_id}"))
+    else {
+        log::info!("actions: duplicate resume for {session_id} ignored");
+        return;
+    };
+    let Some(deps) = coding_flow::build_action_deps(cx) else {
+        log::warn!("actions: resume ignored — not signed in");
+        return;
+    };
+    let Some(record) = coding::run_registry::get(&deps.data_dir, &session_id) else {
+        notify_target_error(
+            target,
+            "This run can't be resumed on this machine — it has no local record.",
+            cx,
+        );
+        return;
+    };
+    if !record.resumable() {
+        notify_target_error(target, "This run's workspace is gone.", cx);
+        return;
+    }
+    let Some(window) = target.or_else(|| crate::steer_wiring::find_team_window(cx)) else {
+        log::warn!("actions: resume for {session_id} — no shell window open");
+        return;
+    };
+    if activate_app {
+        cx.activate(true);
+    }
+    let request = ResumeRunRequest {
+        record,
+        device_label: coding::default_device_label(),
+        origin,
+        model: None,
+        effort: None,
+    };
+    let hooks = crate::steer_wiring::hook_setup(cx);
+    let observer = crate::steer_wiring::observer_setup(cx);
+    cx.spawn(async move |cx| {
+        let _reservation = reservation;
+        let prepared = cx
+            .background_executor()
+            .spawn(async move {
+                coding::prepare_with_hooks(
+                    &PrepareRequest::ResumeRun(request),
+                    &deps,
+                    hooks.as_ref(),
+                    observer.as_ref(),
+                )
+            })
+            .await;
+        let _ = window.update(cx, |_, window, cx| match prepared {
+            Ok(Prepared::Ready(prepared)) => {
+                let subject = SessionSubject::Action(prepared.session_id.clone());
+                if let Err(message) = coding_flow::spawn_into_window(prepared, subject, window, cx)
+                {
+                    log::warn!("actions: resume spawn failed: {message}");
+                    window.push_notification(
+                        Notification::error(SharedString::from(message)),
+                        cx,
+                    );
+                }
+            }
+            Ok(Prepared::Disabled(reason)) => {
+                log::warn!("actions: resume disabled — {}", reason.message());
+                window.push_notification(
+                    Notification::error(SharedString::from(reason.message())),
+                    cx,
+                );
+            }
+            Err(err) => {
+                log::warn!("actions: resume prepare failed: {err}");
+                window.push_notification(
+                    Notification::error(SharedString::from(format!(
+                        "Could not resume the run: {err}"
+                    ))),
+                    cx,
+                );
+            }
+        });
+    })
+    .detach();
 }
 
 /// Surface a runner failure on the target window (best-effort). A RELAY start

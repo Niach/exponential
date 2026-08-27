@@ -1255,3 +1255,138 @@ describe(`steer.startSession — resume (EXP-481)`, () => {
     expect(lastStartBody().resume).toBeUndefined()
   })
 })
+
+// EXP-637: resuming an ENDED run. A subject of its own — the device's run
+// registry already holds the agent, options and cwd, so naming any of them
+// here would just contradict it. Owner-only (a live session is owner-only
+// since EXP-312, and a resume makes one live again) and pinned to the machine
+// that holds the worktree.
+describe(`steer.startSession — resume a run (EXP-637)`, () => {
+  const RESUME = `77777777-7777-4777-8777-777777777777`
+
+  function queueEndedRun(over: Record<string, unknown> = {}): void {
+    h.dbQueue.push([
+      {
+        id: RESUME,
+        userId: `actor`,
+        hostUserId: null,
+        teamId: `ws-1`,
+        status: `ended`,
+        deviceId: `dev-1`,
+        issueId: null,
+        actionId: null,
+        actionName: `Refresh screenshots`,
+        branch: `exp/refresh-screenshots-1a2b3c4d`,
+        ...over,
+      },
+    ])
+  }
+
+  it(`rides the relay with the run's own routing hints`, async () => {
+    queueEndedRun()
+    queueOwnDevice({ caps: [`actions`, `resume-run`] })
+
+    const result = await caller.startSession({
+      resumeSessionId: RESUME,
+      deviceId: `dev-1`,
+    })
+
+    expect(result).toEqual({ ok: true })
+    expect(lastStartBody()).toMatchObject({
+      resumeSessionId: RESUME,
+      teamId: `ws-1`,
+      actionName: `Refresh screenshots`,
+      branch: `exp/refresh-screenshots-1a2b3c4d`,
+    })
+    // No launch options ride a resume.
+    expect(lastStartBody().agent).toBeUndefined()
+    expect(lastStartBody().resume).toBeUndefined()
+  })
+
+  it(`refuses to combine a resume with any other subject or option`, async () => {
+    for (const extra of [
+      { issueId: ISSUE_A },
+      { actionId: uuid(3) },
+      { agent: `codex` },
+      { model: `opus` },
+      { planMode: true },
+      { resume: true },
+      { teamId: `ws-1` },
+    ]) {
+      const error = await rejectionOf(
+        caller.startSession({
+          resumeSessionId: RESUME,
+          deviceId: `dev-1`,
+          ...extra,
+        } as never)
+      )
+      expect((error as TRPCError).code, JSON.stringify(extra)).toBe(
+        `BAD_REQUEST`
+      )
+    }
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`refuses a run that is not the caller's own`, async () => {
+    queueEndedRun({ userId: `someone-else`, hostUserId: `actor` })
+    const error = await rejectionOf(
+      caller.startSession({ resumeSessionId: RESUME, deviceId: `dev-1` })
+    )
+    expect((error as TRPCError).code).toBe(`FORBIDDEN`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`refuses a run that is still live`, async () => {
+    queueEndedRun({ status: `running` })
+    const error = await rejectionOf(
+      caller.startSession({ resumeSessionId: RESUME, deviceId: `dev-1` })
+    )
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toContain(`still live`)
+  })
+
+  it(`refuses a run whose worktree lives on another machine`, async () => {
+    queueEndedRun({ deviceId: `dev-2` })
+    const other = await rejectionOf(
+      caller.startSession({ resumeSessionId: RESUME, deviceId: `dev-1` })
+    )
+    expect((other as TRPCError).message).toContain(`another machine`)
+
+    // A pre-EXP-549 row has no device stamp at all — same refusal.
+    queueEndedRun({ deviceId: null })
+    const unstamped = await rejectionOf(
+      caller.startSession({ resumeSessionId: RESUME, deviceId: `dev-1` })
+    )
+    expect((unstamped as TRPCError).message).toContain(`another machine`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`refuses a device without the resume-run cap`, async () => {
+    queueEndedRun()
+    queueOwnDevice({ caps: [`actions`, `resume`] })
+    const error = await rejectionOf(
+      caller.startSession({ resumeSessionId: RESUME, deviceId: `dev-1` })
+    )
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toBe(
+      `That device can't resume runs yet. Update it.`
+    )
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`carries an issue run's issueId instead of the action hints`, async () => {
+    queueEndedRun({
+      issueId: ISSUE_A,
+      actionName: null,
+      branch: null,
+    })
+    queueOwnDevice({ caps: [`resume-run`] })
+
+    await caller.startSession({ resumeSessionId: RESUME, deviceId: `dev-1` })
+
+    const body = lastStartBody()
+    expect(body).toMatchObject({ resumeSessionId: RESUME, issueId: ISSUE_A })
+    expect(body.actionName).toBeUndefined()
+    expect(body.branch).toBeUndefined()
+  })
+})

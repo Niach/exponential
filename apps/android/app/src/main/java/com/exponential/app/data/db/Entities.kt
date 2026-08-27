@@ -256,6 +256,21 @@ data class CodingSessionEntity(
     // issue-scoped sessions, on action rows, and on batch rows whose PR
     // isn't open yet (or that were flipped before the stamp existed).
     val branch: String? = null,
+    // EXP-637: the agent's OWN close-out, written by the
+    // `exponential_sessions_end` MCP tool — a one-paragraph summary the team
+    // reads on the run row, plus its outcome (`done` | `blocked` |
+    // `no_changes`). Both NULL on a run that ended any other way and on every
+    // pre-EXP-637 row, so an ended row with no outcome just reads "Ended".
+    val summary: String? = null,
+    val outcome: String? = null,
+    // EXP-637: who ended the run — `agent` (sessions_end), `user`
+    // (killSession), `client` (exit/tab close/quit), `merge` (a PR merge) or
+    // `system` (the sweep). The "Recent runs" lists keep to the agent's own
+    // close-outs; NULL on rows ended before the stamp existed.
+    @ColumnInfo(name = "ended_by") @SerialName("ended_by") @JsonNames("endedBy") val endedBy: String? = null,
+    // EXP-637: the ended run this one continues (Resume) — FK SET NULL. The
+    // post-send start watch matches a resumed run by it (StartedRunMatch).
+    @ColumnInfo(name = "resumed_from_id") @SerialName("resumed_from_id") @JsonNames("resumedFromId") val resumedFromId: String? = null,
     // Desktop-written attention flag (EXP-214): the agent is parked on a
     // plan-approval / AskUserQuestion picker and waits for a human.
     @ColumnInfo(name = "needs_input") @SerialName("needs_input") @JsonNames("needsInput") val needsInput: PgBool = false,

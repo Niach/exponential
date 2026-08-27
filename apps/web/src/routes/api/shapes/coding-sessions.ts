@@ -13,9 +13,13 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // a batch row's Merge shortcut to its OWN PR), `started_reason` for EXP-530, `automation_id` for EXP-583
 // (the Automations run history + per-row last run), `device_id` for
 // EXP-549/550 (the hosting machine's steer deviceId — clients join the synced
-// devices row for the renamed label and its online-ness) — each a ONE-TIME
-// shape-identity rotation (benign: small table, full resync; land in one
-// deploy).
+// devices row for the renamed label and its online-ness), and
+// `summary`/`outcome`/`ended_by`/`resumed_from_id` for EXP-637 (the agent's
+// own close-out via `exponential_sessions_end`, who ended the run, and the
+// run a Resume continues) — each a ONE-TIME shape-identity rotation (benign:
+// small table, full resync; land in one deploy).
+// `merged_own_pr` stays OUT: server-only like `host_user_id` (nothing on a
+// client acts on it; only the merge-driven end paths read it).
 // Old native builds drop unknown columns safely (verified: iOS filters to
 // its SQLite schema, Android ignoreUnknownKeys + partial-plan filter,
 // desktop serde non-strict).
@@ -33,6 +37,10 @@ const CODING_SESSION_COLUMNS = [
   `device_id`,
   `status`,
   `branch`,
+  `summary`,
+  `outcome`,
+  `ended_by`,
+  `resumed_from_id`,
   `needs_input`,
   `started_at`,
   `ended_at`,

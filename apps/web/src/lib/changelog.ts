@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-agent-run-summaries`,
+    date: `2026-08-27`,
+    title: `Agents close out their own runs`,
+    summary: `Action, chat and automated runs now end with the agent's own summary and an outcome you can read on any client, and you can pick a finished run back up where it stopped.`,
+    body: `- **A run reports back**: when an agent finishes it writes a short summary and one of three outcomes, Done, Blocked or No changes. Runs lists show the outcome at a glance; tap or click a run to read the full summary.
+- **Resume**: a finished run can be relaunched on the machine that ran it, from the desktop app, the web app, iOS and Android. It picks up in the same workspace with the agent's own history.
+- **Every run in its own workspace**: action and chat runs on the desktop now get a dedicated branch and worktree instead of working in the main clone, and clean ones are tidied up when the run ends.
+- **Chore pull requests**: agents can open and merge a pull request that belongs to no issue, so housekeeping work stops landing straight on the default branch. Merging your own pull request no longer ends your session.
+- **Leaner agent context**: the tools an agent carries by default shrank to the handful a coding run actually needs, and the rest are looked up on demand.`,
+  },
+  {
     id: `2026-08-inline-terminal-images`,
     date: `2026-08-27`,
     title: `Inline images in the desktop terminal`,

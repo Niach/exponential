@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest"
-import { sessionDisplayState } from "./coding-session-display"
+import {
+  sessionDisplayState,
+  sessionOutcomeLabel,
+} from "./coding-session-display"
 
 // Parity suite — iOS CodingSessionDisplayTests.swift and Android
 // CodingSessionDisplayTest.kt assert the same cases; move all of them in
@@ -35,5 +38,22 @@ describe(`sessionDisplayState`, () => {
     expect(
       sessionDisplayState({ status: `running`, needsInput: false }, null)
     ).toBe(`running`)
+  })
+})
+
+// EXP-637: byte-equal on web, iOS, Android and desktop — a run that reads
+// "Done" on the phone must not read "Completed" in the IDE.
+describe(`sessionOutcomeLabel`, () => {
+  it(`names each outcome the agent can report`, () => {
+    expect(sessionOutcomeLabel(`done`)).toBe(`Done`)
+    expect(sessionOutcomeLabel(`blocked`)).toBe(`Blocked`)
+    expect(sessionOutcomeLabel(`no_changes`)).toBe(`No changes`)
+  })
+
+  it(`falls back to Ended for every run that closed some other way`, () => {
+    // Killed, exited, merged, swept — and rows from a pre-EXP-637 server.
+    expect(sessionOutcomeLabel(null)).toBe(`Ended`)
+    expect(sessionOutcomeLabel(undefined)).toBe(`Ended`)
+    expect(sessionOutcomeLabel(`something-new`)).toBe(`Ended`)
   })
 })

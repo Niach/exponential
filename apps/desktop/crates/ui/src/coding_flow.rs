@@ -176,13 +176,14 @@ impl CodingHub {
         // executor; paths/prefs-only saves no-op.
         if result.is_ok() {
             if let Some(trpc) = crate::queries::trpc_client(cx) {
-                let device_id =
-                    steer::persistent_device_id(&crate::session::AuthContext::global(cx).data_dir);
+                let data_dir = crate::session::AuthContext::global(cx).data_dir.clone();
+                let device_id = steer::persistent_device_id(&data_dir);
                 cx.background_executor()
                     .spawn(async move {
                         crate::device_sync::push_local_defaults_if_changed(
                             trpc,
                             settings_path,
+                            data_dir,
                             device_id,
                             settings,
                         );
@@ -254,6 +255,14 @@ pub struct LocalCodingSession {
     pub manager: WeakEntity<TerminalManager>,
     /// The team action this run executes (`None` for issue/batch sessions).
     pub action_id: Option<String>,
+    /// EXP-637: `schedule`/`event` when an AUTOMATION started this run —
+    /// nobody is watching its tab, so an agent-declared end closes it
+    /// instead of leaving an ended strip. `None` = a person started it.
+    pub started_reason: Option<String>,
+    /// EXP-637: the run's own worktree, auto-removed at exit when it is
+    /// clean and carries no commits. `None` for issue/batch sessions and for
+    /// runs with no worktree of their own.
+    pub run_cleanup: Option<coding::RunCleanup>,
 }
 
 /// Subject-keyed registry of local sessions. An entity (not a bare global) so
@@ -342,6 +351,15 @@ impl LocalSessions {
         self.all().find(|session| holds_branch(&session.branch, branch))
     }
 
+    /// EXP-637: was this session started by an AUTOMATION? An unknown id
+    /// reads as `false` — the safe answer, since it only decides whether an
+    /// agent-declared end closes the tab or leaves an ended strip.
+    pub fn is_automated(&self, session_id: &str) -> bool {
+        self.all()
+            .find(|session| session.session_id == session_id)
+            .is_some_and(|session| session.started_reason.is_some())
+    }
+
     /// Whether a live fix-conflicts run (EXP-259) is already working
     /// `branch` — the ONLY case the "Fix conflicts" buttons park as
     /// "Fixing…". Any other session holding the branch (its own coding
@@ -417,6 +435,54 @@ impl LocalSessions {
         // EXP-481: a session ending changes the inventory's busy flags.
         crate::device_sync::report_soon(cx);
         if let Some(entry) = removed {
+            // EXP-637: reclaim the run's own worktree — but ONLY when it is
+            // provably clean and carries no commits ([`coding::run_cleanup`]).
+            // Background, because it shells out to git; the ended strip's
+            // amber "left uncommitted changes" warning is stamped from the
+            // verdict when it lands.
+            if let Some(cleanup) = entry.run_cleanup.clone() {
+                let session_id = entry.session_id.clone();
+                let tab = entry.tab;
+                let data_dir = crate::window_size::app_data_dir();
+                cx.spawn(async move |cx| {
+                    let verdict = cx
+                        .background_executor()
+                        .spawn({
+                            let cleanup = cleanup.clone();
+                            async move { coding::remove_if_clean(&cleanup) }
+                        })
+                        .await;
+                    let _ = cx.update(|cx| {
+                        match &verdict {
+                            coding::CleanupOutcome::Removed => {
+                                // The workspace is gone: nothing left to
+                                // resume, so the record goes too.
+                                if let Some(dir) = &data_dir {
+                                    coding::run_registry::remove(dir, &session_id);
+                                }
+                                // The summary stays on the strip — only the
+                                // Resume offer goes with the workspace.
+                                crate::ended_runs::EndedRuns::note_not_resumable(tab, cx);
+                            }
+                            outcome if outcome.left_dirty() => {
+                                crate::ended_runs::EndedRuns::note_left_dirty(
+                                    tab,
+                                    cleanup.branch.clone(),
+                                    cx,
+                                );
+                            }
+                            _ => {}
+                        }
+                        log::info!(
+                            "run cleanup [{session_id}] on {}: {verdict:?}",
+                            cleanup.branch
+                        );
+                        // EXP-481: the worktree inventory changed.
+                        crate::device_sync::report_soon(cx);
+                    });
+                })
+                .detach();
+            }
             TokenRefreshers::release(&entry.clone, cx);
             // EXP-640: the crash-recovery registry entry is deliberately NOT
             // dropped here — the session's end path is running (or already
@@ -471,6 +537,8 @@ impl LocalSessions {
                         if *event != TerminalManagerEvent::TabClosed(watch_tab) {
                             return;
                         }
+                        // EXP-637: the ended strip never outlives its tab.
+                        crate::ended_runs::EndedRuns::remove(watch_tab, cx);
                         // End the row off the foreground (idempotent
                         // server-side — a normal exit already ended it
                         // before the close).
@@ -528,14 +596,33 @@ impl LocalSessions {
         // row and removes the entry, which drops this subscription — fire-
         // once by construction. Issue sessions need none of this: their
         // server-side →ended flip lands via the kill-watch.
+        //
+        // EXP-637 (decision 6): NOT when the session merged its own PR. The
+        // server flips such a row back to `running` instead of ending it
+        // (server-only `merged_own_pr`), so a live `running` row on a merged
+        // branch IS this session having merged it — and it goes on working
+        // until it calls `exponential_sessions_end`. An externally merged
+        // batch is parked `in_review` (its own `pr_open` put it there) or
+        // already `ended`, so the close still fires for it.
         let batch_close = (matches!(subject, SessionSubject::Batch(_))
             && !session.branch.is_empty())
-        .then(|| (session.branch.clone(), session.tab, session.manager.clone()));
-        if let Some((branch, tab, manager)) = batch_close.clone() {
+        .then(|| {
+            (
+                session.branch.clone(),
+                session.tab,
+                session.manager.clone(),
+                session.session_id.clone(),
+            )
+        });
+        if let Some((branch, tab, manager, session_id)) = batch_close.clone() {
             if let Some(store) = Store::try_global(cx) {
                 let issues = store.collections().issues.clone();
+                let sessions_collection = store.collections().coding_sessions.clone();
                 watchers.push(cx.observe(&issues, move |issues, cx| {
                     if !branch_pr_merged(&branch, issues.read(cx).iter()) {
+                        return;
+                    }
+                    if session_merged_its_own_pr(&sessions_collection, &session_id, cx) {
                         return;
                     }
                     if let Some(manager) = manager.upgrade() {
@@ -567,9 +654,14 @@ impl LocalSessions {
         // a merged branch) never sees another issues notify — run the same
         // check once, AFTER the entry exists so the close's teardown finds
         // and removes it.
-        if let Some((branch, tab, manager)) = batch_close {
+        if let Some((branch, tab, manager, session_id)) = batch_close {
             let merged = Store::try_global(cx).is_some_and(|store| {
                 branch_pr_merged(&branch, store.collections().issues.read(cx).iter())
+                    && !session_merged_its_own_pr(
+                        &store.collections().coding_sessions,
+                        &session_id,
+                        cx,
+                    )
             });
             if merged {
                 if let Some(manager) = manager.upgrade() {
@@ -578,6 +670,25 @@ impl LocalSessions {
             }
         }
     }
+}
+
+/// EXP-637 (decision 6): did THIS session merge the PR that just landed?
+/// A merge normally ends every live session on the PR — except the one that
+/// called `exponential_pr_merge` itself, which the server spares and flips
+/// back to `running`. So a still-`running` own row on a merged branch means
+/// "the agent merged its own PR and is still working"; anything else
+/// (`in_review`, `ended`, a row that never synced) means the merge came from
+/// somewhere else and the tab should close.
+fn session_merged_its_own_pr(
+    sessions: &Entity<sync::collections::Collection<domain::rows::CodingSession>>,
+    session_id: &str,
+    cx: &App,
+) -> bool {
+    sessions
+        .read(cx)
+        .get(session_id)
+        .and_then(|row| row.status.as_deref())
+        .is_some_and(|status| status == domain::contract::CODING_SESSION_STATUS_RUNNING)
 }
 
 /// Does a session's worktree sit on `branch`? An EMPTY branch never matches
@@ -977,6 +1088,7 @@ pub fn build_launch(
         issue_seed: Arc::new(move |_| Some(seed.clone())),
         worktrees: Arc::new(coding::GitWorktrees),
         codex_sessions_root: None,
+        claude_projects_root: None,
         device_id: Some(steer::persistent_device_id(&data_dir)),
         data_dir,
     };
@@ -1055,9 +1167,31 @@ pub fn build_batch_deps(cx: &mut App) -> Option<CodingDeps> {
         issue_seed: Arc::new(|_| None),
         worktrees: Arc::new(coding::GitWorktrees),
         codex_sessions_root: None,
+        claude_projects_root: None,
         device_id: Some(steer::persistent_device_id(&data_dir)),
         data_dir,
     })
+}
+
+/// EXP-637: does the run registry still hold a resumable workspace for this
+/// session? Drives the Resume affordance on the ended strip and in the
+/// Actions run rows — a run whose worktree the prune reclaimed must not
+/// offer a button that can only fail.
+pub fn run_is_resumable(session_id: &str, _cx: &mut App) -> bool {
+    run_is_resumable_now(session_id)
+}
+
+/// [`run_is_resumable`] from a render pass (`&App`).
+pub fn run_is_resumable_ref(session_id: &str, _cx: &App) -> bool {
+    run_is_resumable_now(session_id)
+}
+
+fn run_is_resumable_now(session_id: &str) -> bool {
+    let Some(data_dir) = crate::window_size::app_data_dir() else {
+        return false;
+    };
+    coding::run_registry::get(&data_dir, session_id)
+        .is_some_and(|record| record.resumable())
 }
 
 /// [`build_batch_deps`]'s action sibling (EXP-253): the same assembly — the
@@ -1116,6 +1250,10 @@ pub fn spawn_into_window(
         TabKind::Action(id) => Some(id.clone()),
         _ => None,
     };
+    // EXP-637: automation attribution (decides an agent-declared end's tab
+    // policy) and the run worktree to reclaim at exit.
+    let started_reason = prepared.heartbeat_scope.started_reason.clone();
+    let run_cleanup = prepared.run_cleanup.clone();
 
     let sessions = LocalSessions::global(cx);
     let notify_sessions = sessions.downgrade();
@@ -1172,6 +1310,8 @@ pub fn spawn_into_window(
                     tab: terminal_tab,
                     manager: manager.downgrade(),
                     action_id,
+                    started_reason,
+                    run_cleanup,
                 },
                 trpc,
                 cx,

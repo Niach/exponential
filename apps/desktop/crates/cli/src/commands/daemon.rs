@@ -55,12 +55,15 @@ pub const DEVICE_CAPS: [&str; 3] = ["resume", "worktrees", "launch-defaults"];
 /// desktop's `steer_wiring` caps vec).
 /// EXP-615 adds `chat`: this build runs the hidden `builtin:chat` action, so
 /// the remote Chat tab may target this machine.
-pub const ACTION_CAPS: [&str; 5] = [
+/// EXP-637 adds `resume-run`: this build can resume an ended action/chat run
+/// out of its own run registry.
+pub const ACTION_CAPS: [&str; 6] = [
     "actions",
     "action-inputs",
     "fix-conflicts",
     "automations",
     "chat",
+    "resume-run",
 ];
 
 /// The caps to advertise for a doctor snapshot: the build caps, plus the
@@ -218,6 +221,10 @@ struct LiveSession {
     action_id: Option<String>,
     branch: String,
     is_fix_run: bool,
+    /// EXP-637: the run's own worktree, reclaimed by the reaper when the
+    /// session finishes clean. `None` for issue/batch sessions (their
+    /// worktrees survive by design) and repo-less runs.
+    cleanup: Option<coding::RunCleanup>,
     session: Arc<RunningSession>,
 }
 
@@ -301,6 +308,8 @@ fn reservation_keys(subject: &RemoteStartSubject) -> Vec<String> {
             issue_ids.iter().map(|id| format!("issue:{id}")).collect()
         }
         RemoteStartSubject::Action { action_id, .. } => vec![format!("action:{action_id}")],
+        // EXP-637: a retried resume frame must not relaunch the run twice.
+        RemoteStartSubject::Resume { session_id } => vec![format!("resume:{session_id}")],
     }
 }
 
@@ -481,7 +490,30 @@ fn run_daemon(args: &[String]) -> CommandResult {
             Err(flume::RecvTimeoutError::Disconnected) => break,
         }
 
-        lock_sessions(&sessions).retain(|live| !live.session.is_done());
+        // EXP-637: a finished RUN reclaims its own worktree — but only when
+        // it is provably clean and carries no commits. Blocking git on the
+        // 1Hz loop is fine: it runs once per finished run, not per tick.
+        {
+            let mut guard = lock_sessions(&sessions);
+            let reaped: Vec<(String, coding::RunCleanup)> = guard
+                .iter()
+                .filter(|live| live.session.is_done())
+                .filter_map(|live| {
+                    live.cleanup
+                        .clone()
+                        .map(|cleanup| (live.session.session_id.clone(), cleanup))
+                })
+                .collect();
+            guard.retain(|live| !live.session.is_done());
+            drop(guard);
+            for (session_id, cleanup) in reaped {
+                let verdict = coding::remove_if_clean(&cleanup);
+                if matches!(verdict, coding::CleanupOutcome::Removed) {
+                    coding::run_registry::remove(&ctx.data_dir, &session_id);
+                }
+                log::info!("run cleanup [{session_id}] on {}: {verdict:?}", cleanup.branch);
+            }
+        }
 
         let live_now = lock_sessions(&sessions).len();
         let session_change = reported_sessions != Some(live_now);
@@ -939,6 +971,12 @@ fn handle_remote_start(
         RemoteStartSubject::Action { action_id, team_id, repo, inputs, .. } => remote_action_start(
             ctx, sidecars, runtime, sessions, personal_key, options, origin, action_id, team_id, repo, inputs,
         ),
+        // EXP-637: the run registry holds everything else (agent, workspace,
+        // branch, options), so the frame's launch options are ignored by
+        // contract — a resumed run keeps what it recorded.
+        RemoteStartSubject::Resume { session_id } => remote_resume_start(
+            ctx, sidecars, runtime, sessions, personal_key, origin, session_id,
+        ),
     };
     if let Err(err) = outcome {
         log::warn!("remote start failed: {err:#}");
@@ -1154,6 +1192,44 @@ fn remote_action_start(
     spawn_prepared(ctx, sidecars, runtime, sessions, personal_key, prepared, None, is_fix_run)
 }
 
+/// EXP-637 — RESUME an ended action/chat run out of the local run registry.
+/// A record this daemon never wrote (or whose workspace is gone) is a hard
+/// refusal, logged: the requester sees no new session row, exactly like every
+/// other refused start.
+#[allow(clippy::too_many_arguments)]
+fn remote_resume_start(
+    ctx: &Ctx,
+    sidecars: &Sidecars,
+    runtime: Option<&Arc<steer::SteerRuntime>>,
+    sessions: &Sessions,
+    personal_key: Option<String>,
+    origin: coding::LaunchOrigin,
+    session_id: String,
+) -> anyhow::Result<()> {
+    let Some(record) = coding::run_registry::get(&ctx.data_dir, &session_id) else {
+        anyhow::bail!("no local record for run {session_id} — it ran on another machine");
+    };
+    if !record.resumable() {
+        anyhow::bail!("run {session_id}'s workspace is gone");
+    }
+    let request = coding::ResumeRunRequest {
+        record,
+        device_label: coding::default_device_label(),
+        origin,
+        model: None,
+        effort: None,
+    };
+    let deps = launch::coding_deps(ctx, HashMap::new(), launch::LaunchHost::Daemon);
+    let prepared = coding::prepare_with_hooks(
+        &PrepareRequest::ResumeRun(request),
+        &deps,
+        sidecars.hook_setup().as_ref(),
+        sidecars.observer_setup().as_ref(),
+    )
+    .map_err(|err| anyhow::anyhow!("{err}"))?;
+    spawn_prepared(ctx, sidecars, runtime, sessions, personal_key, prepared, None, false)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn spawn_prepared(
     ctx: &Ctx,
@@ -1184,6 +1260,8 @@ fn spawn_prepared(
         terminal::tab::TabKind::Action(id) => Some(id.clone()),
         _ => None,
     };
+    // EXP-637: snapshotted before the launch consumes the prepared value.
+    let cleanup = prepared.run_cleanup.clone();
     let session = session_host::launch(&env, prepared, false, issue_id.clone())?;
     log::info!(
         "session {} started ({}, branch {})",
@@ -1196,6 +1274,7 @@ fn spawn_prepared(
         action_id,
         branch: session.branch.clone(),
         is_fix_run,
+        cleanup,
         session: Arc::new(session),
     });
     Ok(())
@@ -1416,7 +1495,7 @@ fn run_device_command(ctx: &Ctx, sessions: &Sessions, command: &api::devices::Pe
                 }
             }
         }
-        "worktree_prune" => run_prune(&settings, &repos_root, held),
+        "worktree_prune" => run_prune(&settings, &repos_root, &ctx.data_dir, held),
         other => {
             log::info!("device command {other:?} unsupported — reported back");
             (false, "This machine's app doesn't support that command yet.".to_string())
@@ -1432,10 +1511,18 @@ fn run_device_command(ctx: &Ctx, sessions: &Sessions, command: &api::devices::Pe
 fn run_prune(
     settings: &coding::Settings,
     repos_root: &std::path::Path,
+    data_dir: &std::path::Path,
     held: std::collections::HashSet<String>,
 ) -> (bool, String) {
     let policy =
-        coding::conservative_prune_policy(&settings.branch_prefix, held, Vec::new());
+        coding::conservative_prune_policy(
+            &settings.branch_prefix,
+            held,
+            Vec::new(),
+            // EXP-637: nominate this install's recorded run branches too
+            // (git still confirms they landed before anything is removed).
+            Some(data_dir.to_path_buf()),
+        );
     let mut removed = 0usize;
     let mut skipped = 0usize;
     let mut blocked = false;

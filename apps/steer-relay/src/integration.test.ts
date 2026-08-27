@@ -450,6 +450,65 @@ describe(`steer relay end-to-end`, () => {
       resume: true,
     })
 
+    // EXP-637: a run resume is a subject of its own — it may carry the
+    // issueId/actionId display hints, and it carries no launch options.
+    const runResume = await fetch(`${base}/start`, {
+      method: `POST`,
+      headers: {
+        "x-relay-secret": `integration-secret`,
+        "content-type": `application/json`,
+      },
+      body: JSON.stringify({
+        userId: `owner-1`,
+        deviceId: `dev-9`,
+        resumeSessionId: `sess-77`,
+        teamId: `team-1`,
+        actionId: `act-1`,
+        actionName: `Refresh screenshots`,
+        branch: `exp/refresh-screenshots-1a2b3c4d`,
+      }),
+    })
+    expect(runResume.ok).toBe(true)
+    expect(await desktopIn.nextJson()).toEqual({
+      t: `start_session`,
+      resumeSessionId: `sess-77`,
+      teamId: `team-1`,
+      actionId: `act-1`,
+      actionName: `Refresh screenshots`,
+      branch: `exp/refresh-screenshots-1a2b3c4d`,
+    })
+
+    // teamId is required (the relay routes without a DB read), and a present
+    // hint key that doesn't parse is 400 like every other pinned shape.
+    const resumeNoTeam = await fetch(`${base}/start`, {
+      method: `POST`,
+      headers: {
+        "x-relay-secret": `integration-secret`,
+        "content-type": `application/json`,
+      },
+      body: JSON.stringify({
+        userId: `owner-1`,
+        deviceId: `dev-9`,
+        resumeSessionId: `sess-78`,
+      }),
+    })
+    expect(resumeNoTeam.status).toBe(400)
+    const resumeBadHint = await fetch(`${base}/start`, {
+      method: `POST`,
+      headers: {
+        "x-relay-secret": `integration-secret`,
+        "content-type": `application/json`,
+      },
+      body: JSON.stringify({
+        userId: `owner-1`,
+        deviceId: `dev-9`,
+        resumeSessionId: `sess-79`,
+        teamId: `team-1`,
+        branch: 42,
+      }),
+    })
+    expect(resumeBadHint.status).toBe(400)
+
     // EXP-481: the check-in nudge — secret-gated, delivered iff the control
     // socket is live.
     const noAuthNudge = await fetch(`${base}/devices/owner-1/dev-9/nudge`, {

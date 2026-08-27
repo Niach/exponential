@@ -202,6 +202,11 @@ pub(crate) fn run_emitter(config: EmitterConfig, sender: ActivitySender, active:
         // A pending plan parks pi on a dialog — that IS "needs input" for
         // the synced badge, even though the agent never settled.
         needs_input.tick(idle || plan.pending.is_some(), &config.on_needs_input);
+        // EXP-637: `agent_settled` is pi's true between-turns edge — the
+        // graceful stop waits on it.
+        if let Some(signal) = &config.turn_signal {
+            signal.set_idle(idle);
+        }
         diffs.tick(&config.worktree, &sender, &redactor);
         std::thread::sleep(POLL_INTERVAL);
     }

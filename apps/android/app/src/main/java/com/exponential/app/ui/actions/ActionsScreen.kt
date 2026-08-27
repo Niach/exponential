@@ -52,8 +52,10 @@ import com.exponential.app.data.db.AutomationEntity
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.domain.AutomationTrigger
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.RunResumeTarget
 import com.exponential.app.domain.nextScheduleRun
 import com.exponential.app.domain.triggerSummary
+import com.exponential.app.ui.components.EndedRunRow
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPillButton
@@ -120,6 +122,9 @@ fun ActionsScreen(
     val lastRunByAutomation by viewModel.lastRunByAutomation.collectAsStateWithLifecycle()
     val automationBusy by viewModel.automationBusy.collectAsStateWithLifecycle()
     val automationError by viewModel.automationError.collectAsStateWithLifecycle()
+    // EXP-637: which listed runs can be resumed, and which resume is in flight.
+    val runResumeTargets by viewModel.runResumeTargets.collectAsStateWithLifecycle()
+    val resuming by viewModel.resuming.collectAsStateWithLifecycle()
 
     var segment by rememberSaveable { mutableStateOf(SEGMENT_ACTIONS) }
 
@@ -187,6 +192,13 @@ fun ActionsScreen(
                         isOwner = isTeamOwner,
                         busy = automationBusy,
                         error = automationError,
+                        // EXP-637: a run's close-out and its Resume live on
+                        // the row; the send caption rides this column too, so
+                        // a resume started here reports back here.
+                        runState = runState,
+                        resumeTargets = runResumeTargets,
+                        resuming = resuming,
+                        onResume = viewModel::resumeRun,
                         onSetEnabled = viewModel::setAutomationEnabled,
                         onDelete = viewModel::deleteAutomation,
                         onEdit = { automation ->
@@ -432,6 +444,10 @@ private fun AutomationsContent(
     isOwner: Boolean,
     busy: Boolean,
     error: String?,
+    runState: ActionRunState,
+    resumeTargets: Map<String, RunResumeTarget>,
+    resuming: Set<String>,
+    onResume: (RunResumeTarget) -> Unit,
     onSetEnabled: (String, Boolean) -> Unit,
     onDelete: (String) -> Unit,
     onEdit: (AutomationEntity) -> Unit,
@@ -461,6 +477,10 @@ private fun AutomationsContent(
                     )
                 }
             }
+        }
+        // EXP-637: a Resume sent from a run row reports back on this tab.
+        if (runState !is ActionRunState.Idle) {
+            item(key = "__run_state__") { SteerRunCaptionRow(runState) }
         }
         if (error != null) {
             item(key = "__automation_error__") {
@@ -508,7 +528,23 @@ private fun AutomationsContent(
                 )
             }
             items(runs, key = { it.id }) { session ->
-                AutomatedRunRow(session)
+                // A FINISHED run shows the shared expandable close-out row
+                // (summary behind the tap, Resume when its machine can take
+                // it); one still going keeps the plain status line.
+                if (session.status == DomainContract.codingSessionStatusEnded) {
+                    val target = resumeTargets[session.id]
+                    EndedRunRow(
+                        title = session.actionName ?: "Action run",
+                        outcome = session.outcome,
+                        summary = session.summary,
+                        timeLabel = relativeTime(session.endedAt ?: session.startedAt),
+                        resumeTarget = target,
+                        resuming = session.id in resuming,
+                        onResume = onResume,
+                    )
+                } else {
+                    AutomatedRunRow(session)
+                }
             }
         }
     }
@@ -708,9 +744,10 @@ private fun deviceDisplayLabel(device: SteerDevice?, deviceId: String): String {
 private fun formatRunTime(epochMs: Long): String =
     DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(epochMs))
 
-// One automation-started coding_sessions row (started_reason non-null):
-// action-name snapshot, status, relative start time. No "Automated" badge
-// (EXP-643) — the section header already says so.
+// One automation-started coding_sessions row that is STILL GOING
+// (started_reason non-null): action-name snapshot, status, relative start
+// time. No "Automated" badge (EXP-643) — the section header already says so.
+// EXP-637: a run that has ENDED renders as the shared EndedRunRow instead.
 @Composable
 private fun AutomatedRunRow(session: CodingSessionEntity) {
     Row(

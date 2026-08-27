@@ -334,6 +334,21 @@ export type ServerFrame =
       repo?: StartRepoGroup
       inputs?: StartInput[]
     } & StartSessionOptions)
+  // EXP-637: resume an ENDED run. The device's own run registry holds the
+  // cwd, agent, options and native transcript id, so the frame only names
+  // the run — the optional ids/branch are display hints the desktop can use
+  // before its registry lookup resolves. No launch options ride a resume: a
+  // resumed run keeps the ones it was started with.
+  | {
+      t: `start_session`
+      resumeSessionId: string
+      teamId: string
+      issueId?: string
+      actionId?: string
+      actionName?: string
+      branch?: string
+      startedBy?: string
+    }
   | { t: `input`; data: string } // viewer keystrokes, relay → publisher
   | { t: `answer`; questionId: string; askId?: string; keys: string[]; text?: string } // relay → publisher
   | { t: `kill` }

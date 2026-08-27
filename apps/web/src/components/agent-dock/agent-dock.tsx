@@ -186,6 +186,8 @@ export function AgentDock({
       // view resolves the live device itself.
       device: { label: expandedSession.deviceLabel, online: null },
       paused: false,
+      // The dock renders the live session, never a Resume affordance.
+      canResume: false,
     }
   }, [expandedSession, runningById, expandedIssueRows, boards])
 

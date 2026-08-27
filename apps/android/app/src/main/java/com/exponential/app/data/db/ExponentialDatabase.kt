@@ -182,9 +182,14 @@ import androidx.room.RoomDatabase
     // v40 (EXP-622): devices.is_default — the owner's default machine, the row
     //      every device picker prefills. Additive on an existing shape;
     //      destructive fallback wipes + resyncs.
+    // v41 (EXP-637): coding_sessions.summary / outcome / ended_by /
+    //      resumed_from_id — the agent's own close-out (`exponential_sessions_end`
+    //      writes a summary + `done`/`blocked`/`no_changes`), who ended the run,
+    //      and the ended run a Resume continues. Additive on an existing shape;
+    //      destructive fallback wipes + resyncs.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so an additive shape column just wipes and re-syncs from Electric.
-    version = 40,
+    version = 41,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

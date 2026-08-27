@@ -88,6 +88,7 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
   applyPrOpenedState: vi.fn(async () => {}),
   applyPrReopenedState: vi.fn(async () => {}),
   findIssueIdByBranch: vi.fn(async () => null),
+  endSessionsOnMergedBranch: vi.fn(async () => {}),
 }))
 // EXP-617: the resolver itself (bot filter, id-over-login rule) is covered in
 // github-identity.test.ts — here we only assert WHICH actor the webhook hands
@@ -295,6 +296,13 @@ describe(`github webhook — batch PR fan-out (multi-issue pr_url resolution)`, 
     expect(res.status).toBe(200)
     expect(prSyncMock.applyPrMergeState).not.toHaveBeenCalled()
     expect(prSyncMock.applyPrClosedState).not.toHaveBeenCalled()
+    // EXP-637/EXP-626: no issue resolved means the PR may still be an
+    // issue-less chore PR an action run opened — the branch is the only
+    // handle on the session that opened it.
+    expect(prSyncMock.endSessionsOnMergedBranch).toHaveBeenCalledWith(
+      `org/repo`,
+      `exp/batch-a1b2c3d4`
+    )
   })
 
   it(`opened out-of-band links every resolved issue`, async () => {

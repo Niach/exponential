@@ -196,6 +196,48 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertEqual(stored?.icon, "rocket")
     }
 
+    // EXP-637: the coding-sessions shape carries the agent's own close-out.
+    // An inserted row must round-trip all four columns into the v22 schema.
+    func testCodingSessionInsertPersistsOutcomeAndSummary() async throws {
+        let session = CodingSessionEntity(
+            id: "cs1", issueId: nil, teamId: "ws1", userId: "u1",
+            deviceLabel: "macbook", deviceId: "dev-1", status: "ended",
+            actionName: "Refresh screenshots",
+            summary: "Recaptured every store slide and opened a PR.",
+            outcome: "done", endedBy: "agent", resumedFromId: "cs0",
+            startedAt: "2026-08-27T09:00:00Z", endedAt: "2026-08-27T09:12:00Z",
+            createdAt: "2026-08-27T09:00:00Z", updatedAt: "2026-08-27T09:12:00Z"
+        )
+        let message = ShapeMessage<CodingSessionEntity>.insert(
+            key: #""public"."coding_sessions"/"cs1""#, value: session
+        )
+        try await applyBatch(
+            messages: [message], name: "coding-sessions", table: "coding_sessions", pool: pool
+        )
+        let stored = try await pool.read { try CodingSessionEntity.fetchOne($0, key: "cs1") }
+        XCTAssertEqual(stored?.summary, "Recaptured every store slide and opened a PR.")
+        XCTAssertEqual(stored?.outcome, "done")
+        XCTAssertEqual(stored?.endedBy, "agent")
+        XCTAssertEqual(stored?.resumedFromId, "cs0")
+    }
+
+    // A pre-EXP-637 snapshot omits all four keys entirely — the decoder must
+    // read them as nil rather than throw (which would brick the shape).
+    func testCodingSessionDecodesWithoutOutcomeKeys() throws {
+        let json = """
+            {"id":"cs2","issue_id":null,"team_id":"ws1","user_id":"u1",
+             "device_label":"macbook","status":"ended",
+             "started_at":"2026-08-27T09:00:00Z","ended_at":"2026-08-27T09:12:00Z",
+             "created_at":"2026-08-27T09:00:00Z","updated_at":"2026-08-27T09:12:00Z"}
+            """
+        let row = try JSONDecoder().decode(CodingSessionEntity.self, from: Data(json.utf8))
+        XCTAssertNil(row.summary)
+        XCTAssertNil(row.outcome)
+        XCTAssertNil(row.endedBy)
+        XCTAssertNil(row.resumedFromId)
+        XCTAssertEqual(row.status, "ended")
+    }
+
     func testSupportReplyNotificationInsertPersistsTeamId() async throws {
         // The notifications shape now carries team_id — set on issue-less
         // support_reply rows (the helpdesk ticket's team). An inserted row must

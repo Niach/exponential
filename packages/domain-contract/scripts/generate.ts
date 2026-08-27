@@ -39,6 +39,8 @@ interface Contract {
   notificationType: Section
   prState: Section
   codingSessionStatus: Section
+  codingSessionOutcome: Section
+  codingSessionEndedBy: Section
   codingSession: { staleHours: number }
   device: { onlineWindowSeconds: number }
   subscriberSource: Section
@@ -194,6 +196,8 @@ ${swiftStringArray("commentKindValues", contract.commentKind.values)}
 ${swiftStringArray("notificationTypeValues", contract.notificationType.values)}
 ${swiftStringArray("prStateValues", contract.prState.values)}
 ${swiftStringArray("codingSessionStatusValues", contract.codingSessionStatus.values)}
+${swiftStringArray("codingSessionOutcomeValues", contract.codingSessionOutcome.values)}
+${swiftStringArray("codingSessionEndedByValues", contract.codingSessionEndedBy.values)}
 ${swiftStringArray("subscriberSourceValues", contract.subscriberSource.values)}
 ${swiftStringArray("issueEventTypeValues", contract.issueEventType.values)}
 ${swiftStringArray("codingAgentValues", contract.codingAgent.values)}
@@ -226,6 +230,8 @@ ${swiftNamedValues("commentKind", contract.commentKind.values)}
 ${swiftNamedValues("notificationType", contract.notificationType.values)}
 ${swiftNamedValues("prState", contract.prState.values)}
 ${swiftNamedValues("codingSessionStatus", contract.codingSessionStatus.values)}
+${swiftNamedValues("codingSessionOutcome", contract.codingSessionOutcome.values)}
+${swiftNamedValues("codingSessionEndedBy", contract.codingSessionEndedBy.values)}
 ${swiftNamedValues("subscriberSource", contract.subscriberSource.values)}
 ${swiftNamedValues("issueEventType", contract.issueEventType.values)}
 }
@@ -252,6 +258,8 @@ ${kotlinStringArray("commentKindValues", contract.commentKind.values)}
 ${kotlinStringArray("notificationTypeValues", contract.notificationType.values)}
 ${kotlinStringArray("prStateValues", contract.prState.values)}
 ${kotlinStringArray("codingSessionStatusValues", contract.codingSessionStatus.values)}
+${kotlinStringArray("codingSessionOutcomeValues", contract.codingSessionOutcome.values)}
+${kotlinStringArray("codingSessionEndedByValues", contract.codingSessionEndedBy.values)}
 ${kotlinStringArray("subscriberSourceValues", contract.subscriberSource.values)}
 ${kotlinStringArray("issueEventTypeValues", contract.issueEventType.values)}
 ${kotlinStringArray("codingAgentValues", contract.codingAgent.values)}
@@ -284,6 +292,8 @@ ${kotlinNamedValues("commentKind", contract.commentKind.values)}
 ${kotlinNamedValues("notificationType", contract.notificationType.values)}
 ${kotlinNamedValues("prState", contract.prState.values)}
 ${kotlinNamedValues("codingSessionStatus", contract.codingSessionStatus.values)}
+${kotlinNamedValues("codingSessionOutcome", contract.codingSessionOutcome.values)}
+${kotlinNamedValues("codingSessionEndedBy", contract.codingSessionEndedBy.values)}
 ${kotlinNamedValues("subscriberSource", contract.subscriberSource.values)}
 ${kotlinNamedValues("issueEventType", contract.issueEventType.values)}
 }
@@ -312,6 +322,8 @@ ${rustStrSlice("commentKindValues", contract.commentKind.values)}
 ${rustStrSlice("notificationTypeValues", contract.notificationType.values)}
 ${rustStrSlice("prStateValues", contract.prState.values)}
 ${rustStrSlice("codingSessionStatusValues", contract.codingSessionStatus.values)}
+${rustStrSlice("codingSessionOutcomeValues", contract.codingSessionOutcome.values)}
+${rustStrSlice("codingSessionEndedByValues", contract.codingSessionEndedBy.values)}
 ${rustStrSlice("subscriberSourceValues", contract.subscriberSource.values)}
 ${rustStrSlice("issueEventTypeValues", contract.issueEventType.values)}
 ${rustStrSlice("codingAgentValues", contract.codingAgent.values)}
@@ -344,6 +356,8 @@ ${rustNamedValues("commentKind", contract.commentKind.values)}
 ${rustNamedValues("notificationType", contract.notificationType.values)}
 ${rustNamedValues("prState", contract.prState.values)}
 ${rustNamedValues("codingSessionStatus", contract.codingSessionStatus.values)}
+${rustNamedValues("codingSessionOutcome", contract.codingSessionOutcome.values)}
+${rustNamedValues("codingSessionEndedBy", contract.codingSessionEndedBy.values)}
 ${rustNamedValues("subscriberSource", contract.subscriberSource.values)}
 ${rustNamedValues("issueEventType", contract.issueEventType.values)}
 `

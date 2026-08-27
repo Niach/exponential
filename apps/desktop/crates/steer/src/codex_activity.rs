@@ -1029,6 +1029,11 @@ fn run_emitter_with_root(
             state.attention() || approval_watcher.is_pending(),
             &config.on_needs_input,
         );
+        // EXP-637: codex's own `task_started`/`task_complete` edges ARE the
+        // turn boundary the graceful stop waits on.
+        if let Some(signal) = &config.turn_signal {
+            signal.set_idle(state.idle);
+        }
 
         // 5) Debounced worktree diff snapshot (only when changed).
         diffs.tick(&config.worktree, &sender, &redactor);

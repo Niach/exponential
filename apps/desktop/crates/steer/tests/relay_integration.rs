@@ -266,7 +266,8 @@ fn issue_of(start: &steer::RemoteStart) -> Option<&str> {
     match &start.subject {
         steer::RemoteStartSubject::Issue(id) => Some(id.as_str()),
         steer::RemoteStartSubject::Batch { .. }
-        | steer::RemoteStartSubject::Action { .. } => None,
+        | steer::RemoteStartSubject::Action { .. }
+        | steer::RemoteStartSubject::Resume { .. } => None,
     }
 }
 

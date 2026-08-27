@@ -6,6 +6,7 @@ import { users } from "@/db/auth-schema"
 import { resolveSessionUserId } from "@/lib/auth/resolve-bearer"
 import { jsonResponse } from "@/lib/mcp/helpers"
 import { createExponentialMcpServer } from "@/lib/mcp/server"
+import { parseMcpSessionHeader } from "@/lib/mcp/session-header"
 import {
   FULL_ACCESS,
   resolveMcpTokenAccess,
@@ -83,7 +84,14 @@ async function handle(request: Request) {
     return jsonResponse(401, { error: `User not found for token` })
   }
 
-  const server = createExponentialMcpServer(user, request, resolved.access)
+  // EXP-637: parsed once per request; ownership is enforced per tool.
+  const sessionId = parseMcpSessionHeader(request)
+  const server = createExponentialMcpServer(
+    user,
+    request,
+    resolved.access,
+    sessionId
+  )
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,

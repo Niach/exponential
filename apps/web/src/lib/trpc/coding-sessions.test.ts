@@ -194,6 +194,9 @@ describe(`codingSessions.start — issue path`, () => {
       hostUserId: null,
       deviceId: null,
       deviceLabel: null,
+      // EXP-637: issue rows carry no run branch (the issue owns
+      // `exp/<IDENTIFIER>`) and this start resumes nothing.
+      resumedFromId: null,
       status: `running`,
     })
     expect(result.session).toMatchObject({ id: SESSION_ID, issueId: ISSUE_ID })
@@ -229,6 +232,8 @@ describe(`codingSessions.start — batch path`, () => {
       hostUserId: null,
       deviceId: null,
       deviceLabel: null,
+      branch: null,
+      resumedFromId: null,
       status: `running`,
     })
     // A batch run spans boards: issue_id/board_id must be ABSENT so the
@@ -287,6 +292,8 @@ describe(`codingSessions.start — action path (EXP-253)`, () => {
       hostUserId: null,
       deviceId: null,
       deviceLabel: null,
+      branch: null,
+      resumedFromId: null,
       status: `running`,
     })
     // Action rows are batch-shaped: issue_id/board_id absent so the populate
@@ -1206,5 +1213,112 @@ describe(`codingSessions — host allowances (EXP-432)`, () => {
       hostUserId: `actor`,
       status: `ended`,
     })
+  })
+})
+
+// EXP-637: repo-backed action and chat runs get their own worktree + branch,
+// so the row records it the same way a batch row does once its PR opens.
+describe(`codingSessions — run branch + resume (EXP-637)`, () => {
+  const RESUMED_FROM = `55555555-5555-4555-8555-555555555555`
+
+  it(`stamps the branch on an action start`, async () => {
+    selectResults.push([{ id: ACTION_ID, teamId: TEAM_ID, name: `Refresh` }])
+
+    await caller.start({
+      actionId: ACTION_ID,
+      branch: `exp/refresh-1a2b3c4d`,
+      resumedFromId: RESUMED_FROM,
+    })
+
+    expect(inserts[0]!.values).toMatchObject({
+      branch: `exp/refresh-1a2b3c4d`,
+      resumedFromId: RESUMED_FROM,
+    })
+  })
+
+  it(`stamps the branch on a batch and a builtin start`, async () => {
+    await caller.start({ teamId: TEAM_ID, branch: `exp/chat-1a2b3c4d` })
+    expect(inserts[0]!.values).toMatchObject({ branch: `exp/chat-1a2b3c4d` })
+
+    inserts.length = 0
+    await caller.start({
+      actionId: `builtin:chat`,
+      teamId: TEAM_ID,
+      branch: `exp/chat-9f8e7d6c`,
+    })
+    expect(inserts[0]!.values).toMatchObject({ branch: `exp/chat-9f8e7d6c` })
+  })
+
+  it(`refuses a branch on an issue start — the issue owns its branch`, async () => {
+    const error = await rejectionOf(
+      caller.start({ issueId: ISSUE_ID, branch: `exp/MET-12` })
+    )
+    expect(error).toBeInstanceOf(TRPCError)
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect(inserts).toHaveLength(0)
+  })
+
+  it(`carries the branch through a heartbeat re-create`, async () => {
+    // No existing row → the re-create path.
+    selectResults.push([])
+
+    const result = await caller.heartbeat({
+      id: SESSION_ID,
+      teamId: TEAM_ID,
+      actionId: ACTION_ID,
+      actionName: `Refresh`,
+      branch: `exp/refresh-1a2b3c4d`,
+    })
+
+    expect(result).toEqual({ alive: true })
+    expect(inserts[0]!.values).toMatchObject({
+      id: SESSION_ID,
+      branch: `exp/refresh-1a2b3c4d`,
+    })
+  })
+
+  it(`refuses a branch on an issue-scoped heartbeat`, async () => {
+    const error = await rejectionOf(
+      caller.heartbeat({
+        id: SESSION_ID,
+        issueId: ISSUE_ID,
+        branch: `exp/MET-12`,
+      })
+    )
+    expect(error).toBeInstanceOf(TRPCError)
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+  })
+})
+
+// EXP-637: `end` is the CLIENT end path (agent exit, tab close, quit) and now
+// says so on the row. It never writes summary/outcome — only the agent's own
+// exponential_sessions_end does.
+describe(`codingSessions.end — endedBy stamp (EXP-637)`, () => {
+  it(`stamps endedBy client and clears needsInput`, async () => {
+    selectResults.push([
+      { id: SESSION_ID, userId: `actor`, hostUserId: null, status: `running` },
+    ])
+
+    await caller.end({ id: SESSION_ID })
+
+    expect(updates).toHaveLength(1)
+    expect(updates[0]!.values).toMatchObject({
+      status: `ended`,
+      endedBy: `client`,
+      needsInput: false,
+    })
+    expect(`summary` in updates[0]!.values).toBe(false)
+    expect(`outcome` in updates[0]!.values).toBe(false)
+  })
+
+  it(`leaves an already-ended row alone`, async () => {
+    selectResults.push([
+      { id: SESSION_ID, userId: `actor`, hostUserId: null, status: `ended` },
+    ])
+    selectResults.push([{ id: SESSION_ID, status: `ended` }])
+
+    await caller.end({ id: SESSION_ID })
+
+    expect(updates).toHaveLength(0)
   })
 })

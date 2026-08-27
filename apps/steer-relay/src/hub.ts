@@ -31,6 +31,15 @@ export type StartSubject =
       repo?: StartRepoGroup
       inputs?: StartInput[]
     }
+  // EXP-637: resume an ended run — see the ServerFrame arm in protocol.ts.
+  | {
+      resumeSessionId: string
+      teamId: string
+      issueId?: string
+      actionId?: string
+      actionName?: string
+      branch?: string
+    }
 
 // Abstracted so the hub is unit-testable with fake sockets; the Bun layer
 // adapts ServerWebSocket to this. Text-only since EXP-249 removed the binary
@@ -494,25 +503,37 @@ export class Hub {
     // ServerFrame `frame()` call. Single-issue key order (t, issueId, options)
     // stays byte-for-byte with the pre-batch frame.
     const payload: ServerFrame =
-      `issueId` in subject
-        ? { t: `start_session`, issueId: subject.issueId, ...options }
-        : `actionId` in subject
-          ? {
-              t: `start_session`,
-              actionId: subject.actionId,
-              actionName: subject.actionName,
-              teamId: subject.teamId,
-              ...(subject.repo ? { repo: subject.repo } : {}),
-              ...(subject.inputs ? { inputs: subject.inputs } : {}),
-              ...options,
-            }
-          : {
-              t: `start_session`,
-              issueIds: subject.issueIds,
-              teamId: subject.teamId,
-              repo: subject.repo,
-              ...options,
-            }
+      `resumeSessionId` in subject
+        ? {
+            t: `start_session`,
+            resumeSessionId: subject.resumeSessionId,
+            teamId: subject.teamId,
+            ...(subject.issueId ? { issueId: subject.issueId } : {}),
+            ...(subject.actionId ? { actionId: subject.actionId } : {}),
+            ...(subject.actionName ? { actionName: subject.actionName } : {}),
+            ...(subject.branch ? { branch: subject.branch } : {}),
+            // A resume carries no launch options — only the attribution.
+            ...(options.startedBy ? { startedBy: options.startedBy } : {}),
+          }
+        : `issueId` in subject
+          ? { t: `start_session`, issueId: subject.issueId, ...options }
+          : `actionId` in subject
+            ? {
+                t: `start_session`,
+                actionId: subject.actionId,
+                actionName: subject.actionName,
+                teamId: subject.teamId,
+                ...(subject.repo ? { repo: subject.repo } : {}),
+                ...(subject.inputs ? { inputs: subject.inputs } : {}),
+                ...options,
+              }
+            : {
+                t: `start_session`,
+                issueIds: subject.issueIds,
+                teamId: subject.teamId,
+                repo: subject.repo,
+                ...options,
+              }
     entry.conn.sock.send(frame(payload))
     this.startsRouted += 1
     return { ok: true }

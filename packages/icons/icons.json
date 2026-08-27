@@ -270,7 +270,12 @@
     "ui-attach": "paperclip",
 
     "support-open": "circle-dot",
-    "support-resolved": "circle-check"
+    "support-resolved": "circle-check",
+
+    "run-outcome-done": "circle-check",
+    "run-outcome-blocked": "circle-alert",
+    "run-outcome-no-changes": "circle-minus",
+    "run-resume": "rotate-ccw"
   },
   "custom": {
     "progress-1-4": [

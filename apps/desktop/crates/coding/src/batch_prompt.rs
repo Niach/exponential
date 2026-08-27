@@ -31,6 +31,7 @@ pub struct BatchPromptArgs<'a> {
 /// launch, opening the PR flips every issue to `in_review` server-side, and
 /// merging it completes them to `done`.
 pub fn render_batch_prompt(args: &BatchPromptArgs<'_>) -> String {
+    let close_out = crate::prompt::RUN_CLOSE_OUT;
     let n = args.issues.len();
     let branch = args.branch;
     let default_branch = args.default_branch;
@@ -68,7 +69,7 @@ do not set issue statuses yourself.
 4. Open ONE combined pull request for the whole batch by calling the \
 `exponential_pr_open` MCP tool with `issueIds: [{issue_ids}]` and \
 `head: \"{branch}\"` (base defaults to `{default_branch}`).
-5. End with a short per-issue summary (what changed, anything left open).
+5. End with a short per-issue summary (what changed, anything left open). {close_out}
 
 ## Issue context
 "
@@ -154,7 +155,10 @@ mod tests {
         assert!(!prompt.contains("exponential_release_pr_open"));
         assert!(!prompt.contains("pre-defined subagent"));
         assert!(!prompt.contains("wave"));
-        assert!(!prompt.contains("worktree"));
+        assert!(!prompt.contains("per-issue worktree"));
+        // EXP-637: the shared close-out rides every prompt.
+        assert!(prompt.contains("leave the worktree clean"));
+        assert!(prompt.contains("`exponential_sessions_end`"));
     }
 
     /// Per-issue sections carry identifier, title, UUID, and the description

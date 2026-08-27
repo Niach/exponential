@@ -50,6 +50,7 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.SessionDevicePresentation
 import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.ui.components.BottomBarInset
+import com.exponential.app.ui.components.EndedRunRow
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuDefaults
 import com.exponential.app.ui.components.GlassMenuItem
@@ -99,6 +100,9 @@ fun AgentsScreen(
     val startCandidates by viewModel.startCandidates.collectAsStateWithLifecycle()
     val merging by viewModel.merging.collectAsStateWithLifecycle()
     val mergeErrors by viewModel.mergeErrors.collectAsStateWithLifecycle()
+    // EXP-637: the finished runs the agent closed out itself.
+    val recentRuns by viewModel.recentRuns.collectAsStateWithLifecycle()
+    val resuming by viewModel.resuming.collectAsStateWithLifecycle()
 
     // The device the launcher sheet was opened from (non-null = sheet open).
     var sheetDevice by remember { mutableStateOf<SteerDevice?>(null) }
@@ -165,9 +169,10 @@ fun AgentsScreen(
                     modifier = Modifier.testTag("open-actions"),
                 )
             }
-            // No steer and nothing running → the full empty state (no machines
-            // section to anchor a compact caption).
-            if (!steerOn && state.rows.isEmpty()) {
+            // No steer, nothing running and nothing finished → the full empty
+            // state (no machines section to anchor a compact caption). Past
+            // runs still read fine without a relay — only Resume needs one.
+            if (!steerOn && state.rows.isEmpty() && recentRuns.isEmpty()) {
                 AgentsEmptyState()
             } else {
                 LazyColumn(
@@ -282,6 +287,36 @@ fun AgentsScreen(
                                 // machine to run on.
                                 canFixConflicts = steerOn && !mergeIssue?.branch.isNullOrBlank(),
                                 onFixConflicts = { fixTargetIssueId = mergeIssue?.id },
+                            )
+                        }
+                    }
+
+                    // EXP-637: the runs that finished — the agent's own
+                    // close-outs, expandable to their summary and a Resume.
+                    // Nothing renders while there are none.
+                    if (recentRuns.isNotEmpty()) {
+                        item(key = "__recent_runs_header__") { SectionHeader("Recent runs") }
+                        items(recentRuns, key = { "recent_${it.session.id}" }) { row ->
+                            EndedRunRow(
+                                // An issueless run is an action or chat run
+                                // when it carries its action_name snapshot,
+                                // else a batch run (same rule as the live row).
+                                title = when {
+                                    row.issue != null -> row.issue.title
+                                    row.session.issueId == null ->
+                                        row.session.actionName ?: "Batch run"
+                                    else -> "Issue not synced yet"
+                                },
+                                identifier = row.issue?.identifier,
+                                outcome = row.session.outcome,
+                                summary = row.session.summary,
+                                timeLabel = relativeTime(
+                                    row.session.endedAt ?: row.session.startedAt,
+                                ),
+                                deviceLabel = row.device.displayLabel,
+                                resumeTarget = row.resume,
+                                resuming = row.session.id in resuming,
+                                onResume = viewModel::resumeRun,
                             )
                         }
                     }

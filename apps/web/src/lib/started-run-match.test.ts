@@ -86,6 +86,57 @@ describe(`matchesStartedRun`, () => {
   })
 })
 
+// EXP-637: a Resume waits for the row the desktop inserts with
+// `resumed_from_id` pointing back at the run it continues. Mirrored on iOS
+// (`.resumed`) and Android (`StartedRunKey.Resumed`).
+describe(`the resumed key`, () => {
+  const key: StartedRunKey = { kind: `resumed`, fromId: `sess-old` }
+
+  it(`matches the row that names the resumed run`, () => {
+    expect(
+      match(
+        session({ resumedFromId: `sess-old`, actionName: `Code review` }),
+        key
+      )
+    ).toBe(true)
+  })
+
+  it(`ignores a row resuming a different run, or none at all`, () => {
+    expect(match(session({ resumedFromId: `sess-other` }), key)).toBe(false)
+    expect(match(session(), key)).toBe(false)
+    expect(match(session({ resumedFromId: null }), key)).toBe(false)
+  })
+
+  it(`ignores an automated run — a schedule firing is not this resume`, () => {
+    expect(
+      match(
+        session({ resumedFromId: `sess-old`, startedReason: `schedule` }),
+        key
+      )
+    ).toBe(false)
+  })
+
+  it(`still honours the owner and the freshness cut`, () => {
+    expect(
+      matchesStartedRun(
+        session({ resumedFromId: `sess-old`, userId: `someone-else` }),
+        key,
+        `user-1`,
+        CUTOFF
+      )
+    ).toBe(false)
+    expect(
+      match(
+        session({
+          resumedFromId: `sess-old`,
+          startedAt: new Date(NOW - 3_600_000).toISOString(),
+        }),
+        key
+      )
+    ).toBe(false)
+  })
+})
+
 describe(`findStartedRun`, () => {
   it(`picks the matching row out of the collection`, () => {
     const rows = [

@@ -206,6 +206,9 @@ pub fn launch(
     // --- Steer publisher + activity emitter (attach_publisher parity) ------
     let mut publisher: Option<steer::PublisherHandle> = None;
     let activity_active = Arc::new(AtomicBool::new(true));
+    // EXP-637: the emitter flips it on every turn boundary; the kill-poll's
+    // graceful path waits on it.
+    let turn_signal = Arc::new(steer::TurnSignal::new());
     if let Some(runtime) = env.runtime {
         let term = emulator.term();
         let write_input = pty_writer_input_hook(writer.clone(), term.clone());
@@ -294,6 +297,10 @@ pub fn launch(
                 codex_originator: codex_originator.clone(),
                 codex_resume_id: codex_resume_id.clone(),
                 foreign_host,
+                // EXP-637: the graceful-stop signal — an agent that ended
+                // its own run finishes writing its close-out before the
+                // kill-poll tears the child down.
+                turn_signal: Some(Arc::clone(&turn_signal)),
             },
             handle.activity_sender(),
             Arc::clone(&activity_active),
@@ -310,6 +317,7 @@ pub fn launch(
         let session_id = session_id.clone();
         let own_user = env.ctx.account.user_id.clone();
         let kill_tx = control_tx.clone();
+        let kill_turn_signal = Arc::clone(&turn_signal);
         let watch_done = Arc::clone(&watch_done);
         std::thread::spawn(move || {
             while !watch_done.load(Ordering::SeqCst) {
@@ -319,8 +327,19 @@ pub fn launch(
                 }
                 match api::coding_sessions::get(&trpc, &session_id) {
                     Ok(Some(row)) => match kill_poll_decision(&row, &own_user) {
-                        PollDecision::Kill => {
-                            let _ = kill_tx.send(Control::Kill { outcome: "killed" });
+                        PollDecision::Kill { graceful } => {
+                            if graceful {
+                                // EXP-637: the agent said it was done — let
+                                // it finish the turn it is mid-way through
+                                // (its close-out message), then kill. The
+                                // grace is the bound for an idle edge that
+                                // never arrives.
+                                let waiter = kill_turn_signal.subscribe();
+                                let _ = waiter.recv_timeout(STOP_GRACE);
+                            }
+                            let _ = kill_tx.send(Control::Kill {
+                                outcome: if graceful { "ended" } else { "killed" },
+                            });
                             return;
                         }
                         PollDecision::StopWatching => return,
@@ -383,12 +402,21 @@ pub fn launch(
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PollDecision {
     /// An owned row flipped to `ended` — the durable kill signal.
-    Kill,
+    /// EXP-637: `graceful` when the AGENT ended its own run
+    /// (`exponential_sessions_end`) — the child is still mid-turn writing
+    /// the close-out that call was about, so the kill waits for the turn to
+    /// finish (bounded by [`STOP_GRACE`]). Every other `ended_by` (a user
+    /// kill, a merge, the sweep) means "now", exactly as before.
+    Kill { graceful: bool },
     /// A live owned row — keep polling.
     Continue,
     /// The row was resurrected under a stranger — its edges are not ours.
     StopWatching,
 }
+
+/// How long an agent-declared end waits for the turn to finish before the
+/// kill lands anyway. Mirrors the desktop's `graceful_stop::STOP_GRACE`.
+const STOP_GRACE: Duration = Duration::from_secs(60);
 
 /// The kill-poll's ownership rule. Owner-or-host (EXP-445): a shared-device
 /// row carries the REQUESTER as `user_id` while this daemon is only its
@@ -408,7 +436,10 @@ fn kill_poll_decision(row: &api::coding_sessions::CodingSession, own_user: &str)
         return PollDecision::StopWatching;
     }
     if row.status.as_deref() == Some("ended") {
-        PollDecision::Kill
+        PollDecision::Kill {
+            graceful: row.ended_by.as_deref()
+                == Some(domain::contract::CODING_SESSION_ENDED_BY_AGENT),
+        }
     } else {
         PollDecision::Continue
     }
@@ -580,9 +611,24 @@ mod tests {
         .expect("fixture decodes")
     }
 
+    /// EXP-637: an ended row that also says WHO ended it.
+    fn ended_by(ended_by: &str) -> api::coding_sessions::CodingSession {
+        serde_json::from_value(serde_json::json!({
+            "id": "sess-1",
+            "userId": "me",
+            "status": "ended",
+            "endedBy": ended_by,
+        }))
+        .expect("fixture decodes")
+    }
+
     #[test]
     fn own_rows_kill_on_ended_and_continue_while_live() {
-        assert_eq!(kill_poll_decision(&row(Some("me"), None, "ended"), "me"), PollDecision::Kill);
+        assert_eq!(
+            kill_poll_decision(&row(Some("me"), None, "ended"), "me"),
+            // No `ended_by` (an old server) is not the agent's own close-out.
+            PollDecision::Kill { graceful: false }
+        );
         assert_eq!(
             kill_poll_decision(&row(Some("me"), None, "running"), "me"),
             PollDecision::Continue
@@ -601,7 +647,7 @@ mod tests {
         );
         assert_eq!(
             kill_poll_decision(&row(Some("requester"), Some("me"), "ended"), "me"),
-            PollDecision::Kill
+            PollDecision::Kill { graceful: false }
         );
     }
 
@@ -623,6 +669,33 @@ mod tests {
     /// it) — an ended flip still kills.
     #[test]
     fn missing_user_id_degrades_to_owned() {
-        assert_eq!(kill_poll_decision(&row(None, None, "ended"), "me"), PollDecision::Kill);
+        assert_eq!(
+            kill_poll_decision(&row(None, None, "ended"), "me"),
+            PollDecision::Kill { graceful: false }
+        );
+    }
+
+    /// EXP-637: only the AGENT's own close-out earns the graceful wait —
+    /// killing it mid-turn would truncate exactly the summary the
+    /// `exponential_sessions_end` call was about. Every other end means now.
+    #[test]
+    fn only_an_agent_declared_end_kills_gracefully() {
+        assert_eq!(
+            kill_poll_decision(&ended_by("agent"), "me"),
+            PollDecision::Kill { graceful: true }
+        );
+        for ended_by_value in ["user", "client", "merge", "system"] {
+            assert_eq!(
+                kill_poll_decision(&ended_by(ended_by_value), "me"),
+                PollDecision::Kill { graceful: false },
+                "{ended_by_value} must kill immediately"
+            );
+        }
+        // Every contract value is covered above.
+        assert_eq!(
+            domain::contract::CODING_SESSION_ENDED_BY_VALUES.len(),
+            5,
+            "a new endedBy value needs a decision here"
+        );
     }
 }
