@@ -48,12 +48,18 @@ final class SteerReconnectPolicyTests: XCTestCase {
     // dial wedged mid-connect stuck on "Connecting…" with nothing able to
     // revive it.
 
+    /// `dialActive` in the old shape meant "a dial is in flight OR a retry
+    /// wait is armed". The two are now separate inputs, so the helper keeps the
+    /// old convenience: `dialActive: true` is a dial IN FLIGHT (what
+    /// `.connecting` and most of each `.starting` retry cycle look like), and
+    /// the armed-wait case is spelled out with `retryArmed`.
     private func revive(
-        _ phase: SteerPhaseKind, dialActive: Bool = true, finished: Bool = false,
-        socketStale: Bool = false
+        _ phase: SteerPhaseKind, dialActive: Bool = true, retryArmed: Bool = false,
+        finished: Bool = false, socketStale: Bool = false
     ) -> SteerRevivalDecision {
         SteerReconnectPolicy.revive(
-            phase: phase, dialActive: dialActive, finished: finished, socketStale: socketStale
+            phase: phase, dialInFlight: dialActive, retryArmed: retryArmed, finished: finished,
+            socketStale: socketStale
         )
     }
 
@@ -71,8 +77,35 @@ final class SteerReconnectPolicyTests: XCTestCase {
     }
 
     func testArmedWaitsAreKicked() {
-        XCTAssertEqual(revive(.closedReconnecting), .wakeRetry)
-        XCTAssertEqual(revive(.starting), .wakeRetry)
+        XCTAssertEqual(revive(.closedReconnecting, dialActive: false, retryArmed: true), .wakeRetry)
+        XCTAssertEqual(revive(.starting, dialActive: false, retryArmed: true), .wakeRetry)
+    }
+
+    /// REV: a dial IN FLIGHT must never be kicked. `dialActive` used to conflate
+    /// it with an armed wait, so a wake during `.starting` — where a retry dial
+    /// spends most of each 3s cycle waiting for its join answer — started a
+    /// SECOND dial beside the first. The first socket stayed joined and
+    /// unowned, and its `no_such_session` close then ran against the new dial:
+    /// the live task got nulled out and a phase that had already gone `.live`
+    /// regressed to `.starting`.
+    func testDialInFlightIsNeverKicked() {
+        for phase in [SteerPhaseKind.connecting, .starting, .closedReconnecting] {
+            XCTAssertEqual(revive(phase, dialActive: true, retryArmed: false), .nothing, "\(phase)")
+            // A retry slot left behind by the dial that is now running does not
+            // make it kickable either.
+            XCTAssertEqual(
+                revive(phase, dialActive: true, retryArmed: true), .nothing, "\(phase) + armed"
+            )
+        }
+    }
+
+    /// Neither flag set is still the wedge EXP-625 exists for: an explicit dial.
+    func testNeitherFlagDialsWhateverThePhase() {
+        for phase in [SteerPhaseKind.idle, .connecting, .starting, .closedReconnecting] {
+            XCTAssertEqual(
+                revive(phase, dialActive: false, retryArmed: false), .dial, "\(phase)"
+            )
+        }
     }
 
     func testConnectingWithALiveDialIsLeftAlone() {

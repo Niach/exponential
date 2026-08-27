@@ -392,7 +392,8 @@ final class AgentSessionModel {
             && (lastFrameAt.map { Date().timeIntervalSince($0) > Self.liveStaleSeconds } ?? true)
         let decision = SteerReconnectPolicy.revive(
             phase: phaseKind,
-            dialActive: dialActive,
+            dialInFlight: dialInFlight,
+            retryArmed: retryArmed,
             finished: stopped || isOver,
             socketStale: stale
         )
@@ -405,9 +406,10 @@ final class AgentSessionModel {
         case .dial:
             connect(force: true)
         case .wakeRetry:
-            // A backoff or starting-retry wait is armed but the user is asking
-            // now. Dial immediately WITHOUT touching the phase, so `.starting`
-            // and the "Reconnecting…" banner hold steady across the redial.
+            // A backoff or starting-retry wait is ARMED (never a dial in
+            // flight — the policy rules that out) but the user is asking now.
+            // Dial immediately WITHOUT touching the phase, so `.starting` and
+            // the "Reconnecting…" banner hold steady across the redial.
             retryTask?.cancel()
             retryTask = nil
             resetDialState()
@@ -431,10 +433,17 @@ final class AgentSessionModel {
         }
     }
 
+    /// A retry wait is parked, waiting to start a dial. Only THIS may be cut
+    /// short by a wake signal — an in-flight dial is left to finish, or the
+    /// kick would open a second socket beside the first one (EXP-625).
+    private var retryArmed: Bool {
+        retryTask.map { !$0.isCancelled } ?? false
+    }
+
     /// A dial is in flight, or a retry wait is armed to start one. The one
     /// thing `kick` gates on (EXP-625).
     private var dialActive: Bool {
-        dialInFlight || (retryTask.map { !$0.isCancelled } ?? false)
+        dialInFlight || retryArmed
     }
 
     /// Revive after a shutdown(): re-arm the session observation and redial
@@ -726,6 +735,11 @@ final class AgentSessionModel {
     }
 
     private func dial() async {
+        // Whatever the last dial left open is superseded here and now: closing
+        // it before bumping the generation means the relay drops that viewer
+        // instead of keeping a joined socket nobody owns, and the close lands
+        // on a generation this model no longer answers to.
+        disconnectSocket()
         dialGeneration += 1
         let generation = dialGeneration
         // EXP-625: the retry slot has done its job. A finished-but-uncancelled
@@ -802,7 +816,7 @@ final class AgentSessionModel {
         // (the desktop is still starting). The phase flips on the first
         // confirming server frame instead (see markLive()), so the starting /
         // reconnect retry loops never flash the Live header + composer.
-        receiveLoop()
+        receiveLoop(generation: generation)
     }
 
     /// EXP-625: bound the wait for the relay's answer to our join. The relay
@@ -821,28 +835,36 @@ final class AgentSessionModel {
             }
             logger.warning("join not answered within \(Self.joinAckSeconds)s, redialing")
             self.disconnectSocket()
-            self.onSocketClosed()
+            self.onSocketClosed(generation: generation)
         }
     }
 
-    private func receiveLoop() {
+    /// Every callback carries the `dialGeneration` its socket belongs to and
+    /// goes inert once that generation is superseded: a stale socket's close
+    /// would otherwise null out the CURRENT `task` (stopping the new receive
+    /// loop from re-arming) and drag a freshly live phase back to `.starting`.
+    private func receiveLoop(generation: Int) {
         // The completion runs off the main actor; extract Sendable payloads and
         // hop back (same shape as the deleted SteerViewerModel's loop).
         task?.receive { [weak self] result in
             switch result {
             case .success(.string(let text)):
                 Task { @MainActor in
-                    self?.enqueue(text)
-                    self?.rearm()
+                    guard let self, generation == self.dialGeneration else { return }
+                    self.enqueue(text, generation: generation)
+                    self.rearm(generation: generation)
                 }
             case .success:
                 // Stray BINARY frame — the PTY mirror is gone from the
                 // protocol (EXP-249), so an old desktop's 0x01 output is the
                 // only source left and it is never renderable here.
-                Task { @MainActor in self?.rearm() }
+                Task { @MainActor in
+                    guard let self, generation == self.dialGeneration else { return }
+                    self.rearm(generation: generation)
+                }
             case .failure:
                 Task { @MainActor in
-                    guard let self else { return }
+                    guard let self, generation == self.dialGeneration else { return }
                     // EXP-621: the relay's close code decides what happens next
                     // (SteerReconnectPolicy) — read it BEFORE onSocketClosed
                     // drops the task. `closeCode` is an imported ObjC enum with
@@ -850,14 +872,14 @@ final class AgentSessionModel {
                     // is ever touched; anything unrecognizable (0/.invalid)
                     // falls through to the ordinary backoff path.
                     let code = self.task?.closeCode.rawValue
-                    self.onSocketClosed(closeCode: code)
+                    self.onSocketClosed(closeCode: code, generation: generation)
                 }
             }
         }
     }
 
-    private func rearm() {
-        if !stopped, connected { receiveLoop() }
+    private func rearm(generation: Int) {
+        if !stopped, connected, generation == dialGeneration { receiveLoop(generation: generation) }
     }
 
     /// A frame the relay only sends AFTER a successful join (`activity_reset`
@@ -878,8 +900,8 @@ final class AgentSessionModel {
     /// plain main-actor task: everything the socket delivered before it gets
     /// to run — the whole burst of a replay — is applied together, and a lone
     /// live frame still lands within the same run-loop turn.
-    private func enqueue(_ text: String) {
-        guard !stopped, connected else { return }
+    private func enqueue(_ text: String, generation: Int) {
+        guard !stopped, connected, generation == dialGeneration else { return }
         // EXP-625: the first frame IS the join answer, so it ends this dial and
         // disarms the deadline. Every frame restamps `lastFrameAt`, which is
         // what a wake signal reads to tell a live socket from a quiet corpse.
@@ -1144,11 +1166,19 @@ final class AgentSessionModel {
         task = nil
     }
 
-    /// - Parameter closeCode: the relay's close code when the socket reported
-    ///   one. Nil for every teardown this model drives itself (a
-    ///   `no_such_session` frame, a failed foreground ping), which keeps their
-    ///   pre-EXP-621 behavior.
-    private func onSocketClosed(closeCode: Int? = nil) {
+    /// - Parameters:
+    ///   - closeCode: the relay's close code when the socket reported one. Nil
+    ///     for every teardown this model drives itself (a `no_such_session`
+    ///     frame, a failed foreground ping), which keeps their pre-EXP-621
+    ///     behavior.
+    ///   - generation: the `dialGeneration` the closed socket belonged to. A
+    ///     close from a SUPERSEDED dial is inert — its socket is already gone,
+    ///     and letting it run would drop the CURRENT dial's task (its receive
+    ///     loop then never re-arms) and drag a freshly live phase back. Nil for
+    ///     the teardowns this model drives itself against whatever socket is
+    ///     current.
+    private func onSocketClosed(closeCode: Int? = nil, generation: Int? = nil) {
+        if let generation, generation != dialGeneration { return }
         joinAckTask?.cancel()
         joinAckTask = nil
         dialInFlight = false

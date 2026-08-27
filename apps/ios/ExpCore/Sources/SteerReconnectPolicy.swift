@@ -87,14 +87,19 @@ extension SteerReconnectPolicy {
     ///
     /// - Parameters:
     ///   - phase: the model's phase, flattened.
-    ///   - dialActive: a dial is in flight, or a retry wait is armed. False
-    ///     means nothing is going to happen on its own, whatever the phase.
+    ///   - dialInFlight: a dial is between its entry and its outcome — it owns
+    ///     a socket (or a mint) right now.
+    ///   - retryArmed: a retry wait is parked, waiting to start a dial.
+    ///     Neither flag means nothing is going to happen on its own, whatever
+    ///     the phase.
     ///   - finished: shut down, or the session is over. Nothing left to dial.
     ///   - socketStale: `.live` but no frame has arrived for longer than the
     ///     staleness window, so the socket is probably dead.
     public static func revive(
-        phase: SteerPhaseKind, dialActive: Bool, finished: Bool, socketStale: Bool
+        phase: SteerPhaseKind, dialInFlight: Bool, retryArmed: Bool, finished: Bool,
+        socketStale: Bool
     ) -> SteerRevivalDecision {
+        let dialActive = dialInFlight || retryArmed
         if finished { return .nothing }
         // Checked before `dialActive` so a terminal close stays terminal: it
         // has no dial and never wants one.
@@ -110,6 +115,14 @@ extension SteerReconnectPolicy {
         // explicit connect can get this model moving again. This is the wedge
         // EXP-625 is about, and it wears whatever phase it wedged in.
         if !dialActive { return .dial }
+        // Only an ARMED wait may be cut short. A dial IN FLIGHT owns a socket
+        // whose join is still pending — `.starting` spends most of each retry
+        // cycle right here — and starting a second one alongside it leaves the
+        // first socket joined and unowned: its close then runs against the new
+        // dial, orphaning the live socket and regressing the phase. The
+        // join-ack deadline already bounds an in-flight dial, so waiting it out
+        // is both safe and correct.
+        if dialInFlight { return .nothing }
         switch phase {
         case .closedReconnecting, .starting:
             // A wait is armed but the user is asking now; skip the rest of it.
