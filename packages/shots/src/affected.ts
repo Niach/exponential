@@ -76,8 +76,34 @@ const IGNORED: RegExp[] = [
   /(^|\/)[A-Za-z0-9_]+Tests?\.(swift|kt)$/,
   /^apps\/android\/app\/src\/test\//,
   /^apps\/ios\/[^/]+\/Tests\//,
+  // Rust integration tests. `crates/<name>/tests/` is cargo's own convention,
+  // so no `.test.` infix reaches the generic rule above and this merge's
+  // `crates/terminal/tests/headless.rs` widened all 48 desktop views.
+  /^apps\/desktop\/crates\/[^/]+\/tests\//,
   // The CLI is gpui-free by construction; the styleguide site READS the store.
   /^apps\/desktop\/crates\/cli\//,
+  // The scrubbed activity feed and the relay publisher. The desktop is the
+  // session HOST: it renders its agent in a real terminal grid and draws no
+  // activity feed of its own (`views.json` steering, desktop: "there is no
+  // dock to open on it"), so this extraction can only move pixels on the OTHER
+  // clients — which read it off the relay, not out of this crate. Named file by
+  // file on purpose: `crates/steer/src/lib.rs` also owns
+  // `persistent_device_id`, which decides which synced `devices` row the
+  // machine-settings view calls "this machine".
+  /^apps\/desktop\/crates\/steer\/src\/(activity|codex_activity|publisher)\.rs$/,
+  // An OS-level surface, not in-app pixels: notification banners are drawn by
+  // the notification centre, and the in-app toggle that gates them lives in
+  // `settings/notifications.rs`. It sits under `crates/ui/src` and names no
+  // view, so it widened the whole lane for a doc-comment-only diff.
+  /^apps\/desktop\/crates\/ui\/src\/os_notifications\.rs$/,
+  // The desktop's licence notices: same reasoning as `packages/licenses/`
+  // below — no catalog view photographs a licence surface.
+  /^apps\/desktop\/assets\/licenses\//,
+  // The lockfile alone is not a signal. Every dependency this workspace draws
+  // through is pinned in `Cargo.toml` (gpui/gpui-component by git rev, the
+  // emulator by exact version), so a deliberate UI-affecting bump always edits
+  // the manifest too — and that still widens. A lockfile-only churn does not.
+  /^apps\/desktop\/Cargo\.lock$/,
   /^apps\/(marketing|push-relay|steer-relay|styleguide)\//,
   // The capture pipeline itself, and packages no client renders.
   /^packages\/(shots|tsconfig|steer-ticket|electric-protocol|widget)\//,
@@ -101,6 +127,18 @@ const IGNORED: RegExp[] = [
   // over a shot, so a released entry cannot reach the store.
   /^apps\/web\/src\/lib\/changelog(-seen)?\.ts$/,
   /^apps\/web\/src\/components\/whats-new\.tsx$/,
+  // Pure reconnect POLICY: a decision table over a phase plus two booleans,
+  // returning an enum. Every string in it is a comment. It lives in ExpCore, so
+  // NATIVE_SHARED widened both iOS lanes — two simulator lanes — for a file
+  // that cannot draw. The phase → banner text it decides FOR lives in
+  // `AgentSessionModel`/the session views, which keep widening.
+  //
+  // Its Android and web counterparts (`data/steer/SteerConnection.kt`,
+  // `lib/steer-session-store.ts`) are deliberately NOT here: those hold the
+  // user-visible phase `detail` strings ("Live steering is unavailable on this
+  // instance.") alongside the socket lifecycle, so a change there really can
+  // move pixels. That judgement stays manual until the two are separated.
+  /^apps\/ios\/ExpCore\/Sources\/SteerReconnectPolicy\.swift$/,
   // Static assets no photographed screen renders: the service worker, the PWA
   // manifest, the licence dump, and the icons that live in a browser chrome the
   // capture crops away. (`logo-*.svg` is NOT here — the sidebar draws it.)
@@ -147,6 +185,34 @@ const BROAD: { test: RegExp; platforms: readonly Platform[]; why: string }[] = [
     test: /^apps\/web\/scripts\/screenshot-(desktop|prune-devices)\.ts$/,
     platforms: [`web`, `web-mobile`, `desktop`],
     why: `the stand-in desktop every steering and launcher view needs online`,
+  },
+]
+
+/**
+ * Desktop CRATES that narrow to a view family, in match order.
+ *
+ * [`desktopMatches`] reads module names under `crates/ui/src` — the only crate
+ * that names screens. Everything else in `apps/desktop/` falls through to
+ * SOURCE_ROOTS and widens all 48 desktop views, which is why a 13-file rewrite
+ * inside one crate re-shot the entire lane. These are the crates whose pixels
+ * all land in the same small set of views.
+ *
+ * Generous supersets, like [`NATIVE_DIRS`]: over-capturing inside a family
+ * costs one extra app launch, a family that is too tight silently commits a
+ * stale shot.
+ */
+const DESKTOP_CRATES: { test: RegExp; views: RegExp; why: string }[] = [
+  {
+    // The emulator, its gpui element, the PTY, keys/mouse/selection and the
+    // tab plumbing: every pixel this crate draws is inside a terminal grid.
+    // The CHROME around the grid — dock strip, tab bar, open/close slide —
+    // is `crates/ui/src/terminal_dock.rs` and keeps its own attribution.
+    // `steering` is here because the desktop steers its agent through a real
+    // terminal; its catalog entry is `drive: manual`, so the lane skips it
+    // either way.
+    test: /^apps\/desktop\/crates\/terminal\//,
+    views: /^(terminal|steering)$/,
+    why: `the terminal grid`,
   },
 ]
 
@@ -298,6 +364,16 @@ export function affectedScope(options: AffectedOptions): AffectedScope {
       const viewIds = desktopMatches(path)
       if (viewIds.length > 0) {
         for (const viewId of viewIds) add(viewId, `desktop`, `${path}: names this view's module`)
+        attributed = true
+      }
+    }
+
+    if (!attributed && hits.has(`desktop`)) {
+      const crate = DESKTOP_CRATES.find((rule) => rule.test.test(path))
+      if (crate) {
+        for (const view of viewsFor(`desktop`)) {
+          if (crate.views.test(view.id)) add(view.id, `desktop`, `${path}: draws ${crate.why}`)
+        }
         attributed = true
       }
     }
