@@ -2072,13 +2072,31 @@ fn claude_projects_root(deps: &CodingDeps) -> Option<PathBuf> {
 }
 
 /// Does claude still hold the recorded conversation for this cwd?
+///
+/// The munged-cwd directory is the fast path; claude caps very long project
+/// directory names (~200 chars) and appends a short hash instead, so a miss
+/// falls back to scanning every project directory for `<session_id>.jsonl`
+/// — the uuid is unique, so the first hit IS the transcript. Never depend on
+/// claude's naming rule beyond the fast path.
 fn claude_transcript_exists(deps: &CodingDeps, cwd: &Path, session_id: &str) -> bool {
     let Some(root) = claude_projects_root(deps) else {
         return false;
     };
-    root.join(munge_claude_project_dir(cwd))
-        .join(format!("{session_id}.jsonl"))
+    let file_name = format!("{session_id}.jsonl");
+    if root
+        .join(munge_claude_project_dir(cwd))
+        .join(&file_name)
         .is_file()
+    {
+        return true;
+    }
+    let Ok(entries) = std::fs::read_dir(&root) else {
+        return false;
+    };
+    entries
+        .flatten()
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .any(|entry| entry.path().join(&file_name).is_file())
 }
 
 /// EXP-637 — RESUME an ended action/chat run (blocking, background executor).
@@ -4097,6 +4115,44 @@ mod tests {
         assert_eq!(fresh.resumed_from_id.as_deref(), Some("sess-old"));
         assert_eq!(fresh.claude_session_id.as_deref(), Some("claude-1"));
         assert_eq!(fresh.started_reason, None);
+    }
+
+    /// Claude caps long project directory names and appends a hash, so the
+    /// munged-cwd fast path misses; the probe then finds the transcript by
+    /// its uuid anywhere under the projects root.
+    #[test]
+    fn prepare_resume_run_finds_the_transcript_under_a_hashed_project_dir() {
+        let dir = temp_dir("resume-claude-hashed");
+        let (base, _captured) = canned_server_recording(vec![(
+            200,
+            r#"{"result":{"data":{"session":{"id":"sess-new","issueId":null,"teamId":"ws-1","actionId":"act-1","actionName":"Code review","status":"running"}}}}"#
+                .to_string(),
+        )]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let mut deps = make_deps(&base, &dir.0, worktrees);
+        let record = resume_record(&dir.0, "sess-old");
+        let projects = dir.0.join("claude-projects");
+        let project_dir = projects.join("-some-truncated-prefix-nvsi4o");
+        fs::create_dir_all(&project_dir).unwrap();
+        fs::write(project_dir.join("claude-1.jsonl"), "{}\n").unwrap();
+        // A stray FILE at the root and an unrelated dir must not confuse it.
+        fs::write(projects.join("notes.txt"), "").unwrap();
+        fs::create_dir_all(projects.join("-other-project")).unwrap();
+        deps.claude_projects_root = Some(projects);
+
+        let prepared =
+            match prepare(&PrepareRequest::ResumeRun(resume_request(record)), &deps).unwrap() {
+                Prepared::Ready(prepared) => prepared,
+                other => panic!("expected Ready, got {other:?}"),
+            };
+        let args = &prepared.spawn.args;
+        let at = args.iter().position(|a| a == "--resume").expect("--resume");
+        assert_eq!(args[at + 1], "claude-1");
+        let fresh = crate::run_registry::get(&dir.0, "sess-new").expect("record");
+        assert_eq!(fresh.claude_session_id.as_deref(), Some("claude-1"));
     }
 
     /// No recoverable transcript: a FRESH session in the same workspace,

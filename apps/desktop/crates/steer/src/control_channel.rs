@@ -184,10 +184,13 @@ pub(crate) fn remote_start_from_frame(
     resume: bool,
     resume_session_id: Option<String>,
 ) -> Option<RemoteStart> {
-    // EXP-637: a resume is its OWN subject and excludes every other one —
-    // the recorded run supplies the rest.
+    // EXP-637: a resume is its OWN subject — the recorded run supplies the
+    // rest. The web server rides `issueId` / `actionId` / `actionName` /
+    // `branch` along as HINTS for a machine whose local record is gone, so
+    // their presence never makes the frame malformed (a batch `issueIds`
+    // list is still rejected server-side).
     if let Some(session_id) = resume_session_id {
-        if issue_id.is_some() || issue_ids.is_some() || action_id.is_some() {
+        if issue_ids.is_some() {
             return None;
         }
         return Some(RemoteStart {
@@ -644,34 +647,61 @@ mod tests {
         assert_eq!(start.skip_permissions, None);
         assert!(!start.resume);
 
-        // A resume beside any other subject is malformed.
-        for (issue, ids, action) in [
-            (Some("issue-1".to_string()), None, None),
-            (None, Some(vec!["a".to_string()]), None),
-            (None, None, Some("act-1".to_string())),
+        // The web server rides `issueId` / `actionId` (+ `actionName`) along
+        // as hints for a machine without a local record: they never make
+        // the frame malformed — the resume subject still wins.
+        for (issue, action) in [
+            (Some("issue-1".to_string()), None),
+            (None, Some("act-1".to_string())),
         ] {
+            let start = remote_start_from_frame(
+                issue,
+                None,
+                action,
+                Some("Groom".into()),
+                Some("ws-1".into()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+                Some("sess-old".into()),
+            )
+            .expect("hinted resume frame");
             assert_eq!(
-                remote_start_from_frame(
-                    issue,
-                    ids,
-                    action,
-                    Some("Groom".into()),
-                    Some("ws-1".into()),
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    false,
-                    Some("sess-old".into()),
-                ),
-                None
+                start.subject,
+                RemoteStartSubject::Resume {
+                    session_id: "sess-old".into()
+                }
             );
         }
+        // A batch list beside a resume is still malformed.
+        assert_eq!(
+            remote_start_from_frame(
+                None,
+                Some(vec!["a".to_string()]),
+                None,
+                None,
+                Some("ws-1".into()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+                Some("sess-old".into()),
+            ),
+            None
+        );
     }
 
     #[test]
