@@ -66,8 +66,9 @@ export function PricingPage() {
             </p>
             <p className="plan-footnote">
               📱 Mobile push is cloud-only. The store apps are built against
-              the first-party Firebase project. In-app notifications and the
-              email digest work fully on self-hosted.
+              the first-party Firebase project. In-app notifications, desktop
+              system notifications and the email digest work fully on
+              self-hosted.
             </p>
           </motion.div>
         </section>

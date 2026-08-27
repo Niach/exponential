@@ -138,7 +138,7 @@ export function AppsDocsPage() {
             <DocsCallout kind="note" title="Push on self-hosted">
               The cloud has push wired up out of the box. The App Store / Play
               Store apps push only for cloud accounts; self-hosted instances
-              get web, desktop and email notifications instead. Why, and the
+              get web, desktop system notifications and email instead. Why, and the
               build-it-yourself escape hatch:{` `}
               <a href="/docs/self-host/#push">
                 self-host docs: push notifications

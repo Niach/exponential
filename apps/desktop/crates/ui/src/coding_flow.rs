@@ -194,8 +194,8 @@ impl CodingHub {
         result
     }
 
-    /// EXP-551: persist a purely LOCAL ui preference (the emoji skin tone +
-    /// recents) into the same per-install file — WITHOUT the doctor re-run
+    /// EXP-551: persist a purely LOCAL ui preference (the emoji recents;
+    /// EXP-638 the OS-notification switch) into the same per-install file — WITHOUT the doctor re-run
     /// and the launch-defaults push [`save_settings`] does. Neither field is
     /// a launcher knob, and an emoji pick must not spawn `--version` probes.
     ///
@@ -208,7 +208,7 @@ impl CodingHub {
             result
         });
         if let Err(err) = result {
-            log::warn!("[ui] persisting the emoji prefs failed: {err}");
+            log::warn!("[ui] persisting the ui prefs failed: {err}");
         }
     }
 

@@ -152,6 +152,12 @@ pub struct Settings {
     /// lives here and not on the account; shown once on every fresh install
     /// and never again after Continue/"Set up later".
     pub tools_setup_seen: bool,
+    /// EXP-638: whether THIS machine raises OS notifications when a synced
+    /// `notifications` row lands. Per-DEVICE by design (a user-level column
+    /// would fight across devices), so it lives here and never syncs; the
+    /// server-side per-type prefs still decide which types may leave the
+    /// app at all. ON by default — a fresh install toasts until switched off.
+    pub os_notifications: bool,
 }
 
 /// Deserialize [`Settings::default_agent`] leniently: any non-string or
@@ -191,6 +197,7 @@ impl Default for Settings {
             terminal_shell: None,
             tools_setup_seen: false,
             emoji_recents: Vec::new(),
+            os_notifications: true,
         }
     }
 }
@@ -634,6 +641,24 @@ mod tests {
     }
 
     #[test]
+    fn os_notifications_default_on_and_round_trip_off() {
+        // EXP-638: a file written before the key existed keeps toasting
+        // (missing = ON), and an explicit opt-out survives a merge-save.
+        let dir = TempDir::new("os-notifications");
+        let path = dir.0.join("settings.json");
+        fs::write(&path, r#"{"claudePath":"claude"}"#).unwrap();
+        assert!(Settings::load(&path).os_notifications);
+
+        let mut settings = Settings::load(&path);
+        settings.os_notifications = false;
+        settings.save(&path).unwrap();
+        assert!(!Settings::load(&path).os_notifications);
+        let raw: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(raw["osNotifications"], serde_json::Value::Bool(false));
+    }
+
+    #[test]
     fn missing_file_loads_defaults() {
         let dir = TempDir::new("missing");
         let settings = Settings::load(&dir.0.join("settings.json"));
@@ -781,6 +806,7 @@ mod tests {
             terminal_shell: Some("/opt/homebrew/bin/fish".to_string()),
             tools_setup_seen: true,
             emoji_recents: vec!["🎉".to_string()],
+            os_notifications: true,
         };
         settings.save(&path).unwrap();
         let raw = fs::read_to_string(&path).unwrap();

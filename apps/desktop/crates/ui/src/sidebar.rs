@@ -503,6 +503,21 @@ pub(crate) fn rail_shared_for_window(
     shared
 }
 
+/// Read-only lookup of a window's active rail tool + Inbox tab (EXP-638: the
+/// OS-notification redundancy check runs from an App-level task with no
+/// `&mut Window` in hand). `None` for windows without a rail — dialogs,
+/// undocked terminals, the login surface.
+pub(crate) fn rail_tool_for_window_id(
+    window_id: WindowId,
+    cx: &App,
+) -> Option<(ToolWindow, InboxTab)> {
+    let shared = cx
+        .try_global::<RailRegistry>()
+        .and_then(|registry| registry.by_window.get(&window_id))?;
+    let shared = shared.read(cx);
+    Some((shared.tool, shared.inbox_tab))
+}
+
 /// Drop a closed window's entry (called from the `Shell` release hook,
 /// mirroring `navigation::remove_window`).
 pub fn remove_window(window_id: WindowId, cx: &mut App) {
