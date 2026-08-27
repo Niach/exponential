@@ -521,6 +521,14 @@ async function captureFastlane(
     const result = await run({
       cmd,
       cwd: dir,
+      // fastlane's `snapshot` (iOS) shells out to the `simctl` gem, which reads
+      // `xcrun simctl list -j devicetypes` as US-ASCII when the process locale
+      // isn't UTF-8. A device type whose bundle path carries a non-ASCII byte
+      // (e.g. a stray "ʀ" in an "iPhone Xʀ" profile) then blows up JSON
+      // parsing; the gem swallows that and returns a bare identifier string,
+      // which fastlane calls `.name` on and crashes with a NoMethodError that
+      // looks nothing like an encoding issue (EXP-644).
+      env: platform === `ios` ? { LC_ALL: `en_US.UTF-8`, LANG: `en_US.UTF-8` } : undefined,
       stream: true,
       label: `[${platform}]`,
       timeoutMs: 90 * 60_000,
